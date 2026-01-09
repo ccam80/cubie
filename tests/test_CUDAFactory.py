@@ -9,6 +9,7 @@ from cubie.CUDAFactory import (
     CUDADispatcherCache,
     _CubieConfigBase,
     CUDAFactoryConfig,
+    MultipleInstanceCUDAFactory,
 )
 
 
@@ -483,3 +484,89 @@ def test_cuda_factory_config_update_nested_applies_converter():
     # Verify converter was applied in nested config
     assert config.nested.a == 6
     assert config.b == 10
+
+
+def test_multiple_instance_factory_prefix_mapping(precision):
+    """Test that prefixed keys are mapped to unprefixed equivalents."""
+    from cubie.integrators.matrix_free_solvers.linear_solver import (
+        LinearSolver,
+    )
+
+    solver = LinearSolver(precision=precision, n=3)
+
+    # Update with prefixed key
+    solver.update({"krylov_tolerance": 1e-8})
+
+    # Verify the unprefixed setting was updated
+    assert solver.compile_settings.krylov_tolerance == precision(1e-8)
+
+
+def test_multiple_instance_factory_instance_label_stored(precision):
+    """Test that instance_label attribute is correctly stored."""
+    from cubie.integrators.matrix_free_solvers.linear_solver import (
+        LinearSolver,
+    )
+
+    solver = LinearSolver(precision=precision, n=3)
+
+    # Verify instance_label is set correctly
+    assert solver.instance_label == "krylov_"
+
+
+def test_multiple_instance_factory_empty_label_raises():
+    """Test that empty instance_label raises ValueError."""
+
+    class TestFactory(MultipleInstanceCUDAFactory):
+        def build(self):
+            return testCache(device_function=lambda: 1.0)
+
+    with pytest.raises(ValueError) as exc:
+        TestFactory(instance_label="")
+
+    assert "non-empty" in str(exc.value)
+
+
+def test_multiple_instance_factory_mixed_keys():
+    """Test that prefixed keys take precedence over unprefixed."""
+
+    @attrs.define
+    class TestConfig(CUDAFactoryConfig):
+        value: int = 10
+
+    class TestFactory(MultipleInstanceCUDAFactory):
+        def __init__(self):
+            super().__init__(instance_label="test")
+            self.setup_compile_settings(TestConfig(precision=np.float32))
+
+        def build(self):
+            return testCache(device_function=lambda: 1.0)
+
+    factory = TestFactory()
+
+    # Update with both prefixed and unprefixed - prefixed should win
+    factory.update_compile_settings({"value": 5, "test_value": 20})
+
+    assert factory.compile_settings.value == 20
+
+
+def test_multiple_instance_factory_no_prefix_match():
+    """Test that non-matching keys pass through unchanged."""
+
+    @attrs.define
+    class TestConfig(CUDAFactoryConfig):
+        value: int = 10
+
+    class TestFactory(MultipleInstanceCUDAFactory):
+        def __init__(self):
+            super().__init__(instance_label="test")
+            self.setup_compile_settings(TestConfig(precision=np.float32))
+
+        def build(self):
+            return testCache(device_function=lambda: 1.0)
+
+    factory = TestFactory()
+
+    # Update with non-prefixed key
+    factory.update_compile_settings({"value": 42})
+
+    assert factory.compile_settings.value == 42

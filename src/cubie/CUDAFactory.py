@@ -554,3 +554,91 @@ class CUDAFactory(ABC):
         """Return the CUDA-simulator-safe dtype for the functions."""
 
         return self.compile_settings.simsafe_precision
+
+
+class MultipleInstanceCUDAFactory(CUDAFactory):
+    """Factory for CUDA device functions with instance-specific prefixes.
+
+    Extends CUDAFactory to automatically map prefixed configuration
+    keys (e.g., ``krylov_atol``) to unprefixed internal keys (e.g.,
+    ``atol``) during settings updates. Subclasses use ``instance_label``
+    to differentiate configuration parameters when multiple instances
+    coexist.
+
+    Attributes
+    ----------
+    instance_label : str
+        Prefix used to identify settings for this instance
+        (e.g., "krylov", "newton"). Keys in update dicts matching
+        ``{instance_label}_*`` are mapped to unprefixed equivalents.
+
+    Notes
+    -----
+    The transformation occurs in ``update_compile_settings()``:
+    1. Copy the updates dict to avoid side effects
+    2. For each key matching ``{instance_label}_{suffix}``, add
+       ``suffix`` with the same value
+    3. Call parent's ``update_compile_settings()`` with transformed dict
+    4. Both prefixed and unprefixed forms are recognized; prefixed
+       takes precedence when both are present
+    """
+
+    def __init__(self, instance_label: str) -> None:
+        """Initialize with instance label for prefix mapping.
+
+        Parameters
+        ----------
+        instance_label : str
+            Prefix for external configuration keys. Should NOT
+            include trailing underscore (added automatically).
+        """
+        if not instance_label:
+            raise ValueError("instance_label must be a non-empty string")
+        self.instance_label = instance_label
+        super().__init__()
+
+    def update_compile_settings(
+        self, updates_dict=None, silent=False, **kwargs
+    ) -> Set[str]:
+        """Update compile settings with automatic prefix mapping.
+
+        Intercepts update dicts to map prefixed keys (e.g.,
+        ``krylov_max_iters``) to unprefixed keys (e.g., ``max_iters``)
+        before forwarding to the parent class.
+
+        Parameters
+        ----------
+        updates_dict : dict, optional
+            Mapping of setting names to new values. Keys matching
+            ``{instance_label}_*`` are mapped to unprefixed equivalents.
+        silent : bool, default=False
+            Suppress errors for unrecognised parameters.
+        **kwargs
+            Additional settings to update.
+
+        Returns
+        -------
+        set[str]
+            Names of settings that were successfully updated.
+        """
+        if updates_dict is None:
+            updates_dict = {}
+        updates_dict = updates_dict.copy()
+        updates_dict.update(kwargs)
+
+        if not updates_dict:
+            return set()
+
+        # Transform prefixed keys to unprefixed equivalents
+        prefix = f"{self.instance_label}_"
+        transformed = {}
+        for key, value in updates_dict.items():
+            if key.startswith(prefix):
+                unprefixed = key[len(prefix):]
+                transformed[unprefixed] = value
+            else:
+                transformed[key] = value
+
+        return super().update_compile_settings(
+            updates_dict=transformed, silent=silent
+        )

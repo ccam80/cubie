@@ -13,7 +13,10 @@ from cubie._utils import (
     getype_validator,
     inrangetype_validator,
 )
-from cubie.CUDAFactory import CUDAFactory, CUDAFactoryConfig
+from cubie.CUDAFactory import (
+    MultipleInstanceCUDAFactory,
+    CUDAFactoryConfig,
+)
 from cubie.integrators.norms import ScaledNorm
 
 
@@ -48,7 +51,7 @@ class MatrixFreeSolverConfig(CUDAFactoryConfig):
         super().__attrs_post_init__()
 
 
-class MatrixFreeSolver(CUDAFactory):
+class MatrixFreeSolver(MultipleInstanceCUDAFactory):
     """Base factory for matrix-free solver device functions.
 
     Provides shared infrastructure for tolerance parameter mapping
@@ -89,7 +92,7 @@ class MatrixFreeSolver(CUDAFactory):
             Relative tolerance for scaled norm.
         """
         self.settings_prefix = settings_prefix
-        super().__init__()
+        super().__init__(instance_label=settings_prefix)
 
         # Build norm kwargs, filtering None values
         norm_kwargs = {}

@@ -164,8 +164,6 @@ class NewtonKrylov(MatrixFreeSolver):
     linear solver for the correction equation.
     """
 
-    settings_prefix = "newton_"
-
     def __init__(
         self,
         precision: PrecisionDType,
