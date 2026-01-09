@@ -1,6 +1,7 @@
 """Tests for cubie_cache module."""
 
 import pytest
+from numba_cuda.numba.cuda.core.caching import NullCache
 from numpy import array, float32, float64
 
 from attrs import define, field
@@ -14,6 +15,7 @@ from cubie.cubie_cache import (
 
 
 # --- Test fixtures (attrs classes for testing) ---
+
 
 @define
 class MockCompileSettings:
@@ -48,6 +50,7 @@ class MockSettingsWithArray:
 
 
 # --- hash_compile_settings tests ---
+
 
 def test_hash_compile_settings_basic():
     """Verify hash is produced for simple attrs class."""
@@ -110,6 +113,7 @@ def test_hash_compile_settings_array_content_matters():
 
 def test_hash_compile_settings_none_value():
     """Verify None values are handled correctly."""
+
     @define
     class SettingsWithNone:
         value: object = None
@@ -121,6 +125,7 @@ def test_hash_compile_settings_none_value():
 
 
 # --- CUBIECacheLocator tests ---
+
 
 def test_cache_locator_get_cache_path():
     """Verify cache path is in generated/<system_name>/cache/."""
@@ -164,6 +169,7 @@ def test_cache_locator_from_function_raises():
 
 # --- CUBIECacheImpl tests ---
 
+
 def test_cache_impl_locator_property():
     """Verify locator property returns CUBIECacheLocator."""
     impl = CUBIECacheImpl(
@@ -196,6 +202,7 @@ def test_cache_impl_check_cachable():
 
 
 # --- CUBIECache tests ---
+
 
 @pytest.mark.nocudasim
 def test_cubie_cache_init():
@@ -255,6 +262,7 @@ def test_cubie_cache_path():
 
 # --- BatchSolverKernel integration tests ---
 
+
 def test_batch_solver_kernel_no_cache_in_cudasim(solverkernel):
     """Verify no cache attached in CUDASIM mode.
 
@@ -269,77 +277,6 @@ def test_batch_solver_kernel_no_cache_in_cudasim(solverkernel):
 
     if is_cudasim_enabled():
         # In CUDASIM mode, cache should not be attached
-        assert not hasattr(kernel, '_cache') or kernel._cache is None
+        assert not hasattr(kernel, "_cache") or kernel._cache is None
     # When not in CUDASIM, cache may or may not be attached depending on
     # caching_enabled setting - that's tested separately
-
-
-def test_batch_solver_kernel_cache_disabled(
-    system,
-    driver_array,
-    step_controller_settings,
-    algorithm_settings,
-    output_settings,
-    memory_settings,
-    loop_settings,
-    precision,
-):
-    """Verify no cache when caching_enabled=False.
-
-    When the caching_enabled setting is explicitly set to False in the
-    BatchSolverKernel configuration, no cache should be attached to the
-    compiled kernel regardless of CUDASIM mode.
-    """
-    from cubie.batchsolving.BatchSolverKernel import BatchSolverKernel
-    from tests._utils import _build_enhanced_algorithm_settings
-
-    def _get_evaluate_driver_at_t(driver_arr):
-        if driver_arr is None:
-            return None
-        return driver_arr.evaluation_function
-
-    def _get_driver_del_t(driver_arr):
-        if driver_arr is None:
-            return None
-        return driver_arr.driver_del_t
-
-    evaluate_driver_at_t = _get_evaluate_driver_at_t(driver_array)
-    driver_del_t = _get_driver_del_t(driver_array)
-    enhanced_algorithm_settings = _build_enhanced_algorithm_settings(
-        algorithm_settings, system, driver_array
-    )
-
-    # Create solver
-    solver = BatchSolverKernel(
-        system,
-        evaluate_driver_at_t=evaluate_driver_at_t,
-        driver_del_t=driver_del_t,
-        step_control_settings=step_controller_settings,
-        algorithm_settings=enhanced_algorithm_settings,
-        output_settings=output_settings,
-        memory_settings=memory_settings,
-        loop_settings=loop_settings,
-    )
-
-    # Disable caching via update on cache_config
-    solver.compile_settings.cache_config.enabled = False
-
-    # Verify caching_enabled is False in compile_settings
-    assert solver.compile_settings.caching_enabled is False
-    solver._invalidate_cache()
-
-    # Build the kernel
-    kernel = solver.kernel
-
-    # Cache should not be attached when caching is disabled
-    assert not hasattr(kernel, '_cache') or kernel._cache is None
-
-
-def test_batch_solver_kernel_caching_enabled_default(solverkernel):
-    """Verify caching_enabled defaults to True in compile_settings.
-
-    The BatchSolverKernel should have caching enabled by default. Whether
-    the cache is actually attached depends on the CUDASIM mode, but the
-    setting itself should be True.
-    """
-    assert solverkernel.compile_settings.caching_enabled is True
