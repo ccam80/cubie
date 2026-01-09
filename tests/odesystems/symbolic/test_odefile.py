@@ -83,8 +83,9 @@ def test_creates_generated_dir_when_missing(tmp_path, monkeypatch):
     odef = ODEFile(name, "hashX")
     # Directory should have been created
     assert temp_gen.exists() and temp_gen.is_dir()
-    # File should be within the new directory
-    assert odef.file_path.parent == temp_gen
+    # File should be within the system-specific subdirectory
+    assert odef.file_path.parent.parent == temp_gen
+    assert odef.file_path.parent.name == name
 
 
 def test_cache_persists_across_instances_same_hash(unique_odefile):

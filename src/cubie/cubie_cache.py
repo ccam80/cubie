@@ -19,25 +19,14 @@ from attrs import field, validators as val, define, converters
 
 from cubie.CUDAFactory import _CubieConfigBase
 from cubie._utils import getype_validator
-from cubie.cuda_simsafe import is_cudasim_enabled
+from cubie.cuda_simsafe import (
+    _CacheLocator,
+    _CACHING_AVAILABLE,
+    CacheImpl,
+    CUDACache,
+    IndexDataCacheFile,
+)
 from cubie.odesystems.symbolic.odefile import GENERATED_DIR
-
-if not is_cudasim_enabled():
-    from numba.cuda.core.caching import (
-        _CacheLocator,
-        CacheImpl,
-        IndexDataCacheFile,
-    )
-    from numba.cuda.dispatcher import CUDACache
-
-    _CACHING_AVAILABLE = True
-else:
-    # Stub classes for simulator mode
-    _CacheLocator = object
-    CacheImpl = object
-    IndexDataCacheFile = None
-    CUDACache = object
-    _CACHING_AVAILABLE = False
 
 
 @define
