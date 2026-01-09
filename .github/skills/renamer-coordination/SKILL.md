@@ -1,25 +1,13 @@
 ---
-description: Renamer agent execution skill for managing method, function, property, and attribute names across the codebase
+name: renamer-coordination
+description: Guide for executing the renamer agent to rationalize method, function, property, and attribute names in the codebase. Use this when asked to run the renamer or rename functions/methods/properties.
 ---
 
-# Renamer Agent Execution Skill
+# Renamer Coordination Skill
 
-## Overview
-
-This skill defines how to execute the renamer agent to rationalize method, function, property, and attribute names in the codebase.
+This skill coordinates the renamer agent to rationalize method, function, property, and attribute names in the codebase.
 
 **Important**: The renamer agent manages a tracking file called `name_info.md` in the repository root. You coordinate the agent by invoking it with the appropriate operation and parameters.
-
-## Command Recognition
-
-Recognize these command variations:
-- "run renamer"
-- "run renamer on [file/directory]"
-- "renamer update for [file/directory]"
-- "renamer recommend for [file/directory]"
-- "renamer rename [file/directory]"
-- "renamer recommend [N] items"
-- "renamer rename [N] items"
 
 ## Operations
 

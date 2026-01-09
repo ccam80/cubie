@@ -149,33 +149,35 @@ To avoid name clashes with builtins, math functions, or numba functions:
 - Don't call `build()` on CUDAFactory subclasses directly
 - Never modify environment variables in code
 - Always use fixtures over mocks in tests
-## Custom Agent Skills
+## Available Agent Skills
 
-The following skills define how to coordinate custom agents for specific workflows. Each skill is documented in a separate file in `.github/workflows/shared/` and can be imported as needed.
+This repository includes specialized agent skills stored in `.github/skills/`. Copilot will automatically load these skills when relevant to your request.
 
-### Pipeline Execution Skill
+### Skills Overview
 
-**See**: `.github/workflows/shared/pipeline-skill.md`
+**Pipeline Execution** (`.github/skills/pipeline-execution/SKILL.md`)
+- Orchestrates custom agents through the feature development workflow
+- Coordinates plan_new_feature → detailed_implementer → taskmaster → run_tests → reviewer
+- Manages pipeline termination rules and task group execution
 
-When the user says "run pipeline on issue #X" or similar commands, follow the pipeline execution skill to orchestrate custom agents through the feature development workflow.
+**Renamer Coordination** (`.github/skills/renamer-coordination/SKILL.md`)
+- Executes the renamer agent to rationalize function, method, and property names
+- Supports update_list, recommend, and rename operations
+- Manages chunk sizes for large refactoring operations
 
-**Command variations**: "run pipeline on issue #X", "execute pipeline", "pipeline issue #X"
+### Request Recognition
 
-**Key responsibilities**:
-- Coordinate agent invocation sequence
-- Manage task group execution
-- Handle pipeline termination rules
-- Report results to user
+Copilot will use the **Pipeline Execution** skill when you request:
+- "run pipeline on issue #X"
+- "execute pipeline for issue #X"
+- "run the agent pipeline on #X, return after [level]"
+- "pipeline issue #X"
 
-### Renamer Execution Skill
-
-**See**: `.github/workflows/shared/renamer-skill.md`
-
-When the user says "run renamer" or similar commands, follow the renamer execution skill to rationalize method, function, property, and attribute names in the codebase.
-
-**Command variations**: "run renamer", "renamer update/recommend/rename", "run renamer on [target]"
-
-**Key responsibilities**:
-- Coordinate renamer operations (update_list, recommend, rename)
-- Manage chunk sizes for large operations
-- Present summaries to user
+Copilot will use the **Renamer Coordination** skill when you request:
+- "run renamer"
+- "run renamer on [file/directory]"
+- "renamer update for [file/directory]"
+- "renamer recommend for [file/directory]"
+- "renamer rename [file/directory]"
+- "renamer recommend [N] items"
+- "renamer rename [N] items"
