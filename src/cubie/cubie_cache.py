@@ -153,6 +153,9 @@ class CUBIECacheLocator(_CacheLocator):
             "CUBIECacheLocator requires explicit system info"
         )
 
+    def __attrs_post_init__(self):
+        super().__attrs_post_init__()
+
 
 class CUBIECacheImpl(CacheImpl):
     """Serialization logic for CuBIE compiled kernels.
