@@ -88,11 +88,6 @@ class LinearSolverConfig(MatrixFreeSolverConfig):
         super().__attrs_post_init__()
 
     @property
-    def krylov_max_iters(self) -> int:
-        """Return max Krylov iterations (alias for max_iters)."""
-        return self.max_iters
-
-    @property
     def settings_dict(self) -> Dict[str, Any]:
         """Return linear solver configuration as dictionary.
 
@@ -105,7 +100,7 @@ class LinearSolverConfig(MatrixFreeSolverConfig):
             norm factory.
         """
         return {
-            "krylov_max_iters": self.krylov_max_iters,
+            "krylov_max_iters": self.max_iters,
             "linear_correction_type": self.linear_correction_type,
             "preconditioned_vec_location": self.preconditioned_vec_location,
             "temp_location": self.temp_location,
@@ -161,6 +156,7 @@ class LinearSolver(MatrixFreeSolver):
             instance_label="krylov",
             **kwargs,
         )
+
         super().__init__(
             precision=precision,
             solver_type="krylov",
@@ -169,12 +165,6 @@ class LinearSolver(MatrixFreeSolver):
         )
 
         self.setup_compile_settings(config)
-
-        # Initialize norm device function in config from child factory
-        self.update_compile_settings({
-            "norm_device_function": self.norm.device_function,
-        }, silent=True)
-
         self.register_buffers()
 
     def register_buffers(self) -> None:
@@ -219,7 +209,7 @@ class LinearSolver(MatrixFreeSolver):
         # Config parameters
         n = config.n
         linear_correction_type = config.linear_correction_type
-        krylov_max_iters = config.krylov_max_iters
+        max_iters = config.max_iters
         precision = config.precision
         use_cached_auxiliaries = config.use_cached_auxiliaries
 
@@ -228,11 +218,9 @@ class LinearSolver(MatrixFreeSolver):
         mr_flag = linear_correction_type == "minimal_residual"
         preconditioned = preconditioner is not None
 
-        # Get scaled norm device function from config
-
         # Convert types for device function
         n_val = int32(n)
-        max_iters_val = int32(krylov_max_iters)
+        max_iters_val = int32(max_iters)
         precision_numba = from_dtype(np_dtype(precision))
         typed_zero = precision_numba(0.0)
         typed_one = precision_numba(1.0)
@@ -532,7 +520,6 @@ class LinearSolver(MatrixFreeSolver):
         set
             Set of recognized parameter names that were updated.
         """
-        # Merge updates for buffer registry
         all_updates = {}
         if updates_dict:
             all_updates.update(updates_dict)
@@ -558,16 +545,6 @@ class LinearSolver(MatrixFreeSolver):
         return self.get_cached_output("linear_solver")
 
     @property
-    def precision(self) -> PrecisionDType:
-        """Return configured precision."""
-        return self.compile_settings.precision
-
-    @property
-    def n(self) -> int:
-        """Return vector size."""
-        return self.compile_settings.n
-
-    @property
     def linear_correction_type(self) -> str:
         """Return correction strategy."""
         return self.compile_settings.linear_correction_type
@@ -575,17 +552,17 @@ class LinearSolver(MatrixFreeSolver):
     @property
     def krylov_atol(self) -> ndarray:
         """Return absolute tolerance array."""
-        return self.norm.atol
+        return self.atol
 
     @property
     def krylov_rtol(self) -> ndarray:
         """Return relative tolerance array."""
-        return self.norm.rtol
+        return self.rtol
 
     @property
     def krylov_max_iters(self) -> int:
         """Return maximum iterations."""
-        return self.compile_settings.krylov_max_iters
+        return self.max_iters
 
     @property
     def use_cached_auxiliaries(self) -> bool:

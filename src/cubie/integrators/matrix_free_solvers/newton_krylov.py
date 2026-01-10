@@ -53,8 +53,6 @@ class NewtonKrylovConfig(MatrixFreeSolverConfig):
         Device function evaluating residuals.
     linear_solver_function : Optional[Callable]
         Device function for solving linear systems.
-    newton_max_iters : int
-        Maximum Newton iterations permitted (alias for max_iters).
     newton_damping : float
         Step shrink factor for backtracking.
     newton_max_backtracks : int
@@ -116,7 +114,7 @@ class NewtonKrylovConfig(MatrixFreeSolverConfig):
         return self.precision(self._newton_damping)
 
     @property
-    def newton_max_iters(self) -> int:
+    def max_iters(self) -> int:
         """Return max Newton iterations (alias for max_iters)."""
         return self.max_iters
 
@@ -133,7 +131,7 @@ class NewtonKrylovConfig(MatrixFreeSolverConfig):
             norm factory.
         """
         return {
-            "newton_max_iters": self.newton_max_iters,
+            "newton_max_iters": self.max_iters,
             "newton_damping": self.newton_damping,
             "newton_max_backtracks": self.newton_max_backtracks,
             "delta_location": self.delta_location,
@@ -207,12 +205,6 @@ class NewtonKrylov(MatrixFreeSolver):
         self.linear_solver = linear_solver
         self.setup_compile_settings(config)
 
-        # Initialize device functions in config from child factories
-        self.update_compile_settings({
-            "norm_device_function": self.norm.device_function,
-            "linear_solver_function": self.linear_solver.device_function,
-        }, silent=True)
-
         self.register_buffers()
 
     def register_buffers(self) -> None:
@@ -274,17 +266,16 @@ class NewtonKrylov(MatrixFreeSolver):
         scaled_norm_fn = config.norm_device_function
 
         n = config.n
-        newton_max_iters = config.newton_max_iters
+        max_iters = int32(config.max_iters)
         newton_damping = config.newton_damping
-        newton_max_backtracks = config.newton_max_backtracks
+        # Loop counting is off by 1 - this gives the correct number of attempts
+        max_backtracks = int32(config.newton_max_backtracks + 1)
 
         numba_precision = config.numba_precision
         typed_zero = numba_precision(0.0)
         typed_one = numba_precision(1.0)
         typed_damping = numba_precision(newton_damping)
         n_val = int32(n)
-        max_iters_val = int32(newton_max_iters)
-        max_backtracks_val = int32(newton_max_backtracks + 1)
 
         # Get allocators from buffer_registry
         get_alloc = buffer_registry.get_allocator
@@ -388,7 +379,7 @@ class NewtonKrylov(MatrixFreeSolver):
             iters_count = int32(0)
             total_krylov_iters = int32(0)
             mask = activemask()
-            for _ in range(max_iters_val):
+            for _ in range(max_iters):
                 done = converged
                 if all_sync(mask, done):
                     break
@@ -424,7 +415,7 @@ class NewtonKrylov(MatrixFreeSolver):
                 found_step = False
                 alpha = typed_one
 
-                for _ in range(max_backtracks_val):
+                for _ in range(max_backtracks):
                     active_bt = active and (not found_step) and (not converged)
                     if not any_sync(mask, active_bt):
                         break
@@ -517,7 +508,6 @@ class NewtonKrylov(MatrixFreeSolver):
         set
             Set of recognized parameter names that were updated.
         """
-        # Merge updates for forwarding and buffer registry
         all_updates = {}
         if updates_dict:
             all_updates.update(updates_dict)
@@ -531,7 +521,9 @@ class NewtonKrylov(MatrixFreeSolver):
         # Forward krylov-prefixed params to linear solver
         recognized |= self.linear_solver.update(all_updates, silent=True)
         # Add linear_solver_function to updates for compile settings
-        all_updates["linear_solver_function"] = self.linear_solver.device_function
+        all_updates["linear_solver_function"] = (
+            self.linear_solver.device_function
+        )
         # update norm and compile settings through base solver class
         recognized |= super().update(all_updates, silent=True)
 
@@ -547,16 +539,6 @@ class NewtonKrylov(MatrixFreeSolver):
     def device_function(self) -> Callable:
         """Return cached Newton-Krylov solver device function."""
         return self.get_cached_output("newton_krylov_solver")
-
-    @property
-    def precision(self) -> PrecisionDType:
-        """Return configured precision."""
-        return self.compile_settings.precision
-
-    @property
-    def n(self) -> int:
-        """Return vector size."""
-        return self.compile_settings.n
 
     @property
     def newton_atol(self) -> ndarray:
@@ -586,17 +568,17 @@ class NewtonKrylov(MatrixFreeSolver):
     @property
     def krylov_atol(self) -> ndarray:
         """Return the Krylov absolute tolerance array from nested LinearSolver."""
-        return self.linear_solver.krylov_atol
+        return self.linear_solver.atol
 
     @property
     def krylov_rtol(self) -> ndarray:
         """Return the Krylov relative tolerance array from nested LinearSolver."""
-        return self.linear_solver.krylov_rtol
+        return self.linear_solver.rtol
 
     @property
     def krylov_max_iters(self) -> int:
         """Return max linear iterations from nested linear solver."""
-        return self.linear_solver.krylov_max_iters
+        return self.linear_solver.max_iters
 
     @property
     def linear_correction_type(self) -> str:

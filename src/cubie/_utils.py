@@ -794,7 +794,7 @@ def build_config(
         # Add instance_label to merged for config constructor
         merged["instance_label"] = instance_label
 
-        if not hasattr(config_class, instance_label):
+        if not hasattr(config_class, "instance_label"):
             raise ValueError(
                 f"instance_label '{instance_label}' is not valid for "
                 f"{config_class.__name__}. Use `instance_label` for "
@@ -804,7 +804,7 @@ def build_config(
                 f"recognised in init/updates."
             )
         else:
-            prefixed_attrs = config_class.get_prefixed_attributes(alias=True)
+            prefixed_attrs = config_class.get_prefixed_attributes(aliases=True)
             prefix = f"{instance_label}_"
 
     # Get external handle (Cubie keyword argument) and init handle (
@@ -814,7 +814,7 @@ def build_config(
         name = field.name
         alias = field.alias
         handle = alias if alias is not None else name
-        is_prefixed = prefixed_attrs.get(handle, False)
+        is_prefixed = handle in prefixed_attrs
 
         external_handle = f"{prefix}{handle}" if is_prefixed else handle
         field_to_external[external_handle] = handle

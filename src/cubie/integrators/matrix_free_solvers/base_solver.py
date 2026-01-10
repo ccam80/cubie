@@ -7,6 +7,7 @@ Newton and Krylov solvers in :mod:`cubie.integrators.matrix_free_solvers`.
 from typing import Any, Callable, Dict, Optional, Set
 
 from attrs import define, field
+from numpy import ndarray
 
 from cubie._utils import (
     PrecisionDType,
@@ -41,15 +42,15 @@ class MatrixFreeSolverConfig(MultipleInstanceCUDAFactoryConfig):
         norm factory rebuilds; changes invalidate solver cache.
     """
 
-    n: int = field(
-        validator=getype_validator(int, 1), metadata={"prefixed": False}
-    )
+    n: int = field(default=0, validator=getype_validator(int, 1))
     max_iters: int = field(
         default=100,
         validator=inrangetype_validator(int, 1, 32767),
+        metadata={"prefixed": True},
     )
     norm_device_function: Optional[Callable] = field(
-        default=None, eq=False, metadata={"prefixed": False}
+        default=None,
+        eq=False,
     )
 
     def __attrs_post_init__(self):
@@ -146,3 +147,23 @@ class MatrixFreeSolver(MultipleInstanceCUDAFactory):
         recognized |= self.update_compile_settings(all_updates, silent=True)
 
         return recognized
+
+    @property
+    def atol(self) -> ndarray:
+        """Absolute tolerance for the solver."""
+        return self.norm.atol
+
+    @property
+    def rtol(self) -> ndarray:
+        """Relative tolerance for the solver."""
+        return self.norm.rtol
+
+    @property
+    def max_iters(self) -> int:
+        """Maximum iterations allowed for the solver."""
+        return self.compile_settings.max_iters
+
+    @property
+    def n(self) -> int:
+        """Size of state vectors for the solver."""
+        return self.compile_settings.n

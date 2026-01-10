@@ -567,9 +567,7 @@ class MultipleInstanceCUDAFactoryConfig(CUDAFactoryConfig):
     utility function that initialises this class from prefixed keys.
     ."""
 
-    instance_label: str = field(
-        default="", repr=False, eq=False
-    )
+    instance_label: str = field(default="", repr=False, eq=False)
     prefixed_attributes: Set[str] = field(
         factory=set,
         repr=False,
@@ -596,14 +594,14 @@ class MultipleInstanceCUDAFactoryConfig(CUDAFactoryConfig):
         prefixed = set()
 
         for fld in fields(cls):
-            if getattr(fld, 'metadata', None) is not None:
+            if getattr(fld, "metadata", None) is not None:
                 if fld.metadata.get("prefixed", False):
                     if aliases:
-                        prefixed.extend(
+                        prefixed.add(
                             fld.alias if fld.alias is not None else fld.name
                         )
                     else:
-                        prefixed.extend(fld.name)
+                        prefixed.add(fld.name)
 
         return prefixed
 
@@ -621,11 +619,7 @@ class MultipleInstanceCUDAFactoryConfig(CUDAFactoryConfig):
     def __attrs_post_init__(self):
         super().__attrs_post_init__()
         if self.instance_label != "":
-            prefixed_attributes = set(
-                fld.name
-                for fld in fields(type(self))
-                if fld.metadata.get("prefixed", True)
-            )
+            prefixed_attributes = type(self).get_prefixed_attributes()
             self.prefixed_attributes = prefixed_attributes
 
     def update(
@@ -651,7 +645,6 @@ class MultipleInstanceCUDAFactoryConfig(CUDAFactoryConfig):
         if updates_dict:
             all_updates.update(updates_dict)
         all_updates.update(kwargs)
-
 
         # Get rid of non-prefixed keys; write de-prefixed values in their place
         for key in self.prefixed_attributes:
