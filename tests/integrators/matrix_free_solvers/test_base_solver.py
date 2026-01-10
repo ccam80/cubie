@@ -115,68 +115,30 @@ def test_matrix_free_solver_creates_norm():
     assert solver.norm.n == 3
 
 
-def test_matrix_free_solver_extract_prefixed_tolerance():
-    """Verify _extract_prefixed_tolerance correctly maps prefixed keys."""
+def test_matrix_free_solver_forwards_kwargs_to_norm(precision):
+    """Verify kwargs passed to MatrixFreeSolver reach ScaledNorm.
+
+    Tests that prefixed tolerance parameters (e.g., krylov_atol) are
+    correctly forwarded to the nested ScaledNorm factory through the
+    MatrixFreeSolver constructor.
+    """
 
     class TestSolver(MatrixFreeSolver):
         def build(self):
             pass
 
-    solver = TestSolver(precision=np.float64, n=3, solver_type="krylov_")
+    n = 3
+    krylov_atol = np.array([1e-10, 1e-9, 1e-8], dtype=precision)
+    krylov_rtol = np.array([1e-5, 1e-4, 1e-3], dtype=precision)
 
-    # Test extraction of prefixed tolerance keys
-    updates = {
-        "krylov_atol": np.array([1e-8]),
-        "krylov_rtol": np.array([1e-6]),
-        "other_param": 42,
-    }
-
-    norm_updates = solver._extract_prefixed_tolerance(updates)
-
-    # Verify prefixed keys were extracted and mapped to unprefixed
-    assert "atol" in norm_updates
-    assert "rtol" in norm_updates
-    assert np.array_equal(norm_updates["atol"], np.array([1e-8]))
-    assert np.array_equal(norm_updates["rtol"], np.array([1e-6]))
-
-    # Verify prefixed keys were removed from original dict
-    assert "krylov_atol" not in updates
-    assert "krylov_rtol" not in updates
-
-    # Verify other parameters remain
-    assert updates["other_param"] == 42
-
-
-def test_matrix_free_solver_norm_update_propagates_to_config():
-    """Verify _update_norm_and_config sets norm_device_function in config."""
-
-    class TestSolver(MatrixFreeSolver):
-        def build(self):
-            pass
-
-    solver = TestSolver(precision=np.float64, n=3, solver_type="krylov_")
-
-    # Set up compile settings (required by _update_norm_and_config)
-    config = MatrixFreeSolverConfig(precision=np.float64, n=3)
-    solver.setup_compile_settings(config)
-
-    # Initially norm_device_function is None
-    assert solver.compile_settings.norm_device_function is None
-
-    # Call _update_norm_and_config with empty updates
-    solver._update_norm_and_config({})
-
-    # Verify config now has the norm device function
-    assert solver.compile_settings.norm_device_function is not None
-    assert (
-        solver.compile_settings.norm_device_function
-        == solver.norm.device_function
+    solver = TestSolver(
+        precision=precision,
+        solver_type="krylov",
+        n=n,
+        krylov_atol=krylov_atol,
+        krylov_rtol=krylov_rtol,
     )
 
-    # Test with actual tolerance updates
-    new_atol = np.array([1e-10, 1e-10, 1e-10])
-    solver._update_norm_and_config({"atol": new_atol})
-
-    # Verify norm was updated and config still has device function
-    assert np.array_equal(solver.norm.atol, new_atol)
-    assert solver.compile_settings.norm_device_function is not None
+    # Verify kwargs reached the nested ScaledNorm
+    assert np.allclose(solver.norm.atol, krylov_atol)
+    assert np.allclose(solver.norm.rtol, krylov_rtol)

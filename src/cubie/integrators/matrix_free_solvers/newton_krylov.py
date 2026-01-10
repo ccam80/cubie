@@ -183,28 +183,24 @@ class NewtonKrylov(MatrixFreeSolver):
             norm factory. None values are ignored.
         """
 
-        # Conflict here
-        compile_settings = NewtonKrylovConfig.init_from_prefixed(
-            precision=precision, n=n, **kwargs
-        )
         config = build_config(
             NewtonKrylovConfig,
             required={
                 "precision": precision,
                 "n": n,
             },
+            instance_label="newton",
             **kwargs,
         )
         super().__init__(
             precision=precision,
             solver_type="newton",
             n=n,
-            # atol=atol,
-            # rtol=rtol,
+            **kwargs,
         )
 
         self.linear_solver = linear_solver
-        self.setup_compile_settings(compile_settings)
+        self.setup_compile_settings(config)
 
         self.register_buffers()
 

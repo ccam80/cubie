@@ -103,7 +103,7 @@ class ScaledNorm(MultipleInstanceCUDAFactory):
         self,
         precision: PrecisionDType,
         n: int,
-        instance_type: str = "",
+        instance_label: str = "",
         **kwargs,
     ) -> None:
         """Initialize ScaledNorm factory.
@@ -118,16 +118,15 @@ class ScaledNorm(MultipleInstanceCUDAFactory):
             Optional parameters passed to ScaledNormConfig including
             atol and rtol. None values are ignored.
         """
-        super().__init__(instance_type=instance_type)
+        super().__init__(instance_label=instance_label)
 
-        config = build_config(  # Need to get init_from_prefixed into here
-            # somehow.
+        config = build_config(
             ScaledNormConfig,
             required={
                 "precision": precision,
                 "n": n,
-                "instance_type": instance_type,
             },
+            instance_label=instance_label,
             **kwargs,
         )
 

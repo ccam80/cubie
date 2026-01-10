@@ -147,27 +147,23 @@ class LinearSolver(MatrixFreeSolver):
             parameters (krylov_atol, krylov_rtol) are passed to the
             norm factory. None values are ignored.
         """
-        # Conflict here
-        compile_settings = LinearSolverConfig.init_from_prefixed(
-            precision=precision, n=n, **kwargs
-        )
         config = build_config(
             LinearSolverConfig,
             required={
                 "precision": precision,
                 "n": n,
             },
+            instance_label="krylov",
             **kwargs,
         )
         super().__init__(
             precision=precision,
             solver_type="krylov",
             n=n,
-            # atol=atol,
-            # rtol=rtol,
+            **kwargs,
         )
 
-        self.setup_compile_settings(compile_settings)
+        self.setup_compile_settings(config)
 
         self.register_buffers()
 

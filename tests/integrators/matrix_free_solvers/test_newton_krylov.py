@@ -841,3 +841,107 @@ def test_newton_krylov_settings_dict_includes_tolerance_arrays(precision):
     assert 'kyrlov_max_iters' in settings
     assert 'krylov_atol' in settings
     assert 'krylov_rtol' in settings
+
+
+def test_newton_krylov_init_with_newton_prefixed_kwargs(precision):
+    """Verify NewtonKrylov accepts newton_* kwargs at init and they reach
+    config/norm.
+    """
+    n = 3
+    newton_atol = np.array([1e-10, 1e-9, 1e-8], dtype=precision)
+    newton_rtol = np.array([1e-5, 1e-4, 1e-3], dtype=precision)
+
+    linear_solver = LinearSolver(precision=precision, n=n)
+    newton = NewtonKrylov(
+        precision=precision,
+        n=n,
+        linear_solver=linear_solver,
+        newton_atol=newton_atol,
+        newton_rtol=newton_rtol,
+        newton_max_iters=50,
+    )
+
+    # Verify tolerances reached NewtonKrylov's norm
+    assert np.allclose(newton.newton_atol, newton_atol)
+    assert np.allclose(newton.newton_rtol, newton_rtol)
+    assert np.allclose(newton.norm.atol, newton_atol)
+    assert np.allclose(newton.norm.rtol, newton_rtol)
+
+    # Verify max_iters reached config
+    assert newton.newton_max_iters == 50
+
+
+def test_newton_krylov_forwards_krylov_kwargs_to_linear_solver(precision):
+    """Verify krylov_* kwargs passed to NewtonKrylov reach the nested
+    LinearSolver via update chain.
+    """
+    n = 3
+    krylov_atol = np.array([1e-12, 1e-11, 1e-10], dtype=precision)
+    krylov_rtol = np.array([1e-6, 1e-5, 1e-4], dtype=precision)
+
+    linear_solver = LinearSolver(precision=precision, n=n)
+    newton = NewtonKrylov(
+        precision=precision,
+        n=n,
+        linear_solver=linear_solver,
+    )
+
+    # Update via newton with krylov-prefixed keys
+    newton.update(krylov_atol=krylov_atol, krylov_rtol=krylov_rtol)
+
+    # Verify update reached nested LinearSolver and its norm
+    assert np.allclose(newton.krylov_atol, krylov_atol)
+    assert np.allclose(newton.linear_solver.krylov_atol, krylov_atol)
+    assert np.allclose(newton.linear_solver.norm.atol, krylov_atol)
+    assert np.allclose(newton.krylov_rtol, krylov_rtol)
+    assert np.allclose(newton.linear_solver.krylov_rtol, krylov_rtol)
+    assert np.allclose(newton.linear_solver.norm.rtol, krylov_rtol)
+
+
+def test_nested_prefix_propagation_init(precision):
+    """Verify prefixed params reach nested objects via init chain.
+
+    Tests that krylov_atol passed to LinearSolver constructor
+    reaches the nested ScaledNorm at init time.
+    """
+    n = 3
+    krylov_atol = np.array([1e-10, 1e-9, 1e-8], dtype=precision)
+    krylov_rtol = np.array([1e-5, 1e-4, 1e-3], dtype=precision)
+
+    linear_solver = LinearSolver(
+        precision=precision,
+        n=n,
+        krylov_atol=krylov_atol,
+        krylov_rtol=krylov_rtol,
+    )
+
+    # Verify tolerances reached LinearSolver's norm
+    assert np.allclose(linear_solver.krylov_atol, krylov_atol)
+    assert np.allclose(linear_solver.krylov_rtol, krylov_rtol)
+    assert np.allclose(linear_solver.norm.atol, krylov_atol)
+    assert np.allclose(linear_solver.norm.rtol, krylov_rtol)
+
+
+def test_nested_prefix_propagation_update(precision):
+    """Verify prefixed params reach nested objects via update chain.
+
+    Tests that krylov_atol passed to NewtonKrylov.update()
+    reaches the nested LinearSolver's ScaledNorm.
+    """
+    n = 3
+    linear_solver = LinearSolver(precision=precision, n=n)
+    newton = NewtonKrylov(
+        precision=precision,
+        n=n,
+        linear_solver=linear_solver,
+    )
+
+    new_krylov_atol = np.array([1e-12, 1e-11, 1e-10], dtype=precision)
+
+    # Update via newton with krylov-prefixed key
+    newton.update(krylov_atol=new_krylov_atol)
+
+    # Verify update reached nested LinearSolver and its norm
+    assert np.allclose(newton.krylov_atol, new_krylov_atol)
+    assert np.allclose(newton.linear_solver.krylov_atol, new_krylov_atol)
+    assert np.allclose(newton.linear_solver.norm.atol, new_krylov_atol)

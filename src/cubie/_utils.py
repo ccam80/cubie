@@ -714,6 +714,7 @@ def unpack_dict_values(updates_dict: dict) -> Tuple[dict, Set[str]]:
 def build_config(
     config_class: type,
     required: dict,
+    instance_label: str = "",
     **optional
 ) -> Any:
     """Build attrs config instance from required and optional parameters.
@@ -729,6 +730,11 @@ def build_config(
     required : dict
         Required parameters that must be provided. These are typically
         function parameters like precision, n, evaluate_f.
+    instance_label : str, optional
+        Instance label for MultipleInstanceCUDAFactoryConfig classes.
+        When provided, prefixed keys (e.g., 'krylov_atol') are
+        transformed to unprefixed keys ('atol') before field matching.
+        Default is empty string (no prefix transformation).
     **optional
         Optional parameter overrides passed to the config constructor.
         Extra keys not in the config class signature are ignored.
@@ -742,20 +748,31 @@ def build_config(
     ------
     TypeError
         If config_class is not an attrs class.
+        If instance_label is not a string.
 
     Examples
     --------
     >>> import numpy as np
+    >>> # Without instance_label (current behavior)
     >>> config = build_config(
     ...     DIRKStepConfig,
     ...     required={'precision': np.float32, 'n': 3},
-    ...     krylov_atol=1e-8
+    ... )
+    >>>
+    >>> # With instance_label (prefix transformation)
+    >>> config = build_config(
+    ...     ScaledNormConfig,
+    ...     required={'precision': np.float32, 'n': 3},
+    ...     instance_label="krylov",
+    ...     krylov_atol=1e-6,  # Transformed to atol
     ... )
 
     Notes
     -----
     The helper:
     - Merges required and optional kwargs
+    - Applies prefix transformation if instance_label is provided and
+      config_class has get_prefixed_attributes
     - Converts field names to aliases for underscore-prefixed attrs fields
     - Filters to only valid fields (ignores extra keys)
     - Lets attrs handle defaults for unspecified optional parameters
@@ -763,6 +780,12 @@ def build_config(
     if not has(config_class):
         raise TypeError(
             f"{config_class.__name__} is not an attrs class"
+        )
+
+    # Validate instance_label type
+    if instance_label is not None and not isinstance(instance_label, str):
+        raise TypeError(
+            f"instance_label must be a string, got {type(instance_label)}"
         )
 
     # Build mapping of valid field names/aliases and field->alias conversion
@@ -778,6 +801,22 @@ def build_config(
 
     # Merge required and optional kwargs
     merged = {**required, **optional}
+
+    # Apply prefix transformation if instance_label is provided and
+    # config_class has get_prefixed_attributes
+    if instance_label and hasattr(config_class, 'get_prefixed_attributes'):
+        prefixed_attrs = config_class.get_prefixed_attributes()
+        prefix = f"{instance_label}_"
+
+        # For each prefixed attribute, check for prefixed key in merged
+        for attr in prefixed_attrs:
+            prefixed_key = f"{prefix}{attr}"
+            if prefixed_key in merged:
+                # Prefixed key takes precedence - copy to unprefixed
+                merged[attr] = merged[prefixed_key]
+
+        # Add instance_label to merged for config constructor
+        merged["instance_label"] = instance_label
 
     # Filter to only valid fields and convert field names to aliases
     final = {}

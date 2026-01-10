@@ -570,3 +570,167 @@ def test_multiple_instance_factory_no_prefix_match():
     factory.update_compile_settings({"value": 42})
 
     assert factory.compile_settings.value == 42
+
+
+# --- build_config instance_label tests ---
+
+
+def test_build_config_with_instance_label(precision):
+    """Verify prefix transformation works with instance_label parameter."""
+    from cubie._utils import build_config
+    from cubie.CUDAFactory import MultipleInstanceCUDAFactoryConfig
+
+    @attrs.define
+    class TestConfig(MultipleInstanceCUDAFactoryConfig):
+        _atol: float = attrs.field(default=1e-6, alias="atol")
+        _rtol: float = attrs.field(default=1e-3, alias="rtol")
+
+    config = build_config(
+        TestConfig,
+        required={"precision": precision},
+        instance_label="krylov",
+        krylov_atol=1e-10,
+        krylov_rtol=1e-5,
+    )
+
+    # Verify prefixed keys were transformed to unprefixed
+    assert config.atol == 1e-10
+    assert config.rtol == 1e-5
+    # Verify instance_label was set
+    assert config.instance_label == "krylov"
+
+
+def test_build_config_instance_label_prefixed_takes_precedence(precision):
+    """Verify prefixed key wins when both prefixed and unprefixed provided."""
+    from cubie._utils import build_config
+    from cubie.CUDAFactory import MultipleInstanceCUDAFactoryConfig
+
+    @attrs.define
+    class TestConfig(MultipleInstanceCUDAFactoryConfig):
+        _atol: float = attrs.field(default=1e-6, alias="atol")
+
+    config = build_config(
+        TestConfig,
+        required={"precision": precision},
+        instance_label="krylov",
+        atol=1e-8,  # Unprefixed
+        krylov_atol=1e-12,  # Prefixed - should take precedence
+    )
+
+    # Prefixed value should win
+    assert config.atol == 1e-12
+
+
+def test_build_config_backward_compatible_no_instance_label(precision):
+    """Verify existing behavior unchanged when instance_label not provided."""
+    from cubie._utils import build_config
+    from cubie.CUDAFactory import CUDAFactoryConfig
+
+    @attrs.define
+    class TestConfig(CUDAFactoryConfig):
+        _atol: float = attrs.field(default=1e-6, alias="atol")
+        value: int = 10
+
+    # Without instance_label
+    config = build_config(
+        TestConfig,
+        required={"precision": precision},
+        atol=1e-8,
+        value=42,
+    )
+
+    assert config.atol == 1e-8
+    assert config.value == 42
+
+
+def test_build_config_instance_label_non_prefixed_class(precision):
+    """Verify no transformation for classes without get_prefixed_attributes."""
+    from cubie._utils import build_config
+    from cubie.CUDAFactory import CUDAFactoryConfig
+
+    @attrs.define
+    class TestConfig(CUDAFactoryConfig):
+        _atol: float = attrs.field(default=1e-6, alias="atol")
+
+    # instance_label provided, but class has no get_prefixed_attributes
+    config = build_config(
+        TestConfig,
+        required={"precision": precision},
+        instance_label="krylov",
+        atol=1e-10,
+    )
+
+    # Should still work without transformation
+    assert config.atol == 1e-10
+    # instance_label should NOT be set (not a valid field)
+    assert not hasattr(config, "instance_label")
+
+
+def test_multiple_instance_config_prefix_property(precision):
+    """Verify prefix property returns instance_label."""
+    from cubie.CUDAFactory import MultipleInstanceCUDAFactoryConfig
+
+    @attrs.define
+    class TestConfig(MultipleInstanceCUDAFactoryConfig):
+        _atol: float = attrs.field(default=1e-6, alias="atol")
+
+    config = TestConfig(precision=precision, instance_label="krylov")
+
+    # prefix property should return instance_label
+    assert config.prefix == "krylov"
+    assert config.prefix == config.instance_label
+
+    # With empty instance_label
+    config_empty = TestConfig(precision=precision, instance_label="")
+    assert config_empty.prefix == ""
+
+
+def test_multiple_instance_config_post_init_populates_prefixed_attrs(
+    precision,
+):
+    """Verify __attrs_post_init__ correctly populates prefixed_attributes."""
+    from cubie.CUDAFactory import MultipleInstanceCUDAFactoryConfig
+
+    @attrs.define
+    class TestConfig(MultipleInstanceCUDAFactoryConfig):
+        _atol: float = attrs.field(default=1e-6, alias="atol")
+        _rtol: float = attrs.field(default=1e-3, alias="rtol")
+        non_prefixed: int = attrs.field(
+            default=10, metadata={"prefixed": False}
+        )
+
+    # With instance_label set, prefixed_attributes should be populated
+    config = TestConfig(precision=precision, instance_label="krylov")
+
+    # prefixed_attributes should include atol and rtol but not non_prefixed
+    assert "_atol" in config.prefixed_attributes
+    assert "_rtol" in config.prefixed_attributes
+    assert "non_prefixed" not in config.prefixed_attributes
+    # precision and instance_label are inherited from parent
+    assert "precision" in config.prefixed_attributes
+
+    # With empty instance_label, prefixed_attributes should remain empty
+    config_empty = TestConfig(precision=precision, instance_label="")
+    assert config_empty.prefixed_attributes == set()
+
+
+def test_no_manual_key_filtering(precision):
+    """Verify factory classes don't manually filter keys.
+
+    All kwargs should pass through to nested objects; each level
+    extracts its own via build_config/update and ignores the rest.
+    """
+    from cubie.integrators.matrix_free_solvers.linear_solver import (
+        LinearSolver,
+    )
+
+    # Pass unrelated kwargs - they should be silently ignored
+    solver = LinearSolver(
+        precision=precision,
+        n=3,
+        unrelated_param=42,
+        another_unknown="value",
+    )
+
+    # Verify solver was created successfully
+    assert solver.n == 3

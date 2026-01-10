@@ -95,7 +95,7 @@ class MatrixFreeSolver(MultipleInstanceCUDAFactory):
         self.norm = ScaledNorm(
             precision=precision,
             n=n,
-            instance_type=solver_type,
+            instance_label=solver_type,
             **kwargs,
         )
 

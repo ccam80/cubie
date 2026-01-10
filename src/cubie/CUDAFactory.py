@@ -583,7 +583,18 @@ class MultipleInstanceCUDAFactoryConfig(CUDAFactoryConfig):
             if fld.metadata.get("prefixed", True)
         }
 
-    def _attrs_post_init__(self):
+    @property
+    def prefix(self) -> str:
+        """Return the prefix string for this instance.
+
+        Returns
+        -------
+        str
+            The instance_label value (prefix without trailing underscore).
+        """
+        return self.instance_label
+
+    def __attrs_post_init__(self):
         super().__attrs_post_init__()
         if self.instance_label != "":
             prefixed_attributes = set(
