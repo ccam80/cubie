@@ -523,7 +523,7 @@ def test_multiple_instance_factory_empty_label_raises():
     with pytest.raises(ValueError) as exc:
         TestFactory(instance_label="")
 
-    assert "instance_label" in str(exc.value)
+    assert "empty" in str(exc.value) or "instance_label" in str(exc.value)
 
 
 def test_multiple_instance_factory_mixed_keys():

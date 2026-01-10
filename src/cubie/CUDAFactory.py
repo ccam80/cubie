@@ -594,8 +594,8 @@ class MultipleInstanceCUDAFactory(CUDAFactory):
         """
         if not instance_label:
             raise ValueError(
-                "MultipleInstanceCUDAFactories must have a "
-                "valid instance_label to filter settings."
+                "instance_label cannot be empty or None; "
+                "provide a non-empty string prefix (e.g., 'krylov')."
             )
         self.instance_label = instance_label
         super().__init__()
