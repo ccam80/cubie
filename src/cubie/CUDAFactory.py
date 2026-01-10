@@ -258,7 +258,9 @@ class CUDAFactoryConfig(_CubieConfigBase):
     """
 
     precision: PrecisionDType = field(
-        validator=precision_validator, converter=precision_converter
+        validator=precision_validator,
+        converter=precision_converter,
+        metadata={"prefixed": False},
     )
 
     def __attrs_post_init__(self):
@@ -560,11 +562,14 @@ class CUDAFactory(ABC):
 class MultipleInstanceCUDAFactoryConfig(CUDAFactoryConfig):
     """Compile settings for MultipleInstanceCUDAFactory."""
 
-    instance_label: str = field(default="", repr=False, eq=False)
+    instance_label: str = field(
+        default="", repr=False, eq=False, metadata={"prefixed": False}
+    )
     prefixed_attributes: Set[str] = field(
         factory=set,
         repr=False,
         eq=False,
+        metadata={"prefixed": False},
     )
 
     @classmethod
@@ -628,24 +633,42 @@ class MultipleInstanceCUDAFactoryConfig(CUDAFactoryConfig):
             all_updates.update(updates_dict)
         all_updates.update(kwargs)
 
-        for key in self.prefixed_attributes:
-            if key in all_updates:
-                # Don't respond to unprefixed keys if both forms are present
-                all_updates.pop(key)
+        # Track unprefixed keys that were overridden by prefixed versions
+        overridden_unprefixed = set()
 
+        for key in self.prefixed_attributes:
             prefixed_key = f"{self.prefix}_{key}"
-            if prefixed_key in all_updates:
+            has_unprefixed = key in all_updates
+            has_prefixed = prefixed_key in all_updates
+
+            if has_unprefixed and has_prefixed:
+                # Both forms present; prefixed wins, unprefixed is recognized
+                all_updates.pop(key)
+                overridden_unprefixed.add(key)
+
+            if has_prefixed:
                 all_updates[key] = all_updates.pop(prefixed_key)
 
-        recognized_prefixed = super().update(all_updates)
+        recognized_base, changed_base = super().update(all_updates)
 
         recognized = set()
-        for key in recognized_prefixed:
+        for key in recognized_base:
             if key in self.prefixed_attributes:
                 recognized.add(f"{self.prefix}_{key}")
             else:
                 recognized.add(key)
-        return recognized
+
+        # Also recognize the overridden unprefixed keys
+        recognized.update(overridden_unprefixed)
+
+        changed = set()
+        for key in changed_base:
+            if key in self.prefixed_attributes:
+                changed.add(f"{self.prefix}_{key}")
+            else:
+                changed.add(key)
+
+        return recognized, changed
 
     @classmethod
     def init_from_prefixed(cls, **kwargs) -> Set[str]:
@@ -710,9 +733,10 @@ class MultipleInstanceCUDAFactory(CUDAFactory):
             Prefix for external configuration keys. Should NOT
             include trailing underscore (added automatically).
         """
-        if not instance_label:
-            raise ValueError(
-                "instance_label cannot be empty or None; "
-                "provide a non-empty string prefix (e.g., 'krylov')."
-            )
+        self._instance_label = instance_label
         super().__init__()
+
+    @property
+    def instance_label(self) -> str:
+        """Return the instance label for this factory."""
+        return self._instance_label

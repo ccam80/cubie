@@ -15,13 +15,13 @@ from cubie._utils import (
 )
 from cubie.CUDAFactory import (
     MultipleInstanceCUDAFactory,
-    CUDAFactoryConfig,
+    MultipleInstanceCUDAFactoryConfig,
 )
 from cubie.integrators.norms import ScaledNorm
 
 
 @define
-class MatrixFreeSolverConfig(CUDAFactoryConfig):
+class MatrixFreeSolverConfig(MultipleInstanceCUDAFactoryConfig):
     """Base configuration for matrix-free solver factories.
 
     Provides common attributes shared by LinearSolverConfig and
@@ -41,13 +41,16 @@ class MatrixFreeSolverConfig(CUDAFactoryConfig):
         norm factory rebuilds; changes invalidate solver cache.
     """
 
-    n: int = field(validator=getype_validator(int, 1))
+    n: int = field(
+        validator=getype_validator(int, 1), metadata={"prefixed": False}
+    )
     max_iters: int = field(
         default=100,
         validator=inrangetype_validator(int, 1, 32767),
-        metadata={"prefixed": True},
     )
-    norm_device_function: Optional[Callable] = field(default=None, eq=False)
+    norm_device_function: Optional[Callable] = field(
+        default=None, eq=False, metadata={"prefixed": False}
+    )
 
     def __attrs_post_init__(self):
         super().__attrs_post_init__()

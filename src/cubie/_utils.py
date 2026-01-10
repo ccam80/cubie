@@ -791,6 +791,8 @@ def build_config(
     # Build mapping of valid field names/aliases and field->alias conversion
     valid_fields = set()
     field_to_alias = {}
+    # Map internal field name to external key (alias or field name)
+    field_to_external = {}
 
     for field in fields(config_class):
         valid_fields.add(field.name)
@@ -798,6 +800,9 @@ def build_config(
         if field.alias is not None:
             valid_fields.add(field.alias)
             field_to_alias[field.name] = field.alias
+            field_to_external[field.name] = field.alias
+        else:
+            field_to_external[field.name] = field.name
 
     # Merge required and optional kwargs
     merged = {**required, **optional}
@@ -809,11 +814,14 @@ def build_config(
         prefix = f"{instance_label}_"
 
         # For each prefixed attribute, check for prefixed key in merged
+        # Use external key (alias) for building prefixed key
         for attr in prefixed_attrs:
-            prefixed_key = f"{prefix}{attr}"
+            external_key = field_to_external.get(attr, attr)
+            prefixed_key = f"{prefix}{external_key}"
             if prefixed_key in merged:
                 # Prefixed key takes precedence - copy to unprefixed
-                merged[attr] = merged[prefixed_key]
+                # Use external key so it matches alias for attrs
+                merged[external_key] = merged[prefixed_key]
 
         # Add instance_label to merged for config constructor
         merged["instance_label"] = instance_label

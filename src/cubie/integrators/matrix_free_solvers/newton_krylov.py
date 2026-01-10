@@ -116,6 +116,11 @@ class NewtonKrylovConfig(MatrixFreeSolverConfig):
         return self.precision(self._newton_damping)
 
     @property
+    def newton_max_iters(self) -> int:
+        """Return max Newton iterations (alias for max_iters)."""
+        return self.max_iters
+
+    @property
     def settings_dict(self) -> Dict[str, Any]:
         """Return Newton-Krylov configuration as dictionary.
 
@@ -201,6 +206,12 @@ class NewtonKrylov(MatrixFreeSolver):
 
         self.linear_solver = linear_solver
         self.setup_compile_settings(config)
+
+        # Initialize device functions in config from child factories
+        self.update_compile_settings({
+            "norm_device_function": self.norm.device_function,
+            "linear_solver_function": self.linear_solver.device_function,
+        }, silent=True)
 
         self.register_buffers()
 
@@ -519,6 +530,8 @@ class NewtonKrylov(MatrixFreeSolver):
 
         # Forward krylov-prefixed params to linear solver
         recognized |= self.linear_solver.update(all_updates, silent=True)
+        # Add linear_solver_function to updates for compile settings
+        all_updates["linear_solver_function"] = self.linear_solver.device_function
         # update norm and compile settings through base solver class
         recognized |= super().update(all_updates, silent=True)
 

@@ -88,6 +88,11 @@ class LinearSolverConfig(MatrixFreeSolverConfig):
         super().__attrs_post_init__()
 
     @property
+    def kyrlov_max_iters(self) -> int:
+        """Return max Krylov iterations (alias for max_iters)."""
+        return self.max_iters
+
+    @property
     def settings_dict(self) -> Dict[str, Any]:
         """Return linear solver configuration as dictionary.
 
@@ -164,6 +169,11 @@ class LinearSolver(MatrixFreeSolver):
         )
 
         self.setup_compile_settings(config)
+
+        # Initialize norm device function in config from child factory
+        self.update_compile_settings({
+            "norm_device_function": self.norm.device_function,
+        }, silent=True)
 
         self.register_buffers()
 

@@ -219,7 +219,7 @@ The architectural approach of enhancing `build_config` rather than maintaining p
    - Issue: Method returns single set but should return tuple (recognized, changed)
    - Fix: Unpack `super().update()` return value and transform both sets
    - Rationale: This is the root cause of 45+ failures; must be fixed first
-   - Status: 
+   - Status: [x] Complete
 
 ### 2. **Allow Empty instance_label in MultipleInstanceCUDAFactory**
    - Task Group: Task Group 3
@@ -227,7 +227,7 @@ The architectural approach of enhancing `build_config` rather than maintaining p
    - Issue: `__init__` raises ValueError for empty instance_label, breaking ScaledNorm standalone use
    - Fix: Remove or relax the empty check in `MultipleInstanceCUDAFactory.__init__`
    - Rationale: ScaledNorm can be used standalone without prefix transformation
-   - Status: 
+   - Status: [x] Complete
 
 ### 3. **Add instance_label Property to MultipleInstanceCUDAFactory**
    - Task Group: Task Group 2
@@ -235,7 +235,7 @@ The architectural approach of enhancing `build_config` rather than maintaining p
    - Issue: Base class doesn't expose `instance_label` as public property
    - Fix: Add `@property instance_label` returning stored label
    - Rationale: Subclasses and tests need access to this value
-   - Status: 
+   - Status: [x] Complete
 
 ### 4. **Add kyrlov_max_iters Property to LinearSolverConfig**
    - Task Group: Task Group 4
@@ -243,7 +243,7 @@ The architectural approach of enhancing `build_config` rather than maintaining p
    - Issue: Config references `kyrlov_max_iters` but property doesn't exist
    - Fix: Add property aliasing `max_iters`
    - Rationale: Required for `settings_dict` and external access
-   - Status: 
+   - Status: [x] Complete
 
 ### 5. **Add newton_max_iters Property to NewtonKrylovConfig**
    - Task Group: Task Group 5
@@ -251,7 +251,7 @@ The architectural approach of enhancing `build_config` rather than maintaining p
    - Issue: Config references `newton_max_iters` but property doesn't exist
    - Fix: Add property aliasing `max_iters`
    - Rationale: Required for `settings_dict` and external access
-   - Status: 
+   - Status: [x] Complete
 
 ### 6. **Fix Test Config Classes to Use Properties for atol/rtol**
    - Task Group: Task Group 6
@@ -259,4 +259,4 @@ The architectural approach of enhancing `build_config` rather than maintaining p
    - Issue: Test configs use underscore attrs but tests access non-underscore versions
    - Fix: Add `@property` methods to test config classes OR access `_atol` directly
    - Rationale: Attrs aliases only work for `__init__`, not attribute access
-   - Status: 
+   - Status: [x] Complete 

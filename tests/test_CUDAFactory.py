@@ -513,30 +513,32 @@ def test_multiple_instance_factory_instance_label_stored(precision):
     assert solver.instance_label == "krylov"
 
 
-def test_multiple_instance_factory_empty_label_raises():
-    """Test that empty instance_label raises ValueError."""
+def test_multiple_instance_factory_empty_label_allowed():
+    """Test that empty instance_label is permitted for standalone use."""
 
     class TestFactory(MultipleInstanceCUDAFactory):
         def build(self):
             return testCache(device_function=lambda: 1.0)
 
-    with pytest.raises(ValueError) as exc:
-        TestFactory(instance_label="")
-
-    assert "empty" in str(exc.value) or "instance_label" in str(exc.value)
+    # Empty instance_label should be allowed
+    factory = TestFactory(instance_label="")
+    assert factory.instance_label == ""
 
 
 def test_multiple_instance_factory_mixed_keys():
     """Test that prefixed keys take precedence over unprefixed."""
+    from cubie.CUDAFactory import MultipleInstanceCUDAFactoryConfig
 
     @attrs.define
-    class TestConfig(CUDAFactoryConfig):
+    class TestConfig(MultipleInstanceCUDAFactoryConfig):
         value: int = 10
 
     class TestFactory(MultipleInstanceCUDAFactory):
         def __init__(self):
             super().__init__(instance_label="test")
-            self.setup_compile_settings(TestConfig(precision=np.float32))
+            self.setup_compile_settings(
+                TestConfig(precision=np.float32, instance_label="test")
+            )
 
         def build(self):
             return testCache(device_function=lambda: 1.0)
@@ -585,6 +587,14 @@ def test_build_config_with_instance_label(precision):
         _atol: float = attrs.field(default=1e-6, alias="atol")
         _rtol: float = attrs.field(default=1e-3, alias="rtol")
 
+        @property
+        def atol(self) -> float:
+            return self._atol
+
+        @property
+        def rtol(self) -> float:
+            return self._rtol
+
     config = build_config(
         TestConfig,
         required={"precision": precision},
@@ -609,6 +619,10 @@ def test_build_config_instance_label_prefixed_takes_precedence(precision):
     class TestConfig(MultipleInstanceCUDAFactoryConfig):
         _atol: float = attrs.field(default=1e-6, alias="atol")
 
+        @property
+        def atol(self) -> float:
+            return self._atol
+
     config = build_config(
         TestConfig,
         required={"precision": precision},
@@ -631,6 +645,10 @@ def test_build_config_backward_compatible_no_instance_label(precision):
         _atol: float = attrs.field(default=1e-6, alias="atol")
         value: int = 10
 
+        @property
+        def atol(self) -> float:
+            return self._atol
+
     # Without instance_label
     config = build_config(
         TestConfig,
@@ -651,6 +669,10 @@ def test_build_config_instance_label_non_prefixed_class(precision):
     @attrs.define
     class TestConfig(CUDAFactoryConfig):
         _atol: float = attrs.field(default=1e-6, alias="atol")
+
+        @property
+        def atol(self) -> float:
+            return self._atol
 
     # instance_label provided, but class has no get_prefixed_attributes
     config = build_config(
@@ -706,8 +728,10 @@ def test_multiple_instance_config_post_init_populates_prefixed_attrs(
     assert "_atol" in config.prefixed_attributes
     assert "_rtol" in config.prefixed_attributes
     assert "non_prefixed" not in config.prefixed_attributes
-    # precision and instance_label are inherited from parent
-    assert "precision" in config.prefixed_attributes
+    # precision and instance_label are not prefixed (structural parameters)
+    assert "precision" not in config.prefixed_attributes
+    assert "instance_label" not in config.prefixed_attributes
+    assert "prefixed_attributes" not in config.prefixed_attributes
 
     # With empty instance_label, prefixed_attributes should remain empty
     config_empty = TestConfig(precision=precision, instance_label="")
