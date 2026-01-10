@@ -130,8 +130,11 @@ def test_cache_impl_check_cachable():
 @pytest.mark.nocudasim
 def test_cubie_cache_init():
     """Verify CUBIECache initializes with system info."""
-    settings = MockCompileSettings()
-    cache = CUBIECache(system_name="test_system", system_hash="abc123")
+    cache = CUBIECache(
+        system_name="test_system",
+        system_hash="abc123",
+        config_hash="def456789012345678901234567890123456789012345678901234567890abcd",
+    )
     assert cache._system_name == "test_system"
     assert cache._system_hash == "abc123"
     assert cache._name == "CUBIECache(test_system)"
@@ -140,8 +143,14 @@ def test_cubie_cache_init():
 @pytest.mark.nocudasim
 def test_cubie_cache_index_key():
     """Verify _index_key includes system and settings hashes."""
-    settings = MockCompileSettings()
-    cache = CUBIECache(system_name="test_system", system_hash="abc123")
+    config_hash = (
+        "def456789012345678901234567890123456789012345678901234567890abcd"
+    )
+    cache = CUBIECache(
+        system_name="test_system",
+        system_hash="abc123",
+        config_hash=config_hash,
+    )
 
     # Create a mock codegen object
     class MockCodegen:
@@ -153,20 +162,24 @@ def test_cubie_cache_index_key():
 
     key = cache._index_key(sig, codegen)
 
-    # Key should be tuple of (sig, magic_tuple, system_hash, settings_hash)
+    # Key should be tuple of (sig, magic_tuple, system_hash, config_hash)
     assert len(key) == 4
     assert key[0] == sig
     assert key[1] == ("magic", "tuple")
     assert key[2] == "abc123"
+    assert key[3] == config_hash
 
 
 @pytest.mark.nocudasim
 def test_cubie_cache_path():
     """Verify cache_path property returns expected path."""
-    settings = MockCompileSettings()
-    cache = CUBIECache(system_name="test_system", system_hash="abc123")
-    assert "test_system" in cache.cache_path
-    assert "cache" in cache.cache_path
+    cache = CUBIECache(
+        system_name="test_system",
+        system_hash="abc123",
+        config_hash="def456789012345678901234567890123456789012345678901234567890abcd",
+    )
+    assert "test_system" in str(cache.cache_path)
+    assert "cache" in str(cache.cache_path)
 
 
 # --- BatchSolverKernel integration tests ---

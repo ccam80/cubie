@@ -2,7 +2,7 @@
 
 Provides cache classes that persist compiled CUDA kernels to disk,
 enabling faster startup on subsequent runs with identical settings.
-Cache files are stored in ``generated/<system_name>/cache/`` within
+Cache files are stored in ``generated/<system_name>/CUDA_cache/`` within
 the configured GENERATED_DIR.
 
 Notes
@@ -19,25 +19,13 @@ from attrs import field, validators as val, define, converters
 
 from cubie.CUDAFactory import _CubieConfigBase
 from cubie._utils import getype_validator
-from cubie.cuda_simsafe import is_cudasim_enabled
+from cubie.cuda_simsafe import (
+    _CacheLocator,
+    CacheImpl,
+    CUDACache,
+    IndexDataCacheFile,
+)
 from cubie.odesystems.symbolic.odefile import GENERATED_DIR
-
-if not is_cudasim_enabled():
-    from numba.cuda.core.caching import (
-        _CacheLocator,
-        CacheImpl,
-        IndexDataCacheFile,
-    )
-    from numba.cuda.dispatcher import CUDACache
-
-    _CACHING_AVAILABLE = True
-else:
-    # Stub classes for simulator mode
-    _CacheLocator = object
-    CacheImpl = object
-    IndexDataCacheFile = None
-    CUDACache = object
-    _CACHING_AVAILABLE = False
 
 
 @define
@@ -80,7 +68,7 @@ class CacheConfig(_CubieConfigBase):
 class CUBIECacheLocator(_CacheLocator):
     """Locate cache files in CuBIE's generated directory structure.
 
-    Directs cache files to ``generated/<system_name>/cache/`` instead
+    Directs cache files to ``generated/<system_name>/CUDA_cache/`` instead
     of the default ``__pycache__`` location used by numba.
 
     Parameters
@@ -287,7 +275,7 @@ class CUBIECache(CUDACache):
         self,
         system_name: str,
         system_hash: str,
-        config_hash: Optional[str] = None,
+        config_hash: str,
         max_entries: int = 10,
         mode: str = "hash",
         custom_cache_dir: Optional[Path] = None,
@@ -427,3 +415,8 @@ class CUBIECache(CUDACache):
             cache_path.mkdir(parents=True, exist_ok=True)
         except OSError:
             pass
+
+    @property
+    def cache_path(self) -> Path:
+        """Return the cache directory path."""
+        return Path(self._cache_path)
