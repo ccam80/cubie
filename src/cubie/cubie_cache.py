@@ -347,11 +347,6 @@ class CUBIECache(CUDACache):
             source_stamp=source_stamp,
         )
         self.enable()
-        # Note: super().__init__() is intentionally not called.
-        # Numba's Cache.__init__(py_func) requires a Python function reference,
-        # but CuBIE kernels are dynamically generated without a corresponding
-        # py_func. This class manually initializes the required attributes
-        # (_name, _impl, _cache_file) that the parent __init__ would set.
 
     def _index_key(self, sig, codegen):
         """Compute cache key including CuBIE-specific hashes.
@@ -381,13 +376,6 @@ class CUBIECache(CUDACache):
         Uses filesystem mtime for LRU ordering. Evicts .nbi/.nbc
         file pairs together.
         """
-        # Implementation Note: Custom LRU eviction based on filesystem mtime.
-        # Numba's IndexDataCacheFile has _load_index() and _save_index() methods
-        # that could be used for entry-level removal, but these are private APIs.
-        # The current approach is functionally correct and the performance impact
-        # is minimal for typical cache sizes (max_entries defaults to 10).
-        # TODO: Consider using IndexDataCacheFile internals if Numba exposes
-        # a public API for partial index manipulation in future versions.
         if self._max_entries == 0:
             return  # Eviction disabled
 
@@ -444,12 +432,6 @@ class CUBIECache(CUDACache):
         Removes all .nbi and .nbc files, then recreates an empty
         cache directory.
         """
-        # Implementation Note: Full directory removal via shutil.rmtree.
-        # Numba's Cache.flush() only clears the index file, leaving orphaned
-        # .nbc data files. For "flush_on_change" mode, complete cache removal
-        # is intentional to ensure a clean slate when settings change.
-        # The flush() method (index-only) is available via self._cache_file.flush()
-        # if needed for lighter-weight cache invalidation.
         import shutil
 
         cache_path = Path(self._cache_path)
@@ -467,3 +449,100 @@ class CUBIECache(CUDACache):
     def cache_path(self) -> Path:
         """Return the cache directory path."""
         return Path(self._cache_path)
+
+
+def create_cache(
+    cache_arg: Union[bool, str, Path],
+    system_name: str,
+    system_hash: str,
+    config_hash: str,
+) -> Optional["CUBIECache"]:
+    """Create a CUBIECache from raw cache argument.
+
+    Parameters
+    ----------
+    cache_arg
+        Cache configuration from user:
+        - True: Enable caching with default path
+        - False or None: Disable caching
+        - "flush_on_change": Enable caching with flush_on_change mode
+        - str or Path: Enable caching at specified path
+    system_name
+        Name of the ODE system for directory organization.
+    system_hash
+        Hash representing the ODE system definition.
+    config_hash
+        Pre-computed hash of compile settings.
+
+    Returns
+    -------
+    CUBIECache or None
+        CUBIECache instance if caching enabled and not in CUDASIM mode,
+        None otherwise.
+    """
+    from cubie.cuda_simsafe import is_cudasim_enabled
+
+    if is_cudasim_enabled():
+        return None
+
+    cache_config = CacheConfig.from_user_setting(cache_arg)
+    if not cache_config.enabled:
+        return None
+
+    return CUBIECache(
+        system_name=system_name,
+        system_hash=system_hash,
+        config_hash=config_hash,
+        max_entries=cache_config.max_entries,
+        mode=cache_config.mode,
+        custom_cache_dir=cache_config.cache_dir,
+    )
+
+
+def invalidate_cache(
+    cache_arg: Union[bool, str, Path],
+    system_name: str,
+    system_hash: str,
+    config_hash: str,
+) -> None:
+    """Invalidate cache if in flush_on_change mode.
+
+    Parameters
+    ----------
+    cache_arg
+        Cache configuration from user (same format as create_cache).
+    system_name
+        Name of the ODE system.
+    system_hash
+        Hash representing the ODE system definition.
+    config_hash
+        Pre-computed hash of compile settings.
+
+    Notes
+    -----
+    Only flushes cache when mode is "flush_on_change". Silent on errors
+    since cache flush is best-effort. No-op in CUDASIM mode.
+    """
+    from cubie.cuda_simsafe import is_cudasim_enabled
+
+    if is_cudasim_enabled():
+        return
+
+    cache_config = CacheConfig.from_user_setting(cache_arg)
+    if not cache_config.enabled:
+        return
+    if cache_config.mode != "flush_on_change":
+        return
+
+    try:
+        cache = CUBIECache(
+            system_name=system_name,
+            system_hash=system_hash,
+            config_hash=config_hash,
+            max_entries=cache_config.max_entries,
+            mode=cache_config.mode,
+            custom_cache_dir=cache_config.cache_dir,
+        )
+        cache.flush_cache()
+    except (OSError, TypeError, ValueError, AttributeError):
+        pass

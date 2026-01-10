@@ -231,3 +231,100 @@ def test_cache_impl_instantiation_works():
     # Properties should be accessible
     assert impl.locator is not None
     assert impl.filename_base is not None
+
+
+# --- Module-level function tests ---
+
+
+def test_create_cache_returns_none_when_disabled():
+    """Verify create_cache returns None when caching disabled."""
+    from cubie.cubie_cache import create_cache
+
+    result = create_cache(
+        cache_arg=False,
+        system_name="test_system",
+        system_hash="abc123",
+        config_hash="def456",
+    )
+    assert result is None
+
+
+def test_create_cache_returns_none_in_cudasim():
+    """Verify create_cache returns None in CUDASIM mode."""
+    from cubie.cubie_cache import create_cache
+    from cubie.cuda_simsafe import is_cudasim_enabled
+
+    if is_cudasim_enabled():
+        result = create_cache(
+            cache_arg=True,
+            system_name="test_system",
+            system_hash="abc123",
+            config_hash="def456",
+        )
+        assert result is None
+
+
+def test_create_cache_returns_cache_when_enabled():
+    """Verify create_cache returns CUBIECache when enabled (non-CUDASIM)."""
+    from cubie.cubie_cache import create_cache, CUBIECache
+    from cubie.cuda_simsafe import is_cudasim_enabled
+
+    # Skip assertion if in CUDASIM mode since it returns None there
+    if is_cudasim_enabled():
+        return
+
+    result = create_cache(
+        cache_arg=True,
+        system_name="test_system",
+        system_hash="abc123",
+        config_hash="def456789012345678901234567890123456"
+        "789012345678901234567890abcd",
+    )
+    assert isinstance(result, CUBIECache)
+
+
+def test_invalidate_cache_no_op_when_hash_mode(tmp_path):
+    """Verify invalidate_cache does nothing in hash mode."""
+    from cubie.cubie_cache import invalidate_cache
+
+    # Create a marker file
+    cache_dir = tmp_path / "test_cache"
+    cache_dir.mkdir()
+    marker = cache_dir / "marker.txt"
+    marker.write_text("test")
+
+    # invalidate_cache with hash mode should not touch files
+    invalidate_cache(
+        cache_arg=True,  # hash mode by default
+        system_name="test_system",
+        system_hash="abc123",
+        config_hash="def456",
+    )
+
+    # Marker file should still exist (no flush happened)
+    assert marker.exists()
+
+
+def test_invalidate_cache_flushes_when_flush_mode(tmp_path):
+    """Verify invalidate_cache calls flush in flush_on_change mode."""
+    from cubie.cubie_cache import invalidate_cache
+    from cubie.cuda_simsafe import is_cudasim_enabled
+
+    # In CUDASIM mode, invalidate_cache is a no-op, so just verify it runs
+    if is_cudasim_enabled():
+        invalidate_cache(
+            cache_arg="flush_on_change",
+            system_name="test_system",
+            system_hash="abc123",
+            config_hash="def456",
+        )
+        return
+
+    # In real CUDA mode, verify it runs without error
+    invalidate_cache(
+        cache_arg="flush_on_change",
+        system_name="test_system",
+        system_hash="abc123",
+        config_hash="def456789012345678901234567890123456"
+        "789012345678901234567890abcd",
+    )

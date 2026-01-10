@@ -212,8 +212,8 @@ class _StubCacheImpl:
         raise NotImplementedError("Cannot rebuild in CUDASIM mode")
 
     def check_cachable(self, data):
-        """Check if data is cachable. Always False in CUDASIM."""
-        return False
+        """Check if data is cachable. Returns True for API compatibility."""
+        return True
 
 
 class _StubIndexDataCacheFile:
@@ -250,9 +250,30 @@ class _StubCUDACache:
 
     _impl_class = None
 
-    def __init__(self, *args, **kwargs):
-        """Accept any arguments for compatibility with CUBIECache."""
+    def __init__(
+        self,
+        system_name=None,
+        system_hash=None,
+        config_hash=None,
+        max_entries=10,
+        mode="hash",
+        custom_cache_dir=None,
+        **kwargs,
+    ):
+        """Store parameters for compatibility with CUBIECache."""
+        self._system_name = system_name
+        self._system_hash = system_hash
+        self._compile_settings_hash = config_hash
+        self._max_entries = max_entries
+        self._mode = mode
         self._enabled = False
+        self._cache_path = str(custom_cache_dir) if custom_cache_dir else ""
+
+    @property
+    def cache_path(self):
+        """Return the cache directory path."""
+        from pathlib import Path
+        return Path(self._cache_path) if self._cache_path else Path()
 
     def enable(self):
         """Enable caching. Sets internal flag."""
@@ -268,6 +289,10 @@ class _StubCUDACache:
 
     def save_overload(self, sig, data):
         """Save overload to cache. No-op in CUDASIM."""
+        pass
+
+    def flush_cache(self):
+        """Flush the cache. No-op in CUDASIM."""
         pass
 
 
