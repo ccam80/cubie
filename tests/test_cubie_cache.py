@@ -6,6 +6,7 @@ from numpy import array, float32
 from attrs import define, field
 
 from cubie.cubie_cache import (
+    CacheConfig,
     CUBIECacheLocator,
     CUBIECacheImpl,
     CUBIECache,
@@ -202,3 +203,31 @@ def test_batch_solver_kernel_no_cache_in_cudasim(solverkernel):
         assert not hasattr(kernel, "_cache") or kernel._cache is None
     # When not in CUDASIM, cache may or may not be attached depending on
     # caching_enabled setting - that's tested separately
+
+
+# --- CUDASIM Mode Compatibility Tests ---
+
+
+def test_cache_locator_instantiation_works():
+    """Verify CUBIECacheLocator can be instantiated regardless of mode."""
+    locator = CUBIECacheLocator(
+        system_name="cudasim_test",
+        system_hash="abc123",
+        compile_settings_hash="def456",
+    )
+    # Path operations should work
+    assert locator.get_cache_path() is not None
+    assert locator.get_source_stamp() == "abc123"
+    assert locator.get_disambiguator() == "def456"
+
+
+def test_cache_impl_instantiation_works():
+    """Verify CUBIECacheImpl can be instantiated regardless of mode."""
+    impl = CUBIECacheImpl(
+        system_name="cudasim_test",
+        system_hash="abc123",
+        compile_settings_hash="def456",
+    )
+    # Properties should be accessible
+    assert impl.locator is not None
+    assert impl.filename_base is not None

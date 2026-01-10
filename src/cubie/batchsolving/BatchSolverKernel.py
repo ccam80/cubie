@@ -21,7 +21,7 @@ from numba import int32
 from attrs import define, field
 
 from cubie.cuda_simsafe import is_cudasim_enabled, compile_kwargs
-from cubie.cubie_cache import CUBIECache
+from cubie.cubie_cache import CUBIECache, CacheConfig
 from cubie.time_logger import CUDAEvent
 from numpy.typing import NDArray
 
@@ -33,7 +33,7 @@ from cubie.batchsolving.arrays.BatchOutputArrays import (
     OutputArrays,
 )
 from cubie.batchsolving.BatchSolverConfig import ActiveOutputs
-from cubie.batchsolving.BatchSolverConfig import BatchSolverConfig, CacheConfig
+from cubie.batchsolving.BatchSolverConfig import BatchSolverConfig
 from cubie.odesystems.baseODE import BaseODE
 from cubie.outputhandling.output_sizes import (
     BatchOutputSizes,
@@ -170,8 +170,8 @@ class BatchSolverKernel(CUDAFactory):
             output_settings=output_settings,
         )
 
-        # Parse cache parameter into CacheConfig
-        self.cache_config = CacheConfig(cache)
+        # Parse user's cache parameter into CacheConfig
+        cache_config = CacheConfig.from_user_setting(cache)
 
         initial_config = BatchSolverConfig(
             precision=precision,
@@ -183,6 +183,7 @@ class BatchSolverKernel(CUDAFactory):
                 self.single_integrator.shared_memory_elements
             ),
             compile_flags=self.single_integrator.output_compile_flags,
+            cache_config=cache_config,
         )
         self.setup_compile_settings(initial_config)
 
@@ -1002,6 +1003,10 @@ class BatchSolverKernel(CUDAFactory):
                 )
                 cache.flush_cache()
             except (OSError, TypeError, ValueError, AttributeError):
+                # Broad catch intentional: cache flush is best-effort.
+                # OSError: file system errors
+                # TypeError/ValueError: invalid cache config
+                # AttributeError: missing system attributes during early init
                 pass
 
     def instantiate_cache(self):

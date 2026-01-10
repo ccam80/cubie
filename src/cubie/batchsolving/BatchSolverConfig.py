@@ -10,6 +10,7 @@ from cubie._utils import (
     is_device_validator,
 )
 from cubie.CUDAFactory import CUDAFactoryConfig, _CubieConfigBase
+from cubie.cubie_cache import CacheConfig
 from cubie.outputhandling.output_config import OutputCompileFlags
 
 
@@ -129,6 +130,11 @@ class BatchSolverConfig(CUDAFactoryConfig):
         validator=attrs.validators.optional(
             attrs.validators.instance_of(OutputCompileFlags)
         ),
+    )
+    cache_config: CacheConfig = attrs.field(
+        factory=CacheConfig,
+        validator=attrs.validators.instance_of(CacheConfig),
+        eq=False,  # Cache config is not compile-critical
     )
 
     def __attrs_post_init__(self):

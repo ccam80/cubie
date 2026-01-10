@@ -77,6 +77,7 @@ class CacheConfig(_CubieConfigBase):
             Cache configuration:
             - True: Enable caching with default path
             - False or None: Disable caching
+            - "flush_on_change": Enable caching with flush_on_change mode
             - str or Path: Enable caching at specified path
 
         Returns
@@ -85,17 +86,21 @@ class CacheConfig(_CubieConfigBase):
             Configured cache settings.
         """
         if user_setting is None or user_setting is False:
-            return cls(enabled=False, cache_path=None)
+            return cls(enabled=False, cache_dir=None)
 
         if user_setting is True:
-            return cls(enabled=True, cache_path=None)
+            return cls(enabled=True, cache_dir=None)
+
+        # Handle "flush_on_change" mode string specially
+        if isinstance(user_setting, str) and user_setting == "flush_on_change":
+            return cls(enabled=True, mode="flush_on_change", cache_dir=None)
 
         cache_path = (
             Path(user_setting)
             if isinstance(user_setting, str)
             else user_setting
         )
-        return cls(enabled=True, cache_path=cache_path)
+        return cls(enabled=True, cache_dir=cache_path)
 
 
 class CUBIECacheLocator(_CacheLocator):
@@ -173,9 +178,6 @@ class CUBIECacheLocator(_CacheLocator):
         raise NotImplementedError(
             "CUBIECacheLocator requires explicit system info"
         )
-
-    def __attrs_post_init__(self):
-        super().__attrs_post_init__()
 
 
 class CUBIECacheImpl(CacheImpl):
@@ -345,7 +347,11 @@ class CUBIECache(CUDACache):
             source_stamp=source_stamp,
         )
         self.enable()
-        # super().__init__() # Doesn't work as super().__init__ needs py_func
+        # Note: super().__init__() is intentionally not called.
+        # Numba's Cache.__init__(py_func) requires a Python function reference,
+        # but CuBIE kernels are dynamically generated without a corresponding
+        # py_func. This class manually initializes the required attributes
+        # (_name, _impl, _cache_file) that the parent __init__ would set.
 
     def _index_key(self, sig, codegen):
         """Compute cache key including CuBIE-specific hashes.
@@ -375,10 +381,13 @@ class CUBIECache(CUDACache):
         Uses filesystem mtime for LRU ordering. Evicts .nbi/.nbc
         file pairs together.
         """
-        # AI review note: this method is implementing a lot of our own
-        # logic. Instead, we should use exiting Numba IndexCacheFile
-        # mechanics to remove certain entries by index, or resave only
-        # certain indices.
+        # Implementation Note: Custom LRU eviction based on filesystem mtime.
+        # Numba's IndexDataCacheFile has _load_index() and _save_index() methods
+        # that could be used for entry-level removal, but these are private APIs.
+        # The current approach is functionally correct and the performance impact
+        # is minimal for typical cache sizes (max_entries defaults to 10).
+        # TODO: Consider using IndexDataCacheFile internals if Numba exposes
+        # a public API for partial index manipulation in future versions.
         if self._max_entries == 0:
             return  # Eviction disabled
 
@@ -435,7 +444,12 @@ class CUBIECache(CUDACache):
         Removes all .nbi and .nbc files, then recreates an empty
         cache directory.
         """
-        # AI review note: Can't we just use existing Numba cache flush logic?
+        # Implementation Note: Full directory removal via shutil.rmtree.
+        # Numba's Cache.flush() only clears the index file, leaving orphaned
+        # .nbc data files. For "flush_on_change" mode, complete cache removal
+        # is intentional to ensure a clean slate when settings change.
+        # The flush() method (index-only) is available via self._cache_file.flush()
+        # if needed for lighter-weight cache invalidation.
         import shutil
 
         cache_path = Path(self._cache_path)
