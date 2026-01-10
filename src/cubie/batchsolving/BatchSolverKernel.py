@@ -171,7 +171,7 @@ class BatchSolverKernel(CUDAFactory):
         )
 
         # Parse cache parameter into CacheConfig
-        cache_config = self._parse_cache_param(cache)
+        self.cache_config = CacheConfig(cache)
 
         initial_config = BatchSolverConfig(
             precision=precision,
@@ -183,7 +183,6 @@ class BatchSolverKernel(CUDAFactory):
                 self.single_integrator.shared_memory_elements
             ),
             compile_flags=self.single_integrator.output_compile_flags,
-            cache_config=cache_config,
         )
         self.setup_compile_settings(initial_config)
 
@@ -232,43 +231,6 @@ class BatchSolverKernel(CUDAFactory):
             allocation_ready_hook=self._on_allocation,
         )
         return memory_manager
-
-    def _parse_cache_param(
-        self, cache: Union[bool, str, Path]
-    ) -> "CacheConfig":
-        """Parse cache parameter into CacheConfig instance.
-
-        Parameters
-        ----------
-        cache
-            Cache configuration: True enables hash mode, False disables
-            caching, 'flush_on_change' enables flush mode, or a Path
-            sets a custom cache directory.
-
-        Returns
-        -------
-        CacheConfig
-            Parsed cache configuration.
-
-        Raises
-        ------
-        TypeError
-            If cache is not a supported type.
-        """
-        if isinstance(cache, bool):
-            return CacheConfig(enabled=cache)
-        elif isinstance(cache, Path):
-            return CacheConfig(enabled=True, cache_dir=cache)
-        elif isinstance(cache, str):
-            if cache == "flush_on_change":
-                return CacheConfig(enabled=True, mode="flush_on_change")
-            else:
-                return CacheConfig(enabled=True, cache_dir=Path(cache))
-        else:
-            raise TypeError(
-                f"cache must be bool, 'flush_on_change', or Path, "
-                f"got {type(cache).__name__}"
-            )
 
     def _setup_cuda_events(self, chunks: int) -> None:
         """Create CUDA events for timing instrumentation.
@@ -844,7 +806,7 @@ class BatchSolverKernel(CUDAFactory):
         # no cover: end
 
         # Attach file-based caching if enabled and not in simulator mode
-        cache_config = self.compile_settings.cache_config
+        cache_config = self.cache_config
         if cache_config.enabled and not is_cudasim_enabled():
             system = self.single_integrator.system
             system_name = getattr(system, "name", "anonymous")

@@ -13,7 +13,7 @@ simulator mode, caching is disabled and stub classes are provided.
 """
 
 from pathlib import Path
-from typing import Optional
+from typing import Optional, Union
 
 from attrs import field, validators as val, define, converters
 
@@ -63,6 +63,39 @@ class CacheConfig(_CubieConfigBase):
         validator=val.optional(val.instance_of((str, Path))),
         converter=converters.optional(Path),
     )
+
+    def __attrs_post_init__(self):
+        super().__attrs_post_init__()
+
+    @classmethod
+    def from_user_setting(cls, user_setting: Union[bool, str, Path]):
+        """Parse cache parameter into CacheConfig.
+
+        Parameters
+        ----------
+        cache
+            Cache configuration:
+            - True: Enable caching with default path
+            - False or None: Disable caching
+            - str or Path: Enable caching at specified path
+
+        Returns
+        -------
+        CacheConfig
+            Configured cache settings.
+        """
+        if user_setting is None or user_setting is False:
+            return cls(enabled=False, cache_path=None)
+
+        if user_setting is True:
+            return cls(enabled=True, cache_path=None)
+
+        cache_path = (
+            Path(user_setting)
+            if isinstance(user_setting, str)
+            else user_setting
+        )
+        return cls(enabled=True, cache_path=cache_path)
 
 
 class CUBIECacheLocator(_CacheLocator):
