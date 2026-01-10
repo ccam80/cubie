@@ -1,6 +1,5 @@
 """Compile-time configuration for batch solver kernels."""
 
-from pathlib import Path
 from typing import Callable, Optional
 
 import attrs
@@ -12,43 +11,7 @@ from cubie._utils import (
 )
 from cubie.CUDAFactory import CUDAFactoryConfig, _CubieConfigBase
 from cubie.outputhandling.output_config import OutputCompileFlags
-
-
-@attrs.define
-class CacheConfig:
-    """Configuration for file-based kernel caching.
-
-    Parameters
-    ----------
-    enabled
-        Whether file-based caching is enabled.
-    mode
-        Caching mode: 'hash' for content-addressed caching,
-        'flush_on_change' to clear cache when settings change.
-    max_entries
-        Maximum number of cache entries before LRU eviction.
-        Set to 0 to disable eviction.
-    cache_dir
-        Custom cache directory. None uses default location.
-    """
-
-    enabled: bool = attrs.field(
-        default=True,
-        validator=val.instance_of(bool),
-    )
-    mode: str = attrs.field(
-        default='hash',
-        validator=val.in_(('hash', 'flush_on_change')),
-    )
-    max_entries: int = attrs.field(
-        default=10,
-        validator=getype_validator(int, 0),
-    )
-    cache_dir: Optional[Path] = attrs.field(
-        default=None,
-        validator=val.optional(val.instance_of((str, Path))),
-        converter=attrs.converters.optional(Path),
-    )
+from cubie.cubie_cache import CacheConfig
 
 
 @attrs.define
@@ -92,6 +55,9 @@ class ActiveOutputs(_CubieConfigBase):
     iteration_counters: bool = attrs.field(
         default=False, validator=val.instance_of(bool)
     )
+
+    def __attrs_post_init__(self):
+        super().__attrs_post_init__()
 
     @classmethod
     def from_compile_flags(cls, flags: OutputCompileFlags) -> "ActiveOutputs":
@@ -168,12 +134,8 @@ class BatchSolverConfig(CUDAFactoryConfig):
     cache_config: CacheConfig = attrs.field(
         factory=CacheConfig,
         validator=attrs.validators.instance_of(CacheConfig),
+        eq=False,  # Not relevant for equality/hashing for cache keys
     )
-
-    @property
-    def caching_enabled(self) -> bool:
-        """Whether caching is enabled (backwards-compatible alias)."""
-        return self.cache_config.enabled
 
     def __attrs_post_init__(self):
         super().__attrs_post_init__()

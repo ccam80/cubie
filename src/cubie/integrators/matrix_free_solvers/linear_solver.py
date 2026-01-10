@@ -21,9 +21,12 @@ from cubie._utils import (
     is_device_validator,
 )
 from cubie.buffer_registry import buffer_registry
-from cubie.CUDAFactory import CUDAFactory, CUDAFactoryConfig, CUDADispatcherCache
+from cubie.CUDAFactory import (
+    CUDAFactory,
+    CUDAFactoryConfig,
+    CUDADispatcherCache,
+)
 from cubie.cuda_simsafe import activemask, all_sync, compile_kwargs, selp
-from cubie.cuda_simsafe import from_dtype as simsafe_dtype
 
 
 @define
@@ -83,20 +86,13 @@ class LinearSolverConfig(CUDAFactoryConfig):
     )
     use_cached_auxiliaries: bool = field(default=False)
 
+    def __attrs_post_init__(self):
+        super().__attrs_post_init__()
+
     @property
     def krylov_tolerance(self) -> float:
         """Return tolerance in configured precision."""
         return self.precision(self._krylov_tolerance)
-
-    @property
-    def numba_precision(self) -> type:
-        """Return Numba type for precision."""
-        return from_dtype(np_dtype(self.precision))
-
-    @property
-    def simsafe_precision(self) -> type:
-        """Return CUDA-sim-safe type for precision."""
-        return simsafe_dtype(np_dtype(self.precision))
 
     @property
     def settings_dict(self) -> Dict[str, Any]:
@@ -562,11 +558,6 @@ class LinearSolver(CUDAFactory):
     def device_function(self) -> Callable:
         """Return cached linear solver device function."""
         return self.get_cached_output("linear_solver")
-
-    @property
-    def precision(self) -> PrecisionDType:
-        """Return configured precision."""
-        return self.compile_settings.precision
 
     @property
     def n(self) -> int:

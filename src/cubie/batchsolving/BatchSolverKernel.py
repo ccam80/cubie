@@ -11,10 +11,8 @@ from typing import (
     Tuple,
     Union,
 )
-import hashlib
-from pathlib import Path
-from typing import TYPE_CHECKING, Any, Callable, Dict, List, Optional, Tuple, Union
 from warnings import warn
+from pathlib import Path
 
 from numpy import ceil as np_ceil, float64 as np_float64, floating
 from numba import cuda, float64
@@ -22,8 +20,8 @@ from numba import int32
 
 from attrs import define, field
 
-from cubie.cubie_cache import CUBIECache
 from cubie.cuda_simsafe import is_cudasim_enabled, compile_kwargs
+from cubie.cubie_cache import CUBIECache
 from cubie.time_logger import CUDAEvent
 from numpy.typing import NDArray
 
@@ -43,7 +41,7 @@ from cubie.outputhandling.output_sizes import (
 )
 from cubie.outputhandling.output_config import OutputCompileFlags
 from cubie.integrators.SingleIntegratorRun import SingleIntegratorRun
-from cubie._utils import PrecisionDType, unpack_dict_values
+from cubie._utils import unpack_dict_values
 
 if TYPE_CHECKING:
     from cubie.memory import MemoryManager
@@ -262,8 +260,8 @@ class BatchSolverKernel(CUDAFactory):
         elif isinstance(cache, Path):
             return CacheConfig(enabled=True, cache_dir=cache)
         elif isinstance(cache, str):
-            if cache == 'flush_on_change':
-                return CacheConfig(enabled=True, mode='flush_on_change')
+            if cache == "flush_on_change":
+                return CacheConfig(enabled=True, mode="flush_on_change")
             else:
                 return CacheConfig(enabled=True, cache_dir=Path(cache))
         else:
@@ -847,21 +845,20 @@ class BatchSolverKernel(CUDAFactory):
 
         # Attach file-based caching if enabled and not in simulator mode
         cache_config = self.compile_settings.cache_config
-        if cache_config.enabled:
+        if cache_config.enabled and not is_cudasim_enabled():
             system = self.single_integrator.system
-            system_name = getattr(system, 'name', 'anonymous')
+            system_name = getattr(system, "name", "anonymous")
             system_hash = system.fn_hash
 
             cache = CUBIECache(
                 system_name=system_name,
                 system_hash=system_hash,
-                compile_settings=self.compile_settings,
+                config_hash=self.config_hash,
                 max_entries=cache_config.max_entries,
                 mode=cache_config.mode,
                 custom_cache_dir=cache_config.cache_dir,
             )
             integration_kernel._cache = cache
-
 
         return integration_kernel
 
@@ -942,12 +939,6 @@ class BatchSolverKernel(CUDAFactory):
 
         # Include unpacked dict keys in recognized set
         return recognised | unpacked_keys
-
-    @property
-    def precision(self) -> PrecisionDType:
-        """Precision dtype used in computations."""
-
-        return self.compile_settings.precision
 
     @property
     def local_memory_elements(self) -> int:
@@ -1037,14 +1028,12 @@ class BatchSolverKernel(CUDAFactory):
             try:
                 system = self.single_integrator.system
                 system_name = getattr(system, "name", "anonymous")
-                if hasattr(system, "system_hash"):
-                    system_hash = system.system_hash
-                else:
-                    system_hash = hashlib.sha256(b"").hexdigest()
+                system_hash = system.fn_hash
+
                 cache = CUBIECache(
                     system_name=system_name,
                     system_hash=system_hash,
-                    compile_settings=self.compile_settings,
+                    config_hash=self.config_hash,
                     max_entries=cache_config.max_entries,
                     mode=cache_config.mode,
                     custom_cache_dir=cache_config.cache_dir,
@@ -1055,18 +1044,18 @@ class BatchSolverKernel(CUDAFactory):
 
     def instantiate_cache(self):
         cache_config = self.compile_settings.cache_config
-        if cache_config.enabled:
+        if cache_config.enabled and not is_cudasim_enabled():
             system = self.single_integrator.system
-            system_name = getattr(system, 'name', 'anonymous')
+            system_name = getattr(system, "name", "anonymous")
             system_hash = system.fn_hash
 
             cache = CUBIECache(
-                    system_name=system_name,
-                    system_hash=system_hash,
-                    compile_settings=self.compile_settings,
-                    max_entries=cache_config.max_entries,
-                    mode=cache_config.mode,
-                    custom_cache_dir=cache_config.cache_dir,
+                system_name=system_name,
+                system_hash=system_hash,
+                config_hash=self.config_hash,
+                max_entries=cache_config.max_entries,
+                mode=cache_config.mode,
+                custom_cache_dir=cache_config.cache_dir,
             )
             return cache
         return None

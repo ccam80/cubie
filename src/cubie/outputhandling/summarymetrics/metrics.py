@@ -205,10 +205,6 @@ class SummaryMetric(CUDAFactory):
 
         return self.get_cached_output("save")
 
-    @property
-    def precision(self) -> type[floating]:
-        """Numerical precision for metric calculations."""
-        return self.compile_settings.precision
 
     def update(self, **kwargs) -> None:
         """Update metric compile settings.

@@ -13,9 +13,16 @@ def unique_odefile():
     name = f"test_{uuid.uuid4().hex}"
     odefile = ODEFile(name, "hash1")
     yield odefile, name
-    generated = Path("generated") / f"{name}.py"
-    if generated.exists():
-        generated.unlink()
+    generated_dir = Path("generated") / name
+    if generated_dir.exists():
+        try:
+            import shutil
+
+            shutil.rmtree(generated_dir)
+        except OSError:
+            # Race condition guard; another thread already removed it or is
+            # using it
+            pass
 
 
 def _simple_code(func_name: str) -> str:
@@ -67,9 +74,11 @@ def test_import_reinitialises_on_hash_change(unique_odefile):
 
 # New tests covering additional caching and generation behavior
 
+
 def test_creates_generated_dir_when_missing(tmp_path, monkeypatch):
     # Point GENERATED_DIR to a temp path and ensure it doesn't exist
     from cubie.odesystems import symbolic as symbolic_pkg
+
     odefile_mod = symbolic_pkg.odefile
     temp_gen = tmp_path / "generated_temp"
     if temp_gen.exists():
@@ -83,8 +92,9 @@ def test_creates_generated_dir_when_missing(tmp_path, monkeypatch):
     odef = ODEFile(name, "hashX")
     # Directory should have been created
     assert temp_gen.exists() and temp_gen.is_dir()
-    # File should be within the new directory
-    assert odef.file_path.parent == temp_gen
+    # File should be within the system-specific subdirectory
+    assert odef.file_path.parent.parent == temp_gen
+    assert odef.file_path.parent.name == name
 
 
 def test_cache_persists_across_instances_same_hash(unique_odefile):
@@ -122,7 +132,9 @@ def test_malformed_cached_function_triggers_regeneration(unique_odefile):
     with pytest.raises(ValueError):
         odefile.import_function("foo_factory")
     # Providing code should append a correct definition that is importable
-    factory = odefile.import_function("foo_factory", _simple_code("foo_factory"))
+    factory = odefile.import_function(
+        "foo_factory", _simple_code("foo_factory")
+    )
     assert factory()() == 1
 
 
