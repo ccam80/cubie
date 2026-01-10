@@ -48,8 +48,6 @@ class LinearSolverConfig(MatrixFreeSolverConfig):
         Device function for approximate inverse preconditioner.
     linear_correction_type : str
         Line-search strategy ('steepest_descent' or 'minimal_residual').
-    krylov_tolerance : float
-        Target on squared residual norm for convergence (legacy scalar).
     kyrlov_max_iters : int
         Maximum iterations permitted (alias for max_iters).
     preconditioned_vec_location : str
@@ -80,9 +78,6 @@ class LinearSolverConfig(MatrixFreeSolverConfig):
         default="minimal_residual",
         validator=validators.in_(["steepest_descent", "minimal_residual"]),
     )
-    _krylov_tolerance: float = field(
-        default=1e-6, validator=gttype_validator(float, 0)
-    )
     kyrlov_max_iters: int = field(
         default=100, validator=inrangetype_validator(int, 1, 32767)
     )
@@ -98,11 +93,6 @@ class LinearSolverConfig(MatrixFreeSolverConfig):
         super().__attrs_post_init__()
 
     @property
-    def krylov_tolerance(self) -> float:
-        """Return tolerance in configured precision."""
-        return self.precision(self._krylov_tolerance)
-
-    @property
     def settings_dict(self) -> Dict[str, Any]:
         """Return linear solver configuration as dictionary.
 
@@ -115,7 +105,6 @@ class LinearSolverConfig(MatrixFreeSolverConfig):
             norm factory.
         """
         return {
-            "krylov_tolerance": self.krylov_tolerance,
             "kyrlov_max_iters": self.kyrlov_max_iters,
             "linear_correction_type": self.linear_correction_type,
             "preconditioned_vec_location": self.preconditioned_vec_location,
@@ -583,11 +572,6 @@ class LinearSolver(MatrixFreeSolver):
     def linear_correction_type(self) -> str:
         """Return correction strategy."""
         return self.compile_settings.linear_correction_type
-
-    @property
-    def krylov_tolerance(self) -> float:
-        """Return convergence tolerance."""
-        return self.compile_settings.krylov_tolerance
 
     @property
     def krylov_atol(self) -> ndarray:

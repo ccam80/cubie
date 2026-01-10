@@ -359,11 +359,6 @@ class ODEImplicitStep(BaseAlgorithmStep):
         return int(self.compile_settings.preconditioner_order)
 
     @property
-    def krylov_tolerance(self) -> float:
-        """Return the tolerance used for the linear solve."""
-        return self.solver.krylov_tolerance
-
-    @property
     def krylov_atol(self) -> ndarray:
         """Return the absolute tolerance array for linear solve."""
         return self.solver.krylov_atol

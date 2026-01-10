@@ -74,7 +74,8 @@ def solver_device(request, placeholder_operator, precision):
         precision=precision,
         n=3,
         linear_correction_type=request.param,
-        krylov_tolerance=1e-12,
+        krylov_atol=1e-12,
+        krylov_rtol=1e-12,
         kyrlov_max_iters=32,
     )
     solver.update(operator_apply=placeholder_operator)
@@ -143,7 +144,8 @@ def test_linear_solver_symbolic(
         precision=precision,
         n=n,
         linear_correction_type=linear_correction_type,
-        krylov_tolerance=1e-8,
+        krylov_atol=1e-8,
+        krylov_rtol=1e-8,
         kyrlov_max_iters=1000,
     )
     solver.update(operator_apply=operator, preconditioner=precond)
@@ -180,7 +182,8 @@ def test_linear_solver_max_iters_exceeded(solver_kernel, precision):
         precision=precision,
         n=n,
         linear_correction_type="minimal_residual",
-        krylov_tolerance=1e-20,
+        krylov_atol=1e-20,
+        krylov_rtol=1e-20,
         kyrlov_max_iters=16,
     )
     solver.update(operator_apply=zero_operator)
@@ -377,9 +380,8 @@ def test_linear_solver_config_no_tolerance_fields(precision):
     assert not hasattr(config, 'krylov_atol')
     assert not hasattr(config, 'krylov_rtol')
 
-    # The legacy scalar tolerance should still exist
-    assert hasattr(config, 'krylov_tolerance')
-    assert config.krylov_tolerance == precision(1e-6)
+    # The legacy scalar tolerance should no longer exist
+    assert not hasattr(config, 'krylov_tolerance')
 
 
 def test_linear_solver_config_settings_dict_excludes_tolerance_arrays(precision):
@@ -395,8 +397,10 @@ def test_linear_solver_config_settings_dict_excludes_tolerance_arrays(precision)
     assert 'krylov_atol' not in settings
     assert 'krylov_rtol' not in settings
 
+    # Legacy tolerance should not be in settings_dict
+    assert 'krylov_tolerance' not in settings
+
     # Other expected settings should be present
-    assert 'krylov_tolerance' in settings
     assert 'kyrlov_max_iters' in settings
     assert 'linear_correction_type' in settings
     assert 'preconditioned_vec_location' in settings
@@ -491,7 +495,6 @@ def test_linear_solver_settings_dict_includes_tolerance_arrays(precision):
     assert np.allclose(settings['krylov_rtol'], rtol)
 
     # Other expected settings from config should also be present
-    assert 'krylov_tolerance' in settings
     assert 'kyrlov_max_iters' in settings
     assert 'linear_correction_type' in settings
     assert 'preconditioned_vec_location' in settings

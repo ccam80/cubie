@@ -53,8 +53,6 @@ class NewtonKrylovConfig(MatrixFreeSolverConfig):
         Device function evaluating residuals.
     linear_solver_function : Optional[Callable]
         Device function for solving linear systems.
-    newton_tolerance : float
-        Residual norm threshold for convergence (legacy scalar).
     newton_max_iters : int
         Maximum Newton iterations permitted (alias for max_iters).
     newton_damping : float
@@ -592,11 +590,6 @@ class NewtonKrylov(MatrixFreeSolver):
     def newton_max_backtracks(self) -> int:
         """Return maximum backtracking steps."""
         return self.compile_settings.newton_max_backtracks
-
-    @property
-    def krylov_tolerance(self) -> float:
-        """Return krylov tolerance from nested linear solver."""
-        return self.linear_solver.krylov_tolerance
 
     @property
     def krylov_atol(self) -> ndarray:

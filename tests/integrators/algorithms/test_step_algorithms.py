@@ -946,9 +946,9 @@ def _execute_cpu_step_twice(
         cpu_system,
         driver_evaluator,
         solver_settings["algorithm"],
-        newton_tol=solver_settings["newton_tolerance"],
+        newton_tol=solver_settings["newton_atol"],
         newton_max_iters=solver_settings["newton_max_iters"],
-        linear_tol=solver_settings["krylov_tolerance"],
+        linear_tol=solver_settings["krylov_atol"],
         linear_max_iters=solver_settings["kyrlov_max_iters"],
         linear_correction_type=solver_settings["linear_correction_type"],
         preconditioner_order=solver_settings["preconditioner_order"],
@@ -1012,9 +1012,9 @@ def cpu_step_results(
         cpu_system,
         driver_evaluator,
         solver_settings["algorithm"],
-        newton_tol=solver_settings["newton_tolerance"],
+        newton_tol=solver_settings["newton_atol"],
         newton_max_iters=solver_settings["newton_max_iters"],
-        linear_tol=solver_settings["krylov_tolerance"],
+        linear_tol=solver_settings["krylov_atol"],
         linear_max_iters=solver_settings["kyrlov_max_iters"],
         linear_correction_type=solver_settings["linear_correction_type"],
         preconditioner_order=solver_settings["preconditioner_order"],
@@ -1251,11 +1251,16 @@ def test_algorithm(
             assert step_object.linear_correction_type == solver_settings[
                 "linear_correction_type"
             ], "linear_correction_type set"
-            assert step_object.krylov_tolerance == pytest.approx(
-                solver_settings["krylov_tolerance"],
+            assert step_object.krylov_atol == pytest.approx(
+                solver_settings["krylov_atol"],
                 rel=tolerance.rel_tight,
                 abs=tolerance.abs_tight,
-            ), "krylov_tolerance set"
+            ), "krylov_atol set"
+            assert step_object.krylov_rtol == pytest.approx(
+                solver_settings["krylov_rtol"],
+                rel=tolerance.rel_tight,
+                abs=tolerance.abs_tight,
+            ), "krylov_rtol set"
         else:
             matrix = config.M
             assert matrix.shape == (system.sizes.states, system.sizes.states)
@@ -1274,16 +1279,26 @@ def test_algorithm(
             assert step_object.newton_max_backtracks == solver_settings[
                 "newton_max_backtracks"
             ], "newton_max_backtracks set"
-            assert step_object.krylov_tolerance == pytest.approx(
-                solver_settings["krylov_tolerance"],
+            assert step_object.krylov_atol == pytest.approx(
+                solver_settings["krylov_atol"],
                 rel=tolerance.rel_tight,
                 abs=tolerance.abs_tight,
-            ), "krylov_tolerance set"
-            assert step_object.newton_tolerance == pytest.approx(
-                solver_settings["newton_tolerance"],
+            ), "krylov_atol set"
+            assert step_object.krylov_rtol == pytest.approx(
+                solver_settings["krylov_rtol"],
                 rel=tolerance.rel_tight,
                 abs=tolerance.abs_tight,
-            ), "newton_tolerance set"
+            ), "krylov_rtol set"
+            assert step_object.newton_atol == pytest.approx(
+                solver_settings["newton_atol"],
+                rel=tolerance.rel_tight,
+                abs=tolerance.abs_tight,
+            ), "newton_atol set"
+            assert step_object.newton_rtol == pytest.approx(
+                solver_settings["newton_rtol"],
+                rel=tolerance.rel_tight,
+                abs=tolerance.abs_tight,
+            ), "newton_rtol set"
             assert step_object.newton_damping == pytest.approx(
                 solver_settings["newton_damping"],
                 rel=tolerance.rel_tight,
@@ -1297,7 +1312,8 @@ def test_algorithm(
                 "kyrlov_max_iters": max(
                     1, solver_settings["kyrlov_max_iters"] // 2
                 ),
-                "krylov_tolerance": solver_settings["krylov_tolerance"] * 0.5,
+                "krylov_atol": solver_settings["krylov_atol"] * 0.5,
+                "krylov_rtol": solver_settings["krylov_rtol"] * 0.5,
                 "linear_correction_type": "steepest_descent",
             }
             recognised = step_object.update(updates)
@@ -1307,20 +1323,29 @@ def test_algorithm(
                 "kyrlov_max_iters update"
             assert step_object.linear_correction_type == updates[
                 "linear_correction_type"], "linear_correction_type update"
-            assert step_object.krylov_tolerance == pytest.approx(
-                updates["krylov_tolerance"],
+            assert step_object.krylov_atol == pytest.approx(
+                updates["krylov_atol"],
                 rel=tolerance.rel_tight,
                 abs=tolerance.abs_tight,
-            ), "krylov_tolerance update"
+            ), "krylov_atol update"
+            assert step_object.krylov_rtol == pytest.approx(
+                updates["krylov_rtol"],
+                rel=tolerance.rel_tight,
+                abs=tolerance.abs_tight,
+            ), "krylov_rtol update"
         else:
             updates = {
                 "newton_max_iters": int(
                     max(1, solver_settings["newton_max_iters"] // 2)
                 ),
-                "krylov_tolerance":
-                solver_settings["krylov_tolerance"] * 0.5,
-                "newton_tolerance":
-                solver_settings["newton_tolerance"] * 0.5,
+                "krylov_atol":
+                solver_settings["krylov_atol"] * 0.5,
+                "krylov_rtol":
+                solver_settings["krylov_rtol"] * 0.5,
+                "newton_atol":
+                solver_settings["newton_atol"] * 0.5,
+                "newton_rtol":
+                solver_settings["newton_rtol"] * 0.5,
                 "newton_damping":
                 solver_settings["newton_damping"] * 0.9,
                 "preconditioner_order":
@@ -1334,16 +1359,26 @@ def test_algorithm(
             assert step_object.preconditioner_order == updates[
                 "preconditioner_order"
             ], "preconditioner_order update"
-            assert step_object.krylov_tolerance == pytest.approx(
-                updates["krylov_tolerance"],
+            assert step_object.krylov_atol == pytest.approx(
+                updates["krylov_atol"],
                 rel=tolerance.rel_tight,
                 abs=tolerance.abs_tight,
-            ), "krylov_tolerance update"
-            assert step_object.newton_tolerance == pytest.approx(
-                updates["newton_tolerance"],
+            ), "krylov_atol update"
+            assert step_object.krylov_rtol == pytest.approx(
+                updates["krylov_rtol"],
                 rel=tolerance.rel_tight,
                 abs=tolerance.abs_tight,
-            ), "newton_tolerance update"
+            ), "krylov_rtol update"
+            assert step_object.newton_atol == pytest.approx(
+                updates["newton_atol"],
+                rel=tolerance.rel_tight,
+                abs=tolerance.abs_tight,
+            ), "newton_atol update"
+            assert step_object.newton_rtol == pytest.approx(
+                updates["newton_rtol"],
+                rel=tolerance.rel_tight,
+                abs=tolerance.abs_tight,
+            ), "newton_rtol update"
             assert step_object.newton_damping == pytest.approx(
                 updates["newton_damping"],
                 rel=tolerance.rel_tight,
