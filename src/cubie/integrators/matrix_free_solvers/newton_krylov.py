@@ -85,9 +85,6 @@ class NewtonKrylovConfig(MatrixFreeSolverConfig):
         validator=validators.optional(is_device_validator),
         eq=False,
     )
-    newton_max_iters: int = field(
-        default=100, validator=inrangetype_validator(int, 1, 32767)
-    )
     _newton_damping: float = field(
         default=0.5, validator=inrangetype_validator(float, 0, 1)
     )
@@ -185,21 +182,11 @@ class NewtonKrylov(MatrixFreeSolver):
             parameters (newton_atol, newton_rtol) are passed to the
             norm factory. None values are ignored.
         """
-        # Extract tolerance kwargs for base class norm factory
-        atol = kwargs.pop("newton_atol", None)
-        rtol = kwargs.pop("newton_rtol", None)
 
-        # Initialize base class with norm factory
-        super().__init__(
-            precision=precision,
-            solver_type="newton",
-            n=n,
-            atol=atol,
-            rtol=rtol,
+        # Conflict here
+        compile_settings = NewtonKrylovConfig.init_from_prefixed(
+            precision=precision, n=n, **kwargs
         )
-
-        self.linear_solver = linear_solver
-
         config = build_config(
             NewtonKrylovConfig,
             required={
@@ -208,11 +195,16 @@ class NewtonKrylov(MatrixFreeSolver):
             },
             **kwargs,
         )
+        super().__init__(
+            precision=precision,
+            solver_type="newton",
+            n=n,
+            # atol=atol,
+            # rtol=rtol,
+        )
 
-        self.setup_compile_settings(config)
-
-        # Update config with norm device function
-        self._update_norm_and_config({})
+        self.linear_solver = linear_solver
+        self.setup_compile_settings(compile_settings)
 
         self.register_buffers()
 
@@ -272,6 +264,7 @@ class NewtonKrylov(MatrixFreeSolver):
         # Extract parameters from config
         residual_function = config.residual_function
         linear_solver_fn = config.linear_solver_function
+        scaled_norm_fn = config.norm_device_function
 
         n = config.n
         newton_max_iters = config.newton_max_iters
@@ -285,9 +278,6 @@ class NewtonKrylov(MatrixFreeSolver):
         n_val = int32(n)
         max_iters_val = int32(newton_max_iters)
         max_backtracks_val = int32(newton_max_backtracks + 1)
-
-        # Get scaled norm device function from config
-        scaled_norm_fn = config.norm_device_function
 
         # Get allocators from buffer_registry
         get_alloc = buffer_registry.get_allocator
@@ -533,15 +523,8 @@ class NewtonKrylov(MatrixFreeSolver):
 
         # Forward krylov-prefixed params to linear solver
         recognized |= self.linear_solver.update(all_updates, silent=True)
-
-        # Delegate tolerance extraction and compile settings to base class
+        # update norm and compile settings through base solver class
         recognized |= super().update(all_updates, silent=True)
-
-        # Update device function reference from linear solver
-        self.update_compile_settings(
-            linear_solver_function=self.linear_solver.device_function,
-            silent=True,
-        )
 
         # Buffer locations handled by registry
         recognized |= buffer_registry.update(

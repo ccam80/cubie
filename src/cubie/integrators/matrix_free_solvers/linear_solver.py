@@ -15,8 +15,6 @@ from numpy import dtype as np_dtype, ndarray
 from cubie._utils import (
     PrecisionDType,
     build_config,
-    gttype_validator,
-    inrangetype_validator,
     is_device_validator,
 )
 from cubie.integrators.matrix_free_solvers.base_solver import (
@@ -77,9 +75,6 @@ class LinearSolverConfig(MatrixFreeSolverConfig):
     linear_correction_type: str = field(
         default="minimal_residual",
         validator=validators.in_(["steepest_descent", "minimal_residual"]),
-    )
-    kyrlov_max_iters: int = field(
-        default=100, validator=inrangetype_validator(int, 1, 32767)
     )
     preconditioned_vec_location: str = field(
         default="local", validator=validators.in_(["local", "shared"])
@@ -152,19 +147,10 @@ class LinearSolver(MatrixFreeSolver):
             parameters (krylov_atol, krylov_rtol) are passed to the
             norm factory. None values are ignored.
         """
-        # Extract tolerance kwargs for base class norm factory
-        atol = kwargs.pop("krylov_atol", None)
-        rtol = kwargs.pop("krylov_rtol", None)
-
-        # Initialize base class with norm factory
-        super().__init__(
-            precision=precision,
-            solver_type="krylov",
-            n=n,
-            atol=atol,
-            rtol=rtol,
+        # Conflict here
+        compile_settings = LinearSolverConfig.init_from_prefixed(
+            precision=precision, n=n, **kwargs
         )
-
         config = build_config(
             LinearSolverConfig,
             required={
@@ -173,10 +159,15 @@ class LinearSolver(MatrixFreeSolver):
             },
             **kwargs,
         )
-        self.setup_compile_settings(config)
+        super().__init__(
+            precision=precision,
+            solver_type="krylov",
+            n=n,
+            # atol=atol,
+            # rtol=rtol,
+        )
 
-        # Update config with norm device function
-        self._update_norm_and_config({})
+        self.setup_compile_settings(compile_settings)
 
         self.register_buffers()
 
@@ -214,9 +205,12 @@ class LinearSolver(MatrixFreeSolver):
         """
         config = self.compile_settings
 
-        # Extract parameters from config
+        # Device Functions
         operator_apply = config.operator_apply
         preconditioner = config.preconditioner
+        scaled_norm_fn = config.norm_device_function
+
+        # Config parameters
         n = config.n
         linear_correction_type = config.linear_correction_type
         kyrlov_max_iters = config.kyrlov_max_iters
@@ -229,7 +223,6 @@ class LinearSolver(MatrixFreeSolver):
         preconditioned = preconditioner is not None
 
         # Get scaled norm device function from config
-        scaled_norm_fn = config.norm_device_function
 
         # Convert types for device function
         n_val = int32(n)

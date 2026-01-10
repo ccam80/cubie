@@ -556,6 +556,109 @@ class CUDAFactory(ABC):
         return self.compile_settings.simsafe_precision
 
 
+@define
+class MultipleInstanceCUDAFactoryConfig(CUDAFactoryConfig):
+    """Compile settings for MultipleInstanceCUDAFactory."""
+
+    instance_label: str = field(default="", repr=False, eq=False)
+    prefixed_attributes: Set[str] = field(
+        factory=set,
+        repr=False,
+        eq=False,
+    )
+
+    @classmethod
+    def get_prefixed_attributes(cls) -> Set[str]:
+        """Return names of attributes that use instance-specific prefixes.
+
+        Returns
+        -------
+        set[str]
+            Names of attributes that are prefixed based on
+            ``instance_label``.
+        """
+        return {
+            fld.name
+            for fld in fields(cls)
+            if fld.metadata.get("prefixed", True)
+        }
+
+    def _attrs_post_init__(self):
+        super().__attrs_post_init__()
+        if self.instance_label != "":
+            prefixed_attributes = set(
+                fld.name
+                for fld in fields(type(self))
+                if fld.metadata.get("prefixed", True)
+            )
+            self.prefixed_attributes = prefixed_attributes
+
+    def update(
+        self, updates_dict: dict = None, **kwargs
+    ) -> Tuple[Set[str], Set[str]]:
+        """Update configuration fields with new values, handling prefixed keys.
+
+        Parameters
+        ----------
+        updates_dict
+            Mapping of setting names to new values. Keys matching
+            ``{prefix}_*`` are mapped to unprefixed equivalents.
+        kwargs
+            Additional settings to update.
+
+        Returns
+        -------
+        tuple[set[str], set[str]]
+            recognized: Names of settings that matched known fields.
+            changed: Names of settings whose values were updated.
+        """
+        all_updates = {}
+        if updates_dict:
+            all_updates.update(updates_dict)
+        all_updates.update(kwargs)
+
+        for key in self.prefixed_attributes:
+            if key in all_updates:
+                # Don't respond to unprefixed keys if both forms are present
+                all_updates.pop(key)
+
+            prefixed_key = f"{self.prefix}_{key}"
+            if prefixed_key in all_updates:
+                all_updates[key] = all_updates.pop(prefixed_key)
+
+        recognized_prefixed = super().update(all_updates)
+
+        recognized = set()
+        for key in recognized_prefixed:
+            if key in self.prefixed_attributes:
+                recognized.add(f"{self.prefix}_{key}")
+            else:
+                recognized.add(key)
+        return recognized
+
+    @classmethod
+    def init_from_prefixed(cls, **kwargs) -> Set[str]:
+        """Initialise the MultipleInstanceCUDAFactoryConfig object from
+        prefixed attributes."""
+        init_kwargs = {}
+        instance_label = kwargs.get("instance_label", "")
+        if not instance_label:
+            raise ValueError(
+                "instance_label cannot be empty or None; "
+                "provide a non-empty string prefix (e.g., 'krylov')."
+            )
+        prefixed_attributes = cls.get_prefixed_attributes()
+        for key, value in kwargs.items():
+            if key in prefixed_attributes:
+                init_kwargs[key] = value
+            else:
+                prefixed_key = f"{instance_label}_{key}"
+                if prefixed_key in kwargs:
+                    init_kwargs[key] = kwargs[prefixed_key]
+        init_kwargs["instance_label"] = instance_label
+        return cls(**init_kwargs)
+
+
 class MultipleInstanceCUDAFactory(CUDAFactory):
     """Factory for CUDA device functions with instance-specific prefixes.
 
@@ -583,8 +686,12 @@ class MultipleInstanceCUDAFactory(CUDAFactory):
        takes precedence when both are present
     """
 
-    def __init__(self, instance_label: str) -> None:
-        """Initialize with instance label for prefix mapping.
+    def __init__(
+        self,
+        instance_label: str,
+    ) -> None:
+        """Initialize with instance label for prefix mapping and arguments
+        for config.
 
         Parameters
         ----------
@@ -597,101 +704,4 @@ class MultipleInstanceCUDAFactory(CUDAFactory):
                 "instance_label cannot be empty or None; "
                 "provide a non-empty string prefix (e.g., 'krylov')."
             )
-        self.instance_label = instance_label
         super().__init__()
-
-    def transform_prefixed_keys(
-        self, updates_dict: Dict[str, Any] = None, **kwargs
-    ) -> Tuple[Dict[str, Any], Dict[str, str]]:
-        """Transform prefixed keys to unprefixed equivalents.
-
-        Separates keys matching ``{instance_label}_*`` from other keys
-        and returns both the transformed dict and a mapping of unprefixed
-        keys back to their original prefixed forms.
-
-        Parameters
-        ----------
-        updates_dict : dict, optional
-            Mapping of setting names to values.
-        **kwargs
-            Additional settings.
-
-        Returns
-        -------
-        tuple[dict, dict]
-            transformed: Dict with prefixed keys converted to unprefixed.
-            key_mapping: Dict mapping unprefixed keys to original prefixed
-            keys.
-        """
-        if updates_dict is None:
-            updates_dict = {}
-        updates_dict = updates_dict.copy()
-        updates_dict.update(kwargs)
-
-        if not updates_dict:
-            return {}, {}
-
-        prefix = f"{self.instance_label}_"
-        transformed = {}
-        key_mapping = {}
-
-        for key, value in updates_dict.items():
-            if key.startswith(prefix):
-                unprefixed = key[len(prefix):]
-                transformed[unprefixed] = value
-                key_mapping[unprefixed] = key
-            else:
-                transformed[key] = value
-
-        return transformed, key_mapping
-
-    def update_compile_settings(
-        self, updates_dict=None, silent=False, **kwargs
-    ) -> Set[str]:
-        """Update compile settings with automatic prefix mapping.
-
-        Intercepts update dicts to map prefixed keys (e.g.,
-        ``krylov_max_iters``) to unprefixed keys (e.g., ``max_iters``)
-        before forwarding to the parent class.
-
-        Parameters
-        ----------
-        updates_dict : dict, optional
-            Mapping of setting names to new values. Keys matching
-            ``{instance_label}_*`` are mapped to unprefixed equivalents.
-        silent : bool, default=False
-            Suppress errors for unrecognised parameters.
-        **kwargs
-            Additional settings to update.
-
-        Returns
-        -------
-        set[str]
-            Names of settings that were successfully updated. Returns
-            the ORIGINAL prefixed keys when prefixed versions were used.
-        """
-        if updates_dict is None:
-            updates_dict = {}
-        updates_dict = updates_dict.copy()
-        updates_dict.update(kwargs)
-
-        if not updates_dict:
-            return set()
-
-        # Transform prefixed keys and get mapping
-        transformed, key_mapping = self.transform_prefixed_keys(updates_dict)
-
-        # Call parent with transformed dict
-        recognized_unprefixed = super().update_compile_settings(
-            updates_dict=transformed, silent=silent
-        )
-
-        # Map recognized keys back to original prefixed forms
-        recognized = set()
-        for key in recognized_unprefixed:
-            if key in key_mapping:
-                recognized.add(key_mapping[key])
-            else:
-                recognized.add(key)
-
-        return recognized

@@ -20,19 +20,21 @@ from cubie._utils import (
     tol_converter,
 )
 from cubie.CUDAFactory import (
-    CUDAFactory,
     CUDADispatcherCache,
-    CUDAFactoryConfig,
+    MultipleInstanceCUDAFactoryConfig,
+    MultipleInstanceCUDAFactory,
 )
 from cubie.cuda_simsafe import compile_kwargs
 
 
 @define
-class ScaledNormConfig(CUDAFactoryConfig):
+class ScaledNormConfig(MultipleInstanceCUDAFactoryConfig):
     """Configuration for ScaledNorm factory compilation.
 
     Attributes
     ----------
+    precision : PrecisionDType
+        Numerical precision for computations.
     n : int
         Size of vectors to compute norm over.
     atol : ndarray
@@ -41,16 +43,18 @@ class ScaledNormConfig(CUDAFactoryConfig):
         Relative tolerance array of shape (n,).
     """
 
-    n: int = field(validator=getype_validator(int, 1))
+    n: int = field(default=0, validator=getype_validator(int, 1))
     atol: ndarray = field(
         default=asarray([1e-6]),
         validator=float_array_validator,
         converter=Converter(tol_converter, takes_self=True),
+        metadata={"prefixed": True},
     )
     rtol: ndarray = field(
         default=asarray([1e-6]),
         validator=float_array_validator,
         converter=Converter(tol_converter, takes_self=True),
+        metadata={"prefixed": True},
     )
 
     def __attrs_post_init__(self):
@@ -80,7 +84,7 @@ class ScaledNormCache(CUDADispatcherCache):
     scaled_norm: Callable = field(validator=is_device_validator)
 
 
-class ScaledNorm(CUDAFactory):
+class ScaledNorm(MultipleInstanceCUDAFactory):
     """Factory for scaled norm device functions.
 
     Compiles a CUDA device function that computes the mean squared
@@ -99,6 +103,7 @@ class ScaledNorm(CUDAFactory):
         self,
         precision: PrecisionDType,
         n: int,
+        instance_type: str = "",
         **kwargs,
     ) -> None:
         """Initialize ScaledNorm factory.
@@ -113,13 +118,15 @@ class ScaledNorm(CUDAFactory):
             Optional parameters passed to ScaledNormConfig including
             atol and rtol. None values are ignored.
         """
-        super().__init__()
+        super().__init__(instance_type=instance_type)
 
-        config = build_config(
+        config = build_config(  # Need to get init_from_prefixed into here
+            # somehow.
             ScaledNormConfig,
             required={
                 "precision": precision,
                 "n": n,
+                "instance_type": instance_type,
             },
             **kwargs,
         )

@@ -43,7 +43,9 @@ class MatrixFreeSolverConfig(CUDAFactoryConfig):
 
     n: int = field(validator=getype_validator(int, 1))
     max_iters: int = field(
-        default=100, validator=inrangetype_validator(int, 1, 32767)
+        default=100,
+        validator=inrangetype_validator(int, 1, 32767),
+        metadata={"prefixed": True},
     )
     norm_device_function: Optional[Callable] = field(default=None, eq=False)
 
@@ -73,9 +75,6 @@ class MatrixFreeSolver(MultipleInstanceCUDAFactory):
         precision: PrecisionDType,
         solver_type: str,
         n: int,
-        atol: Optional[Any] = None,
-        rtol: Optional[Any] = None,
-        max_iters: int = 100,
         **kwargs,
     ) -> None:
         """Initialize base solver with norm factory.
@@ -93,18 +92,11 @@ class MatrixFreeSolver(MultipleInstanceCUDAFactory):
         """
         self.solver_type = solver_type
         super().__init__(instance_label=solver_type)
-
-        # Build norm kwargs, filtering None values
-        norm_kwargs = {}
-        if atol is not None:
-            norm_kwargs["atol"] = atol
-        if rtol is not None:
-            norm_kwargs["rtol"] = rtol
-
         self.norm = ScaledNorm(
             precision=precision,
             n=n,
-            **norm_kwargs,
+            instance_type=solver_type,
+            **kwargs,
         )
 
     def update(
@@ -146,60 +138,8 @@ class MatrixFreeSolver(MultipleInstanceCUDAFactory):
 
         recognized = set()
 
-        # Transform prefixed keys and get mapping
-        transformed, key_mapping = self.transform_prefixed_keys(all_updates)
-
-        # Extract tolerance parameters from transformed dict
-        norm_updates = {}
-        if "atol" in transformed:
-            norm_updates["atol"] = transformed.pop("atol")
-        if "rtol" in transformed:
-            norm_updates["rtol"] = transformed.pop("rtol")
-
-        # Update norm factory and track recognized keys
-        if norm_updates:
-            self.norm.update(norm_updates, silent=True)
-            # Map tolerance keys back to original prefixed forms
-            for key in norm_updates:
-                if key in key_mapping:
-                    recognized.add(key_mapping[key])
-                else:
-                    recognized.add(key)
-
-        # Propagate norm device function to config
-        self._update_norm_and_config({})
-
-        # Forward remaining parameters to compile settings
-        if transformed:
-            recognized_from_settings = super().update_compile_settings(
-                updates_dict=transformed, silent=True
-            )
-            # Map recognized keys back to original prefixed forms
-            for key in recognized_from_settings:
-                if key in key_mapping:
-                    recognized.add(key_mapping[key])
-                else:
-                    recognized.add(key)
+        recognized |= self.norm.update(all_updates, silent=True)
+        all_updates.update({"norm_device_function": self.norm.device_function})
+        recognized |= self.update_compile_settings(all_updates, silent=True)
 
         return recognized
-
-    def _update_norm_and_config(
-        self,
-        norm_updates: Dict[str, Any],
-    ) -> None:
-        """Update norm factory and propagate device function to config.
-
-        Parameters
-        ----------
-        norm_updates : dict
-            Tolerance updates for norm factory.
-        """
-        if norm_updates:
-            self.norm.update(norm_updates, silent=True)
-
-        # Update config with current norm device function
-        # This triggers cache invalidation if the function changed
-        self.update_compile_settings(
-            norm_device_function=self.norm.device_function,
-            silent=True,
-        )
