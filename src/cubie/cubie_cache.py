@@ -21,7 +21,6 @@ from cubie.CUDAFactory import _CubieConfigBase
 from cubie._utils import getype_validator
 from cubie.cuda_simsafe import (
     _CacheLocator,
-    _CACHING_AVAILABLE,
     CacheImpl,
     CUDACache,
     IndexDataCacheFile,
@@ -273,7 +272,7 @@ class CUBIECache(CUDACache):
         self,
         system_name: str,
         system_hash: str,
-        config_hash: Optional[str] = None,
+        config_hash: str,
         max_entries: int = 10,
         mode: str = "hash",
         custom_cache_dir: Optional[Path] = None,
@@ -413,3 +412,8 @@ class CUBIECache(CUDACache):
             cache_path.mkdir(parents=True, exist_ok=True)
         except OSError:
             pass
+
+    @property
+    def cache_path(self) -> Path:
+        """Return the cache directory path."""
+        return Path(self._cache_path)

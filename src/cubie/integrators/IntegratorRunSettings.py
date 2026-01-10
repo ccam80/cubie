@@ -6,7 +6,6 @@ configuration for the CUDA IVP loop orchestrators.
 """
 
 import attrs
-import numba
 
 from cubie.CUDAFactory import CUDAFactoryConfig
 
@@ -34,4 +33,5 @@ class IntegratorRunSettings(CUDAFactoryConfig):
         validator=attrs.validators.instance_of(str),
     )
 
-
+    def __attrs_post_init__(self):
+        super().__attrs_post_init__()

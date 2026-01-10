@@ -143,7 +143,9 @@ def test_cubie_cache_init():
 @pytest.mark.nocudasim
 def test_cubie_cache_index_key():
     """Verify _index_key includes system and settings hashes."""
-    config_hash = "def456789012345678901234567890123456789012345678901234567890abcd"
+    config_hash = (
+        "def456789012345678901234567890123456789012345678901234567890abcd"
+    )
     cache = CUBIECache(
         system_name="test_system",
         system_hash="abc123",
@@ -176,8 +178,8 @@ def test_cubie_cache_path():
         system_hash="abc123",
         config_hash="def456789012345678901234567890123456789012345678901234567890abcd",
     )
-    assert "test_system" in cache.cache_path
-    assert "cache" in cache.cache_path
+    assert "test_system" in str(cache.cache_path)
+    assert "cache" in str(cache.cache_path)
 
 
 # --- BatchSolverKernel integration tests ---

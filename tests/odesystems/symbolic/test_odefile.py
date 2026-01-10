@@ -13,7 +13,7 @@ def unique_odefile():
     name = f"test_{uuid.uuid4().hex}"
     odefile = ODEFile(name, "hash1")
     yield odefile, name
-    generated = Path("generated") / f"{name}.py"
+    generated = Path("generated") / f"{name}" / f"{name}.py"
     if generated.exists():
         generated.unlink()
 
@@ -67,9 +67,11 @@ def test_import_reinitialises_on_hash_change(unique_odefile):
 
 # New tests covering additional caching and generation behavior
 
+
 def test_creates_generated_dir_when_missing(tmp_path, monkeypatch):
     # Point GENERATED_DIR to a temp path and ensure it doesn't exist
     from cubie.odesystems import symbolic as symbolic_pkg
+
     odefile_mod = symbolic_pkg.odefile
     temp_gen = tmp_path / "generated_temp"
     if temp_gen.exists():
@@ -123,7 +125,9 @@ def test_malformed_cached_function_triggers_regeneration(unique_odefile):
     with pytest.raises(ValueError):
         odefile.import_function("foo_factory")
     # Providing code should append a correct definition that is importable
-    factory = odefile.import_function("foo_factory", _simple_code("foo_factory"))
+    factory = odefile.import_function(
+        "foo_factory", _simple_code("foo_factory")
+    )
     assert factory()() == 1
 
 

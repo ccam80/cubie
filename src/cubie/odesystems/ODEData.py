@@ -8,7 +8,6 @@ from attrs.validators import (
     optional as attrsval_optional,
 )
 
-from numba import from_dtype as numba_from_dtype
 
 from cubie.CUDAFactory import CUDAFactoryConfig
 from cubie._utils import (
@@ -104,6 +103,9 @@ class ODEData(CUDAFactoryConfig):
     )
     num_drivers: int = field(validator=attrsval_instance_of(int), default=1)
     _mass: Any = field(default=None, eq=False)
+
+    def __attrs_post_init__(self):
+        super().__attrs_post_init__()
 
     def update_precisions(self, updates_dict):
         """Update precision of all values in the ODEData instance."""

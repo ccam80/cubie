@@ -11,34 +11,66 @@ from cubie.batchsolving.BatchSolverConfig import (
 )
 from cubie.cubie_cache import CUBIECache
 
+DEFAULT_CUBIE_CACHE_CONFIG_HASH = (
+    "def456789012345678901234567890123456789012345678901234567890abcd"
+)
+
+
+@pytest.fixture(scope="function")
+def cache_config(request):
+    """Fixture to create CacheConfig with optional overrides."""
+    params = getattr(request, "param", {})
+    return CacheConfig(
+        enabled=params.get("enabled", True),
+        mode=params.get("mode", "hash"),
+        max_entries=params.get("max_entries", 10),
+        cache_dir=params.get("cache_dir", None),
+    )
+
+
+@pytest.fixture(scope="function")
+def cubie_cache(request, tmp_path, precision):
+    """Fixture to create CUBIECache with optional overrides."""
+    params = getattr(request, "param", {})
+    system_name = "test_system"
+    system_hash = "abc123"
+    return CUBIECache(
+        system_name=system_name,
+        system_hash=system_hash,
+        config_hash=DEFAULT_CUBIE_CACHE_CONFIG_HASH,
+        max_entries=params.get("max_entries", 10),
+        mode=params.get("mode", "hash"),
+        custom_cache_dir=params.get("custom_cache_dir", None),
+    )
+
 
 @pytest.mark.nocudasim
 class TestCacheConfigDefaults:
     """Tests for CacheConfig default values."""
 
-    def test_cache_config_defaults(self, precision):
+    def test_cache_config_defaults(self, cache_config):
         """Verify CacheConfig has correct default values."""
-        config = CacheConfig()
-
-        assert config.enabled is True
-        assert config.mode == "hash"
-        assert config.max_entries == 10
-        assert config.cache_dir is None
+        assert cache_config.enabled is True
+        assert cache_config.mode == "hash"
+        assert cache_config.max_entries == 10
+        assert cache_config.cache_dir is None
 
 
 @pytest.mark.nocudasim
 class TestCacheConfigModeValidation:
     """Tests for CacheConfig mode validation."""
 
-    def test_cache_config_mode_hash_valid(self, precision):
-        """Verify mode 'hash' is accepted."""
-        config = CacheConfig(mode="hash")
-        assert config.mode == "hash"
-
-    def test_cache_config_mode_flush_on_change_valid(self, precision):
-        """Verify mode 'flush_on_change' is accepted."""
-        config = CacheConfig(mode="flush_on_change")
-        assert config.mode == "flush_on_change"
+    @pytest.mark.parametrize(
+        "cache_config,mode",
+        [
+            ({"mode": "hash"}, "hash"),
+            ({"mode": "flush_on_change"}, "flush_on_change"),
+        ],
+        indirect=["cache_config"],
+    )
+    def test_cache_config_mode_valid(self, cache_config, mode):
+        """Verify supported modes are accepted."""
+        assert cache_config.mode == mode
 
     def test_cache_config_mode_validation(self, precision):
         """Verify mode only accepts 'hash' or 'flush_on_change'."""
@@ -50,15 +82,17 @@ class TestCacheConfigModeValidation:
 class TestCacheConfigMaxEntriesValidation:
     """Tests for CacheConfig max_entries validation."""
 
-    def test_cache_config_max_entries_zero_valid(self, precision):
-        """Verify max_entries=0 is accepted (disables eviction)."""
-        config = CacheConfig(max_entries=0)
-        assert config.max_entries == 0
-
-    def test_cache_config_max_entries_positive_valid(self, precision):
-        """Verify positive max_entries is accepted."""
-        config = CacheConfig(max_entries=100)
-        assert config.max_entries == 100
+    @pytest.mark.parametrize(
+        "cache_config,expected",
+        [
+            ({"max_entries": 0}, 0),
+            ({"max_entries": 100}, 100),
+        ],
+        indirect=["cache_config"],
+    )
+    def test_cache_config_max_entries_valid(self, cache_config, expected):
+        """Verify max_entries accepts zero and positive values."""
+        assert cache_config.max_entries == expected
 
     def test_cache_config_max_entries_validation(self, precision):
         """Verify max_entries rejects negative values."""
@@ -70,23 +104,22 @@ class TestCacheConfigMaxEntriesValidation:
 class TestCacheConfigCacheDirConversion:
     """Tests for CacheConfig cache_dir conversion."""
 
-    def test_cache_config_cache_dir_none(self, precision):
-        """Verify cache_dir None is accepted."""
-        config = CacheConfig(cache_dir=None)
-        assert config.cache_dir is None
-
-    def test_cache_config_cache_dir_path(self, precision):
-        """Verify cache_dir Path is accepted."""
-        path = Path("/tmp/cache")
-        config = CacheConfig(cache_dir=path)
-        assert config.cache_dir == path
-        assert isinstance(config.cache_dir, Path)
-
-    def test_cache_config_cache_dir_conversion(self, precision):
-        """Verify str cache_dir converts to Path."""
-        config = CacheConfig(cache_dir="/tmp/cache")
-        assert config.cache_dir == Path("/tmp/cache")
-        assert isinstance(config.cache_dir, Path)
+    @pytest.mark.parametrize(
+        "cache_config,expected",
+        [
+            ({"cache_dir": None}, None),
+            ({"cache_dir": Path("/tmp/cache")}, Path("/tmp/cache")),
+            ({"cache_dir": "/tmp/cache"}, Path("/tmp/cache")),
+        ],
+        indirect=["cache_config"],
+    )
+    def test_cache_config_cache_dir_conversion(self, cache_config, expected):
+        """Verify cache_dir accepts optional Path or str inputs."""
+        if expected is None:
+            assert cache_config.cache_dir is None
+        else:
+            assert cache_config.cache_dir == expected
+            assert isinstance(cache_config.cache_dir, Path)
 
 
 @pytest.mark.nocudasim
@@ -133,23 +166,20 @@ class TestBatchSolverConfigCacheConfig:
 class TestCUBIECacheMaxEntries:
     """Tests for CUBIECache max_entries parameter."""
 
-    def test_cubie_cache_max_entries_stored(self, tmp_path, precision):
-        """Verify max_entries is stored on CUBIECache instance."""
-        compile_settings = BatchSolverConfig(
-            precision=precision,
-        )
-        cache = CUBIECache(
-            system_name="test_system", system_hash="abc123", max_entries=5
-        )
-        assert cache._max_entries == 5
+    @pytest.mark.parametrize(
+        "cubie_cache,max_entries",
+        [
+            ({"max_entries": 5}, 5),
+        ],
+        indirect=["cubie_cache"],
+    )
+    def test_cubie_cache_max_entries_stored(self, cubie_cache, max_entries):
+        """Verify max_entries override is retained."""
+        assert cubie_cache._max_entries == max_entries
 
-    def test_cubie_cache_max_entries_default(self, tmp_path, precision):
+    def test_cubie_cache_max_entries_default(self, cubie_cache):
         """Verify max_entries defaults to 10."""
-        compile_settings = BatchSolverConfig(
-            precision=precision,
-        )
-        cache = CUBIECache(system_name="test_system", system_hash="abc123")
-        assert cache._max_entries == 10
+        assert cubie_cache._max_entries == 10
 
 
 @pytest.mark.nocudasim
@@ -172,7 +202,10 @@ class TestEnforceCacheLimitNoEviction:
             precision=precision,
         )
         cache = CUBIECache(
-            system_name="test_system", system_hash="abc123", max_entries=10
+            system_name="test_system",
+            system_hash="abc123",
+            max_entries=10,
+            config_hash=DEFAULT_CUBIE_CACHE_CONFIG_HASH,
         )
         # Override cache path to use tmp_path
         cache._cache_path = str(cache_dir)
@@ -208,7 +241,10 @@ class TestEnforceCacheLimitEviction:
             precision=precision,
         )
         cache = CUBIECache(
-            system_name="test_system", system_hash="abc123", max_entries=3
+            system_name="test_system",
+            system_hash="abc123",
+            max_entries=3,
+            config_hash=DEFAULT_CUBIE_CACHE_CONFIG_HASH,
         )
         # Override cache path to use tmp_path
         cache._cache_path = str(cache_dir)
@@ -247,7 +283,10 @@ class TestEnforceCacheLimitDisabled:
             precision=precision,
         )
         cache = CUBIECache(
-            system_name="test_system", system_hash="abc123", max_entries=0
+            system_name="test_system",
+            system_hash="abc123",
+            max_entries=0,
+            config_hash=DEFAULT_CUBIE_CACHE_CONFIG_HASH,
         )
         # Override cache path to use tmp_path
         cache._cache_path = str(cache_dir)
@@ -283,7 +322,10 @@ class TestEnforceCacheLimitPairs:
             precision=precision,
         )
         cache = CUBIECache(
-            system_name="test_system", system_hash="abc123", max_entries=2
+            system_name="test_system",
+            system_hash="abc123",
+            max_entries=2,
+            config_hash=DEFAULT_CUBIE_CACHE_CONFIG_HASH,
         )
         # Override cache path to use tmp_path
         cache._cache_path = str(cache_dir)
@@ -318,6 +360,7 @@ class TestCUBIECacheModeStored:
         cache = CUBIECache(
             system_name="test_system",
             system_hash="abc123",
+            config_hash=DEFAULT_CUBIE_CACHE_CONFIG_HASH,
             mode="flush_on_change",
         )
         assert cache._mode == "flush_on_change"
@@ -327,7 +370,11 @@ class TestCUBIECacheModeStored:
         compile_settings = BatchSolverConfig(
             precision=precision,
         )
-        cache = CUBIECache(system_name="test_system", system_hash="abc123")
+        cache = CUBIECache(
+            system_name="test_system",
+            system_hash="abc123",
+            config_hash=DEFAULT_CUBIE_CACHE_CONFIG_HASH,
+        )
         assert cache._mode == "hash"
 
 
@@ -349,7 +396,11 @@ class TestFlushCacheRemovesFiles:
         compile_settings = BatchSolverConfig(
             precision=precision,
         )
-        cache = CUBIECache(system_name="test_system", system_hash="abc123")
+        cache = CUBIECache(
+            system_name="test_system",
+            system_hash="abc123",
+            config_hash=DEFAULT_CUBIE_CACHE_CONFIG_HASH,
+        )
         # Override cache path to use tmp_path
         cache._cache_path = str(cache_dir)
 
@@ -375,7 +426,11 @@ class TestFlushCacheRecreatesDirectory:
         compile_settings = BatchSolverConfig(
             precision=precision,
         )
-        cache = CUBIECache(system_name="test_system", system_hash="abc123")
+        cache = CUBIECache(
+            system_name="test_system",
+            system_hash="abc123",
+            config_hash=DEFAULT_CUBIE_CACHE_CONFIG_HASH,
+        )
         cache._cache_path = str(cache_dir)
 
         cache.flush_cache()
@@ -392,7 +447,11 @@ class TestFlushCacheRecreatesDirectory:
         compile_settings = BatchSolverConfig(
             precision=precision,
         )
-        cache = CUBIECache(system_name="test_system", system_hash="abc123")
+        cache = CUBIECache(
+            system_name="test_system",
+            system_hash="abc123",
+            config_hash=DEFAULT_CUBIE_CACHE_CONFIG_HASH,
+        )
         cache._cache_path = str(cache_dir)
 
         # Should not raise an error
@@ -417,6 +476,7 @@ class TestCustomCacheDir:
             system_name="test_system",
             system_hash="abc123",
             custom_cache_dir=custom_dir,
+            config_hash=DEFAULT_CUBIE_CACHE_CONFIG_HASH,
         )
 
         assert cache._cache_path == str(custom_dir)
@@ -430,6 +490,7 @@ class TestCustomCacheDir:
             system_name="test_system",
             system_hash="abc123",
             custom_cache_dir=None,
+            config_hash=DEFAULT_CUBIE_CACHE_CONFIG_HASH,
         )
 
         # Should use default path based on GENERATED_DIR
