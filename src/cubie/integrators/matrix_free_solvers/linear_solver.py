@@ -46,7 +46,7 @@ class LinearSolverConfig(MatrixFreeSolverConfig):
         Device function for approximate inverse preconditioner.
     linear_correction_type : str
         Line-search strategy ('steepest_descent' or 'minimal_residual').
-    kyrlov_max_iters : int
+    krylov_max_iters : int
         Maximum iterations permitted (alias for max_iters).
     preconditioned_vec_location : str
         Memory location for preconditioned_vec buffer ('local' or 'shared').
@@ -88,7 +88,7 @@ class LinearSolverConfig(MatrixFreeSolverConfig):
         super().__attrs_post_init__()
 
     @property
-    def kyrlov_max_iters(self) -> int:
+    def krylov_max_iters(self) -> int:
         """Return max Krylov iterations (alias for max_iters)."""
         return self.max_iters
 
@@ -105,7 +105,7 @@ class LinearSolverConfig(MatrixFreeSolverConfig):
             norm factory.
         """
         return {
-            "kyrlov_max_iters": self.kyrlov_max_iters,
+            "krylov_max_iters": self.krylov_max_iters,
             "linear_correction_type": self.linear_correction_type,
             "preconditioned_vec_location": self.preconditioned_vec_location,
             "temp_location": self.temp_location,
@@ -219,7 +219,7 @@ class LinearSolver(MatrixFreeSolver):
         # Config parameters
         n = config.n
         linear_correction_type = config.linear_correction_type
-        kyrlov_max_iters = config.kyrlov_max_iters
+        krylov_max_iters = config.krylov_max_iters
         precision = config.precision
         use_cached_auxiliaries = config.use_cached_auxiliaries
 
@@ -232,7 +232,7 @@ class LinearSolver(MatrixFreeSolver):
 
         # Convert types for device function
         n_val = int32(n)
-        max_iters_val = int32(kyrlov_max_iters)
+        max_iters_val = int32(krylov_max_iters)
         precision_numba = from_dtype(np_dtype(precision))
         typed_zero = precision_numba(0.0)
         typed_one = precision_numba(1.0)
@@ -583,9 +583,9 @@ class LinearSolver(MatrixFreeSolver):
         return self.norm.rtol
 
     @property
-    def kyrlov_max_iters(self) -> int:
+    def krylov_max_iters(self) -> int:
         """Return maximum iterations."""
-        return self.compile_settings.kyrlov_max_iters
+        return self.compile_settings.krylov_max_iters
 
     @property
     def use_cached_auxiliaries(self) -> bool:

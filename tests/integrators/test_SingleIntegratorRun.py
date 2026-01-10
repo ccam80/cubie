@@ -204,7 +204,7 @@ class TestSingleIntegratorRun:
             "preconditioner_order": "preconditioner_order",
             "krylov_atol": "krylov_atol",
             "krylov_rtol": "krylov_rtol",
-            "max_linear_iterations": "kyrlov_max_iters",
+            "max_linear_iterations": "krylov_max_iters",
             "linear_correction_type": "linear_correction_type",
             "newton_atol": "newton_atol",
             "newton_rtol": "newton_rtol",

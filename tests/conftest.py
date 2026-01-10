@@ -422,7 +422,7 @@ def solver_settings(
         "newton_atol": precision(1e-6),
         "newton_rtol": precision(1e-6),
         "preconditioner_order": 2,
-        "kyrlov_max_iters": 50,
+        "krylov_max_iters": 50,
         "newton_max_iters": 50,
         "newton_damping": precision(0.85),
         "newton_max_backtracks": 25,

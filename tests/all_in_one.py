@@ -137,7 +137,7 @@ preconditioner_order = 2
 # Linear solver (Krylov) parameters
 krylov_atol = precision(1e-6)
 krylov_rtol = precision(1e-6)
-kyrlov_max_iters = 200
+krylov_max_iters = 200
 linear_correction_type = "minimal_residual"
 
 # Newton-Krylov nonlinear solver parameters
@@ -7290,7 +7290,7 @@ elif algorithm_type == "dirk":
         n_states,
         preconditioner_fn,
         krylov_atol,
-        kyrlov_max_iters,
+        krylov_max_iters,
         precision,
         linear_correction_type,
     )
@@ -7346,7 +7346,7 @@ elif algorithm_type == "firk":
         n_states * tableau.stage_count,  # Note: all_stages_n
         preconditioner_fn,
         krylov_atol,
-        kyrlov_max_iters,
+        krylov_max_iters,
         precision,
         linear_correction_type,
     )
@@ -7394,7 +7394,7 @@ elif algorithm_type == "rosenbrock":
         n_states,
         preconditioner_fn,
         krylov_atol,
-        kyrlov_max_iters,
+        krylov_max_iters,
         precision,
         linear_correction_type,
     )

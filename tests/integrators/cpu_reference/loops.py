@@ -102,7 +102,7 @@ def run_reference_loop(
         newton_tol=solver_settings["newton_atol"],
         newton_max_iters=solver_settings["newton_max_iters"],
         linear_tol=solver_settings["krylov_atol"],
-        linear_max_iters=solver_settings["kyrlov_max_iters"],
+        linear_max_iters=solver_settings["krylov_max_iters"],
         linear_correction_type=solver_settings["linear_correction_type"],
         preconditioner_order=solver_settings["preconditioner_order"],
         tableau=tableau,

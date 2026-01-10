@@ -594,9 +594,9 @@ class NewtonKrylov(MatrixFreeSolver):
         return self.linear_solver.krylov_rtol
 
     @property
-    def kyrlov_max_iters(self) -> int:
+    def krylov_max_iters(self) -> int:
         """Return max linear iterations from nested linear solver."""
-        return self.linear_solver.kyrlov_max_iters
+        return self.linear_solver.krylov_max_iters
 
     @property
     def linear_correction_type(self) -> str:

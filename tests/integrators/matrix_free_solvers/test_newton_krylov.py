@@ -40,7 +40,7 @@ def test_newton_krylov_placeholder(placeholder_system, precision, tolerance):
         n=n,
         krylov_atol=1e-8,
         krylov_rtol=1e-8,
-        kyrlov_max_iters=32,
+        krylov_max_iters=32,
     )
     linear_solver_instance.update(operator_apply=operator)
     
@@ -138,7 +138,7 @@ def test_newton_krylov_symbolic(system_setup, precision, precond_order, toleranc
         linear_correction_type="minimal_residual",
         krylov_atol=krylov_tol,
         krylov_rtol=krylov_tol,
-        kyrlov_max_iters=1000,
+        krylov_max_iters=1000,
     )
     linear_solver_instance.update(operator_apply=operator,
                                   preconditioner=precond)
@@ -220,7 +220,7 @@ def test_newton_krylov_failure(precision):
         n=n,
         krylov_atol=1e-12,
         krylov_rtol=1e-12,
-        kyrlov_max_iters=8,
+        krylov_max_iters=8,
     )
     linear_solver_instance.update(operator_apply=operator)
 
@@ -301,7 +301,7 @@ def test_newton_krylov_newton_max_iters_exceeded(
         n=n,
         krylov_atol=1e-8,
         krylov_rtol=1e-8,
-        kyrlov_max_iters=20,
+        krylov_max_iters=20,
     )
     linear_solver_instance.update(operator_apply=operator)
 
@@ -373,7 +373,7 @@ def test_newton_krylov_linear_solver_failure_propagates(precision):
         linear_correction_type="minimal_residual",
         krylov_atol=1e-20,
         krylov_rtol=1e-20,
-        kyrlov_max_iters=8,
+        krylov_max_iters=8,
     )
     linear_solver_instance.update(operator_apply=zero_operator)
 
@@ -495,7 +495,7 @@ def test_newton_krylov_scaled_tolerance_converges(precision, tolerance):
         n=n,
         krylov_atol=1e-8,
         krylov_rtol=1e-8,
-        kyrlov_max_iters=32,
+        krylov_max_iters=32,
     )
     linear_solver.update(operator_apply=operator)
 
@@ -568,7 +568,7 @@ def test_newton_krylov_scalar_tolerance_backward_compatible(
         n=n,
         krylov_atol=1e-8,
         krylov_rtol=1e-8,
-        kyrlov_max_iters=32,
+        krylov_max_iters=32,
     )
     linear_solver.update(operator_apply=operator)
 
@@ -838,7 +838,7 @@ def test_newton_krylov_settings_dict_includes_tolerance_arrays(precision):
     assert 'residual_location' in settings
 
     # Linear solver settings should be merged in as well
-    assert 'kyrlov_max_iters' in settings
+    assert 'krylov_max_iters' in settings
     assert 'krylov_atol' in settings
     assert 'krylov_rtol' in settings
 
