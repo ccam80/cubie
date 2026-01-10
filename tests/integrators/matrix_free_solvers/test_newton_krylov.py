@@ -798,6 +798,7 @@ def test_newton_krylov_no_manual_cache_invalidation(precision):
     )
 
     # Access device function to force build
+    newton.update(n=n)
     _ = newton.device_function
     # Verify initial norm_device_function is set in config
     config = newton.compile_settings

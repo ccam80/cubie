@@ -114,11 +114,6 @@ class NewtonKrylovConfig(MatrixFreeSolverConfig):
         return self.precision(self._newton_damping)
 
     @property
-    def max_iters(self) -> int:
-        """Return max Newton iterations (alias for max_iters)."""
-        return self.max_iters
-
-    @property
     def settings_dict(self) -> Dict[str, Any]:
         """Return Newton-Krylov configuration as dictionary.
 

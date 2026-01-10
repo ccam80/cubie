@@ -7,9 +7,9 @@ and matrix-free solvers.
 
 from typing import Callable
 
-from numpy import asarray, ndarray
+from numpy import asarray, ndarray, all, full
 from numba import cuda
-from attrs import Converter, define, field
+from attrs import define, field, Converter
 
 from cubie._utils import (
     PrecisionDType,
@@ -27,6 +27,41 @@ from cubie.CUDAFactory import (
 from cubie.cuda_simsafe import compile_kwargs
 
 
+def resize_tolerances(instance, attribute, value):
+    """Resize tolerance arrays to match configured vector size.
+
+    Parameters
+    ----------
+    instance : ScaledNormConfig
+        Instance of ScaledNormConfig being created.
+    attribute : attrs.Attribute
+        Attribute being converted (atol or rtol).
+    value : ndarray
+        Input tolerance array.
+
+    Returns
+    -------
+    ndarray
+        Resized tolerance array of shape (n,).
+    """
+    n = value
+    tols = ("atol", "rtol")
+    instance._n_changing = True
+    for tol in tols:
+        tolarray = getattr(instance, tol)
+        if tolarray.shape[0] == n:
+            return value
+        # If all values are the same, then expand to new size
+        if all(tolarray == tolarray[0]):
+            setattr(
+                instance,
+                tol,
+                full(n, tolarray[0], dtype=instance.precision),
+            )
+    instance._n_changing=False
+    return value
+
+
 @define
 class ScaledNormConfig(MultipleInstanceCUDAFactoryConfig):
     """Configuration for ScaledNorm factory compilation.
@@ -40,8 +75,11 @@ class ScaledNormConfig(MultipleInstanceCUDAFactoryConfig):
     rtol : ndarray
         Relative tolerance array of shape (n,).
     """
-
-    n: int = field(default=1, validator=getype_validator(int, 1))
+    n: int = field(
+        default=1,
+        validator=getype_validator(int, 1),
+        on_setattr=resize_tolerances,
+    )
     atol: ndarray = field(
         default=asarray([1e-6]),
         validator=float_array_validator,
@@ -54,6 +92,8 @@ class ScaledNormConfig(MultipleInstanceCUDAFactoryConfig):
         converter=Converter(tol_converter, takes_self=True),
         metadata={"prefixed": True},
     )
+
+    _n_changing: bool= field(default=False, init=False, repr=False, eq=False)
 
     def __attrs_post_init__(self):
         super().__attrs_post_init__()

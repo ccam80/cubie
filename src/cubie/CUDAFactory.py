@@ -694,8 +694,10 @@ class MultipleInstanceCUDAFactory(CUDAFactory):
 
     Notes
     -----
-    The transformation occurs in the
-    MultipleInstanceCUDAFactoryConfig object:
+    The transformation occurs in the MultipleInstanceCUDAFactoryConfig
+    object's update() method. When update_compile_settings() is called
+    on the factory, it delegates to the config's update() method which
+    handles prefix mapping automatically.
     """
 
     def __init__(
