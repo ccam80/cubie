@@ -260,7 +260,6 @@ class CUDAFactoryConfig(_CubieConfigBase):
     precision: PrecisionDType = field(
         validator=precision_validator,
         converter=precision_converter,
-        metadata={"prefixed": False},
     )
 
     def __attrs_post_init__(self):
@@ -560,33 +559,53 @@ class CUDAFactory(ABC):
 
 @define
 class MultipleInstanceCUDAFactoryConfig(CUDAFactoryConfig):
-    """Compile settings for MultipleInstanceCUDAFactory."""
+    """Extends CUDAFactoryConfig for instances which have multiple
+    concurrent configurations - e.g. a newton and krylov solver. Provides a
+    set of prefixed keys for non-shared parameters, for example `newton_atol`
+    or `krylov_atol`. Performs the substitution internally on update,
+    however requires non-prefixed keys for init. See `build_config` for a
+    utility function that initialises this class from prefixed keys.
+    ."""
 
     instance_label: str = field(
-        default="", repr=False, eq=False, metadata={"prefixed": False}
+        default="", repr=False, eq=False
     )
     prefixed_attributes: Set[str] = field(
         factory=set,
         repr=False,
         eq=False,
-        metadata={"prefixed": False},
     )
 
     @classmethod
-    def get_prefixed_attributes(cls) -> Set[str]:
+    def get_prefixed_attributes(cls, aliases: bool = False) -> Set[str]:
         """Return names of attributes that use instance-specific prefixes.
 
+        Parameters
+        ----------
+        aliases
+            If True, return field aliases instead of names. Use this when
+            using the prefixed attributes for initialization, as it provides
+            the non-underscored names which the generated __init__ function
+            accepts.
         Returns
         -------
         set[str]
-            Names of attributes that are prefixed based on
+            Names or aliases of attributes that are prefixed based on
             ``instance_label``.
         """
-        return {
-            fld.name
-            for fld in fields(cls)
-            if fld.metadata.get("prefixed", True)
-        }
+        prefixed = set()
+
+        for fld in fields(cls):
+            if getattr(fld, 'metadata', None) is not None:
+                if fld.metadata.get("prefixed", False):
+                    if aliases:
+                        prefixed.extend(
+                            fld.alias if fld.alias is not None else fld.name
+                        )
+                    else:
+                        prefixed.extend(fld.name)
+
+        return prefixed
 
     @property
     def prefix(self) -> str:
@@ -633,33 +652,26 @@ class MultipleInstanceCUDAFactoryConfig(CUDAFactoryConfig):
             all_updates.update(updates_dict)
         all_updates.update(kwargs)
 
-        # Track unprefixed keys that were overridden by prefixed versions
-        overridden_unprefixed = set()
 
+        # Get rid of non-prefixed keys; write de-prefixed values in their place
         for key in self.prefixed_attributes:
             prefixed_key = f"{self.prefix}_{key}"
-            has_unprefixed = key in all_updates
             has_prefixed = prefixed_key in all_updates
 
-            if has_unprefixed and has_prefixed:
-                # Both forms present; prefixed wins, unprefixed is recognized
-                all_updates.pop(key)
-                overridden_unprefixed.add(key)
+            _ = all_updates.pop(key, None)
 
             if has_prefixed:
                 all_updates[key] = all_updates.pop(prefixed_key)
 
         recognized_base, changed_base = super().update(all_updates)
 
+        # Transform recognised keys back into prefixed versions to make as seen
         recognized = set()
         for key in recognized_base:
             if key in self.prefixed_attributes:
                 recognized.add(f"{self.prefix}_{key}")
             else:
                 recognized.add(key)
-
-        # Also recognize the overridden unprefixed keys
-        recognized.update(overridden_unprefixed)
 
         changed = set()
         for key in changed_base:
@@ -669,28 +681,6 @@ class MultipleInstanceCUDAFactoryConfig(CUDAFactoryConfig):
                 changed.add(key)
 
         return recognized, changed
-
-    @classmethod
-    def init_from_prefixed(cls, **kwargs) -> Set[str]:
-        """Initialise the MultipleInstanceCUDAFactoryConfig object from
-        prefixed attributes."""
-        init_kwargs = {}
-        instance_label = kwargs.get("instance_label", "")
-        if not instance_label:
-            raise ValueError(
-                "instance_label cannot be empty or None; "
-                "provide a non-empty string prefix (e.g., 'krylov')."
-            )
-        prefixed_attributes = cls.get_prefixed_attributes()
-        for key, value in kwargs.items():
-            if key in prefixed_attributes:
-                init_kwargs[key] = value
-            else:
-                prefixed_key = f"{instance_label}_{key}"
-                if prefixed_key in kwargs:
-                    init_kwargs[key] = kwargs[prefixed_key]
-        init_kwargs["instance_label"] = instance_label
-        return cls(**init_kwargs)
 
 
 class MultipleInstanceCUDAFactory(CUDAFactory):
@@ -711,13 +701,8 @@ class MultipleInstanceCUDAFactory(CUDAFactory):
 
     Notes
     -----
-    The transformation occurs in ``update_compile_settings()``:
-    1. Copy the updates dict to avoid side effects
-    2. For each key matching ``{instance_label}_{suffix}``, add
-       ``suffix`` with the same value
-    3. Call parent's ``update_compile_settings()`` with transformed dict
-    4. Both prefixed and unprefixed forms are recognized; prefixed
-       takes precedence when both are present
+    The transformation occurs in the
+    MultipleInstanceCUDAFactoryConfig object:
     """
 
     def __init__(
