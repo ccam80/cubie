@@ -342,21 +342,6 @@ class BaseODE(CUDAFactory):
         return self.compile_settings.sizes
 
     @property
-    def precision(self):
-        """Precision factory configured for the system."""
-        return self.compile_settings.precision
-
-    @property
-    def numba_precision(self):
-        """Numba representation of the configured precision."""
-        return self.compile_settings.numba_precision
-
-    @property
-    def simsafe_precision(self):
-        """Precision promoted for CUDA simulator compatibility."""
-        return self.compile_settings.simsafe_precision
-
-    @property
     def evaluate_f(self):
         """Compiled CUDA device function for evaluating f(t, y)."""
         return self.get_cached_output("dxdt")

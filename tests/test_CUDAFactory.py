@@ -483,3 +483,170 @@ def test_cuda_factory_config_update_nested_applies_converter():
     # Verify converter was applied in nested config
     assert config.nested.a == 6
     assert config.b == 10
+
+
+def test_config_hash_no_children():
+    """Test config_hash returns own values_hash when no child factories."""
+    from cubie.CUDAFactory import _CubieConfigBase
+
+    @attrs.define
+    class SimpleConfig(_CubieConfigBase):
+        value1: int = 10
+        value2: str = "test"
+
+    class SimpleFactory(CUDAFactory):
+        def __init__(self):
+            super().__init__()
+
+        def build(self):
+            return testCache(device_function=lambda: 1.0)
+
+    factory = SimpleFactory()
+    factory.setup_compile_settings(SimpleConfig())
+
+    # With no children, config_hash should equal compile_settings.values_hash
+    assert factory.config_hash == factory.compile_settings.values_hash
+    assert len(factory.config_hash) == 64
+
+
+def test_config_hash_with_children():
+    """Test config_hash combines hashes from child factories."""
+    from cubie.CUDAFactory import _CubieConfigBase
+
+    @attrs.define
+    class SimpleConfig(_CubieConfigBase):
+        value1: int = 10
+
+    class ChildFactory(CUDAFactory):
+        def __init__(self):
+            super().__init__()
+
+        def build(self):
+            return testCache(device_function=lambda: 2.0)
+
+    class ParentFactory(CUDAFactory):
+        def __init__(self):
+            super().__init__()
+            self._child = ChildFactory()
+            self._child.setup_compile_settings(SimpleConfig(value1=20))
+
+        def build(self):
+            return testCache(device_function=lambda: 1.0)
+
+    parent = ParentFactory()
+    parent.setup_compile_settings(SimpleConfig(value1=10))
+
+    # Hash should differ from own settings hash when children exist
+    own_hash = parent.compile_settings.values_hash
+    combined_hash = parent.config_hash
+
+    assert combined_hash != own_hash
+    assert len(combined_hash) == 64
+
+    # Hash should be deterministic
+    assert parent.config_hash == combined_hash
+
+
+def test_iter_child_factories_no_children():
+    """Test _iter_child_factories yields nothing when no children."""
+    from cubie.CUDAFactory import _CubieConfigBase
+
+    @attrs.define
+    class SimpleConfig(_CubieConfigBase):
+        value1: int = 10
+
+    class SimpleFactory(CUDAFactory):
+        def __init__(self):
+            super().__init__()
+            self._non_factory_attr = "not a factory"
+            self._numeric_attr = 42
+
+        def build(self):
+            return testCache(device_function=lambda: 1.0)
+
+    factory = SimpleFactory()
+    factory.setup_compile_settings(SimpleConfig())
+
+    children = list(factory._iter_child_factories())
+    assert children == []
+
+
+def test_iter_child_factories_with_children():
+    """Test _iter_child_factories yields children in alphabetical order."""
+    from cubie.CUDAFactory import _CubieConfigBase
+
+    @attrs.define
+    class SimpleConfig(_CubieConfigBase):
+        value1: int = 10
+
+    class ChildFactory(CUDAFactory):
+        def __init__(self, name):
+            super().__init__()
+            self.name = name
+
+        def build(self):
+            return testCache(device_function=lambda: 1.0)
+
+    class ParentFactory(CUDAFactory):
+        def __init__(self):
+            super().__init__()
+            # Attributes in non-alphabetical order
+            self._zebra_child = ChildFactory("zebra")
+            self._alpha_child = ChildFactory("alpha")
+            self._middle_child = ChildFactory("middle")
+            # Set up settings for children
+            for child in [self._zebra_child, self._alpha_child,
+                          self._middle_child]:
+                child.setup_compile_settings(SimpleConfig())
+
+        def build(self):
+            return testCache(device_function=lambda: 1.0)
+
+    parent = ParentFactory()
+    parent.setup_compile_settings(SimpleConfig())
+
+    children = list(parent._iter_child_factories())
+
+    # Should yield 3 children
+    assert len(children) == 3
+
+    # Should be in alphabetical order by attribute name
+    names = [c.name for c in children]
+    assert names == ["alpha", "middle", "zebra"]
+
+
+def test_iter_child_factories_uniqueness():
+    """Test _iter_child_factories yields each child only once."""
+    from cubie.CUDAFactory import _CubieConfigBase
+
+    @attrs.define
+    class SimpleConfig(_CubieConfigBase):
+        value1: int = 10
+
+    class ChildFactory(CUDAFactory):
+        def __init__(self):
+            super().__init__()
+
+        def build(self):
+            return testCache(device_function=lambda: 1.0)
+
+    class ParentFactory(CUDAFactory):
+        def __init__(self):
+            super().__init__()
+            # Same child referenced by multiple attributes
+            shared_child = ChildFactory()
+            shared_child.setup_compile_settings(SimpleConfig())
+            self._child_a = shared_child
+            self._child_b = shared_child
+            self._child_c = shared_child
+
+        def build(self):
+            return testCache(device_function=lambda: 1.0)
+
+    parent = ParentFactory()
+    parent.setup_compile_settings(SimpleConfig())
+
+    children = list(parent._iter_child_factories())
+
+    # Same child referenced 3 times should yield only once
+    assert len(children) == 1

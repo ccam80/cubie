@@ -163,6 +163,24 @@ else:  # pragma: no cover - exercised in GPU environments
         return cuda.current_context().get_memory_info()
 
 
+# --- Caching infrastructure ---
+# In CUDASIM mode, provide stub classes since numba caching is unavailable
+if CUDA_SIMULATION:  # pragma: no cover - simulated
+    _CacheLocator = object
+    CacheImpl = object
+    IndexDataCacheFile = None
+    CUDACache = object
+    _CACHING_AVAILABLE = False
+else:  # pragma: no cover - exercised in GPU environments
+    from numba.cuda.core.caching import (
+        _CacheLocator,
+        CacheImpl,
+        IndexDataCacheFile,
+    )
+    from numba.cuda.dispatcher import CUDACache
+    _CACHING_AVAILABLE = True
+
+
 def is_cuda_array(value: Any) -> bool:
     """Check whether ``value`` should be treated as a CUDA array."""
 
@@ -314,14 +332,18 @@ def is_cudasim_enabled() -> bool:
 
 
 __all__ = [
-    "CUDA_SIMULATION",
+    "_CacheLocator",
+    "_CACHING_AVAILABLE",
     "activemask",
     "all_sync",
-    "syncwarp",
     "BaseCUDAMemoryManager",
+    "CacheImpl",
     "compile_kwargs",
-    "DeviceNDArrayBase",
+    "CUDACache",
+    "CUDA_SIMULATION",
+    "current_mem_info",
     "DeviceNDArray",
+    "DeviceNDArrayBase",
     "FakeBaseCUDAMemoryManager",
     "FakeGetIpcHandleMixin",
     "FakeHostOnlyCUDAManager",
@@ -329,19 +351,20 @@ __all__ = [
     "FakeMemoryPointer",
     "FakeNumbaCUDAMemoryManager",
     "FakeStream",
+    "from_dtype",
     "GetIpcHandleMixin",
     "HostOnlyCUDAMemoryManager",
+    "IndexDataCacheFile",
+    "is_cuda_array",
+    "is_cudasim_enabled",
+    "is_devfunc",
     "MappedNDArray",
     "MemoryInfo",
     "MemoryPointer",
     "NumbaCUDAMemoryManager",
-    "Stream",
-    "current_mem_info",
-    "from_dtype",
-    "is_devfunc",
-    "is_cuda_array",
-    "is_cudasim_enabled",
-    "set_cuda_memory_manager",
     "selp",
-    "stwt"
+    "set_cuda_memory_manager",
+    "Stream",
+    "stwt",
+    "syncwarp",
 ]

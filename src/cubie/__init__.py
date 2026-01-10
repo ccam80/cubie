@@ -19,6 +19,7 @@ from cubie.memory import *              # noqa
 from cubie.odesystems import *        # noqa
 from cubie._utils import *              # noqa
 from cubie.time_logger import TimeLogger, default_timelogger
+from cubie.session import save_session, load_from_session
 
 __all__ = [
     "summary_metrics",
@@ -31,6 +32,8 @@ __all__ = [
     "TimeLogger",
     "default_timelogger",
     "load_cellml_model",
+    "save_session",
+    "load_from_session",
 ]
 
 try:
