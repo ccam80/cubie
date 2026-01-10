@@ -14,8 +14,15 @@ def unique_odefile():
     odefile = ODEFile(name, "hash1")
     yield odefile, name
     generated = Path("generated") / f"{name}" / f"{name}.py"
-    if generated.exists():
-        generated.unlink()
+    generated_dir = Path("generated") / name
+    if generated_dir.exists():
+        try:
+            import shutil
+            shutil.rmtree(generated_dir)
+        except OSError:
+            # Race condition guard; another thread already removed it or is
+            # using it
+            pass
 
 
 def _simple_code(func_name: str) -> str:

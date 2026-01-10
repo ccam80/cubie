@@ -495,7 +495,7 @@ class TestCustomCacheDir:
 
         # Should use default path based on GENERATED_DIR
         assert "test_system" in cache._cache_path
-        assert cache._cache_path.endswith("cache")
+        assert cache._cache_path.endswith("CUDA_cache")
 
 
 @pytest.mark.nocudasim
