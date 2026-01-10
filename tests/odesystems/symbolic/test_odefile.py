@@ -13,11 +13,11 @@ def unique_odefile():
     name = f"test_{uuid.uuid4().hex}"
     odefile = ODEFile(name, "hash1")
     yield odefile, name
-    generated = Path("generated") / f"{name}" / f"{name}.py"
     generated_dir = Path("generated") / name
     if generated_dir.exists():
         try:
             import shutil
+
             shutil.rmtree(generated_dir)
         except OSError:
             # Race condition guard; another thread already removed it or is

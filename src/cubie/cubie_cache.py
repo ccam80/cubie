@@ -2,7 +2,7 @@
 
 Provides cache classes that persist compiled CUDA kernels to disk,
 enabling faster startup on subsequent runs with identical settings.
-Cache files are stored in ``generated/<system_name>/cache/`` within
+Cache files are stored in ``generated/<system_name>/CUDA_cache/`` within
 the configured GENERATED_DIR.
 
 Notes
@@ -68,7 +68,7 @@ class CacheConfig(_CubieConfigBase):
 class CUBIECacheLocator(_CacheLocator):
     """Locate cache files in CuBIE's generated directory structure.
 
-    Directs cache files to ``generated/<system_name>/cache/`` instead
+    Directs cache files to ``generated/<system_name>/CUDA_cache/`` instead
     of the default ``__pycache__`` location used by numba.
 
     Parameters
