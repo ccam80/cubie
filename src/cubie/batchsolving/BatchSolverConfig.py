@@ -1,6 +1,7 @@
 """Compile-time configuration for batch solver kernels."""
 
-from typing import Callable, Optional
+from pathlib import Path
+from typing import Callable, Optional, Tuple, Union
 
 import attrs
 from attrs import validators as val
@@ -88,6 +89,93 @@ class ActiveOutputs(_CubieConfigBase):
             status_codes=True,
             iteration_counters=flags.save_counters,
         )
+
+
+@attrs.define
+class CacheConfig(_CubieConfigBase):
+    """Configuration for disk-based kernel caching.
+
+    This class holds cache-related settings that do NOT affect kernel
+    compilation. Changes to these settings should not trigger kernel
+    rebuild.
+
+    Parameters
+    ----------
+    enabled
+        Whether disk caching is enabled.
+    cache_path
+        Directory path for cache files. None uses default location.
+    source_stamp
+        Tuple of (mtime, size) for cache validation. None disables
+        source stamp checking.
+
+    Notes
+    -----
+    All cache operations (hashing, path generation, file I/O) use pure
+    Python and work without CUDA intrinsics. This enables cache testing
+    with NUMBA_ENABLE_CUDASIM=1.
+    """
+
+    enabled: bool = attrs.field(
+        default=False,
+        validator=val.instance_of(bool)
+    )
+    _cache_path: Optional[Path] = attrs.field(
+        default=None,
+        alias="cache_path",
+        validator=attrs.validators.optional(
+            attrs.validators.instance_of(Path)
+        ),
+        converter=attrs.converters.optional(Path),
+    )
+    source_stamp: Optional[Tuple[float, int]] = attrs.field(
+        default=None,
+        validator=attrs.validators.optional(
+            attrs.validators.instance_of(tuple)
+        ),
+    )
+
+    @property
+    def cache_path(self) -> Optional[Path]:
+        """Resolved cache directory path."""
+        return self._cache_path
+
+    @property
+    def cache_directory(self) -> Optional[Path]:
+        """Return resolved cache directory or None if disabled."""
+        if not self.enabled:
+            return None
+        return self._cache_path
+
+    @classmethod
+    def from_cache_param(
+        cls,
+        cache: Union[bool, str, Path, None]
+    ) -> "CacheConfig":
+        """Parse cache parameter into CacheConfig.
+
+        Parameters
+        ----------
+        cache
+            Cache configuration:
+            - True: Enable caching with default path
+            - False or None: Disable caching
+            - str or Path: Enable caching at specified path
+
+        Returns
+        -------
+        CacheConfig
+            Configured cache settings.
+        """
+        if cache is None or cache is False:
+            return cls(enabled=False, cache_path=None)
+
+        if cache is True:
+            return cls(enabled=True, cache_path=None)
+
+        # str or Path provided
+        cache_path = Path(cache) if isinstance(cache, str) else cache
+        return cls(enabled=True, cache_path=cache_path)
 
 
 @attrs.define

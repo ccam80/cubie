@@ -1,6 +1,7 @@
 # -*- coding: utf-8 -*-
 """CUDA batch solver kernel utilities."""
 
+from pathlib import Path
 from typing import (
     TYPE_CHECKING,
     Any,
@@ -32,6 +33,7 @@ from cubie.batchsolving.arrays.BatchOutputArrays import (
 )
 from cubie.batchsolving.BatchSolverConfig import ActiveOutputs
 from cubie.batchsolving.BatchSolverConfig import BatchSolverConfig
+from cubie.batchsolving.BatchSolverConfig import CacheConfig
 from cubie.odesystems.baseODE import BaseODE
 from cubie.outputhandling.output_sizes import (
     BatchOutputSizes,
@@ -110,6 +112,11 @@ class BatchSolverKernel(CUDAFactory):
     memory_settings
         Mapping of memory configuration forwarded to the memory manager,
         typically via :mod:`cubie.memory`.
+    cache
+        Cache configuration for disk-based kernel caching:
+        - None or False: Disable caching (default)
+        - True: Enable caching with default cache directory
+        - str or Path: Enable caching at specified directory path
 
     Notes
     -----
@@ -130,8 +137,10 @@ class BatchSolverKernel(CUDAFactory):
         algorithm_settings: Optional[Dict[str, Any]] = None,
         output_settings: Optional[Dict[str, Any]] = None,
         memory_settings: Optional[Dict[str, Any]] = None,
+        cache: Union[bool, str, Path, None] = None,
     ) -> None:
         super().__init__()
+        self._cache_config = CacheConfig.from_cache_param(cache)
         if memory_settings is None:
             memory_settings = {}
         if output_settings is None:
@@ -908,6 +917,16 @@ class BatchSolverKernel(CUDAFactory):
         """Active output array flags derived from compile_flags."""
 
         return self.compile_settings.active_outputs
+
+    @property
+    def cache_config(self) -> CacheConfig:
+        """Cache configuration for this kernel."""
+        return self._cache_config
+
+    @property
+    def cache_enabled(self) -> bool:
+        """Whether disk caching is enabled."""
+        return self._cache_config.enabled
 
     @property
     def shared_memory_needs_padding(self) -> bool:
