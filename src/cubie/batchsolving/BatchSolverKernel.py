@@ -1028,7 +1028,7 @@ class BatchSolverKernel(CUDAFactory):
             try:
                 system = self.single_integrator.system
                 system_name = getattr(system, "name", "anonymous")
-                system_hash = system.system_hash
+                system_hash = system.fn_hash
 
                 cache = CUBIECache(
                     system_name=system_name,
