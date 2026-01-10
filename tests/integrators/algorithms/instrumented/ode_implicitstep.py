@@ -23,7 +23,7 @@ class InstrumentedODEImplicitStep(ODEImplicitStep):
         solver_type: str = "newton",
         krylov_atol: Optional[float] = None,
         krylov_rtol: Optional[float] = None,
-        kyrlov_max_iters: Optional[int] = None,
+        krylov_max_iters: Optional[int] = None,
         linear_correction_type: Optional[str] = None,
         newton_atol: Optional[float] = None,
         newton_rtol: Optional[float] = None,
@@ -38,7 +38,7 @@ class InstrumentedODEImplicitStep(ODEImplicitStep):
                 solver_type=solver_type,
                 krylov_atol=krylov_atol,
                 krylov_rtol=krylov_rtol,
-                kyrlov_max_iters=kyrlov_max_iters,
+                krylov_max_iters=krylov_max_iters,
                 linear_correction_type=linear_correction_type,
                 newton_atol=newton_atol,
                 newton_rtol=newton_rtol,
@@ -55,7 +55,7 @@ class InstrumentedODEImplicitStep(ODEImplicitStep):
                 correction_type=linear_correction_type,
                 krylov_atol=krylov_atol,
                 krylov_rtol=krylov_rtol,
-                kyrlov_max_iters=kyrlov_max_iters,
+                krylov_max_iters=krylov_max_iters,
             )
 
             if solver_type == "newton":

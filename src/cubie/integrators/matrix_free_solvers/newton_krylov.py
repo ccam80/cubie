@@ -53,8 +53,6 @@ class NewtonKrylovConfig(MatrixFreeSolverConfig):
         Device function evaluating residuals.
     linear_solver_function : Optional[Callable]
         Device function for solving linear systems.
-    newton_max_iters : int
-        Maximum Newton iterations permitted (alias for max_iters).
     newton_damping : float
         Step shrink factor for backtracking.
     newton_max_backtracks : int
@@ -84,9 +82,6 @@ class NewtonKrylovConfig(MatrixFreeSolverConfig):
         default=None,
         validator=validators.optional(is_device_validator),
         eq=False,
-    )
-    newton_max_iters: int = field(
-        default=100, validator=inrangetype_validator(int, 1, 32767)
     )
     _newton_damping: float = field(
         default=0.5, validator=inrangetype_validator(float, 0, 1)
@@ -131,7 +126,7 @@ class NewtonKrylovConfig(MatrixFreeSolverConfig):
             norm factory.
         """
         return {
-            "newton_max_iters": self.newton_max_iters,
+            "newton_max_iters": self.max_iters,
             "newton_damping": self.newton_damping,
             "newton_max_backtracks": self.newton_max_backtracks,
             "delta_location": self.delta_location,
@@ -162,8 +157,6 @@ class NewtonKrylov(MatrixFreeSolver):
     linear solver for the correction equation.
     """
 
-    settings_prefix = "newton_"
-
     def __init__(
         self,
         precision: PrecisionDType,
@@ -187,20 +180,6 @@ class NewtonKrylov(MatrixFreeSolver):
             parameters (newton_atol, newton_rtol) are passed to the
             norm factory. None values are ignored.
         """
-        # Extract tolerance kwargs for base class norm factory
-        atol = kwargs.pop("newton_atol", None)
-        rtol = kwargs.pop("newton_rtol", None)
-
-        # Initialize base class with norm factory
-        super().__init__(
-            precision=precision,
-            settings_prefix="newton_",
-            n=n,
-            atol=atol,
-            rtol=rtol,
-        )
-
-        self.linear_solver = linear_solver
 
         config = build_config(
             NewtonKrylovConfig,
@@ -208,13 +187,18 @@ class NewtonKrylov(MatrixFreeSolver):
                 "precision": precision,
                 "n": n,
             },
+            instance_label="newton",
+            **kwargs,
+        )
+        super().__init__(
+            precision=precision,
+            solver_type="newton",
+            n=n,
             **kwargs,
         )
 
+        self.linear_solver = linear_solver
         self.setup_compile_settings(config)
-
-        # Update config with norm device function
-        self._update_norm_and_config({})
 
         self.register_buffers()
 
@@ -274,22 +258,19 @@ class NewtonKrylov(MatrixFreeSolver):
         # Extract parameters from config
         residual_function = config.residual_function
         linear_solver_fn = config.linear_solver_function
+        scaled_norm_fn = config.norm_device_function
 
         n = config.n
-        newton_max_iters = config.newton_max_iters
+        max_iters = int32(config.max_iters)
         newton_damping = config.newton_damping
-        newton_max_backtracks = config.newton_max_backtracks
+        # Loop counting is off by 1 - this gives the correct number of attempts
+        max_backtracks = int32(config.newton_max_backtracks + 1)
 
         numba_precision = config.numba_precision
         typed_zero = numba_precision(0.0)
         typed_one = numba_precision(1.0)
         typed_damping = numba_precision(newton_damping)
         n_val = int32(n)
-        max_iters_val = int32(newton_max_iters)
-        max_backtracks_val = int32(newton_max_backtracks + 1)
-
-        # Get scaled norm device function from config
-        scaled_norm_fn = config.norm_device_function
 
         # Get allocators from buffer_registry
         get_alloc = buffer_registry.get_allocator
@@ -393,7 +374,7 @@ class NewtonKrylov(MatrixFreeSolver):
             iters_count = int32(0)
             total_krylov_iters = int32(0)
             mask = activemask()
-            for _ in range(max_iters_val):
+            for _ in range(max_iters):
                 done = converged
                 if all_sync(mask, done):
                     break
@@ -429,7 +410,7 @@ class NewtonKrylov(MatrixFreeSolver):
                 found_step = False
                 alpha = typed_one
 
-                for _ in range(max_backtracks_val):
+                for _ in range(max_backtracks):
                     active_bt = active and (not found_step) and (not converged)
                     if not any_sync(mask, active_bt):
                         break
@@ -522,7 +503,6 @@ class NewtonKrylov(MatrixFreeSolver):
         set
             Set of recognized parameter names that were updated.
         """
-        # Merge updates into a COPY to preserve original dict
         all_updates = {}
         if updates_dict:
             all_updates.update(updates_dict)
@@ -535,32 +515,17 @@ class NewtonKrylov(MatrixFreeSolver):
 
         # Forward krylov-prefixed params to linear solver
         recognized |= self.linear_solver.update(all_updates, silent=True)
-
-        # Extract prefixed tolerance parameters (modifies all_updates in place)
-        norm_updates = self._extract_prefixed_tolerance(all_updates)
-
-        # Mark tolerance parameters as recognized
-        if norm_updates:
-            if "atol" in norm_updates:
-                recognized.add("newton_atol")
-            if "rtol" in norm_updates:
-                recognized.add("newton_rtol")
-
-        # Update norm and propagate to config
-        self._update_norm_and_config(norm_updates)
-
-        # Update device function reference from linear solver
+        # Add linear_solver_function to updates for compile settings
         all_updates["linear_solver_function"] = (
             self.linear_solver.device_function
         )
-
-        # Update compile settings with remaining parameters
-        recognized |= self.update_compile_settings(
-            updates_dict=all_updates, silent=True
-        )
+        # update norm and compile settings through base solver class
+        recognized |= super().update(all_updates, silent=True)
 
         # Buffer locations handled by registry
-        buffer_registry.update(self, updates_dict=all_updates, silent=True)
+        recognized |= buffer_registry.update(
+            self, updates_dict=all_updates, silent=True
+        )
         self.register_buffers()
 
         return recognized
@@ -569,16 +534,6 @@ class NewtonKrylov(MatrixFreeSolver):
     def device_function(self) -> Callable:
         """Return cached Newton-Krylov solver device function."""
         return self.get_cached_output("newton_krylov_solver")
-
-    @property
-    def precision(self) -> PrecisionDType:
-        """Return configured precision."""
-        return self.compile_settings.precision
-
-    @property
-    def n(self) -> int:
-        """Return vector size."""
-        return self.compile_settings.n
 
     @property
     def newton_atol(self) -> ndarray:
@@ -593,7 +548,7 @@ class NewtonKrylov(MatrixFreeSolver):
     @property
     def newton_max_iters(self) -> int:
         """Return maximum Newton iterations."""
-        return self.compile_settings.newton_max_iters
+        return self.max_iters
 
     @property
     def newton_damping(self) -> float:
@@ -608,17 +563,17 @@ class NewtonKrylov(MatrixFreeSolver):
     @property
     def krylov_atol(self) -> ndarray:
         """Return the Krylov absolute tolerance array from nested LinearSolver."""
-        return self.linear_solver.krylov_atol
+        return self.linear_solver.atol
 
     @property
     def krylov_rtol(self) -> ndarray:
         """Return the Krylov relative tolerance array from nested LinearSolver."""
-        return self.linear_solver.krylov_rtol
+        return self.linear_solver.rtol
 
     @property
-    def kyrlov_max_iters(self) -> int:
+    def krylov_max_iters(self) -> int:
         """Return max linear iterations from nested linear solver."""
-        return self.linear_solver.kyrlov_max_iters
+        return self.linear_solver.max_iters
 
     @property
     def linear_correction_type(self) -> str:

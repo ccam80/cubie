@@ -76,7 +76,7 @@ def solver_device(request, placeholder_operator, precision):
         linear_correction_type=request.param,
         krylov_atol=1e-12,
         krylov_rtol=1e-12,
-        kyrlov_max_iters=32,
+        krylov_max_iters=32,
     )
     solver.update(operator_apply=placeholder_operator)
     return solver.device_function
@@ -146,7 +146,7 @@ def test_linear_solver_symbolic(
         linear_correction_type=linear_correction_type,
         krylov_atol=1e-8,
         krylov_rtol=1e-8,
-        kyrlov_max_iters=1000,
+        krylov_max_iters=1000,
     )
     solver.update(operator_apply=operator, preconditioner=precond)
     solver = solver.device_function
@@ -184,7 +184,7 @@ def test_linear_solver_max_iters_exceeded(solver_kernel, precision):
         linear_correction_type="minimal_residual",
         krylov_atol=1e-20,
         krylov_rtol=1e-20,
-        kyrlov_max_iters=16,
+        krylov_max_iters=16,
     )
     solver.update(operator_apply=zero_operator)
     solver = solver.device_function
@@ -401,7 +401,7 @@ def test_linear_solver_config_settings_dict_excludes_tolerance_arrays(precision)
     assert 'krylov_tolerance' not in settings
 
     # Other expected settings should be present
-    assert 'kyrlov_max_iters' in settings
+    assert 'krylov_max_iters' in settings
     assert 'linear_correction_type' in settings
     assert 'preconditioned_vec_location' in settings
     assert 'temp_location' in settings
@@ -418,8 +418,8 @@ def test_linear_solver_inherits_from_matrix_free_solver(precision):
         n=3,
     )
     assert isinstance(solver, MatrixFreeSolver)
-    assert hasattr(solver, 'settings_prefix')
-    assert solver.settings_prefix == "krylov_"
+    assert hasattr(solver, 'solver_type')
+    assert solver.solver_type == "krylov"
 
 
 def test_linear_solver_update_preserves_original_dict(precision):
@@ -433,7 +433,7 @@ def test_linear_solver_update_preserves_original_dict(precision):
     original_updates = {
         'krylov_atol': 1e-8,
         'krylov_rtol': 1e-5,
-        'kyrlov_max_iters': 50,
+        'krylov_max_iters': 50,
     }
     # Make a copy to compare later
     updates_copy = dict(original_updates)
@@ -495,7 +495,62 @@ def test_linear_solver_settings_dict_includes_tolerance_arrays(precision):
     assert np.allclose(settings['krylov_rtol'], rtol)
 
     # Other expected settings from config should also be present
-    assert 'kyrlov_max_iters' in settings
+    assert 'krylov_max_iters' in settings
     assert 'linear_correction_type' in settings
     assert 'preconditioned_vec_location' in settings
     assert 'temp_location' in settings
+
+
+def test_linear_solver_init_with_krylov_prefixed_kwargs(precision):
+    """Verify LinearSolver accepts krylov_* kwargs at init via build_config.
+
+    The enhanced build_config with instance_label="krylov" should transform
+    krylov_atol/krylov_rtol to atol/rtol for the underlying ScaledNormConfig.
+    """
+    n = 3
+    krylov_atol = np.array([1e-10, 1e-9, 1e-8], dtype=precision)
+    krylov_rtol = np.array([1e-5, 1e-4, 1e-3], dtype=precision)
+
+    solver = LinearSolver(
+        precision=precision,
+        n=n,
+        krylov_atol=krylov_atol,
+        krylov_rtol=krylov_rtol,
+    )
+
+    # Verify tolerances reached LinearSolver's properties
+    assert np.allclose(solver.krylov_atol, krylov_atol)
+    assert np.allclose(solver.krylov_rtol, krylov_rtol)
+
+    # Verify tolerances also reached the nested norm factory
+    assert np.allclose(solver.norm.atol, krylov_atol)
+    assert np.allclose(solver.norm.rtol, krylov_rtol)
+
+
+def test_linear_solver_forwards_kwargs_to_norm(precision):
+    """Verify kwargs passed to LinearSolver reach the nested ScaledNorm.
+
+    LinearSolver's __init__ now forwards all kwargs to the parent
+    MatrixFreeSolver, which creates ScaledNorm with those kwargs.
+    """
+    n = 3
+    atol = np.array([1e-8, 1e-7, 1e-6], dtype=precision)
+    rtol = np.array([1e-4, 1e-3, 1e-2], dtype=precision)
+
+    solver = LinearSolver(
+        precision=precision,
+        n=n,
+        krylov_atol=atol,
+        krylov_rtol=rtol,
+    )
+
+    # Verify the norm factory exists and received the tolerances
+    assert hasattr(solver, 'norm')
+    assert solver.norm is not None
+
+    # Verify tolerances propagated through kwargs forwarding
+    assert np.allclose(solver.norm.atol, atol)
+    assert np.allclose(solver.norm.rtol, rtol)
+
+    # Verify norm has correct instance_label from solver_type
+    assert solver.norm.instance_label == "krylov"

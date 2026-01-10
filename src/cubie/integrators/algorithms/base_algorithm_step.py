@@ -35,7 +35,7 @@ ALL_ALGORITHM_STEP_PARAMETERS = {
     "preconditioner_order",
     "krylov_atol",
     "krylov_rtol",
-    "kyrlov_max_iters",
+    "krylov_max_iters",
     "linear_correction_type",
     "newton_atol",
     "newton_rtol",

@@ -31,7 +31,7 @@ class InstrumentedCrankNicolsonStep(InstrumentedODEImplicitStep):
         preconditioner_order: Optional[int] = None,
         krylov_atol: Optional[float] = None,
         krylov_rtol: Optional[float] = None,
-        kyrlov_max_iters: Optional[int] = None,
+        krylov_max_iters: Optional[int] = None,
         linear_correction_type: Optional[str] = None,
         newton_atol: Optional[float] = None,
         newton_rtol: Optional[float] = None,
@@ -66,7 +66,7 @@ class InstrumentedCrankNicolsonStep(InstrumentedODEImplicitStep):
         krylov_rtol
             Relative tolerance used by the linear solver. If None, uses default
             from LinearSolverConfig.
-        kyrlov_max_iters
+        krylov_max_iters
             Maximum iterations permitted for the linear solver. If None, uses
             default from LinearSolverConfig.
         linear_correction_type
@@ -126,8 +126,8 @@ class InstrumentedCrankNicolsonStep(InstrumentedODEImplicitStep):
             solver_kwargs["krylov_atol"] = krylov_atol
         if krylov_rtol is not None:
             solver_kwargs["krylov_rtol"] = krylov_rtol
-        if kyrlov_max_iters is not None:
-            solver_kwargs["kyrlov_max_iters"] = kyrlov_max_iters
+        if krylov_max_iters is not None:
+            solver_kwargs["krylov_max_iters"] = krylov_max_iters
         if linear_correction_type is not None:
             solver_kwargs["linear_correction_type"] = linear_correction_type
         if newton_atol is not None:

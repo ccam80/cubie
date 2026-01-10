@@ -121,7 +121,7 @@ def build_solver_settings(precision: type[np.floating[Any]]) -> Dict[str, Any]:
         "newton_atol": precision(1e-7),
         "newton_rtol": precision(1e-7),
         "preconditioner_order": 2,
-        "kyrlov_max_iters": 500,
+        "krylov_max_iters": 500,
         "newton_max_iters": 500,
         "newton_damping": precision(0.85),
         "newton_max_backtracks": 25,
@@ -161,7 +161,7 @@ def build_implicit_step_settings(
         "newton_rtol": solver_settings["newton_rtol"],
         "linear_correction_type": solver_settings["linear_correction_type"],
         "preconditioner_order": solver_settings["preconditioner_order"],
-        "kyrlov_max_iters": solver_settings["kyrlov_max_iters"],
+        "krylov_max_iters": solver_settings["krylov_max_iters"],
         "newton_max_iters": solver_settings["newton_max_iters"],
         "newton_damping": solver_settings["newton_damping"],
         "newton_max_backtracks": solver_settings["newton_max_backtracks"],
@@ -554,7 +554,7 @@ def run_reference_loop_with_history(
         newton_tol=implicit_step_settings["newton_atol"],
         newton_max_iters=implicit_step_settings["newton_max_iters"],
         linear_tol=implicit_step_settings["krylov_atol"],
-        linear_max_iters=implicit_step_settings["kyrlov_max_iters"],
+        linear_max_iters=implicit_step_settings["krylov_max_iters"],
         linear_correction_type=implicit_step_settings[
             "linear_correction_type"
         ],

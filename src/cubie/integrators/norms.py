@@ -7,9 +7,9 @@ and matrix-free solvers.
 
 from typing import Callable
 
-from numpy import asarray, ndarray
+from numpy import asarray, ndarray, all, full
 from numba import cuda
-from attrs import Converter, define, field
+from attrs import define, field, Converter
 
 from cubie._utils import (
     PrecisionDType,
@@ -20,15 +20,59 @@ from cubie._utils import (
     tol_converter,
 )
 from cubie.CUDAFactory import (
-    CUDAFactory,
     CUDADispatcherCache,
-    CUDAFactoryConfig,
+    MultipleInstanceCUDAFactoryConfig,
+    MultipleInstanceCUDAFactory,
 )
 from cubie.cuda_simsafe import compile_kwargs
 
 
+def resize_tolerances(instance, attribute, value):
+    """Resize tolerance arrays to match configured vector size.
+
+    Parameters
+    ----------
+    instance : ScaledNormConfig
+        Instance of ScaledNormConfig being created.
+    attribute : attrs.Attribute
+        Attribute being converted (atol or rtol).
+    value : ndarray
+        Input tolerance array.
+
+    Returns
+    -------
+    ndarray
+        Resized tolerance array of shape (n,).
+
+    Notes
+    -----
+    This is only useful (and valid) when the tolerance arrays were set from
+    a scalar value. That is the only case where it's safe to assume that the
+    user wants the same tolerance applied to all elements. If tolerance is a
+    non-equal array then we leave it unchanged, presuming an update to
+    tolerance is incoming shortly. If it isn't the consumer will fail,
+    as expected.
+    """
+    n = value
+    tols = ("atol", "rtol")
+    instance._n_changing = True
+    for tol in tols:
+        tolarray = getattr(instance, tol)
+        if tolarray.shape[0] == n:
+            continue
+        # If all values are the same, then expand to new size
+        if all(tolarray == tolarray[0]):
+            setattr(
+                instance,
+                tol,
+                full(n, tolarray[0], dtype=instance.precision),
+            )
+    instance._n_changing=False
+    return value
+
+
 @define
-class ScaledNormConfig(CUDAFactoryConfig):
+class ScaledNormConfig(MultipleInstanceCUDAFactoryConfig):
     """Configuration for ScaledNorm factory compilation.
 
     Attributes
@@ -40,18 +84,25 @@ class ScaledNormConfig(CUDAFactoryConfig):
     rtol : ndarray
         Relative tolerance array of shape (n,).
     """
-
-    n: int = field(validator=getype_validator(int, 1))
+    n: int = field(
+        default=1,
+        validator=getype_validator(int, 1),
+        on_setattr=resize_tolerances,
+    )
     atol: ndarray = field(
         default=asarray([1e-6]),
         validator=float_array_validator,
         converter=Converter(tol_converter, takes_self=True),
+        metadata={"prefixed": True},
     )
     rtol: ndarray = field(
         default=asarray([1e-6]),
         validator=float_array_validator,
         converter=Converter(tol_converter, takes_self=True),
+        metadata={"prefixed": True},
     )
+
+    _n_changing: bool= field(default=False, init=False, repr=False, eq=False)
 
     def __attrs_post_init__(self):
         super().__attrs_post_init__()
@@ -80,7 +131,7 @@ class ScaledNormCache(CUDADispatcherCache):
     scaled_norm: Callable = field(validator=is_device_validator)
 
 
-class ScaledNorm(CUDAFactory):
+class ScaledNorm(MultipleInstanceCUDAFactory):
     """Factory for scaled norm device functions.
 
     Compiles a CUDA device function that computes the mean squared
@@ -99,6 +150,7 @@ class ScaledNorm(CUDAFactory):
         self,
         precision: PrecisionDType,
         n: int,
+        instance_label: str = "",
         **kwargs,
     ) -> None:
         """Initialize ScaledNorm factory.
@@ -113,7 +165,7 @@ class ScaledNorm(CUDAFactory):
             Optional parameters passed to ScaledNormConfig including
             atol and rtol. None values are ignored.
         """
-        super().__init__()
+        super().__init__(instance_label=instance_label)
 
         config = build_config(
             ScaledNormConfig,
@@ -121,6 +173,7 @@ class ScaledNorm(CUDAFactory):
                 "precision": precision,
                 "n": n,
             },
+            instance_label=instance_label,
             **kwargs,
         )
 

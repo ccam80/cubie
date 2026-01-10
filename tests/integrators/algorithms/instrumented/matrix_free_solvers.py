@@ -80,7 +80,7 @@ class InstrumentedLinearSolver(LinearSolver):
         preconditioner = config.preconditioner
         n = config.n
         linear_correction_type = config.linear_correction_type
-        kyrlov_max_iters = config.kyrlov_max_iters
+        krylov_max_iters = config.krylov_max_iters
         precision = config.precision
         use_cached_auxiliaries = config.use_cached_auxiliaries
         
@@ -94,7 +94,7 @@ class InstrumentedLinearSolver(LinearSolver):
 
         # Convert types for device function
         n_val = int32(n)
-        max_iters_val = int32(kyrlov_max_iters)
+        max_iters_val = int32(krylov_max_iters)
         precision_numba = from_dtype(np.dtype(precision))
         typed_zero = precision_numba(0.0)
         typed_one = precision_numba(1.0)
@@ -423,13 +423,13 @@ class InstrumentedNewtonKrylov(NewtonKrylov):
             Records alpha scaling factor at each Newton iteration.
         linear_initial_guesses : array[total_linear_slots, n]
             Records initial guess x values for embedded linear solves.
-        linear_iteration_guesses : array[total_linear_slots, kyrlov_max_iters, n]
+        linear_iteration_guesses : array[total_linear_slots, krylov_max_iters, n]
             Records x values at each linear solver iteration.
-        linear_residuals : array[total_linear_slots, kyrlov_max_iters, n]
+        linear_residuals : array[total_linear_slots, krylov_max_iters, n]
             Records residual values at each linear solver iteration.
-        linear_squared_norms : array[total_linear_slots, kyrlov_max_iters]
+        linear_squared_norms : array[total_linear_slots, krylov_max_iters]
             Records squared residual norms at each linear solver iteration.
-        linear_preconditioned_vectors : array[total_linear_slots, kyrlov_max_iters, n]
+        linear_preconditioned_vectors : array[total_linear_slots, krylov_max_iters, n]
             Records preconditioned search direction at each linear iteration.
         
         Raises

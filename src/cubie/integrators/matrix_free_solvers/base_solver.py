@@ -4,21 +4,25 @@ This module provides shared configuration infrastructure for the
 Newton and Krylov solvers in :mod:`cubie.integrators.matrix_free_solvers`.
 """
 
-from typing import Any, Callable, Dict, Optional
+from typing import Any, Callable, Dict, Optional, Set
 
 from attrs import define, field
+from numpy import ndarray
 
 from cubie._utils import (
     PrecisionDType,
     getype_validator,
     inrangetype_validator,
 )
-from cubie.CUDAFactory import CUDAFactory, CUDAFactoryConfig
+from cubie.CUDAFactory import (
+    MultipleInstanceCUDAFactory,
+    MultipleInstanceCUDAFactoryConfig,
+)
 from cubie.integrators.norms import ScaledNorm
 
 
 @define
-class MatrixFreeSolverConfig(CUDAFactoryConfig):
+class MatrixFreeSolverConfig(MultipleInstanceCUDAFactoryConfig):
     """Base configuration for matrix-free solver factories.
 
     Provides common attributes shared by LinearSolverConfig and
@@ -38,27 +42,32 @@ class MatrixFreeSolverConfig(CUDAFactoryConfig):
         norm factory rebuilds; changes invalidate solver cache.
     """
 
-    n: int = field(validator=getype_validator(int, 1))
+    n: int = field(default=0, validator=getype_validator(int, 1))
     max_iters: int = field(
-        default=100, validator=inrangetype_validator(int, 1, 32767)
+        default=100,
+        validator=inrangetype_validator(int, 1, 32767),
+        metadata={"prefixed": True},
     )
-    norm_device_function: Optional[Callable] = field(default=None, eq=False)
+    norm_device_function: Optional[Callable] = field(
+        default=None,
+        eq=False,
+    )
 
     def __attrs_post_init__(self):
         super().__attrs_post_init__()
 
 
-class MatrixFreeSolver(CUDAFactory):
+class MatrixFreeSolver(MultipleInstanceCUDAFactory):
     """Base factory for matrix-free solver device functions.
 
     Provides shared infrastructure for tolerance parameter mapping
-    and norm factory management. Subclasses set `settings_prefix`
+    and norm factory management. Subclasses set `solver_type`
     to enable automatic mapping of prefixed parameters (e.g.,
     "krylov_atol" -> "atol" for norm updates).
 
     Attributes
     ----------
-    settings_prefix : str
+    solver_type : str
         Prefix for tolerance parameters (e.g., "krylov_" or "newton_").
         Set by subclasses.
     norm : ScaledNorm
@@ -68,11 +77,8 @@ class MatrixFreeSolver(CUDAFactory):
     def __init__(
         self,
         precision: PrecisionDType,
-        settings_prefix: str,
+        solver_type: str,
         n: int,
-        atol: Optional[Any] = None,
-        rtol: Optional[Any] = None,
-        max_iters: int = 100,
         **kwargs,
     ) -> None:
         """Initialize base solver with norm factory.
@@ -88,71 +94,76 @@ class MatrixFreeSolver(CUDAFactory):
         rtol : array-like, optional
             Relative tolerance for scaled norm.
         """
-        self.settings_prefix = settings_prefix
-        super().__init__()
-
-        # Build norm kwargs, filtering None values
-        norm_kwargs = {}
-        if atol is not None:
-            norm_kwargs["atol"] = atol
-        if rtol is not None:
-            norm_kwargs["rtol"] = rtol
-
+        self.solver_type = solver_type
+        super().__init__(instance_label=solver_type)
         self.norm = ScaledNorm(
             precision=precision,
             n=n,
-            **norm_kwargs,
+            instance_label=solver_type,
+            **kwargs,
         )
 
-    def _extract_prefixed_tolerance(
+    def update(
         self,
-        updates: Dict[str, Any],
-    ) -> Dict[str, Any]:
-        """Extract and map prefixed tolerance parameters.
+        updates_dict: Optional[Dict[str, Any]] = None,
+        silent: bool = False,
+        **kwargs,
+    ) -> Set[str]:
+        """Update compile settings with tolerance extraction.
 
-        Looks for `{prefix}atol` and `{prefix}rtol` in updates dict,
-        removes them, and returns dict with unprefixed keys for norm.
+        Handles common parameter processing for all matrix-free solvers:
+        1. Transforms prefixed keys using inherited transform_prefixed_keys
+        2. Extracts atol/rtol from transformed dict for norm factory
+        3. Updates norm and propagates device function to config
+        4. Forwards remaining parameters to update_compile_settings
 
         Parameters
         ----------
-        updates : dict
-            Updates dictionary (modified in place).
+        updates_dict : dict, optional
+            Dictionary of settings to update.
+        silent : bool, default False
+            If True, suppress warnings about unrecognized keys.
+        **kwargs
+            Additional settings as keyword arguments.
 
         Returns
         -------
-        dict
-            Norm updates with unprefixed tolerance keys.
+        set
+            Set of recognized parameter names (original prefixed forms).
         """
-        prefix = self.settings_prefix
-        norm_updates = {}
+        # Merge updates into a copy
+        all_updates = {}
+        if updates_dict:
+            all_updates.update(updates_dict)
+        all_updates.update(kwargs)
 
-        prefixed_atol = f"{prefix}atol"
-        prefixed_rtol = f"{prefix}rtol"
+        if not all_updates:
+            return set()
 
-        if prefixed_atol in updates:
-            norm_updates["atol"] = updates.pop(prefixed_atol)
-        if prefixed_rtol in updates:
-            norm_updates["rtol"] = updates.pop(prefixed_rtol)
+        recognized = set()
 
-        return norm_updates
+        recognized |= self.norm.update(all_updates, silent=True)
+        all_updates.update({"norm_device_function": self.norm.device_function})
+        recognized |= self.update_compile_settings(all_updates, silent=True)
 
-    def _update_norm_and_config(
-        self,
-        norm_updates: Dict[str, Any],
-    ) -> None:
-        """Update norm factory and propagate device function to config.
+        return recognized
 
-        Parameters
-        ----------
-        norm_updates : dict
-            Tolerance updates for norm factory.
-        """
-        if norm_updates:
-            self.norm.update(norm_updates, silent=True)
+    @property
+    def atol(self) -> ndarray:
+        """Absolute tolerance for the solver."""
+        return self.norm.atol
 
-        # Update config with current norm device function
-        # This triggers cache invalidation if the function changed
-        self.update_compile_settings(
-            norm_device_function=self.norm.device_function,
-            silent=True,
-        )
+    @property
+    def rtol(self) -> ndarray:
+        """Relative tolerance for the solver."""
+        return self.norm.rtol
+
+    @property
+    def max_iters(self) -> int:
+        """Maximum iterations allowed for the solver."""
+        return self.compile_settings.max_iters
+
+    @property
+    def n(self) -> int:
+        """Size of state vectors for the solver."""
+        return self.compile_settings.n

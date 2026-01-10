@@ -139,3 +139,49 @@ def test_scaled_norm_update_invalidates_cache():
 
     # Verify tolerance was updated
     np.testing.assert_array_almost_equal(factory.atol, new_atol)
+
+
+def test_scaled_norm_instance_label_prefix_at_init():
+    """Verify ScaledNorm accepts prefixed kwargs (e.g., krylov_atol) at init.
+
+    When instance_label is provided, prefixed kwargs should be transformed
+    to unprefixed keys before being passed to the config.
+    """
+    n = 3
+    atol = np.array([1e-10, 1e-9, 1e-8], dtype=np.float64)
+    rtol = np.array([1e-5, 1e-4, 1e-3], dtype=np.float64)
+
+    factory = ScaledNorm(
+        precision=np.float64,
+        n=n,
+        instance_label="krylov",
+        krylov_atol=atol,
+        krylov_rtol=rtol,
+    )
+
+    # Verify prefixed kwargs were transformed and applied
+    np.testing.assert_array_almost_equal(factory.atol, atol)
+    np.testing.assert_array_almost_equal(factory.rtol, rtol)
+
+
+def test_scaled_norm_instance_label_empty_no_prefix():
+    """Verify empty instance_label works with unprefixed kwargs.
+
+    With empty instance_label, no prefix transformation occurs and
+    unprefixed kwargs should work directly.
+    """
+    n = 3
+    atol = np.array([1e-8, 1e-7, 1e-6], dtype=np.float64)
+    rtol = np.array([1e-4, 1e-3, 1e-2], dtype=np.float64)
+
+    factory = ScaledNorm(
+        precision=np.float64,
+        n=n,
+        instance_label="",
+        atol=atol,
+        rtol=rtol,
+    )
+
+    # Verify unprefixed kwargs were applied directly
+    np.testing.assert_array_almost_equal(factory.atol, atol)
+    np.testing.assert_array_almost_equal(factory.rtol, rtol)

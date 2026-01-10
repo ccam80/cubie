@@ -949,7 +949,7 @@ def _execute_cpu_step_twice(
         newton_tol=solver_settings["newton_atol"],
         newton_max_iters=solver_settings["newton_max_iters"],
         linear_tol=solver_settings["krylov_atol"],
-        linear_max_iters=solver_settings["kyrlov_max_iters"],
+        linear_max_iters=solver_settings["krylov_max_iters"],
         linear_correction_type=solver_settings["linear_correction_type"],
         preconditioner_order=solver_settings["preconditioner_order"],
         tableau=tableau,
@@ -1015,7 +1015,7 @@ def cpu_step_results(
         newton_tol=solver_settings["newton_atol"],
         newton_max_iters=solver_settings["newton_max_iters"],
         linear_tol=solver_settings["krylov_atol"],
-        linear_max_iters=solver_settings["kyrlov_max_iters"],
+        linear_max_iters=solver_settings["krylov_max_iters"],
         linear_correction_type=solver_settings["linear_correction_type"],
         preconditioner_order=solver_settings["preconditioner_order"],
         tableau=tableau,
@@ -1245,9 +1245,9 @@ def test_algorithm(
 
     if properties is not None and properties["is_implicit"]:
         if isinstance(step_object, GenericRosenbrockWStep):
-            assert step_object.kyrlov_max_iters == solver_settings[
-                "kyrlov_max_iters"
-            ], "kyrlov_max_iters set"
+            assert step_object.krylov_max_iters == solver_settings[
+                "krylov_max_iters"
+            ], "krylov_max_iters set"
             assert step_object.linear_correction_type == solver_settings[
                 "linear_correction_type"
             ], "linear_correction_type set"
@@ -1267,9 +1267,9 @@ def test_algorithm(
             assert step_object.preconditioner_order == solver_settings[
                 "preconditioner_order"
             ], "preconditioner order set"
-            assert step_object.kyrlov_max_iters == solver_settings[
-                "kyrlov_max_iters"
-            ], "kyrlov_max_iters set"
+            assert step_object.krylov_max_iters == solver_settings[
+                "krylov_max_iters"
+            ], "krylov_max_iters set"
             assert step_object.linear_correction_type == solver_settings[
                 "linear_correction_type"
             ], "linear_correction_type set"
@@ -1309,8 +1309,8 @@ def test_algorithm(
     if step_object.is_implicit:
         if isinstance(step_object, GenericRosenbrockWStep):
             updates = {
-                "kyrlov_max_iters": max(
-                    1, solver_settings["kyrlov_max_iters"] // 2
+                "krylov_max_iters": max(
+                    1, solver_settings["krylov_max_iters"] // 2
                 ),
                 "krylov_atol": solver_settings["krylov_atol"] * 0.5,
                 "krylov_rtol": solver_settings["krylov_rtol"] * 0.5,
@@ -1319,8 +1319,8 @@ def test_algorithm(
             recognised = step_object.update(updates)
             assert set(updates).issubset(recognised), "updates recognised"
             config = step_object.compile_settings
-            assert step_object.kyrlov_max_iters == updates["kyrlov_max_iters"], \
-                "kyrlov_max_iters update"
+            assert step_object.krylov_max_iters == updates["krylov_max_iters"], \
+                "krylov_max_iters update"
             assert step_object.linear_correction_type == updates[
                 "linear_correction_type"], "linear_correction_type update"
             assert step_object.krylov_atol == pytest.approx(

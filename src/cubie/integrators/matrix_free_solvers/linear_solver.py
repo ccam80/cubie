@@ -15,8 +15,6 @@ from numpy import dtype as np_dtype, ndarray
 from cubie._utils import (
     PrecisionDType,
     build_config,
-    gttype_validator,
-    inrangetype_validator,
     is_device_validator,
 )
 from cubie.integrators.matrix_free_solvers.base_solver import (
@@ -48,8 +46,6 @@ class LinearSolverConfig(MatrixFreeSolverConfig):
         Device function for approximate inverse preconditioner.
     linear_correction_type : str
         Line-search strategy ('steepest_descent' or 'minimal_residual').
-    kyrlov_max_iters : int
-        Maximum iterations permitted (alias for max_iters).
     preconditioned_vec_location : str
         Memory location for preconditioned_vec buffer ('local' or 'shared').
     temp_location : str
@@ -78,9 +74,6 @@ class LinearSolverConfig(MatrixFreeSolverConfig):
         default="minimal_residual",
         validator=validators.in_(["steepest_descent", "minimal_residual"]),
     )
-    kyrlov_max_iters: int = field(
-        default=100, validator=inrangetype_validator(int, 1, 32767)
-    )
     preconditioned_vec_location: str = field(
         default="local", validator=validators.in_(["local", "shared"])
     )
@@ -105,7 +98,7 @@ class LinearSolverConfig(MatrixFreeSolverConfig):
             norm factory.
         """
         return {
-            "kyrlov_max_iters": self.kyrlov_max_iters,
+            "krylov_max_iters": self.max_iters,
             "linear_correction_type": self.linear_correction_type,
             "preconditioned_vec_location": self.preconditioned_vec_location,
             "temp_location": self.temp_location,
@@ -152,32 +145,24 @@ class LinearSolver(MatrixFreeSolver):
             parameters (krylov_atol, krylov_rtol) are passed to the
             norm factory. None values are ignored.
         """
-        # Extract tolerance kwargs for base class norm factory
-        atol = kwargs.pop("krylov_atol", None)
-        rtol = kwargs.pop("krylov_rtol", None)
-
-        # Initialize base class with norm factory
-        super().__init__(
-            precision=precision,
-            settings_prefix="krylov_",
-            n=n,
-            atol=atol,
-            rtol=rtol,
-        )
-
         config = build_config(
             LinearSolverConfig,
             required={
                 "precision": precision,
                 "n": n,
             },
+            instance_label="krylov",
             **kwargs,
         )
+
+        super().__init__(
+            precision=precision,
+            solver_type="krylov",
+            n=n,
+            **kwargs,
+        )
+
         self.setup_compile_settings(config)
-
-        # Update config with norm device function
-        self._update_norm_and_config({})
-
         self.register_buffers()
 
     def register_buffers(self) -> None:
@@ -214,12 +199,15 @@ class LinearSolver(MatrixFreeSolver):
         """
         config = self.compile_settings
 
-        # Extract parameters from config
+        # Device Functions
         operator_apply = config.operator_apply
         preconditioner = config.preconditioner
+        scaled_norm_fn = config.norm_device_function
+
+        # Config parameters
         n = config.n
         linear_correction_type = config.linear_correction_type
-        kyrlov_max_iters = config.kyrlov_max_iters
+        max_iters = config.max_iters
         precision = config.precision
         use_cached_auxiliaries = config.use_cached_auxiliaries
 
@@ -228,12 +216,9 @@ class LinearSolver(MatrixFreeSolver):
         mr_flag = linear_correction_type == "minimal_residual"
         preconditioned = preconditioner is not None
 
-        # Get scaled norm device function from config
-        scaled_norm_fn = config.norm_device_function
-
         # Convert types for device function
         n_val = int32(n)
-        max_iters_val = int32(kyrlov_max_iters)
+        max_iters_val = int32(max_iters)
         precision_numba = from_dtype(np_dtype(precision))
         typed_zero = precision_numba(0.0)
         typed_one = precision_numba(1.0)
@@ -533,37 +518,21 @@ class LinearSolver(MatrixFreeSolver):
         set
             Set of recognized parameter names that were updated.
         """
-        # Merge updates into a COPY to preserve original dict
         all_updates = {}
         if updates_dict:
             all_updates.update(updates_dict)
         all_updates.update(kwargs)
 
-        recognized = set()
-
         if not all_updates:
-            return recognized
+            return set()
 
-        # Extract prefixed tolerance parameters (modifies all_updates in place)
-        norm_updates = self._extract_prefixed_tolerance(all_updates)
-
-        # Mark tolerance parameters as recognized
-        if norm_updates:
-            if "atol" in norm_updates:
-                recognized.add("krylov_atol")
-            if "rtol" in norm_updates:
-                recognized.add("krylov_rtol")
-
-        # Update norm and propagate to config
-        self._update_norm_and_config(norm_updates)
-
-        # Update compile settings with remaining parameters
-        recognized |= self.update_compile_settings(
-            updates_dict=all_updates, silent=True
-        )
+        # Delegate tolerance extraction and compile settings to base class
+        recognized = super().update(all_updates, silent=True)
 
         # Buffer locations handled by registry
-        buffer_registry.update(self, updates_dict=all_updates, silent=True)
+        recognized |= buffer_registry.update(
+            self, updates_dict=all_updates, silent=True
+        )
         self.register_buffers()
 
         return recognized
@@ -574,16 +543,6 @@ class LinearSolver(MatrixFreeSolver):
         return self.get_cached_output("linear_solver")
 
     @property
-    def precision(self) -> PrecisionDType:
-        """Return configured precision."""
-        return self.compile_settings.precision
-
-    @property
-    def n(self) -> int:
-        """Return vector size."""
-        return self.compile_settings.n
-
-    @property
     def linear_correction_type(self) -> str:
         """Return correction strategy."""
         return self.compile_settings.linear_correction_type
@@ -591,17 +550,17 @@ class LinearSolver(MatrixFreeSolver):
     @property
     def krylov_atol(self) -> ndarray:
         """Return absolute tolerance array."""
-        return self.norm.atol
+        return self.atol
 
     @property
     def krylov_rtol(self) -> ndarray:
         """Return relative tolerance array."""
-        return self.norm.rtol
+        return self.rtol
 
     @property
-    def kyrlov_max_iters(self) -> int:
+    def krylov_max_iters(self) -> int:
         """Return maximum iterations."""
-        return self.compile_settings.kyrlov_max_iters
+        return self.max_iters
 
     @property
     def use_cached_auxiliaries(self) -> bool:
