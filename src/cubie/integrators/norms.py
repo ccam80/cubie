@@ -33,8 +33,6 @@ class ScaledNormConfig(MultipleInstanceCUDAFactoryConfig):
 
     Attributes
     ----------
-    precision : PrecisionDType
-        Numerical precision for computations.
     n : int
         Size of vectors to compute norm over.
     atol : ndarray
@@ -43,7 +41,7 @@ class ScaledNormConfig(MultipleInstanceCUDAFactoryConfig):
         Relative tolerance array of shape (n,).
     """
 
-    n: int = field(default=0, validator=getype_validator(int, 1))
+    n: int = field(default=1, validator=getype_validator(int, 1))
     atol: ndarray = field(
         default=asarray([1e-6]),
         validator=float_array_validator,

@@ -553,7 +553,7 @@ class NewtonKrylov(MatrixFreeSolver):
     @property
     def newton_max_iters(self) -> int:
         """Return maximum Newton iterations."""
-        return self.compile_settings.newton_max_iters
+        return self.max_iters
 
     @property
     def newton_damping(self) -> float:

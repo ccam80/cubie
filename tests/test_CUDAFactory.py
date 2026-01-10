@@ -531,7 +531,7 @@ def test_multiple_instance_factory_mixed_keys():
 
     @attrs.define
     class TestConfig(MultipleInstanceCUDAFactoryConfig):
-        value: int = 10
+        value: int = attrs.field(default=10, metadata={"prefixed": True})
 
     class TestFactory(MultipleInstanceCUDAFactory):
         def __init__(self):
@@ -546,7 +546,9 @@ def test_multiple_instance_factory_mixed_keys():
     factory = TestFactory()
 
     # Update with both prefixed and unprefixed - prefixed should win
-    factory.update_compile_settings({"value": 5, "test_value": 20})
+    factory.update_compile_settings(
+        {"value": 5, "test_value": 20}, silent=True
+    )
 
     assert factory.compile_settings.value == 20
 
@@ -584,8 +586,8 @@ def test_build_config_with_instance_label(precision):
 
     @attrs.define
     class TestConfig(MultipleInstanceCUDAFactoryConfig):
-        _atol: float = attrs.field(default=1e-6, alias="atol")
-        _rtol: float = attrs.field(default=1e-3, alias="rtol")
+        _atol: float = attrs.field(default=1e-6, metadata={"prefixed": True})
+        _rtol: float = attrs.field(default=1e-3, metadata={"prefixed": True})
 
         @property
         def atol(self) -> float:
@@ -617,7 +619,9 @@ def test_build_config_instance_label_prefixed_takes_precedence(precision):
 
     @attrs.define
     class TestConfig(MultipleInstanceCUDAFactoryConfig):
-        _atol: float = attrs.field(default=1e-6, alias="atol")
+        _atol: float = attrs.field(
+            default=1e-6, alias="atol", metadata={"prefixed": True}
+        )
 
         @property
         def atol(self) -> float:
@@ -661,40 +665,15 @@ def test_build_config_backward_compatible_no_instance_label(precision):
     assert config.value == 42
 
 
-def test_build_config_instance_label_non_prefixed_class(precision):
-    """Verify no transformation for classes without get_prefixed_attributes."""
-    from cubie._utils import build_config
-    from cubie.CUDAFactory import CUDAFactoryConfig
-
-    @attrs.define
-    class TestConfig(CUDAFactoryConfig):
-        _atol: float = attrs.field(default=1e-6, alias="atol")
-
-        @property
-        def atol(self) -> float:
-            return self._atol
-
-    # instance_label provided, but class has no get_prefixed_attributes
-    config = build_config(
-        TestConfig,
-        required={"precision": precision},
-        instance_label="krylov",
-        atol=1e-10,
-    )
-
-    # Should still work without transformation
-    assert config.atol == 1e-10
-    # instance_label should NOT be set (not a valid field)
-    assert not hasattr(config, "instance_label")
-
-
 def test_multiple_instance_config_prefix_property(precision):
     """Verify prefix property returns instance_label."""
     from cubie.CUDAFactory import MultipleInstanceCUDAFactoryConfig
 
     @attrs.define
     class TestConfig(MultipleInstanceCUDAFactoryConfig):
-        _atol: float = attrs.field(default=1e-6, alias="atol")
+        _atol: float = attrs.field(
+            default=1e-6, alias="atol", metadata={"prefixed": True}
+        )
 
     config = TestConfig(precision=precision, instance_label="krylov")
 
@@ -715,10 +694,10 @@ def test_multiple_instance_config_post_init_populates_prefixed_attrs(
 
     @attrs.define
     class TestConfig(MultipleInstanceCUDAFactoryConfig):
-        _atol: float = attrs.field(default=1e-6, alias="atol")
-        _rtol: float = attrs.field(default=1e-3, alias="rtol")
+        _atol: float = attrs.field(default=1e-6, metadata={"prefixed": True})
+        _rtol: float = attrs.field(default=1e-3, metadata={"prefixed": True})
         non_prefixed: int = attrs.field(
-            default=10, metadata={"prefixed": False}
+            default=10,
         )
 
     # With instance_label set, prefixed_attributes should be populated

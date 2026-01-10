@@ -46,8 +46,6 @@ class LinearSolverConfig(MatrixFreeSolverConfig):
         Device function for approximate inverse preconditioner.
     linear_correction_type : str
         Line-search strategy ('steepest_descent' or 'minimal_residual').
-    krylov_max_iters : int
-        Maximum iterations permitted (alias for max_iters).
     preconditioned_vec_location : str
         Memory location for preconditioned_vec buffer ('local' or 'shared').
     temp_location : str

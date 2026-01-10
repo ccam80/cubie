@@ -787,8 +787,8 @@ def build_config(
     merged = {**required, **optional}
 
     field_to_external = {}
-    prefixed_attrs = {}
-
+    prefixed_attrs = set()
+    prefix = ""
     # Generate prefix if instance_label provided and applicable
     if instance_label:
         # Add instance_label to merged for config constructor

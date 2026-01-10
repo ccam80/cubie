@@ -24,17 +24,18 @@ def placeholder_system(precision):
 
     @cuda.jit(device=True)
     def operator(state, parameters, drivers, base_state, t, h, a_ij, vec, out):
-        out[0] = (precision(1.0) - h * a_ij)  * vec[0]
+        out[0] = (precision(1.0) - h * a_ij) * vec[0]
 
     base = cuda.to_device(np.array([1.0], dtype=precision))
     return residual, operator, base
+
 
 def test_newton_krylov_placeholder(placeholder_system, precision, tolerance):
     """Solve a simple implicit Euler step using Newton-Krylov."""
 
     residual, operator, base_state = placeholder_system
     n = 1
-    
+
     linear_solver_instance = LinearSolver(
         precision=precision,
         n=n,
@@ -43,7 +44,7 @@ def test_newton_krylov_placeholder(placeholder_system, precision, tolerance):
         krylov_max_iters=32,
     )
     linear_solver_instance.update(operator_apply=operator)
-    
+
     newton_instance = NewtonKrylov(
         precision=precision,
         n=n,
@@ -100,6 +101,7 @@ def test_newton_krylov_placeholder(placeholder_system, precision, tolerance):
         atol=tolerance.abs_loose * 1000,
     )
 
+
 @pytest.mark.parametrize(
     "system_setup",
     [
@@ -112,7 +114,9 @@ def test_newton_krylov_placeholder(placeholder_system, precision, tolerance):
     indirect=True,
 )
 @pytest.mark.parametrize("precond_order", [0, 1, 2])
-def test_newton_krylov_symbolic(system_setup, precision, precond_order, tolerance):
+def test_newton_krylov_symbolic(
+    system_setup, precision, precond_order, tolerance
+):
     """Solve a symbolic system with optional preconditioning provided by fixture."""
     sym_system = system_setup["sym_system"]
     n = sym_system.num_states
@@ -140,8 +144,9 @@ def test_newton_krylov_symbolic(system_setup, precision, precond_order, toleranc
         krylov_rtol=krylov_tol,
         krylov_max_iters=1000,
     )
-    linear_solver_instance.update(operator_apply=operator,
-                                  preconditioner=precond)
+    linear_solver_instance.update(
+        operator_apply=operator, preconditioner=precond
+    )
 
     newton_instance = NewtonKrylov(
         precision=precision,
@@ -154,7 +159,6 @@ def test_newton_krylov_symbolic(system_setup, precision, precond_order, toleranc
 
     newton_instance.update(residual_function=residual_func)
     solver = newton_instance.device_function
-
 
     scratch_len = 2 * n
 
@@ -287,14 +291,13 @@ def test_newton_krylov_newton_max_iters_exceeded(
         out[0] = diff * diff * diff
 
     @cuda.jit(device=True)
-    def operator(
-        state, parameters, drivers, base_state, t, h, a_ij, vec, out
-    ):
+    def operator(state, parameters, drivers, base_state, t, h, a_ij, vec, out):
         # Jacobian of the cubic residual: J = 3*(y - target)^2
         target = base_state[0] + precision(1.0)
         y = base_state[0] + state[0]
         jac = precision(3.0) * (y - target) * (y - target)
         out[0] = jac * vec[0]
+
     n = 1
     linear_solver_instance = LinearSolver(
         precision=precision,
@@ -316,7 +319,6 @@ def test_newton_krylov_newton_max_iters_exceeded(
 
     newton_instance.update(residual_function=residual)
     solver = newton_instance.device_function
-
 
     scratch_len = 3 * n
 
@@ -343,11 +345,13 @@ def test_newton_krylov_newton_max_iters_exceeded(
         )
 
     h = precision(0.01)
-    x = cuda.to_device(np.array([0.0], dtype=precision))  # ensures residual>tol
+    x = cuda.to_device(
+        np.array([0.0], dtype=precision)
+    )  # ensures residual>tol
     out_flag = cuda.to_device(np.array([0], dtype=np.int32))
     kernel[1, 1](x, base_state, out_flag, h)
     status_code = int(out_flag.copy_to_host()[0]) & STATUS_MASK
-    assert (status_code == SolverRetCodes.MAX_NEWTON_ITERATIONS_EXCEEDED)
+    assert status_code == SolverRetCodes.MAX_NEWTON_ITERATIONS_EXCEEDED
 
 
 def test_newton_krylov_linear_solver_failure_propagates(precision):
@@ -389,7 +393,6 @@ def test_newton_krylov_linear_solver_failure_propagates(precision):
     newton_instance.update(residual_function=residual)
     solver = newton_instance.device_function
 
-
     scratch_len = 3 * n
 
     @cuda.jit
@@ -419,13 +422,10 @@ def test_newton_krylov_linear_solver_failure_propagates(precision):
     out_flag = cuda.to_device(np.array([0], dtype=np.int32))
     kernel[1, 1](out_flag, precision(0.01))
     status_code = int(out_flag.copy_to_host()[0]) & STATUS_MASK
-    assert (
-        status_code
-        == (
-            SolverRetCodes.MAX_NEWTON_ITERATIONS_EXCEEDED
-            | SolverRetCodes.NEWTON_BACKTRACKING_NO_SUITABLE_STEP
-            | SolverRetCodes.MAX_LINEAR_ITERATIONS_EXCEEDED
-        )
+    assert status_code == (
+        SolverRetCodes.MAX_NEWTON_ITERATIONS_EXCEEDED
+        | SolverRetCodes.NEWTON_BACKTRACKING_NO_SUITABLE_STEP
+        | SolverRetCodes.MAX_LINEAR_ITERATIONS_EXCEEDED
     )
 
 
@@ -642,7 +642,7 @@ def test_newton_krylov_uses_scaled_norm(precision):
         newton_rtol=1e-4,
     )
     # Verify norm factory exists and is a ScaledNorm
-    assert hasattr(newton, 'norm')
+    assert hasattr(newton, "norm")
     assert isinstance(newton.norm, ScaledNorm)
     # Verify norm has correct configuration
     assert newton.norm.n == n
@@ -694,11 +694,11 @@ def test_newton_krylov_config_no_tolerance_fields(precision):
     field_names = {f.name for f in attrs.fields(NewtonKrylovConfig)}
 
     # Verify legacy tolerance scalar fields are NOT present
-    assert '_newton_tolerance' not in field_names
+    assert "_newton_tolerance" not in field_names
 
     # Verify tolerance array fields are NOT in config (managed by norm)
-    assert 'newton_atol' not in field_names
-    assert 'newton_rtol' not in field_names
+    assert "newton_atol" not in field_names
+    assert "newton_rtol" not in field_names
 
     # Verify we can still instantiate the config
     config = NewtonKrylovConfig(precision=precision, n=3)
@@ -706,7 +706,9 @@ def test_newton_krylov_config_no_tolerance_fields(precision):
     assert config.precision == precision
 
 
-def test_newton_krylov_config_settings_dict_excludes_tolerance_arrays(precision):
+def test_newton_krylov_config_settings_dict_excludes_tolerance_arrays(
+    precision,
+):
     """Verify settings_dict does not include tolerance arrays."""
     from cubie.integrators.matrix_free_solvers.newton_krylov import (
         NewtonKrylovConfig,
@@ -716,21 +718,21 @@ def test_newton_krylov_config_settings_dict_excludes_tolerance_arrays(precision)
     settings = config.settings_dict
 
     # Verify tolerance arrays are NOT in settings_dict
-    assert 'newton_atol' not in settings
-    assert 'newton_rtol' not in settings
+    assert "newton_atol" not in settings
+    assert "newton_rtol" not in settings
 
     # Verify legacy tolerance scalar is NOT in settings_dict
-    assert 'newton_tolerance' not in settings
+    assert "newton_tolerance" not in settings
 
     # Verify other expected keys ARE present
-    assert 'newton_max_iters' in settings
-    assert 'newton_damping' in settings
-    assert 'newton_max_backtracks' in settings
-    assert 'delta_location' in settings
-    assert 'residual_location' in settings
-    assert 'residual_temp_location' in settings
-    assert 'stage_base_bt_location' in settings
-    assert 'krylov_iters_local_location' in settings
+    assert "newton_max_iters" in settings
+    assert "newton_damping" in settings
+    assert "newton_max_backtracks" in settings
+    assert "delta_location" in settings
+    assert "residual_location" in settings
+    assert "residual_temp_location" in settings
+    assert "stage_base_bt_location" in settings
+    assert "krylov_iters_local_location" in settings
 
 
 def test_newton_krylov_inherits_from_matrix_free_solver(precision):
@@ -769,9 +771,9 @@ def test_newton_krylov_update_preserves_original_dict(precision):
 
     # Create a dict to pass to update
     original_dict = {
-        'newton_atol': 1e-8,
-        'newton_rtol': 1e-6,
-        'residual_function': residual,
+        "newton_atol": 1e-8,
+        "newton_rtol": 1e-6,
+        "residual_function": residual,
     }
     # Make a copy to compare against
     expected_dict = dict(original_dict)
@@ -795,6 +797,8 @@ def test_newton_krylov_no_manual_cache_invalidation(precision):
         newton_rtol=1e-4,
     )
 
+    # Access device function to force build
+    _ = newton.device_function
     # Verify initial norm_device_function is set in config
     config = newton.compile_settings
     assert config.norm_device_function is not None
@@ -803,10 +807,7 @@ def test_newton_krylov_no_manual_cache_invalidation(precision):
     newton.update(newton_atol=1e-8)
 
     # Config should have updated norm_device_function
-    updated_config = newton.compile_settings
-    # The norm device function should be updated (may be same or different
-    # object depending on caching, but it should exist)
-    assert updated_config.norm_device_function is not None
+    assert newton._cache_valid is False
 
 
 def test_newton_krylov_settings_dict_includes_tolerance_arrays(precision):
@@ -825,22 +826,22 @@ def test_newton_krylov_settings_dict_includes_tolerance_arrays(precision):
     settings = newton.settings_dict
 
     # Tolerance arrays should be in settings_dict
-    assert 'newton_atol' in settings
-    assert 'newton_rtol' in settings
-    assert np.allclose(settings['newton_atol'], newton_atol)
-    assert np.allclose(settings['newton_rtol'], newton_rtol)
+    assert "newton_atol" in settings
+    assert "newton_rtol" in settings
+    assert np.allclose(settings["newton_atol"], newton_atol)
+    assert np.allclose(settings["newton_rtol"], newton_rtol)
 
     # Other expected settings from config should also be present
-    assert 'newton_max_iters' in settings
-    assert 'newton_damping' in settings
-    assert 'newton_max_backtracks' in settings
-    assert 'delta_location' in settings
-    assert 'residual_location' in settings
+    assert "newton_max_iters" in settings
+    assert "newton_damping" in settings
+    assert "newton_max_backtracks" in settings
+    assert "delta_location" in settings
+    assert "residual_location" in settings
 
     # Linear solver settings should be merged in as well
-    assert 'krylov_max_iters' in settings
-    assert 'krylov_atol' in settings
-    assert 'krylov_rtol' in settings
+    assert "krylov_max_iters" in settings
+    assert "krylov_atol" in settings
+    assert "krylov_rtol" in settings
 
 
 def test_newton_krylov_init_with_newton_prefixed_kwargs(precision):
