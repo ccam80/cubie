@@ -43,6 +43,15 @@ def resize_tolerances(instance, attribute, value):
     -------
     ndarray
         Resized tolerance array of shape (n,).
+
+    Notes
+    -----
+    This is only useful (and valid) when the tolerance arrays were set from
+    a scalar value. That is the only case where it's safe to assume that the
+    user wants the same tolerance applied to all elements. If tolerance is a
+    non-equal array then we leave it unchanged, presuming an update to
+    tolerance is incoming shortly. If it isn't the consumer will fail,
+    as expected.
     """
     n = value
     tols = ("atol", "rtol")
@@ -50,7 +59,7 @@ def resize_tolerances(instance, attribute, value):
     for tol in tols:
         tolarray = getattr(instance, tol)
         if tolarray.shape[0] == n:
-            return value
+            continue
         # If all values are the same, then expand to new size
         if all(tolarray == tolarray[0]):
             setattr(
