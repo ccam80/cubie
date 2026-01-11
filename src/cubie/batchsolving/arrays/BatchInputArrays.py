@@ -6,6 +6,7 @@ from attrs.validators import (
     optional as attrsval_optional,
 )
 from numpy import (
+    ascontiguousarray as np_ascontiguousarray,
     dtype as np_dtype,
     float32 as np_float32,
     floating as np_floating,
@@ -350,8 +351,8 @@ class InputArrays(BaseArrayManager):
 
         Notes
         -----
-        This method copies the appropriate chunk of data from host to device
-        arrays before kernel execution.
+        Host slices are made contiguous before transfer to ensure
+        compatible strides with device arrays.
         """
         from_ = []
         to_ = []
@@ -370,9 +371,15 @@ class InputArrays(BaseArrayManager):
                 from_.append(host_obj.array)
             else:
                 stride_order = host_obj.stride_order
+                # Skip chunking if axis not in stride_order
+                if self._chunk_axis not in stride_order:
+                    from_.append(host_obj.array)
+                    continue
                 chunk_index = stride_order.index(self._chunk_axis)
                 slice_tuple = [slice(None)] * len(stride_order)
                 slice_tuple[chunk_index] = host_indices
-                from_.append(host_obj.array[tuple(slice_tuple)])
+                host_slice = host_obj.array[tuple(slice_tuple)]
+                # Make contiguous for device transfer
+                from_.append(np_ascontiguousarray(host_slice))
 
         self.to_device(from_, to_)

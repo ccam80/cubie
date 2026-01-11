@@ -114,7 +114,7 @@ def mem_manager_override(request):
 
 @pytest.fixture(scope="function")
 def mem_manager_settings(mem_manager_override):
-    defaults = {"mode": "passive", "stride_order": ("time", "variable", "run")}
+    defaults = {"mode": "passive"}
     if mem_manager_override:
         for key, value in mem_manager_override.items():
             if key in defaults:
@@ -433,39 +433,6 @@ class TestMemoryManager:
         with pytest.raises(ValueError):
             regmgr.register(instance5, proportion=0.3)
 
-    def test_set_strides(self, mgr):
-        """test that the strides are set correctly"""
-        # Default stride order, should be None
-        req = ArrayRequest(
-            shape=(2, 3, 4),
-            dtype=np.float32,
-            memory="device",
-            stride_order=("time", "variable", "run"),
-        )
-        assert mgr.get_strides(req) is None
-        # Custom stride order, should return a tuple
-        req2 = ArrayRequest(
-            shape=(2, 3, 4),
-            dtype=np.float32,
-            memory="device",
-            stride_order=("time", "run", "variable"),
-        )
-        strides = mgr.get_strides(req2)
-        # Manually computed strides for shape (2,3,4) and order (time, run, variable)
-        # Should match what MemoryManager.get_strides returns
-        itemsize = req2.dtype().itemsize
-        expected = (48, 4, 12)
-        assert strides == expected
-
-    def test_set_global_stride_ordering(self, mgr):
-        """Test that set_global_stride_ordering sets the stride order and invalidates all."""
-        # Valid ordering
-        mgr.set_global_stride_ordering(("run", "variable", "time"))
-        assert mgr._stride_order == ("run", "variable", "time")
-        # Invalid ordering
-        with pytest.raises(ValueError):
-            mgr.set_global_stride_ordering(("foo", "bar", "baz"))
-
     def test_process_request(self, mgr):
         """Test single_request calls allocation hook with correct ArrayResponse."""
         # Create instance with callback to capture response
@@ -580,37 +547,6 @@ class TestMemoryManager:
         assert free == 1 * 1024**3
         assert total == 8 * 1024**3
 
-    def test_get_strides(self, mgr):
-        """Test get_strides returns correct strides for 3D arrays and None for default/correct ordering or 2D arrays."""
-        # 3D array, default stride order
-        req_default = ArrayRequest(
-            shape=(2, 3, 4),
-            dtype=np.float32,
-            memory="device",
-            stride_order=("time", "variable", "run"),
-        )
-        assert mgr.get_strides(req_default) is None
-        # 3D array, custom stride order
-        req_custom = ArrayRequest(
-            shape=(2, 3, 4),
-            dtype=np.float32,
-            memory="device",
-            stride_order=("time", "run", "variable"),
-        )
-        strides = mgr.get_strides(req_custom)
-        # Should match manual calculation
-        itemsize = req_custom.dtype().itemsize
-        expected = (48, 4, 12)
-        assert strides == expected
-        # 2D array, should always be None
-        req_2d = ArrayRequest(
-            shape=(3, 4),
-            dtype=np.float32,
-            memory="device",
-            stride_order=("variable", "run"),
-        )
-        assert mgr.get_strides(req_2d) is None
-
     def test_create_host_array_1d(self, mgr):
         """Test create_host_array returns correct 1D array."""
         arr = mgr.create_host_array(shape=(10,), dtype=np.float32)
@@ -643,14 +579,15 @@ class TestMemoryManager:
         )
 
     def test_create_host_array_3d_custom_stride(self, mgr):
-        """Test create_host_array returns correct 3D array with custom stride."""
+        """Test create_host_array returns C-contiguous 3D array."""
         arr = mgr.create_host_array(
             shape=(2, 3, 4),
             dtype=np.float32,
-            stride_order=("run", "variable", "time"),
+            stride_order=("run", "variable", "time"),  # ignored
         )
         assert arr.shape == (2, 3, 4)
         assert arr.dtype == np.float32
+        assert arr.flags['C_CONTIGUOUS']
         np.testing.assert_array_equal(
             arr, np.zeros((2, 3, 4), dtype=np.float32)
         )
@@ -859,6 +796,31 @@ class TestMemoryManager:
         chunked_time = mgr.chunk_arrays(requests, numchunks=2, axis="time")
         assert chunked_time["arr1"].shape == (50, 200, 50)  # 100/2 = 50
         assert chunked_time["arr2"].shape == (25, 400, 25)  # 50/2 = 25
+
+    def test_chunk_arrays_skips_missing_axis(self, mgr):
+        """Test chunk_arrays skips arrays whose stride_order lacks the axis."""
+        requests = {
+            "input_2d": ArrayRequest(
+                shape=(10, 50),
+                dtype=np.float32,
+                memory="device",
+                stride_order=("variable", "run"),
+            ),
+            "output_3d": ArrayRequest(
+                shape=(100, 10, 50),
+                dtype=np.float32,
+                memory="device",
+                stride_order=("time", "variable", "run"),
+            ),
+        }
+
+        # Chunk by time axis; 2D array lacks time axis so should be unchanged
+        chunked = mgr.chunk_arrays(requests, numchunks=4, axis="time")
+
+        # 2D array should be unchanged (no time axis)
+        assert chunked["input_2d"].shape == (10, 50)
+        # 3D array should be chunked on time axis: ceil(100/4)=25
+        assert chunked["output_3d"].shape == (25, 10, 50)
 
     def test_single_request(self, registered_mgr, registered_instance):
         """Test single_request processes individual requests correctly."""

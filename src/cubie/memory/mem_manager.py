@@ -265,8 +265,6 @@ class MemoryManager:
         List of instance identifiers using automatic memory allocation.
     _manual_pool
         List of instance identifiers using manual memory allocation.
-    _stride_order
-        Default stride ordering for three-dimensional arrays.
     _queued_allocations
         Queued allocation requests organized by stream group.
 
@@ -299,10 +297,7 @@ class MemoryManager:
     _manual_pool: list[int] = field(
         default=attrsFactory(list), validator=attrsval_instance_of(list)
     )
-    _stride_order: tuple[str, str, str] = field(
-        default=("time", "variable", "run"), validator=attrsval_instance_of(
-                    tuple)
-    )
+
     _queued_allocations: Dict[str, Dict] = field(
         default=attrsFactory(dict), validator=attrsval_instance_of(dict)
     )
@@ -781,42 +776,6 @@ class MemoryManager:
             self.registry[instance_id].proportion = each_proportion
             self.registry[instance_id].cap = cap
 
-    def set_global_stride_ordering(
-        self, ordering: tuple[str, str, str]
-    ) -> None:
-        """
-        Set the global memory stride ordering for arrays.
-
-        Parameters
-        ----------
-        ordering
-            Tuple containing ``"time"``, ``"run"``, and ``"variable"`` in desired
-            order.
-
-        Raises
-        ------
-        ValueError
-            If ordering doesn't contain exactly 'time', 'run', and 'variable'.
-
-        Notes
-        -----
-        This invalidates all current allocations as arrays need to be
-        reallocated with new stride patterns.
-
-        Returns
-        -------
-        None
-        """
-        if not all(elem in ("time", "run", "variable") for elem in ordering):
-            raise ValueError(
-                "Invalid stride ordering - must containt 'time', "
-                f"'run', 'variable' but got {ordering}"
-            )
-        self._stride_order = ordering
-        # This will also override 2D arrays, which are unaffected, but the
-        # overhead is not significant compared to the 3D arrays.
-        self.invalidate_all()
-
     def free(self, array_label: str) -> None:
         """
         Free an allocation by label across all instances.
@@ -873,53 +832,6 @@ class MemoryManager:
                     f"Expected ArrayRequest for {key}, got {type(request)}"
                 )
 
-    def get_strides(self, request: ArrayRequest) -> Optional[tuple[int, ...]]:
-        """
-        Calculate memory strides for a given access pattern (stride order).
-
-        Parameters
-        ----------
-        request
-            Array request to calculate strides for.
-
-        Returns
-        -------
-        tuple of int or None
-            Stride tuple for the array, or None if no custom strides needed.
-
-        Notes
-        -----
-        Only 3D arrays get custom stride optimization. 2D arrays use
-        default strides as they are not performance-critical.
-        """
-        # 2D arrays (in the cubie sytem) are not hammered like the 3d ones,
-        # so they're not worth optimising.
-        if len(request.shape) != 3:
-            strides = None
-        else:
-            array_native_order = request.stride_order
-            desired_order = self._stride_order
-            shape = request.shape
-            itemsize = request.dtype().itemsize
-
-            if array_native_order == desired_order:
-                strides = None
-            else:
-                dims = {
-                    name: size for name, size in zip(array_native_order, shape)
-                }
-                strides = {}
-                current_stride = itemsize
-
-                # Iterate over the desired order reversed; the last dimension
-                # in the order changes fastest so it gets the smallest stride.
-                for name in reversed(desired_order):
-                    strides[name] = current_stride
-                    current_stride *= dims[name]
-                strides = tuple(strides[dim] for dim in array_native_order)
-
-        return strides
-
     def create_host_array(
         self,
         shape: tuple[int, ...],
@@ -928,7 +840,7 @@ class MemoryManager:
         memory_type: str = "pinned",
     ) -> ndarray:
         """
-        Create a host array with strides matching the memory manager's order.
+        Create a C-contiguous host array.
 
         Parameters
         ----------
@@ -937,9 +849,8 @@ class MemoryManager:
         dtype
             Data type for the array elements.
         stride_order
-            Logical dimension labels in the array's native order. For 3D
-            arrays this should be a tuple like ``('time', 'run', 'variable')``.
-            When omitted, a C-contiguous array is returned.
+            Ignored; kept for API compatibility. Arrays are always
+            C-contiguous.
         memory_type
             Memory type for the host array. Must be ``"pinned"`` or
             ``"host"``. Defaults to ``"pinned"``.
@@ -947,21 +858,7 @@ class MemoryManager:
         Returns
         -------
         numpy.ndarray
-            Host array with strides compatible with device allocations.
-
-        Notes
-        -----
-        For 3D arrays, this method creates an array with strides that match
-        the memory manager's ``_stride_order``. The array is created by
-        allocating with the desired stride order, then transposing back to
-        the native order. This ensures that ``copy_to_host`` operations
-        succeed when copying from device arrays allocated with custom strides.
-
-        When ``memory_type="pinned"``, the array uses pinned (page-locked)
-        memory which enables truly asynchronous device-to-host transfers
-        with CUDA streams. Using ``memory_type="host"`` creates a regular
-        pageable array which will block async transfers due to required
-        intermediate buffering by the CUDA runtime.
+            C-contiguous host array.
         """
         _ensure_cuda_context()
         if memory_type not in ("pinned", "host"):
@@ -970,40 +867,12 @@ class MemoryManager:
             )
         use_pinned = memory_type == "pinned"
 
-        if len(shape) != 3 or stride_order is None:
-            if use_pinned:
-                arr = cuda.pinned_array(shape, dtype=dtype)
-                arr.fill(0)
-            else:
-                arr = np_zeros(shape, dtype=dtype)
-            return arr
-
-        desired_order = self._stride_order
-        if stride_order == desired_order:
-            if use_pinned:
-                arr = cuda.pinned_array(shape, dtype=dtype)
-                arr.fill(0)
-            else:
-                arr = np_zeros(shape, dtype=dtype)
-            return arr
-
-        # Build shape in desired stride order
-        shape_map = {
-            name: size for name, size in zip(stride_order, shape)
-        }
-        ordered_shape = tuple(shape_map[dim] for dim in desired_order)
-
-        # Create array in desired stride order (contiguous in that order)
         if use_pinned:
-            arr = cuda.pinned_array(ordered_shape, dtype=dtype)
+            arr = cuda.pinned_array(shape, dtype=dtype)
             arr.fill(0)
         else:
-            arr = np_zeros(ordered_shape, dtype=dtype)
-
-        # Compute transpose axes to return to native order
-        # We need axes that map desired_order -> stride_order
-        axes = tuple(desired_order.index(dim) for dim in stride_order)
-        return arr.transpose(axes)
+            arr = np_zeros(shape, dtype=dtype)
+        return arr
 
     def get_available_single(self, instance_id: int) -> int:
         """
@@ -1183,13 +1052,11 @@ class MemoryManager:
         responses = {}
         instance_settings = self.registry[instance_id]
         for key, request in requests.items():
-            strides = self.get_strides(request)
             arr = self.allocate(
                 shape=request.shape,
                 dtype=request.dtype,
                 memory_type=request.memory,
                 stream=stream,
-                strides=strides,
             )
             instance_settings.add_allocation(key, arr)
             responses[key] = arr
@@ -1201,10 +1068,9 @@ class MemoryManager:
         dtype: Callable,
         memory_type: str,
         stream: "cuda.cudadrv.driver.Stream" = 0,
-        strides: Optional[tuple[int, ...]] = None,
     ) -> object:
         """
-        Allocate a single array with specified parameters.
+        Allocate a single C-contiguous array with specified parameters.
 
         Parameters
         ----------
@@ -1216,8 +1082,6 @@ class MemoryManager:
             Type of memory: "device", "mapped", "pinned", or "managed".
         stream
             CUDA stream for the allocation. Defaults to 0.
-        strides
-            Custom strides for the array. Defaults to None.
 
         Returns
         -------
@@ -1235,11 +1099,11 @@ class MemoryManager:
         cp_ = self._allocator == CuPyAsyncNumbaManager
         with current_cupy_stream(stream) if cp_ else contextlib.nullcontext():
             if memory_type == "device":
-                return cuda.device_array(shape, dtype, strides=strides)
+                return cuda.device_array(shape, dtype)
             elif memory_type == "mapped":
-                return cuda.mapped_array(shape, dtype, strides=strides)
+                return cuda.mapped_array(shape, dtype)
             elif memory_type == "pinned":
-                return cuda.pinned_array(shape, dtype, strides=strides)
+                return cuda.pinned_array(shape, dtype)
             elif memory_type == "managed":
                 raise NotImplementedError("Managed memory not implemented")
             else:
@@ -1309,6 +1173,9 @@ class MemoryManager:
         for key, request in chunked_requests.items():
             # Skip chunking for explicitly unchunkable requests
             if getattr(request, "unchunkable", False):
+                continue
+            # Skip chunking if the axis is not in this array's stride_order
+            if axis not in request.stride_order:
                 continue
             # Divide all indices along selected axis by chunks
             run_index = request.stride_order.index(axis)

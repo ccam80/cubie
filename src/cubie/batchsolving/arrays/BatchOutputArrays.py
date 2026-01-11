@@ -8,6 +8,7 @@ if TYPE_CHECKING:
 from attrs import define, field
 from attrs.validators import instance_of as attrsval_instance_of
 from numpy import (
+    ascontiguousarray as np_ascontiguousarray,
     float32 as np_float32,
     floating as np_floating,
     int32 as np_int32,
@@ -342,11 +343,12 @@ class OutputArrays(BaseArrayManager):
 
         Notes
         -----
-        This method queues async transfers from device arrays to host
-        arrays using the solver's registered stream.
+        Host slices are made contiguous before transfer to ensure
+        compatible strides with device arrays.
         """
         from_ = []
         to_ = []
+        host_slices = []  # Track original slices for post-copy writeback
 
         for array_name, slot in self.host.iter_managed_arrays():
             device_array = self.device.get_array(array_name)
@@ -358,12 +360,25 @@ class OutputArrays(BaseArrayManager):
                 slice_tuple = slice_variable_dimension(
                     host_indices, chunk_index, len(stride_order)
                 )
-                to_.append(host_array[slice_tuple])
+                host_slice = host_array[slice_tuple]
+                # Make contiguous copy for device transfer
+                contiguous_slice = np_ascontiguousarray(host_slice)
+                host_slices.append((host_array, slice_tuple, contiguous_slice))
+                to_.append(contiguous_slice)
             else:
+                host_slices.append(None)
                 to_.append(host_array)
             from_.append(device_array)
 
         self.from_device(from_, to_)
+        # Sync stream before writeback
+        self._memory_manager.sync_stream(self)
+
+        # Copy contiguous buffers back to original host slices
+        for item in host_slices:
+            if item is not None:
+                host_array, slice_tuple, contiguous_slice = item
+                host_array[slice_tuple] = contiguous_slice
 
     def initialise(self, host_indices: ChunkIndices) -> None:
         """

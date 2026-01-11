@@ -682,74 +682,6 @@ class BaseArrayManager(ABC):
             )
         return True
 
-    def _convert_to_device_strides(
-        self, array: NDArray, stride_order: tuple[str, ...],
-        memory_type: str = "pinned"
-    ) -> NDArray:
-        """
-        Convert array to have strides compatible with device allocations.
-
-        Parameters
-        ----------
-        array
-            Source array to convert.
-        stride_order
-            Logical dimension labels in the array's native order.
-        memory_type
-            Memory type for the converted array. Must be ``"pinned"`` or
-            ``"host"``. Defaults to ``"pinned"``.
-
-        Returns
-        -------
-        numpy.ndarray
-            Array with strides matching the memory manager's stride order.
-
-        Notes
-        -----
-        For 2D arrays, returns unchanged (expects input in native format).
-        For 3D arrays, creates a new array with strides matching the memory
-        manager's ``_stride_order``, then copies data.
-        """
-        if stride_order is None:
-            return array
-
-        # 2D arrays are expected in native (variable, run) format
-        if len(array.shape) == 2:
-            return array
-
-        # Only convert 3D arrays; return others unchanged
-        if len(array.shape) != 3:
-            return array
-
-        # Fast path: compute expected strides before allocating target
-        desired_order = self._memory_manager._stride_order
-        if stride_order == desired_order:
-            return array
-
-        # Compute expected strides to check if conversion is needed
-        shape = array.shape
-        itemsize = array.dtype.itemsize
-        dims = {name: size for name, size in zip(stride_order, shape)}
-        expected_strides = {}
-        current_stride = itemsize
-        for name in reversed(desired_order):
-            expected_strides[name] = current_stride
-            current_stride *= dims[name]
-        expected_strides = tuple(
-            expected_strides[dim] for dim in stride_order
-        )
-
-        # Skip allocation if strides already match
-        if array.strides == expected_strides:
-            return array
-
-        target = self._memory_manager.create_host_array(
-            array.shape, array.dtype, stride_order, memory_type
-        )
-        # Copy data to array with matching strides
-        target[:] = array
-        return target
-
     def _update_host_array(
         self, new_array: NDArray, current_array: Optional[NDArray], label: str,
         shape_only: bool = False
@@ -782,10 +714,6 @@ class BaseArrayManager(ABC):
         if new_array is None:
             raise ValueError("New array is None")
         managed = self.host.get_managed_array(label)
-        # Convert to strides compatible with device allocations
-        new_array = self._convert_to_device_strides(
-            new_array, managed.stride_order, managed.memory_type
-        )
         # Fast path: if current exists and arrays have matching shape/dtype
         # (and optionally content when shape_only=False), skip update
         if current_array is not None and self._arrays_equal(

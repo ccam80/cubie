@@ -1278,17 +1278,6 @@ class BatchSolverKernel(CUDAFactory):
         """Disable CUDA profiling hooks for subsequent launches."""
         self._profileCUDA = False
 
-    def set_stride_order(self, order: Tuple[str]) -> None:
-        """Set the stride order for device arrays.
-
-        Parameters
-        ----------
-        order
-            Tuple of labels in ["time", "run", "variable"]. The last string in
-            this order is the contiguous dimension on chip.
-        """
-        self.memory_manager.set_global_stride_ordering(order)
-
     @property
     def output_types(self) -> Any:
         """Active output type identifiers configured for the run."""
