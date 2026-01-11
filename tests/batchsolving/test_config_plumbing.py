@@ -449,15 +449,27 @@ def assert_step_algorithm_config(step_algorithm, settings, tolerance):
         "backwards_euler_pc",
         "crank_nicolson",
     ]:
-        if hasattr(step_algorithm, "krylov_tolerance"):
-            assert step_algorithm.krylov_tolerance == pytest.approx(
-                settings["krylov_tolerance"],
+        if hasattr(step_algorithm, "krylov_atol"):
+            assert step_algorithm.krylov_atol == pytest.approx(
+                settings["krylov_atol"],
                 rel=tolerance.rel_tight,
                 abs=tolerance.abs_tight,
             )
-        if hasattr(step_algorithm, "newton_tolerance"):
-            assert step_algorithm.newton_tolerance == pytest.approx(
-                settings["newton_tolerance"],
+        if hasattr(step_algorithm, "krylov_rtol"):
+            assert step_algorithm.krylov_rtol == pytest.approx(
+                settings["krylov_rtol"],
+                rel=tolerance.rel_tight,
+                abs=tolerance.abs_tight,
+            )
+        if hasattr(step_algorithm, "newton_atol"):
+            assert step_algorithm.newton_atol == pytest.approx(
+                settings["newton_atol"],
+                rel=tolerance.rel_tight,
+                abs=tolerance.abs_tight,
+            )
+        if hasattr(step_algorithm, "newton_rtol"):
+            assert step_algorithm.newton_rtol == pytest.approx(
+                settings["newton_rtol"],
                 rel=tolerance.rel_tight,
                 abs=tolerance.abs_tight,
             )
@@ -723,10 +735,12 @@ def test_comprehensive_config_plumbing(
         "deadband_min": precision(0.9),
         "deadband_max": precision(1.3),
         # Algorithm settings (only for implicit, but included)
-        "krylov_tolerance": precision(5e-7),
-        "newton_tolerance": precision(5e-7),
-        "max_linear_iters": 300,
-        "max_newton_iters": 300,
+        "krylov_atol": precision(5e-7),
+        "krylov_rtol": precision(5e-7),
+        "newton_atol": precision(5e-7),
+        "newton_rtol": precision(5e-7),
+        "krylov_max_iters": 300,
+        "newton_max_iters": 300,
         "newton_damping": precision(0.75),
         "preconditioner_order": 1,
     }

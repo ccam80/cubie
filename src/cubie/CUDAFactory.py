@@ -258,7 +258,8 @@ class CUDAFactoryConfig(_CubieConfigBase):
     """
 
     precision: PrecisionDType = field(
-        validator=precision_validator, converter=precision_converter
+        validator=precision_validator,
+        converter=precision_converter,
     )
 
     def __attrs_post_init__(self):
@@ -554,3 +555,168 @@ class CUDAFactory(ABC):
         """Return the CUDA-simulator-safe dtype for the functions."""
 
         return self.compile_settings.simsafe_precision
+
+
+@define
+class MultipleInstanceCUDAFactoryConfig(CUDAFactoryConfig):
+    """Extends CUDAFactoryConfig for instances which have multiple
+    concurrent configurations - e.g. a newton and krylov solver. Provides a
+    set of prefixed keys for non-shared parameters, for example `newton_atol`
+    or `krylov_atol`. Performs the substitution internally on update,
+    however requires non-prefixed keys for init. See `build_config` for a
+    utility function that initialises this class from prefixed keys.
+    ."""
+
+    instance_label: str = field(default="", repr=False, eq=False)
+    prefixed_attributes: Set[str] = field(
+        factory=set,
+        repr=False,
+        eq=False,
+    )
+
+    @classmethod
+    def get_prefixed_attributes(cls, aliases: bool = False) -> Set[str]:
+        """Return names of attributes that use instance-specific prefixes.
+
+        Parameters
+        ----------
+        aliases
+            If True, return field aliases instead of names. Use this when
+            using the prefixed attributes for initialization, as it provides
+            the non-underscored names which the generated __init__ function
+            accepts.
+        Returns
+        -------
+        set[str]
+            Names or aliases of attributes that are prefixed based on
+            ``instance_label``.
+        """
+        prefixed = set()
+
+        for fld in fields(cls):
+            if getattr(fld, "metadata", None) is not None:
+                if fld.metadata.get("prefixed", False):
+                    if aliases:
+                        prefixed.add(
+                            fld.alias if fld.alias is not None else fld.name
+                        )
+                    else:
+                        prefixed.add(fld.name)
+
+        return prefixed
+
+    @property
+    def prefix(self) -> str:
+        """Return the prefix string for this instance.
+
+        Returns
+        -------
+        str
+            The instance_label value (prefix without trailing underscore).
+        """
+        return self.instance_label
+
+    def __attrs_post_init__(self):
+        super().__attrs_post_init__()
+        if self.instance_label != "":
+            prefixed_attributes = type(self).get_prefixed_attributes()
+            self.prefixed_attributes = prefixed_attributes
+
+    def update(
+        self, updates_dict: dict = None, **kwargs
+    ) -> Tuple[Set[str], Set[str]]:
+        """Update configuration fields with new values, handling prefixed keys.
+
+        Parameters
+        ----------
+        updates_dict
+            Mapping of setting names to new values. Keys matching
+            ``{prefix}_*`` are mapped to unprefixed equivalents.
+        kwargs
+            Additional settings to update.
+
+        Returns
+        -------
+        tuple[set[str], set[str]]
+            recognized: Names of settings that matched known fields.
+            changed: Names of settings whose values were updated.
+        """
+        all_updates = {}
+        if updates_dict:
+            all_updates.update(updates_dict)
+        all_updates.update(kwargs)
+
+        # Get rid of non-prefixed keys; write de-prefixed values in their place
+        for key in self.prefixed_attributes:
+            prefixed_key = f"{self.prefix}_{key}"
+            has_prefixed = prefixed_key in all_updates
+
+            _ = all_updates.pop(key, None)
+
+            if has_prefixed:
+                all_updates[key] = all_updates.pop(prefixed_key)
+
+        recognized_base, changed_base = super().update(all_updates)
+
+        # Transform recognised keys back into prefixed versions to make as seen
+        recognized = set()
+        for key in recognized_base:
+            if key in self.prefixed_attributes:
+                recognized.add(f"{self.prefix}_{key}")
+            else:
+                recognized.add(key)
+
+        changed = set()
+        for key in changed_base:
+            if key in self.prefixed_attributes:
+                changed.add(f"{self.prefix}_{key}")
+            else:
+                changed.add(key)
+
+        return recognized, changed
+
+
+class MultipleInstanceCUDAFactory(CUDAFactory):
+    """Factory for CUDA device functions with instance-specific prefixes.
+
+    Extends CUDAFactory to automatically map prefixed configuration
+    keys (e.g., ``krylov_atol``) to unprefixed internal keys (e.g.,
+    ``atol``) during settings updates. Subclasses use ``instance_label``
+    to differentiate configuration parameters when multiple instances
+    coexist.
+
+    Attributes
+    ----------
+    instance_label : str
+        Prefix used to identify settings for this instance
+        (e.g., "krylov", "newton"). Keys in update dicts matching
+        ``{instance_label}_*`` are mapped to unprefixed equivalents.
+
+    Notes
+    -----
+    The transformation occurs in the MultipleInstanceCUDAFactoryConfig
+    object's update() method. When update_compile_settings() is called
+    on the factory, it delegates to the config's update() method which
+    handles prefix mapping automatically.
+    """
+
+    def __init__(
+        self,
+        instance_label: str,
+    ) -> None:
+        """Initialize with instance label for prefix mapping and arguments
+        for config.
+
+        Parameters
+        ----------
+        instance_label : str
+            Prefix for external configuration keys. Should NOT
+            include trailing underscore (added automatically).
+        """
+        self._instance_label = instance_label
+        super().__init__()
+
+    @property
+    def instance_label(self) -> str:
+        """Return the instance label for this factory."""
+        return self._instance_label

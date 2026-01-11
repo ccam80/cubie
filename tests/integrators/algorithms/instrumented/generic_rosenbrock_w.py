@@ -10,15 +10,16 @@ from cubie.integrators.algorithms.base_algorithm_step import (
 from cubie.integrators.algorithms.generic_rosenbrock_w import (
     ROSENBROCK_FIXED_DEFAULTS,
     RosenbrockWStepConfig,
-    ROSENBROCK_ADAPTIVE_DEFAULTS
+    ROSENBROCK_ADAPTIVE_DEFAULTS,
 )
 from cubie.integrators.algorithms.generic_rosenbrockw_tableaus import (
     DEFAULT_ROSENBROCK_TABLEAU,
     RosenbrockTableau,
 )
 from cubie.buffer_registry import buffer_registry
-from tests.integrators.algorithms.instrumented.ode_implicitstep import \
-    InstrumentedODEImplicitStep
+from tests.integrators.algorithms.instrumented.ode_implicitstep import (
+    InstrumentedODEImplicitStep,
+)
 
 
 class InstrumentedRosenbrockWStep(InstrumentedODEImplicitStep):
@@ -34,8 +35,9 @@ class InstrumentedRosenbrockWStep(InstrumentedODEImplicitStep):
         driver_del_t: Optional[Callable] = None,
         get_solver_helper_fn: Optional[Callable] = None,
         preconditioner_order: Optional[int] = None,
-        krylov_tolerance: Optional[float] = None,
-        max_linear_iters: Optional[int] = None,
+        krylov_atol: Optional[float] = None,
+        krylov_rtol: Optional[float] = None,
+        krylov_max_iters: Optional[int] = None,
         linear_correction_type: Optional[str] = None,
         tableau: RosenbrockTableau = DEFAULT_ROSENBROCK_TABLEAU,
         stage_rhs_location: Optional[str] = None,
@@ -72,10 +74,13 @@ class InstrumentedRosenbrockWStep(InstrumentedODEImplicitStep):
         preconditioner_order
             Order of the finite-difference Jacobian approximation used in the
             preconditioner. If None, uses default value of 2.
-        krylov_tolerance
-            Convergence tolerance for the Krylov linear solver. If None, uses
+        krylov_atol
+            Absolute tolerance for the Krylov linear solver. If None, uses
             default from LinearSolverConfig.
-        max_linear_iters
+        krylov_rtol
+            Relative tolerance for the Krylov linear solver. If None, uses
+            default from LinearSolverConfig.
+        krylov_max_iters
             Maximum iterations allowed for the Krylov solver. If None, uses
             default from LinearSolverConfig.
         linear_correction_type
@@ -150,15 +155,19 @@ class InstrumentedRosenbrockWStep(InstrumentedODEImplicitStep):
 
         # Build kwargs dict conditionally (only linear solver kwargs for Rosenbrock)
         solver_kwargs = {}
-        if krylov_tolerance is not None:
-            solver_kwargs["krylov_tolerance"] = krylov_tolerance
-        if max_linear_iters is not None:
-            solver_kwargs["max_linear_iters"] = max_linear_iters
+        if krylov_atol is not None:
+            solver_kwargs["krylov_atol"] = krylov_atol
+        if krylov_rtol is not None:
+            solver_kwargs["krylov_rtol"] = krylov_rtol
+        if krylov_max_iters is not None:
+            solver_kwargs["krylov_max_iters"] = krylov_max_iters
         if linear_correction_type is not None:
             solver_kwargs["linear_correction_type"] = linear_correction_type
 
         # Call parent __init__ to create solver instances
-        super().__init__(config, controller_defaults, solver_type='linear', **solver_kwargs)
+        super().__init__(
+            config, controller_defaults, solver_type="linear", **solver_kwargs
+        )
 
         self.register_buffers()
 
@@ -174,37 +183,52 @@ class InstrumentedRosenbrockWStep(InstrumentedODEImplicitStep):
 
         # Register algorithm buffers using config values
         buffer_registry.register(
-            'stage_rhs', self, n, config.stage_rhs_location,
-            precision=precision
+            "stage_rhs",
+            self,
+            n,
+            config.stage_rhs_location,
+            precision=precision,
         )
         buffer_registry.register(
-            'stage_store', self, stage_store_elements,
-            config.stage_store_location, precision=precision
+            "stage_store",
+            self,
+            stage_store_elements,
+            config.stage_store_location,
+            precision=precision,
         )
         # cached_auxiliaries registered with 0 size; updated in build_implicit_helpers
         buffer_registry.register(
-            'cached_auxiliaries', self, 0,
-            config.cached_auxiliaries_location, precision=precision
+            "cached_auxiliaries",
+            self,
+            0,
+            config.cached_auxiliaries_location,
+            precision=precision,
         )
 
         # Stage increment should persist between steps for initial guess
         buffer_registry.register(
-            'stage_increment', self, n,
+            "stage_increment",
+            self,
+            n,
             config.stage_store_location,
-            aliases='stage_store',
+            aliases="stage_store",
             persistent=True,
-            precision=precision
+            precision=precision,
         )
 
         buffer_registry.register(
-            'base_state_placeholder', self, 1,
+            "base_state_placeholder",
+            self,
+            1,
             config.base_state_placeholder_location,
-            precision=np.int32
+            precision=np.int32,
         )
         buffer_registry.register(
-            'krylov_iters_out', self, 1,
+            "krylov_iters_out",
+            self,
+            1,
             config.krylov_iters_out_location,
-            precision=np.int32
+            precision=np.int32,
         )
 
     def build_implicit_helpers(
@@ -227,18 +251,18 @@ class InstrumentedRosenbrockWStep(InstrumentedODEImplicitStep):
 
         # Get device functions from ODE system (cached versions for Rosenbrock)
         preconditioner = get_fn(
-            'neumann_preconditioner_cached',
+            "neumann_preconditioner_cached",
             beta=beta,
             gamma=gamma,
             mass=mass,
-            preconditioner_order=preconditioner_order
+            preconditioner_order=preconditioner_order,
         )
         operator = get_fn(
-            'linear_operator_cached',
+            "linear_operator_cached",
             beta=beta,
             gamma=gamma,
             mass=mass,
-            preconditioner_order=preconditioner_order
+            preconditioner_order=preconditioner_order,
         )
 
         prepare_jacobian = get_fn(
@@ -249,11 +273,10 @@ class InstrumentedRosenbrockWStep(InstrumentedODEImplicitStep):
 
         # Update buffer registry with the actual cached_auxiliary_count
         buffer_registry.update_buffer(
-            'cached_auxiliaries', self,
-            size=self._cached_auxiliary_count
+            "cached_auxiliaries", self, size=self._cached_auxiliary_count
         )
 
-        time_derivative_function = get_fn('time_derivative_rhs')
+        time_derivative_function = get_fn("time_derivative_rhs")
 
         # Update solver with operator and preconditioner
         self.solver.update(
@@ -264,9 +287,11 @@ class InstrumentedRosenbrockWStep(InstrumentedODEImplicitStep):
 
         # Return linear solver device function
         self.update_compile_settings(
-                {'solver_function': self.solver.device_function,
-                 'time_derivative_function': time_derivative_function,
-                 'prepare_jacobian_function': prepare_jacobian}
+            {
+                "solver_function": self.solver.device_function,
+                "time_derivative_function": time_derivative_function,
+                "prepare_jacobian_function": prepare_jacobian,
+            }
         )
 
         self.register_buffers()
@@ -323,19 +348,16 @@ class InstrumentedRosenbrockWStep(InstrumentedODEImplicitStep):
         # Get allocators from buffer registry
         alloc_solver_shared, alloc_solver_persistent = (
             buffer_registry.get_child_allocators(
-                    self,
-                    self.solver,
-                    name="solver"
+                self, self.solver, name="solver"
             )
         )
         getalloc = buffer_registry.get_allocator
-        alloc_stage_rhs = getalloc('stage_rhs', self)
-        alloc_stage_store = getalloc('stage_store', self)
-        alloc_cached_auxiliaries = getalloc('cached_auxiliaries', self)
-        alloc_stage_increment = getalloc('stage_increment', self)
-        alloc_base_state_placeholder = getalloc('base_state_placeholder', self)
-        alloc_krylov_iters_out = getalloc('krylov_iters_out', self)
-
+        alloc_stage_rhs = getalloc("stage_rhs", self)
+        alloc_stage_store = getalloc("stage_store", self)
+        alloc_cached_auxiliaries = getalloc("cached_auxiliaries", self)
+        alloc_stage_increment = getalloc("stage_increment", self)
+        alloc_base_state_placeholder = getalloc("base_state_placeholder", self)
+        alloc_krylov_iters_out = getalloc("krylov_iters_out", self)
 
         # no cover: start
         @cuda.jit(
@@ -380,14 +402,18 @@ class InstrumentedRosenbrockWStep(InstrumentedODEImplicitStep):
             # Allocate buffers
             stage_rhs = alloc_stage_rhs(shared, persistent_local)
             stage_store = alloc_stage_store(shared, persistent_local)
-            cached_auxiliaries = alloc_cached_auxiliaries(shared, persistent_local)
+            cached_auxiliaries = alloc_cached_auxiliaries(
+                shared, persistent_local
+            )
             stage_increment = alloc_stage_increment(shared, persistent_local)
             base_state_placeholder = alloc_base_state_placeholder(
                 shared, persistent_local
             )
             krylov_iters_out = alloc_krylov_iters_out(shared, persistent_local)
             solver_shared = alloc_solver_shared(shared, persistent_local)
-            solver_persistent = alloc_solver_persistent(shared, persistent_local)
+            solver_persistent = alloc_solver_persistent(
+                shared, persistent_local
+            )
             # ----------------------------------------------------------- #
 
             # LOGGING: Get array dimensions for logging loops
@@ -467,15 +493,13 @@ class InstrumentedRosenbrockWStep(InstrumentedODEImplicitStep):
                 # No accumulated contributions at stage 0.
                 f_value = stage_rhs[idx]
                 rhs_value = (
-                        (f_value + gamma_stages[0] * time_derivative[idx])
-                        * dt_scalar
-                )
+                    f_value + gamma_stages[0] * time_derivative[idx]
+                ) * dt_scalar
                 stage_rhs[idx] = rhs_value * gamma
 
                 # LOGGING
                 stage_derivatives[0, idx] = f_value
                 residuals[0, idx] = rhs_value
-
 
             krylov_iters_out[0] = int32(0)
 
@@ -508,11 +532,13 @@ class InstrumentedRosenbrockWStep(InstrumentedODEImplicitStep):
 
             for idx in range(n):
                 if accumulates_output:
-                    proposed_state[idx] += (stage_increment[idx] *
-                                            solution_weights[int32(0)])
+                    proposed_state[idx] += (
+                        stage_increment[idx] * solution_weights[int32(0)]
+                    )
                 if has_error and accumulates_error:
-                    error[idx] += stage_increment[idx] * error_weights[
-                        int32(0)]
+                    error[idx] += (
+                        stage_increment[idx] * error_weights[int32(0)]
+                    )
 
                 # LOGGING
                 stage_increments[0, idx] = stage_increment[idx]
@@ -546,8 +572,9 @@ class InstrumentedRosenbrockWStep(InstrumentedODEImplicitStep):
                         base_idx = predecessor_idx * n
                         for idx in range(n):
                             prior_val = stage_store[base_idx + idx]
-                            stage_store[stage_offset + idx] += (a_coeff *
-                                                              prior_val)
+                            stage_store[stage_offset + idx] += (
+                                a_coeff * prior_val
+                            )
 
                 for idx in range(n):
                     stage_increment[idx] = stage_store[stage_offset + idx]
@@ -587,7 +614,9 @@ class InstrumentedRosenbrockWStep(InstrumentedODEImplicitStep):
 
                 # LOGGING
                 for idx in range(n):
-                    stage_states[stage_idx, idx] = stage_store[stage_offset + idx]
+                    stage_states[stage_idx, idx] = stage_store[
+                        stage_offset + idx
+                    ]
 
                 # Overwrite the final accumulator slice with time-derivative
                 if stage_idx == stage_count - int32(1):
@@ -713,8 +742,8 @@ class InstrumentedRosenbrockWStep(InstrumentedODEImplicitStep):
                 end_time,
             )
 
-
             return status_code
+
         # no cover: end
         return StepCache(step=step)
 
