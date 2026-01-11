@@ -67,7 +67,7 @@ def resize_tolerances(instance, attribute, value):
                 tol,
                 full(n, tolarray[0], dtype=instance.precision),
             )
-    instance._n_changing=False
+    instance._n_changing = False
     return value
 
 
@@ -84,6 +84,7 @@ class ScaledNormConfig(MultipleInstanceCUDAFactoryConfig):
     rtol : ndarray
         Relative tolerance array of shape (n,).
     """
+
     n: int = field(
         default=1,
         validator=getype_validator(int, 1),
@@ -102,7 +103,7 @@ class ScaledNormConfig(MultipleInstanceCUDAFactoryConfig):
         metadata={"prefixed": True},
     )
 
-    _n_changing: bool= field(default=False, init=False, repr=False, eq=False)
+    _n_changing: bool = field(default=False, init=False, repr=False, eq=False)
 
     def __attrs_post_init__(self):
         super().__attrs_post_init__()

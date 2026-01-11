@@ -23,10 +23,12 @@ def placeholder_operator(precision):
 
 
 # Removed placeholder Neumann factory usage; use real generated preconditioner via system_setup
-@pytest.mark.parametrize("solver_settings_override",
-                         [{"precision": np.float64}],
-                         ids=[""],
-                         indirect=True)
+@pytest.mark.parametrize(
+    "solver_settings_override",
+    [{"precision": np.float64}],
+    ids=[""],
+    indirect=True,
+)
 @pytest.mark.parametrize("order", [1, 2])
 @pytest.mark.parametrize("system_setup", ["linear"], indirect=True)
 def test_neumann_preconditioner(
@@ -81,6 +83,7 @@ def solver_device(request, placeholder_operator, precision):
     solver.update(operator_apply=placeholder_operator)
     return solver.device_function
 
+
 @pytest.mark.parametrize(
     "solver_device", ["steepest_descent", "minimal_residual"], indirect=True
 )
@@ -101,7 +104,9 @@ def test_linear_solver_placeholder(
     h = precision(0.01)
     kernel = solver_kernel(solver_device, 3, h, precision)
     base_state = np.array([1.0, -1.0, 0.5], dtype=precision)
-    state = cuda.to_device(base_state + h * np.array([0.1, -0.2, 0.3], dtype=precision))
+    state = cuda.to_device(
+        base_state + h * np.array([0.1, -0.2, 0.3], dtype=precision)
+    )
     rhs_dev = cuda.to_device(rhs)
     x_dev = cuda.to_device(np.zeros(3, dtype=precision))
     flag = cuda.to_device(np.array([0], dtype=np.int32))
@@ -116,10 +121,13 @@ def test_linear_solver_placeholder(
         atol=tolerance.abs_loose,
     )
 
+
 @pytest.mark.parametrize(
     "system_setup", ["linear", "coupled_linear"], indirect=True
 )
-@pytest.mark.parametrize("linear_correction_type", ["steepest_descent", "minimal_residual"])
+@pytest.mark.parametrize(
+    "linear_correction_type", ["steepest_descent", "minimal_residual"]
+)
 @pytest.mark.parametrize("precond_order", [0, 1, 2])
 def test_linear_solver_symbolic(
     system_setup,
@@ -137,9 +145,11 @@ def test_linear_solver_symbolic(
     expected = system_setup["mr_expected"]
     h = system_setup["h"]
     precond = (
-        None if precond_order == 0 else system_setup["preconditioner"](precond_order)
+        None
+        if precond_order == 0
+        else system_setup["preconditioner"](precond_order)
     )
-    
+
     solver = LinearSolver(
         precision=precision,
         n=n,
@@ -150,7 +160,7 @@ def test_linear_solver_symbolic(
     )
     solver.update(operator_apply=operator, preconditioner=precond)
     solver = solver.device_function
-    
+
     kernel = solver_kernel(solver, n, h, precision)
     state = system_setup["state_init"]
     rhs_dev = cuda.to_device(rhs_vec)
@@ -172,7 +182,9 @@ def test_linear_solver_max_iters_exceeded(solver_kernel, precision):
     """Linear solver returns MAX_LINEAR_ITERATIONS_EXCEEDED when operator is zero."""
 
     @cuda.jit(device=True)
-    def zero_operator(state, parameters, drivers, base_state, t, h, a_ij, vec, out):
+    def zero_operator(
+        state, parameters, drivers, base_state, t, h, a_ij, vec, out
+    ):
         # F z = 0 for all z -> no progress in line search
         for i in range(out.shape[0]):
             out[i] = precision(0.0)
@@ -333,7 +345,7 @@ def test_linear_solver_uses_scaled_norm(precision):
         krylov_rtol=1e-4,
     )
     # Verify the norm factory is created
-    assert hasattr(solver, 'norm')
+    assert hasattr(solver, "norm")
     assert isinstance(solver.norm, ScaledNorm)
     # Verify the norm factory has correct settings
     assert solver.norm.n == n
@@ -377,14 +389,16 @@ def test_linear_solver_config_no_tolerance_fields(precision):
     config = LinearSolverConfig(precision=precision, n=3)
 
     # These fields should no longer exist on the config
-    assert not hasattr(config, 'krylov_atol')
-    assert not hasattr(config, 'krylov_rtol')
+    assert not hasattr(config, "krylov_atol")
+    assert not hasattr(config, "krylov_rtol")
 
     # The legacy scalar tolerance should no longer exist
-    assert not hasattr(config, 'krylov_tolerance')
+    assert not hasattr(config, "krylov_tolerance")
 
 
-def test_linear_solver_config_settings_dict_excludes_tolerance_arrays(precision):
+def test_linear_solver_config_settings_dict_excludes_tolerance_arrays(
+    precision,
+):
     """Verify settings_dict does not include tolerance arrays."""
     from cubie.integrators.matrix_free_solvers.linear_solver import (
         LinearSolverConfig,
@@ -394,17 +408,17 @@ def test_linear_solver_config_settings_dict_excludes_tolerance_arrays(precision)
     settings = config.settings_dict
 
     # Tolerance arrays should not be in settings_dict
-    assert 'krylov_atol' not in settings
-    assert 'krylov_rtol' not in settings
+    assert "krylov_atol" not in settings
+    assert "krylov_rtol" not in settings
 
     # Legacy tolerance should not be in settings_dict
-    assert 'krylov_tolerance' not in settings
+    assert "krylov_tolerance" not in settings
 
     # Other expected settings should be present
-    assert 'krylov_max_iters' in settings
-    assert 'linear_correction_type' in settings
-    assert 'preconditioned_vec_location' in settings
-    assert 'temp_location' in settings
+    assert "krylov_max_iters" in settings
+    assert "linear_correction_type" in settings
+    assert "preconditioned_vec_location" in settings
+    assert "temp_location" in settings
 
 
 def test_linear_solver_inherits_from_matrix_free_solver(precision):
@@ -418,7 +432,7 @@ def test_linear_solver_inherits_from_matrix_free_solver(precision):
         n=3,
     )
     assert isinstance(solver, MatrixFreeSolver)
-    assert hasattr(solver, 'solver_type')
+    assert hasattr(solver, "solver_type")
     assert solver.solver_type == "krylov"
 
 
@@ -431,9 +445,9 @@ def test_linear_solver_update_preserves_original_dict(precision):
 
     # Create an update dict with tolerance values
     original_updates = {
-        'krylov_atol': 1e-8,
-        'krylov_rtol': 1e-5,
-        'krylov_max_iters': 50,
+        "krylov_atol": 1e-8,
+        "krylov_rtol": 1e-5,
+        "krylov_max_iters": 50,
     }
     # Make a copy to compare later
     updates_copy = dict(original_updates)
@@ -456,9 +470,6 @@ def test_linear_solver_no_manual_cache_invalidation(precision):
 
     # Access device_function to populate cache
     _ = solver.device_function
-
-    # Get the current norm device function from config
-    config1 = solver.compile_settings
 
     # Update tolerance - should update config's norm_device_function
     new_atol = np.array([1e-8, 1e-7, 1e-9], dtype=precision)
@@ -489,16 +500,16 @@ def test_linear_solver_settings_dict_includes_tolerance_arrays(precision):
     settings = solver.settings_dict
 
     # Tolerance arrays should be in settings_dict
-    assert 'krylov_atol' in settings
-    assert 'krylov_rtol' in settings
-    assert np.allclose(settings['krylov_atol'], atol)
-    assert np.allclose(settings['krylov_rtol'], rtol)
+    assert "krylov_atol" in settings
+    assert "krylov_rtol" in settings
+    assert np.allclose(settings["krylov_atol"], atol)
+    assert np.allclose(settings["krylov_rtol"], rtol)
 
     # Other expected settings from config should also be present
-    assert 'krylov_max_iters' in settings
-    assert 'linear_correction_type' in settings
-    assert 'preconditioned_vec_location' in settings
-    assert 'temp_location' in settings
+    assert "krylov_max_iters" in settings
+    assert "linear_correction_type" in settings
+    assert "preconditioned_vec_location" in settings
+    assert "temp_location" in settings
 
 
 def test_linear_solver_init_with_krylov_prefixed_kwargs(precision):
@@ -545,7 +556,7 @@ def test_linear_solver_forwards_kwargs_to_norm(precision):
     )
 
     # Verify the norm factory exists and received the tolerances
-    assert hasattr(solver, 'norm')
+    assert hasattr(solver, "norm")
     assert solver.norm is not None
 
     # Verify tolerances propagated through kwargs forwarding
