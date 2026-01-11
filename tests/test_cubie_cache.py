@@ -95,7 +95,8 @@ def test_cache_locator_from_function_raises():
 
 
 def test_cache_locator_path_includes_system_hash():
-    """Verify cache path follows generated/<system_name>/<hash>/CUDA_cache."""
+    """Verify cache path follows generated/<system_name>/CUDA_cache_<hash[
+    :8]>."""
     locator = CUBIECacheLocator(
         system_name="test_system",
         system_hash="abc123",

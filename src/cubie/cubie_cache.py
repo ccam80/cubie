@@ -471,6 +471,11 @@ class CUBIECache(Cache):
                 custom_cache_dir=config.cache_dir,
             )
             self._cache_path = self._impl.locator.get_cache_path()
+            self._cache_file = IndexDataCacheFile(
+                cache_path=self._cache_path,
+                filename_base=self._impl.filename_base,
+                source_stamp=self._impl.locator.get_source_stamp(),
+            )
 
     def set_hashes(
         self, system_hash: str = None, compile_settings_hash: str = None
@@ -642,7 +647,7 @@ class CacheConfig(_CubieConfigBase):
 
         Parameters
         ----------
-        cache
+        cache_arg
             Cache configuration:
             - True: Enable caching with default path
             - False or None: Disable caching
@@ -672,13 +677,7 @@ class CacheConfig(_CubieConfigBase):
 
 
 class CubieCacheHandler:
-    """Handler for managing CuBIE kernel cache.
-
-    # Parameters
-    # ----------
-    # cache
-    #     Optional CUBIECache instance to manage.
-    """
+    """Handler for managing CuBIE kernel cache."""
 
     def __init__(
         self,

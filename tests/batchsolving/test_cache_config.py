@@ -393,7 +393,7 @@ class TestCustomCacheDir:
             config_hash=DEFAULT_CUBIE_CACHE_CONFIG_HASH,
         )
 
-        assert cache._cache_path == str(custom_dir) + "\CUDA_cache_abc123"
+        assert Path(cache._cache_path) == custom_dir / "CUDA_cache_abc123"
 
     def test_custom_cache_dir_none_uses_default(self, tmp_path, precision):
         """Verify None cache_dir uses GENERATED_DIR path."""
