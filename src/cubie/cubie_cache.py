@@ -7,9 +7,9 @@ the configured GENERATED_DIR.
 
 Notes
 -----
-This module depends on numba-cuda internal classes and may require
-updates when numba-cuda versions change. When running under CUDA
-simulator mode, caching is disabled and stub classes are provided.
+This module uses vendored caching classes from numba-cuda that work in
+both real CUDA and CUDASIM modes. Only actual kernel serialization
+requires a real CUDA environment.
 """
 
 from pathlib import Path
@@ -20,9 +20,9 @@ from attrs import field, validators as val, define, converters
 from cubie.CUDAFactory import _CubieConfigBase
 from cubie._utils import getype_validator
 from cubie.cuda_simsafe import (
+    _Cache,
     _CacheLocator,
     CacheImpl,
-    CUDACache,
     IndexDataCacheFile,
 )
 from cubie.odesystems.symbolic.odefile import GENERATED_DIR
@@ -275,7 +275,7 @@ class CUBIECacheImpl(CacheImpl):
         return True
 
 
-class CUBIECache(CUDACache):
+class CUBIECache(_Cache):
     """File-based cache for CuBIE compiled kernels.
 
     Coordinates loading and saving of cached kernels, incorporating
@@ -315,13 +315,6 @@ class CUBIECache(CUDACache):
         mode: str = "hash",
         custom_cache_dir: Optional[Path] = None,
     ) -> None:
-        # Caching not available in CUDA simulator mode
-        # if not _CACHING_AVAILABLE:
-        #     raise RuntimeError(
-        #         "CUBIECache is not available in CUDA simulator mode. "
-        #         "File-based caching requires a real CUDA environment."
-        #     )
-
         self._system_name = system_name
         self._system_hash = system_hash
 
@@ -347,6 +340,40 @@ class CUBIECache(CUDACache):
             source_stamp=source_stamp,
         )
         self.enable()
+
+    def enable(self):
+        """Enable the cache."""
+        self._enabled = True
+
+    def disable(self):
+        """Disable the cache."""
+        self._enabled = False
+
+    def flush(self):
+        """Flush the cache index."""
+        self._cache_file.flush()
+
+    def load_overload(self, sig, target_context):
+        """Load an overload for the given signature.
+
+        Parameters
+        ----------
+        sig
+            Function signature.
+        target_context
+            CUDA target context.
+
+        Returns
+        -------
+        Compiled kernel data or None if not cached.
+        """
+        if not self._enabled:
+            return
+        key = self._index_key(sig, target_context.codegen())
+        data = self._cache_file.load(key)
+        if data is not None:
+            data = self._impl.rebuild(target_context, data)
+        return data
 
     def _index_key(self, sig, codegen):
         """Compute cache key including CuBIE-specific hashes.
@@ -423,8 +450,15 @@ class CUBIECache(CUDACache):
         data
             Kernel data to cache.
         """
+        if not self._enabled:
+            return
+        if not self._impl.check_cachable(data):
+            return
         self.enforce_cache_limit()
-        super().save_overload(sig, data)
+        self._impl.locator.ensure_cache_path()
+        key = self._index_key(sig, data.codegen)
+        reduced_data = self._impl.reduce(data)
+        self._cache_file.save(key, reduced_data)
 
     def flush_cache(self) -> None:
         """Delete all cache files in the cache directory.
@@ -477,14 +511,8 @@ def create_cache(
     Returns
     -------
     CUBIECache or None
-        CUBIECache instance if caching enabled and not in CUDASIM mode,
-        None otherwise.
+        CUBIECache instance if caching enabled, None otherwise.
     """
-    from cubie.cuda_simsafe import is_cudasim_enabled
-
-    if is_cudasim_enabled():
-        return None
-
     cache_config = CacheConfig.from_user_setting(cache_arg)
     if not cache_config.enabled:
         return None
@@ -521,13 +549,8 @@ def invalidate_cache(
     Notes
     -----
     Only flushes cache when mode is "flush_on_change". Silent on errors
-    since cache flush is best-effort. No-op in CUDASIM mode.
+    since cache flush is best-effort.
     """
-    from cubie.cuda_simsafe import is_cudasim_enabled
-
-    if is_cudasim_enabled():
-        return
-
     cache_config = CacheConfig.from_user_setting(cache_arg)
     if not cache_config.enabled:
         return

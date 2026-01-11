@@ -3,7 +3,7 @@
 # Plan Reference: .github/active_plans/cudasim_caching_refactor/agent_plan.md
 
 ## Task Group 1: Vendor Numba-CUDA Caching Classes in cuda_simsafe.py
-**Status**: [ ]
+**Status**: [x]
 **Dependencies**: None
 
 **Required Context**:
@@ -422,12 +422,26 @@
 - tests/test_cubie_cache.py::test_cache_impl_instantiation_works
 
 **Outcomes**: 
-[Empty - to be filled by taskmaster agent]
+- Files Modified: 
+  * src/cubie/cuda_simsafe.py (~220 lines changed)
+- Functions/Methods Added/Modified:
+  * IndexDataCacheFile class (vendored)
+  * _CacheLocator abstract class (vendored)
+  * CacheImpl abstract class (vendored)
+  * _Cache abstract class (vendored)
+  * CUDACache class (vendored)
+  * _numba_dumps fallback function
+- Implementation Summary:
+  Vendored numba-cuda caching classes to enable cache filesystem operations 
+  in CUDASIM mode. Removed stub classes and conditional imports. Added 
+  serialization fallback using pickle when numba.cuda.serialize is unavailable.
+  Updated __all__ exports to include _Cache and remove _CACHING_AVAILABLE.
+- Issues Flagged: None
 
 ---
 
 ## Task Group 2: Update cubie_cache.py to Remove CUDASIM Early Returns
-**Status**: [ ]
+**Status**: [x]
 **Dependencies**: Task Group 1
 
 **Required Context**:
@@ -483,12 +497,25 @@
 - tests/test_cubie_cache.py::test_invalidate_cache_flushes_when_flush_mode
 
 **Outcomes**: 
-[Empty - to be filled by taskmaster agent]
+- Files Modified: 
+  * src/cubie/cubie_cache.py (~50 lines changed)
+- Functions/Methods Added/Modified:
+  * create_cache() - removed CUDASIM early return
+  * invalidate_cache() - removed CUDASIM early return
+  * CUBIECache class - updated to inherit from _Cache, added enable(), 
+    disable(), flush(), load_overload(), and updated save_overload()
+  * Updated imports to use _Cache instead of CUDACache
+- Implementation Summary:
+  Removed CUDASIM early returns from create_cache() and invalidate_cache() 
+  functions. Updated CUBIECache to inherit from vendored _Cache abstract class
+  and implemented required abstract methods. Cache infrastructure now works
+  in both CUDA and CUDASIM modes.
+- Issues Flagged: None
 
 ---
 
 ## Task Group 3: Update Cache Tests to Remove nocudasim Markers
-**Status**: [ ]
+**Status**: [x]
 **Dependencies**: Task Groups 1, 2
 
 **Required Context**:
@@ -593,7 +620,22 @@
 - tests/test_cubie_cache.py (all tests in file)
 
 **Outcomes**: 
-[Empty - to be filled by taskmaster agent]
+- Files Modified: 
+  * tests/test_cubie_cache.py (~30 lines changed)
+- Functions/Methods Added/Modified:
+  * test_cubie_cache_init() - removed @pytest.mark.nocudasim
+  * test_cubie_cache_index_key() - removed @pytest.mark.nocudasim
+  * test_cubie_cache_path() - removed @pytest.mark.nocudasim
+  * test_create_cache_returns_none_in_cudasim() - renamed to 
+    test_create_cache_returns_cache_in_cudasim(), updated to expect CUBIECache
+  * test_create_cache_returns_cache_when_enabled() - removed CUDASIM check
+  * test_invalidate_cache_flushes_when_flush_mode() - removed CUDASIM early return
+  * test_batch_solver_kernel_no_cache_in_cudasim() - simplified test
+- Implementation Summary:
+  Removed all @pytest.mark.nocudasim markers from cache tests. Updated tests
+  that expected None in CUDASIM mode to expect actual CUBIECache objects.
+  Simplified tests to work in both CUDA and CUDASIM modes.
+- Issues Flagged: None
 
 ---
 

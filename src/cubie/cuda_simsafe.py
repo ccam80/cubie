@@ -6,6 +6,8 @@ import CUDA-facing helpers without branching on simulator state.
 """
 from __future__ import annotations
 
+from abc import ABCMeta, abstractmethod
+import contextlib
 from contextlib import contextmanager
 from ctypes import c_void_p
 import os
@@ -164,152 +166,316 @@ else:  # pragma: no cover - exercised in GPU environments
 
 
 # --- Caching infrastructure ---
-# In CUDASIM mode, provide stub classes since numba caching is unavailable
+# Vendored from numba-cuda on 2026-01-11 for CUDASIM compatibility.
+# Source: numba_cuda/numba/cuda/core/caching.py
+
+try:
+    from numba.cuda.serialize import dumps as _numba_dumps
+except ImportError:
+    import pickle
+
+    def _numba_dumps(obj):
+        return pickle.dumps(obj)
 
 
-class _StubCacheLocator:
-    """Stub for _CacheLocator in CUDASIM mode.
+class IndexDataCacheFile:
+    """Vendored from numba-cuda for CUDASIM compatibility.
 
-    Provides minimal interface for CUBIECacheLocator to inherit from
-    when running under CUDA simulator.
+    Manages index (.nbi) and data (.nbc) files for cache storage.
+    Source: numba_cuda/numba/cuda/core/caching.py (2026-01-11)
+    """
+
+    def __init__(self, cache_path, filename_base, source_stamp):
+        import numba
+        self._cache_path = cache_path
+        self._index_name = "%s.nbi" % (filename_base,)
+        self._index_path = os.path.join(self._cache_path, self._index_name)
+        self._data_name_pattern = "%s.{number:d}.nbc" % (filename_base,)
+        self._source_stamp = source_stamp
+        self._version = numba.__version__
+
+    def flush(self):
+        self._save_index({})
+
+    def save(self, key, data):
+        import itertools
+        overloads = self._load_index()
+        try:
+            data_name = overloads[key]
+        except KeyError:
+            existing = set(overloads.values())
+            for i in itertools.count(1):
+                data_name = self._data_name(i)
+                if data_name not in existing:
+                    break
+            overloads[key] = data_name
+            self._save_index(overloads)
+        self._save_data(data_name, data)
+
+    def load(self, key):
+        overloads = self._load_index()
+        data_name = overloads.get(key)
+        if data_name is None:
+            return
+        try:
+            return self._load_data(data_name)
+        except OSError:
+            return
+
+    def _load_index(self):
+        import pickle
+        try:
+            with open(self._index_path, "rb") as f:
+                version = pickle.load(f)
+                data = f.read()
+        except FileNotFoundError:
+            return {}
+        if version != self._version:
+            return {}
+        stamp, overloads = pickle.loads(data)
+        if stamp != self._source_stamp:
+            return {}
+        return overloads
+
+    def _save_index(self, overloads):
+        import pickle
+        data = self._source_stamp, overloads
+        data = self._dump(data)
+        with self._open_for_write(self._index_path) as f:
+            pickle.dump(self._version, f, protocol=-1)
+            f.write(data)
+
+    def _load_data(self, name):
+        import pickle
+        path = self._data_path(name)
+        with open(path, "rb") as f:
+            data = f.read()
+        return pickle.loads(data)
+
+    def _save_data(self, name, data):
+        data = self._dump(data)
+        path = self._data_path(name)
+        with self._open_for_write(path) as f:
+            f.write(data)
+
+    def _data_name(self, number):
+        return self._data_name_pattern.format(number=number)
+
+    def _data_path(self, name):
+        return os.path.join(self._cache_path, name)
+
+    def _dump(self, obj):
+        return _numba_dumps(obj)
+
+    @contextlib.contextmanager
+    def _open_for_write(self, filepath):
+        import uuid
+        uid = uuid.uuid4().hex[:16]
+        tmpname = "%s.tmp.%s" % (filepath, uid)
+        try:
+            with open(tmpname, "wb") as f:
+                yield f
+            os.replace(tmpname, filepath)
+        except Exception:
+            try:
+                os.unlink(tmpname)
+            except OSError:
+                pass
+            raise
+
+
+class _CacheLocator(metaclass=ABCMeta):
+    """Vendored from numba-cuda for CUDASIM compatibility.
+
+    Abstract base for filesystem locators for caching functions.
+    Source: numba_cuda/numba/cuda/core/caching.py (2026-01-11)
     """
 
     def ensure_cache_path(self):
-        """Create cache directory if it does not exist."""
-        import os
+        import tempfile
         path = self.get_cache_path()
         os.makedirs(path, exist_ok=True)
+        tempfile.TemporaryFile(dir=path).close()
 
+    @abstractmethod
     def get_cache_path(self):
-        """Return cache directory path. Must be overridden."""
-        raise NotImplementedError
+        """Return the directory the function is cached in."""
 
+    @abstractmethod
     def get_source_stamp(self):
-        """Return source freshness stamp. Must be overridden."""
-        raise NotImplementedError
+        """Get a timestamp representing source code freshness."""
 
+    @abstractmethod
     def get_disambiguator(self):
-        """Return disambiguator string. Must be overridden."""
+        """Get a string disambiguator for this locator's function."""
+
+    @classmethod
+    def from_function(cls, py_func, py_file):
+        """Create a locator instance for the given function."""
         raise NotImplementedError
 
 
-class _StubCacheImpl:
-    """Stub for CacheImpl in CUDASIM mode.
+class CacheImpl(metaclass=ABCMeta):
+    """Vendored from numba-cuda for CUDASIM compatibility.
 
-    Provides minimal interface for CUBIECacheImpl to inherit from.
-    Serialization methods raise NotImplementedError since CUDA
-    context is not available.
+    Provides core machinery for caching serialization.
+    Source: numba_cuda/numba/cuda/core/caching.py (2026-01-11)
     """
 
     _locator_classes = []
 
+    @property
+    def filename_base(self):
+        return self._filename_base
+
+    @property
+    def locator(self):
+        return self._locator
+
+    @abstractmethod
     def reduce(self, data):
-        """Reduce data for serialization. Not available in CUDASIM."""
-        raise NotImplementedError("Cannot reduce in CUDASIM mode")
+        """Returns the serialized form of the data."""
 
-    def rebuild(self, target_context, payload):
-        """Rebuild from cached payload. Not available in CUDASIM."""
-        raise NotImplementedError("Cannot rebuild in CUDASIM mode")
+    @abstractmethod
+    def rebuild(self, target_context, reduced_data):
+        """Returns the de-serialized form of the reduced_data."""
 
+    @abstractmethod
     def check_cachable(self, data):
-        """Check if data is cachable. Returns True for API compatibility."""
-        return True
+        """Returns True if data is cachable; otherwise False."""
 
 
-class _StubIndexDataCacheFile:
-    """Stub for IndexDataCacheFile in CUDASIM mode.
+class _Cache(metaclass=ABCMeta):
+    """Vendored from numba-cuda for CUDASIM compatibility.
 
-    Provides minimal interface for cache file operations.
-    Save/load operations are no-ops since CUDA caching is unavailable.
+    Abstract base for per-function compilation cache.
+    Source: numba_cuda/numba/cuda/core/caching.py (2026-01-11)
     """
 
-    def __init__(self, cache_path, filename_base, source_stamp):
-        self._cache_path = cache_path
-        self._filename_base = filename_base
-        self._source_stamp = source_stamp
+    @property
+    @abstractmethod
+    def cache_path(self):
+        """The base filesystem path of this cache."""
 
+    @abstractmethod
+    def load_overload(self, sig, target_context):
+        """Load an overload for the given signature."""
+
+    @abstractmethod
+    def save_overload(self, sig, data):
+        """Save the overload for the given signature."""
+
+    @abstractmethod
+    def enable(self):
+        """Enable the cache."""
+
+    @abstractmethod
+    def disable(self):
+        """Disable the cache."""
+
+    @abstractmethod
     def flush(self):
-        """Clear the index. No-op in CUDASIM mode."""
-        pass
-
-    def save(self, key, data):
-        """Save data to cache. Not available in CUDASIM."""
-        raise NotImplementedError("Cannot save in CUDASIM mode")
-
-    def load(self, key):
-        """Load data from cache. Always returns None in CUDASIM."""
-        return None
+        """Flush the cache."""
 
 
-class _StubCUDACache:
-    """Stub for CUDACache in CUDASIM mode.
+class CUDACache(_Cache):
+    """Vendored from numba-cuda for CUDASIM compatibility.
 
-    Provides minimal interface for CUBIECache to inherit from.
-    Cache operations are no-ops or return cache misses.
+    Cache that saves and loads CUDA kernels and compile results.
+    Source: numba_cuda/numba/cuda/dispatcher.py (2026-01-11)
     """
 
     _impl_class = None
 
-    def __init__(
-        self,
-        system_name=None,
-        system_hash=None,
-        config_hash=None,
-        max_entries=10,
-        mode="hash",
-        custom_cache_dir=None,
-        **kwargs,
-    ):
-        """Store parameters for compatibility with CUBIECache."""
-        self._system_name = system_name
-        self._system_hash = system_hash
-        self._compile_settings_hash = config_hash
-        self._max_entries = max_entries
-        self._mode = mode
-        self._enabled = False
-        self._cache_path = str(custom_cache_dir) if custom_cache_dir else ""
+    def __init__(self, py_func):
+        import errno
+        self._name = repr(py_func)
+        self._py_func = py_func
+        self._impl = self._impl_class(py_func)
+        self._cache_path = self._impl.locator.get_cache_path()
+        source_stamp = self._impl.locator.get_source_stamp()
+        filename_base = self._impl.filename_base
+        self._cache_file = IndexDataCacheFile(
+            cache_path=self._cache_path,
+            filename_base=filename_base,
+            source_stamp=source_stamp,
+        )
+        self.enable()
+
+    def __repr__(self):
+        return "<%s py_func=%r>" % (self.__class__.__name__, self._name)
 
     @property
     def cache_path(self):
-        """Return the cache directory path."""
-        from pathlib import Path
-        return Path(self._cache_path) if self._cache_path else Path()
+        return self._cache_path
 
     def enable(self):
-        """Enable caching. Sets internal flag."""
         self._enabled = True
 
     def disable(self):
-        """Disable caching. Clears internal flag."""
         self._enabled = False
 
+    def flush(self):
+        self._cache_file.flush()
+
     def load_overload(self, sig, target_context):
-        """Load cached overload. Always returns None in CUDASIM."""
-        return None
+        import errno
+        with self._guard_against_spurious_io_errors():
+            return self._load_overload(sig, target_context)
+
+    def _load_overload(self, sig, target_context):
+        if not self._enabled:
+            return
+        key = self._index_key(sig, target_context.codegen())
+        data = self._cache_file.load(key)
+        if data is not None:
+            data = self._impl.rebuild(target_context, data)
+        return data
 
     def save_overload(self, sig, data):
-        """Save overload to cache. No-op in CUDASIM."""
-        pass
+        with self._guard_against_spurious_io_errors():
+            self._save_overload(sig, data)
 
-    def flush_cache(self):
-        """Flush the cache. No-op in CUDASIM."""
-        pass
+    def _save_overload(self, sig, data):
+        if not self._enabled:
+            return
+        if not self._impl.check_cachable(data):
+            return
+        self._impl.locator.ensure_cache_path()
+        key = self._index_key(sig, data.codegen)
+        data = self._impl.reduce(data)
+        self._cache_file.save(key, data)
 
+    @contextlib.contextmanager
+    def _guard_against_spurious_io_errors(self):
+        import errno
+        if os.name == "nt":
+            try:
+                yield
+            except OSError as e:
+                if e.errno != errno.EACCES:
+                    raise
+        else:
+            yield
 
-if CUDA_SIMULATION:  # pragma: no cover - simulated
-    _CacheLocator = _StubCacheLocator
-    CacheImpl = _StubCacheImpl
-    IndexDataCacheFile = _StubIndexDataCacheFile
-    CUDACache = _StubCUDACache
-    _CACHING_AVAILABLE = False
-else:  # pragma: no cover - exercised in GPU environments
-    from numba.cuda.core.caching import (
-        _CacheLocator,
-        CacheImpl,
-        IndexDataCacheFile,
-    )
-    from numba.cuda.dispatcher import CUDACache
-    _CACHING_AVAILABLE = True
+    def _index_key(self, sig, codegen):
+        """Compute index key for the given signature and codegen."""
+        import hashlib
+        codebytes = self._py_func.__code__.co_code
+        if self._py_func.__closure__ is not None:
+            cvars = tuple([x.cell_contents for x in self._py_func.__closure__])
+            cvarbytes = _numba_dumps(cvars)
+        else:
+            cvarbytes = b""
+
+        def hasher(x):
+            return hashlib.sha256(x).hexdigest()
+
+        return (
+            sig,
+            codegen.magic_tuple(),
+            (hasher(codebytes), hasher(cvarbytes)),
+        )
 
 
 def is_cuda_array(value: Any) -> bool:
@@ -463,8 +629,8 @@ def is_cudasim_enabled() -> bool:
 
 
 __all__ = [
+    "_Cache",
     "_CacheLocator",
-    "_CACHING_AVAILABLE",
     "activemask",
     "all_sync",
     "BaseCUDAMemoryManager",
