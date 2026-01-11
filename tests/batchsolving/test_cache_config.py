@@ -117,7 +117,6 @@ class TestCacheConfigCacheDirConversion:
             assert isinstance(cache_config.cache_dir, Path)
 
 
-@pytest.mark.nocudasim
 class TestCUBIECacheMaxEntries:
     """Tests for CUBIECache max_entries parameter."""
 
@@ -137,7 +136,6 @@ class TestCUBIECacheMaxEntries:
         assert cubie_cache._max_entries == 10
 
 
-@pytest.mark.nocudasim
 class TestEnforceCacheLimitNoEviction:
     """Tests for enforce_cache_limit when under limit."""
 
@@ -172,7 +170,6 @@ class TestEnforceCacheLimitNoEviction:
         assert len(list(cache_dir.glob("*.nbc"))) == 3
 
 
-@pytest.mark.nocudasim
 class TestEnforceCacheLimitEviction:
     """Tests for enforce_cache_limit eviction behavior."""
 
@@ -220,7 +217,6 @@ class TestEnforceCacheLimitEviction:
         assert "cache_4" in remaining_names
 
 
-@pytest.mark.nocudasim
 class TestEnforceCacheLimitDisabled:
     """Tests for enforce_cache_limit when disabled."""
 
@@ -253,7 +249,6 @@ class TestEnforceCacheLimitDisabled:
         assert len(list(cache_dir.glob("*.nbc"))) == 10
 
 
-@pytest.mark.nocudasim
 class TestEnforceCacheLimitPairs:
     """Tests for enforce_cache_limit .nbi/.nbc pairing."""
 
@@ -303,7 +298,6 @@ class TestEnforceCacheLimitPairs:
         assert "cache_1.1.nbc" not in remaining_nbc_names
 
 
-@pytest.mark.nocudasim
 class TestCUBIECacheModeStored:
     """Tests for CUBIECache mode parameter."""
 
@@ -333,7 +327,6 @@ class TestCUBIECacheModeStored:
         assert cache._mode == "hash"
 
 
-@pytest.mark.nocudasim
 class TestFlushCacheRemovesFiles:
     """Tests for flush_cache file removal."""
 
@@ -366,7 +359,6 @@ class TestFlushCacheRemovesFiles:
         assert len(list(cache_dir.glob("*"))) == 0
 
 
-@pytest.mark.nocudasim
 class TestFlushCacheRecreatesDirectory:
     """Tests for flush_cache directory recreation."""
 
@@ -416,7 +408,6 @@ class TestFlushCacheRecreatesDirectory:
         assert cache_dir.exists()
 
 
-@pytest.mark.nocudasim
 class TestCustomCacheDir:
     """Tests for custom_cache_dir parameter."""
 

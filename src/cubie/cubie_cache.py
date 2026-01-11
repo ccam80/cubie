@@ -12,6 +12,7 @@ updates when numba-cuda versions change. When running under CUDA
 simulator mode, caching is disabled and stub classes are provided.
 """
 
+import shutil
 from pathlib import Path
 from typing import Optional, Union
 
@@ -19,12 +20,12 @@ from attrs import field, validators as val, define, converters
 
 from cubie.CUDAFactory import _CubieConfigBase
 from cubie._utils import getype_validator
-from cubie.cuda_simsafe import (
+from numba.cuda.core.caching import (
     _CacheLocator,
     CacheImpl,
-    CUDACache,
     IndexDataCacheFile,
 )
+from cubie.vendored.numba_cuda_cache import Cache
 from cubie.odesystems.symbolic.odefile import GENERATED_DIR
 
 
@@ -275,7 +276,7 @@ class CUBIECacheImpl(CacheImpl):
         return True
 
 
-class CUBIECache(CUDACache):
+class CUBIECache(Cache):
     """File-based cache for CuBIE compiled kernels.
 
     Coordinates loading and saving of cached kernels, incorporating
@@ -315,13 +316,6 @@ class CUBIECache(CUDACache):
         mode: str = "hash",
         custom_cache_dir: Optional[Path] = None,
     ) -> None:
-        # Caching not available in CUDA simulator mode
-        # if not _CACHING_AVAILABLE:
-        #     raise RuntimeError(
-        #         "CUBIECache is not available in CUDA simulator mode. "
-        #         "File-based caching requires a real CUDA environment."
-        #     )
-
         self._system_name = system_name
         self._system_hash = system_hash
 
@@ -477,14 +471,8 @@ def create_cache(
     Returns
     -------
     CUBIECache or None
-        CUBIECache instance if caching enabled and not in CUDASIM mode,
-        None otherwise.
+        CUBIECache instance if caching is enabled, None otherwise.
     """
-    from cubie.cuda_simsafe import is_cudasim_enabled
-
-    if is_cudasim_enabled():
-        return None
-
     cache_config = CacheConfig.from_user_setting(cache_arg)
     if not cache_config.enabled:
         return None
@@ -504,6 +492,7 @@ def invalidate_cache(
     system_name: str,
     system_hash: str,
     config_hash: str,
+    custom_cache_dir: Optional[Path] = None,
 ) -> None:
     """Invalidate cache if in flush_on_change mode.
 
@@ -517,32 +506,31 @@ def invalidate_cache(
         Hash representing the ODE system definition.
     config_hash
         Pre-computed hash of compile settings.
+    custom_cache_dir
+        Optional custom cache directory path for testing.
 
     Notes
     -----
     Only flushes cache when mode is "flush_on_change". Silent on errors
-    since cache flush is best-effort. No-op in CUDASIM mode.
+    since cache flush is best-effort.
     """
-    from cubie.cuda_simsafe import is_cudasim_enabled
-
-    if is_cudasim_enabled():
-        return
-
     cache_config = CacheConfig.from_user_setting(cache_arg)
     if not cache_config.enabled:
         return
     if cache_config.mode != "flush_on_change":
         return
 
+    # Compute cache path directly without creating CUBIECache
+    if custom_cache_dir is not None:
+        cache_path = Path(custom_cache_dir)
+    elif cache_config.cache_dir is not None:
+        cache_path = Path(cache_config.cache_dir)
+    else:
+        cache_path = GENERATED_DIR / system_name / "CUDA_cache"
+
+    # Best-effort flush
     try:
-        cache = CUBIECache(
-            system_name=system_name,
-            system_hash=system_hash,
-            config_hash=config_hash,
-            max_entries=cache_config.max_entries,
-            mode=cache_config.mode,
-            custom_cache_dir=cache_config.cache_dir,
-        )
-        cache.flush_cache()
-    except (OSError, TypeError, ValueError, AttributeError):
+        if cache_path.exists():
+            shutil.rmtree(cache_path)
+    except OSError:
         pass
