@@ -164,152 +164,13 @@ else:  # pragma: no cover - exercised in GPU environments
 
 
 # --- Caching infrastructure ---
-# In CUDASIM mode, provide stub classes since numba caching is unavailable
-
-
-class _StubCacheLocator:
-    """Stub for _CacheLocator in CUDASIM mode.
-
-    Provides minimal interface for CUBIECacheLocator to inherit from
-    when running under CUDA simulator.
-    """
-
-    def ensure_cache_path(self):
-        """Create cache directory if it does not exist."""
-        import os
-        path = self.get_cache_path()
-        os.makedirs(path, exist_ok=True)
-
-    def get_cache_path(self):
-        """Return cache directory path. Must be overridden."""
-        raise NotImplementedError
-
-    def get_source_stamp(self):
-        """Return source freshness stamp. Must be overridden."""
-        raise NotImplementedError
-
-    def get_disambiguator(self):
-        """Return disambiguator string. Must be overridden."""
-        raise NotImplementedError
-
-
-class _StubCacheImpl:
-    """Stub for CacheImpl in CUDASIM mode.
-
-    Provides minimal interface for CUBIECacheImpl to inherit from.
-    Serialization methods raise NotImplementedError since CUDA
-    context is not available.
-    """
-
-    _locator_classes = []
-
-    def reduce(self, data):
-        """Reduce data for serialization. Not available in CUDASIM."""
-        raise NotImplementedError("Cannot reduce in CUDASIM mode")
-
-    def rebuild(self, target_context, payload):
-        """Rebuild from cached payload. Not available in CUDASIM."""
-        raise NotImplementedError("Cannot rebuild in CUDASIM mode")
-
-    def check_cachable(self, data):
-        """Check if data is cachable. Returns True for API compatibility."""
-        return True
-
-
-class _StubIndexDataCacheFile:
-    """Stub for IndexDataCacheFile in CUDASIM mode.
-
-    Provides minimal interface for cache file operations.
-    Save/load operations are no-ops since CUDA caching is unavailable.
-    """
-
-    def __init__(self, cache_path, filename_base, source_stamp):
-        self._cache_path = cache_path
-        self._filename_base = filename_base
-        self._source_stamp = source_stamp
-
-    def flush(self):
-        """Clear the index. No-op in CUDASIM mode."""
-        pass
-
-    def save(self, key, data):
-        """Save data to cache. Not available in CUDASIM."""
-        raise NotImplementedError("Cannot save in CUDASIM mode")
-
-    def load(self, key):
-        """Load data from cache. Always returns None in CUDASIM."""
-        return None
-
-
-class _StubCUDACache:
-    """Stub for CUDACache in CUDASIM mode.
-
-    Provides minimal interface for CUBIECache to inherit from.
-    Cache operations are no-ops or return cache misses.
-    """
-
-    _impl_class = None
-
-    def __init__(
-        self,
-        system_name=None,
-        system_hash=None,
-        config_hash=None,
-        max_entries=10,
-        mode="hash",
-        custom_cache_dir=None,
-        **kwargs,
-    ):
-        """Store parameters for compatibility with CUBIECache."""
-        self._system_name = system_name
-        self._system_hash = system_hash
-        self._compile_settings_hash = config_hash
-        self._max_entries = max_entries
-        self._mode = mode
-        self._enabled = False
-        self._cache_path = str(custom_cache_dir) if custom_cache_dir else ""
-
-    @property
-    def cache_path(self):
-        """Return the cache directory path."""
-        from pathlib import Path
-        return Path(self._cache_path) if self._cache_path else Path()
-
-    def enable(self):
-        """Enable caching. Sets internal flag."""
-        self._enabled = True
-
-    def disable(self):
-        """Disable caching. Clears internal flag."""
-        self._enabled = False
-
-    def load_overload(self, sig, target_context):
-        """Load cached overload. Always returns None in CUDASIM."""
-        return None
-
-    def save_overload(self, sig, data):
-        """Save overload to cache. No-op in CUDASIM."""
-        pass
-
-    def flush_cache(self):
-        """Flush the cache. No-op in CUDASIM."""
-        pass
-
-
-if CUDA_SIMULATION:  # pragma: no cover - simulated
-    _CacheLocator = _StubCacheLocator
-    CacheImpl = _StubCacheImpl
-    IndexDataCacheFile = _StubIndexDataCacheFile
-    CUDACache = _StubCUDACache
-    _CACHING_AVAILABLE = False
-else:  # pragma: no cover - exercised in GPU environments
-    from numba.cuda.core.caching import (
-        _CacheLocator,
-        CacheImpl,
-        IndexDataCacheFile,
-    )
-    from numba.cuda.dispatcher import CUDACache
-    _CACHING_AVAILABLE = True
+# These classes work in both CUDA and CUDASIM modes
+from numba.cuda.core.caching import (
+    _CacheLocator,
+    CacheImpl,
+    IndexDataCacheFile,
+)
+from cubie.vendored.numba_cuda_cache import Cache
 
 
 def is_cuda_array(value: Any) -> bool:
@@ -464,13 +325,12 @@ def is_cudasim_enabled() -> bool:
 
 __all__ = [
     "_CacheLocator",
-    "_CACHING_AVAILABLE",
     "activemask",
     "all_sync",
     "BaseCUDAMemoryManager",
+    "Cache",
     "CacheImpl",
     "compile_kwargs",
-    "CUDACache",
     "CUDA_SIMULATION",
     "current_mem_info",
     "DeviceNDArray",

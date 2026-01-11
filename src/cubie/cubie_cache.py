@@ -21,8 +21,8 @@ from cubie.CUDAFactory import _CubieConfigBase
 from cubie._utils import getype_validator
 from cubie.cuda_simsafe import (
     _CacheLocator,
+    Cache,
     CacheImpl,
-    CUDACache,
     IndexDataCacheFile,
 )
 from cubie.odesystems.symbolic.odefile import GENERATED_DIR
@@ -275,7 +275,7 @@ class CUBIECacheImpl(CacheImpl):
         return True
 
 
-class CUBIECache(CUDACache):
+class CUBIECache(Cache):
     """File-based cache for CuBIE compiled kernels.
 
     Coordinates loading and saving of cached kernels, incorporating
@@ -480,11 +480,6 @@ def create_cache(
         CUBIECache instance if caching enabled and not in CUDASIM mode,
         None otherwise.
     """
-    from cubie.cuda_simsafe import is_cudasim_enabled
-
-    if is_cudasim_enabled():
-        return None
-
     cache_config = CacheConfig.from_user_setting(cache_arg)
     if not cache_config.enabled:
         return None
@@ -521,13 +516,8 @@ def invalidate_cache(
     Notes
     -----
     Only flushes cache when mode is "flush_on_change". Silent on errors
-    since cache flush is best-effort. No-op in CUDASIM mode.
+    since cache flush is best-effort.
     """
-    from cubie.cuda_simsafe import is_cudasim_enabled
-
-    if is_cudasim_enabled():
-        return
-
     cache_config = CacheConfig.from_user_setting(cache_arg)
     if not cache_config.enabled:
         return
