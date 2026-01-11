@@ -6,7 +6,6 @@ from numpy import array, float32
 from attrs import define, field
 
 from cubie.cubie_cache import (
-    CacheConfig,
     CUBIECacheLocator,
     CUBIECacheImpl,
     CUBIECache,
@@ -240,34 +239,9 @@ def test_create_cache_returns_none_when_disabled():
     assert result is None
 
 
-def test_create_cache_returns_cache_in_cudasim():
-    """Verify create_cache returns CUBIECache in CUDASIM mode.
-
-    With vendored caching infrastructure, caches work in CUDASIM
-    mode (though no compiled files are produced).
-    """
-    from cubie.cubie_cache import create_cache, CUBIECache
-    from cubie.cuda_simsafe import is_cudasim_enabled
-
-    if is_cudasim_enabled():
-        result = create_cache(
-            cache_arg=True,
-            system_name="test_system",
-            system_hash="abc123",
-            config_hash="def456789012345678901234567890123456"
-            "789012345678901234567890abcd",
-        )
-        assert isinstance(result, CUBIECache)
-
-
 def test_create_cache_returns_cache_when_enabled():
     """Verify create_cache returns CUBIECache when enabled (non-CUDASIM)."""
     from cubie.cubie_cache import create_cache, CUBIECache
-    from cubie.cuda_simsafe import is_cudasim_enabled
-
-    # Skip assertion if in CUDASIM mode since it returns None there
-    if is_cudasim_enabled():
-        return
 
     result = create_cache(
         cache_arg=True,

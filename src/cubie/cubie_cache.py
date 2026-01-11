@@ -8,8 +8,10 @@ the configured GENERATED_DIR.
 Notes
 -----
 This module depends on numba-cuda internal classes and may require
-updates when numba-cuda versions change. When running under CUDA
-simulator mode, caching is disabled and stub classes are provided.
+updates when numba-cuda versions change. Where cache modules are not
+imported by Numba in CUDASIM mode, this module relies on venfored versions
+in the `src\vendored` directory. This allows caching to function in CUDASIM
+mode for testing purposes, even though no compiled kernels are produced.
 """
 
 import shutil
@@ -25,6 +27,8 @@ from numba.cuda.core.caching import (
     CacheImpl,
     IndexDataCacheFile,
 )
+
+from cubie.cuda_simsafe import is_cudasim_enabled
 from cubie.vendored.numba_cuda_cache import Cache
 from cubie.odesystems.symbolic.odefile import GENERATED_DIR
 
@@ -209,7 +213,7 @@ class CUBIECacheImpl(CacheImpl):
         compile_settings_hash: str,
         custom_cache_dir: Optional[Path] = None,
     ) -> None:
-        # Create CUBIECacheLocator directly (not via from_function)
+        # Create CUBIECacheLocator directly
         self._locator = CUBIECacheLocator(
             system_name,
             system_hash,
@@ -242,7 +246,17 @@ class CUBIECacheImpl(CacheImpl):
         dict
             Serializable state dictionary.
         """
-        return kernel._reduce_states()
+        if not is_cudasim_enabled():
+            return kernel._reduce_states()
+        else:
+            raise RuntimeError(
+                "CUBIECacheImpl.reduce() was called inside "
+                "CUDASIM mode, indicating a cache miss when "
+                "there are no compiled kernels available. This "
+                "should be indicates a config error; it "
+                "should not be reachable if CUDASIM mode was "
+                "properly enabled."
+            )
 
     def rebuild(self, target_context, payload: dict):
         """Rebuild kernel from cached payload.
@@ -259,9 +273,19 @@ class CUBIECacheImpl(CacheImpl):
         _Kernel
             Reconstructed CUDA kernel.
         """
-        from numba.cuda.dispatcher import _Kernel
+        if not is_cudasim_enabled():
+            from numba.cuda.dispatcher import _Kernel
 
-        return _Kernel._rebuild(**payload)
+            return _Kernel._rebuild(**payload)
+        else:
+            raise RuntimeError(
+                "CUBIECacheImpl.rebuild() was called inside "
+                "CUDASIM mode, indicating a cache hit when "
+                "there are no compiled kernels available. This "
+                "should be indicates a config error; it "
+                "should not be reachable if CUDASIM mode was "
+                "properly enabled."
+            )
 
     def check_cachable(self, data) -> bool:
         """Check if the data is cachable.
@@ -316,6 +340,12 @@ class CUBIECache(Cache):
         mode: str = "hash",
         custom_cache_dir: Optional[Path] = None,
     ) -> None:
+        """Initialize CUBIECache with system and compile info.
+
+        Note: Does not call inherited init using __super__(), absorbs the
+        responsibilities directly due to  a different set of config parameters.
+        """
+
         self._system_name = system_name
         self._system_hash = system_hash
 
@@ -433,6 +463,8 @@ class CUBIECache(Cache):
             try:
                 shutil.rmtree(cache_path)
             except OSError:
+                # Another thread may have gotten there first if concurrent.
+                # If so, just continue.
                 pass
         try:
             cache_path.mkdir(parents=True, exist_ok=True)
