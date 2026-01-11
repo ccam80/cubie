@@ -836,7 +836,6 @@ class MemoryManager:
         self,
         shape: tuple[int, ...],
         dtype: type,
-        stride_order: Optional[tuple[str, ...]] = None,
         memory_type: str = "pinned",
     ) -> ndarray:
         """
@@ -848,9 +847,6 @@ class MemoryManager:
             Shape of the array to create.
         dtype
             Data type for the array elements.
-        stride_order
-            Ignored; kept for API compatibility. Arrays are always
-            C-contiguous.
         memory_type
             Memory type for the host array. Must be ``"pinned"`` or
             ``"host"``. Defaults to ``"pinned"``.

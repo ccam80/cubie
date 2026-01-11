@@ -559,7 +559,6 @@ class TestMemoryManager:
         arr = mgr.create_host_array(
             shape=(5, 3),
             dtype=np.float64,
-            stride_order=("run", "variable"),
         )
         assert arr.shape == (5, 3)
         assert arr.dtype == np.float64
@@ -570,7 +569,6 @@ class TestMemoryManager:
         arr = mgr.create_host_array(
             shape=(2, 3, 4),
             dtype=np.float32,
-            stride_order=("time", "run", "variable"),
         )
         assert arr.shape == (2, 3, 4)
         assert arr.dtype == np.float32
@@ -583,7 +581,6 @@ class TestMemoryManager:
         arr = mgr.create_host_array(
             shape=(2, 3, 4),
             dtype=np.float32,
-            stride_order=("run", "variable", "time"),  # ignored
         )
         assert arr.shape == (2, 3, 4)
         assert arr.dtype == np.float32
@@ -597,7 +594,6 @@ class TestMemoryManager:
         arr = mgr.create_host_array(
             shape=(2, 3, 4),
             dtype=np.float32,
-            stride_order=("time", "run", "variable"),
             memory_type="host",
         )
         assert arr.shape == (2, 3, 4)
@@ -612,7 +608,6 @@ class TestMemoryManager:
             mgr.create_host_array(
                 shape=(2, 3, 4),
                 dtype=np.float32,
-                stride_order=("time", "run", "variable"),
                 memory_type="invalid",
             )
 

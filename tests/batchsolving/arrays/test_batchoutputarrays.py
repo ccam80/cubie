@@ -318,9 +318,13 @@ class TestOutputArrays:
         output_arrays_manager._chunks = 1
         output_arrays_manager._chunk_axis = "run"
 
-        # Call finalise - should copy device data to host
+        # Call finalise - queues async transfer
         host_indices = slice(None)
         output_arrays_manager.finalise(host_indices)
+
+        # Sync stream and complete deferred writebacks
+        output_arrays_manager._memory_manager.sync_stream(output_arrays_manager)
+        output_arrays_manager.complete_writeback()
 
         # Verify that host arrays now contain the modified device data
         np.testing.assert_array_equal(

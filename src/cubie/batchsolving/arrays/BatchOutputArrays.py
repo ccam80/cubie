@@ -1,6 +1,6 @@
 """Manage output array lifecycles for batch solver executions."""
 
-from typing import TYPE_CHECKING, Dict, Union
+from typing import TYPE_CHECKING, Dict, List, Tuple, Union
 
 if TYPE_CHECKING:
     from cubie.batchsolving.BatchSolverKernel import BatchSolverKernel
@@ -27,6 +27,9 @@ from cubie.batchsolving import ArrayTypes
 from cubie._utils import slice_variable_dimension
 
 ChunkIndices = Union[slice, NDArray[np_integer]]
+
+# Type alias for deferred writeback entries
+DeferredWriteback = Tuple[NDArray, tuple, NDArray]
 
 
 @define(slots=False)
@@ -152,6 +155,9 @@ class OutputArrays(BaseArrayManager):
         factory=OutputArrayContainer.device_factory,
         validator=attrsval_instance_of(OutputArrayContainer),
         init=False,
+    )
+    _deferred_writebacks: List[DeferredWriteback] = field(
+        factory=list, init=False
     )
 
     def __attrs_post_init__(self) -> None:
@@ -318,7 +324,7 @@ class OutputArrays(BaseArrayManager):
                 new_arrays[name] = current
             else:
                 new_arrays[name] = self._memory_manager.create_host_array(
-                    newshape, dtype, slot.stride_order, slot.memory_type
+                    newshape, dtype, slot.memory_type
                 )
         for name, slot in self.device.iter_managed_arrays():
             slot.shape = getattr(self._sizes, name)
@@ -329,7 +335,7 @@ class OutputArrays(BaseArrayManager):
 
     def finalise(self, host_indices: ChunkIndices) -> None:
         """
-        Copy device arrays to host array slices.
+        Queue device-to-host transfers for a chunk.
 
         Parameters
         ----------
@@ -339,16 +345,17 @@ class OutputArrays(BaseArrayManager):
         Returns
         -------
         None
-            This method mutates host buffers in place.
+            This method queues async transfers and stores deferred writebacks.
 
         Notes
         -----
         Host slices are made contiguous before transfer to ensure
-        compatible strides with device arrays.
+        compatible strides with device arrays. The actual copy from
+        contiguous buffers back to original host slices is deferred
+        until ``complete_writeback()`` is called after stream sync.
         """
         from_ = []
         to_ = []
-        host_slices = []  # Track original slices for post-copy writeback
 
         for array_name, slot in self.host.iter_managed_arrays():
             device_array = self.device.get_array(array_name)
@@ -363,22 +370,36 @@ class OutputArrays(BaseArrayManager):
                 host_slice = host_array[slice_tuple]
                 # Make contiguous copy for device transfer
                 contiguous_slice = np_ascontiguousarray(host_slice)
-                host_slices.append((host_array, slice_tuple, contiguous_slice))
+                # Store for deferred writeback after stream sync
+                self._deferred_writebacks.append(
+                    (host_array, slice_tuple, contiguous_slice)
+                )
                 to_.append(contiguous_slice)
             else:
-                host_slices.append(None)
                 to_.append(host_array)
             from_.append(device_array)
 
         self.from_device(from_, to_)
-        # Sync stream before writeback
-        self._memory_manager.sync_stream(self)
 
-        # Copy contiguous buffers back to original host slices
-        for item in host_slices:
-            if item is not None:
-                host_array, slice_tuple, contiguous_slice = item
-                host_array[slice_tuple] = contiguous_slice
+    def complete_writeback(self) -> None:
+        """
+        Copy all deferred contiguous buffers back to host array slices.
+
+        Returns
+        -------
+        None
+            This method mutates host buffers in place.
+
+        Notes
+        -----
+        This method must be called after stream synchronization to ensure
+        all async device-to-host transfers have completed. It copies data
+        from the contiguous intermediate buffers back to the original
+        (potentially non-contiguous) host array slices.
+        """
+        for host_array, slice_tuple, contiguous_slice in self._deferred_writebacks:
+            host_array[slice_tuple] = contiguous_slice
+        self._deferred_writebacks.clear()
 
     def initialise(self, host_indices: ChunkIndices) -> None:
         """

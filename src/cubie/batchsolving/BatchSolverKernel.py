@@ -549,6 +549,10 @@ class BatchSolverKernel(CUDAFactory):
         # Finalize GPU workload timing
         self._gpu_workload_event.record_end(stream)
 
+        # Sync stream and complete deferred writebacks after all chunks
+        self.memory_manager.sync_stream(self)
+        self.output_arrays.complete_writeback()
+
         if self.profileCUDA:  # pragma: no cover
             cuda.profile_stop()
 
