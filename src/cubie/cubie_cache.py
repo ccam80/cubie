@@ -34,81 +34,6 @@ from cubie.vendored.numba_cuda_cache import Cache
 from cubie.odesystems.symbolic.odefile import GENERATED_DIR
 
 
-@define
-class CacheConfig(_CubieConfigBase):
-    """Configuration for file-based kernel caching.
-
-    Parameters
-    ----------
-    enabled
-        Whether file-based caching is enabled.
-    mode
-        Caching mode: 'hash' for content-addressed caching,
-        'flush_on_change' to clear cache when settings change.
-    max_entries
-        Maximum number of cache entries before LRU eviction.
-        Set to 0 to disable eviction.
-    cache_dir
-        Custom cache directory. None uses default location.
-    """
-
-    enabled: bool = field(
-        default=True,
-        validator=val.instance_of(bool),
-    )
-    mode: str = field(
-        default="hash",
-        validator=val.in_(("hash", "flush_on_change")),
-    )
-    max_entries: int = field(
-        default=10,
-        validator=getype_validator(int, 0),
-    )
-    cache_dir: Optional[Path] = field(
-        default=None,
-        validator=val.optional(val.instance_of((str, Path))),
-        converter=converters.optional(Path),
-    )
-
-    def __attrs_post_init__(self):
-        super().__attrs_post_init__()
-
-    @classmethod
-    def from_user_setting(cls, user_setting: Union[bool, str, Path]):
-        """Parse cache parameter into CacheConfig.
-
-        Parameters
-        ----------
-        cache
-            Cache configuration:
-            - True: Enable caching with default path
-            - False or None: Disable caching
-            - "flush_on_change": Enable caching with flush_on_change mode
-            - str or Path: Enable caching at specified path
-
-        Returns
-        -------
-        CacheConfig
-            Configured cache settings.
-        """
-        if user_setting is None or user_setting is False:
-            return cls(enabled=False, cache_dir=None)
-
-        if user_setting is True:
-            return cls(enabled=True, cache_dir=None)
-
-        # Handle "flush_on_change" mode string specially
-        if isinstance(user_setting, str) and user_setting == "flush_on_change":
-            return cls(enabled=True, mode="flush_on_change", cache_dir=None)
-
-        cache_path = (
-            Path(user_setting)
-            if isinstance(user_setting, str)
-            else user_setting
-        )
-        return cls(enabled=True, cache_dir=cache_path)
-
-
 class CUBIECacheLocator(_CacheLocator):
     """Locate cache files in CuBIE's generated directory structure.
 
@@ -172,6 +97,26 @@ class CUBIECacheLocator(_CacheLocator):
         """
         return self._compile_settings_hash[:16]
 
+    def set_compile_settings_hash(self, compile_settings_hash: str) -> None:
+        """Update the compile settings hash.
+
+        Parameters
+        ----------
+        compile_settings_hash
+            New compile settings hash to set.
+        """
+        self._compile_settings_hash = compile_settings_hash
+
+    def set_system_hash(self, system_hash: str) -> None:
+        """Update the system hash.
+
+        Parameters
+        ----------
+        system_hash
+            New system hash to set.
+        """
+        self._system_hash = system_hash
+
     @classmethod
     def from_function(cls, py_func, py_file):
         """Not used - CuBIE creates locators directly.
@@ -233,6 +178,25 @@ class CUBIECacheImpl(CacheImpl):
     def filename_base(self) -> str:
         """Return base filename for cache files."""
         return self._filename_base
+
+    def set_hashes(
+            self,
+            system_hash: Optional[str],
+            compile_settings_hash: Optional[str]
+    ) -> None:
+        """Update system and compile settings hashes in locator.
+
+        Parameters
+        ----------
+        system_hash
+            New system hash to set or None to leave unchanged.
+        compile_settings_hash
+            New compile settings hash to set or None to leave unchanged.
+        """
+        if system_hash is not None:
+            self._locator.set_system_hash(system_hash)
+        if compile_settings_hash is not None:
+            self._locator.set_compile_settings_hash(compile_settings_hash)
 
     def reduce(self, kernel) -> dict:
         """Reduce kernel to serializable form.
@@ -470,6 +434,33 @@ class CUBIECache(Cache):
         """Return the cache directory path."""
         return Path(self._cache_path)
 
+    def update_from_config(self, config) -> None:
+        """Update cache settings from CacheConfig.
+
+        Parameters
+        ----------
+        config
+            CacheConfig instance with updated settings.
+        """
+        self._max_entries = config.max_cache_entries
+        self._mode = config.cache_mode
+        self._cache_path = config.cache_dir
+        self._system_hash = config.system_hash
+
+    def set_hashes(self,
+                   system_hash: str=None,
+                   compile_settings_hash: str = None) \
+            -> None:
+        """Update system and compile settings hashes.
+
+        Parameters
+        ----------
+        system_hash
+            New system hash to set.
+        compile_settings_hash
+            New compile settings hash to set.
+        """
+        self._impl.set_hashes(system_hash, compile_settings_hash)
 
 def create_cache(
     cache_arg: Union[bool, str, Path],
@@ -560,3 +551,159 @@ def invalidate_cache(
             rmtree(cache_path)
     except OSError:
         pass
+
+
+@define
+class CacheConfig(_CubieConfigBase):
+    """Configuration for file-based kernel caching.
+
+    Parameters
+    ----------
+    enabled
+        Whether file-based caching is enabled.
+    mode
+        Caching mode: 'hash' for content-addressed caching,
+        'flush_on_change' to clear cache when settings change.
+    max_entries
+        Maximum number of cache entries before LRU eviction.
+        Set to 0 to disable eviction.
+    cache_dir
+        Custom cache directory. None uses default location.
+    system_hash
+        Hash representing the ODE system definition. This should persist
+        over multiple sessions.
+    """
+
+    enabled: bool = field(
+        default=False,
+        validator=val.instance_of(bool),
+    )
+    cache_mode: str = field(
+        default="hash",
+        validator=val.in_(("hash", "flush_on_change")),
+    )
+    max_cache_entries: int = field(
+        default=10,
+        validator=getype_validator(int, 0),
+    )
+    cache_dir: Optional[Path] = field(
+        default=None,
+        validator=val.optional(val.instance_of((str, Path))),
+        converter=converters.optional(Path),
+    )
+    system_hash: str = field(
+        default="",
+        validator=val.instance_of(str),
+    )
+
+    def __attrs_post_init__(self):
+        super().__attrs_post_init__()
+
+    @classmethod
+    def params_from_user_kwarg(cls, cache_arg: Union[bool, str, Path]):
+        """Parse single-entry "cache" argument from solver interface.
+
+        Parameters
+        ----------
+        cache
+            Cache configuration:
+            - True: Enable caching with default path
+            - False or None: Disable caching
+            - str or Path: Enable caching at specified path
+
+        Returns
+        -------
+        Dict[str, Any]
+            Configured cache params.
+        """
+        cache_enabled = cache_arg not in [False, None]
+        cache_path = None
+        if isinstance(cache_arg, str):
+            cache_path = Path(cache_arg)
+        elif isinstance(cache_arg, Path):
+            cache_path = cache_arg
+
+        return {"cache_enabled": cache_enabled, "cache_dir": cache_path}
+
+
+class CubieCacheHandler:
+    """Handler for managing CuBIE kernel cache.
+
+    # Parameters
+    # ----------
+    # cache
+    #     Optional CUBIECache instance to manage.
+    """
+
+    def __init__(
+        self,
+        cache_arg: Union[bool, str, Path] = None,
+        system_name: str = "",
+        system_hash: str = "",
+        **kwargs
+    ) -> None:
+        # Convert single cache arg into cache_enabled, path kwargs and build
+        # config
+        config_params = CacheConfig.params_from_user_kwarg(cache_arg)
+        kwargs.update(config_params)
+        _config = build_config(
+                CacheConfig,
+                {"system_name": system_name, "system_hash": system_hash},
+                **kwargs
+        )
+        self.config = _config
+
+        self._cache = create_cache(_config)
+
+    @property
+    def cache(self) -> Optional[CUBIECache]:
+        """Return the managed CUBIECache instance."""
+        return self._cache
+
+    def flush(self):
+        """Flush the managed cache."""
+        self._cache.flush_cache()
+
+    def update(self, updates_dict, **kwargs) -> None:
+        """Update cache configuration and recreate cache if needed.
+
+        Parameters
+        ----------
+        updates_dict
+            Dictionary of configuration updates.
+        """
+        if not updates_dict:
+            updates_dict = {}
+        updates_dict.update(kwargs)
+
+        # We don't need the "changed" argument as this class does not build
+        recognized, _ = self.config.update(updates_dict)
+        self._cache.update_from_config(self.config)
+
+        return recognized
+
+    def configured_cache(self, compile_settings_hash: str) -> Optional[
+        CUBIECache]:
+        """Return a CUBIECache instance based on current config.
+
+        Returns
+        -------
+        CUBIECache or None
+            Configured cache instance if enabled, else None.
+        """
+        self._cache.set_hashes(
+            system_hash=self.config.system_hash,
+            compile_settings_hash=compile_settings_hash,
+        )
+        return self._cache
+
+    def invalidate(self):
+        """Invalidate the managed cache if in flush_on_change mode."""
+        if (
+            not self.config.enabled
+            or self.config.cache_mode != "flush_on_change"
+        ):
+            return
+
+        else:
+            self.flush()
