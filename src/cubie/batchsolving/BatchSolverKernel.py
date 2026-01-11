@@ -21,8 +21,13 @@ from numba import int32
 from attrs import define, field
 
 from cubie.cuda_simsafe import is_cudasim_enabled, compile_kwargs
-from cubie.cubie_cache import CacheConfig, create_cache, invalidate_cache, \
-    CubieCacheHandler
+from cubie.cubie_cache import (
+    CacheConfig,
+    create_cache,
+    invalidate_cache,
+    CubieCacheHandler,
+    ALL_CACHE_PARAMETERS,
+)
 from cubie.time_logger import CUDAEvent
 from numpy.typing import NDArray
 
@@ -133,7 +138,7 @@ class BatchSolverKernel(CUDAFactory):
         algorithm_settings: Optional[Dict[str, Any]] = None,
         output_settings: Optional[Dict[str, Any]] = None,
         memory_settings: Optional[Dict[str, Any]] = None,
-        cache_settings: Optional[CacheConfig] = None,
+        cache_settings: Optional[Dict[str, Any]] = None,
         cache: Union[bool, str, Path] = True,
     ) -> None:
         super().__init__()
@@ -202,7 +207,30 @@ class BatchSolverKernel(CUDAFactory):
             }
         )
 
-        self.cache_handler = CubieCacheHandler(cache, **cache_settings)
+        # Extract system identification for cache
+        system_name = getattr(system, 'name', None) or ""
+        # For SymbolicODE, use fn_hash; otherwise use config_hash
+        if hasattr(system, 'fn_hash'):
+            system_hash = system.fn_hash
+        else:
+            system_hash = (
+                system.config_hash if hasattr(system, 'config_hash') else ""
+            )
+
+        # If system_name is empty, use first 12 chars of hash
+        if not system_name and system_hash:
+            system_name = system_hash[:12]
+
+        # Build cache settings dict from cache_settings
+        if cache_settings is None:
+            cache_settings = {}
+
+        self.cache_handler = CubieCacheHandler(
+            cache_arg=cache,
+            system_name=system_name,
+            system_hash=system_hash,
+            **cache_settings
+        )
 
     def _setup_memory_manager(
         self, settings: Dict[str, Any]
@@ -881,6 +909,16 @@ class BatchSolverKernel(CUDAFactory):
         all_unrecognized -= self.update_compile_settings(
             updates_dict, silent=True
         )
+
+        # Forward cache-related updates to cache_handler
+        cache_updates = {
+            k: v for k, v in updates_dict.items()
+            if k in ALL_CACHE_PARAMETERS
+        }
+        if cache_updates:
+            all_unrecognized -= self.cache_handler.update(
+                cache_updates, silent=True
+            )
 
         recognised = set(updates_dict.keys()) - all_unrecognized
 

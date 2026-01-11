@@ -1051,3 +1051,55 @@ def test_system_no_observables_default(precision, solver_settings):
     # Observable indices should be empty when no observables exist
     assert len(solver.saved_observable_indices) == 0
     assert len(solver.summarised_observable_indices) == 0
+
+
+# ============================================================================
+# Cache Keyword Argument Tests
+# ============================================================================
+
+
+def test_solver_accepts_cache_mode_kwarg(system, solver_settings):
+    """Verify Solver(system, cache_mode='flush_on_change') is recognized."""
+    solver = Solver(
+        system,
+        algorithm=solver_settings["algorithm"],
+        memory_manager=solver_settings["memory_manager"],
+        stream_group=solver_settings["stream_group"],
+        cache_mode="flush_on_change",
+        strict=True,
+    )
+
+    assert solver.kernel.cache_handler.config.cache_mode == "flush_on_change"
+
+
+def test_solver_accepts_max_cache_entries_kwarg(system, solver_settings):
+    """Verify Solver(system, max_cache_entries=5) is recognized."""
+    solver = Solver(
+        system,
+        algorithm=solver_settings["algorithm"],
+        memory_manager=solver_settings["memory_manager"],
+        stream_group=solver_settings["stream_group"],
+        max_cache_entries=5,
+        strict=True,
+    )
+
+    assert solver.kernel.cache_handler.config.max_cache_entries == 5
+
+
+def test_solve_ivp_passes_cache_kwargs(
+    system, simple_initial_values, simple_parameters, driver_settings
+):
+    """Verify solve_ivp(system, y0, params, cache_mode='hash') works."""
+    result = solve_ivp(
+        system=system,
+        y0=simple_initial_values,
+        parameters=simple_parameters,
+        drivers=driver_settings,
+        dt=1e-2,
+        duration=0.05,
+        method="euler",
+        cache_mode="hash",
+        max_cache_entries=10,
+    )
+
+    assert isinstance(result, SolveResult)
