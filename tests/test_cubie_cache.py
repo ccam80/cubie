@@ -550,3 +550,56 @@ def test_batch_solver_kernel_update_forwards_cache_params(
         solverkernel_mutable.cache_handler.config.cache_mode
         == "flush_on_change"
     )
+
+
+# --- Integration tests for complete cache flow ---
+
+
+def test_cache_handler_uses_symbolic_ode_fn_hash(system):
+    """Verify CubieCacheHandler uses fn_hash from SymbolicODE."""
+    handler = CubieCacheHandler(
+        cache_arg=True,
+        system_name=system.name,
+        system_hash=system.fn_hash,
+    )
+
+    assert handler.config.system_hash == system.fn_hash
+    assert handler.config.system_name == system.name
+
+    # Verify cache path includes the hash
+    if handler.cache is not None:
+        path_str = str(handler.cache.cache_path)
+        assert system.fn_hash in path_str or "default" in path_str
+
+
+def test_solver_cache_configuration_flow(system):
+    """Verify Solver correctly configures cache handler."""
+    from cubie import Solver
+
+    solver = Solver(
+        system,
+        algorithm="euler",
+        cache=True,
+        cache_mode="hash",
+        max_cache_entries=5,
+    )
+
+    # Verify cache handler is configured
+    assert solver.kernel.cache_handler is not None
+    assert solver.kernel.cache_handler.config.cache_mode == "hash"
+    assert solver.kernel.cache_handler.config.max_cache_entries == 5
+
+
+def test_solver_kernel_update_cache_mode(solverkernel_mutable):
+    """Verify BatchSolverKernel.update forwards cache parameters."""
+    # Initial state
+    initial_mode = solverkernel_mutable.cache_handler.config.cache_mode
+
+    # Update cache mode
+    recognized = solverkernel_mutable.update(cache_mode="flush_on_change")
+
+    assert "cache_mode" in recognized
+    assert (
+        solverkernel_mutable.cache_handler.config.cache_mode
+        == "flush_on_change"
+    )

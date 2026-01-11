@@ -178,6 +178,33 @@ class BatchSolverKernel(CUDAFactory):
             output_settings=output_settings,
         )
 
+        # Extract system identification for cache
+        system_name = getattr(system, 'name', None) or ""
+        # For SymbolicODE, use fn_hash; otherwise use config_hash
+        if hasattr(system, 'fn_hash'):
+            system_hash = system.fn_hash
+        else:
+            system_hash = (
+                system.config_hash if hasattr(system, 'config_hash') else ""
+            )
+
+        # If system_name is empty, use first 12 chars of hash
+        if not system_name and system_hash:
+            system_name = system_hash[:12]
+
+        # Build cache settings dict from cache_settings
+        if cache_settings is None:
+            cache_settings = {}
+
+        # Initialize cache_handler BEFORE setup_compile_settings since
+        # _invalidate_cache is called during setup and requires cache_handler
+        self.cache_handler = CubieCacheHandler(
+            cache_arg=cache,
+            system_name=system_name,
+            system_hash=system_hash,
+            **cache_settings
+        )
+
         initial_config = BatchSolverConfig(
             precision=precision,
             loop_fn=None,
@@ -205,31 +232,6 @@ class BatchSolverKernel(CUDAFactory):
                 ),
                 "precision": self.single_integrator.precision,
             }
-        )
-
-        # Extract system identification for cache
-        system_name = getattr(system, 'name', None) or ""
-        # For SymbolicODE, use fn_hash; otherwise use config_hash
-        if hasattr(system, 'fn_hash'):
-            system_hash = system.fn_hash
-        else:
-            system_hash = (
-                system.config_hash if hasattr(system, 'config_hash') else ""
-            )
-
-        # If system_name is empty, use first 12 chars of hash
-        if not system_name and system_hash:
-            system_name = system_hash[:12]
-
-        # Build cache settings dict from cache_settings
-        if cache_settings is None:
-            cache_settings = {}
-
-        self.cache_handler = CubieCacheHandler(
-            cache_arg=cache,
-            system_name=system_name,
-            system_hash=system_hash,
-            **cache_settings
         )
 
     def _setup_memory_manager(
@@ -549,9 +551,9 @@ class BatchSolverKernel(CUDAFactory):
                 chunk_t0 = t0 + np_float64(i) * chunk_params.duration
 
             # Update cache for this configuration and attach
-            config_hash = self.config_hash()
+            cfg_hash = self.config_hash
             self.kernel._cache = self.cache_handler.configured_cache(
-                config_hash
+                cfg_hash
             )
             # Kernel execution timing
             kernel_event.record_start(stream)

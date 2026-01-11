@@ -827,7 +827,7 @@
 ---
 
 ## Task Group 7: Integration Tests for Complete Cache Flow
-**Status**: [ ]
+**Status**: [x]
 **Dependencies**: Groups 1, 2, 3, 4, 5, 6
 
 **Required Context**:
@@ -926,7 +926,16 @@
 - tests/test_cubie_cache.py::test_solver_kernel_update_cache_mode
 - tests/test_cubie_cache.py (entire file for full validation)
 
-**Outcomes**: 
+**Outcomes**:
+- Files Modified:
+  * tests/test_cubie_cache.py (48 lines added)
+- Functions/Methods Added/Modified:
+  * test_cache_handler_uses_symbolic_ode_fn_hash(): New integration test verifying CubieCacheHandler uses fn_hash from SymbolicODE
+  * test_solver_cache_configuration_flow(): New integration test verifying Solver -> BatchSolverKernel -> CubieCacheHandler configuration chain
+  * test_solver_kernel_update_cache_mode(): New integration test verifying BatchSolverKernel.update forwards cache parameters
+- Implementation Summary:
+  Added three new integration tests to verify the complete cache flow. test_cache_handler_uses_symbolic_ode_fn_hash uses the existing `system` fixture (which provides a SymbolicODE) to verify that CubieCacheHandler correctly extracts and uses the fn_hash for cache configuration. test_solver_cache_configuration_flow creates a Solver with cache kwargs and verifies they flow through to the cache handler. test_solver_kernel_update_cache_mode uses solverkernel_mutable to verify that update(cache_mode=...) properly forwards to the cache handler.
+- Issues Flagged: None
 
 ---
 

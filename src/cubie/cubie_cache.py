@@ -467,7 +467,7 @@ class CUBIECache(Cache):
         self._system_hash = config.system_hash
 
     def set_hashes(self,
-                   system_hash: str=None,
+                   system_hash: str = None,
                    compile_settings_hash: str = None) \
             -> None:
         """Update system and compile settings hashes.
@@ -479,6 +479,10 @@ class CUBIECache(Cache):
         compile_settings_hash
             New compile settings hash to set.
         """
+        if system_hash is not None:
+            self._system_hash = system_hash
+        if compile_settings_hash is not None:
+            self._compile_settings_hash = compile_settings_hash
         self._impl.set_hashes(system_hash, compile_settings_hash)
 
 def create_cache(
@@ -510,15 +514,15 @@ def create_cache(
         CUBIECache instance if caching is enabled, None otherwise.
     """
     cache_config = CacheConfig.from_user_setting(cache_arg)
-    if not cache_config.enabled:
+    if not cache_config.cache_enabled:
         return None
 
     return CUBIECache(
         system_name=system_name,
         system_hash=system_hash,
         config_hash=config_hash,
-        max_entries=cache_config.max_entries,
-        mode=cache_config.mode,
+        max_entries=cache_config.max_cache_entries,
+        mode=cache_config.cache_mode,
         custom_cache_dir=cache_config.cache_dir,
     )
 
@@ -551,9 +555,9 @@ def invalidate_cache(
     since cache flush is best-effort.
     """
     cache_config = CacheConfig.from_user_setting(cache_arg)
-    if not cache_config.enabled:
+    if not cache_config.cache_enabled:
         return
-    if cache_config.mode != "flush_on_change":
+    if cache_config.cache_mode != "flush_on_change":
         return
 
     # Compute cache path directly without creating CUBIECache
@@ -562,7 +566,8 @@ def invalidate_cache(
     elif cache_config.cache_dir is not None:
         cache_path = Path(cache_config.cache_dir)
     else:
-        cache_path = GENERATED_DIR / system_name / "CUDA_cache"
+        hash_dir = system_hash if system_hash else "default"
+        cache_path = GENERATED_DIR / system_name / hash_dir / "CUDA_cache"
 
     # Best-effort flush
     try:
@@ -642,13 +647,42 @@ class CacheConfig(_CubieConfigBase):
             Configured cache params.
         """
         cache_enabled = cache_arg not in [False, None]
+        cache_mode = "hash"
         cache_path = None
         if isinstance(cache_arg, str):
-            cache_path = Path(cache_arg)
+            if cache_arg == "flush_on_change":
+                cache_mode = "flush_on_change"
+            else:
+                cache_path = Path(cache_arg)
         elif isinstance(cache_arg, Path):
             cache_path = cache_arg
 
-        return {"cache_enabled": cache_enabled, "cache_dir": cache_path}
+        return {
+            "cache_enabled": cache_enabled,
+            "cache_dir": cache_path,
+            "cache_mode": cache_mode,
+        }
+
+    @classmethod
+    def from_user_setting(cls, cache_arg: Union[bool, str, Path]):
+        """Create CacheConfig from single-entry "cache" argument.
+
+        Parameters
+        ----------
+        cache_arg
+            Cache configuration:
+            - True: Enable caching with default path
+            - False or None: Disable caching
+            - "flush_on_change": Enable with flush_on_change mode
+            - str or Path: Enable caching at specified path
+
+        Returns
+        -------
+        CacheConfig
+            Configured cache settings.
+        """
+        params = cls.params_from_user_kwarg(cache_arg)
+        return cls(**params)
 
 
 class CubieCacheHandler:
@@ -669,13 +703,14 @@ class CubieCacheHandler:
     ) -> None:
         # Convert single cache arg into cache_enabled, path kwargs
         config_params = CacheConfig.params_from_user_kwarg(cache_arg)
-        kwargs.update(config_params)
+        # Let user kwargs override default config_params
+        config_params.update(kwargs)
 
         # Build CacheConfig using build_config utility
         _config = build_config(
             CacheConfig,
             {"system_name": system_name, "system_hash": system_hash},
-            **kwargs
+            **config_params
         )
         self.config = _config
 
