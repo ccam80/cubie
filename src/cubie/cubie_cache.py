@@ -199,9 +199,7 @@ class CUBIECacheImpl(CacheImpl):
         return self._filename_base
 
     def set_hashes(
-            self,
-            system_hash: Optional[str],
-            compile_settings_hash: Optional[str]
+        self, system_hash: Optional[str], compile_settings_hash: Optional[str]
     ) -> None:
         """Update system and compile settings hashes in locator.
 
@@ -485,6 +483,7 @@ class CUBIECache(Cache):
             self._compile_settings_hash = compile_settings_hash
         self._impl.set_hashes(system_hash, compile_settings_hash)
 
+
 def create_cache(
     cache_arg: Union[bool, str, Path],
     system_name: str,
@@ -699,7 +698,7 @@ class CubieCacheHandler:
         cache_arg: Union[bool, str, Path] = None,
         system_name: str = "",
         system_hash: str = "",
-        **kwargs
+        **kwargs,
     ) -> None:
         # Convert single cache arg into cache_enabled, path kwargs
         config_params = CacheConfig.params_from_user_kwarg(cache_arg)
