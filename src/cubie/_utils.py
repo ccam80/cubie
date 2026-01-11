@@ -3,6 +3,7 @@
 This module provides general-purpose helpers for array slicing, dictionary
 updates and CUDA utilities that are shared across the code base.
 """
+
 import inspect
 from functools import wraps
 from time import time
@@ -11,6 +12,7 @@ from warnings import warn
 
 from numpy import (
     all as np_all,
+    asarray,
     dtype as np_dtype,
     empty as np_empty,
     float16 as np_float16,
@@ -18,13 +20,16 @@ from numpy import (
     float64 as np_float64,
     floating as np_floating,
     floor as np_floor,
+    full,
     int32 as np_int32,
     int64 as np_int64,
     integer as np_integer,
     isfinite as np_isfinite,
+    isscalar,
     log10 as np_log10,
     ndarray,
 )
+from numpy.typing import ArrayLike
 from numba import cuda, from_dtype
 from numba.cuda.random import (
     xoroshiro128p_dtype,
@@ -475,9 +480,13 @@ def float_array_validator(instance, attribute, value):
     ValueError if any elements are NaN or infinite.
     """
     if not isinstance(value, ndarray):
-        raise TypeError(f"{attribute} must be a numpy array of floats, got {type(value)}.")
-    if value.dtype.kind != 'f':
-        raise TypeError(f"{attribute} must be a numpy array of floats, got dtype {value.dtype}.")
+        raise TypeError(
+            f"{attribute} must be a numpy array of floats, got {type(value)}."
+        )
+    if value.dtype.kind != "f":
+        raise TypeError(
+            f"{attribute} must be a numpy array of floats, got dtype {value.dtype}."
+        )
     if not np_all(np_isfinite(value)):
         raise ValueError(f"{attribute} must not contain NaNs or infinities.")
 
@@ -486,12 +495,14 @@ def inrangetype_validator(dtype, min_, max_):
     return validators.and_(
         validators.instance_of(_expand_dtype(dtype)),
         validators.ge(min_),
-        validators.le(max_)
-)
+        validators.le(max_),
+    )
+
 
 # Helper: expand Python dtype to accept corresponding NumPy scalar hierarchy
 # e.g. float -> (float, np_floating), int -> (int, np_integer)
 # Unknown types are returned unchanged.
+
 
 def _expand_dtype(data_type):
     if data_type is float:
@@ -500,32 +511,72 @@ def _expand_dtype(data_type):
         return (int, np_integer)
     return data_type
 
+
 def lttype_validator(dtype, max_):
     return validators.and_(
-        validators.instance_of(_expand_dtype(dtype)),
-        validators.lt(max_)
+        validators.instance_of(_expand_dtype(dtype)), validators.lt(max_)
     )
 
 
 def gttype_validator(dtype, min_):
     # Accept both built-in and NumPy scalar types
     return validators.and_(
-        validators.instance_of(_expand_dtype(dtype)),
-        validators.gt(min_)
+        validators.instance_of(_expand_dtype(dtype)), validators.gt(min_)
     )
+
 
 def letype_validator(dtype, max_):
     return validators.and_(
-        validators.instance_of(_expand_dtype(dtype)),
-        validators.le(max_)
+        validators.instance_of(_expand_dtype(dtype)), validators.le(max_)
     )
 
 
 def getype_validator(dtype, min_):
     return validators.and_(
-        validators.instance_of(_expand_dtype(dtype)),
-        validators.ge(min_)
+        validators.instance_of(_expand_dtype(dtype)), validators.ge(min_)
     )
+
+
+def tol_converter(
+    value: Union[float, ArrayLike],
+    self_: Any,
+) -> ndarray:
+    """Convert tolerance input into an array with target precision.
+
+    For use as an attrs Converter with takes_self=True, converting
+    scalar or array-like tolerance specifications into arrays of
+    shape (n,) with dtype matching self_.precision.
+
+    Parameters
+    ----------
+    value
+        Scalar or array-like tolerance specification.
+    self_
+        Configuration instance providing precision and dimension
+        information. Must have `n` (int) and `precision` attributes.
+
+    Returns
+    -------
+    numpy.ndarray
+        Tolerance array with one value per state variable.
+
+    Raises
+    ------
+    ValueError
+        Raised when ``value`` cannot be broadcast to shape (n,).
+    """
+    if getattr(self_, "_n_changing", False):
+        return value
+    if isscalar(value):
+        tol = full(self_.n, value, dtype=self_.precision)
+    else:
+        tol = asarray(value, dtype=self_.precision)
+        # Broadcast single-element arrays to shape (n,)
+        if tol.shape[0] == 1 and self_.n > 1:
+            tol = full(self_.n, tol[0], dtype=self_.precision)
+        elif tol.shape[0] != self_.n:
+            raise ValueError("tol must have shape (n,).")
+    return tol
 
 
 def opt_inrangetype_validator(dtype, min_, max_):
@@ -595,46 +646,48 @@ def ensure_nonzero_size(
 
 def unpack_dict_values(updates_dict: dict) -> Tuple[dict, Set[str]]:
     """Unpack dict values into flat key-value pairs.
-    
+
     When an update() method receives parameters grouped in dicts, this
     utility flattens them before distributing to sub-components. The
     original dict keys are tracked separately so they can be marked as
     recognized even though they don't correspond to actual parameters.
-    
+
     Parameters
     ----------
     updates_dict
         Dictionary potentially containing dicts as values
-    
+
     Returns
     -------
     Tuple[dict, Set[str]]
         - dict: Flattened dictionary with dict values unpacked
         - set: Set of original keys that were unpacked dicts
-    
+
     Examples
     --------
     >>> import numpy as np
-    >>> result, unpacked = unpack_dict_values({
-    ...     'step_settings': {'dt_min': 0.01, 'dt_max': 1.0},
-    ...     'precision': np.float32
-    ... })
+    >>> result, unpacked = unpack_dict_values(
+    ...     {
+    ...         "step_settings": {"dt_min": 0.01, "dt_max": 1.0},
+    ...         "precision": np.float32,
+    ...     }
+    ... )
     >>> result
     {'dt_min': 0.01, 'dt_max': 1.0, 'precision': <class 'numpy.float32'>}
     >>> unpacked
     {'step_settings'}
-    
+
     Notes
     -----
     If a value in the input dict is itself a dict, its key-value pairs
     are added to the result dict directly, and the original key is
     tracked in the unpacked set. Regular key-value pairs are preserved
     as-is.
-    
+
     Only unpacks one level deep - nested dicts within dict values are
     not recursively unpacked. This allows each level of the update chain
     to handle its own unpacking.
-    
+
     Raises
     ------
     ValueError
@@ -668,9 +721,7 @@ def unpack_dict_values(updates_dict: dict) -> Tuple[dict, Set[str]]:
 
 
 def build_config(
-    config_class: type,
-    required: dict,
-    **optional
+    config_class: type, required: dict, instance_label: str = "", **optional
 ) -> Any:
     """Build attrs config instance from required and optional parameters.
 
@@ -685,6 +736,11 @@ def build_config(
     required : dict
         Required parameters that must be provided. These are typically
         function parameters like precision, n, evaluate_f.
+    instance_label : str, optional
+        Instance label for MultipleInstanceCUDAFactoryConfig classes.
+        When provided, prefixed keys (e.g., 'krylov_atol') are
+        transformed to unprefixed keys ('atol') before field matching.
+        Default is empty string (no prefix transformation).
     **optional
         Optional parameter overrides passed to the config constructor.
         Extra keys not in the config class signature are ignored.
@@ -702,47 +758,75 @@ def build_config(
     Examples
     --------
     >>> import numpy as np
+    >>> # Without instance_label
     >>> config = build_config(
     ...     DIRKStepConfig,
-    ...     required={'precision': np.float32, 'n': 3},
-    ...     krylov_tolerance=1e-8
+    ...     required={"precision": np.float32, "n": 3},
+    ... )
+    >>>
+    >>> # With instance_label (prefix transformation)
+    >>> config = build_config(
+    ...     ScaledNormConfig,
+    ...     required={"precision": np.float32, "n": 3},
+    ...     instance_label="krylov",
+    ...     krylov_atol=1e-6,  # Transformed to atol
     ... )
 
     Notes
     -----
     The helper:
     - Merges required and optional kwargs
+    - Applies prefix transformation if instance_label is provided and
+      config_class has get_prefixed_attributes
     - Converts field names to aliases for underscore-prefixed attrs fields
     - Filters to only valid fields (ignores extra keys)
     - Lets attrs handle defaults for unspecified optional parameters
     """
     if not has(config_class):
-        raise TypeError(
-            f"{config_class.__name__} is not an attrs class"
-        )
+        raise TypeError(f"{config_class.__name__} is not an attrs class")
 
-    # Build mapping of valid field names/aliases and field->alias conversion
-    valid_fields = set()
-    field_to_alias = {}
-
-    for field in fields(config_class):
-        valid_fields.add(field.name)
-        # Handle attrs auto-aliasing: _foo -> foo alias
-        if field.alias is not None:
-            valid_fields.add(field.alias)
-            field_to_alias[field.name] = field.alias
-
-    # Merge required and optional kwargs
+    # Merge all inputs; required/optional are user-facing distinctions.
     merged = {**required, **optional}
 
-    # Filter to only valid fields and convert field names to aliases
-    final = {}
-    for k, v in merged.items():
-        if k in valid_fields:
-            # If key is a field name with an alias, use the alias instead
-            if k in field_to_alias:
-                final[field_to_alias[k]] = v
-            else:
-                final[k] = v
+    field_to_external = {}
+    prefixed_attrs = set()
+    prefix = ""
+    # Generate prefix if instance_label provided and applicable
+    if instance_label:
+        # Add instance_label to merged for config constructor
+        merged["instance_label"] = instance_label
+
+        if not hasattr(config_class, "instance_label"):
+            raise ValueError(
+                f"instance_label '{instance_label}' is not valid for "
+                f"{config_class.__name__}. Use `instance_label` for "
+                f"MultipleInstanceCUDAFactoryConfig classes whose attributes "
+                f"are prefaced, i.e. a solver with max_iters might have "
+                f"`instance_label='newton'` so that newton_max_iters is "
+                f"recognised in init/updates."
+            )
+        else:
+            prefixed_attrs = config_class.get_prefixed_attributes(aliases=True)
+            prefix = f"{instance_label}_"
+
+    # Get external handle (Cubie keyword argument) and init handle (
+    # attrs init arg). Always use aliases, prefix external handle if
+    # applicable.
+    for field in fields(config_class):
+        name = field.name
+        alias = field.alias
+        handle = alias if alias is not None else name
+        is_prefixed = handle in prefixed_attrs
+
+        external_handle = f"{prefix}{handle}" if is_prefixed else handle
+        field_to_external[external_handle] = handle
+
+    # Filter merged dict. Key values by init handles. End up with
+    # {init_handle: value} mapping for all valid fields provided in arguments.
+    final = {
+        field_to_external[k]: v
+        for k, v in merged.items()
+        if k in field_to_external
+    }
 
     return config_class(**final)

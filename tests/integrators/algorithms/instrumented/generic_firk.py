@@ -61,11 +61,13 @@ class InstrumentedFIRKStep(InstrumentedODEImplicitStep):
         evaluate_driver_at_t: Optional[Callable] = None,
         get_solver_helper_fn: Optional[Callable] = None,
         preconditioner_order: Optional[int] = None,
-        krylov_tolerance: Optional[float] = None,
-        max_linear_iters: Optional[int] = None,
+        krylov_atol: Optional[float] = None,
+        krylov_rtol: Optional[float] = None,
+        krylov_max_iters: Optional[int] = None,
         linear_correction_type: Optional[str] = None,
-        newton_tolerance: Optional[float] = None,
-        max_newton_iters: Optional[int] = None,
+        newton_atol: Optional[float] = None,
+        newton_rtol: Optional[float] = None,
+        newton_max_iters: Optional[int] = None,
         newton_damping: Optional[float] = None,
         newton_max_backtracks: Optional[int] = None,
         tableau: FIRKTableau = DEFAULT_FIRK_TABLEAU,
@@ -101,19 +103,25 @@ class InstrumentedFIRKStep(InstrumentedODEImplicitStep):
         preconditioner_order
             Order of the truncated Neumann preconditioner. If None, uses
             default value of 2.
-        krylov_tolerance
-            Convergence tolerance for the Krylov linear solver. If None, uses
+        krylov_atol
+            Absolute tolerance for the Krylov linear solver. If None, uses
             default from LinearSolverConfig.
-        max_linear_iters
+        krylov_rtol
+            Relative tolerance for the Krylov linear solver. If None, uses
+            default from LinearSolverConfig.
+        krylov_max_iters
             Maximum iterations allowed for the Krylov solver. If None, uses
             default from LinearSolverConfig.
         linear_correction_type
             Type of Krylov correction. If None, uses default from
             LinearSolverConfig.
-        newton_tolerance
-            Convergence tolerance for the Newton iteration. If None, uses
+        newton_atol
+            Absolute tolerance for the Newton iteration. If None, uses
             default from NewtonKrylovConfig.
-        max_newton_iters
+        newton_rtol
+            Relative tolerance for the Newton iteration. If None, uses
+            default from NewtonKrylovConfig.
+        newton_max_iters
             Maximum iterations permitted for the Newton solver. If None, uses
             default from NewtonKrylovConfig.
         newton_damping
@@ -192,16 +200,20 @@ class InstrumentedFIRKStep(InstrumentedODEImplicitStep):
 
         # Build kwargs dict conditionally
         solver_kwargs = {}
-        if krylov_tolerance is not None:
-            solver_kwargs["krylov_tolerance"] = krylov_tolerance
-        if max_linear_iters is not None:
-            solver_kwargs["max_linear_iters"] = max_linear_iters
+        if krylov_atol is not None:
+            solver_kwargs["krylov_atol"] = krylov_atol
+        if krylov_rtol is not None:
+            solver_kwargs["krylov_rtol"] = krylov_rtol
+        if krylov_max_iters is not None:
+            solver_kwargs["krylov_max_iters"] = krylov_max_iters
         if linear_correction_type is not None:
             solver_kwargs["linear_correction_type"] = linear_correction_type
-        if newton_tolerance is not None:
-            solver_kwargs["newton_tolerance"] = newton_tolerance
-        if max_newton_iters is not None:
-            solver_kwargs["max_newton_iters"] = max_newton_iters
+        if newton_atol is not None:
+            solver_kwargs["newton_atol"] = newton_atol
+        if newton_rtol is not None:
+            solver_kwargs["newton_rtol"] = newton_rtol
+        if newton_max_iters is not None:
+            solver_kwargs["newton_max_iters"] = newton_max_iters
         if newton_damping is not None:
             solver_kwargs["newton_damping"] = newton_damping
         if newton_max_backtracks is not None:

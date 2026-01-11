@@ -42,7 +42,7 @@ ALL_STEP_CONTROLLER_PARAMETERS = {
     "deadband_min",
     "deadband_max",
     "gamma",
-    "max_newton_iters",
+    "newton_max_iters",
     "timestep_memory_location",
 }
 

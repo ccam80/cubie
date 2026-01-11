@@ -39,20 +39,23 @@ The solver works in two layers: an outer Newton loop that handles
 nonlinearity, and an inner Krylov loop that solves the linear system at each
 Newton step.
 
-**newton_tolerance**
-    The residual threshold for the Newton solver to exit. In each implicit
-    step, the Newton-Krylov solver runs a loop trying to converge onto a
-    state that minimises the difference between the proposed state and the
-    expected state from the integration formula. When the sum of squared
-    differences falls below this tolerance, the loop exits. The Newton
-    tolerance differs from ``atol`` and ``rtol`` used to calculate step size
-    and accept/reject steps — the Newton tolerance checks how closely the
-    proposed state matches expectations for a given step, while the
-    step-size tolerances check the estimated truncation error due to the
-    order of the algorithm itself.
+**newton_atol**
+    The absolute tolerance for the Newton solver convergence check. Together
+    with ``newton_rtol``, this defines when the Newton loop exits. The scaled
+    norm of the residual must fall below 1 (where the norm uses these
+    tolerances for scaling) for convergence. Use tighter tolerances for more
+    accurate implicit solves.
 
-    - Default: ``1e-3``
-    - Type: ``float`` (must be positive)
+    - Default: ``1e-6``
+    - Type: ``float`` or ``ndarray`` (must be positive)
+
+**newton_rtol**
+    The relative tolerance for the Newton solver convergence check. Works
+    together with ``newton_atol`` to scale the residual norm. The relative
+    tolerance scales based on the magnitude of the current solution.
+
+    - Default: ``1e-6``
+    - Type: ``float`` or ``ndarray`` (must be positive)
 
 **max_newton_iters**
     Maximum number of Newton iterations before the solver gives up. If the
@@ -82,14 +85,21 @@ Newton step.
     - Default: ``8``
     - Type: ``int`` (1 to 32767)
 
-**krylov_tolerance**
-    The squared residual norm threshold for the linear solver to exit. The
-    inner Krylov loop solves a linear system at each Newton step, and exits
-    when the residual falls below this value squared. Tighter tolerances
-    give more accurate Newton directions but require more iterations.
+**krylov_atol**
+    The absolute tolerance for the linear solver convergence check. Together
+    with ``krylov_rtol``, this defines when the Krylov loop exits. The inner
+    Krylov loop solves a linear system at each Newton step and exits when
+    the scaled residual norm falls below 1.
 
     - Default: ``1e-6``
-    - Type: ``float`` (must be positive)
+    - Type: ``float`` or ``ndarray`` (must be positive)
+
+**krylov_rtol**
+    The relative tolerance for the linear solver convergence check. Works
+    together with ``krylov_atol`` to scale the residual norm.
+
+    - Default: ``1e-6``
+    - Type: ``float`` or ``ndarray`` (must be positive)
 
 **max_linear_iters**
     Maximum number of linear solver iterations per Newton step. If the
@@ -131,31 +141,43 @@ Implicit Algorithm Applicability
      - DIRK
      - FIRK
      - Rosenbrock-W
-   * - newton_tolerance
+   * - newton_atol
      - ✓
      - ✓
      - ✓
      - ✓
+     - ✗
+   * - newton_rtol
      - ✓
+     - ✓
+     - ✓
+     - ✓
+     - ✗
    * - max_newton_iters
      - ✓
      - ✓
      - ✓
      - ✓
-     - ✓
+     - ✗
    * - newton_damping
      - ✓
      - ✓
      - ✓
      - ✓
-     - ✓
+     - ✗
    * - newton_max_backtracks
      - ✓
      - ✓
      - ✓
      - ✓
+     - ✗
+   * - krylov_atol
      - ✓
-   * - krylov_tolerance
+     - ✓
+     - ✓
+     - ✓
+     - ✓
+   * - krylov_rtol
      - ✓
      - ✓
      - ✓
