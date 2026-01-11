@@ -20,14 +20,13 @@ from numba import int32
 
 from attrs import define, field
 
+from cubie.odesystems import SymbolicODE
 from cubie.cuda_simsafe import is_cudasim_enabled, compile_kwargs
 from cubie.cubie_cache import (
     CacheConfig,
-    create_cache,
-    invalidate_cache,
     CubieCacheHandler,
-    ALL_CACHE_PARAMETERS,
 )
+
 from cubie.time_logger import CUDAEvent
 from numpy.typing import NDArray
 
@@ -129,7 +128,7 @@ class BatchSolverKernel(CUDAFactory):
 
     def __init__(
         self,
-        system: "BaseODE",
+        system: "SymbolicODE",
         loop_settings: Optional[Dict[str, Any]] = None,
         evaluate_driver_at_t: Optional[Callable] = None,
         driver_del_t: Optional[Callable] = None,
@@ -151,7 +150,6 @@ class BatchSolverKernel(CUDAFactory):
 
         # Store non compile-critical run parameters locally
         self._profileCUDA = profileCUDA
-        self._cache_arg: Union[bool, str, Path] = cache
 
         precision = system.precision
         self._duration = precision(0.0)
@@ -179,18 +177,10 @@ class BatchSolverKernel(CUDAFactory):
         )
 
         # Extract system identification for cache
-        system_name = getattr(system, 'name', None) or ""
-        # For SymbolicODE, use fn_hash; otherwise use config_hash
-        if hasattr(system, 'fn_hash'):
-            system_hash = system.fn_hash
-        else:
-            system_hash = (
-                system.config_hash if hasattr(system, 'config_hash') else ""
-            )
-
-        # If system_name is empty, use first 12 chars of hash
-        if not system_name and system_hash:
-            system_name = system_hash[:12]
+        system_name = system.name
+        system_hash = system.fn_hash
+        if system_name == system_hash:
+            system_name = f"unnamed_{system_hash[:8]}"
 
         # Build cache settings dict from cache_settings
         if cache_settings is None:
@@ -202,7 +192,7 @@ class BatchSolverKernel(CUDAFactory):
             cache_arg=cache,
             system_name=system_name,
             system_hash=system_hash,
-            **cache_settings
+            **cache_settings,
         )
 
         initial_config = BatchSolverConfig(
@@ -551,10 +541,12 @@ class BatchSolverKernel(CUDAFactory):
                 chunk_t0 = t0 + np_float64(i) * chunk_params.duration
 
             # Update cache for this configuration and attach
-            cfg_hash = self.config_hash
-            self.kernel._cache = self.cache_handler.configured_cache(
-                cfg_hash
-            )
+            if self.cache_handler.cache_enabled:
+                cfg_hash = self.config_hash
+                self.kernel._cache = self.cache_handler.configured_cache(
+                    cfg_hash
+                )
+
             # Kernel execution timing
             kernel_event.record_start(stream)
             self.kernel[
@@ -912,15 +904,9 @@ class BatchSolverKernel(CUDAFactory):
             updates_dict, silent=True
         )
 
-        # Forward cache-related updates to cache_handler
-        cache_updates = {
-            k: v for k, v in updates_dict.items()
-            if k in ALL_CACHE_PARAMETERS
-        }
-        if cache_updates:
-            all_unrecognized -= self.cache_handler.update(
-                cache_updates, silent=True
-            )
+        all_unrecognized -= self.cache_handler.update(
+            updates_dict, silent=True
+        )
 
         recognised = set(updates_dict.keys()) - all_unrecognized
 
@@ -970,11 +956,9 @@ class BatchSolverKernel(CUDAFactory):
 
         Notes
         -----
-        Setting cache_dir implies caching is desired. Updates _cache_arg
-        to the new path and invalidates the current cache.
+        Setting cache_dir implies caching is desired.
         """
         self.cache_handler.update(cache_dir=Path(path))
-
 
     @property
     def shared_memory_needs_padding(self) -> bool:

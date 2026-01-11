@@ -63,7 +63,7 @@ def test_cache_locator_get_cache_path():
     path = locator.get_cache_path()
     assert "test_system" in path
     assert "abc123" in path  # system_hash in path
-    assert path.endswith("CUDA_cache")
+    assert path.endswith("CUDA_cache_abc123")
 
 
 def test_cache_locator_get_source_stamp():
@@ -104,41 +104,7 @@ def test_cache_locator_path_includes_system_hash():
     path = locator.get_cache_path()
     assert "test_system" in path
     assert "abc123" in path
-    assert path.endswith("CUDA_cache")
-
-
-def test_cache_locator_empty_hash_uses_default():
-    """Verify empty system_hash uses 'default' subdirectory."""
-    locator = CUBIECacheLocator(
-        system_name="test_system",
-        system_hash="",
-        compile_settings_hash="def456",
-    )
-    path = locator.get_cache_path()
-    assert "test_system" in path
-    assert "default" in path
-    assert path.endswith("CUDA_cache")
-
-
-def test_cache_locator_custom_dir_not_affected_by_hash_change(tmp_path):
-    """Verify custom cache_dir is preserved when set_system_hash is called."""
-    custom_dir = tmp_path / "my_custom_cache"
-    locator = CUBIECacheLocator(
-        system_name="test_system",
-        system_hash="original_hash",
-        compile_settings_hash="def456",
-        custom_cache_dir=custom_dir,
-    )
-    original_path = locator.get_cache_path()
-    assert str(custom_dir) in original_path
-
-    # Update the system hash
-    locator.set_system_hash("new_hash")
-
-    # Path should remain the same (custom dir is unchanged)
-    new_path = locator.get_cache_path()
-    assert new_path == original_path
-    assert str(custom_dir) in new_path
+    assert path.endswith("CUDA_cache_abc123")
 
 
 # --- ALL_CACHE_PARAMETERS and CacheConfig tests ---
@@ -146,8 +112,12 @@ def test_cache_locator_custom_dir_not_affected_by_hash_change(tmp_path):
 
 def test_all_cache_parameters_contains_expected_keys():
     """Verify ALL_CACHE_PARAMETERS contains expected cache parameter names."""
-    expected_keys = {"cache_enabled", "cache_mode", "max_cache_entries",
-                     "cache_dir"}
+    expected_keys = {
+        "cache_enabled",
+        "cache_mode",
+        "max_cache_entries",
+        "cache_dir",
+    }
     assert ALL_CACHE_PARAMETERS == expected_keys
 
 
@@ -310,83 +280,6 @@ def test_cache_impl_instantiation_works():
     assert impl.filename_base is not None
 
 
-# --- Module-level function tests ---
-
-
-def test_create_cache_returns_none_when_disabled():
-    """Verify create_cache returns None when caching disabled."""
-    from cubie.cubie_cache import create_cache
-
-    result = create_cache(
-        cache_arg=False,
-        system_name="test_system",
-        system_hash="abc123",
-        config_hash="def456",
-    )
-    assert result is None
-
-
-def test_create_cache_returns_cache_when_enabled():
-    """Verify create_cache returns CUBIECache when enabled."""
-    from cubie.cubie_cache import create_cache, CUBIECache
-
-    result = create_cache(
-        cache_arg=True,
-        system_name="test_system",
-        system_hash="abc123",
-        config_hash="def456789012345678901234567890123456"
-        "789012345678901234567890abcd",
-    )
-    assert isinstance(result, CUBIECache)
-
-
-def test_invalidate_cache_no_op_when_hash_mode(tmp_path):
-    """Verify invalidate_cache does nothing in hash mode."""
-    from cubie.cubie_cache import invalidate_cache
-
-    # Create a marker file
-    cache_dir = tmp_path / "test_cache"
-    cache_dir.mkdir()
-    marker = cache_dir / "marker.txt"
-    marker.write_text("test")
-
-    # invalidate_cache with hash mode should not touch files
-    invalidate_cache(
-        cache_arg=True,  # hash mode by default
-        system_name="test_system",
-        system_hash="abc123",
-        config_hash="def456",
-    )
-
-    # Marker file should still exist (no flush happened)
-    assert marker.exists()
-
-
-def test_invalidate_cache_flushes_when_flush_mode(tmp_path):
-    """Verify invalidate_cache flushes cache in flush_on_change mode."""
-    from cubie.cubie_cache import invalidate_cache
-
-    # Create cache directory with marker file
-    cache_dir = tmp_path / "test_cache"
-    cache_dir.mkdir(parents=True, exist_ok=True)
-    marker_file = cache_dir / "marker.txt"
-    marker_file.write_text("test")
-    assert marker_file.exists()
-
-    # invalidate_cache should remove the cache contents
-    invalidate_cache(
-        cache_arg="flush_on_change",
-        system_name="test_system",
-        system_hash="abc123",
-        config_hash="def456789012345678901234567890123456"
-        "789012345678901234567890abcd",
-        custom_cache_dir=cache_dir,
-    )
-
-    # Verify cache was flushed (directory removed)
-    assert not cache_dir.exists()
-
-
 # --- CubieCacheHandler tests ---
 
 
@@ -443,8 +336,9 @@ def test_cache_handler_configured_cache_sets_hashes():
         system_name="test_system",
         system_hash="abc123",
     )
-    compile_hash = "def456789012345678901234567890123456" \
-                   "789012345678901234567890abcd"
+    compile_hash = (
+        "def456789012345678901234567890123456789012345678901234567890abcd"
+    )
     result = handler.configured_cache(compile_hash)
     assert result is not None
     assert result._compile_settings_hash == compile_hash
@@ -485,7 +379,7 @@ def test_batch_solver_kernel_extracts_system_hash_from_symbolic_ode(
 ):
     """Verify BatchSolverKernel extracts fn_hash from SymbolicODE."""
     # SymbolicODE should have fn_hash attribute
-    assert hasattr(system, 'fn_hash')
+    assert hasattr(system, "fn_hash")
 
     # Verify cache_handler config has the system_hash from system.fn_hash
     handler_config = solverkernel.cache_handler.config
@@ -495,7 +389,7 @@ def test_batch_solver_kernel_extracts_system_hash_from_symbolic_ode(
 def test_batch_solver_kernel_uses_name_from_system(solverkernel, system):
     """Verify BatchSolverKernel uses system.name for cache directory."""
     # System should have a name
-    assert hasattr(system, 'name')
+    assert hasattr(system, "name")
 
     # Verify cache_handler config has the system_name from system.name
     handler_config = solverkernel.cache_handler.config
@@ -567,9 +461,8 @@ def test_cache_handler_uses_symbolic_ode_fn_hash(system):
     assert handler.config.system_name == system.name
 
     # Verify cache path includes the hash
-    if handler.cache is not None:
-        path_str = str(handler.cache.cache_path)
-        assert system.fn_hash in path_str or "default" in path_str
+    path_str = str(handler.cache.cache_path)
+    assert system.fn_hash[:8] in path_str
 
 
 def test_solver_cache_configuration_flow(system):
@@ -592,9 +485,6 @@ def test_solver_cache_configuration_flow(system):
 
 def test_solver_kernel_update_cache_mode(solverkernel_mutable):
     """Verify BatchSolverKernel.update forwards cache parameters."""
-    # Initial state
-    initial_mode = solverkernel_mutable.cache_handler.config.cache_mode
-
     # Update cache mode
     recognized = solverkernel_mutable.update(cache_mode="flush_on_change")
 
