@@ -14,18 +14,19 @@ in the `src/vendored` directory. This allows caching to function in CUDASIM
 mode for testing purposes, even though no compiled kernels are produced.
 """
 
-import shutil
+from shutil import rmtree
+from warnings import warn
 from pathlib import Path
 from typing import Optional, Union
 
 from attrs import field, validators as val, define, converters
 
 from cubie.CUDAFactory import _CubieConfigBase
-from cubie._utils import getype_validator
-from numba.cuda.core.caching import (
-    _CacheLocator,
-    CacheImpl,
-    IndexDataCacheFile,
+from cubie._utils import getype_validator, build_config
+from numba.cuda.core.caching import (  # noqa: F401
+    _CacheLocator,  # noqa: F401
+    CacheImpl,  # noqa: F401
+    IndexDataCacheFile,  # noqa: F401
 )
 
 from cubie.cuda_simsafe import is_cudasim_enabled
@@ -423,9 +424,7 @@ class CUBIECache(Cache):
                 nbi_file.unlink()
             except OSError as e:
                 # Log warning but continue - file may be locked or deleted
-                import warnings
-
-                warnings.warn(
+                warn(
                     f"Failed to remove cache file {nbi_file}: {e}",
                     RuntimeWarning,
                 )
@@ -456,20 +455,15 @@ class CUBIECache(Cache):
         Removes all .nbi and .nbc files, then recreates an empty
         cache directory.
         """
-        import shutil
-
         cache_path = Path(self._cache_path)
         if cache_path.exists():
             try:
-                shutil.rmtree(cache_path)
+                rmtree(cache_path)
             except OSError:
                 # Another thread may have gotten there first if concurrent.
                 # If so, just continue.
                 pass
-        try:
-            cache_path.mkdir(parents=True, exist_ok=True)
-        except OSError:
-            pass
+        cache_path.mkdir(parents=True, exist_ok=True)
 
     @property
     def cache_path(self) -> Path:
@@ -563,6 +557,6 @@ def invalidate_cache(
     # Best-effort flush
     try:
         if cache_path.exists():
-            shutil.rmtree(cache_path)
+            rmtree(cache_path)
     except OSError:
         pass
