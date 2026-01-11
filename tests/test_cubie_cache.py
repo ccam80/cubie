@@ -240,7 +240,7 @@ def test_create_cache_returns_none_when_disabled():
 
 
 def test_create_cache_returns_cache_when_enabled():
-    """Verify create_cache returns CUBIECache when enabled (non-CUDASIM)."""
+    """Verify create_cache returns CUBIECache when enabled."""
     from cubie.cubie_cache import create_cache, CUBIECache
 
     result = create_cache(
