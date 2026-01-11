@@ -6,7 +6,6 @@ from numpy import array, float32
 from attrs import define, field
 
 from cubie.cubie_cache import (
-    CacheConfig,
     CUBIECacheLocator,
     CUBIECacheImpl,
     CUBIECache,
@@ -128,7 +127,6 @@ def test_cache_impl_check_cachable():
 # --- CUBIECache tests ---
 
 
-@pytest.mark.nocudasim
 def test_cubie_cache_init():
     """Verify CUBIECache initializes with system info."""
     cache = CUBIECache(
@@ -141,7 +139,6 @@ def test_cubie_cache_init():
     assert cache._name == "CUBIECache(test_system)"
 
 
-@pytest.mark.nocudasim
 def test_cubie_cache_index_key():
     """Verify _index_key includes system and settings hashes."""
     config_hash = (
@@ -171,7 +168,6 @@ def test_cubie_cache_index_key():
     assert key[3] == config_hash
 
 
-@pytest.mark.nocudasim
 def test_cubie_cache_path():
     """Verify cache_path property returns expected path."""
     cache = CUBIECache(
@@ -186,23 +182,17 @@ def test_cubie_cache_path():
 # --- BatchSolverKernel integration tests ---
 
 
-def test_batch_solver_kernel_no_cache_in_cudasim(solverkernel):
-    """Verify no cache attached in CUDASIM mode.
+def test_batch_solver_kernel_builds_without_error(solverkernel):
+    """Verify BatchSolverKernel builds successfully in all modes.
 
-    In CUDA simulation mode, file-based caching is disabled because the
-    numba caching infrastructure is not available. The kernel should not
-    have a _cache attribute when running under the simulator.
+    This smoke test confirms the kernel compilation path executes
+    without raising exceptions, regardless of CUDA/CUDASIM mode.
     """
-    from cubie.cuda_simsafe import is_cudasim_enabled
-
-    # Build the kernel to trigger cache attachment logic
+    # Build the kernel - this exercises the full compilation path
     kernel = solverkernel.kernel
 
-    if is_cudasim_enabled():
-        # In CUDASIM mode, cache should not be attached
-        assert not hasattr(kernel, "_cache") or kernel._cache is None
-    # When not in CUDASIM, cache may or may not be attached depending on
-    # caching_enabled setting - that's tested separately
+    # Verify kernel was created
+    assert kernel is not None
 
 
 # --- CUDASIM Mode Compatibility Tests ---
@@ -249,29 +239,9 @@ def test_create_cache_returns_none_when_disabled():
     assert result is None
 
 
-def test_create_cache_returns_none_in_cudasim():
-    """Verify create_cache returns None in CUDASIM mode."""
-    from cubie.cubie_cache import create_cache
-    from cubie.cuda_simsafe import is_cudasim_enabled
-
-    if is_cudasim_enabled():
-        result = create_cache(
-            cache_arg=True,
-            system_name="test_system",
-            system_hash="abc123",
-            config_hash="def456",
-        )
-        assert result is None
-
-
 def test_create_cache_returns_cache_when_enabled():
-    """Verify create_cache returns CUBIECache when enabled (non-CUDASIM)."""
+    """Verify create_cache returns CUBIECache when enabled."""
     from cubie.cubie_cache import create_cache, CUBIECache
-    from cubie.cuda_simsafe import is_cudasim_enabled
-
-    # Skip assertion if in CUDASIM mode since it returns None there
-    if is_cudasim_enabled():
-        return
 
     result = create_cache(
         cache_arg=True,
@@ -306,25 +276,25 @@ def test_invalidate_cache_no_op_when_hash_mode(tmp_path):
 
 
 def test_invalidate_cache_flushes_when_flush_mode(tmp_path):
-    """Verify invalidate_cache calls flush in flush_on_change mode."""
+    """Verify invalidate_cache flushes cache in flush_on_change mode."""
     from cubie.cubie_cache import invalidate_cache
-    from cubie.cuda_simsafe import is_cudasim_enabled
 
-    # In CUDASIM mode, invalidate_cache is a no-op, so just verify it runs
-    if is_cudasim_enabled():
-        invalidate_cache(
-            cache_arg="flush_on_change",
-            system_name="test_system",
-            system_hash="abc123",
-            config_hash="def456",
-        )
-        return
+    # Create cache directory with marker file
+    cache_dir = tmp_path / "test_cache"
+    cache_dir.mkdir(parents=True, exist_ok=True)
+    marker_file = cache_dir / "marker.txt"
+    marker_file.write_text("test")
+    assert marker_file.exists()
 
-    # In real CUDA mode, verify it runs without error
+    # invalidate_cache should remove the cache contents
     invalidate_cache(
         cache_arg="flush_on_change",
         system_name="test_system",
         system_hash="abc123",
         config_hash="def456789012345678901234567890123456"
         "789012345678901234567890abcd",
+        custom_cache_dir=cache_dir,
     )
+
+    # Verify cache was flushed (directory removed)
+    assert not cache_dir.exists()
