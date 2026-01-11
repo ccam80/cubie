@@ -180,9 +180,7 @@ class CUBIECacheImpl(CacheImpl):
         return self._filename_base
 
     def set_hashes(
-            self,
-            system_hash: Optional[str],
-            compile_settings_hash: Optional[str]
+        self, system_hash: Optional[str], compile_settings_hash: Optional[str]
     ) -> None:
         """Update system and compile settings hashes in locator.
 
@@ -447,10 +445,9 @@ class CUBIECache(Cache):
         self._cache_path = config.cache_dir
         self._system_hash = config.system_hash
 
-    def set_hashes(self,
-                   system_hash: str=None,
-                   compile_settings_hash: str = None) \
-            -> None:
+    def set_hashes(
+        self, system_hash: str = None, compile_settings_hash: str = None
+    ) -> None:
         """Update system and compile settings hashes.
 
         Parameters
@@ -461,6 +458,7 @@ class CUBIECache(Cache):
             New compile settings hash to set.
         """
         self._impl.set_hashes(system_hash, compile_settings_hash)
+
 
 def create_cache(
     cache_arg: Union[bool, str, Path],
@@ -640,16 +638,16 @@ class CubieCacheHandler:
         cache_arg: Union[bool, str, Path] = None,
         system_name: str = "",
         system_hash: str = "",
-        **kwargs
+        **kwargs,
     ) -> None:
         # Convert single cache arg into cache_enabled, path kwargs and build
         # config
         config_params = CacheConfig.params_from_user_kwarg(cache_arg)
         kwargs.update(config_params)
         _config = build_config(
-                CacheConfig,
-                {"system_name": system_name, "system_hash": system_hash},
-                **kwargs
+            CacheConfig,
+            {"system_name": system_name, "system_hash": system_hash},
+            **kwargs,
         )
         self.config = _config
 
@@ -682,8 +680,9 @@ class CubieCacheHandler:
 
         return recognized
 
-    def configured_cache(self, compile_settings_hash: str) -> Optional[
-        CUBIECache]:
+    def configured_cache(
+        self, compile_settings_hash: str
+    ) -> Optional[CUBIECache]:
         """Return a CUBIECache instance based on current config.
 
         Returns
