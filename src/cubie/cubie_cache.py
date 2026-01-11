@@ -12,6 +12,7 @@ updates when numba-cuda versions change. When running under CUDA
 simulator mode, caching is disabled and stub classes are provided.
 """
 
+import shutil
 from pathlib import Path
 from typing import Optional, Union
 
@@ -530,7 +531,6 @@ def invalidate_cache(
     # Best-effort flush
     try:
         if cache_path.exists():
-            import shutil
             shutil.rmtree(cache_path)
     except OSError:
         pass
