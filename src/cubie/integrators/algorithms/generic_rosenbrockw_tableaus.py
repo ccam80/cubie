@@ -8,7 +8,7 @@ import attrs
 from cubie.integrators.algorithms.base_algorithm_step import ButcherTableau
 
 
-@attrs.define(frozen=True)
+@attrs.define
 class RosenbrockTableau(ButcherTableau):
     """Coefficient tableau describing a Rosenbrock-W integration scheme.
 
@@ -52,6 +52,7 @@ class RosenbrockTableau(ButcherTableau):
             flat_list.extend(row)
         return tuple(precision(value) for value in flat_list)
 
+
 # --------------------------------------------------------------------------
 # ROS3P (Rang & Angermann 2005), constants and structure cross-checked with:
 # - SciML/OrdinaryDiffEq.jl (commit c174fbc1b07c252fe8ec8ad5b6e4d5fb9979c813)
@@ -71,7 +72,7 @@ def _ros3p_tableau() -> RosenbrockTableau:
     igamma = 1.0 / gamma
     c_matrix = (
         (0.0, 0.0, 0.0),
-        (-igamma**2, 0.0, 0.0),
+        (-(igamma**2), 0.0, 0.0),
         (
             -igamma * (1.0 + igamma * (2.0 - 0.5 * igamma)),
             -igamma * (2.0 - 0.5 * igamma),
@@ -120,20 +121,20 @@ def _rodas3p_tableau() -> RosenbrockTableau:
     gamma = 1.0 / 3.0
 
     a = (
-        (0.0, 0.0, 0.0, 0.0, 0.0),                  # 1
-        (4.0 / 3.0, 0.0, 0.0, 0.0, 0.0),            # 2
-        (0.0, 0.0, 0.0, 0.0, 0.0),                  # 3
-        (2.90625, 3.375, 0.40625, 0.0, 0.0),        # 4
-        (2.90625, 3.375, 0.40625, 0.0, 0.0),        # 5
+        (0.0, 0.0, 0.0, 0.0, 0.0),  # 1
+        (4.0 / 3.0, 0.0, 0.0, 0.0, 0.0),  # 2
+        (0.0, 0.0, 0.0, 0.0, 0.0),  # 3
+        (2.90625, 3.375, 0.40625, 0.0, 0.0),  # 4
+        (2.90625, 3.375, 0.40625, 0.0, 0.0),  # 5
     )
 
     # Full lower-triangular (padded to 5x5).
     C = (
-        (0.0, 0.0, 0.0, 0.0, 0.0),                  # 1
-        (-4.0, 0.0, 0.0, 0.0, 0.0),                 # 2
-        (8.25, 6.75, 0.0, 0.0, 0.0),                # 3
-        (1.21875, -5.0625, -1.96875, 0.0, 0.0),     # 4
-        (4.03125, -15.1875, -4.03125, 6.0, 0.0),    # 5
+        (0.0, 0.0, 0.0, 0.0, 0.0),  # 1
+        (-4.0, 0.0, 0.0, 0.0, 0.0),  # 2
+        (8.25, 6.75, 0.0, 0.0, 0.0),  # 3
+        (1.21875, -5.0625, -1.96875, 0.0, 0.0),  # 4
+        (4.03125, -15.1875, -4.03125, 6.0, 0.0),  # 5
     )
 
     # Final (p=3): u_{n+1} = (u_n + a41*k1 + a42*k2 + a43*k3) + k5
@@ -159,7 +160,7 @@ def _rodas3p_tableau() -> RosenbrockTableau:
 
 RODAS3P_TABLEAU = _rodas3p_tableau()
 
-#RODAS4P and RODAS5P don't have step-end embedded weights - architectural
+# RODAS4P and RODAS5P don't have step-end embedded weights - architectural
 # rework would be required to implement these.
 # --------------------------------------------------------------------------
 # RODAS4P (p=4)
@@ -379,7 +380,7 @@ ROSENBROCK_TABLEAUS: Dict[str, RosenbrockTableau] = {
     "rodas3p": RODAS3P_TABLEAU,
     # "rodas4p": RODAS4P_TABLEAU,
     # "rodas5p": RODAS5P_TABLEAU,
-    "rosenbrock23": ROSENBROCK_23_SCIML_TABLEAU,         # MATLAB ode23s 2(3)
+    "rosenbrock23": ROSENBROCK_23_SCIML_TABLEAU,  # MATLAB ode23s 2(3)
     "ode23s": ROSENBROCK_23_SCIML_TABLEAU,
     "rosenbrock23_sciml": ROSENBROCK_23_SCIML_TABLEAU,  # 3-stage SciML variant
 }

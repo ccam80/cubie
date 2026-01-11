@@ -10,7 +10,12 @@ and automatic configuration from user-specified parameters.
 from typing import List, Tuple, Union, Optional, Sequence
 from warnings import warn
 
-from attrs import cmp_using as attrs_cmp_using, define, Factory as attrsFactory, field
+from attrs import (
+    cmp_using as attrs_cmp_using,
+    define,
+    Factory as attrsFactory,
+    field,
+)
 from attrs.validators import instance_of as attrsval_instance_of
 from numpy import (
     any as np_any,
@@ -27,9 +32,8 @@ from numpy.typing import NDArray
 from cubie._utils import (
     opt_gttype_validator,
     PrecisionDType,
-    precision_converter,
-    precision_validator,
 )
+from cubie.CUDAFactory import CUDAFactoryConfig, _CubieConfigBase
 from cubie.outputhandling.summarymetrics import summary_metrics
 
 
@@ -71,7 +75,7 @@ def _indices_validator(
 
 
 @define
-class OutputCompileFlags:
+class OutputCompileFlags(_CubieConfigBase):
     """Boolean compile-time controls for CUDA output features.
 
     Attributes
@@ -112,7 +116,7 @@ class OutputCompileFlags:
 
 
 @define
-class OutputConfig:
+class OutputConfig(CUDAFactoryConfig):
     """Validated configuration for solver outputs and summaries.
 
     Parameters
@@ -148,31 +152,26 @@ class OutputConfig:
     post-initialisation hook applies default indices, validates bounds, and
     ensures at least one output path is active.
     """
-    _precision: PrecisionDType = field(
-        converter=precision_converter,
-        validator=precision_validator,
-    )
+
     # System dimensions, used to validate indices
     _max_states: int = field(validator=attrsval_instance_of(int))
-    _max_observables: int = field(
-        validator=attrsval_instance_of(int)
-    )
+    _max_observables: int = field(validator=attrsval_instance_of(int))
 
     _saved_state_indices: Optional[Union[List[int], NDArray[np_int]]] = field(
         default=attrsFactory(list),
         eq=attrs_cmp_using(eq=np_array_equal),
     )
-    _saved_observable_indices: Optional[
-        Union[List[int], NDArray[np_int]]
-    ] = field(
-        default=attrsFactory(list),
-        eq=attrs_cmp_using(eq=np_array_equal),
+    _saved_observable_indices: Optional[Union[List[int], NDArray[np_int]]] = (
+        field(
+            default=attrsFactory(list),
+            eq=attrs_cmp_using(eq=np_array_equal),
+        )
     )
-    _summarised_state_indices: Optional[
-        Union[List[int], NDArray[np_int]]
-    ] = field(
-        default=attrsFactory(list),
-        eq=attrs_cmp_using(eq=np_array_equal),
+    _summarised_state_indices: Optional[Union[List[int], NDArray[np_int]]] = (
+        field(
+            default=attrsFactory(list),
+            eq=attrs_cmp_using(eq=np_array_equal),
+        )
     )
     _summarised_observable_indices: Optional[
         Union[List[int], NDArray[np_int]]
@@ -190,8 +189,7 @@ class OutputConfig:
         default=attrsFactory(tuple), init=False
     )
     _sample_summaries_every: Optional[float] = field(
-        default=None,
-        validator=opt_gttype_validator(float, 0.0)
+        default=None, validator=opt_gttype_validator(float, 0.0)
     )
 
     def __attrs_post_init__(self) -> None:
@@ -207,6 +205,10 @@ class OutputConfig:
         Runs after object creation to populate default arrays, validate
         indices, and confirm that at least one output path is enabled.
         """
+        super().__attrs_post_init__()
+        self.validation_passes()
+
+    def validation_passes(self) -> bool:
         self.update_from_outputs_list(self._output_types)
         self._check_saved_indices()
         self._check_summarised_indices()
@@ -634,7 +636,9 @@ class OutputConfig:
         """
         if not self._summary_types:
             return {}
-        unit_mod_tuple = summary_metrics.unit_modifications(self._summary_types)
+        unit_mod_tuple = summary_metrics.unit_modifications(
+            self._summary_types
+        )
         unit_mod_dict = dict(zip(range(len(unit_mod_tuple)), unit_mod_tuple))
         return unit_mod_dict
 
@@ -769,20 +773,18 @@ class OutputConfig:
 
     @property
     def buffer_sizes_dict(self) -> dict[str, int]:
-        """ Returns a dict of buffer sizes to update other objects' settings"""
+        """Returns a dict of buffer sizes to update other objects' settings"""
         return {
-            'n_saved_states': self.n_saved_states,
-            'n_saved_observables': self.n_saved_observables,
-            'n_summarised_states': self.n_summarised_states,
-            'n_summarised_observables': self.n_summarised_observables,
-            'state_summaries_buffer_height': self.state_summaries_buffer_height,
-            'observable_summaries_buffer_height':
-               self.observable_summaries_buffer_height,
-            'total_summary_buffer_size': self.total_summary_buffer_size,
-            'state_summaries_output_height': self.state_summaries_output_height,
-            'observable_summaries_output_height':
-              self.observable_summaries_output_height,
-            'compile_flags': self.compile_flags
+            "n_saved_states": self.n_saved_states,
+            "n_saved_observables": self.n_saved_observables,
+            "n_summarised_states": self.n_summarised_states,
+            "n_summarised_observables": self.n_summarised_observables,
+            "state_summaries_buffer_height": self.state_summaries_buffer_height,
+            "observable_summaries_buffer_height": self.observable_summaries_buffer_height,
+            "total_summary_buffer_size": self.total_summary_buffer_size,
+            "state_summaries_output_height": self.state_summaries_output_height,
+            "observable_summaries_output_height": self.observable_summaries_output_height,
+            "compile_flags": self.compile_flags,
         }
 
     @property
@@ -868,7 +870,12 @@ class OutputConfig:
                     )
                 ):
                     summary_types.append(output_type)
-                elif output_type in ["state", "observables", "time", "iteration_counters"]:
+                elif output_type in [
+                    "state",
+                    "observables",
+                    "time",
+                    "iteration_counters",
+                ]:
                     continue
                 else:
                     warn(
@@ -885,10 +892,18 @@ class OutputConfig:
         cls,
         output_types: List[str],
         precision: PrecisionDType,
-        saved_state_indices: Union[Sequence[int], NDArray[np_int], None] = None,
-        saved_observable_indices: Union[Sequence[int], NDArray[np_int], None] = None,
-        summarised_state_indices: Union[Sequence[int], NDArray[np_int], None] = None,
-        summarised_observable_indices: Union[Sequence[int], NDArray[np_int], None] = None,
+        saved_state_indices: Union[
+            Sequence[int], NDArray[np_int], None
+        ] = None,
+        saved_observable_indices: Union[
+            Sequence[int], NDArray[np_int], None
+        ] = None,
+        summarised_state_indices: Union[
+            Sequence[int], NDArray[np_int], None
+        ] = None,
+        summarised_observable_indices: Union[
+            Sequence[int], NDArray[np_int], None
+        ] = None,
         max_states: int = 0,
         max_observables: int = 0,
         sample_summaries_every: Optional[float] = 0.01,

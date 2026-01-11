@@ -250,9 +250,9 @@ def instrumented_step_results(
     shared_elems = instrumented_step_object.shared_memory_elements
     shared_bytes = precision(0).itemsize * shared_elems
     persistent_len = max(1, instrumented_step_object.persistent_local_elements)
-    driver_function = None if driver_array is None else driver_array.evaluation_function
+    evaluate_driver_at_t = None if driver_array is None else driver_array.evaluation_function
     # use system-provided observables function
-    observables_function = system.observables_function
+    evaluate_observables = system.evaluate_observables
 
     n_states = system.sizes.states
     n_observables = system.sizes.observables
@@ -264,9 +264,9 @@ def instrumented_step_results(
     if stage_count_attr is None:
         stage_count_attr = getattr(instrumented_step_object, "stage_count", 0)
     stage_count = int32(stage_count_attr or 1)
-    max_newton_iters = int32(solver_settings["max_newton_iters"])
+    newton_max_iters = int32(solver_settings["newton_max_iters"])
     max_newton_backtracks = int32(solver_settings["newton_max_backtracks"])
-    linear_max_iters = int32(solver_settings["max_linear_iters"])
+    linear_max_iters = int32(solver_settings["krylov_max_iters"])
 
     params = np.asarray(step_inputs["parameters"], dtype=precision)
     driver_coefficients = np.asarray(
@@ -322,9 +322,9 @@ def instrumented_step_results(
             shared[cache_idx] = zero
         current_time = time_scalar
         # Call driver/evaluator and observables similarly to device fixture
-        if driver_function is not None:
-            driver_function(current_time, driver_coeffs_vec, drivers_vec)
-        observables_function(
+        if evaluate_driver_at_t is not None:
+            evaluate_driver_at_t(current_time, driver_coeffs_vec, drivers_vec)
+        evaluate_observables(
             state_vec,
             params_vec,
             drivers_vec,
@@ -405,7 +405,7 @@ def instrumented_step_results(
         state_size=n_states,
         observable_size=n_observables,
         driver_size=drivers.shape[0],
-        newton_max_iters=max_newton_iters,
+        newton_max_iters=newton_max_iters,
         newton_max_backtracks=max_newton_backtracks,
         linear_max_iters=linear_max_iters,
         num_steps=num_steps,
@@ -663,10 +663,10 @@ def instrumented_cpu_step_results(
         cpu_system,
         driver_evaluator,
         solver_settings["algorithm"],
-        newton_tol=solver_settings["newton_tolerance"],
-        newton_max_iters=solver_settings["max_newton_iters"],
-        linear_tol=solver_settings["krylov_tolerance"],
-        linear_max_iters=solver_settings["max_linear_iters"],
+        newton_tol=solver_settings["newton_atol"],
+        newton_max_iters=solver_settings["newton_max_iters"],
+        linear_tol=solver_settings["krylov_atol"],
+        linear_max_iters=solver_settings["krylov_max_iters"],
         linear_correction_type=solver_settings["linear_correction_type"],
         preconditioner_order=solver_settings["preconditioner_order"],
         tableau=tableau,

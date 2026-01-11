@@ -14,9 +14,9 @@ class BackwardsEulerPCStep(BackwardsEulerStep):
 
     def build_step(
         self,
-        dxdt_fn: Callable,
-        observables_function: Callable,
-        driver_function: Optional[Callable],
+        evaluate_f: Callable,
+        evaluate_observables: Callable,
+        evaluate_driver_at_t: Optional[Callable],
         solver_function: Callable,
         numba_precision: type,
         n: int,
@@ -26,12 +26,12 @@ class BackwardsEulerPCStep(BackwardsEulerStep):
 
         Parameters
         ----------
-        dxdt_fn
-            Device derivative function for the ODE system.
-        observables_function
-            Device observable computation helper.
-        driver_function
-            Optional device function evaluating drivers at arbitrary times.
+        evaluate_f
+            Device function for evaluating f(t, y).
+        evaluate_observables
+            Device function for computing observables.
+        evaluate_driver_at_t
+            Optional device function for evaluating drivers at time t.
         solver_function
             Device function for the Newton-Krylov nonlinear solver.
         numba_precision
@@ -47,7 +47,7 @@ class BackwardsEulerPCStep(BackwardsEulerStep):
             Container holding the compiled predictor-corrector step.
         """
         a_ij = numba_precision(1.0)
-        has_driver_function = driver_function is not None
+        has_evaluate_driver_at_t = evaluate_driver_at_t is not None
         n = int32(n)
 
         # Get child allocators for Newton solver
@@ -141,7 +141,7 @@ class BackwardsEulerPCStep(BackwardsEulerStep):
             solver_scratch = alloc_solver_shared(shared, persistent_local)
             solver_persistent = alloc_solver_persistent(shared,
                                                         persistent_local)
-            dxdt_fn(
+            evaluate_f(
                 state,
                 parameters,
                 drivers_buffer,
@@ -153,8 +153,8 @@ class BackwardsEulerPCStep(BackwardsEulerStep):
                 proposed_state[i] = dt_scalar * predictor[i]
 
             next_time = time_scalar + dt_scalar
-            if has_driver_function:
-                driver_function(
+            if has_evaluate_driver_at_t:
+                evaluate_driver_at_t(
                     next_time,
                     driver_coefficients,
                     proposed_drivers,
@@ -176,7 +176,7 @@ class BackwardsEulerPCStep(BackwardsEulerStep):
             for i in range(n):
                 proposed_state[i] += state[i]
 
-            observables_function(
+            evaluate_observables(
                 proposed_state,
                 parameters,
                 proposed_drivers,

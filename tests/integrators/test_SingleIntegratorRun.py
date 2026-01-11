@@ -67,7 +67,7 @@ def _settings_to_dict(settings_source):
             "save_every": 0.1,
             "summarise_every": 0.3,
             "duration": 0.3,
-            "output_types": ["state","time", "observables","mean"],
+            "output_types": ["state", "time", "observables", "mean"],
             "saved_state_indices": [0],
             "saved_observable_indices": [0],
             "summarised_state_indices": [0],
@@ -164,7 +164,6 @@ class TestSingleIntegratorRun:
 
         # Saved indices and counts mirror the configured output selections.
 
-
         assert list(run.output_types) == list(solver_settings["output_types"])
 
         assert run.compiled_loop_function is device_fn
@@ -190,7 +189,7 @@ class TestSingleIntegratorRun:
             "ki": "ki",
             "kd": "kd",
             "gamma": "gamma",
-            "max_newton_iters": "max_newton_iters",
+            "newton_max_iters": "newton_max_iters",
         }
         algo_props: Dict[str, str] = {
             "threads_per_step": "threads_per_step",
@@ -203,11 +202,13 @@ class TestSingleIntegratorRun:
             "gamma_coefficient": "gamma",
             "mass_matrix": "mass_matrix",
             "preconditioner_order": "preconditioner_order",
-            "linear_solver_tolerance": "krylov_tolerance",
-            "max_linear_iterations": "max_linear_iters",
+            "krylov_atol": "krylov_atol",
+            "krylov_rtol": "krylov_rtol",
+            "max_linear_iterations": "krylov_max_iters",
             "linear_correction_type": "linear_correction_type",
-            "newton_tolerance": "newton_tolerance",
-            "newton_iterations_limit": "max_newton_iters",
+            "newton_atol": "newton_atol",
+            "newton_rtol": "newton_rtol",
+            "newton_iterations_limit": "newton_max_iters",
             "newton_damping": "newton_damping",
             "newton_max_backtracks": "newton_max_backtracks",
             "integration_step_size": "dt",
@@ -285,6 +286,7 @@ def test_update_routes_to_children(
     solver_settings,
     system,
     tolerance,
+    precision,
 ):
     """All components receive updates and report the new configuration."""
 
@@ -296,7 +298,7 @@ def test_update_routes_to_children(
 
     updates = {
         "dt": new_dt,
-        "output_types": ['state', 'observables', 'mean'],
+        "output_types": ["state", "observables", "mean"],
         "saved_state_indices": new_saved_states,
         "saved_observable_indices": new_saved_observables,
         "summarised_state_indices": new_saved_states,
@@ -383,7 +385,6 @@ def test_update_routes_to_children(
     )
 
 
-
 def test_default_step_controller_settings_applied(
     system,
     solver_settings,
@@ -394,22 +395,23 @@ def test_default_step_controller_settings_applied(
 ):
     """When no overrides are supplied algorithm defaults are applied."""
 
-    driver_fn = driver_array.evaluation_function if driver_array else None
+    evaluate_driver_at_t = (
+        driver_array.evaluation_function if driver_array else None
+    )
     run = SingleIntegratorRun(
         system=system,
         loop_settings=loop_settings,
-        driver_function=driver_fn,
+        evaluate_driver_at_t=evaluate_driver_at_t,
         step_control_settings=None,
         algorithm_settings=algorithm_settings,
         output_settings=output_settings,
     )
 
     defaults = run._algo_step.controller_defaults.copy()
-    assert run.step_controller == defaults.step_controller['step_controller']
+    assert run.step_controller == defaults.step_controller["step_controller"]
     controller_settings = run._step_controller.settings_dict
-    defaults.step_controller.pop('step_controller')
+    defaults.step_controller.pop("step_controller")
     for key, expected in defaults.step_controller.items():
-
         assert key in controller_settings
         actual = controller_settings[key]
         if isinstance(expected, (float, np.floating)):
@@ -434,12 +436,10 @@ def test_default_step_controller_settings_applied(
         )
     ],
 )
-
 def test_step_controller_overrides_take_precedence(
     system,
     solver_settings,
     output_settings,
-
     driver_array,
     algorithm,
     overrides,
@@ -449,7 +449,9 @@ def test_step_controller_overrides_take_precedence(
     """User supplied settings override algorithm defaults."""
     algorithm_settings["algorithm"] = algorithm
     precision = system.precision
-    driver_fn = driver_array.evaluation_function if driver_array else None
+    evaluate_driver_at_t = (
+        driver_array.evaluation_function if driver_array else None
+    )
     override_settings = {
         key: precision(value) if isinstance(value, float) else value
         for key, value in overrides.items()
@@ -458,7 +460,7 @@ def test_step_controller_overrides_take_precedence(
         system=system,
         loop_settings=loop_settings,
         output_settings=output_settings,
-        driver_function=driver_fn,
+        evaluate_driver_at_t=evaluate_driver_at_t,
         step_control_settings=dict(override_settings),
         algorithm_settings=algorithm_settings,
     )
@@ -477,7 +479,7 @@ def test_step_controller_overrides_take_precedence(
 def test_errorless_euler_with_adaptive_warns_and_replaces(system):
     """Errorless Euler with adaptive PI warns and replaces with fixed."""
     import warnings
-    
+
     algorithm_settings = {
         "algorithm": "euler",
     }
@@ -486,7 +488,7 @@ def test_errorless_euler_with_adaptive_warns_and_replaces(system):
         "dt_min": 1e-6,
         "dt_max": 1e-1,
     }
-    
+
     with warnings.catch_warnings(record=True) as w:
         warnings.simplefilter("always")
         core = SingleIntegratorRunCore(
@@ -494,16 +496,18 @@ def test_errorless_euler_with_adaptive_warns_and_replaces(system):
             algorithm_settings=algorithm_settings,
             step_control_settings=step_control_settings,
         )
-        
+
         # Should issue our compatibility warning (may have other warnings too)
-        compat_warnings = [x for x in w if "cannot be used with" in str(x.message)]
+        compat_warnings = [
+            x for x in w if "cannot be used with" in str(x.message)
+        ]
         assert len(compat_warnings) >= 1
         assert issubclass(compat_warnings[0].category, UserWarning)
         warn_msg = str(compat_warnings[0].message).lower()
         assert "euler" in warn_msg
         assert "pid" in warn_msg
         assert "fixed" in warn_msg
-        
+
         # Controller should be replaced with fixed
         assert not core._step_controller.is_adaptive
         assert core._algo_step.is_controller_fixed
@@ -515,7 +519,7 @@ def test_errorless_rk4_tableau_with_adaptive_warns(system):
     from cubie.integrators.algorithms.generic_erk_tableaus import (
         CLASSICAL_RK4_TABLEAU,
     )
-    
+
     algorithm_settings = {
         "algorithm": "erk",
         "tableau": CLASSICAL_RK4_TABLEAU,
@@ -525,7 +529,7 @@ def test_errorless_rk4_tableau_with_adaptive_warns(system):
         "dt_min": 1e-6,
         "dt_max": 1e-1,
     }
-    
+
     with warnings.catch_warnings(record=True) as w:
         warnings.simplefilter("always")
         core = SingleIntegratorRunCore(
@@ -533,8 +537,10 @@ def test_errorless_rk4_tableau_with_adaptive_warns(system):
             algorithm_settings=algorithm_settings,
             step_control_settings=step_control_settings,
         )
-        
-        compat_warnings = [x for x in w if "cannot be used with" in str(x.message)]
+
+        compat_warnings = [
+            x for x in w if "cannot be used with" in str(x.message)
+        ]
         assert len(compat_warnings) >= 1
         assert not core._step_controller.is_adaptive
         assert core._algo_step.is_controller_fixed
@@ -546,7 +552,7 @@ def test_adaptive_tableau_with_adaptive_succeeds(system):
     from cubie.integrators.algorithms.generic_erk_tableaus import (
         DORMAND_PRINCE_54_TABLEAU,
     )
-    
+
     algorithm_settings = {
         "algorithm": "erk",
         "tableau": DORMAND_PRINCE_54_TABLEAU,
@@ -556,7 +562,7 @@ def test_adaptive_tableau_with_adaptive_succeeds(system):
         "dt_min": 1e-6,
         "dt_max": 1e-1,
     }
-    
+
     with warnings.catch_warnings(record=True) as w:
         warnings.simplefilter("always")
         core = SingleIntegratorRunCore(
@@ -564,9 +570,11 @@ def test_adaptive_tableau_with_adaptive_succeeds(system):
             algorithm_settings=algorithm_settings,
             step_control_settings=step_control_settings,
         )
-        
+
         # Should not issue our compatibility warning
-        compat_warnings = [x for x in w if "cannot be used with" in str(x.message)]
+        compat_warnings = [
+            x for x in w if "cannot be used with" in str(x.message)
+        ]
         assert len(compat_warnings) == 0
         assert core._algo_step.is_adaptive
         assert core._step_controller.is_adaptive
@@ -576,7 +584,7 @@ def test_adaptive_tableau_with_adaptive_succeeds(system):
 def test_errorless_euler_with_fixed_succeeds(system):
     """Errorless Euler with fixed controller succeeds without warning."""
     import warnings
-    
+
     algorithm_settings = {
         "algorithm": "euler",
     }
@@ -584,7 +592,7 @@ def test_errorless_euler_with_fixed_succeeds(system):
         "step_controller": "fixed",
         "dt": 1e-3,
     }
-    
+
     with warnings.catch_warnings(record=True) as w:
         warnings.simplefilter("always")
         core = SingleIntegratorRunCore(
@@ -592,9 +600,11 @@ def test_errorless_euler_with_fixed_succeeds(system):
             algorithm_settings=algorithm_settings,
             step_control_settings=step_control_settings,
         )
-        
+
         # Should not issue our compatibility warning
-        compat_warnings = [x for x in w if "cannot be used with" in str(x.message)]
+        compat_warnings = [
+            x for x in w if "cannot be used with" in str(x.message)
+        ]
         assert len(compat_warnings) == 0
         assert not core._algo_step.is_adaptive
         assert not core._step_controller.is_adaptive
@@ -604,7 +614,7 @@ def test_errorless_euler_with_fixed_succeeds(system):
 def test_warning_message_contains_algorithm_and_controller(system):
     """Warning message includes algorithm and controller names."""
     import warnings
-    
+
     algorithm_settings = {
         "algorithm": "euler",
     }
@@ -613,7 +623,7 @@ def test_warning_message_contains_algorithm_and_controller(system):
         "dt_min": 1e-6,
         "dt_max": 1e-1,
     }
-    
+
     with warnings.catch_warnings(record=True) as w:
         warnings.simplefilter("always")
         core = SingleIntegratorRunCore(
@@ -621,8 +631,10 @@ def test_warning_message_contains_algorithm_and_controller(system):
             algorithm_settings=algorithm_settings,
             step_control_settings=step_control_settings,
         )
-        
-        compat_warnings = [x for x in w if "cannot be used with" in str(x.message)]
+
+        compat_warnings = [
+            x for x in w if "cannot be used with" in str(x.message)
+        ]
         assert len(compat_warnings) >= 1
         warn_msg = str(compat_warnings[0].message)
         assert "euler" in warn_msg
@@ -677,7 +689,11 @@ class TestOutputLengthMethod:
 @pytest.mark.parametrize(
     "solver_settings_override",
     [
-        {"summarise_every": 0.1, "duration": 0.3, "sample_summaries_every": 0.05},
+        {
+            "summarise_every": 0.1,
+            "duration": 0.3,
+            "sample_summaries_every": 0.05,
+        },
     ],
     indirect=True,
 )
@@ -754,12 +770,13 @@ class TestIsDurationDependentProperty:
     indirect=True,
 )
 def test_is_duration_dependent_true_when_explicit_sampling(
-    single_integrator_run
+    single_integrator_run,
 ):
     """is_duration_dependent True when summarise_every is not set."""
     loop_config = single_integrator_run._loop.compile_settings
     assert loop_config._sample_summaries_every is not None
     assert single_integrator_run.is_duration_dependent is True
+
 
 @pytest.mark.parametrize(
     "solver_settings_override",

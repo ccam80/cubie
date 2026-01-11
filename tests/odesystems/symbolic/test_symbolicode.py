@@ -128,9 +128,9 @@ def test_solver_helper_cached(built_simple_strict):
 def test_observables_helper_available(built_simple_strict):
     """Symbolic systems should expose an observables-only helper."""
 
-    func = built_simple_strict.observables_function
+    func = built_simple_strict.evaluate_observables
     assert callable(func)
-    cached = built_simple_strict.observables_function
+    cached = built_simple_strict.evaluate_observables
     assert func is cached
 
 
@@ -174,8 +174,8 @@ class TestSympyStringEquivalence:
             name='test_string'
         )
         
-        assert is_devfunc(ode_sympy.dxdt_function)
-        assert is_devfunc(ode_string.dxdt_function)
+        assert is_devfunc(ode_sympy.evaluate_f)
+        assert is_devfunc(ode_string.evaluate_f)
         
         assert ode_sympy.num_states == ode_string.num_states
         assert ode_sympy.num_states == 2
@@ -241,3 +241,61 @@ class TestSympyStringEquivalence:
         
         assert len(ode_sympy.indices.observables.index_map) == 1
         assert len(ode_string.indices.observables.index_map) == 1
+
+
+class TestSymbolicODEHash:
+    """Test hash handling in SymbolicODE."""
+
+    def test_symbolic_ode_hash_determinism(self, precision):
+        """Verify identical SymbolicODE systems produce identical fn_hash."""
+        dxdt = ["dx = -k * x", "dy = k * x"]
+        states = {"x": 1.0, "y": 0.0}
+        parameters = {"k": 0.1}
+
+        ode1 = SymbolicODE.create(
+            dxdt=dxdt,
+            precision=precision,
+            states=states,
+            parameters=parameters,
+            name="hash_test_1",
+        )
+
+        ode2 = SymbolicODE.create(
+            dxdt=dxdt,
+            precision=precision,
+            states=states,
+            parameters=parameters,
+            name="hash_test_2",
+        )
+
+        assert ode1.fn_hash == ode2.fn_hash
+
+    def test_symbolic_ode_hash_fallback(self, precision):
+        """Verify __init__ correctly computes hash when fn_hash=None."""
+        from cubie.odesystems.symbolic.parsing.parser import parse_input
+
+        dxdt = ["dx = -k * x", "dy = k * x"]
+        states = {"x": 1.0, "y": 0.0}
+        parameters = {"k": 0.1}
+        constants = {"c": 2.0}
+
+        # Create via parse_input (provides fn_hash)
+        parsed_result = parse_input(
+            dxdt=dxdt,
+            states=list(states.keys()),
+            parameters=list(parameters.keys()),
+            constants=constants,
+        )
+        expected_hash = parsed_result[4]
+
+        # Create via SymbolicODE.create (computes hash internally)
+        ode = SymbolicODE.create(
+            dxdt=dxdt,
+            precision=precision,
+            states=states,
+            parameters=parameters,
+            constants=constants,
+            name="hash_fallback_test",
+        )
+
+        assert ode.fn_hash == expected_hash

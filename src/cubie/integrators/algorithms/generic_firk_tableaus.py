@@ -2,7 +2,7 @@
 
 from typing import Dict
 
-from attrs import frozen
+from attrs import define
 from numpy import (
     array as np_array,
     asarray as np_asarray,
@@ -14,7 +14,7 @@ from numpy import (
 from cubie.integrators.algorithms.base_algorithm_step import ButcherTableau
 
 
-@frozen
+@define
 class FIRKTableau(ButcherTableau):
     """Coefficient tableau describing a fully implicit RK scheme."""
 
@@ -86,15 +86,24 @@ b_star = compute_embedded_weights_radauIIA(c, order=2)
 # Radau IIA 5th-order method (3 stages)
 SQRT6 = np_sqrt(6)
 RADAU_IIA_5_c = ((4 - SQRT6) / 10.0, (4 + SQRT6) / 10.0, 1.0)
-RADAU_IIA_5_b_hat = compute_embedded_weights_radauIIA(RADAU_IIA_5_c,
-                                                      order=2).tolist()
+RADAU_IIA_5_b_hat = compute_embedded_weights_radauIIA(
+    RADAU_IIA_5_c, order=2
+).tolist()
 
 # print("b_hat =", RADAU_IIA_5_b_hat)
 
 RADAU_IIA_5_TABLEAU = FIRKTableau(
     a=(
-        ((88 - 7 * SQRT6) / 360.0, (296 - 169 * SQRT6) / 1800.0, (-2 + 3 * SQRT6) / 225.0),
-        ((296 + 169 * SQRT6) / 1800.0, (88 + 7 * SQRT6) / 360.0, (-2 - 3 * SQRT6) / 225.0),
+        (
+            (88 - 7 * SQRT6) / 360.0,
+            (296 - 169 * SQRT6) / 1800.0,
+            (-2 + 3 * SQRT6) / 225.0,
+        ),
+        (
+            (296 + 169 * SQRT6) / 1800.0,
+            (88 + 7 * SQRT6) / 360.0,
+            (-2 - 3 * SQRT6) / 225.0,
+        ),
         ((16 - SQRT6) / 36.0, (16 + SQRT6) / 36.0, 1.0 / 9.0),
     ),
     b=((16 - SQRT6) / 36.0, (16 + SQRT6) / 36.0, 1.0 / 9.0),

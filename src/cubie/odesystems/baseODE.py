@@ -7,13 +7,13 @@ from attrs import define, field
 from numpy import asarray, float32, floating
 from numpy.typing import NDArray
 
-from cubie.CUDAFactory import CUDAFactory, CUDAFunctionCache
+from cubie.CUDAFactory import CUDAFactory, CUDADispatcherCache
 from cubie._utils import PrecisionDType
 from cubie.odesystems.ODEData import ODEData
 
 
 @define
-class ODECache(CUDAFunctionCache):
+class ODECache(CUDADispatcherCache):
     """Cache compiled CUDA device and support functions for an ODE system.
 
     Attributes default to ``-1`` when the corresponding function is not built.
@@ -21,31 +21,21 @@ class ODECache(CUDAFunctionCache):
 
     dxdt: Optional[Callable] = field()
     linear_operator: Optional[Union[Callable, int]] = field(default=-1)
-    linear_operator_cached: Optional[Union[Callable, int]] = field(
-        default=-1
-    )
-    neumann_preconditioner: Optional[Union[Callable, int]] = field(
-        default=-1
-    )
+    linear_operator_cached: Optional[Union[Callable, int]] = field(default=-1)
+    neumann_preconditioner: Optional[Union[Callable, int]] = field(default=-1)
     neumann_preconditioner_cached: Optional[Union[Callable, int]] = field(
         default=-1
     )
     stage_residual: Optional[Union[Callable, int]] = field(default=-1)
     n_stage_residual: Optional[Union[Callable, int]] = field(default=-1)
-    n_stage_linear_operator: Optional[Union[Callable, int]] = field(
-        default=-1
-    )
+    n_stage_linear_operator: Optional[Union[Callable, int]] = field(default=-1)
     n_stage_neumann_preconditioner: Optional[Union[Callable, int]] = field(
         default=-1
     )
     observables: Optional[Union[Callable, int]] = field(default=-1)
     prepare_jac: Optional[Union[Callable, int]] = field(default=-1)
-    calculate_cached_jvp: Optional[Union[Callable, int]] = field(
-        default=-1
-    )
-    time_derivative_rhs: Optional[Union[Callable, int]] = field(
-        default=-1
-    )
+    calculate_cached_jvp: Optional[Union[Callable, int]] = field(default=-1)
+    time_derivative_rhs: Optional[Union[Callable, int]] = field(default=-1)
     cached_aux_count: Optional[int] = field(default=-1)
 
 
@@ -133,14 +123,15 @@ class BaseODE(CUDAFactory):
             name = "ODE System"
         else:
             name = self.name
-        return (f"{self.name}"
-                "--"
-                f"\n{self.states},"
-                f"\n{self.parameters},"
-                f"\n{self.constants},"
-                f"\n{self.observables},"
-                f"\n{self.num_drivers})")
-
+        return (
+            f"{self.name}"
+            "--"
+            f"\n{self.states},"
+            f"\n{self.parameters},"
+            f"\n{self.constants},"
+            f"\n{self.observables},"
+            f"\n{self.num_drivers})"
+        )
 
     @abstractmethod
     def build(self) -> ODECache:
@@ -230,6 +221,11 @@ class BaseODE(CUDAFactory):
             updates,
             silent=True,
         )
+
+        # Special handling of the updating of SystemValues precision - if
+        # precision was updated, it will already be in 'recognised' and
+        # 'changed'.
+        self.compile_settings.update_precisions(updates_dict)
         recognised |= recognised_constants
 
         if not silent:
@@ -289,7 +285,6 @@ class BaseODE(CUDAFactory):
             )
 
         return recognised
-
 
     @property
     def parameters(self):
@@ -362,28 +357,30 @@ class BaseODE(CUDAFactory):
         return self.compile_settings.simsafe_precision
 
     @property
-    def dxdt_function(self):
-        """Compiled CUDA device function for ``dxdt``."""
+    def evaluate_f(self):
+        """Compiled CUDA device function for evaluating f(t, y)."""
         return self.get_cached_output("dxdt")
 
     @property
-    def observables_function(self) -> Callable:
+    def evaluate_observables(self) -> Callable:
         """Return the compiled observables device function.
 
         Returns
         -------
         Callable
-            CUDA device function that computes observables without updating
-            the derivative buffer.
+            CUDA device function that computes observables without
+            updating the derivative buffer.
         """
         return self.get_cached_output("observables")
 
-    def get_solver_helper(self,
-                          func_name: str,
-                          beta: float = 1.0,
-                          gamma: float = 1.0,
-                          mass: Any = 1.0,
-                          preconditioner_order: int = 0) -> Callable:
+    def get_solver_helper(
+        self,
+        func_name: str,
+        beta: float = 1.0,
+        gamma: float = 1.0,
+        mass: Any = 1.0,
+        preconditioner_order: int = 0,
+    ) -> Callable:
         """Retrieve a cached solver helper function.
 
         Parameters

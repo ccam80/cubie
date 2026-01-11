@@ -146,11 +146,10 @@ class SingleIntegratorRun(SingleIntegratorRunCore):
         return self.save_summary_metrics_func
 
     @property
-    def dxdt_function(self) -> Callable:
+    def evaluate_f(self) -> Callable:
         """Return the derivative function used by the integration step."""
 
-        return self._algo_step.dxdt_function
-
+        return self._algo_step.evaluate_f
 
     # ------------------------------------------------------------------
     # Loop properties
@@ -220,8 +219,7 @@ class SingleIntegratorRun(SingleIntegratorRunCore):
         regular_summaries = 0
         if summarise_every is not None:
             regular_summaries = int(
-                    precision(duration)
-                    / precision(summarise_every)
+                precision(duration) / precision(summarise_every)
             )
         return regular_summaries
 
@@ -355,12 +353,12 @@ class SingleIntegratorRun(SingleIntegratorRunCore):
         return controller.gamma if hasattr(controller, "gamma") else None
 
     @property
-    def max_newton_iters(self) -> Optional[int]:
+    def newton_max_iters(self) -> Optional[int]:
         """Return the maximum Newton iterations used by the controller."""
 
         controller = self._step_controller
-        if hasattr(controller, "max_newton_iters"):
-            return controller.max_newton_iters
+        if hasattr(controller, "newton_max_iters"):
+            return controller.newton_max_iters
         return None
 
     @property
@@ -401,7 +399,6 @@ class SingleIntegratorRun(SingleIntegratorRunCore):
         """Return the compiled step function."""
 
         return self._algo_step.step_function
-
 
     @property
     def state_count(self) -> int:
@@ -448,22 +445,29 @@ class SingleIntegratorRun(SingleIntegratorRunCore):
         )
 
     @property
-    def linear_solver_tolerance(self) -> Optional[float]:
-        """Return the linear solve tolerance."""
+    def krylov_atol(self) -> Optional[Any]:
+        """Return the linear solve absolute tolerance array."""
 
         step = self._algo_step
-        return (
-            step.krylov_tolerance
-            if hasattr(step, "krylov_tolerance")
-            else None
-        )
+        return step.krylov_atol if hasattr(step, "krylov_atol") else None
+
+    @property
+    def krylov_rtol(self) -> Optional[Any]:
+        """Return the linear solve relative tolerance array."""
+
+        step = self._algo_step
+        return step.krylov_rtol if hasattr(step, "krylov_rtol") else None
 
     @property
     def max_linear_iterations(self) -> Optional[int]:
         """Return the maximum linear iterations."""
 
         step = self._algo_step
-        return step.max_linear_iters if hasattr(step, "max_linear_iters") else None
+        return (
+            step.krylov_max_iters
+            if hasattr(step, "krylov_max_iters")
+            else None
+        )
 
     @property
     def linear_correction_type(self) -> Optional[Any]:
@@ -477,15 +481,18 @@ class SingleIntegratorRun(SingleIntegratorRunCore):
         )
 
     @property
-    def newton_tolerance(self) -> Optional[float]:
-        """Return the nonlinear solve tolerance."""
+    def newton_atol(self) -> Optional[Any]:
+        """Return the nonlinear solve absolute tolerance array."""
 
         step = self._algo_step
-        return (
-            step.newton_tolerance
-            if hasattr(step, "newton_tolerance")
-            else None
-        )
+        return step.newton_atol if hasattr(step, "newton_atol") else None
+
+    @property
+    def newton_rtol(self) -> Optional[Any]:
+        """Return the nonlinear solve relative tolerance array."""
+
+        step = self._algo_step
+        return step.newton_rtol if hasattr(step, "newton_rtol") else None
 
     @property
     def newton_iterations_limit(self) -> Optional[int]:
@@ -493,8 +500,8 @@ class SingleIntegratorRun(SingleIntegratorRunCore):
 
         step = self._algo_step
         return (
-            step.max_newton_iters
-            if hasattr(step, "max_newton_iters")
+            step.newton_max_iters
+            if hasattr(step, "newton_max_iters")
             else None
         )
 
@@ -503,11 +510,7 @@ class SingleIntegratorRun(SingleIntegratorRunCore):
         """Return the Newton damping factor."""
 
         step = self._algo_step
-        return (
-            step.newton_damping
-            if hasattr(step, "newton_damping")
-            else None
-        )
+        return step.newton_damping if hasattr(step, "newton_damping") else None
 
     @property
     def newton_max_backtracks(self) -> Optional[int]:

@@ -5,30 +5,33 @@ functions, output collectors, and adaptive controllers. The loop uses the
 central buffer registry for memory allocation and provides slices into each
 device call so that compiled kernels only focus on algorithmic updates.
 """
+
 from typing import Callable, Optional, Set
 
 from attrs import define, field
 from numpy import int32 as np_int32
 from numba import cuda, int32, float64, bool_
 
-from cubie.CUDAFactory import CUDAFactory, CUDAFunctionCache
+from cubie.CUDAFactory import CUDAFactory, CUDADispatcherCache
 from cubie.buffer_registry import buffer_registry
 from cubie.cuda_simsafe import activemask, all_sync, compile_kwargs, selp
 from cubie._utils import PrecisionDType, unpack_dict_values, build_config
-from cubie.integrators.loops.ode_loop_config import (ODELoopConfig)
+from cubie.integrators.loops.ode_loop_config import ODELoopConfig
 from cubie.outputhandling import OutputCompileFlags
 
 
 @define
-class IVPLoopCache(CUDAFunctionCache):
+class IVPLoopCache(CUDADispatcherCache):
     """Cache for IVP loop device function.
-    
+
     Attributes
     ----------
     loop_function
         Compiled CUDA device function that executes the integration loop.
     """
+
     loop_function: Callable = field()
+
 
 # Recognised compile-critical loop configuration parameters.
 ALL_LOOP_SETTINGS = {
@@ -36,8 +39,6 @@ ALL_LOOP_SETTINGS = {
     "summarise_every",
     "sample_summaries_every",
     "dt0",
-    "dt_min",
-    "dt_max",
     "is_adaptive",
     "save_last",
     "save_regularly",
@@ -103,19 +104,19 @@ class IVPLoop(CUDAFactory):
         Device function that updates the timestep and accept flag.
     step_function
         Device function that advances the solution by one tentative step.
-    driver_function
+    evaluate_driver_at_t
         Device function that evaluates drivers for a given time.
-    observables_fn
+    evaluate_observables
         Device function that computes observables for proposed states.
     **kwargs
         Optional parameters passed to ODELoopConfig. Available parameters
-        include dt0, dt_min, dt_max, is_adaptive, controller_local_len,
-        algorithm_local_len, and buffer location parameters (state_location,
-        proposed_state_location, parameters_location, drivers_location,
-        proposed_drivers_location, observables_location,
-        proposed_observables_location, error_location, counters_location,
-        state_summary_location, observable_summary_location, dt_location,
-        accept_step_location). None values are ignored.
+        include dt0, is_adaptive, and buffer location
+        parameters (state_location, proposed_state_location,
+        parameters_location, drivers_location, proposed_drivers_location,
+        observables_location, proposed_observables_location, error_location,
+        counters_location, state_summary_location,
+        observable_summary_location, dt_location, accept_step_location).
+        None values are ignored.
     """
 
     def __init__(
@@ -138,8 +139,8 @@ class IVPLoop(CUDAFactory):
         save_summaries_func: Optional[Callable] = None,
         step_controller_fn: Optional[Callable] = None,
         step_function: Optional[Callable] = None,
-        driver_function: Optional[Callable] = None,
-        observables_fn: Optional[Callable] = None,
+        evaluate_driver_at_t: Optional[Callable] = None,
+        evaluate_observables: Optional[Callable] = None,
         **kwargs,
     ) -> None:
         """Initialise the IVP loop configuration.
@@ -184,44 +185,43 @@ class IVPLoop(CUDAFactory):
             Device function that updates the timestep and accept flag.
         step_function
             Device function that advances the solution by one tentative step.
-        driver_function
+        evaluate_driver_at_t
             Device function that evaluates drivers for a given time.
-        observables_fn
+        evaluate_observables
             Device function that computes observables for proposed states.
         **kwargs
             Optional parameters passed to ODELoopConfig. See ODELoopConfig
-            for available parameters including dt0, dt_min, dt_max,
-            is_adaptive, and buffer location parameters (state_location,
-            proposed_state_location, etc.). None values are ignored.
+            for available parameters including dt0, is_adaptive, and buffer
+            location parameters (state_location, proposed_state_location,
+            etc.). None values are ignored.
         """
         super().__init__()
 
         config = build_config(
             ODELoopConfig,
             required={
-                'n_states': n_states,
-                'n_parameters': n_parameters,
-                'n_drivers': n_drivers,
-                'n_observables': n_observables,
-                'n_error': n_error,
-                'n_counters': n_counters,
-                'state_summaries_buffer_height': state_summaries_buffer_height,
-                'observable_summaries_buffer_height':
-                    observable_summaries_buffer_height,
-                'precision': precision,
-                'compile_flags': compile_flags,
-                'save_every': save_every,
-                'summarise_every': summarise_every,
-                'sample_summaries_every': sample_summaries_every,
-                'save_state_fn': save_state_func,
-                'update_summaries_fn': update_summaries_func,
-                'save_summaries_fn': save_summaries_func,
-                'step_controller_fn': step_controller_fn,
-                'step_function': step_function,
-                'driver_function': driver_function,
-                'observables_fn': observables_fn,
+                "n_states": n_states,
+                "n_parameters": n_parameters,
+                "n_drivers": n_drivers,
+                "n_observables": n_observables,
+                "n_error": n_error,
+                "n_counters": n_counters,
+                "state_summaries_buffer_height": state_summaries_buffer_height,
+                "observable_summaries_buffer_height": observable_summaries_buffer_height,
+                "precision": precision,
+                "compile_flags": compile_flags,
+                "save_every": save_every,
+                "summarise_every": summarise_every,
+                "sample_summaries_every": sample_summaries_every,
+                "save_state_fn": save_state_func,
+                "update_summaries_fn": update_summaries_func,
+                "save_summaries_fn": save_summaries_func,
+                "step_controller_fn": step_controller_fn,
+                "step_function": step_function,
+                "evaluate_driver_at_t": evaluate_driver_at_t,
+                "evaluate_observables": evaluate_observables,
             },
-            **kwargs
+            **kwargs,
         )
         self.setup_compile_settings(config)
         self.register_buffers()
@@ -237,63 +237,97 @@ class IVPLoop(CUDAFactory):
         n_error = config.n_error
         n_counters = config.n_counters
         state_summaries_buffer_height = config.state_summaries_buffer_height
-        observable_summaries_buffer_height = config.observable_summaries_buffer_height
+        observable_summaries_buffer_height = (
+            config.observable_summaries_buffer_height
+        )
 
         # Register all loop buffers with central registry
 
         buffer_registry.register(
-            'state', self, n_states, config.state_location,
-            precision=precision
+            "state", self, n_states, config.state_location, precision=precision
         )
         buffer_registry.register(
-            'proposed_state', self, n_states, config.proposed_state_location,
-            precision=precision
+            "proposed_state",
+            self,
+            n_states,
+            config.proposed_state_location,
+            precision=precision,
         )
         buffer_registry.register(
-            'parameters', self, n_parameters,
-            config.parameters_location, precision=precision
+            "parameters",
+            self,
+            n_parameters,
+            config.parameters_location,
+            precision=precision,
         )
         buffer_registry.register(
-            'drivers', self, n_drivers, config.drivers_location,
-            precision=precision
+            "drivers",
+            self,
+            n_drivers,
+            config.drivers_location,
+            precision=precision,
         )
         buffer_registry.register(
-            'proposed_drivers', self, n_drivers,
-            config.proposed_drivers_location, precision=precision
+            "proposed_drivers",
+            self,
+            n_drivers,
+            config.proposed_drivers_location,
+            precision=precision,
         )
         buffer_registry.register(
-            'observables', self, n_observables,
-            config.observables_location, precision=precision
+            "observables",
+            self,
+            n_observables,
+            config.observables_location,
+            precision=precision,
         )
         buffer_registry.register(
-            'proposed_observables', self, n_observables,
-            config.proposed_observables_location, precision=precision
+            "proposed_observables",
+            self,
+            n_observables,
+            config.proposed_observables_location,
+            precision=precision,
         )
         buffer_registry.register(
-            'error', self, n_error, config.error_location,
-            precision=precision
+            "error", self, n_error, config.error_location, precision=precision
         )
         buffer_registry.register(
-            'counters', self, n_counters, config.counters_location,
-            precision=precision
+            "counters",
+            self,
+            n_counters,
+            config.counters_location,
+            precision=precision,
         )
         buffer_registry.register(
-            'state_summary', self, state_summaries_buffer_height,
-            config.state_summary_location, precision=precision
+            "state_summary",
+            self,
+            state_summaries_buffer_height,
+            config.state_summary_location,
+            precision=precision,
         )
         buffer_registry.register(
-            'observable_summary', self, observable_summaries_buffer_height,
-            config.observable_summary_location, precision=precision
+            "observable_summary",
+            self,
+            observable_summaries_buffer_height,
+            config.observable_summary_location,
+            precision=precision,
         )
         buffer_registry.register(
-            'dt', self, 1, config.dt_location, precision=precision
+            "dt", self, 1, config.dt_location, precision=precision
         )
         buffer_registry.register(
-            'accept_step', self, 1, config.accept_step_location, precision=precision
+            "accept_step",
+            self,
+            1,
+            config.accept_step_location,
+            precision=precision,
         )
         buffer_registry.register(
-            'proposed_counters', self, 2, config.proposed_counters_location,
-            precision=np_int32
+            "proposed_counters",
+            self,
+            2,
+            config.proposed_counters_location,
+            precision=np_int32,
         )
 
     @property
@@ -330,8 +364,8 @@ class IVPLoop(CUDAFactory):
         save_summaries = config.save_summaries_fn
         step_controller = config.step_controller_fn
         step_function = config.step_function
-        driver_function = config.driver_function
-        observables_fn = config.observables_fn
+        evaluate_driver_at_t = config.evaluate_driver_at_t
+        evaluate_observables = config.evaluate_observables
 
         flags = config.compile_flags
         save_obs_bool = flags.save_observables
@@ -343,26 +377,34 @@ class IVPLoop(CUDAFactory):
 
         # Get allocators from buffer registry
         getalloc = buffer_registry.get_allocator
-        alloc_state = getalloc('state', self, zero=True)
-        alloc_proposed_state = getalloc('proposed_state', self, zero=True)
-        alloc_parameters = getalloc('parameters', self, zero=True)
-        alloc_drivers = getalloc('drivers', self, zero=True)
-        alloc_proposed_drivers = getalloc('proposed_drivers', self, zero=True)
-        alloc_observables = getalloc('observables', self, zero=True)
-        alloc_proposed_observables = getalloc('proposed_observables', self, zero=True)
-        alloc_error = getalloc('error', self, zero=True)
-        alloc_counters = getalloc('counters', self, zero=True)
-        alloc_state_summary = getalloc('state_summary', self, zero=True)
-        alloc_observable_summary = getalloc('observable_summary', self, zero=True)
-        alloc_algo_shared = getalloc('algorithm_shared', self, zero=True)
-        alloc_algo_persistent = getalloc('algorithm_persistent', self, zero=True)
-        alloc_controller_shared = getalloc('controller_shared', self, zero=True)
+        alloc_state = getalloc("state", self, zero=True)
+        alloc_proposed_state = getalloc("proposed_state", self, zero=True)
+        alloc_parameters = getalloc("parameters", self, zero=True)
+        alloc_drivers = getalloc("drivers", self, zero=True)
+        alloc_proposed_drivers = getalloc("proposed_drivers", self, zero=True)
+        alloc_observables = getalloc("observables", self, zero=True)
+        alloc_proposed_observables = getalloc(
+            "proposed_observables", self, zero=True
+        )
+        alloc_error = getalloc("error", self, zero=True)
+        alloc_counters = getalloc("counters", self, zero=True)
+        alloc_state_summary = getalloc("state_summary", self, zero=True)
+        alloc_observable_summary = getalloc(
+            "observable_summary", self, zero=True
+        )
+        alloc_algo_shared = getalloc("algorithm_shared", self, zero=True)
+        alloc_algo_persistent = getalloc(
+            "algorithm_persistent", self, zero=True
+        )
+        alloc_controller_shared = getalloc(
+            "controller_shared", self, zero=True
+        )
         alloc_controller_persistent = getalloc(
             "controller_persistent", self, zero=True
         )
         alloc_dt = getalloc("dt", self, zero=True)
-        alloc_accept_step = getalloc('accept_step', self, zero=True)
-        alloc_proposed_counters = getalloc('proposed_counters', self)
+        alloc_accept_step = getalloc("accept_step", self, zero=True)
+        alloc_proposed_counters = getalloc("proposed_counters", self)
 
         # Timing values
         dt0 = precision(config.dt0)
@@ -404,7 +446,7 @@ class IVPLoop(CUDAFactory):
             duration,
             settling_time,
             t0,
-        ): # pragma: no cover - CUDA fns not marked in coverage
+        ):  # pragma: no cover - CUDA fns not marked in coverage
             """Advance an integration using a compiled CUDA device loop.
 
             The loop terminates when the time of the next saved sample
@@ -457,13 +499,17 @@ class IVPLoop(CUDAFactory):
             # ----------------------------------------------------------- #
             state_buffer = alloc_state(shared_scratch, persistent_local)
             state_proposal_buffer = alloc_proposed_state(
-                    shared_scratch, persistent_local
+                shared_scratch, persistent_local
             )
-            observables_buffer = alloc_observables(shared_scratch, persistent_local)
+            observables_buffer = alloc_observables(
+                shared_scratch, persistent_local
+            )
             observables_proposal_buffer = alloc_proposed_observables(
                 shared_scratch, persistent_local
             )
-            parameters_buffer = alloc_parameters(shared_scratch, persistent_local)
+            parameters_buffer = alloc_parameters(
+                shared_scratch, persistent_local
+            )
             drivers_buffer = alloc_drivers(shared_scratch, persistent_local)
             drivers_proposal_buffer = alloc_proposed_drivers(
                 shared_scratch, persistent_local
@@ -474,13 +520,19 @@ class IVPLoop(CUDAFactory):
             observable_summary_buffer = alloc_observable_summary(
                 shared_scratch, persistent_local
             )
-            counters_since_save = alloc_counters(shared_scratch, persistent_local)
+            counters_since_save = alloc_counters(
+                shared_scratch, persistent_local
+            )
             error = alloc_error(shared_scratch, persistent_local)
 
             # Allocate child buffers for algorithm step
             algo_shared = alloc_algo_shared(shared_scratch, persistent_local)
-            algo_persistent = alloc_algo_persistent(shared_scratch, persistent_local)
-            ctrl_shared = alloc_controller_shared(shared_scratch, persistent_local)
+            algo_persistent = alloc_algo_persistent(
+                shared_scratch, persistent_local
+            )
+            ctrl_shared = alloc_controller_shared(
+                shared_scratch, persistent_local
+            )
             ctrl_persistent = alloc_controller_persistent(
                 shared_scratch, persistent_local
             )
@@ -509,14 +561,14 @@ class IVPLoop(CUDAFactory):
                 parameters_buffer[k] = parameters[k]
 
             # Seed initial observables from initial state.
-            if driver_function is not None and n_drivers > int32(0):
-                driver_function(
+            if evaluate_driver_at_t is not None and n_drivers > int32(0):
+                evaluate_driver_at_t(
                     t_prec,
                     driver_coefficients,
                     drivers_buffer,
                 )
             if n_observables > int32(0):
-                observables_fn(
+                evaluate_observables(
                     state_buffer,
                     parameters_buffer,
                     drivers_buffer,
@@ -532,7 +584,7 @@ class IVPLoop(CUDAFactory):
                     next_save = precision(next_save + save_every)
                 if summarise_regularly:
                     next_update_summary = precision(
-                            sample_summaries_every + next_update_summary
+                        sample_summaries_every + next_update_summary
                     )
 
                 save_state(
@@ -542,7 +594,9 @@ class IVPLoop(CUDAFactory):
                     t_prec,
                     state_output[save_idx * save_state_bool, :],
                     observables_output[save_idx * save_obs_bool, :],
-                    iteration_counters_output[save_idx * save_counters_bool, :],
+                    iteration_counters_output[
+                        save_idx * save_counters_bool, :
+                    ],
                 )
                 save_idx += int32(1)
 
@@ -601,7 +655,7 @@ class IVPLoop(CUDAFactory):
                     # Save final state even if not aligned with save_every
                     # at_end triggers when we're in the last step before t_end
                     at_end = bool_(t_prec < t_end) & finished
-                    finished = finished &~ at_end
+                    finished = finished & ~at_end
 
                 finished = finished or irrecoverable
 
@@ -636,8 +690,9 @@ class IVPLoop(CUDAFactory):
                         if do_save and save_regularly:
                             next_event = precision(min(next_event, next_save))
                         if do_update_summary and summarise_regularly:
-                            next_event = precision(min(next_event,
-                                                next_update_summary))
+                            next_event = precision(
+                                min(next_event, next_update_summary)
+                            )
                         dt_eff = precision(next_event - t_prec)
 
                     # ----------------------------------------------------------- #
@@ -672,7 +727,9 @@ class IVPLoop(CUDAFactory):
                     # step and trigger a timestep reduction; in fixed mode it is
                     # irrecoverable.
                     step_failed = bool_(step_status != int32(0))
-                    irrecoverable = bool_(irrecoverable or (fixed_mode and step_failed))
+                    irrecoverable = bool_(
+                        irrecoverable or (fixed_mode and step_failed)
+                    )
                     for i in range(n_error):
                         error[i] = selp(step_failed, precision(1e16), error[i])
 
@@ -693,10 +750,10 @@ class IVPLoop(CUDAFactory):
                         accept = bool_(accept and (not step_failed))
                         status = int32(status | controller_status)
 
-                        # If the step size drops below dt_min, we can't recover
+                        # Controller may signal irrecoverable error via status bit
                         irrecoverable = bool_(
-                            irrecoverable or (
-                                    (controller_status & 0x8) != int32(0))
+                            irrecoverable
+                            or ((controller_status & 0x8) != int32(0))
                         )
                     else:
                         accept = bool_(not step_failed)
@@ -728,9 +785,7 @@ class IVPLoop(CUDAFactory):
 
                     stagnant = bool_(stagnant_counts >= int32(2))
                     status = selp(
-                            stagnant,
-                            int32(status | int32(0x40)),
-                            status
+                        stagnant, int32(status | int32(0x40)), status
                     )
                     irrecoverable = bool_(irrecoverable or stagnant)
 
@@ -762,7 +817,7 @@ class IVPLoop(CUDAFactory):
                     # if step was accepted (avoids warp divergence)
                     do_save &= accept
                     do_update_summary &= accept
-                    
+
                     if do_save:
                         # Increment next_save if it's in use
                         if save_regularly:
@@ -780,12 +835,12 @@ class IVPLoop(CUDAFactory):
                             ],
                         )
                         save_idx += int32(1)
-                        
+
                         # Reset iteration counters after save
                         if save_counters_bool:
                             for i in range(n_counters):
                                 counters_since_save[i] = int32(0)
-                    
+
                     if do_update_summary:
                         if summarise_regularly:
                             next_update_summary += sample_summaries_every
@@ -798,7 +853,7 @@ class IVPLoop(CUDAFactory):
                                 observables_buffer,
                                 state_summary_buffer,
                                 observable_summary_buffer,
-                                update_idx
+                                update_idx,
                             )
                             update_idx += int32(1)
 
@@ -807,8 +862,10 @@ class IVPLoop(CUDAFactory):
                                 save_summaries(
                                     state_summary_buffer,
                                     observable_summary_buffer,
-                                    state_summaries_output[statesumm_idx,:],
-                                    observable_summaries_output[obssumm_idx,:],
+                                    state_summaries_output[statesumm_idx, :],
+                                    observable_summaries_output[
+                                        obssumm_idx, :
+                                    ],
                                     samples_per_summary,
                                 )
                                 summary_idx += int32(1)
@@ -819,12 +876,12 @@ class IVPLoop(CUDAFactory):
     def save_every(self) -> Optional[float]:
         """Return the save interval, or None if not configured."""
         return self.compile_settings.save_every
-    
+
     @property
     def summarise_every(self) -> Optional[float]:
         """Return the summary interval, or None if not configured."""
         return self.compile_settings.summarise_every
-    
+
     @property
     def sample_summaries_every(self) -> Optional[float]:
         """Return the summary sampling interval, or None if not configured."""
@@ -854,13 +911,13 @@ class IVPLoop(CUDAFactory):
     @property
     def device_function(self):
         """Return the compiled CUDA loop function.
-        
+
         Returns
         -------
         callable
             Compiled CUDA device function.
         """
-        return self.get_cached_output('loop_function')
+        return self.get_cached_output("loop_function")
 
     @property
     def save_state_fn(self) -> Optional[Callable]:
@@ -893,34 +950,22 @@ class IVPLoop(CUDAFactory):
         return self.compile_settings.step_function
 
     @property
-    def driver_function(self) -> Optional[Callable]:
+    def evaluate_driver_at_t(self) -> Optional[Callable]:
         """Return the driver evaluation device function used by the loop."""
 
-        return self.compile_settings.driver_function
+        return self.compile_settings.evaluate_driver_at_t
 
     @property
-    def observables_fn(self) -> Optional[Callable]:
+    def evaluate_observables(self) -> Optional[Callable]:
         """Return the observables device function used by the loop."""
 
-        return self.compile_settings.observables_fn
+        return self.compile_settings.evaluate_observables
 
     @property
     def dt0(self) -> Optional[float]:
         """Return the initial step size provided to the loop."""
 
         return self.compile_settings.dt0
-
-    @property
-    def dt_min(self) -> Optional[float]:
-        """Return the minimum allowable step size for the loop."""
-
-        return self.compile_settings.dt_min
-
-    @property
-    def dt_max(self) -> Optional[float]:
-        """Return the maximum allowable step size for the loop."""
-
-        return self.compile_settings.dt_max
 
     @property
     def is_adaptive(self) -> Optional[bool]:

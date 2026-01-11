@@ -28,7 +28,7 @@ class CPUAdaptiveController:
         safety: float = 0.9,
         min_gain: float = 0.5,
         max_gain: float = 2.0,
-        max_newton_iters: int = 0,
+        newton_max_iters: int = 0,
         deadband_min: float = 1.0,
         deadband_max: float = 1.2,
     ) -> None:
@@ -51,13 +51,12 @@ class CPUAdaptiveController:
         self.ki = precision(ki)
         self.kd = precision(kd)
         self.gamma = precision(gamma)
-        self.max_newton_iters = int(max_newton_iters)
+        self.newton_max_iters = int(newton_max_iters)
         self.deadband_min = precision(deadband_min)
         self.deadband_max = precision(deadband_max)
         self.unity_gain = precision(1.0)
-        self._deadband_disabled = (
-            (self.deadband_min == self.unity_gain)
-            and (self.deadband_max == self.unity_gain)
+        self._deadband_disabled = (self.deadband_min == self.unity_gain) and (
+            self.deadband_max == self.unity_gain
         )
         zero = precision(0.0)
         self._history = [zero, zero]
@@ -78,7 +77,9 @@ class CPUAdaptiveController:
 
         return self._prev_dt
 
-    def error_norm(self, state_prev: Array, state_new: Array, error: Array) -> float:
+    def error_norm(
+        self, state_prev: Array, state_new: Array, error: Array
+    ) -> float:
         error = np.maximum(np.abs(error), 1e-16)
         scale = self.atol + self.rtol * np.maximum(
             np.abs(state_prev), np.abs(state_new)
@@ -96,7 +97,7 @@ class CPUAdaptiveController:
     ) -> bool:
         self._step_count += 1
         if not self.is_adaptive:
-            return True 
+            return True
         errornorm = self.error_norm(
             state_prev=prev_state,
             state_new=new_state,
@@ -130,7 +131,6 @@ class CPUAdaptiveController:
         niters: int,
         current_dt: float,
     ) -> float:
-
         precision = self.precision
         expo_fraction = precision(
             precision(1.0)
@@ -142,20 +142,18 @@ class CPUAdaptiveController:
 
         if self.kind == "i":
             exponent = -expo_fraction
-            gain = self.safety * precision(errornorm ** exponent)
+            gain = self.safety * precision(errornorm**exponent)
 
         elif self.kind == "pi":
             prev = self._prev_nrm2 if self._prev_nrm2 > 0.0 else errornorm
             gain = (
                 self.safety
-                * precision(errornorm ** -kp_exp)
-                * precision(prev ** -ki_exp)
+                * precision(errornorm**-kp_exp)
+                * precision(prev**-ki_exp)
             )
 
         elif self.kind == "pid":
-            prev_nrm2 = (
-                self._prev_nrm2 if self._prev_nrm2 > 0.0 else errornorm
-            )
+            prev_nrm2 = self._prev_nrm2 if self._prev_nrm2 > 0.0 else errornorm
             prev_prev = (
                 self._prev_prev_nrm2
                 if self._prev_prev_nrm2 > 0.0
@@ -163,9 +161,9 @@ class CPUAdaptiveController:
             )
             gain = (
                 self.safety
-                * precision(errornorm ** -kp_exp)
-                * precision(prev_nrm2 ** -ki_exp)
-                * precision(prev_prev ** -kd_exp)
+                * precision(errornorm**-kp_exp)
+                * precision(prev_nrm2**-ki_exp)
+                * precision(prev_prev**-kd_exp)
             )
 
         elif self.kind == "gustafsson":
@@ -174,23 +172,21 @@ class CPUAdaptiveController:
             one = precision(1.0)
             two = precision(2.0)
             niters_eff = precision(max(niters, 1))
-            M = self.max_newton_iters
+            M = self.newton_max_iters
             dt_prev = max(precision(1e-16), self._prev_dt)
             nrm2_prev = max(precision(1e-16), self._prev_nrm2)
             fac = min(
                 self.gamma,
                 ((one + two * M) * self.gamma) / (niters_eff + two * M),
             )
-            gain_basic = precision(
-                fac * (errornorm ** -expo_fraction)
-            )
+            gain_basic = precision(fac * (errornorm**-expo_fraction))
 
             # Always compute gain_gus, then fallback to gain_basic if needed
             ratio = (errornorm * errornorm) / nrm2_prev
             gain_gus = (
                 self.safety
                 * (current_dt / dt_prev)
-                * precision(ratio ** -expo_fraction)
+                * precision(ratio**-expo_fraction)
                 * self.gamma
             )
             gain = gain_gus if gain_gus < gain_basic else gain_basic

@@ -271,9 +271,7 @@ class SystemInterface:
             return self.observables.names
         return self.get_labels(self.observables, indices)
 
-    def parameter_labels(
-        self, indices: Optional[ndarray] = None
-    ) -> List[str]:
+    def parameter_labels(self, indices: Optional[ndarray] = None) -> List[str]:
         """Return parameter labels corresponding to the provided indices.
 
         Parameters
@@ -397,10 +395,10 @@ class SystemInterface:
             )
 
         arrays_to_merge = {
-            'state_from_labels': resolved_state,
-            'obs_from_labels': resolved_obs,
-            'state_from_indices': state_indices,
-            'obs_from_indices': observable_indices
+            "state_from_labels": resolved_state,
+            "obs_from_labels": resolved_obs,
+            "state_from_indices": state_indices,
+            "obs_from_indices": observable_indices,
         }
 
         for key, input in arrays_to_merge.items():
@@ -409,19 +407,18 @@ class SystemInterface:
 
         # Compute union of resolved label indices with provided indices
         final_state = np_union1d(
-            arrays_to_merge['state_from_labels'],
-            arrays_to_merge['state_from_indices']
+            arrays_to_merge["state_from_labels"],
+            arrays_to_merge["state_from_indices"],
         )
         final_obs = np_union1d(
-            arrays_to_merge['obs_from_labels'],
-            arrays_to_merge['obs_from_indices']
+            arrays_to_merge["obs_from_labels"],
+            arrays_to_merge["obs_from_indices"],
         )
 
         return final_state, final_obs
 
     def merge_variable_labels_and_idxs(
-        self,
-        output_settings: Dict[str, Any]
+        self, output_settings: Dict[str, Any]
     ) -> None:
         """Convert variable label settings to index arrays in-place.
 
@@ -463,9 +460,7 @@ class SystemInterface:
 
         # Extract summarise_variables and related indices
         summarise_vars = output_settings.pop("summarise_variables", None)
-        summ_state_idxs = output_settings.get(
-            "summarised_state_indices", None
-        )
+        summ_state_idxs = output_settings.get("summarised_state_indices", None)
         summ_obs_idxs = output_settings.get(
             "summarised_observable_indices", None
         )

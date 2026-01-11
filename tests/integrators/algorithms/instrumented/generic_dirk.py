@@ -31,16 +31,18 @@ class InstrumentedDIRKStep(InstrumentedODEImplicitStep):
         self,
         precision: PrecisionDType,
         n: int,
-        dxdt_function: Optional[Callable] = None,
-        observables_function: Optional[Callable] = None,
-        driver_function: Optional[Callable] = None,
+        evaluate_f: Optional[Callable] = None,
+        evaluate_observables: Optional[Callable] = None,
+        evaluate_driver_at_t: Optional[Callable] = None,
         get_solver_helper_fn: Optional[Callable] = None,
         preconditioner_order: Optional[int] = None,
-        krylov_tolerance: Optional[float] = None,
-        max_linear_iters: Optional[int] = None,
+        krylov_atol: Optional[float] = None,
+        krylov_rtol: Optional[float] = None,
+        krylov_max_iters: Optional[int] = None,
         linear_correction_type: Optional[str] = None,
-        newton_tolerance: Optional[float] = None,
-        max_newton_iters: Optional[int] = None,
+        newton_atol: Optional[float] = None,
+        newton_rtol: Optional[float] = None,
+        newton_max_iters: Optional[int] = None,
         newton_damping: Optional[float] = None,
         newton_max_backtracks: Optional[int] = None,
         tableau: DIRKTableau = DEFAULT_DIRK_TABLEAU,
@@ -65,31 +67,36 @@ class InstrumentedDIRKStep(InstrumentedODEImplicitStep):
             Floating-point precision for CUDA computations.
         n
             Number of state variables in the ODE system.
-        dxdt_function
-            Compiled CUDA device function computing state derivatives.
-        observables_function
-            Optional compiled CUDA device function computing observables.
-        driver_function
-            Optional compiled CUDA device function computing time-varying
-            drivers.
+        evaluate_f
+            Device function for evaluating f(t, y) right-hand side.
+        evaluate_observables
+            Device function computing system observables.
+        evaluate_driver_at_t
+            Optional device function evaluating drivers at arbitrary times.
         get_solver_helper_fn
             Factory function returning solver helper for Jacobian operations.
         preconditioner_order
             Order of the truncated Neumann preconditioner. If None, uses
             default value of 2.
-        krylov_tolerance
-            Convergence tolerance for the Krylov linear solver. If None, uses
+        krylov_atol
+            Absolute tolerance for the Krylov linear solver. If None, uses
             default from LinearSolverConfig.
-        max_linear_iters
+        krylov_rtol
+            Relative tolerance for the Krylov linear solver. If None, uses
+            default from LinearSolverConfig.
+        krylov_max_iters
             Maximum iterations allowed for the Krylov solver. If None, uses
             default from LinearSolverConfig.
         linear_correction_type
             Type of Krylov correction. If None, uses default from
             LinearSolverConfig.
-        newton_tolerance
-            Convergence tolerance for the Newton iteration. If None, uses
+        newton_atol
+            Absolute tolerance for the Newton iteration. If None, uses
             default from NewtonKrylovConfig.
-        max_newton_iters
+        newton_rtol
+            Relative tolerance for the Newton iteration. If None, uses
+            default from NewtonKrylovConfig.
+        newton_max_iters
             Maximum iterations permitted for the Newton solver. If None, uses
             default from NewtonKrylovConfig.
         newton_damping
@@ -136,9 +143,9 @@ class InstrumentedDIRKStep(InstrumentedODEImplicitStep):
             "precision": precision,
             "n": n,
             "n_drivers": n_drivers,
-            "dxdt_function": dxdt_function,
-            "observables_function": observables_function,
-            "driver_function": driver_function,
+            "evaluate_f": evaluate_f,
+            "evaluate_observables": evaluate_observables,
+            "evaluate_driver_at_t": evaluate_driver_at_t,
             "get_solver_helper_fn": get_solver_helper_fn,
             "preconditioner_order": preconditioner_order,
             "tableau": tableau,
@@ -167,16 +174,20 @@ class InstrumentedDIRKStep(InstrumentedODEImplicitStep):
 
         # Build kwargs dict conditionally
         solver_kwargs = {}
-        if krylov_tolerance is not None:
-            solver_kwargs["krylov_tolerance"] = krylov_tolerance
-        if max_linear_iters is not None:
-            solver_kwargs["max_linear_iters"] = max_linear_iters
+        if krylov_atol is not None:
+            solver_kwargs["krylov_atol"] = krylov_atol
+        if krylov_rtol is not None:
+            solver_kwargs["krylov_rtol"] = krylov_rtol
+        if krylov_max_iters is not None:
+            solver_kwargs["krylov_max_iters"] = krylov_max_iters
         if linear_correction_type is not None:
             solver_kwargs["linear_correction_type"] = linear_correction_type
-        if newton_tolerance is not None:
-            solver_kwargs["newton_tolerance"] = newton_tolerance
-        if max_newton_iters is not None:
-            solver_kwargs["max_newton_iters"] = max_newton_iters
+        if newton_atol is not None:
+            solver_kwargs["newton_atol"] = newton_atol
+        if newton_rtol is not None:
+            solver_kwargs["newton_rtol"] = newton_rtol
+        if newton_max_iters is not None:
+            solver_kwargs["newton_max_iters"] = newton_max_iters
         if newton_damping is not None:
             solver_kwargs["newton_damping"] = newton_damping
         if newton_max_backtracks is not None:
@@ -298,9 +309,9 @@ class InstrumentedDIRKStep(InstrumentedODEImplicitStep):
 
     def build_step(
         self,
-        dxdt_fn: Callable,
-        observables_function: Callable,
-        driver_function: Optional[Callable],
+        evaluate_f: Callable,
+        evaluate_observables: Callable,
+        evaluate_driver_at_t: Optional[Callable],
         solver_function: Callable,
         numba_precision: type,
         n: int,
@@ -318,7 +329,7 @@ class InstrumentedDIRKStep(InstrumentedODEImplicitStep):
         stages_except_first = stage_count - int32(1)
 
         # Compile-time toggles
-        has_driver_function = driver_function is not None
+        has_evaluate_driver_at_t = evaluate_driver_at_t is not None
         has_error = self.is_adaptive
         multistage = stage_count > 1
         first_same_as_last = self.first_same_as_last
@@ -493,8 +504,8 @@ class InstrumentedDIRKStep(InstrumentedODEImplicitStep):
                         proposed_drivers[idx] = drivers_buffer[idx]
 
                 else:
-                    if has_driver_function:
-                        driver_function(
+                    if has_evaluate_driver_at_t:
+                        evaluate_driver_at_t(
                             stage_time,
                             driver_coeffs,
                             proposed_drivers,
@@ -532,7 +543,7 @@ class InstrumentedDIRKStep(InstrumentedODEImplicitStep):
                         )
 
                 # Get obs->dxdt from stage_base
-                observables_function(
+                evaluate_observables(
                     stage_base,
                     parameters,
                     proposed_drivers,
@@ -540,7 +551,7 @@ class InstrumentedDIRKStep(InstrumentedODEImplicitStep):
                     stage_time,
                 )
 
-                dxdt_fn(
+                evaluate_f(
                     stage_base,
                     parameters,
                     proposed_drivers,
@@ -607,8 +618,8 @@ class InstrumentedDIRKStep(InstrumentedODEImplicitStep):
                     current_time + dt_scalar * stage_time_fractions[stage_idx]
                 )
 
-                if has_driver_function:
-                    driver_function(
+                if has_evaluate_driver_at_t:
+                    evaluate_driver_at_t(
                         stage_time,
                         driver_coeffs,
                         proposed_drivers,
@@ -667,7 +678,7 @@ class InstrumentedDIRKStep(InstrumentedODEImplicitStep):
                     stage_increments[stage_idx, idx] = scaled_increment
                     jacobian_updates[stage_idx, idx] = typed_zero
 
-                observables_function(
+                evaluate_observables(
                     stage_base,
                     parameters,
                     proposed_drivers,
@@ -681,7 +692,7 @@ class InstrumentedDIRKStep(InstrumentedODEImplicitStep):
                         proposed_observables[obs_idx]
                     )
 
-                dxdt_fn(
+                evaluate_f(
                     stage_base,
                     parameters,
                     proposed_drivers,
@@ -722,14 +733,14 @@ class InstrumentedDIRKStep(InstrumentedODEImplicitStep):
                     else:
                         error[idx] = proposed_state[idx] - error[idx]
 
-            if has_driver_function:
-                driver_function(
+            if has_evaluate_driver_at_t:
+                evaluate_driver_at_t(
                     end_time,
                     driver_coeffs,
                     proposed_drivers,
                 )
 
-            observables_function(
+            evaluate_observables(
                 proposed_state,
                 parameters,
                 proposed_drivers,

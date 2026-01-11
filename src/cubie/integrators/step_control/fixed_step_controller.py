@@ -1,6 +1,5 @@
 """Fixed step-size controller implementations."""
 
-
 from attrs import define, field
 from numba import cuda, int32
 from cubie.cuda_simsafe import compile_kwargs
@@ -11,6 +10,7 @@ from cubie.integrators.step_control.base_step_controller import (
     BaseStepController,
     ControllerCache,
 )
+
 
 @define
 class FixedStepControlConfig(BaseStepControllerConfig):
@@ -23,12 +23,12 @@ class FixedStepControlConfig(BaseStepControllerConfig):
     n
         Number of state variables controlled per step.
     """
-    _dt: float = field(
-        default=1e-3, validator=getype_validator(float, 0)
-    )
+
+    _dt: float = field(default=1e-3, validator=getype_validator(float, 0))
 
     def __attrs_post_init__(self) -> None:
         """Validate configuration after initialisation."""
+        super().__attrs_post_init__()
         self._validate_config()
 
     def _validate_config(self) -> None:
@@ -50,6 +50,7 @@ class FixedStepControlConfig(BaseStepControllerConfig):
     def dt_max(self) -> float:
         """Return the maximum step size."""
         return self.dt
+
     @property
     def dt0(self) -> float:
         """Return the initial step size used at loop start."""
@@ -64,8 +65,9 @@ class FixedStepControlConfig(BaseStepControllerConfig):
     def settings_dict(self) -> dict[str, object]:
         """Return the configuration as a dictionary."""
         settings_dict = super().settings_dict
-        settings_dict.update({'dt': self.dt})
+        settings_dict.update({"dt": self.dt})
         return settings_dict
+
 
 class FixedStepController(BaseStepController):
     """Controller that enforces a constant time step."""
@@ -95,8 +97,8 @@ class FixedStepController(BaseStepController):
         super().__init__()
         config = build_config(
             FixedStepControlConfig,
-            required={'precision': precision, 'n': n, 'dt': dt},
-            **kwargs
+            required={"precision": precision, "n": n, "dt": dt},
+            **kwargs,
         )
         self.setup_compile_settings(config)
         self.register_buffers()
@@ -109,14 +111,21 @@ class FixedStepController(BaseStepController):
         Callable
             CUDA device function that keeps the step size constant.
         """
+
         @cuda.jit(
             device=True,
             inline=True,
             **compile_kwargs,
         )
         def controller_fixed_step(
-            dt, state, state_prev, error, niters, accept_out,
-            shared_scratch, persistent_local
+            dt,
+            state,
+            state_prev,
+            error,
+            niters,
+            accept_out,
+            shared_scratch,
+            persistent_local,
         ):  # pragma: no cover - CUDA
             """Fixed-step controller device function.
 

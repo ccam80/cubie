@@ -82,7 +82,6 @@ SYSTEM_LABELS: Dict[str, str] = {
 SYSTEM_ORDER: Tuple[str, ...] = tuple(SYSTEM_BUILDERS.keys())
 
 
-
 def build_solver_settings(precision: type[np.floating[Any]]) -> Dict[str, Any]:
     """Return solver configuration aligned with `tests.conftest` and
     `tests.integrators.loops.test_ode_loop` defaults.
@@ -116,12 +115,14 @@ def build_solver_settings(precision: type[np.floating[Any]]) -> Dict[str, Any]:
         "driverspline_order": 3,
         "driverspline_wrap": False,
         "driverspline_boundary_condition": "clamped",
-        "krylov_tolerance": precision(1e-7),
+        "krylov_atol": precision(1e-7),
+        "krylov_rtol": precision(1e-7),
         "linear_correction_type": "minimal_residual",
-        "newton_tolerance": precision(1e-7),
+        "newton_atol": precision(1e-7),
+        "newton_rtol": precision(1e-7),
         "preconditioner_order": 2,
-        "max_linear_iters": 500,
-        "max_newton_iters": 500,
+        "krylov_max_iters": 500,
+        "newton_max_iters": 500,
         "newton_damping": precision(0.85),
         "newton_max_backtracks": 25,
         "min_gain": precision(0.2),
@@ -154,12 +155,14 @@ def build_implicit_step_settings(
     return {
         "atol": solver_settings["atol"],
         "rtol": solver_settings["rtol"],
-        "krylov_tolerance": solver_settings["krylov_tolerance"],
+        "krylov_atol": solver_settings["krylov_atol"],
+        "krylov_rtol": solver_settings["krylov_rtol"],
+        "newton_atol": solver_settings["newton_atol"],
+        "newton_rtol": solver_settings["newton_rtol"],
         "linear_correction_type": solver_settings["linear_correction_type"],
-        "newton_tolerance": solver_settings["newton_tolerance"],
         "preconditioner_order": solver_settings["preconditioner_order"],
-        "max_linear_iters": solver_settings["max_linear_iters"],
-        "max_newton_iters": solver_settings["max_newton_iters"],
+        "krylov_max_iters": solver_settings["krylov_max_iters"],
+        "newton_max_iters": solver_settings["newton_max_iters"],
         "newton_damping": solver_settings["newton_damping"],
         "newton_max_backtracks": solver_settings["newton_max_backtracks"],
         "tableau": solver_settings.get("tableau", "sdirk_2_2"),
@@ -204,7 +207,7 @@ def build_step_controller_settings(
         "kd": precision(solver_settings["kd"]),
         "deadband_min": precision(solver_settings["deadband_min"]),
         "deadband_max": precision(solver_settings["deadband_max"]),
-        "max_newton_iters": int(solver_settings["max_newton_iters"]),
+        "newton_max_iters": int(solver_settings["newton_max_iters"]),
     }
 
     if overrides:
@@ -530,11 +533,11 @@ def run_reference_loop_with_history(
     params = inputs["parameters"].astype(precision, copy=True)
     driver_coefficients = inputs.get("driver_coefficients")
     if driver_coefficients is not None:
-        driver_fn = driver_evaluator.with_coefficients(
+        evaluate_driver_at_t = driver_evaluator.with_coefficients(
             np.asarray(driver_coefficients, dtype=precision)
         )
     else:
-        driver_fn = driver_evaluator
+        evaluate_driver_at_t = driver_evaluator
 
     duration = precision(solver_settings["duration"])
     warmup = precision(solver_settings["warmup"])
@@ -546,13 +549,15 @@ def run_reference_loop_with_history(
     tableau = implicit_step_settings.get("tableau")
     stepper = get_ref_stepper(
         evaluator,
-        driver_fn,
+        evaluate_driver_at_t,
         solver_settings["algorithm"],
-        newton_tol=implicit_step_settings["newton_tolerance"],
-        newton_max_iters=implicit_step_settings["max_newton_iters"],
-        linear_tol=implicit_step_settings["krylov_tolerance"],
-        linear_max_iters=implicit_step_settings["max_linear_iters"],
-        linear_correction_type=implicit_step_settings["linear_correction_type"],
+        newton_tol=implicit_step_settings["newton_atol"],
+        newton_max_iters=implicit_step_settings["newton_max_iters"],
+        linear_tol=implicit_step_settings["krylov_atol"],
+        linear_max_iters=implicit_step_settings["krylov_max_iters"],
+        linear_correction_type=implicit_step_settings[
+            "linear_correction_type"
+        ],
         preconditioner_order=implicit_step_settings["preconditioner_order"],
         tableau=tableau,
         newton_damping=implicit_step_settings.get("newton_damping"),
@@ -565,7 +570,6 @@ def run_reference_loop_with_history(
         solver_settings["saved_state_indices"], dtype=np.int32
     )
 
-
     save_time = output_functions.save_time
     max_save_samples = int(np.floor(duration / save_every)) + 1
 
@@ -575,7 +579,7 @@ def run_reference_loop_with_history(
     time_history: List[float] = []
     t = precision(0.0)
     controller.dt = controller.dt0
-    drivers_initial = driver_fn(precision(t))
+    drivers_initial = evaluate_driver_at_t(precision(t))
     observables = evaluator.observables(
         state,
         params,
@@ -604,7 +608,7 @@ def run_reference_loop_with_history(
             do_save = True
 
         try:
-            sampled = driver_fn(precision(t))
+            sampled = evaluate_driver_at_t(precision(t))
             sampled_tuple: Tuple[float, ...] = tuple(
                 np.asarray(sampled, dtype=float).tolist()
             )
@@ -718,13 +722,15 @@ def plot_step_histories(
         top_ax.set_title(SYSTEM_LABELS.get(system_name, system_name))
         top_ax.set_xlabel("Time (s)")
         top_ax.set_ylabel("Step size (s)")
-        top_ax.set_yscale('log')
+        top_ax.set_yscale("log")
         top_ax.grid(True, linestyle=":", linewidth=0.6)
         if accepted and rejected:
             top_ax.legend(loc="best")
 
         # State + driver plot (bottom row)
-        entry = state_histories.get(system_name, None) if state_histories else None
+        entry = (
+            state_histories.get(system_name, None) if state_histories else None
+        )
         if entry is not None:
             variants = entry.get("variants", [])
             if variants:
@@ -733,7 +739,10 @@ def plot_step_histories(
                 states_arr = np.asarray(states, dtype=float)
 
                 # plot states if shape matches (saved per save_every)
-                if states_arr.ndim == 2 and states_arr.shape[0] == times_arr.size:
+                if (
+                    states_arr.ndim == 2
+                    and states_arr.shape[0] == times_arr.size
+                ):
                     n_states = states_arr.shape[1]
                     cmap = plt.get_cmap("tab10")
                     for si in range(n_states):
@@ -764,10 +773,14 @@ def plot_step_histories(
 
         bottom_ax.set_xlabel("Time (s)")
         bottom_ax.set_ylabel("Value")
-        bottom_ax.grid(True, linestyle=":", linewidth=0.6)  # add grid to state plot
+        bottom_ax.grid(
+            True, linestyle=":", linewidth=0.6
+        )  # add grid to state plot
         bottom_ax.legend(loc="best")
 
-    fig.suptitle(f"Step-size history for {controller_label} controller", fontsize=14)
+    fig.suptitle(
+        f"Step-size history for {controller_label} controller", fontsize=14
+    )
     fig.tight_layout(rect=(0, 0.03, 1, 0.95))
 
     plt.show()
@@ -788,9 +801,7 @@ def run_analysis() -> Dict[str, Dict[str, List[StepRecord]]]:
                 "Running analysis for "
                 f"{controller} controller on {system_name}"
             )
-            precision = (
-                np.float64 if system_name == "stiff" else np.float32
-            )
+            precision = np.float64 if system_name == "stiff" else np.float32
             system = builder(precision)
             solver_settings = build_solver_settings(precision)
             solver_settings = {
@@ -823,7 +834,9 @@ def run_analysis() -> Dict[str, Dict[str, List[StepRecord]]]:
             initial_state = system.initial_values.values_array.astype(
                 precision, copy=True
             )
-            parameters = system.parameters.values_array.astype(precision, copy=True)
+            parameters = system.parameters.values_array.astype(
+                precision, copy=True
+            )
             label = "run1"
             print("    initial_state:", initial_state)
 
@@ -835,9 +848,7 @@ def run_analysis() -> Dict[str, Dict[str, List[StepRecord]]]:
                 parameters=parameters,
                 driver_array=driver_array,
             )
-            controller_instance = create_controller(
-                step_settings, precision
-            )
+            controller_instance = create_controller(step_settings, precision)
             outputs, step_records = run_reference_loop_with_history(
                 evaluator=cpu_system,
                 inputs=inputs,
@@ -850,8 +861,12 @@ def run_analysis() -> Dict[str, Dict[str, List[StepRecord]]]:
             )
             histories.extend(step_records)
             # collect raw saved state/time for plotting
-            state_variants.append((outputs.get("time_history", np.array([])), outputs.get("state_history", np.array([]))))
-
+            state_variants.append(
+                (
+                    outputs.get("time_history", np.array([])),
+                    outputs.get("state_history", np.array([])),
+                )
+            )
 
             controller_histories[system_name] = histories
             controller_state_histories[system_name] = {
@@ -859,8 +874,12 @@ def run_analysis() -> Dict[str, Dict[str, List[StepRecord]]]:
             }
 
         all_histories[controller] = controller_histories
-        plot_step_histories(controller, driver_evaluator,
-                            controller_histories, controller_state_histories)
+        plot_step_histories(
+            controller,
+            driver_evaluator,
+            controller_histories,
+            controller_state_histories,
+        )
 
 
 def main() -> Dict[str, Dict[str, List[StepRecord]]]:

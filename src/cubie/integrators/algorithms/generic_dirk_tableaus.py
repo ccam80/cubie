@@ -8,7 +8,7 @@ import math
 from cubie.integrators.algorithms.base_algorithm_step import ButcherTableau
 
 
-@attrs.define(frozen=True)
+@attrs.define
 class DIRKTableau(ButcherTableau):
     """Coefficient tableau describing a diagonally implicit RK scheme.
 
@@ -36,6 +36,7 @@ class DIRKTableau(ButcherTableau):
             self.a[idx][idx] for idx in range(self.stage_count)
         )
         return self.typed_vector(diagonal_entries, precision)
+
 
 IMPLICIT_MIDPOINT_TABLEAU = DIRKTableau(
     a=((0.5,),),
@@ -101,7 +102,7 @@ Hairer, E., Lubich, C., & Wanner, G. (2006). *Geometric Numerical
 Integration* (2nd ed.). Springer.
 """
 
-SQRT2 = 2 ** 0.5
+SQRT2 = 2**0.5
 SDIRK2_GAMMA = (2 - SQRT2) / 2.0
 SDIRK_2_2_TABLEAU = DIRKTableau(
     a=(
@@ -127,7 +128,7 @@ stiff ODEs. *SIAM Journal on Numerical Analysis*, 14(6), 1006-1021.
 Further cited with embedded weights in NASA's review: 
 https://ntrs.nasa.gov/api/citations/20160005923/downloads/20160005923.pdf
 """
-SQRT6 = 6 ** 0.5
+SQRT6 = 6**0.5
 ARCTAN_TERM = math.atan(SQRT2 / 4.0) / 3.0
 L_STABLE_DIRK3_GAMMA = (
     -SQRT2 * math.cos(ARCTAN_TERM) / 2.0
@@ -140,32 +141,20 @@ L_STABLE_DIRK3_TABLEAU = DIRKTableau(
         ((1.0 - L_STABLE_DIRK3_GAMMA) / 2.0, L_STABLE_DIRK3_GAMMA, 0.0),
         (
             (
-                -6.0 * L_STABLE_DIRK3_GAMMA ** 2
+                -6.0 * L_STABLE_DIRK3_GAMMA**2
                 + 16.0 * L_STABLE_DIRK3_GAMMA
                 - 1.0
             )
             / 4.0,
-            (
-                6.0 * L_STABLE_DIRK3_GAMMA ** 2
-                - 20.0 * L_STABLE_DIRK3_GAMMA
-                + 5.0
-            )
+            (6.0 * L_STABLE_DIRK3_GAMMA**2 - 20.0 * L_STABLE_DIRK3_GAMMA + 5.0)
             / 4.0,
             L_STABLE_DIRK3_GAMMA,
         ),
     ),
     b=(
-        (
-            -6.0 * L_STABLE_DIRK3_GAMMA ** 2
-            + 16.0 * L_STABLE_DIRK3_GAMMA
-            - 1.0
-        )
+        (-6.0 * L_STABLE_DIRK3_GAMMA**2 + 16.0 * L_STABLE_DIRK3_GAMMA - 1.0)
         / 4.0,
-        (
-            6.0 * L_STABLE_DIRK3_GAMMA ** 2
-            - 20.0 * L_STABLE_DIRK3_GAMMA
-            + 5.0
-        )
+        (6.0 * L_STABLE_DIRK3_GAMMA**2 - 20.0 * L_STABLE_DIRK3_GAMMA + 5.0)
         / 4.0,
         L_STABLE_DIRK3_GAMMA,
     ),
@@ -218,13 +207,7 @@ L_STABLE_SDIRK4_TABLEAU = DIRKTableau(
         -85.0 / 12.0,
         QUARTER,
     ),
-    b_hat=(
-        59.0 / 48.0,
-        -17.0 / 96.0,
-        225.0 / 32.0,
-        -85.0 / 12.0,
-        0.0
-    ),
+    b_hat=(59.0 / 48.0, -17.0 / 96.0, 225.0 / 32.0, -85.0 / 12.0, 0.0),
     c=(
         QUARTER,
         3.0 / 4.0,
