@@ -6,6 +6,7 @@ solvers that are consumed by modules in :mod:`cubie.integrators`.
 
 from enum import IntEnum
 
+from .base_solver import MatrixFreeSolverConfig
 from .linear_solver import (
     LinearSolver,
     LinearSolverConfig,
@@ -35,6 +36,7 @@ __all__ = [
     "LinearSolver",
     "LinearSolverConfig",
     "LinearSolverCache",
+    "MatrixFreeSolverConfig",
     "NewtonKrylov",
     "NewtonKrylovConfig",
     "NewtonKrylovCache",
