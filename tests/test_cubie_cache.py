@@ -183,21 +183,17 @@ def test_cubie_cache_path():
 # --- BatchSolverKernel integration tests ---
 
 
-def test_batch_solver_kernel_cache_in_cudasim(solverkernel):
-    """Verify cache behavior in CUDASIM mode.
+def test_batch_solver_kernel_builds_without_error(solverkernel):
+    """Verify BatchSolverKernel builds successfully in all modes.
 
-    With vendored caching infrastructure, a cache object can be
-    attached in CUDASIM mode. The cache will function for
-    infrastructure operations (eviction, flush) but no compiled
-    kernel files are produced since compilation doesn't occur.
+    This smoke test confirms the kernel compilation path executes
+    without raising exceptions, regardless of CUDA/CUDASIM mode.
     """
-    from cubie.cuda_simsafe import is_cudasim_enabled
-
-    # Build the kernel to trigger cache attachment logic
+    # Build the kernel - this exercises the full compilation path
     kernel = solverkernel.kernel
 
-    # In both modes, cache behavior depends on caching_enabled setting
-    # which is tested separately. This test just verifies no errors.
+    # Verify kernel was created
+    assert kernel is not None
 
 
 # --- CUDASIM Mode Compatibility Tests ---
@@ -306,15 +302,25 @@ def test_invalidate_cache_no_op_when_hash_mode(tmp_path):
 
 
 def test_invalidate_cache_flushes_when_flush_mode(tmp_path):
-    """Verify invalidate_cache calls flush in flush_on_change mode."""
+    """Verify invalidate_cache flushes cache in flush_on_change mode."""
     from cubie.cubie_cache import invalidate_cache
 
-    # In both CUDA and CUDASIM modes, invalidate_cache should work
+    # Create cache directory with marker file
+    cache_dir = tmp_path / "test_cache"
+    cache_dir.mkdir(parents=True, exist_ok=True)
+    marker_file = cache_dir / "marker.txt"
+    marker_file.write_text("test")
+    assert marker_file.exists()
+
+    # invalidate_cache should remove the cache contents
     invalidate_cache(
         cache_arg="flush_on_change",
         system_name="test_system",
         system_hash="abc123",
         config_hash="def456789012345678901234567890123456"
         "789012345678901234567890abcd",
+        custom_cache_dir=cache_dir,
     )
-    # No assertion needed - just verify it runs without error
+
+    # Verify cache was flushed (directory removed)
+    assert not cache_dir.exists()

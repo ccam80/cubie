@@ -163,16 +163,6 @@ else:  # pragma: no cover - exercised in GPU environments
         return cuda.current_context().get_memory_info()
 
 
-# --- Caching infrastructure ---
-# These classes work in both CUDA and CUDASIM modes
-from numba.cuda.core.caching import (
-    _CacheLocator,
-    CacheImpl,
-    IndexDataCacheFile,
-)
-from cubie.vendored.numba_cuda_cache import Cache
-
-
 def is_cuda_array(value: Any) -> bool:
     """Check whether ``value`` should be treated as a CUDA array."""
 
@@ -324,12 +314,9 @@ def is_cudasim_enabled() -> bool:
 
 
 __all__ = [
-    "_CacheLocator",
     "activemask",
     "all_sync",
     "BaseCUDAMemoryManager",
-    "Cache",
-    "CacheImpl",
     "compile_kwargs",
     "CUDA_SIMULATION",
     "current_mem_info",
@@ -345,7 +332,6 @@ __all__ = [
     "from_dtype",
     "GetIpcHandleMixin",
     "HostOnlyCUDAMemoryManager",
-    "IndexDataCacheFile",
     "is_cuda_array",
     "is_cudasim_enabled",
     "is_devfunc",

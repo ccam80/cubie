@@ -19,12 +19,12 @@ from attrs import field, validators as val, define, converters
 
 from cubie.CUDAFactory import _CubieConfigBase
 from cubie._utils import getype_validator
-from cubie.cuda_simsafe import (
+from numba.cuda.core.caching import (
     _CacheLocator,
-    Cache,
     CacheImpl,
     IndexDataCacheFile,
 )
+from cubie.vendored.numba_cuda_cache import Cache
 from cubie.odesystems.symbolic.odefile import GENERATED_DIR
 
 
@@ -315,13 +315,6 @@ class CUBIECache(Cache):
         mode: str = "hash",
         custom_cache_dir: Optional[Path] = None,
     ) -> None:
-        # Caching not available in CUDA simulator mode
-        # if not _CACHING_AVAILABLE:
-        #     raise RuntimeError(
-        #         "CUBIECache is not available in CUDA simulator mode. "
-        #         "File-based caching requires a real CUDA environment."
-        #     )
-
         self._system_name = system_name
         self._system_hash = system_hash
 
@@ -477,8 +470,7 @@ def create_cache(
     Returns
     -------
     CUBIECache or None
-        CUBIECache instance if caching enabled and not in CUDASIM mode,
-        None otherwise.
+        CUBIECache instance if caching is enabled, None otherwise.
     """
     cache_config = CacheConfig.from_user_setting(cache_arg)
     if not cache_config.enabled:
@@ -499,6 +491,7 @@ def invalidate_cache(
     system_name: str,
     system_hash: str,
     config_hash: str,
+    custom_cache_dir: Optional[Path] = None,
 ) -> None:
     """Invalidate cache if in flush_on_change mode.
 
@@ -512,6 +505,8 @@ def invalidate_cache(
         Hash representing the ODE system definition.
     config_hash
         Pre-computed hash of compile settings.
+    custom_cache_dir
+        Optional custom cache directory path for testing.
 
     Notes
     -----
@@ -524,15 +519,18 @@ def invalidate_cache(
     if cache_config.mode != "flush_on_change":
         return
 
+    # Compute cache path directly without creating CUBIECache
+    if custom_cache_dir is not None:
+        cache_path = Path(custom_cache_dir)
+    elif cache_config.cache_dir is not None:
+        cache_path = Path(cache_config.cache_dir)
+    else:
+        cache_path = GENERATED_DIR / system_name / "CUDA_cache"
+
+    # Best-effort flush
     try:
-        cache = CUBIECache(
-            system_name=system_name,
-            system_hash=system_hash,
-            config_hash=config_hash,
-            max_entries=cache_config.max_entries,
-            mode=cache_config.mode,
-            custom_cache_dir=cache_config.cache_dir,
-        )
-        cache.flush_cache()
-    except (OSError, TypeError, ValueError, AttributeError):
+        if cache_path.exists():
+            import shutil
+            shutil.rmtree(cache_path)
+    except OSError:
         pass
