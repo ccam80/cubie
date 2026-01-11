@@ -9,8 +9,8 @@ Notes
 -----
 This module depends on numba-cuda internal classes and may require
 updates when numba-cuda versions change. Where cache modules are not
-imported by Numba in CUDASIM mode, this module relies on venfored versions
-in the `src\vendored` directory. This allows caching to function in CUDASIM
+imported by Numba in CUDASIM mode, this module relies on vendored versions
+in the `src/vendored` directory. This allows caching to function in CUDASIM
 mode for testing purposes, even though no compiled kernels are produced.
 """
 
