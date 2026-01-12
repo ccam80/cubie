@@ -5,8 +5,8 @@ from attrs.validators import (
     instance_of as attrsval_instance_of,
     optional as attrsval_optional,
 )
+from numba import cuda
 from numpy import (
-    ascontiguousarray as np_ascontiguousarray,
     dtype as np_dtype,
     float32 as np_float32,
     floating as np_floating,
@@ -379,7 +379,11 @@ class InputArrays(BaseArrayManager):
                 slice_tuple = [slice(None)] * len(stride_order)
                 slice_tuple[chunk_index] = host_indices
                 host_slice = host_obj.array[tuple(slice_tuple)]
-                # Make contiguous for device transfer
-                from_.append(np_ascontiguousarray(host_slice))
+                # Create pinned buffer for async device transfer
+                pinned_buffer = cuda.pinned_array(
+                    host_slice.shape, dtype=host_slice.dtype
+                )
+                pinned_buffer[:] = host_slice
+                from_.append(pinned_buffer)
 
         self.to_device(from_, to_)

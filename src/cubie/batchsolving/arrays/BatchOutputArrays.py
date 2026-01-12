@@ -7,8 +7,8 @@ if TYPE_CHECKING:
 
 from attrs import define, field
 from attrs.validators import instance_of as attrsval_instance_of
+from numba import cuda
 from numpy import (
-    ascontiguousarray as np_ascontiguousarray,
     float32 as np_float32,
     floating as np_floating,
     int32 as np_int32,
@@ -368,13 +368,15 @@ class OutputArrays(BaseArrayManager):
                     host_indices, chunk_index, len(stride_order)
                 )
                 host_slice = host_array[slice_tuple]
-                # Make contiguous copy for device transfer
-                contiguous_slice = np_ascontiguousarray(host_slice)
+                # Create pinned buffer for async device transfer
+                pinned_buffer = cuda.pinned_array(
+                    host_slice.shape, dtype=host_slice.dtype
+                )
                 # Store for deferred writeback after stream sync
                 self._deferred_writebacks.append(
-                    (host_array, slice_tuple, contiguous_slice)
+                    (host_array, slice_tuple, pinned_buffer)
                 )
-                to_.append(contiguous_slice)
+                to_.append(pinned_buffer)
             else:
                 to_.append(host_array)
             from_.append(device_array)
