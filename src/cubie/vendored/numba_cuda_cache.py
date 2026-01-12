@@ -16,6 +16,7 @@ from abc import ABCMeta, abstractmethod
 
 from numba.cuda.core.caching import IndexDataCacheFile
 from numba.cuda.serialize import dumps
+from numba.cuda import utils
 
 
 class _Cache(metaclass=ABCMeta):
@@ -150,3 +151,14 @@ class Cache(_Cache):
                 hasher(cvarbytes),
             ),
         )
+
+
+class CUDACache(Cache):
+    """
+    Implements a cache that saves and loads CUDA kernels and compile results.
+    """
+
+    def load_overload(self, sig, target_context):
+        # Loading an overload refreshes the context to ensure it is initialized.
+        with utils.numba_target_override():
+            return super().load_overload(sig, target_context)

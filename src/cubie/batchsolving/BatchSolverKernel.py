@@ -727,6 +727,7 @@ class BatchSolverKernel(CUDAFactory):
                 float64,
                 int32,
             ),
+            cache=True,
             **compile_kwargs,
         )
         def integration_kernel(
@@ -950,10 +951,6 @@ class BatchSolverKernel(CUDAFactory):
         ----------
         path
             New cache directory path. Can be absolute or relative.
-
-        Notes
-        -----
-        Setting cache_dir implies caching is desired.
         """
         self.cache_handler.update(cache_dir=Path(path))
 

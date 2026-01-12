@@ -32,7 +32,7 @@ from numba.cuda.core.caching import (  # noqa: F401
 )
 
 from cubie.cuda_simsafe import is_cudasim_enabled
-from cubie.vendored.numba_cuda_cache import Cache
+from cubie.vendored.numba_cuda_cache import CUDACache
 from cubie.odesystems.symbolic.odefile import GENERATED_DIR
 
 
@@ -233,9 +233,8 @@ class CUBIECacheImpl(CacheImpl):
                 "CUBIECacheImpl.reduce() was called inside "
                 "CUDASIM mode, indicating a cache miss when "
                 "there are no compiled kernels available. This "
-                "should be indicates a config error; it "
-                "should not be reachable if CUDASIM mode was "
-                "properly enabled."
+                "indicates a config error; it should not be reachable if "
+                "CUDASIM mode was properly enabled."
             )
 
     def rebuild(self, target_context, payload: dict):
@@ -262,9 +261,8 @@ class CUBIECacheImpl(CacheImpl):
                 "CUBIECacheImpl.rebuild() was called inside "
                 "CUDASIM mode, indicating a cache hit when "
                 "there are no compiled kernels available. This "
-                "should be indicates a config error; it "
-                "should not be reachable if CUDASIM mode was "
-                "properly enabled."
+                "indicates a config error; it should not be reachable if "
+                "CUDASIM mode was properly enabled."
             )
 
     def check_cachable(self, data) -> bool:
@@ -280,7 +278,7 @@ class CUBIECacheImpl(CacheImpl):
         return True
 
 
-class CUBIECache(Cache):
+class CUBIECache(CUDACache):
     """File-based cache for CuBIE compiled kernels.
 
     Coordinates loading and saving of cached kernels, incorporating
@@ -488,7 +486,9 @@ class CUBIECache(Cache):
             )
 
     def set_hashes(
-        self, system_hash: str = None, compile_settings_hash: str = None
+        self,
+        system_hash: Optional[str] = None,
+        compile_settings_hash: Optional[str] = None,
     ) -> None:
         """Update system and compile settings hashes.
 
