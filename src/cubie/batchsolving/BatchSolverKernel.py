@@ -536,9 +536,8 @@ class BatchSolverKernel(CUDAFactory):
             )
             kernel_event.record_end(stream)
 
-            # We don't want to sync between chunks, we should queue runs and
-            # transfers in the stream and sync before final result fetch.
-            # self.memory_manager.sync_stream(self)
+            # Release input buffers after kernel (H2D complete)
+            self.input_arrays.release_buffers()
 
             # d2h transfer timing
             d2h_event.record_start(stream)
@@ -549,9 +548,8 @@ class BatchSolverKernel(CUDAFactory):
         # Finalize GPU workload timing
         self._gpu_workload_event.record_end(stream)
 
-        # Sync stream and complete deferred writebacks after all chunks
-        self.memory_manager.sync_stream(self)
-        self.output_arrays.complete_writeback()
+        # Wait for async writebacks; handles both chunked and non-chunked modes
+        self.output_arrays.wait_pending()
 
         if self.profileCUDA:  # pragma: no cover
             cuda.profile_stop()

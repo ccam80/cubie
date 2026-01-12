@@ -437,7 +437,7 @@ class Solver:
             stream=stream,
             chunk_axis=chunk_axis,
         )
-        self.memory_manager.sync_stream(self.kernel)
+        # Sync handled inside kernel.run() via wait_pending()
 
         # Stop wall-clock timing and print all timing summaries
         # (CUDA events retrieved automatically by print_summary)

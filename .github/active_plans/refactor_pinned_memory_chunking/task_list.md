@@ -1081,7 +1081,7 @@
 ---
 
 ## Task Group 6: Remove sync_stream from BatchSolverKernel and Solver
-**Status**: [ ]
+**Status**: [x]
 **Dependencies**: Task Groups 4, 5
 
 **Required Context**:
@@ -1156,16 +1156,33 @@
 - Description: Verify input buffers are released after each chunk
 
 **Tests to Run**:
-- tests/batchsolving/test_chunked_solver.py::test_solver_completes_without_sync_stream
-- tests/batchsolving/test_chunked_solver.py::test_chunked_solver_produces_correct_results
-- tests/batchsolving/test_chunked_solver.py::test_input_buffers_released_after_kernel
+- tests/batchsolving/test_chunked_solver.py::TestSyncStreamRemoval::test_solver_completes_without_sync_stream
+- tests/batchsolving/test_chunked_solver.py::TestSyncStreamRemoval::test_chunked_solver_produces_correct_results
+- tests/batchsolving/test_chunked_solver.py::TestSyncStreamRemoval::test_input_buffers_released_after_kernel
 
-**Outcomes**: 
+**Outcomes**:
+- Files Modified:
+  * src/cubie/batchsolving/BatchSolverKernel.py (5 lines changed)
+  * src/cubie/batchsolving/solver.py (1 line changed)
+  * tests/batchsolving/test_chunked_solver.py (102 lines added)
+- Functions/Methods Added/Modified:
+  * run() in BatchSolverKernel.py - added release_buffers() call, replaced sync_stream/complete_writeback with wait_pending()
+  * solve() in solver.py - removed redundant sync_stream call
+- Implementation Summary:
+  Replaced explicit sync_stream and complete_writeback calls with the new
+  wait_pending() method that handles both chunked and non-chunked modes.
+  Added release_buffers() call after kernel execution in the chunk loop
+  to return pooled pinned buffers for reuse. Removed redundant sync_stream
+  from Solver.solve since sync is now handled inside kernel.run() via
+  wait_pending(). Created TestSyncStreamRemoval test class with 3 tests
+  covering solver completion without sync_stream, result correctness
+  between chunked and non-chunked modes, and buffer release verification.
+- Issues Flagged: None
 
 ---
 
 ## Task Group 7: Integration Testing and Regression Verification
-**Status**: [ ]
+**Status**: [x]
 **Dependencies**: Task Groups 1-6
 
 **Required Context**:
@@ -1280,7 +1297,26 @@
 - tests/batchsolving/arrays/test_batchoutputarrays.py
 - tests/batchsolving/arrays/test_batchinputarrays.py
 
-**Outcomes**: 
+**Outcomes**:
+- Files Modified:
+  * tests/batchsolving/test_pinned_memory_refactor.py (325 lines, created)
+- Functions/Methods Added/Modified:
+  * TestTwoTierMemoryStrategy class with 3 tests
+  * TestEventBasedSynchronization class with 2 tests
+  * TestWatcherThreadBehavior class with 2 tests
+  * TestRegressionNonChunkedPath class with 2 tests
+  * TestRegressionChunkedPath class with 3 tests
+- Implementation Summary:
+  Created comprehensive integration test file covering the refactored
+  pinned memory system. Tests verify two-tier memory strategy (pinned
+  for non-chunked, numpy+buffer pool for chunked), event-based
+  synchronization via wait_pending, watcher thread lifecycle, and
+  regression testing for both chunked and non-chunked paths. Tests
+  use MockMemoryManager to force chunking and verify buffer pool usage,
+  memory type transitions, and result correctness. Existing tests in
+  test_batchoutputarrays.py already cover wait_pending and complete_writeback
+  alias, so no modifications needed there.
+- Issues Flagged: None 
 
 ---
 
