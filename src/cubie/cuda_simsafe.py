@@ -4,6 +4,7 @@ This module centralises compatibility utilities for environments running with
 ``NUMBA_ENABLE_CUDASIM=1``.  It exposes a consistent surface so callers can
 import CUDA-facing helpers without branching on simulator state.
 """
+
 from __future__ import annotations
 
 from contextlib import contextmanager
@@ -21,21 +22,22 @@ CUDA_SIMULATION: bool = os.environ.get("NUMBA_ENABLE_CUDASIM") == "1"
 # Compile kwargs for cuda.jit decorators
 # lineinfo is not supported in CUDASIM mode
 compile_kwargs: dict[str, bool] = (
-        {} if CUDA_SIMULATION
-        else {
-            'lineinfo': True,
-            # 'debug':True,
-            # 'opt':False,
-            'fastmath': {
-                'nsz': True,
-                   'contract': True,
-                   'arcp': True,
-              },
-        }
+    {}
+    if CUDA_SIMULATION
+    else {
+        "lineinfo": True,
+        # 'debug':True,
+        # 'opt':False,
+        "fastmath": {
+            "nsz": True,
+            "contract": True,
+            "arcp": True,
+        },
+    }
 )
 
 
-class FakeBaseCUDAMemoryManager: # pragma: no cover - placeholder
+class FakeBaseCUDAMemoryManager:  # pragma: no cover - placeholder
     """Minimal stub of a CUDA memory manager."""
 
     def __init__(self, context: Union[Any, None] = None):
@@ -53,7 +55,9 @@ class FakeBaseCUDAMemoryManager: # pragma: no cover - placeholder
         return contextmanager(lambda: (yield))()
 
 
-class FakeNumbaCUDAMemoryManager(FakeBaseCUDAMemoryManager): # pragma: no cover - placeholder
+class FakeNumbaCUDAMemoryManager(
+    FakeBaseCUDAMemoryManager
+):  # pragma: no cover - placeholder
     """Minimal fake of a CUDA memory manager."""
 
     handle: int = 0
@@ -84,7 +88,9 @@ class FakeStream:  # pragma: no cover - placeholder
     handle = c_void_p(0)
 
 
-class FakeHostOnlyCUDAManager(FakeBaseCUDAMemoryManager):  # pragma: no cover - placeholder
+class FakeHostOnlyCUDAManager(
+    FakeBaseCUDAMemoryManager
+):  # pragma: no cover - placeholder
     """Host-only manager used in simulation environments."""
 
 
@@ -109,13 +115,13 @@ class FakeMemoryPointer:  # pragma: no cover - placeholder
 class FakeMemoryInfo:  # pragma: no cover - placeholder
     """Container for fake memory statistics."""
 
-    free = 1024 ** 3
-    total = 8 * 1024 ** 3
+    free = 1024**3
+    total = 8 * 1024**3
 
 
 if CUDA_SIMULATION:  # pragma: no cover - simulated
     from numba.cuda.simulator.cudadrv.devicearray import FakeCUDAArray
-
+    from cubie.vendored.numba_cuda_cache import CUDACache
     NumbaCUDAMemoryManager = FakeNumbaCUDAMemoryManager
     BaseCUDAMemoryManager = FakeBaseCUDAMemoryManager
     HostOnlyCUDAMemoryManager = FakeHostOnlyCUDAManager
@@ -126,7 +132,6 @@ if CUDA_SIMULATION:  # pragma: no cover - simulated
     DeviceNDArrayBase = FakeCUDAArray
     DeviceNDArray = FakeCUDAArray
     MappedNDArray = FakeCUDAArray
-    # local = LocalArrayFactory()
 
     def current_mem_info() -> Tuple[int, int]:
         """Return fake free and total memory values."""
@@ -156,6 +161,8 @@ else:  # pragma: no cover - exercised in GPU environments
         MappedNDArray,
     )
     from numba.cuda.cudadrv.driver import GetIpcHandleMixin  # type: ignore[attr-defined]
+    from numba.cuda.dispatcher import CUDACache # noqa: Linter can't find
+    # cuda.dispatcher
 
     def current_mem_info() -> Tuple[int, int]:
         """Return free and total memory from the active CUDA context."""
@@ -215,6 +222,7 @@ def is_devfunc(func: Callable[..., Any]) -> bool:
 
 
 if CUDA_SIMULATION:  # pragma: no cover - simulated
+
     @cuda.jit(
         device=True,
         inline=True,
@@ -244,20 +252,21 @@ if CUDA_SIMULATION:  # pragma: no cover - simulated
         return predicate
 
     @cuda.jit(
-            device=True,
-            inline=True,
+        device=True,
+        inline=True,
     )
     def syncwarp(mask):
         pass
 
     @cuda.jit(
-            device=True,
-            inline=True,
+        device=True,
+        inline=True,
     )
     def stwt(array, index, value):
         array[index] = value
 
 else:  # pragma: no cover - relies on GPU runtime
+
     @cuda.jit(
         device=True,
         inline=True,
@@ -299,9 +308,9 @@ else:  # pragma: no cover - relies on GPU runtime
         return cuda.syncwarp(mask)
 
     @cuda.jit(
-            device=True,
-            inline=True,
-            **compile_kwargs,
+        device=True,
+        inline=True,
+        **compile_kwargs,
     )
     def stwt(array, index, value):
         cuda.stwt(array, index, value)
@@ -319,6 +328,7 @@ __all__ = [
     "BaseCUDAMemoryManager",
     "compile_kwargs",
     "CUDA_SIMULATION",
+    "CUDACache",
     "current_mem_info",
     "DeviceNDArray",
     "DeviceNDArrayBase",

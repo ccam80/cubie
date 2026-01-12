@@ -10,10 +10,9 @@ if a custom directory is provided as an argument to "cache".
 Notes
 -----
 This module depends on numba-cuda internal classes and may require
-updates when numba-cuda versions change. Where cache modules are not
-imported by Numba in CUDASIM mode, this module relies on vendored versions
-in the `src/vendored` directory. This allows caching to function in CUDASIM
-mode for testing purposes, even though no compiled kernels are produced.
+updates when numba-cuda versions change. The CUDACache class is imported
+from cubie_simsafe, which imports a vendored version when CUDASIM is enabled,
+as the module is not imported in that mode.
 """
 
 from shutil import rmtree
@@ -31,8 +30,7 @@ from numba.cuda.core.caching import (  # noqa: F401
     IndexDataCacheFile,  # noqa: F401
 )
 
-from cubie.cuda_simsafe import is_cudasim_enabled
-from cubie.vendored.numba_cuda_cache import CUDACache
+from cubie.cuda_simsafe import is_cudasim_enabled, CUDACache
 from cubie.odesystems.symbolic.odefile import GENERATED_DIR
 
 
@@ -473,7 +471,7 @@ class CUBIECache(CUDACache):
             Path(config_root) / f"CUDA_cache_{config.system_hash[:8]}"
         )
 
-        if config_specified != current_locator_path:
+        if Path(config_specified) != current_locator_path:
             # Recreate impl with new cache directory
             self._impl = CUBIECacheImpl(
                 self._system_name,
@@ -683,10 +681,6 @@ class CubieCacheHandler:
 
         recognized, changed = self.config.update(updates_dict)
 
-        # Update cache if it exists and settings changed
-        if self._cache is not None and changed:
-            self._cache.update_from_config(self.config)
-
         # Handle cache being enabled via update
         if "cache_enabled" in changed:
             if self.config.cache_enabled:
@@ -700,6 +694,10 @@ class CubieCacheHandler:
                 )
             else:
                 self._cache = None
+
+        # Update cache if it exists and settings changed
+        if self._cache is not None and changed:
+            self._cache.update_from_config(self.config)
 
         unrecognized = set(updates_dict.keys()) - recognized
 
