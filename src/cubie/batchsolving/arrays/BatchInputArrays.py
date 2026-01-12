@@ -275,7 +275,7 @@ class InputArrays(BaseArrayManager):
         )
 
     def update_from_solver(self, solver_instance: "BatchSolverKernel") -> None:
-        """Refresh size, precision, and chunk axis from the solver.
+        """Refresh size and precision from the solver.
 
         Parameters
         ----------
@@ -289,7 +289,6 @@ class InputArrays(BaseArrayManager):
         """
         self._sizes = BatchInputSizes.from_solver(solver_instance).nonzero
         self._precision = solver_instance.precision
-        self._chunk_axis = solver_instance.chunk_axis
         for name, arr_obj in self.host.iter_managed_arrays():
             arr_obj.shape = getattr(self._sizes, name)
             if np_issubdtype(np_dtype(arr_obj.dtype), np_floating):

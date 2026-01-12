@@ -425,6 +425,10 @@ class BatchSolverKernel(CUDAFactory):
             }
         )
 
+        # Set chunk_axis before array updates so any code reading
+        # solver.chunk_axis during updates gets the correct value
+        self.chunk_axis = chunk_axis
+
         # Queue allocations
         self.input_arrays.update(self, inits, params, driver_coefficients)
         self.output_arrays.update(self)
