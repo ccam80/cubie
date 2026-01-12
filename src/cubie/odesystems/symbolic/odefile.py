@@ -34,8 +34,9 @@ class ODEFile:
         fn_hash
             Hash representing the symbolic system definition.
         """
-        GENERATED_DIR.mkdir(exist_ok=True)
-        self.file_path = GENERATED_DIR / f"{system_name}.py"
+        system_dir = GENERATED_DIR / system_name
+        system_dir.mkdir(parents=True, exist_ok=True)
+        self.file_path = system_dir / f"{system_name}.py"
         self.fn_hash = fn_hash
         self._init_file(fn_hash)
 

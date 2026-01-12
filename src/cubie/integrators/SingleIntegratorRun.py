@@ -36,18 +36,6 @@ class SingleIntegratorRun(SingleIntegratorRunCore):
     # Compile settings
     # ------------------------------------------------------------------
     @property
-    def precision(self) -> PrecisionDType:
-        """Return the numerical precision configured for the run."""
-
-        return self.compile_settings.precision
-
-    @property
-    def numba_precision(self) -> type:
-        """Return the Numba compatible precision for the run."""
-
-        return self.compile_settings.numba_precision
-
-    @property
     def algorithm(self) -> str:
         """Return the configured algorithm identifier."""
 

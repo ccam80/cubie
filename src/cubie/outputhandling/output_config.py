@@ -22,7 +22,6 @@ from numpy import (
     arange as np_arange,
     array_equal as np_array_equal,
     asarray as np_asarray,
-    floating as np_floating,
     int_ as np_int,
     ndarray,
     unique as np_unique,
@@ -113,6 +112,9 @@ class OutputCompileFlags(_CubieConfigBase):
     save_counters: bool = field(
         default=False, validator=attrsval_instance_of(bool)
     )
+
+    def __attrs_post_init__(self):
+        super().__attrs_post_init__()
 
 
 @define
@@ -658,11 +660,6 @@ class OutputConfig(CUDAFactoryConfig):
     def sample_summaries_every(self) -> Optional[float]:
         """Time interval between summary metric samples."""
         return self._sample_summaries_every
-
-    @property
-    def precision(self) -> type[np_floating]:
-        """Numerical precision for output calculations."""
-        return self._precision
 
     @property
     def summaries_buffer_height_per_var(self) -> int:

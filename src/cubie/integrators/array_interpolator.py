@@ -118,6 +118,9 @@ class ArrayInterpolatorConfig(CUDAFactoryConfig):
         validator=validators.instance_of(int),
     )
 
+    def __attrs_post_init__(self):
+        super().__attrs_post_init__()
+
 
 class ArrayInterpolator(CUDAFactory):
     """Factory emitting CUDA device functions for interpolating array-driven
@@ -978,11 +981,6 @@ class ArrayInterpolator(CUDAFactory):
     def num_segments(self) -> int:
         """Return the number of polynomial segments."""
         return self.compile_settings.num_segments
-
-    @property
-    def precision(self) -> PrecisionDType:
-        """Return the numerical precision used for the run."""
-        return self.compile_settings.precision
 
     @property
     def t0(self) -> float:

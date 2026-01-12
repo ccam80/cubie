@@ -1,6 +1,6 @@
 """Base classes for constructing cached CUDA device functions with Numba."""
 
-import hashlib
+from hashlib import sha256
 from abc import ABC, abstractmethod
 from typing import Set, Any, Tuple, Dict
 
@@ -22,7 +22,7 @@ from cubie._utils import (
 from cubie.cuda_simsafe import from_dtype as simsafe_dtype
 
 
-def _hash_tuple(input: Tuple) -> str:
+def hash_tuple(input: Tuple) -> str:
     """Serialize a value to a string for hashing.
 
     Parameters
@@ -42,12 +42,12 @@ def _hash_tuple(input: Tuple) -> str:
         elif isinstance(value, ndarray):
             # Hash array bytes for deterministic result, incorporating shape
             # and dtype
-            array_hash = hashlib.sha256(value.tobytes()).hexdigest()
+            array_hash = sha256(value.tobytes()).hexdigest()
             parts.append(f"ndarray:{array_hash}")
         else:
             parts.append(str(value))
     combined = "|".join(parts)
-    return hashlib.sha256(combined.encode("utf-8")).hexdigest()
+    return sha256(combined.encode("utf-8")).hexdigest()
 
 
 def attribute_is_hashable(attribute: Attribute, value: Any) -> bool:
@@ -202,7 +202,7 @@ class _CubieConfigBase:
         Called automatically after __init__ and update() (only if any fields
         were modified, in the latter case).
         """
-        return _hash_tuple(self.values_tuple)
+        return hash_tuple(self.values_tuple)
 
     @property
     def cache_dict(self):
@@ -415,25 +415,6 @@ class CUDAFactory(ABC):
         """Return the current compile settings object."""
         return self._compile_settings
 
-    @property
-    def config_hash(self) -> str:
-        """Return the hash of the current compile settings.
-
-        Returns
-        -------
-        str
-            SHA256 hexdigest of current compile settings.
-
-        Notes
-        -----
-        Returns the values_hash directly from the CUDAFactoryConfig object.
-        Override this method if the CUDAFactory subclass has nested
-        CUDAFactory objects (like the solvers in an implicit integrator) to
-        call their individual config_hash properties and combine and hash
-        them together.
-        """
-        return self._compile_settings.values_hash
-
     def update_compile_settings(
         self, updates_dict=None, silent=False, **kwargs
     ) -> Set[str]:
@@ -538,6 +519,39 @@ class CUDAFactory(ABC):
                 f"Output '{output_name}' is not implemented in this class."
             )
         return cache_contents
+
+    @property
+    def config_hash(self):
+        """Returns the hash of the current compile settings of the factory.
+        If the factory has child factories, their hashes will be hashed and
+        the individual hashes will be concatenated and re-hashed.
+        """
+        own_hash = self.compile_settings.values_hash
+        child_hashes = tuple()
+        for child_factory in self._iter_child_factories():
+            child_hashes = child_hashes + (child_factory.config_hash,)
+        if child_hashes:
+            # Combine all nested hashes and re-hash
+            hash_str = "|".join((own_hash,) + child_hashes)
+            return sha256(hash_str.encode("utf-8")).hexdigest()
+        else:
+            return own_hash
+
+    def _iter_child_factories(self):
+        """Yield direct attribute values that are CUDAFactory instances.
+
+        Only inspects immediate attributes (no nested attrs/dicts/iterables).
+        Each child is yielded once (uniqueness by id). Attributes are sorted
+        alphabetically by name for deterministic ordering.
+        """
+        seen = set()
+        for name in sorted(vars(self).keys()):
+            val = getattr(self, name)
+            if isinstance(val, CUDAFactory):
+                oid = id(val)
+                if oid not in seen:
+                    seen.add(oid)
+                    yield val
 
     @property
     def precision(self) -> type:
