@@ -285,7 +285,7 @@ graph TD
 graph TB
     subgraph "Solver (No Storage)"
         S1[solve method<br/>receives chunk_axis]
-        S2[@property chunk_axis<br/>returns kernel.chunk_axis]
+        S2[property chunk_axis<br/>returns kernel.chunk_axis]
     end
     
     subgraph "BatchSolverKernel (Owner 1)"
