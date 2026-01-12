@@ -394,7 +394,7 @@ class CUBIECache(CUDACache):
         # Sort by mtime (oldest first)
         nbi_files.sort(key=lambda f: f.stat().st_mtime)
 
-        files_to_remove = len(nbi_files) - self._max_entries
+        files_to_remove = len(nbi_files) - self._max_entries + 1
         for nbi_file in nbi_files[:files_to_remove]:
             base = nbi_file.stem
             # Remove .nbi file
