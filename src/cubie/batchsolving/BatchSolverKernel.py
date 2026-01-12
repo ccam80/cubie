@@ -147,7 +147,6 @@ class BatchSolverKernel(CUDAFactory):
         self._warmup = precision(0.0)
         self._t0 = precision(0.0)
         self.chunks = None
-        self.chunk_axis = "run"
         self.num_runs = 1
 
         # CUDA event tracking for timing
@@ -400,6 +399,9 @@ class BatchSolverKernel(CUDAFactory):
         self._duration = duration
         self._warmup = warmup
         self._t0 = t0
+
+        # Set chunk_axis on both array managers before array operations
+        self.chunk_axis = chunk_axis
 
         # inits is in (variable, run) format - run count is in shape[1]
         numruns = inits.shape[1]
@@ -1035,6 +1037,45 @@ class BatchSolverKernel(CUDAFactory):
     @t0.setter
     def t0(self, value: float) -> None:
         self._t0 = np_float64(value)
+
+    @property
+    def chunk_axis(self) -> str:
+        """Current chunking axis.
+
+        Returns the chunk_axis value from the array managers, validating
+        that input and output arrays have consistent values.
+
+        Returns
+        -------
+        str
+            The axis along which arrays are chunked.
+
+        Raises
+        ------
+        ValueError
+            If input_arrays and output_arrays have different chunk_axis
+            values.
+        """
+        input_axis = self.input_arrays._chunk_axis
+        output_axis = self.output_arrays._chunk_axis
+        if input_axis != output_axis:
+            raise ValueError(
+                f"Inconsistent chunk_axis: input_arrays has '{input_axis}', "
+                f"output_arrays has '{output_axis}'"
+            )
+        return input_axis
+
+    @chunk_axis.setter
+    def chunk_axis(self, value: str) -> None:
+        """Set chunk_axis on both input and output array managers.
+
+        Parameters
+        ----------
+        value
+            The chunking axis to set.
+        """
+        self.input_arrays._chunk_axis = value
+        self.output_arrays._chunk_axis = value
 
     @property
     def output_length(self) -> int:
