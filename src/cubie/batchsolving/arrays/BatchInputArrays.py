@@ -14,11 +14,12 @@ from numpy import (
 )
 
 from numpy.typing import NDArray
-from typing import Optional, TYPE_CHECKING, Union
+from typing import List, Optional, TYPE_CHECKING, Union
 
 if TYPE_CHECKING:
     from cubie.batchsolving.BatchSolverKernel import BatchSolverKernel
 
+from cubie.memory.chunk_buffer_pool import ChunkBufferPool, PinnedBuffer
 from cubie.outputhandling.output_sizes import BatchInputSizes
 from cubie.batchsolving.arrays.BaseArrayManager import (
     ArrayContainer,
@@ -56,13 +57,19 @@ class InputArrayContainer(ArrayContainer):
     )
 
     @classmethod
-    def host_factory(cls) -> "InputArrayContainer":
-        """Create a container configured for pinned host memory transfers.
+    def host_factory(cls, memory_type: str = "pinned") -> "InputArrayContainer":
+        """Create a container configured for host memory transfers.
+
+        Parameters
+        ----------
+        memory_type
+            Memory type for host arrays: "pinned" or "host".
+            Default is "pinned" for non-chunked operation.
 
         Returns
         -------
         InputArrayContainer
-            Pinned host-side container instance.
+            Host-side container instance.
 
         Notes
         -----
@@ -72,7 +79,7 @@ class InputArrayContainer(ArrayContainer):
         async transfers due to required intermediate buffering.
         """
         container = cls()
-        container.set_memory_type("pinned")
+        container.set_memory_type(memory_type)
         return container
 
     @classmethod
@@ -160,6 +167,8 @@ class InputArrays(BaseArrayManager):
         validator=attrsval_instance_of(InputArrayContainer),
         init=False,
     )
+    _buffer_pool: ChunkBufferPool = field(factory=ChunkBufferPool, init=False)
+    _active_buffers: List[PinnedBuffer] = field(factory=list, init=False)
 
     def __attrs_post_init__(self) -> None:
         """Ensure host and device containers use explicit memory types.
@@ -351,8 +360,10 @@ class InputArrays(BaseArrayManager):
 
         Notes
         -----
-        Host slices are made contiguous before transfer to ensure
-        compatible strides with device arrays.
+        For chunked mode, pinned buffers are acquired from the pool for
+        staging data before H2D transfer. Buffers are stored in
+        _active_buffers and released after the H2D transfer completes.
+        For non-chunked mode, pinned buffers are allocated directly.
         """
         from_ = []
         to_ = []
@@ -379,11 +390,38 @@ class InputArrays(BaseArrayManager):
                 slice_tuple = [slice(None)] * len(stride_order)
                 slice_tuple[chunk_index] = host_indices
                 host_slice = host_obj.array[tuple(slice_tuple)]
-                # Create pinned buffer for async device transfer
-                pinned_buffer = cuda.pinned_array(
-                    host_slice.shape, dtype=host_slice.dtype
-                )
-                pinned_buffer[:] = host_slice
-                from_.append(pinned_buffer)
+
+                if self.is_chunked:
+                    # Chunked mode: use buffer pool for pinned staging
+                    buffer = self._buffer_pool.acquire(
+                        array_name, host_slice.shape, host_slice.dtype
+                    )
+                    buffer.array[:] = host_slice
+                    from_.append(buffer.array)
+                    # Store buffer for later release after H2D completes
+                    self._active_buffers.append(buffer)
+                else:
+                    # Non-chunked: allocate pinned buffer directly
+                    pinned_buffer = cuda.pinned_array(
+                        host_slice.shape, dtype=host_slice.dtype
+                    )
+                    pinned_buffer[:] = host_slice
+                    from_.append(pinned_buffer)
 
         self.to_device(from_, to_)
+
+    def release_buffers(self) -> None:
+        """Release all active buffers back to the pool.
+
+        Should be called after H2D transfer completes to return pooled
+        pinned buffers for reuse by subsequent chunks.
+        """
+        for buffer in self._active_buffers:
+            self._buffer_pool.release(buffer)
+        self._active_buffers.clear()
+
+    def reset(self) -> None:
+        """Clear all cached arrays and reset allocation tracking."""
+        super().reset()
+        self._buffer_pool.clear()
+        self._active_buffers.clear()

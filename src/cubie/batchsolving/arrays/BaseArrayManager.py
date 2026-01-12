@@ -226,6 +226,32 @@ class BaseArrayManager(ABC):
     _needs_overwrite: list[str] = field(factory=list, init=False)
     _memory_manager: MemoryManager = field(default=default_memmgr)
 
+    @property
+    def is_chunked(self) -> bool:
+        """Return True if arrays are being processed in multiple chunks."""
+        return self._chunks > 1
+
+    def get_host_memory_type(self, is_chunked: bool) -> str:
+        """Determine host memory type based on chunking state.
+
+        Parameters
+        ----------
+        is_chunked
+            Whether the array will be processed in chunks.
+
+        Returns
+        -------
+        str
+            "pinned" for non-chunked, "host" for chunked arrays.
+
+        Notes
+        -----
+        Non-chunked arrays use pinned memory for async transfers.
+        Chunked arrays use regular numpy with per-chunk pinned buffers
+        to limit total pinned memory to one chunk's worth.
+        """
+        return "host" if is_chunked else "pinned"
+
     def __attrs_post_init__(self) -> None:
         """
         Initialize the array manager after attrs initialization.

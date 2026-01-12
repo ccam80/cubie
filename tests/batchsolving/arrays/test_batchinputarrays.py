@@ -8,6 +8,7 @@ from cubie.batchsolving.arrays.BatchInputArrays import (
     InputArrays,
 )
 from cubie.memory import default_memmgr
+from cubie.memory.chunk_buffer_pool import ChunkBufferPool, PinnedBuffer
 from cubie.outputhandling.output_sizes import BatchInputSizes
 
 
@@ -448,3 +449,175 @@ def test_input_arrays_with_different_systems(
     assert input_arrays_manager.device_initial_values is not None
     assert input_arrays_manager.device_parameters is not None
     assert input_arrays_manager.device_driver_coefficients is not None
+
+
+class TestBufferPoolIntegration:
+    """Test buffer pool integration for chunked mode."""
+
+    def test_input_arrays_has_buffer_pool(self, input_arrays_manager):
+        """Verify InputArrays has a ChunkBufferPool attribute."""
+        assert hasattr(input_arrays_manager, '_buffer_pool')
+        assert isinstance(input_arrays_manager._buffer_pool, ChunkBufferPool)
+
+    def test_input_arrays_has_active_buffers(self, input_arrays_manager):
+        """Verify InputArrays has an _active_buffers list."""
+        assert hasattr(input_arrays_manager, '_active_buffers')
+        assert isinstance(input_arrays_manager._active_buffers, list)
+
+    def test_initialise_uses_buffer_pool_when_chunked(
+        self, solver, sample_input_arrays, precision
+    ):
+        """Verify chunked initialise acquires buffers from pool."""
+        input_arrays = InputArrays.from_solver(solver)
+        input_arrays.update(
+            solver,
+            sample_input_arrays["initial_values"],
+            sample_input_arrays["parameters"],
+            sample_input_arrays["driver_coefficients"],
+        )
+
+        # Configure for chunked mode (multiple chunks)
+        input_arrays._chunks = 3
+        input_arrays._chunk_axis = "run"
+
+        # Clear any existing active buffers
+        input_arrays._active_buffers.clear()
+
+        # Call initialise with a slice for a chunk
+        num_runs = sample_input_arrays["initial_values"].shape[1]
+        chunk_size = num_runs // 3
+        host_indices = slice(0, chunk_size)
+        input_arrays.initialise(host_indices)
+
+        # Verify buffers were acquired and stored in _active_buffers
+        assert len(input_arrays._active_buffers) > 0
+        for buffer in input_arrays._active_buffers:
+            assert isinstance(buffer, PinnedBuffer)
+            assert buffer.in_use is True
+
+    def test_release_buffers_returns_to_pool(
+        self, solver, sample_input_arrays, precision
+    ):
+        """Verify release_buffers returns buffers to pool."""
+        input_arrays = InputArrays.from_solver(solver)
+        input_arrays.update(
+            solver,
+            sample_input_arrays["initial_values"],
+            sample_input_arrays["parameters"],
+            sample_input_arrays["driver_coefficients"],
+        )
+
+        # Configure for chunked mode
+        input_arrays._chunks = 3
+        input_arrays._chunk_axis = "run"
+
+        # Call initialise to acquire buffers
+        num_runs = sample_input_arrays["initial_values"].shape[1]
+        chunk_size = num_runs // 3
+        host_indices = slice(0, chunk_size)
+        input_arrays.initialise(host_indices)
+
+        # Store reference to buffers before release
+        buffers_before = list(input_arrays._active_buffers)
+        assert len(buffers_before) > 0
+
+        # Release buffers
+        input_arrays.release_buffers()
+
+        # Verify _active_buffers is cleared
+        assert len(input_arrays._active_buffers) == 0
+
+        # Verify buffers are marked as not in use
+        for buffer in buffers_before:
+            assert buffer.in_use is False
+
+    def test_non_chunked_uses_direct_pinned(
+        self, solver, sample_input_arrays, precision
+    ):
+        """Verify non-chunked mode does not use buffer pool."""
+        input_arrays = InputArrays.from_solver(solver)
+        input_arrays.update(
+            solver,
+            sample_input_arrays["initial_values"],
+            sample_input_arrays["parameters"],
+            sample_input_arrays["driver_coefficients"],
+        )
+
+        # Configure for non-chunked mode (single chunk)
+        input_arrays._chunks = 1
+        input_arrays._chunk_axis = "run"
+
+        # Clear any existing active buffers
+        input_arrays._active_buffers.clear()
+
+        # Call initialise with full slice
+        host_indices = slice(None)
+        input_arrays.initialise(host_indices)
+
+        # Verify no buffers were acquired from pool
+        assert len(input_arrays._active_buffers) == 0
+
+    def test_reset_clears_buffer_pool_and_active_buffers(
+        self, solver, sample_input_arrays, precision
+    ):
+        """Verify reset clears buffer pool and active buffers."""
+        input_arrays = InputArrays.from_solver(solver)
+        input_arrays.update(
+            solver,
+            sample_input_arrays["initial_values"],
+            sample_input_arrays["parameters"],
+            sample_input_arrays["driver_coefficients"],
+        )
+
+        # Configure for chunked mode and run initialise
+        input_arrays._chunks = 3
+        input_arrays._chunk_axis = "run"
+        num_runs = sample_input_arrays["initial_values"].shape[1]
+        chunk_size = num_runs // 3
+        host_indices = slice(0, chunk_size)
+        input_arrays.initialise(host_indices)
+
+        # Verify there are active buffers
+        assert len(input_arrays._active_buffers) > 0
+
+        # Call reset
+        input_arrays.reset()
+
+        # Verify both active buffers and pool are cleared
+        assert len(input_arrays._active_buffers) == 0
+        # Verify pool has no buffers after clear
+        assert len(input_arrays._buffer_pool._buffers) == 0
+
+    def test_buffers_reused_across_chunks(
+        self, solver, sample_input_arrays, precision
+    ):
+        """Verify buffers are reused when released between chunks."""
+        input_arrays = InputArrays.from_solver(solver)
+        input_arrays.update(
+            solver,
+            sample_input_arrays["initial_values"],
+            sample_input_arrays["parameters"],
+            sample_input_arrays["driver_coefficients"],
+        )
+
+        # Configure for chunked mode
+        input_arrays._chunks = 3
+        input_arrays._chunk_axis = "run"
+        num_runs = sample_input_arrays["initial_values"].shape[1]
+        chunk_size = num_runs // 3
+
+        # First chunk
+        host_indices_1 = slice(0, chunk_size)
+        input_arrays.initialise(host_indices_1)
+        first_buffers = list(input_arrays._active_buffers)
+        first_buffer_ids = [b.buffer_id for b in first_buffers]
+        input_arrays.release_buffers()
+
+        # Second chunk - should reuse buffers from pool
+        host_indices_2 = slice(chunk_size, 2 * chunk_size)
+        input_arrays.initialise(host_indices_2)
+        second_buffers = list(input_arrays._active_buffers)
+        second_buffer_ids = [b.buffer_id for b in second_buffers]
+
+        # Buffer IDs should match, indicating reuse
+        assert first_buffer_ids == second_buffer_ids
