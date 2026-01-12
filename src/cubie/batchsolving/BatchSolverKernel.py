@@ -810,10 +810,13 @@ class BatchSolverKernel(CUDAFactory):
                 status_codes_output[run_index] = status
             return None
 
+        # no cover: end
+
         # Update cache for this configuration and attach
         cfg_hash = self.config_hash
-        self.kernel._cache = self.cache_handler.configured_cache(cfg_hash)
-        # no cover: end
+        integration_kernel._cache = self.cache_handler.configured_cache(
+            cfg_hash
+        )
         return integration_kernel
 
     def update(
