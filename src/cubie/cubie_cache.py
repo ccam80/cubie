@@ -463,13 +463,16 @@ class CUBIECache(Cache):
 
         # Note: Changing cache_dir requires recreating the cache.
         current_locator_path = self._impl.locator._cache_root_dir
-        if config.cache_dir is None:
-            mismatch = (
-                current_locator_path != GENERATED_DIR / config.system_name
-            )
-        else:
-            mismatch = config.cache_dir != current_locator_path
-        if mismatch:
+        config_root = (
+            config.cache_dir
+            if config.cache_dir
+            else GENERATED_DIR / config.system_name
+        )
+        config_specified = (
+            Path(config_root) / f"CUDA_cache_{config.system_hash[:8]}"
+        )
+
+        if config_specified != config_root:
             # Recreate impl with new cache directory
             self._impl = CUBIECacheImpl(
                 self._system_name,
