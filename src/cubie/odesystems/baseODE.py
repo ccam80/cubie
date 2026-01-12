@@ -366,7 +366,11 @@ class BaseODE(CUDAFactory):
         values change, we need to rebuild."""
         own_hash = super().config_hash
         const_values = tuple(
-            sorted(self.compile_settings.constants.values_dict.items())
+        const_values = tuple()
+        if self.compile_settings.constants is not None:
+            const_values = tuple(
+                sorted(self.compile_settings.constants.values_dict.items())
+            )
         )
         const_hash = hash_tuple(const_values)
         combined = "|".join([own_hash, const_hash])
