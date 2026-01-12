@@ -712,22 +712,6 @@ class BatchSolverKernel(CUDAFactory):
 
         # no cover: start
         @cuda.jit(
-            (
-                precision[:, ::1],
-                precision[:, ::1],
-                precision[:, :, ::1],
-                precision[:, :, ::1],
-                precision[:, :, ::1],
-                precision[:, :, ::1],
-                precision[:, :, ::1],
-                int32[:, :, ::1],
-                int32[::1],
-                float64,
-                float64,
-                float64,
-                int32,
-            ),
-            cache=True,
             **compile_kwargs,
         )
         def integration_kernel(

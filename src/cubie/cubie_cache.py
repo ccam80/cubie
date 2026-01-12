@@ -194,6 +194,9 @@ class CUBIECacheImpl(CacheImpl):
     @property
     def filename_base(self) -> str:
         """Return base filename for cache files."""
+        system_name = self._locator._system_name
+        disambiguator = self._locator.get_disambiguator()
+        self._filename_base = f"{system_name}-{disambiguator}"
         return self._filename_base
 
     def set_hashes(
@@ -499,11 +502,20 @@ class CUBIECache(CUDACache):
         compile_settings_hash
             New compile settings hash to set.
         """
+        filename_before = self._impl.filename_base
         if system_hash is not None:
             self._system_hash = system_hash
         if compile_settings_hash is not None:
             self._compile_settings_hash = compile_settings_hash
         self._impl.set_hashes(system_hash, compile_settings_hash)
+
+        if filename_before != self._impl.filename_base:
+            # Update cache file to reflect new filename base
+            self._cache_file = IndexDataCacheFile(
+                cache_path=self._cache_path,
+                filename_base=self._impl.filename_base,
+                source_stamp=self._impl.locator.get_source_stamp(),
+            )
 
 
 @define
