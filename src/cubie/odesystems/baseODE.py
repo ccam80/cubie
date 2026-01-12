@@ -365,7 +365,7 @@ class BaseODE(CUDAFactory):
         constant values. When labels change, we need to re-codegen, but when
         values change, we need to rebuild."""
         own_hash = super().config_hash
-        constant_values = tuple()
+        const_values = tuple()
         if self.constants is not None:
             const_values = tuple(sorted(self.constants.values_dict.items()))
         const_hash = hash_tuple(const_values)

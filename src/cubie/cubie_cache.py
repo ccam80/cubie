@@ -388,7 +388,7 @@ class CUBIECache(CUDACache):
 
         # Find all .nbi files (index files)
         nbi_files = list(cache_path.glob("*.nbi"))
-        if len(nbi_files) < self._max_entries:
+        if len(nbi_files) <= self._max_entries:
             return
 
         # Sort by mtime (oldest first)
