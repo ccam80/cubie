@@ -471,7 +471,7 @@ class CUBIECache(CUDACache):
             Path(config_root) / f"CUDA_cache_{config.system_hash[:8]}"
         )
 
-        if Path(config_specified) != current_locator_path:
+        if Path(config_specified) != Path(current_locator_path):
             # Recreate impl with new cache directory
             self._impl = CUBIECacheImpl(
                 self._system_name,
