@@ -1,14 +1,13 @@
-
 import numpy as np
 import pytest
 from numpy.testing import assert_array_equal
 
-from cubie.batchsolving.arrays.BatchOutputArrays import (OutputArrayContainer,
+from cubie.batchsolving.arrays.BatchOutputArrays import (
+    OutputArrayContainer,
     OutputArrays,
 )
 from cubie.memory.mem_manager import MemoryManager
 from cubie.outputhandling.output_sizes import BatchOutputSizes
-
 
 
 @pytest.fixture(scope="session")
@@ -38,8 +37,9 @@ def test_memory_manager():
 
 
 @pytest.fixture(scope="function")
-def output_arrays_manager(precision, solver, output_test_settings,
-                          test_memory_manager):
+def output_arrays_manager(
+    precision, solver, output_test_settings, test_memory_manager
+):
     """Create a OutputArrays instance using real solver"""
     solver.kernel.duration = 1.0
 
@@ -56,7 +56,7 @@ def output_arrays_manager(precision, solver, output_test_settings,
 @pytest.fixture(scope="function")
 def sample_output_arrays(solver_mutable, output_test_settings, precision):
     """Create sample output arrays for testing based on real solver"""
-    solver=solver_mutable
+    solver = solver_mutable
     solver.kernel.duration = 1.0
     num_runs = output_test_settings["num_runs"]
     dtype = precision
@@ -101,10 +101,8 @@ class TestOutputArrayContainer:
         assert set(container.array_names()) == expected_arrays
         for _, managed in container.iter_managed_arrays():
             assert_array_equal(
-                    managed.array,
-                    np.zeros(managed.shape, dtype=managed.dtype)
+                managed.array, np.zeros(managed.shape, dtype=managed.dtype)
             )
-
 
     def test_container_stride_order(self):
         """Test that stride order is set correctly"""
@@ -143,7 +141,9 @@ class TestOutputArrays:
             "status_codes",
         }
         assert set(output_arrays_manager.host.array_names()) == expected_arrays
-        assert set(output_arrays_manager.device.array_names()) == expected_arrays
+        assert (
+            set(output_arrays_manager.device.array_names()) == expected_arrays
+        )
 
         # Check memory types are set correctly in post_init
         for _, managed in output_arrays_manager.host.iter_managed_arrays():
@@ -245,7 +245,6 @@ class TestOutputArrays:
         assert output_arrays_manager._chunks == 2
         assert output_arrays_manager._chunk_axis == "run"
 
-
     def test_update_from_solver(self, output_arrays_manager, solver):
         """Test update_from_solver method"""
         output_arrays_manager.update_from_solver(solver)
@@ -322,9 +321,11 @@ class TestOutputArrays:
         host_indices = slice(None)
         output_arrays_manager.finalise(host_indices)
 
-        # Sync stream and complete deferred writebacks
-        output_arrays_manager._memory_manager.sync_stream(output_arrays_manager)
-        output_arrays_manager.complete_writeback()
+        # Sync stream and complete writebacks
+        output_arrays_manager._memory_manager.sync_stream(
+            output_arrays_manager
+        )
+        output_arrays_manager.wait_pending()
 
         # Verify that host arrays now contain the modified device data
         np.testing.assert_array_equal(
@@ -342,9 +343,9 @@ class TestOutputArrays:
 
 
 @pytest.mark.parametrize(
-    "solver_settings_override", [{"precision": np.float32},
-                                 {"precision": np.float64}],
-                                 indirect=True,
+    "solver_settings_override",
+    [{"precision": np.float32}, {"precision": np.float64}],
+    indirect=True,
 )
 def test_dtype(output_arrays_manager, solver, precision):
     """Test OutputArrays with different configurations"""
@@ -355,24 +356,16 @@ def test_dtype(output_arrays_manager, solver, precision):
     assert output_arrays_manager.state.dtype == expected_dtype
     assert output_arrays_manager.observables.dtype == expected_dtype
     assert output_arrays_manager.state_summaries.dtype == expected_dtype
-    assert (
-        output_arrays_manager.observable_summaries.dtype == expected_dtype
-    )
+    assert output_arrays_manager.observable_summaries.dtype == expected_dtype
     assert output_arrays_manager.status_codes.dtype == np.int32
     assert output_arrays_manager.device_status_codes.dtype == np.int32
     assert output_arrays_manager.device_state.dtype == expected_dtype
-    assert (
-        output_arrays_manager.device_observables.dtype == expected_dtype
-    )
-    assert (
-        output_arrays_manager.device_state_summaries.dtype
-        == expected_dtype
-    )
+    assert output_arrays_manager.device_observables.dtype == expected_dtype
+    assert output_arrays_manager.device_state_summaries.dtype == expected_dtype
     assert (
         output_arrays_manager.device_observable_summaries.dtype
         == expected_dtype
     )
-
 
 
 @pytest.mark.parametrize(
@@ -428,7 +421,7 @@ def test_output_arrays_with_different_configs(
                 "peaks[2]",
             ],
         },
-{
+        {
             "system_type": "stiff",
             "saved_state_indices": None,
             "saved_observable_indices": None,
@@ -441,7 +434,7 @@ def test_output_arrays_with_different_configs(
                 "peaks[2]",
             ],
         },
-{
+        {
             "system_type": "linear",
             "saved_state_indices": None,
             "saved_observable_indices": None,
@@ -453,12 +446,13 @@ def test_output_arrays_with_different_configs(
                 "rms",
                 "peaks[2]",
             ],
-        }
+        },
     ],
     indirect=True,
 )
-def test_output_arrays_with_different_systems(output_arrays_manager,
-                                              solver_mutable):
+def test_output_arrays_with_different_systems(
+    output_arrays_manager, solver_mutable
+):
     """Test OutputArrays with different system models"""
     # Test that the manager works with different system types
     solver = solver_mutable
@@ -587,50 +581,6 @@ class TestBufferPoolAndWatcherIntegration:
         # Just verify no exceptions occurred
         assert output_arrays_manager.state is not None
 
-    def test_complete_writeback_alias_works(
-        self, output_arrays_manager, solver
-    ):
-        """Verify complete_writeback still works for compatibility."""
-        output_arrays_manager.update(solver)
-
-        # Set up chunking
-        output_arrays_manager._chunks = 1
-        output_arrays_manager._chunk_axis = "run"
-
-        # Call finalise
-        host_indices = slice(None)
-        output_arrays_manager.finalise(host_indices)
-
-        # Use alias - should work same as wait_pending
-        output_arrays_manager.complete_writeback()
-
-        # Verify no exceptions and arrays exist
-        assert output_arrays_manager.state is not None
-
-    def test_non_chunked_uses_legacy_path(
-        self, output_arrays_manager, solver
-    ):
-        """Verify non-chunked mode uses deferred writebacks."""
-        output_arrays_manager.update(solver)
-
-        # Ensure non-chunked mode
-        output_arrays_manager._chunks = 1
-        output_arrays_manager._chunk_axis = "run"
-
-        # Call finalise
-        host_indices = slice(None)
-        output_arrays_manager.finalise(host_indices)
-
-        # Non-chunked mode uses deferred writebacks, not buffer pool
-        # After finalise, deferred writebacks should have entries
-        # (in non-chunked mode)
-
-        # Complete writeback should work
-        output_arrays_manager._memory_manager.sync_stream(output_arrays_manager)
-        output_arrays_manager.complete_writeback()
-
-        assert output_arrays_manager.state is not None
-
     def test_reset_clears_buffer_pool_and_watcher(
         self, output_arrays_manager, solver
     ):
@@ -658,6 +608,3 @@ class TestBufferPoolAndWatcherIntegration:
 
         # Pending buffers should be clear
         assert len(output_arrays_manager._pending_buffers) == 0
-
-        # Deferred writebacks should be clear
-        assert len(output_arrays_manager._deferred_writebacks) == 0

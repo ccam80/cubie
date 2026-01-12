@@ -536,9 +536,6 @@ class BatchSolverKernel(CUDAFactory):
             )
             kernel_event.record_end(stream)
 
-            # Release input buffers after kernel (H2D complete)
-            self.input_arrays.release_buffers()
-
             # d2h transfer timing
             d2h_event.record_start(stream)
             self.input_arrays.finalise(indices)
@@ -547,9 +544,6 @@ class BatchSolverKernel(CUDAFactory):
 
         # Finalize GPU workload timing
         self._gpu_workload_event.record_end(stream)
-
-        # Wait for async writebacks; handles both chunked and non-chunked modes
-        self.output_arrays.wait_pending()
 
         if self.profileCUDA:  # pragma: no cover
             cuda.profile_stop()
@@ -880,6 +874,10 @@ class BatchSolverKernel(CUDAFactory):
 
         # Include unpacked dict keys in recognized set
         return recognised | unpacked_keys
+
+    def wait_for_writeback(self):
+        """Wait for async writebacks into host arrays after chunked runs"""
+        self.output_arrays.wait_pending()
 
     @property
     def precision(self) -> PrecisionDType:

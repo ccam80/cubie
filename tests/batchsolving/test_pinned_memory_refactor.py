@@ -61,7 +61,10 @@ class TestTwoTierMemoryStrategy:
         assert solver.kernel.output_arrays._chunks == 1
 
         # Verify host arrays are pinned when non-chunked
-        for name, slot in solver.kernel.output_arrays.host.iter_managed_arrays():
+        for (
+            name,
+            slot,
+        ) in solver.kernel.output_arrays.host.iter_managed_arrays():
             assert slot.memory_type == "pinned"
 
     def test_chunked_uses_numpy_host(self, system, precision, low_memory):
@@ -93,7 +96,10 @@ class TestTwoTierMemoryStrategy:
 
         # When chunked, host arrays should be numpy (not pinned)
         # to limit total pinned memory to buffer pool only
-        for name, slot in solver.kernel.output_arrays.host.iter_managed_arrays():
+        for (
+            name,
+            slot,
+        ) in solver.kernel.output_arrays.host.iter_managed_arrays():
             if slot.is_chunked:
                 assert slot.memory_type == "host"
 
@@ -134,7 +140,9 @@ class TestTwoTierMemoryStrategy:
 class TestEventBasedSynchronization:
     """Test CUDA event synchronization."""
 
-    def test_wait_pending_blocks_correctly(self, system, precision, low_memory):
+    def test_wait_pending_blocks_correctly(
+        self, system, precision, low_memory
+    ):
         """wait_pending blocks until all writebacks complete."""
         solver = Solver(system, algorithm="euler", memory_manager=low_memory)
 
@@ -163,28 +171,13 @@ class TestEventBasedSynchronization:
         assert result.time_domain_array is not None
         assert not np.any(np.isnan(result.time_domain_array))
 
-    def test_wait_pending_timeout_raises(self, solver):
-        """wait_pending raises TimeoutError if timeout expires."""
-        solver.kernel.duration = 1.0
-        batch_output_sizes = BatchOutputSizes.from_solver(solver)
-        output_arrays = OutputArrays(
-            sizes=batch_output_sizes,
-            precision=solver.precision,
-        )
-        output_arrays.update(solver)
-
-        # No pending tasks, so this should complete immediately
-        output_arrays.wait_pending(timeout=0.1)
-
-        # This confirms the timeout mechanism exists without actually
-        # timing out (which would require slow async operations)
-        assert True
-
 
 class TestWatcherThreadBehavior:
     """Test watcher thread lifecycle and behavior."""
 
-    def test_watcher_starts_on_first_chunk(self, system, precision, low_memory):
+    def test_watcher_starts_on_first_chunk(
+        self, system, precision, low_memory
+    ):
         """Watcher thread starts when first task submitted."""
         solver = Solver(system, algorithm="euler", memory_manager=low_memory)
 
@@ -266,9 +259,7 @@ class TestRegressionNonChunkedPath:
         assert not np.all(result.time_domain_array == 0)
         assert not np.any(np.isnan(result.time_domain_array))
 
-    def test_non_chunked_path_no_buffer_pool_usage(
-        self, solver, precision
-    ):
+    def test_non_chunked_path_no_buffer_pool_usage(self, solver, precision):
         """Non-chunked mode does not use buffer pool for output arrays."""
         solver.kernel.duration = 1.0
         batch_output_sizes = BatchOutputSizes.from_solver(solver)
@@ -292,7 +283,6 @@ class TestRegressionNonChunkedPath:
 
         # Complete the writebacks
         output_arrays._memory_manager.sync_stream(output_arrays)
-        output_arrays.complete_writeback()
 
 
 class TestRegressionChunkedPath:

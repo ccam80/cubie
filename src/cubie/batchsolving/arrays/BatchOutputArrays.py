@@ -1,6 +1,6 @@
 """Manage output array lifecycles for batch solver executions."""
 
-from typing import TYPE_CHECKING, Dict, List, Optional, Tuple, Union
+from typing import TYPE_CHECKING, Dict, List, Optional, Union
 
 if TYPE_CHECKING:
     from cubie.batchsolving.BatchSolverKernel import BatchSolverKernel
@@ -28,17 +28,13 @@ from cubie.batchsolving.arrays.BaseArrayManager import (
 from cubie.batchsolving import ArrayTypes
 from cubie._utils import slice_variable_dimension
 from cubie.memory.chunk_buffer_pool import ChunkBufferPool
-from cubie.batchsolving.writeback_watcher import WritebackWatcher
+from cubie.batchsolving.writeback_watcher import (
+    WritebackWatcher,
+    PendingBuffer,
+)
 from cubie.cuda_simsafe import CUDA_SIMULATION
 
 ChunkIndices = Union[slice, NDArray[np_integer]]
-
-# Type alias for deferred writeback entries
-DeferredWriteback = Tuple[NDArray, tuple, NDArray]
-
-# Type alias for pending buffer entries used in chunked mode
-# (buffer, host_array, slice, name, data_shape)
-PendingBuffer = Tuple[object, NDArray, tuple, str, tuple]
 
 
 @define(slots=False)
@@ -90,7 +86,9 @@ class OutputArrayContainer(ArrayContainer):
     )
 
     @classmethod
-    def host_factory(cls, memory_type: str = "pinned") -> "OutputArrayContainer":
+    def host_factory(
+        cls, memory_type: str = "pinned"
+    ) -> "OutputArrayContainer":
         """
         Create a new host memory container.
 
@@ -159,7 +157,8 @@ class OutputArrays(BaseArrayManager):
     """
 
     _sizes: BatchOutputSizes = field(
-        factory=BatchOutputSizes, validator=attrsval_instance_of(BatchOutputSizes)
+        factory=BatchOutputSizes,
+        validator=attrsval_instance_of(BatchOutputSizes),
     )
     host: OutputArrayContainer = field(
         factory=OutputArrayContainer.host_factory,
@@ -171,9 +170,9 @@ class OutputArrays(BaseArrayManager):
         validator=attrsval_instance_of(OutputArrayContainer),
         init=False,
     )
-    _deferred_writebacks: List[DeferredWriteback] = field(
-        factory=list, init=False
-    )
+    # _deferred_writebacks: List[DeferredWriteback] = field(
+    #     factory=list, init=False
+    # )
     _buffer_pool: ChunkBufferPool = field(factory=ChunkBufferPool, init=False)
     _watcher: WritebackWatcher = field(factory=WritebackWatcher, init=False)
     _pending_buffers: List[PendingBuffer] = field(factory=list, init=False)
@@ -219,6 +218,8 @@ class OutputArrays(BaseArrayManager):
         super()._on_allocation_complete(response)
         if self.is_chunked:
             self._convert_host_to_numpy()
+        else:
+            self.host.set_memory_type("host")
 
     def _convert_host_to_numpy(self) -> None:
         """Convert pinned host arrays to regular numpy for chunked mode.
@@ -228,7 +229,11 @@ class OutputArrays(BaseArrayManager):
         used for staging during transfers.
         """
         for name, slot in self.host.iter_managed_arrays():
-            if slot.memory_type == "pinned" and slot.is_chunked:
+            if (
+                slot.memory_type == "pinned"
+                and slot.is_chunked
+                and self._chunk_axis in slot.stride_order
+            ):
                 old_array = slot.array
                 if old_array is not None:
                     new_array = np_array(old_array, dtype=slot.dtype)
@@ -410,7 +415,8 @@ class OutputArrays(BaseArrayManager):
         compatible strides with device arrays. For chunked mode, data
         is transferred to pooled pinned buffers and submitted to the
         watcher thread for async writeback. For non-chunked mode,
-        the legacy deferred writeback path is used.
+        the writeback call is made immediately (but will happen
+        asynchronously).
         """
         from_ = []
         to_ = []
@@ -421,40 +427,35 @@ class OutputArrays(BaseArrayManager):
             host_array = slot.array
             stride_order = slot.stride_order
 
+            to_target = host_array
+            from_target = device_array
             if self._chunk_axis in stride_order:
                 chunk_index = stride_order.index(self._chunk_axis)
                 slice_tuple = slice_variable_dimension(
                     host_indices, chunk_index, len(stride_order)
                 )
                 host_slice = host_array[slice_tuple]
-
                 if self.is_chunked and slot.is_chunked:
                     # Chunked mode: use buffer pool and watcher
                     # Buffer must match device array shape for D2H copy
                     buffer = self._buffer_pool.acquire(
                         array_name, device_array.shape, host_slice.dtype
                     )
-                    to_.append(buffer.array)
-                    from_.append(device_array)
-
-                    # Store for submission after transfer with actual data shape
+                    # Set pinned buffer as target and register for writeback
+                    to_target = buffer.array
                     self._pending_buffers.append(
-                        (buffer, host_array, slice_tuple, array_name,
-                         host_slice.shape)
+                        PendingBuffer(
+                            buffer=buffer,
+                            target_array=host_array,
+                            slice_tuple=slice_tuple,
+                            array_name=array_name,
+                            data_shape=host_slice.shape,
+                            buffer_pool=self._buffer_pool,
+                        )
                     )
-                else:
-                    # Non-chunked mode: direct pinned transfer (legacy)
-                    pinned_buffer = cuda.pinned_array(
-                        host_slice.shape, dtype=host_slice.dtype
-                    )
-                    self._deferred_writebacks.append(
-                        (host_array, slice_tuple, pinned_buffer)
-                    )
-                    to_.append(pinned_buffer)
-                    from_.append(device_array)
-            else:
-                to_.append(host_array)
-                from_.append(device_array)
+
+            to_.append(to_target)
+            from_.append(from_target)
 
         self.from_device(from_, to_)
 
@@ -466,18 +467,11 @@ class OutputArrays(BaseArrayManager):
             else:
                 event = None
 
-            for buffer, host_array, slice_tuple, array_name, data_shape in \
-                    self._pending_buffers:
-                self._watcher.submit(
+            for buffer in self._pending_buffers:
+                self._watcher.submit_from_pending_buffer(
                     event=event,
-                    buffer=buffer,
-                    target_array=host_array,
-                    slice_tuple=slice_tuple,
-                    buffer_pool=self._buffer_pool,
-                    array_name=array_name,
-                    data_shape=data_shape,
+                    pending_buffer=buffer,
                 )
-            self._pending_buffers.clear()
 
     def wait_pending(self, timeout: Optional[float] = None) -> None:
         """Wait for all pending async writebacks to complete.
@@ -494,32 +488,11 @@ class OutputArrays(BaseArrayManager):
 
         Notes
         -----
-        Replaces complete_writeback(). For non-chunked mode, handles
-        legacy deferred writebacks. For chunked mode, waits on watcher.
+        Only applies to chunked mode with watcher-based writebacks.
         """
-        # Handle legacy deferred writebacks (non-chunked mode)
-        for host_array, slice_tuple, contiguous_slice in \
-                self._deferred_writebacks:
-            host_array[slice_tuple] = contiguous_slice
-        self._deferred_writebacks.clear()
-
-        # Handle watcher-based writebacks (chunked mode)
-        if self.is_chunked:
+        if self._pending_buffers:
             self._watcher.wait_all(timeout=timeout)
-
-    def complete_writeback(self) -> None:
-        """Alias for wait_pending() for backwards compatibility.
-
-        Returns
-        -------
-        None
-            Blocks until all pending operations complete.
-
-        See Also
-        --------
-        wait_pending : The primary method for waiting on writebacks.
-        """
-        self.wait_pending()
+            self._pending_buffers.clear()
 
     def initialise(self, host_indices: ChunkIndices) -> None:
         """
@@ -557,4 +530,3 @@ class OutputArrays(BaseArrayManager):
         self._buffer_pool.clear()
         self._watcher.shutdown()
         self._pending_buffers.clear()
-        self._deferred_writebacks.clear()

@@ -7,6 +7,7 @@ GPU.
 
 from typing import Any, Dict, List, Optional, Set, Tuple, Union
 
+from numba import cuda
 from numpy import ndarray, zeros as np_zeros
 
 from cubie.outputhandling.output_config import OutputCompileFlags
@@ -437,10 +438,12 @@ class Solver:
             stream=stream,
             chunk_axis=chunk_axis,
         )
-        # Sync handled inside kernel.run() via wait_pending()
 
-        # Stop wall-clock timing and print all timing summaries
-        # (CUDA events retrieved automatically by print_summary)
+        # Synchronize stream, wait until arrays written in "chunked" mode.
+        cuda.synchronize()
+        self.kernel.wait_for_writeback()
+
+        # Stop wall-clock timing for solve
         default_timelogger.stop_event("solver_solve")
         default_timelogger.print_summary()
 

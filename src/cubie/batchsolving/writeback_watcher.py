@@ -11,9 +11,22 @@ from attrs.validators import (
     optional as attrsval_optional,
 )
 from numpy import ndarray
+from numpy.typing import NDArray
 
 from cubie.cuda_simsafe import CUDA_SIMULATION
 from cubie.memory.chunk_buffer_pool import PinnedBuffer, ChunkBufferPool
+
+
+@define
+class PendingBuffer:
+    """Data structure for pending writeback buffers."""
+
+    buffer: PinnedBuffer
+    target_array: NDArray
+    slice_tuple: tuple
+    array_name: str
+    data_shape: tuple
+    buffer_pool: ChunkBufferPool
 
 
 @define
@@ -49,6 +62,21 @@ class WritebackTask:
     data_shape: tuple = field(
         default=None, validator=attrsval_optional(attrsval_instance_of(tuple))
     )
+
+    @classmethod
+    def from_pending_buffer(
+        cls, pending_buffer: "PendingBuffer", event
+    ) -> "WritebackTask":
+        """Create WritebackTask from PendingBuffer and event."""
+        return cls(
+            event=event,
+            buffer=pending_buffer.buffer,
+            target_array=pending_buffer.target_array,
+            slice_tuple=pending_buffer.slice_tuple,
+            buffer_pool=pending_buffer.buffer_pool,
+            array_name=pending_buffer.array_name,
+            data_shape=pending_buffer.data_shape,
+        )
 
 
 class WritebackWatcher:
@@ -97,6 +125,38 @@ class WritebackWatcher:
         self._thread = Thread(target=self._poll_loop, daemon=True)
         self._thread.start()
 
+    def _submit_task(self, task: WritebackTask) -> None:
+        """Submit a writeback task to the queue.
+
+        Parameters
+        ----------
+        task
+            WritebackTask to submit.
+        """
+        with self._lock:
+            self._pending_count += 1
+        self._queue.put(task)
+        # Start thread if not running
+        self.start()
+
+    def submit_from_pending_buffer(
+        self,
+        pending_buffer: "PendingBuffer",
+        event: object,
+    ) -> None:
+        """Submit a writeback task from a PendingBuffer.
+
+        Parameters
+        ----------
+        pending_buffer
+            PendingBuffer containing writeback info.
+        event
+            CUDA event to monitor for completion.
+        """
+        self._submit_task(
+            WritebackTask.from_pending_buffer(pending_buffer, event)
+        )
+
     def submit(
         self,
         event: object,
@@ -137,11 +197,7 @@ class WritebackWatcher:
             array_name=array_name,
             data_shape=data_shape,
         )
-        with self._lock:
-            self._pending_count += 1
-        self._queue.put(task)
-        # Start thread if not running
-        self.start()
+        self._submit_task(task)
 
     def wait_all(self, timeout: Optional[float] = None) -> None:
         """Block until all pending writebacks complete.
@@ -252,8 +308,9 @@ class WritebackWatcher:
             # If data_shape provided, only copy that portion of the buffer
             if task.data_shape is not None:
                 buffer_slice = tuple(slice(0, s) for s in task.data_shape)
-                task.target_array[task.slice_tuple] = \
-                    task.buffer.array[buffer_slice]
+                task.target_array[task.slice_tuple] = task.buffer.array[
+                    buffer_slice
+                ]
             else:
                 task.target_array[task.slice_tuple] = task.buffer.array
             # Release buffer back to pool

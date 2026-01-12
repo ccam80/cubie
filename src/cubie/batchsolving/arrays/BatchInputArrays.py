@@ -5,7 +5,6 @@ from attrs.validators import (
     instance_of as attrsval_instance_of,
     optional as attrsval_optional,
 )
-from numba import cuda
 from numpy import (
     dtype as np_dtype,
     float32 as np_float32,
@@ -57,7 +56,9 @@ class InputArrayContainer(ArrayContainer):
     )
 
     @classmethod
-    def host_factory(cls, memory_type: str = "pinned") -> "InputArrayContainer":
+    def host_factory(
+        cls, memory_type: str = "pinned"
+    ) -> "InputArrayContainer":
         """Create a container configured for host memory transfers.
 
         Parameters
@@ -94,42 +95,6 @@ class InputArrayContainer(ArrayContainer):
         container = cls()
         container.set_memory_type("device")
         return container
-
-    # @property
-    # def initial_values(self) -> ArrayTypes:
-    #     """Return the stored initial value array."""
-    #
-    #     return self.get_array("initial_values")
-    #
-    # @initial_values.setter
-    # def initial_values(self, value: ArrayTypes) -> None:
-    #     """Set the initial value array."""
-    #
-    #     self.set_array("initial_values", value)
-    #
-    # @property
-    # def parameters(self) -> ArrayTypes:
-    #     """Return the stored parameter array."""
-    #
-    #     return self.get_array("parameters")
-    #
-    # @parameters.setter
-    # def parameters(self, value: ArrayTypes) -> None:
-    #     """Set the parameter array."""
-    #
-    #     self.set_array("parameters", value)
-    #
-    # @property
-    # def driver_coefficients(self) -> ArrayTypes:
-    #     """Return the stored driver coefficients."""
-    #
-    #     return self.get_array("driver_coefficients")
-    #
-    # @driver_coefficients.setter
-    # def driver_coefficients(self, value: ArrayTypes) -> None:
-    #     """Set the driver coefficient array."""
-    #
-    #     self.set_array("driver_coefficients", value)
 
 
 @define
@@ -309,41 +274,8 @@ class InputArrays(BaseArrayManager):
                 arr_obj.dtype = self._precision
 
     def finalise(self, host_indices: Union[slice, NDArray]) -> None:
-        """Copy final state slices back to host arrays when requested.
-
-        Parameters
-        ----------
-        host_indices
-            Indices for the chunk being finalized.
-
-        Returns
-        -------
-        None
-            Device buffers are read into host arrays in place.
-
-        Notes
-        -----
-        This method copies data from device back to host for the specified
-        chunk indices.
-        """
-        # This functionality was added without the device-code support to make
-        # it do anything, so it just wastes time. To restore it, if useful,
-        # The singleintegratorrun function needs a toggle and to overwrite
-        # the initial states vecotr with it's own final state on exit.
-        # This is requested in #76 https://github.com/ccam80/cubie/issues/76
-
-        # stride_order = self.host.get_managed_array("initial_values").stride_order
-        # slice_tuple = [slice(None)] * len(stride_order)
-        # if self._chunk_axis in stride_order:
-        #     chunk_index = stride_order.index(self._chunk_axis)
-        #     slice_tuple[chunk_index] = host_indices
-        #     slice_tuple = tuple(slice_tuple)
-        #
-        # to_ = [self.host.initial_values.array[slice_tuple]]
-        # from_ = [self.device.initial_values.array]
-        #
-        # self.from_device(from_, to_)
-        pass
+        """Release buffers back to host."""
+        self.release_buffers()
 
     def initialise(self, host_indices: Union[slice, NDArray]) -> None:
         """Copy a batch chunk of host data to device buffers.
@@ -398,19 +330,16 @@ class InputArrays(BaseArrayManager):
                     buffer = self._buffer_pool.acquire(
                         array_name, device_shape, host_slice.dtype
                     )
-                    # Copy host slice into appropriate portion of buffer
+                    # Copy host slice into smallest indices of buffer,
+                    # as the final host slice may be smaller than the buffer.
                     data_slice = tuple(slice(0, s) for s in host_slice.shape)
                     buffer.array[data_slice] = host_slice
                     from_.append(buffer.array)
-                    # Store buffer for later release after H2D completes
+                    # Record that we're using this buffer for later release.
                     self._active_buffers.append(buffer)
                 else:
-                    # Non-chunked: allocate pinned buffer directly
-                    pinned_buffer = cuda.pinned_array(
-                        host_slice.shape, dtype=host_slice.dtype
-                    )
-                    pinned_buffer[:] = host_slice
-                    from_.append(pinned_buffer)
+                    # Non-chunked: allocate host array directly
+                    from_.append(host_obj.array[tuple(slice_tuple)])
 
         self.to_device(from_, to_)
 
