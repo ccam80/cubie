@@ -12,7 +12,7 @@ class MockMemoryManager(MemoryManager):
     """Mock memory manager for testing with controlled memory info."""
 
     def get_memory_info(self):
-        return 1 * 1024**3, 8 * 1024**3
+        return int(0.1 * 1024**3), int(0.1 * 1024**3)
 
 
 @pytest.fixture
@@ -106,7 +106,7 @@ class TestChunkedHostSliceTransfers:
         host_slice = host_array[:, :, 0:10]
         # This slice is NOT contiguous because the parent has
         # strides based on shape (100, 10, 50), not (100, 10, 10)
-        assert not host_slice.flags['C_CONTIGUOUS']
+        assert not host_slice.flags["C_CONTIGUOUS"]
 
     def test_contiguous_copy_matches_shape(self):
         """Verify ascontiguousarray creates matching-shape contiguous array."""
@@ -116,6 +116,6 @@ class TestChunkedHostSliceTransfers:
         host_slice = host_array[:, :, 0:10]
         contiguous = np.ascontiguousarray(host_slice)
 
-        assert contiguous.flags['C_CONTIGUOUS']
+        assert contiguous.flags["C_CONTIGUOUS"]
         assert contiguous.shape == (100, 10, 10)
         np.testing.assert_array_equal(contiguous, host_slice)

@@ -71,7 +71,6 @@ class TestArrays(ArrayContainer):
     )
 
 
-
 @attrs.define(slots=False)
 class TestArraysSimple(ArrayContainer):
     arr1: ManagedArray = attrs.field(
@@ -90,7 +89,6 @@ class TestArraysSimple(ArrayContainer):
             memory_type="host",
         )
     )
-
 
 
 @pytest.fixture(scope="function")
@@ -161,7 +159,9 @@ def hostarrays(arraytest_settings):
         empty = mapped_array
     else:
         empty = np.zeros
-    host_memory = "mapped" if arraytest_settings["memory"] == "mapped" else "host"
+    host_memory = (
+        "mapped" if arraytest_settings["memory"] == "mapped" else "host"
+    )
     host = TestArraysSimple(
         arr1=ManagedArray(
             dtype=arraytest_settings["dtype"],
@@ -230,7 +230,6 @@ def test_arrmgr(
     test_memory_manager,
     batch_output_sizes,
 ):
-    
     return ConcreteArrayManager(
         precision=precision,
         sizes=batch_output_sizes,
@@ -610,7 +609,7 @@ class TestBaseArrayManager:
 
     def test_update_host_array_zero_shape(self, test_arrmgr):
         """Test update_host_array when new array has zero in shape"""
-        current = np.array([[[1, 2], [3, 4]],[[1, 2], [3, 4]]])
+        current = np.array([[[1, 2], [3, 4]], [[1, 2], [3, 4]]])
         new = np.zeros((3, 5, 0))
 
         test_arrmgr._update_host_array(new, current, "arr1")
@@ -707,12 +706,16 @@ def test_arrays_with_stride_order(arraytest_settings):
         ),
         state_summaries=ManagedArray(
             dtype=arraytest_settings["dtype"],
-            stride_order=arraytest_settings["_stride_order"]["state_summaries"],
+            stride_order=arraytest_settings["_stride_order"][
+                "state_summaries"
+            ],
             memory_type="host",
         ),
         observable_summaries=ManagedArray(
             dtype=arraytest_settings["dtype"],
-            stride_order=arraytest_settings["_stride_order"]["observable_summaries"],
+            stride_order=arraytest_settings["_stride_order"][
+                "observable_summaries"
+            ],
             memory_type="host",
         ),
     )
@@ -742,12 +745,16 @@ def test_arrays_with_stride_order(arraytest_settings):
         ),
         state_summaries=ManagedArray(
             dtype=arraytest_settings["dtype"],
-            stride_order=arraytest_settings["_stride_order"]["state_summaries"],
+            stride_order=arraytest_settings["_stride_order"][
+                "state_summaries"
+            ],
             memory_type=arraytest_settings["memory"],
         ),
         observable_summaries=ManagedArray(
             dtype=arraytest_settings["dtype"],
-            stride_order=arraytest_settings["_stride_order"]["observable_summaries"],
+            stride_order=arraytest_settings["_stride_order"][
+                "observable_summaries"
+            ],
             memory_type=arraytest_settings["memory"],
         ),
     )
@@ -1026,7 +1033,8 @@ class TestAttachExternalArrays:
         assert result is True
         assert test_manager_with_sizing.host.state.array is arrays["state"]
         assert (
-            test_manager_with_sizing.host.observables.array is arrays["observables"]
+            test_manager_with_sizing.host.observables.array
+            is arrays["observables"]
         )
 
     def test_attach_external_arrays_with_failures(
@@ -1055,8 +1063,8 @@ class TestAttachExternalArrays:
         assert result is True
         # Only the valid array should be attached
         assert (
-            test_manager_with_sizing.host.observables.array is arrays[
-            "observables"]
+            test_manager_with_sizing.host.observables.array
+            is arrays["observables"]
         )
 
 
@@ -1093,7 +1101,7 @@ class TestUpdateHostArrays:
         )
         np.testing.assert_array_equal(
             test_manager_with_sizing.host.observables.array,
-            new_arrays["observables"]
+            new_arrays["observables"],
         )
         assert "state" in test_manager_with_sizing._needs_overwrite
         assert "observables" in test_manager_with_sizing._needs_overwrite
@@ -1250,7 +1258,6 @@ class TestMemoryManagerIntegration:
             == test_arrmgr._on_allocation_complete
         )
 
-
     @pytest.mark.parametrize(
         "arraytest_overrides",
         [
@@ -1326,12 +1333,8 @@ class TestMemoryManagerIntegration:
         # Check that allocated arrays match the settings
         assert test_arrmgr.device.arr1.shape == arraytest_settings["devshape1"]
         assert test_arrmgr.device.arr2.shape == arraytest_settings["devshape2"]
-        assert (
-            test_arrmgr.device.arr1.dtype == arraytest_settings["dtype"]
-        )
-        assert (
-            test_arrmgr.device.arr2.dtype == arraytest_settings["dtype"]
-        )
+        assert test_arrmgr.device.arr1.dtype == arraytest_settings["dtype"]
+        assert test_arrmgr.device.arr2.dtype == arraytest_settings["dtype"]
 
 
 # Parametrized tests for different array configurations
@@ -1365,7 +1368,7 @@ def test_array_manager_with_different_configs(
     # Should still be properly initialized
     assert isinstance(test_arrmgr.device, ArrayContainer)
     assert isinstance(test_arrmgr.host, ArrayContainer)
-    
+
 
 @pytest.mark.parametrize(
     "arraytest_overrides",
@@ -1426,3 +1429,120 @@ def test_memory_integration_with_settings(
             test_memory_manager.proportion(test_arrmgr)
             == arraytest_settings["memory_proportion"]
         )
+
+
+class MockMemoryManager(MemoryManager):
+    """Mock memory manager for testing with controlled memory info."""
+
+    def get_memory_info(self):
+        return int(0.1 * 1024**3), int(0.1 * 1024**3)
+
+
+@pytest.fixture
+def test_memory_manager():
+    """Create a memory manager for testing."""
+    return MockMemoryManager()
+
+
+from numpy import int32 as np_int32
+
+
+class TestChunkArraysSkipsMissingAxis:
+    """Test chunk_arrays handles arrays without the chunk axis."""
+
+    def test_chunk_arrays_skips_2d_array_when_chunking_time(
+        self, test_memory_manager
+    ):
+        """2D arrays with (variable, run) should not be chunked on time axis."""
+        mgr = test_memory_manager
+        requests = {
+            "input_2d": ArrayRequest(
+                shape=(10, 50),
+                dtype=np_float32,
+                memory="device",
+                stride_order=("variable", "run"),
+            ),
+            "output_3d": ArrayRequest(
+                shape=(100, 10, 50),
+                dtype=np_float32,
+                memory="device",
+                stride_order=("time", "variable", "run"),
+            ),
+        }
+
+        chunked = mgr.chunk_arrays(requests, numchunks=4, axis="time")
+
+        # 2D array should be unchanged (no time axis)
+        assert chunked["input_2d"].shape == (10, 50)
+        # 3D array should be chunked on time axis
+        assert chunked["output_3d"].shape == (25, 10, 50)
+
+    def test_chunk_arrays_skips_1d_status_codes(self, test_memory_manager):
+        """1D status code arrays should not be chunked."""
+        mgr = test_memory_manager
+        requests = {
+            "status_codes": ArrayRequest(
+                shape=(100,),
+                dtype=np_int32,
+                memory="device",
+                stride_order=("run",),
+                unchunkable=True,
+            ),
+        }
+
+        chunked = mgr.chunk_arrays(requests, numchunks=4, axis="time")
+
+        # Unchunkable array should be unchanged
+        assert chunked["status_codes"].shape == (100,)
+
+    def test_chunk_arrays_handles_run_axis_correctly(
+        self, test_memory_manager
+    ):
+        """Arrays should be correctly chunked on run axis."""
+        mgr = test_memory_manager
+        requests = {
+            "input_2d": ArrayRequest(
+                shape=(10, 50),
+                dtype=np_float32,
+                memory="device",
+                stride_order=("variable", "run"),
+            ),
+            "output_3d": ArrayRequest(
+                shape=(100, 10, 50),
+                dtype=np_float32,
+                memory="device",
+                stride_order=("time", "variable", "run"),
+            ),
+        }
+
+        chunked = mgr.chunk_arrays(requests, numchunks=5, axis="run")
+
+        # Both arrays have run axis, both should be chunked
+        assert chunked["input_2d"].shape == (10, 10)  # ceil(50/5)
+        assert chunked["output_3d"].shape == (100, 10, 10)
+
+
+from numpy import float32 as np_float32
+
+
+class TestChunkedHostSliceTransfers:
+    """Test contiguous slice handling for chunked transfers."""
+
+    def test_noncontiguous_host_slice_detected(self):
+        """Verify that slicing a host array creates non-contiguous views."""
+        host_array = np.zeros((100, 10, 50), dtype=np_float32)
+        # Slice on run axis (last axis)
+        host_slice = host_array[:, :, 0:10]
+        assert not host_slice.flags["C_CONTIGUOUS"]
+
+    def test_contiguous_copy_matches_shape(self):
+        """Verify ascontiguousarray creates matching-shape contiguous array."""
+        host_array = np.arange(100 * 10 * 50, dtype=np_float32).reshape(
+            100, 10, 50
+        )
+        host_slice = host_array[:, :, 0:10]
+        contiguous = np.ascontiguousarray(host_slice)
+
+        assert contiguous.flags["C_CONTIGUOUS"]
+        assert contiguous.shape == (100, 10, 10)
+        np.testing.assert_array_equal(contiguous, host_slice)
