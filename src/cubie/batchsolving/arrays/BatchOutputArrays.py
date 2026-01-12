@@ -219,7 +219,23 @@ class OutputArrays(BaseArrayManager):
         if self.is_chunked:
             self._convert_host_to_numpy()
         else:
-            self.host.set_memory_type("host")
+            self.host.set_memory_type("pinned")
+
+    def _convert_host_to_pinned(self) -> None:
+        """Convert regular numpy host arrays to pinned for non-chunked mode.
+
+        When a run is not chunked, the host arrays should be pinned to
+        enable asynchronous transfers.
+        """
+        for name, slot in self.host.iter_managed_arrays():
+            old_array = slot.array
+            if old_array is not None:
+                if slot.memory_type == "host":
+                    new_array = self._memory_manager.create_host_array(
+                        old_array.shape, old_array.dtype, "pinned"
+                    )
+                    slot.array = new_array
+        self.host.set_memory_type="pinned"
 
     def _convert_host_to_numpy(self) -> None:
         """Convert pinned host arrays to regular numpy for chunked mode.
@@ -236,7 +252,9 @@ class OutputArrays(BaseArrayManager):
             ):
                 old_array = slot.array
                 if old_array is not None:
-                    new_array = np_array(old_array, dtype=slot.dtype)
+                    new_array = self._memory_manager.create_host_array(
+                        old_array.shape, old_array.dtype, "host"
+                    )
                     slot.array = new_array
                     slot.memory_type = "host"
 

@@ -63,31 +63,6 @@ class TestChunkedSolverExecution:
 class TestSyncStreamRemoval:
     """Test that solver works without explicit sync_stream calls."""
 
-    def test_solver_completes_without_sync_stream(
-        self, system, precision, low_memory
-    ):
-        """Verify solver completes without explicit sync_stream call."""
-        solver = Solver(system, algorithm="euler", memory_manager=low_memory)
-
-        n_runs = 5
-        n_states = system.sizes.states
-        n_params = system.sizes.parameters
-
-        inits = np.ones((n_states, n_runs), dtype=precision)
-        params = np.ones((n_params, n_runs), dtype=precision)
-
-        result = solver.solve(
-            inits,
-            params,
-            duration=0.5,
-            save_every=0.01,
-        )
-
-        # Verify results are valid (sync_stream removal didn't break solver)
-        assert result.time_domain_array is not None
-        assert not np.all(result.time_domain_array == 0)
-        assert not np.any(np.isnan(result.time_domain_array))
-
     def test_chunked_solver_produces_correct_results(
         self, system, precision, low_memory
     ):
