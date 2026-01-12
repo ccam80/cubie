@@ -2,12 +2,13 @@
 
 from abc import abstractmethod
 from typing import Any, Callable, Dict, Optional, Set, Tuple, Union
+from hashlib import sha256
 
 from attrs import define, field
 from numpy import asarray, float32, floating
 from numpy.typing import NDArray
 
-from cubie.CUDAFactory import CUDAFactory, CUDADispatcherCache
+from cubie.CUDAFactory import CUDAFactory, CUDADispatcherCache, hash_tuple
 from cubie._utils import PrecisionDType
 from cubie.odesystems.ODEData import ODEData
 
@@ -357,6 +358,19 @@ class BaseODE(CUDAFactory):
             updating the derivative buffer.
         """
         return self.get_cached_output("observables")
+
+    @property
+    def config_hash(self):
+        """Override the config hash fetcher to add and hash the current
+        constant values. When labels change, we need to re-codegen, but when
+        values change, we need to rebuild."""
+        own_hash = super().config_hash
+        const_values = tuple(
+            sorted(self.compile_settings.constants.values_dict.items())
+        )
+        const_hash = hash_tuple(const_values)
+        combined = "|".join([own_hash, const_hash])
+        return sha256(combined.encode("utf-8")).hexdigest()
 
     def get_solver_helper(
         self,

@@ -20,8 +20,13 @@ from numba import int32
 
 from attrs import define, field
 
+from cubie.odesystems import SymbolicODE
 from cubie.cuda_simsafe import is_cudasim_enabled, compile_kwargs
-from cubie.cubie_cache import CUBIECache
+from cubie.cubie_cache import (
+    CacheConfig,
+    CubieCacheHandler,
+)
+
 from cubie.time_logger import CUDAEvent
 from numpy.typing import NDArray
 
@@ -33,7 +38,7 @@ from cubie.batchsolving.arrays.BatchOutputArrays import (
     OutputArrays,
 )
 from cubie.batchsolving.BatchSolverConfig import ActiveOutputs
-from cubie.batchsolving.BatchSolverConfig import BatchSolverConfig, CacheConfig
+from cubie.batchsolving.BatchSolverConfig import BatchSolverConfig
 from cubie.odesystems.baseODE import BaseODE
 from cubie.outputhandling.output_sizes import (
     BatchOutputSizes,
@@ -123,7 +128,7 @@ class BatchSolverKernel(CUDAFactory):
 
     def __init__(
         self,
-        system: "BaseODE",
+        system: "SymbolicODE",
         loop_settings: Optional[Dict[str, Any]] = None,
         evaluate_driver_at_t: Optional[Callable] = None,
         driver_del_t: Optional[Callable] = None,
@@ -132,6 +137,7 @@ class BatchSolverKernel(CUDAFactory):
         algorithm_settings: Optional[Dict[str, Any]] = None,
         output_settings: Optional[Dict[str, Any]] = None,
         memory_settings: Optional[Dict[str, Any]] = None,
+        cache_settings: Optional[Dict[str, Any]] = None,
         cache: Union[bool, str, Path] = True,
     ) -> None:
         super().__init__()
@@ -170,8 +176,24 @@ class BatchSolverKernel(CUDAFactory):
             output_settings=output_settings,
         )
 
-        # Parse cache parameter into CacheConfig
-        self.cache_config = CacheConfig(cache)
+        # Extract system identification for cache
+        system_name = system.name
+        system_hash = system.fn_hash
+        if system_name == system_hash:
+            system_name = f"unnamed_{system_hash[:8]}"
+
+        # Build cache settings dict from cache_settings
+        if cache_settings is None:
+            cache_settings = {}
+
+        # Initialize cache_handler BEFORE setup_compile_settings since
+        # _invalidate_cache is called during setup and requires cache_handler
+        self.cache_handler = CubieCacheHandler(
+            cache_arg=cache,
+            system_name=system_name,
+            system_hash=system_hash,
+            **cache_settings,
+        )
 
         initial_config = BatchSolverConfig(
             precision=precision,
@@ -686,21 +708,6 @@ class BatchSolverKernel(CUDAFactory):
 
         # no cover: start
         @cuda.jit(
-            (
-                precision[:, ::1],
-                precision[:, ::1],
-                precision[:, :, ::1],
-                precision[:, :, ::1],
-                precision[:, :, ::1],
-                precision[:, :, ::1],
-                precision[:, :, ::1],
-                int32[:, :, ::1],
-                int32[::1],
-                float64,
-                float64,
-                float64,
-                int32,
-            ),
             **compile_kwargs,
         )
         def integration_kernel(
@@ -805,23 +812,11 @@ class BatchSolverKernel(CUDAFactory):
 
         # no cover: end
 
-        # Attach file-based caching if enabled and not in simulator mode
-        cache_config = self.cache_config
-        if cache_config.enabled and not is_cudasim_enabled():
-            system = self.single_integrator.system
-            system_name = getattr(system, "name", "anonymous")
-            system_hash = system.fn_hash
-
-            cache = CUBIECache(
-                system_name=system_name,
-                system_hash=system_hash,
-                config_hash=self.config_hash,
-                max_entries=cache_config.max_entries,
-                mode=cache_config.mode,
-                custom_cache_dir=cache_config.cache_dir,
-            )
-            integration_kernel._cache = cache
-
+        # Update cache for this configuration and attach
+        cfg_hash = self.config_hash
+        integration_kernel._cache = self.cache_handler.configured_cache(
+            cfg_hash
+        )
         return integration_kernel
 
     def update(
@@ -893,6 +888,10 @@ class BatchSolverKernel(CUDAFactory):
             updates_dict, silent=True
         )
 
+        all_unrecognized -= self.cache_handler.update(
+            updates_dict, silent=True
+        )
+
         recognised = set(updates_dict.keys()) - all_unrecognized
 
         if all_unrecognized:
@@ -928,8 +927,8 @@ class BatchSolverKernel(CUDAFactory):
 
     @property
     def cache_config(self) -> "CacheConfig":
-        """Cache configuration for the kernel."""
-        return self.compile_settings.cache_config
+        """Cache configuration for the kernel, parsed on demand."""
+        return self.cache_handler.config
 
     def set_cache_dir(self, path: Union[str, Path]) -> None:
         """Set a custom cache directory for compiled kernels.
@@ -938,14 +937,8 @@ class BatchSolverKernel(CUDAFactory):
         ----------
         path
             New cache directory path. Can be absolute or relative.
-
-        Notes
-        -----
-        Invalidates the current cache, causing a rebuild on next access.
         """
-        cache_config = self.compile_settings.cache_config
-        cache_config.cache_dir = Path(path)
-        self._invalidate_cache()
+        self.cache_handler.update(cache_dir=Path(path))
 
     @property
     def shared_memory_needs_padding(self) -> bool:
@@ -978,49 +971,10 @@ class BatchSolverKernel(CUDAFactory):
         self.chunks = response.chunks
 
     def _invalidate_cache(self) -> None:
-        """Mark cached outputs as invalid, flushing files if in flush mode."""
+        """Mark cached outputs as invalid, flushing cache if cache_handler
+        in "flush on change" mode."""
         super()._invalidate_cache()
-
-        cache_config = self.compile_settings.cache_config
-        if (
-            cache_config.enabled
-            and cache_config.mode == "flush_on_change"
-            and not is_cudasim_enabled()
-        ):
-            try:
-                system = self.single_integrator.system
-                system_name = getattr(system, "name", "anonymous")
-                system_hash = system.fn_hash
-
-                cache = CUBIECache(
-                    system_name=system_name,
-                    system_hash=system_hash,
-                    config_hash=self.config_hash,
-                    max_entries=cache_config.max_entries,
-                    mode=cache_config.mode,
-                    custom_cache_dir=cache_config.cache_dir,
-                )
-                cache.flush_cache()
-            except (OSError, TypeError, ValueError, AttributeError):
-                pass
-
-    def instantiate_cache(self):
-        cache_config = self.compile_settings.cache_config
-        if cache_config.enabled and not is_cudasim_enabled():
-            system = self.single_integrator.system
-            system_name = getattr(system, "name", "anonymous")
-            system_hash = system.fn_hash
-
-            cache = CUBIECache(
-                system_name=system_name,
-                system_hash=system_hash,
-                config_hash=self.config_hash,
-                max_entries=cache_config.max_entries,
-                mode=cache_config.mode,
-                custom_cache_dir=cache_config.cache_dir,
-            )
-            return cache
-        return None
+        self.cache_handler.invalidate()
 
     @property
     def output_heights(self) -> Any:

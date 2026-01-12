@@ -1,4 +1,5 @@
 """Utility helpers for symbolic ODE construction."""
+
 from hashlib import sha256
 
 from typing import TYPE_CHECKING
@@ -9,6 +10,7 @@ import sympy as sp
 
 if TYPE_CHECKING:
     from cubie.odesystems.symbolic.parsing import ParsedEquations
+
 
 def topological_sort(
     assignments: Union[
@@ -80,8 +82,7 @@ def topological_sort(
     if len(result) != len(sym_map):
         remaining = all_assignees - {sym for sym, _ in result}
         raise ValueError(
-            "Circular dependency detected. Remaining symbols: "
-            f"{remaining}"
+            f"Circular dependency detected. Remaining symbols: {remaining}"
         )
 
     return result
@@ -132,14 +133,14 @@ def cse_and_stack(
         start_index = max_index + 1
 
     cse_exprs, reduced_exprs = sp.cse(
-            all_rhs, symbols=sp.numbered_symbols(
-                    symbol,
-                    start=start_index),
-                    order="none"
+        all_rhs,
+        symbols=sp.numbered_symbols(symbol, start=start_index),
+        order="none",
     )
     expressions = list(zip(expr_labels, reduced_exprs)) + list(cse_exprs)
     sorted_expressions = topological_sort(expressions)
     return sorted_expressions
+
 
 def hash_system_definition(
     equations: Union[
@@ -148,7 +149,6 @@ def hash_system_definition(
     ],
     constants: Optional[Dict[str, float]] = None,
     observable_labels: Optional[Iterable[str]] = None,
-    parameter_labels: Optional[Iterable[str]] = None,
 ) -> str:
     """Generate deterministic hash for symbolic ODE definitions.
 
@@ -166,24 +166,24 @@ def hash_system_definition(
     observable_labels
         Optional iterable of observable variable names. Sorted
         alphabetically before inclusion in the hash.
-    parameter_labels
-        Optional iterable of parameter variable names. Sorted
-        alphabetically before inclusion in the hash.
 
     Returns
     -------
     str
         Deterministic hash string reflecting equations, constants,
-        observables, and parameters.
+        observables.
 
     Notes
     -----
     Sorting by LHS symbol name ensures order-independence so that
     cache hits occur for identical systems regardless of input
-    pathway (string vs SymPy).
+    pathway (string vs SymPy). Parameters labels are not included in the
+    resultant hash, as constants and parameters must together contain all
+    non-state LHS symbols; changing constants causes a 1:1 change in
+    parameters.
     """
     # Extract equations from ParsedEquations or convert from provided tuple
-    if hasattr(equations, 'ordered'):
+    if hasattr(equations, "ordered"):
         eq_list = list(equations.ordered)
     else:
         eq_list = list(equations)
@@ -196,15 +196,18 @@ def hash_system_definition(
     dxdt_str = "|".join(eq_strings)
     normalized_dxdt = "".join(dxdt_str.split())
 
-    # Append constants labels and values, sorted by label
+    # Append sorted constants labels. When constants vs parameters change,
+    # we need to re-codegen. When values change, we just need to rebuild,
+    # so this is handled in the config hash for caching.
     constants_str = ""
     if constants is not None:
         # Keys in `constants` may be SymPy Symbols (for example from
         # an index_map) as well as plain strings; SymPy Symbol keys are
         # not directly orderable, so str() is used to obtain a stable
         # string-based sort order for all key types.
-        sorted_constants = sorted(constants.items(), key=lambda x: str(x[0]))
-        constants_str = "|".join(f"{k}:{v}" for k, v in sorted_constants)
+        label_strings = [str(k) for k in constants.keys()]
+        sorted_constants = sorted(label_strings)
+        constants_str = "|".join(f"{label}" for label in sorted_constants)
 
     # Append sorted observable labels
     observables_str = ""
@@ -212,16 +215,10 @@ def hash_system_definition(
         sorted_observables = sorted(str(label) for label in observable_labels)
         observables_str = "|".join(sorted_observables)
 
-    # Append sorted parameter labels
-    parameters_str = ""
-    if parameter_labels is not None:
-        sorted_parameters = sorted(str(label) for label in parameter_labels)
-        parameters_str = "|".join(sorted_parameters)
-
     # Combine and hash
     combined = (
         f"dxdt:{normalized_dxdt}|constants:{constants_str}"
-        f"|observables:{observables_str}|parameters:{parameters_str}"
+        f"|observables:{observables_str}"
     )
     return sha256(combined.encode("utf-8")).hexdigest()
 

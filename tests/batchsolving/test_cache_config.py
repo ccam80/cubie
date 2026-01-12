@@ -7,9 +7,8 @@ import pytest
 
 from cubie.batchsolving.BatchSolverConfig import (
     BatchSolverConfig,
-    CacheConfig,
 )
-from cubie.cubie_cache import CUBIECache
+from cubie.cubie_cache import CacheConfig, CUBIECache
 
 DEFAULT_CUBIE_CACHE_CONFIG_HASH = (
     "def456789012345678901234567890123456789012345678901234567890abcd"
@@ -21,9 +20,9 @@ def cache_config(request):
     """Fixture to create CacheConfig with optional overrides."""
     params = getattr(request, "param", {})
     return CacheConfig(
-        enabled=params.get("enabled", True),
-        mode=params.get("mode", "hash"),
-        max_entries=params.get("max_entries", 10),
+        cache_enabled=params.get("enabled", True),
+        cache_mode=params.get("mode", "hash"),
+        max_cache_entries=params.get("max_entries", 10),
         cache_dir=params.get("cache_dir", None),
     )
 
@@ -44,19 +43,17 @@ def cubie_cache(request, tmp_path, precision):
     )
 
 
-@pytest.mark.nocudasim
 class TestCacheConfigDefaults:
     """Tests for CacheConfig default values."""
 
     def test_cache_config_defaults(self, cache_config):
         """Verify CacheConfig has correct default values."""
-        assert cache_config.enabled is True
-        assert cache_config.mode == "hash"
-        assert cache_config.max_entries == 10
+        assert cache_config.cache_enabled is True
+        assert cache_config.cache_mode == "hash"
+        assert cache_config.max_cache_entries == 10
         assert cache_config.cache_dir is None
 
 
-@pytest.mark.nocudasim
 class TestCacheConfigModeValidation:
     """Tests for CacheConfig mode validation."""
 
@@ -70,15 +67,14 @@ class TestCacheConfigModeValidation:
     )
     def test_cache_config_mode_valid(self, cache_config, mode):
         """Verify supported modes are accepted."""
-        assert cache_config.mode == mode
+        assert cache_config.cache_mode == mode
 
     def test_cache_config_mode_validation(self, precision):
         """Verify mode only accepts 'hash' or 'flush_on_change'."""
         with pytest.raises(ValueError):
-            CacheConfig(mode="invalid_mode")
+            CacheConfig(cache_mode="invalid_mode")
 
 
-@pytest.mark.nocudasim
 class TestCacheConfigMaxEntriesValidation:
     """Tests for CacheConfig max_entries validation."""
 
@@ -92,15 +88,14 @@ class TestCacheConfigMaxEntriesValidation:
     )
     def test_cache_config_max_entries_valid(self, cache_config, expected):
         """Verify max_entries accepts zero and positive values."""
-        assert cache_config.max_entries == expected
+        assert cache_config.max_cache_entries == expected
 
     def test_cache_config_max_entries_validation(self, precision):
         """Verify max_entries rejects negative values."""
         with pytest.raises(ValueError):
-            CacheConfig(max_entries=-1)
+            CacheConfig(max_cache_entries=-1)
 
 
-@pytest.mark.nocudasim
 class TestCacheConfigCacheDirConversion:
     """Tests for CacheConfig cache_dir conversion."""
 
@@ -122,47 +117,6 @@ class TestCacheConfigCacheDirConversion:
             assert isinstance(cache_config.cache_dir, Path)
 
 
-@pytest.mark.nocudasim
-class TestBatchSolverConfigCacheConfig:
-    """Tests for BatchSolverConfig cache_config integration."""
-
-    def test_batch_solver_config_cache_config_field(self, precision):
-        """Verify BatchSolverConfig has cache_config field."""
-        config = BatchSolverConfig(
-            precision=precision,
-        )
-
-        assert hasattr(config, "cache_config")
-        assert isinstance(config.cache_config, CacheConfig)
-
-    def test_batch_solver_config_cache_config_default(self, precision):
-        """Verify cache_config defaults are applied."""
-        config = BatchSolverConfig(
-            precision=precision,
-        )
-
-        assert config.cache_config.enabled is True
-        assert config.cache_config.mode == "hash"
-        assert config.cache_config.max_entries == 10
-        assert config.cache_config.cache_dir is None
-
-    def test_batch_solver_config_with_custom_cache_config(self, precision):
-        """Verify custom CacheConfig can be provided."""
-        cache_cfg = CacheConfig(
-            enabled=False,
-            mode="flush_on_change",
-            max_entries=5,
-            cache_dir="/tmp/custom",
-        )
-        config = BatchSolverConfig(precision=precision, cache_config=cache_cfg)
-
-        assert config.cache_config.enabled is False
-        assert config.cache_config.mode == "flush_on_change"
-        assert config.cache_config.max_entries == 5
-        assert config.cache_config.cache_dir == Path("/tmp/custom")
-
-
-@pytest.mark.nocudasim
 class TestCUBIECacheMaxEntries:
     """Tests for CUBIECache max_entries parameter."""
 
@@ -182,7 +136,6 @@ class TestCUBIECacheMaxEntries:
         assert cubie_cache._max_entries == 10
 
 
-@pytest.mark.nocudasim
 class TestEnforceCacheLimitNoEviction:
     """Tests for enforce_cache_limit when under limit."""
 
@@ -198,9 +151,6 @@ class TestEnforceCacheLimitNoEviction:
             (cache_dir / f"cache_{i}.nbi").write_text("test")
             (cache_dir / f"cache_{i}.0.nbc").write_text("test")
 
-        compile_settings = BatchSolverConfig(
-            precision=precision,
-        )
         cache = CUBIECache(
             system_name="test_system",
             system_hash="abc123",
@@ -217,7 +167,6 @@ class TestEnforceCacheLimitNoEviction:
         assert len(list(cache_dir.glob("*.nbc"))) == 3
 
 
-@pytest.mark.nocudasim
 class TestEnforceCacheLimitEviction:
     """Tests for enforce_cache_limit eviction behavior."""
 
@@ -237,9 +186,6 @@ class TestEnforceCacheLimitEviction:
             os.utime(nbi_file, (mtime, mtime))
             os.utime(nbc_file, (mtime, mtime))
 
-        compile_settings = BatchSolverConfig(
-            precision=precision,
-        )
         cache = CUBIECache(
             system_name="test_system",
             system_hash="abc123",
@@ -265,7 +211,6 @@ class TestEnforceCacheLimitEviction:
         assert "cache_4" in remaining_names
 
 
-@pytest.mark.nocudasim
 class TestEnforceCacheLimitDisabled:
     """Tests for enforce_cache_limit when disabled."""
 
@@ -279,9 +224,6 @@ class TestEnforceCacheLimitDisabled:
             (cache_dir / f"cache_{i}.nbi").write_text("test")
             (cache_dir / f"cache_{i}.0.nbc").write_text("test")
 
-        compile_settings = BatchSolverConfig(
-            precision=precision,
-        )
         cache = CUBIECache(
             system_name="test_system",
             system_hash="abc123",
@@ -298,7 +240,6 @@ class TestEnforceCacheLimitDisabled:
         assert len(list(cache_dir.glob("*.nbc"))) == 10
 
 
-@pytest.mark.nocudasim
 class TestEnforceCacheLimitPairs:
     """Tests for enforce_cache_limit .nbi/.nbc pairing."""
 
@@ -318,9 +259,6 @@ class TestEnforceCacheLimitPairs:
             mtime = 1000000 + i * 100
             os.utime(nbi_file, (mtime, mtime))
 
-        compile_settings = BatchSolverConfig(
-            precision=precision,
-        )
         cache = CUBIECache(
             system_name="test_system",
             system_hash="abc123",
@@ -348,15 +286,11 @@ class TestEnforceCacheLimitPairs:
         assert "cache_1.1.nbc" not in remaining_nbc_names
 
 
-@pytest.mark.nocudasim
 class TestCUBIECacheModeStored:
     """Tests for CUBIECache mode parameter."""
 
     def test_cubie_cache_mode_stored(self, tmp_path, precision):
         """Verify mode is stored on CUBIECache instance."""
-        compile_settings = BatchSolverConfig(
-            precision=precision,
-        )
         cache = CUBIECache(
             system_name="test_system",
             system_hash="abc123",
@@ -367,9 +301,6 @@ class TestCUBIECacheModeStored:
 
     def test_cubie_cache_mode_default(self, tmp_path, precision):
         """Verify mode defaults to 'hash'."""
-        compile_settings = BatchSolverConfig(
-            precision=precision,
-        )
         cache = CUBIECache(
             system_name="test_system",
             system_hash="abc123",
@@ -378,7 +309,6 @@ class TestCUBIECacheModeStored:
         assert cache._mode == "hash"
 
 
-@pytest.mark.nocudasim
 class TestFlushCacheRemovesFiles:
     """Tests for flush_cache file removal."""
 
@@ -393,9 +323,6 @@ class TestFlushCacheRemovesFiles:
         (cache_dir / "cache_1.nbi").write_text("test")
         (cache_dir / "cache_1.0.nbc").write_text("test")
 
-        compile_settings = BatchSolverConfig(
-            precision=precision,
-        )
         cache = CUBIECache(
             system_name="test_system",
             system_hash="abc123",
@@ -411,7 +338,6 @@ class TestFlushCacheRemovesFiles:
         assert len(list(cache_dir.glob("*"))) == 0
 
 
-@pytest.mark.nocudasim
 class TestFlushCacheRecreatesDirectory:
     """Tests for flush_cache directory recreation."""
 
@@ -422,10 +348,6 @@ class TestFlushCacheRecreatesDirectory:
 
         # Add a file
         (cache_dir / "test.nbi").write_text("test")
-
-        compile_settings = BatchSolverConfig(
-            precision=precision,
-        )
         cache = CUBIECache(
             system_name="test_system",
             system_hash="abc123",
@@ -443,10 +365,6 @@ class TestFlushCacheRecreatesDirectory:
     def test_flush_cache_handles_missing_directory(self, tmp_path, precision):
         """Verify flush_cache handles non-existent directory."""
         cache_dir = tmp_path / "nonexistent" / "cache"
-
-        compile_settings = BatchSolverConfig(
-            precision=precision,
-        )
         cache = CUBIECache(
             system_name="test_system",
             system_hash="abc123",
@@ -461,7 +379,6 @@ class TestFlushCacheRecreatesDirectory:
         assert cache_dir.exists()
 
 
-@pytest.mark.nocudasim
 class TestCustomCacheDir:
     """Tests for custom_cache_dir parameter."""
 
@@ -469,9 +386,6 @@ class TestCustomCacheDir:
         """Verify custom_cache_dir overrides default path."""
         custom_dir = tmp_path / "my_custom_cache"
 
-        compile_settings = BatchSolverConfig(
-            precision=precision,
-        )
         cache = CUBIECache(
             system_name="test_system",
             system_hash="abc123",
@@ -479,7 +393,7 @@ class TestCustomCacheDir:
             config_hash=DEFAULT_CUBIE_CACHE_CONFIG_HASH,
         )
 
-        assert cache._cache_path == str(custom_dir)
+        assert Path(cache._cache_path) == custom_dir / "CUDA_cache_abc123"
 
     def test_custom_cache_dir_none_uses_default(self, tmp_path, precision):
         """Verify None cache_dir uses GENERATED_DIR path."""
@@ -495,10 +409,9 @@ class TestCustomCacheDir:
 
         # Should use default path based on GENERATED_DIR
         assert "test_system" in cache._cache_path
-        assert cache._cache_path.endswith("CUDA_cache")
+        assert cache._cache_path.endswith("CUDA_cache_abc123")
 
 
-@pytest.mark.nocudasim
 class TestParseCacheParam:
     """Tests for BatchSolverKernel._parse_cache_param."""
 
@@ -512,8 +425,8 @@ class TestParseCacheParam:
             cache=True,
         )
 
-        assert kernel.cache_config.enabled is True
-        assert kernel.cache_config.mode == "hash"
+        assert kernel.cache_config.cache_enabled is True
+        assert kernel.cache_config.cache_mode == "hash"
         assert kernel.cache_config.cache_dir is None
 
     def test_parse_cache_param_false(self, simple_system):
@@ -526,7 +439,7 @@ class TestParseCacheParam:
             cache=False,
         )
 
-        assert kernel.cache_config.enabled is False
+        assert kernel.cache_config.cache_enabled is False
 
     def test_parse_cache_param_flush_on_change(self, simple_system):
         """Verify cache='flush_on_change' sets flush mode."""
@@ -538,8 +451,8 @@ class TestParseCacheParam:
             cache="flush_on_change",
         )
 
-        assert kernel.cache_config.enabled is True
-        assert kernel.cache_config.mode == "flush_on_change"
+        assert kernel.cache_config.cache_enabled is True
+        assert kernel.cache_config.cache_mode == "flush_on_change"
 
     def test_parse_cache_param_path(self, simple_system, tmp_path):
         """Verify cache=Path sets custom cache_dir."""
@@ -552,8 +465,8 @@ class TestParseCacheParam:
             cache=custom_path,
         )
 
-        assert kernel.cache_config.enabled is True
-        assert kernel.cache_config.mode == "hash"
+        assert kernel.cache_config.cache_enabled is True
+        assert kernel.cache_config.cache_mode == "hash"
         assert kernel.cache_config.cache_dir == custom_path
 
     def test_parse_cache_param_string_path(self, simple_system, tmp_path):
@@ -567,11 +480,10 @@ class TestParseCacheParam:
             cache=custom_path,
         )
 
-        assert kernel.cache_config.enabled is True
+        assert kernel.cache_config.cache_enabled is True
         assert kernel.cache_config.cache_dir == Path(custom_path)
 
 
-@pytest.mark.nocudasim
 class TestKernelCacheConfigProperty:
     """Tests for BatchSolverKernel.cache_config property."""
 
@@ -587,10 +499,10 @@ class TestKernelCacheConfigProperty:
 
         cache_config = kernel.cache_config
         assert isinstance(cache_config, CacheConfig)
-        assert cache_config.enabled is True
+        assert cache_config.cache_enabled is True
 
-    def test_kernel_cache_config_matches_compile_settings(self, simple_system):
-        """Verify cache_config property equals compile_settings.cache_config."""
+    def test_kernel_cache_config_parsed_from_cache_arg(self, simple_system):
+        """Verify cache_config property parses from _cache_arg."""
         from cubie.batchsolving.BatchSolverKernel import BatchSolverKernel
 
         kernel = BatchSolverKernel(
@@ -599,47 +511,13 @@ class TestKernelCacheConfigProperty:
             cache="flush_on_change",
         )
 
-        assert kernel.cache_config is kernel.compile_settings.cache_config
-        assert kernel.cache_config.mode == "flush_on_change"
+        # cache_config is parsed on demand from _cache_arg
+        assert kernel.cache_config.cache_enabled is True
+        assert kernel.cache_config.cache_mode == "flush_on_change"
 
 
-@pytest.mark.nocudasim
 class TestSetCacheDir:
     """Tests for BatchSolverKernel.set_cache_dir method."""
-
-    def test_set_cache_dir_updates_config(self, simple_system, tmp_path):
-        """Verify set_cache_dir updates cache_config.cache_dir."""
-        from cubie.batchsolving.BatchSolverKernel import BatchSolverKernel
-
-        kernel = BatchSolverKernel(
-            simple_system,
-            algorithm_settings={"algorithm": "euler"},
-            cache=True,
-        )
-        new_path = tmp_path / "new_cache_dir"
-
-        kernel.set_cache_dir(new_path)
-
-        assert kernel.cache_config.cache_dir == new_path
-
-    def test_set_cache_dir_invalidates_cache(self, simple_system, tmp_path):
-        """Verify set_cache_dir calls _invalidate_cache."""
-        from cubie.batchsolving.BatchSolverKernel import BatchSolverKernel
-
-        kernel = BatchSolverKernel(
-            simple_system,
-            algorithm_settings={"algorithm": "euler"},
-            cache=True,
-        )
-
-        # Manually set cache_valid to True to verify it gets invalidated
-        kernel._cache_valid = True
-
-        new_path = tmp_path / "new_cache_dir"
-        kernel.set_cache_dir(new_path)
-
-        # Cache should be invalidated (cleared) by set_cache_dir
-        assert kernel._cache_valid is False
 
     def test_set_cache_dir_accepts_string(self, simple_system, tmp_path):
         """Verify set_cache_dir accepts string path."""
@@ -689,7 +567,6 @@ def simple_system():
     )
 
 
-@pytest.mark.nocudasim
 class TestSolverCacheParam:
     """Tests for Solver cache parameter pass-through."""
 
@@ -702,7 +579,7 @@ class TestSolverCacheParam:
         custom_path = tmp_path / "solver_cache"
         solver = Solver(simple_system, cache=custom_path)
 
-        assert solver.kernel.cache_config.enabled is True
+        assert solver.kernel.cache_config.cache_enabled is True
         assert solver.kernel.cache_config.cache_dir == custom_path
 
     def test_solver_cache_true_default(self, simple_system):
@@ -711,8 +588,8 @@ class TestSolverCacheParam:
 
         solver = Solver(simple_system)
 
-        assert solver.kernel.cache_config.enabled is True
-        assert solver.kernel.cache_config.mode == "hash"
+        assert solver.kernel.cache_config.cache_enabled is True
+        assert solver.kernel.cache_config.cache_mode == "hash"
 
     def test_solver_cache_false(self, simple_system):
         """Verify cache=False disables caching."""
@@ -720,7 +597,7 @@ class TestSolverCacheParam:
 
         solver = Solver(simple_system, cache=False)
 
-        assert solver.kernel.cache_config.enabled is False
+        assert solver.kernel.cache_config.cache_enabled is False
 
     def test_solver_cache_flush_on_change(self, simple_system):
         """Verify cache='flush_on_change' sets mode."""
@@ -728,11 +605,10 @@ class TestSolverCacheParam:
 
         solver = Solver(simple_system, cache="flush_on_change")
 
-        assert solver.kernel.cache_config.enabled is True
-        assert solver.kernel.cache_config.mode == "flush_on_change"
+        assert solver.kernel.cache_config.cache_enabled is True
+        assert solver.kernel.cache_config.cache_mode == "flush_on_change"
 
 
-@pytest.mark.nocudasim
 class TestSolverCacheProperties:
     """Tests for Solver cache-related properties."""
 
@@ -768,7 +644,6 @@ class TestSolverCacheProperties:
         assert solver_custom.cache_dir == custom_path
 
 
-@pytest.mark.nocudasim
 class TestSolverSetCacheDir:
     """Tests for Solver.set_cache_dir method."""
 

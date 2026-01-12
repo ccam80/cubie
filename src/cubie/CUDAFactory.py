@@ -22,7 +22,7 @@ from cubie._utils import (
 from cubie.cuda_simsafe import from_dtype as simsafe_dtype
 
 
-def _hash_tuple(input: Tuple) -> str:
+def hash_tuple(input: Tuple) -> str:
     """Serialize a value to a string for hashing.
 
     Parameters
@@ -202,7 +202,7 @@ class _CubieConfigBase:
         Called automatically after __init__ and update() (only if any fields
         were modified, in the latter case).
         """
-        return _hash_tuple(self.values_tuple)
+        return hash_tuple(self.values_tuple)
 
     @property
     def cache_dict(self):
