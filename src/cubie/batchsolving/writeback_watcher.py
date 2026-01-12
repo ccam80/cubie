@@ -199,7 +199,7 @@ class WritebackWatcher:
         )
         self._submit_task(task)
 
-    def wait_all(self, timeout: Optional[float] = None) -> None:
+    def wait_all(self, timeout: Optional[float] = 10) -> None:
         """Block until all pending writebacks complete.
 
         Parameters
