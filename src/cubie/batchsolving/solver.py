@@ -34,6 +34,7 @@ from cubie.outputhandling.output_functions import (
     ALL_OUTPUT_FUNCTION_PARAMETERS,
 )
 from cubie.time_logger import default_timelogger
+from cubie.cubie_cache import ALL_CACHE_PARAMETERS
 
 # Register module-level events
 default_timelogger.register_event(
@@ -277,12 +278,19 @@ class Solver:
             valid_keys=ALL_LOOP_SETTINGS,
             user_settings=loop_settings,
         )
+        # Merge cache settings from kwargs
+        cache_settings, cache_recognized = merge_kwargs_into_settings(
+            kwargs=kwargs,
+            valid_keys=ALL_CACHE_PARAMETERS,
+            user_settings={},
+        )
         recognized_kwargs = (
             step_recognized
             | algorithm_recognized
             | output_recognized
             | memory_recognized
             | loop_recognized
+            | cache_recognized
         )
 
         self.kernel = BatchSolverKernel(
@@ -294,6 +302,7 @@ class Solver:
             output_settings=output_settings,
             memory_settings=memory_settings,
             cache=cache,
+            cache_settings=cache_settings,
         )
 
         if strict:
@@ -968,12 +977,12 @@ class Solver:
     @property
     def cache_enabled(self) -> bool:
         """Whether file-based caching is enabled."""
-        return self.kernel.cache_config.enabled
+        return self.kernel.cache_config.cache_enabled
 
     @property
     def cache_mode(self) -> str:
         """Current caching mode ('hash' or 'flush_on_change')."""
-        return self.kernel.cache_config.mode
+        return self.kernel.cache_config.cache_mode
 
     @property
     def cache_dir(self) -> Optional[Path]:
