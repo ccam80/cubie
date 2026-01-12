@@ -37,7 +37,8 @@ ChunkIndices = Union[slice, NDArray[np_integer]]
 DeferredWriteback = Tuple[NDArray, tuple, NDArray]
 
 # Type alias for pending buffer entries used in chunked mode
-PendingBuffer = Tuple[object, NDArray, tuple, str]  # (buffer, host_array, slice, name)
+# (buffer, host_array, slice, name, data_shape)
+PendingBuffer = Tuple[object, NDArray, tuple, str, tuple]
 
 
 @define(slots=False)
@@ -429,15 +430,17 @@ class OutputArrays(BaseArrayManager):
 
                 if self.is_chunked and slot.is_chunked:
                     # Chunked mode: use buffer pool and watcher
+                    # Buffer must match device array shape for D2H copy
                     buffer = self._buffer_pool.acquire(
-                        array_name, host_slice.shape, host_slice.dtype
+                        array_name, device_array.shape, host_slice.dtype
                     )
                     to_.append(buffer.array)
                     from_.append(device_array)
 
-                    # Store for submission after transfer
+                    # Store for submission after transfer with actual data shape
                     self._pending_buffers.append(
-                        (buffer, host_array, slice_tuple, array_name)
+                        (buffer, host_array, slice_tuple, array_name,
+                         host_slice.shape)
                     )
                 else:
                     # Non-chunked mode: direct pinned transfer (legacy)
@@ -463,7 +466,7 @@ class OutputArrays(BaseArrayManager):
             else:
                 event = None
 
-            for buffer, host_array, slice_tuple, array_name in \
+            for buffer, host_array, slice_tuple, array_name, data_shape in \
                     self._pending_buffers:
                 self._watcher.submit(
                     event=event,
@@ -472,6 +475,7 @@ class OutputArrays(BaseArrayManager):
                     slice_tuple=slice_tuple,
                     buffer_pool=self._buffer_pool,
                     array_name=array_name,
+                    data_shape=data_shape,
                 )
             self._pending_buffers.clear()
 

@@ -393,10 +393,14 @@ class InputArrays(BaseArrayManager):
 
                 if self.is_chunked:
                     # Chunked mode: use buffer pool for pinned staging
+                    # Buffer must match device array shape for H2D copy
+                    device_shape = device_obj.array.shape
                     buffer = self._buffer_pool.acquire(
-                        array_name, host_slice.shape, host_slice.dtype
+                        array_name, device_shape, host_slice.dtype
                     )
-                    buffer.array[:] = host_slice
+                    # Copy host slice into appropriate portion of buffer
+                    data_slice = tuple(slice(0, s) for s in host_slice.shape)
+                    buffer.array[data_slice] = host_slice
                     from_.append(buffer.array)
                     # Store buffer for later release after H2D completes
                     self._active_buffers.append(buffer)

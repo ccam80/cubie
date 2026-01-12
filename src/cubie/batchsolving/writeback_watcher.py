@@ -6,7 +6,10 @@ from typing import Optional
 from time import sleep, perf_counter
 
 from attrs import define, field
-from attrs.validators import instance_of as attrsval_instance_of
+from attrs.validators import (
+    instance_of as attrsval_instance_of,
+    optional as attrsval_optional,
+)
 from numpy import ndarray
 
 from cubie.cuda_simsafe import CUDA_SIMULATION
@@ -31,6 +34,8 @@ class WritebackTask:
         Pool to release buffer to after completion.
     array_name
         Name of the array for pool organization.
+    data_shape
+        Shape of actual data in buffer (may be smaller than buffer size).
     """
 
     event: object = field()  # cuda.Event or None
@@ -41,6 +46,9 @@ class WritebackTask:
         validator=attrsval_instance_of(ChunkBufferPool)
     )
     array_name: str = field(validator=attrsval_instance_of(str))
+    data_shape: tuple = field(
+        default=None, validator=attrsval_optional(attrsval_instance_of(tuple))
+    )
 
 
 class WritebackWatcher:
@@ -97,6 +105,7 @@ class WritebackWatcher:
         slice_tuple: tuple,
         buffer_pool: ChunkBufferPool,
         array_name: str,
+        data_shape: Optional[tuple] = None,
     ) -> None:
         """Submit a writeback task for async completion.
 
@@ -114,6 +123,10 @@ class WritebackWatcher:
             Pool to release buffer to.
         array_name
             Name of the array for pool organization.
+        data_shape
+            Shape of actual data in buffer. When provided, only this
+            portion of the buffer is copied to target. Used when buffer
+            is larger than actual data (e.g., last chunk).
         """
         task = WritebackTask(
             event=event,
@@ -122,6 +135,7 @@ class WritebackWatcher:
             slice_tuple=slice_tuple,
             buffer_pool=buffer_pool,
             array_name=array_name,
+            data_shape=data_shape,
         )
         with self._lock:
             self._pending_count += 1
@@ -235,7 +249,13 @@ class WritebackWatcher:
 
         if is_complete:
             # Copy buffer data to target array at specified slice
-            task.target_array[task.slice_tuple] = task.buffer.array
+            # If data_shape provided, only copy that portion of the buffer
+            if task.data_shape is not None:
+                buffer_slice = tuple(slice(0, s) for s in task.data_shape)
+                task.target_array[task.slice_tuple] = \
+                    task.buffer.array[buffer_slice]
+            else:
+                task.target_array[task.slice_tuple] = task.buffer.array
             # Release buffer back to pool
             task.buffer_pool.release(task.buffer)
             return True
