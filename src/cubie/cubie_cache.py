@@ -4,7 +4,7 @@ Provides cache classes that persist compiled CUDA kernels to disk,
 enabling faster startup on subsequent runs with identical settings.
 Cache files are stored in
 ``generated/<system_name>/CUDA_cache_{system_hash[:8]}`` within the
-configured GENERATED_DIR or in  ``custom_dir//CUDA_cache_{system_hash[:8]}``
+configured GENERATED_DIR or in  ``custom_dir/CUDA_cache_{system_hash[:8]}``
 if a custom directory is provided as an argument to "cache".
 
 Notes
@@ -462,7 +462,14 @@ class CUBIECache(Cache):
         self._system_hash = config.system_hash
 
         # Note: Changing cache_dir requires recreating the cache.
-        if config.cache_dir != self._impl.locator._cache_root_dir:
+        current_locator_path = self._impl.locator._cache_root_dir
+        if config.cache_dir is None:
+            mismatch = (
+                current_locator_path != GENERATED_DIR / config.system_name
+            )
+        else:
+            mismatch = config.cache_dir != current_locator_path
+        if mismatch:
             # Recreate impl with new cache directory
             self._impl = CUBIECacheImpl(
                 self._system_name,
@@ -494,99 +501,6 @@ class CUBIECache(Cache):
         if compile_settings_hash is not None:
             self._compile_settings_hash = compile_settings_hash
         self._impl.set_hashes(system_hash, compile_settings_hash)
-
-
-#
-# def create_cache(
-#     cache_arg: Union[bool, str, Path],
-#     system_name: str,
-#     system_hash: str,
-#     config_hash: str,
-# ) -> Optional["CUBIECache"]:
-#     """Create a CUBIECache from raw cache argument.
-#
-#     Parameters
-#     ----------
-#     cache_arg
-#         Cache configuration from user:
-#         - True: Enable caching with default path
-#         - False or None: Disable caching
-#         - "flush_on_change": Enable caching with flush_on_change mode
-#         - str or Path: Enable caching at specified path
-#     system_name
-#         Name of the ODE system for directory organization.
-#     system_hash
-#         Hash representing the ODE system definition.
-#     config_hash
-#         Pre-computed hash of compile settings.
-#
-#     Returns
-#     -------
-#     CUBIECache or None
-#         CUBIECache instance if caching is enabled, None otherwise.
-#     """
-#     cache_config = CacheConfig.from_user_setting(cache_arg)
-#     if not cache_config.cache_enabled:
-#         return None
-#
-#     return CUBIECache(
-#         system_name=system_name,
-#         system_hash=system_hash,
-#         config_hash=config_hash,
-#         max_entries=cache_config.max_cache_entries,
-#         mode=cache_config.cache_mode,
-#         custom_cache_dir=cache_config.cache_dir,
-#     )
-
-#
-# def invalidate_cache(
-#     cache_arg: Union[bool, str, Path],
-#     system_name: str,
-#     system_hash: str,
-#     config_hash: str,
-#     custom_cache_dir: Optional[Path] = None,
-# ) -> None:
-#     """Invalidate cache if in flush_on_change mode.
-#
-#     Parameters
-#     ----------
-#     cache_arg
-#         Cache configuration from user (same format as create_cache).
-#     system_name
-#         Name of the ODE system.
-#     system_hash
-#         Hash representing the ODE system definition.
-#     config_hash
-#         Pre-computed hash of compile settings.
-#     custom_cache_dir
-#         Optional custom cache directory path for testing.
-#
-#     Notes
-#     -----
-#     Only flushes cache when mode is "flush_on_change". Silent on errors
-#     since cache flush is best-effort.
-#     """
-#     cache_config = CacheConfig.from_user_setting(cache_arg)
-#     if not cache_config.cache_enabled:
-#         return
-#     if cache_config.cache_mode != "flush_on_change":
-#         return
-#
-#     # Compute cache path directly without creating CUBIECache
-#     if custom_cache_dir is not None:
-#         cache_path = Path(custom_cache_dir)
-#     elif cache_config.cache_dir is not None:
-#         cache_path = Path(cache_config.cache_dir)
-#     else:
-#         hash_dir = system_hash if system_hash else "default"
-#         cache_path = GENERATED_DIR / system_name / hash_dir / "CUDA_cache"
-#
-#     # Best-effort flush
-#     try:
-#         if cache_path.exists():
-#             rmtree(cache_path)
-#     except OSError:
-#         pass
 
 
 @define
