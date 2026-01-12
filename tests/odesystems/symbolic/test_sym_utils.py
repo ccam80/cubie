@@ -508,9 +508,8 @@ class TestHashSystemDefinition:
 
         hash_diff_const = hash_system_definition(
             equations,
-            {},
             {"c2": 0.2},  # different constants
-            observable_labels=observables,
+            observables,
         )
         hash_diff_obs = hash_system_definition(
             equations,
