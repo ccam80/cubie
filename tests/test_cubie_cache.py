@@ -326,7 +326,7 @@ def test_cache_handler_configured_cache_returns_none_when_disabled():
         system_name="test_system",
         system_hash="abc123",
     )
-    result = handler.configured_cache("compile_settings_hash_123")
+    result = handler.configured_cache("abc123", "compile_settings_hash_123")
     assert result is None
 
 
@@ -340,7 +340,7 @@ def test_cache_handler_configured_cache_sets_hashes():
     compile_hash = (
         "def456789012345678901234567890123456789012345678901234567890abcd"
     )
-    result = handler.configured_cache(compile_hash)
+    result = handler.configured_cache("abc123", compile_hash)
     assert result is not None
     assert result._compile_settings_hash == compile_hash
     assert result._system_hash == "abc123"

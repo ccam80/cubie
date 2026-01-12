@@ -711,7 +711,7 @@ class CubieCacheHandler:
         return recognized
 
     def configured_cache(
-        self, compile_settings_hash: str
+        self, system_hash: str, compile_settings_hash: str
     ) -> Optional[CUBIECache]:
         """Return a CUBIECache configured with current hashes.
 
@@ -727,9 +727,11 @@ class CubieCacheHandler:
         """
         if self._cache is None:
             return None
+        if system_hash != self.config.system_hash:
+            self.config._system_hash = system_hash
 
         self._cache.set_hashes(
-            system_hash=self.config.system_hash,
+            system_hash=system_hash,
             compile_settings_hash=compile_settings_hash,
         )
         return self._cache

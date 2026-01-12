@@ -815,7 +815,7 @@ class BatchSolverKernel(CUDAFactory):
         # Update cache for this configuration and attach
         cfg_hash = self.config_hash
         integration_kernel._cache = self.cache_handler.configured_cache(
-            cfg_hash
+            self.system.fn_hash, cfg_hash
         )
         return integration_kernel
 
