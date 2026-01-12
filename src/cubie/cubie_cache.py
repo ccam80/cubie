@@ -462,7 +462,7 @@ class CUBIECache(Cache):
         self._system_hash = config.system_hash
 
         # Note: Changing cache_dir requires recreating the cache.
-        current_locator_path = self._impl.locator._cache_root_dir
+        current_locator_path = self._impl.locator.get_cache_path()
         config_root = (
             config.cache_dir
             if config.cache_dir
@@ -621,7 +621,7 @@ class CubieCacheHandler:
             self._cache = CUBIECache(
                 system_name=system_name,
                 system_hash=system_hash,
-                config_hash="",  # Set at run time via configured_cache
+                config_hash="UNINITIALIZED",  # Set at run time via configured_cache
                 max_entries=_config.max_cache_entries,
                 mode=_config.cache_mode,
                 custom_cache_dir=_config.cache_dir,
@@ -681,7 +681,7 @@ class CubieCacheHandler:
                 self._cache = CUBIECache(
                     system_name=self.config.system_name,
                     system_hash=self.config.system_hash,
-                    config_hash="",
+                    config_hash="UNINITIALIZED",
                     max_entries=self.config.max_cache_entries,
                     mode=self.config.cache_mode,
                     custom_cache_dir=self.config.cache_dir,

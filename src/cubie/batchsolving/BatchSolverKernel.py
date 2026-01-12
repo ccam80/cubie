@@ -515,9 +515,8 @@ class BatchSolverKernel(CUDAFactory):
         BLOCKSPERGRID = int(max(1, np_ceil(kernel_runs / blocksize)))
 
         # Update cache for this configuration and attach
-        if self.cache_handler.cache_enabled:
-            cfg_hash = self.config_hash
-            self.kernel._cache = self.cache_handler.configured_cache(cfg_hash)
+        cfg_hash = self.config_hash
+        self.kernel._cache = self.cache_handler.configured_cache(cfg_hash)
 
         if self.profileCUDA:  # pragma: no cover
             cuda.profile_start()
