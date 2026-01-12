@@ -514,10 +514,6 @@ class BatchSolverKernel(CUDAFactory):
         runsperblock = int(blocksize / self.single_integrator.threads_per_loop)
         BLOCKSPERGRID = int(max(1, np_ceil(kernel_runs / blocksize)))
 
-        # Update cache for this configuration and attach
-        cfg_hash = self.config_hash
-        self.kernel._cache = self.cache_handler.configured_cache(cfg_hash)
-
         if self.profileCUDA:  # pragma: no cover
             cuda.profile_start()
 
@@ -814,6 +810,9 @@ class BatchSolverKernel(CUDAFactory):
                 status_codes_output[run_index] = status
             return None
 
+        # Update cache for this configuration and attach
+        cfg_hash = self.config_hash
+        self.kernel._cache = self.cache_handler.configured_cache(cfg_hash)
         # no cover: end
         return integration_kernel
 
