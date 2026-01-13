@@ -1382,8 +1382,9 @@ def compute_per_chunk_slice(
     """
     per_chunk_slices = {}
     for key, request in requests.items():
+        chunk_index = request.stride_order.index(chunk_axis)
+
         if is_request_chunkable(request, chunk_axis):
-            chunk_index = request.stride_order.index(chunk_axis)
 
             def get_slice(
                 i: int, *, _request=request, _chunk_index=chunk_index
