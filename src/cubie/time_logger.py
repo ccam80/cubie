@@ -258,17 +258,27 @@ class TimeLogger:
         # Store both timestamp and skipped flag for efficient lookup in stop
         self._active_starts[event_name] = (timestamp, skipped)
         
+        # Get custom start message if registered
+        event_info = self._event_registry.get(event_name, {})
+        custom_start = event_info.get('start_message')
+        
         if self.verbosity == 'debug':
             if skipped:
                 print(f"TIMELOGGER [DEBUG] Started: {event_name}... "
                       f"Skipped (found in cache)")
+            elif custom_start:
+                print(f"TIMELOGGER [DEBUG] {custom_start.format(label=event_name)}")
             else:
                 print(f"TIMELOGGER [DEBUG] Started: {event_name}")
         elif self.verbosity == 'verbose':
             if skipped:
                 print(f"Starting {event_name}... Skipped (found in cache)")
+            elif custom_start:
+                print(custom_start.format(label=event_name), end="", flush=True)
             else:
                 print(f"Starting {event_name}...", end="", flush=True)
+        elif self.verbosity == 'default' and custom_start:
+            print(custom_start.format(label=event_name))
     
     def stop_event(self, event_name: str, **metadata: Any) -> None:
         """Record the end of a timed operation.
@@ -319,14 +329,27 @@ class TimeLogger:
         )
         self.events.append(event)
         
+        # Get custom stop message if registered
+        event_info = self._event_registry.get(event_name, {})
+        custom_stop = event_info.get('stop_message')
+        
         if self.verbosity == 'debug':
-            print(f"TIMELOGGER [DEBUG] Stopped: {event_name} "
-                  f"({duration:.3f}s)")
+            if custom_stop:
+                print(f"TIMELOGGER [DEBUG] "
+                      f"{custom_stop.format(label=event_name, duration=duration)}")
+            else:
+                print(f"TIMELOGGER [DEBUG] Stopped: {event_name} "
+                      f"({duration:.3f}s)")
         elif self.verbosity == 'verbose':
             # Only print completion for non-skipped events
             # (skipped events already printed their status in start_event)
             if not was_skipped:
-                print(f" completed in {duration:.3f}s")
+                if custom_stop:
+                    print(custom_stop.format(label=event_name, duration=duration))
+                else:
+                    print(f" completed in {duration:.3f}s")
+        elif self.verbosity == 'default' and custom_stop:
+            print(custom_stop.format(label=event_name, duration=duration))
     
     def progress(
         self, event_name: str, message: str, **metadata: Any
@@ -595,7 +618,12 @@ class TimeLogger:
         self.verbosity = verbosity
     
     def register_event(
-        self, label: str, category: str, description: str
+        self,
+        label: str,
+        category: str,
+        description: str,
+        start_message: Optional[str] = None,
+        stop_message: Optional[str] = None,
     ) -> None:
         """Register an event with metadata for tracking and reporting.
         
@@ -607,6 +635,12 @@ class TimeLogger:
             Event category: 'codegen', 'runtime', or 'compile'
         description : str
             Human-readable description included in printouts
+        start_message : str, optional
+            Custom message to print when event starts. Use {label} as
+            placeholder. If None, uses default format.
+        stop_message : str, optional
+            Custom message to print when event stops. Use {label} and
+            {duration} as placeholders. If None, uses default format.
         
         Notes
         -----
@@ -622,8 +656,36 @@ class TimeLogger:
         if label not in self._event_registry:
             self._event_registry[label] = {
                 'category': category,
-                'description': description
+                'description': description,
+                'start_message': start_message,
+                'stop_message': stop_message,
             }
+    
+    def print_message(self, message: str, min_verbosity: str = 'verbose') -> None:
+        """Print a message if verbosity level is sufficient.
+        
+        Parameters
+        ----------
+        message : str
+            Message to print
+        min_verbosity : str, default='verbose'
+            Minimum verbosity level required to print. Options:
+            'default', 'verbose', 'debug'. Lower levels include higher.
+        
+        Notes
+        -----
+        Use this for one-time notifications like cache hit messages.
+        This method centralizes all printing logic in TimeLogger.
+        """
+        if self.verbosity is None:
+            return
+        
+        verbosity_levels = {'default': 1, 'verbose': 2, 'debug': 3}
+        current_level = verbosity_levels.get(self.verbosity, 0)
+        required_level = verbosity_levels.get(min_verbosity, 2)
+        
+        if current_level >= required_level:
+            print(message)
     
     def _register_cuda_event(self, event: "CUDAEvent") -> None:
         """Register a CUDA event for later timing retrieval (internal).

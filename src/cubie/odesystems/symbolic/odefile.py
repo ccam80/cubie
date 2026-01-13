@@ -25,14 +25,7 @@ HEADER = ("\n# This file was generated automatically by Cubie. Don't make "
 
 
 class ODEFile:
-    """Cache generated ODE functions on disk and reload them when possible.
-    
-    Notes
-    -----
-    Prints a one-time notification when functions are loaded from cache
-    (verbose/debug modes only). The notification is tracked per-instance
-    to avoid duplicates when loading multiple functions from the same file.
-    """
+    """Cache generated ODE functions on disk and reload them when possible."""
 
     def __init__(self, system_name: str, fn_hash: int) -> None:
         """Initialise a cache file for a system definition.
@@ -136,20 +129,6 @@ class ODEFile:
                 has_function = False
         return has_function
 
-    def _print_cache_notification(self) -> None:
-        """Print one-time notification that codegen cache file exists.
-        
-        Only prints once per ODEFile instance to avoid duplicate messages
-        when loading multiple functions from the same cache file.
-        """
-        if self._cache_notification_printed:
-            return
-        verbosity = default_timelogger.verbosity
-        if verbosity in ('verbose', 'debug'):
-            print(f"Existing codegen file found at: {self.file_path}. "
-                  f"Skipping steps that have functions already cached.")
-        self._cache_notification_printed = True
-
     def _import_function(self, func_name: str) -> Callable:
         """Import ``func_name`` from the generated module.
 
@@ -200,7 +179,13 @@ class ODEFile:
         was_cached = self.function_is_cached(func_name)
         
         if was_cached:
-            self._print_cache_notification()
+            # Print one-time cache notification via TimeLogger
+            if not self._cache_notification_printed:
+                default_timelogger.print_message(
+                    f"Existing codegen file found at: {self.file_path}. "
+                    f"Skipping steps that have functions already cached."
+                )
+                self._cache_notification_printed = True
         else:
             if code_lines is None:
                 raise ValueError(

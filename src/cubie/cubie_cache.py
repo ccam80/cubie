@@ -16,7 +16,6 @@ as the module is not imported in that mode.
 """
 
 from shutil import rmtree
-from time import perf_counter
 from warnings import warn
 from pathlib import Path
 from typing import Any, Dict, Optional, Set, Union
@@ -35,9 +34,13 @@ from cubie.cuda_simsafe import is_cudasim_enabled, CUDACache
 from cubie.odesystems.symbolic.odefile import GENERATED_DIR
 from cubie.time_logger import default_timelogger
 
-# Register compile timing events
+# Register compile timing event with custom messages
 default_timelogger.register_event(
-    "compile_cuda_kernel", "compile", "CUDA kernel compilation time"
+    "compile_cuda_kernel",
+    "compile",
+    "CUDA kernel compilation time",
+    start_message="Compiling CUDA kernel...",
+    stop_message="Compilation complete in {duration:.3f}s",
 )
 
 
@@ -357,9 +360,6 @@ class CUBIECache(CUDACache):
             source_stamp=source_stamp,
         )
         self.enable()
-        
-        # Track compile timing
-        self._compile_start_time = None
 
     def _index_key(self, sig, codegen):
         """Compute cache key including CuBIE-specific hashes.
@@ -384,7 +384,7 @@ class CUBIECache(CUDACache):
         )
 
     def load_overload(self, sig, target_context):
-        """Load cached kernel, printing cache hit/miss messages.
+        """Load cached kernel, starting compile timer on cache miss.
 
         Parameters
         ----------
@@ -399,22 +399,15 @@ class CUBIECache(CUDACache):
             Reconstructed CUDA kernel if cache hit, None if miss.
         """
         result = super().load_overload(sig, target_context)
-        verbosity = default_timelogger.verbosity
         
         if result is not None:
-            # Cache hit
-            if verbosity in ('verbose', 'debug'):
-                print(f"Matching compiled function found at: "
-                      f"{self._cache_path}. Skipping compile!")
+            # Cache hit - notify via TimeLogger
+            default_timelogger.print_message(
+                f"Matching compiled function found at: "
+                f"{self._cache_path}. Skipping compile!"
+            )
         else:
-            # Cache miss - compilation will happen
-            if verbosity in ('verbose', 'debug'):
-                print("No cached compiled function found. "
-                      "Beginning compilation... This can take several minutes.")
-            elif verbosity == 'default':
-                print("Compiling CUDA kernel...")
-            # Start compile timing
-            self._compile_start_time = perf_counter()
+            # Cache miss - start compile timing via TimeLogger
             default_timelogger.start_event("compile_cuda_kernel")
         
         return result
@@ -461,7 +454,7 @@ class CUBIECache(CUDACache):
                     pass
 
     def save_overload(self, sig, data):
-        """Save kernel to cache, printing compile complete message.
+        """Save kernel to cache, stopping compile timer.
 
         Parameters
         ----------
@@ -470,16 +463,8 @@ class CUBIECache(CUDACache):
         data
             Kernel data to cache.
         """
-        # Stop compile timing and print message
-        if self._compile_start_time is not None:
-            compile_time = perf_counter() - self._compile_start_time
-            verbosity = default_timelogger.verbosity
-            
-            if verbosity is not None:
-                print(f"Compilation complete in {compile_time:.3f}s")
-            
-            default_timelogger.stop_event("compile_cuda_kernel")
-            self._compile_start_time = None
+        # Stop compile timing - TimeLogger handles the message
+        default_timelogger.stop_event("compile_cuda_kernel")
         
         self.enforce_cache_limit()
         super().save_overload(sig, data)
