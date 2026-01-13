@@ -486,6 +486,7 @@ class OutputArrays(BaseArrayManager):
                     event=event,
                     pending_buffer=buffer,
                 )
+            self._pending_buffers.clear()
 
     def wait_pending(self, timeout: Optional[float] = None) -> None:
         """Wait for all pending async writebacks to complete.
@@ -504,9 +505,7 @@ class OutputArrays(BaseArrayManager):
         -----
         Only applies to chunked mode with watcher-based writebacks.
         """
-        if self._pending_buffers:
-            self._watcher.wait_all(timeout=timeout)
-            self._pending_buffers.clear()
+        self._watcher.wait_all(timeout=timeout)
 
     def initialise(self, chunk_index: int) -> None:
         """
