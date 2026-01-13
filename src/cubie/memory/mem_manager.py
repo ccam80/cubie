@@ -71,6 +71,7 @@ def placeholder_dataready(response: ArrayResponse) -> None:
     -------
     None
     """
+    pass
 
 
 def _ensure_cuda_context() -> None:

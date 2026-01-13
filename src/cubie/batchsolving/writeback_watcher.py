@@ -258,7 +258,7 @@ class WritebackWatcher:
                     pending_tasks.append(task)
             except Empty:
                 pass
-
+                # No tasks available in queue; continue polling loop.
             sleep(self._poll_interval)
 
         # On shutdown, process remaining tasks synchronously
