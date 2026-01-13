@@ -1,6 +1,6 @@
 import pytest
 import numpy as np
-from cubie.memory.array_requests import ArrayRequest
+from cubie.memory.array_requests import ArrayRequest, ArrayResponse
 from cubie.memory.mem_manager import MemoryManager
 
 
@@ -83,3 +83,27 @@ class TestArrayRequests:
         assert arr.nbytes == expected_single_array.nbytes
         assert arr.strides == expected_single_array.strides
         assert arr.dtype == expected_single_array.dtype
+
+
+class TestArrayResponse:
+    def test_array_response_has_chunked_shapes_field(self):
+        """Verify ArrayResponse can be instantiated with chunked_shapes dict."""
+        chunked_shapes = {
+            "output": (100, 3, 50),
+            "state": (3, 50),
+        }
+        response = ArrayResponse(
+            arr={},
+            chunks=2,
+            chunk_axis="run",
+            chunked_shapes=chunked_shapes,
+        )
+        assert response.chunked_shapes == chunked_shapes
+        assert response.chunked_shapes["output"] == (100, 3, 50)
+        assert response.chunked_shapes["state"] == (3, 50)
+
+    def test_array_response_chunked_shapes_default_empty(self):
+        """Verify chunked_shapes defaults to empty dict when not provided."""
+        response = ArrayResponse()
+        assert response.chunked_shapes == {}
+        assert isinstance(response.chunked_shapes, dict)

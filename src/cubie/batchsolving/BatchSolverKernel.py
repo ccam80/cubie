@@ -147,7 +147,6 @@ class BatchSolverKernel(CUDAFactory):
         self._warmup = precision(0.0)
         self._t0 = precision(0.0)
         self.chunks = None
-        self.chunk_axis = "run"
         self.num_runs = 1
 
         # CUDA event tracking for timing
@@ -401,6 +400,9 @@ class BatchSolverKernel(CUDAFactory):
         self._warmup = warmup
         self._t0 = t0
 
+        # Set chunk_axis on both array managers before array operations
+        self.chunk_axis = chunk_axis
+
         # inits is in (variable, run) format - run count is in shape[1]
         numruns = inits.shape[1]
         self.num_runs = numruns  # Don't delete - generates batchoutputsizes
@@ -484,7 +486,6 @@ class BatchSolverKernel(CUDAFactory):
         dynamic_sharedmem = max(4, dynamic_sharedmem)
         threads_per_loop = self.single_integrator.threads_per_loop
         runsperblock = int(blocksize / self.single_integrator.threads_per_loop)
-        BLOCKSPERGRID = int(max(1, np_ceil(kernel_runs / blocksize)))
 
         if self.profileCUDA:  # pragma: no cover
             cuda.profile_start()
@@ -496,15 +497,37 @@ class BatchSolverKernel(CUDAFactory):
         self._gpu_workload_event.record_start(stream)
 
         for i in range(self.chunks):
-            indices = slice(i * chunk_params.size, (i + 1) * chunk_params.size)
+            # Compute actual start and end indices for this chunk
+            start_idx = i * chunk_params.size
+            # Final chunk captures all remaining runs/outputs
+            if i == self.chunks - 1:
+                if chunk_axis == "run":
+                    end_idx = numruns
+                else:
+                    end_idx = self.output_length
+            else:
+                if chunk_axis == "run":
+                    end_idx = (i + 1) * chunk_params.size
+                else:
+                    end_idx = (i + 1) * chunk_params.size
+            indices = slice(start_idx, end_idx)
+
+            # Use actual chunk run count for kernel launch
+            if chunk_axis == "run":
+                actual_chunk_runs = end_idx - start_idx
+            else:
+                actual_chunk_runs = kernel_runs
+
+            # Recompute blocks needed for this chunk's actual run count
+            chunk_blocks = int(max(1, np_ceil(actual_chunk_runs / blocksize)))
 
             # Get events for this chunk
             h2d_event, kernel_event, d2h_event = self._get_chunk_events(i)
 
             # h2d transfer timing
             h2d_event.record_start(stream)
-            self.input_arrays.initialise(indices)
-            self.output_arrays.initialise(indices)
+            self.input_arrays.initialise(i)
+            self.output_arrays.initialise(i)
             h2d_event.record_end(stream)
 
             # Don't use warmup in runs starting after t=t0
@@ -515,7 +538,7 @@ class BatchSolverKernel(CUDAFactory):
             # Kernel execution timing
             kernel_event.record_start(stream)
             self.kernel[
-                BLOCKSPERGRID,
+                chunk_blocks,
                 (threads_per_loop, runsperblock),
                 stream,
                 dynamic_sharedmem,
@@ -532,26 +555,18 @@ class BatchSolverKernel(CUDAFactory):
                 chunk_params.duration,
                 chunk_warmup,
                 chunk_t0,
-                kernel_runs,
+                actual_chunk_runs,
             )
             kernel_event.record_end(stream)
 
-            # We don't want to sync between chunks, we should queue runs and
-            # transfers in the stream and sync before final result fetch.
-            # self.memory_manager.sync_stream(self)
-
             # d2h transfer timing
             d2h_event.record_start(stream)
-            self.input_arrays.finalise(indices)
-            self.output_arrays.finalise(indices)
+            self.input_arrays.finalise(i)
+            self.output_arrays.finalise(i)
             d2h_event.record_end(stream)
 
         # Finalize GPU workload timing
         self._gpu_workload_event.record_end(stream)
-
-        # Sync stream and complete deferred writebacks after all chunks
-        self.memory_manager.sync_stream(self)
-        self.output_arrays.complete_writeback()
 
         if self.profileCUDA:  # pragma: no cover
             cuda.profile_stop()
@@ -637,11 +652,15 @@ class BatchSolverKernel(CUDAFactory):
         chunk_duration = duration
         chunk_t0 = t0
         if chunk_axis == "run":
-            chunkruns = int(np_ceil(numruns / chunks))
+            # Floor division prevents chunk indices from exceeding run count
+            chunkruns = numruns // chunks
+            chunkruns = max(1, chunkruns)
             chunksize = chunkruns
         elif chunk_axis == "time":
             chunk_duration = duration / chunks
-            chunksize = int(np_ceil(self.output_length / chunks))
+            # Floor division ensures indices stay within output_length bounds
+            chunksize = self.output_length // chunks
+            chunksize = max(1, chunksize)
             chunkruns = numruns
 
         return ChunkParams(
@@ -883,6 +902,10 @@ class BatchSolverKernel(CUDAFactory):
         # Include unpacked dict keys in recognized set
         return recognised | unpacked_keys
 
+    def wait_for_writeback(self):
+        """Wait for async writebacks into host arrays after chunked runs"""
+        self.output_arrays.wait_pending()
+
     @property
     def precision(self) -> PrecisionDType:
         """Precision dtype used in computations."""
@@ -1039,6 +1062,45 @@ class BatchSolverKernel(CUDAFactory):
     @t0.setter
     def t0(self, value: float) -> None:
         self._t0 = np_float64(value)
+
+    @property
+    def chunk_axis(self) -> str:
+        """Current chunking axis.
+
+        Returns the chunk_axis value from the array managers, validating
+        that input and output arrays have consistent values.
+
+        Returns
+        -------
+        str
+            The axis along which arrays are chunked.
+
+        Raises
+        ------
+        ValueError
+            If input_arrays and output_arrays have different chunk_axis
+            values.
+        """
+        input_axis = self.input_arrays._chunk_axis
+        output_axis = self.output_arrays._chunk_axis
+        if input_axis != output_axis:
+            raise ValueError(
+                f"Inconsistent chunk_axis: input_arrays has '{input_axis}', "
+                f"output_arrays has '{output_axis}'"
+            )
+        return input_axis
+
+    @chunk_axis.setter
+    def chunk_axis(self, value: str) -> None:
+        """Set chunk_axis on both input and output array managers.
+
+        Parameters
+        ----------
+        value
+            The chunking axis to set.
+        """
+        self.input_arrays._chunk_axis = value
+        self.output_arrays._chunk_axis = value
 
     @property
     def output_length(self) -> int:

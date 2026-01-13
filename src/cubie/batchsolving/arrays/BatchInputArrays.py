@@ -5,7 +5,6 @@ from attrs.validators import (
     instance_of as attrsval_instance_of,
     optional as attrsval_optional,
 )
-from numba import cuda
 from numpy import (
     dtype as np_dtype,
     float32 as np_float32,
@@ -14,11 +13,12 @@ from numpy import (
 )
 
 from numpy.typing import NDArray
-from typing import Optional, TYPE_CHECKING, Union
+from typing import List, Optional, TYPE_CHECKING
 
 if TYPE_CHECKING:
     from cubie.batchsolving.BatchSolverKernel import BatchSolverKernel
 
+from cubie.memory.chunk_buffer_pool import ChunkBufferPool, PinnedBuffer
 from cubie.outputhandling.output_sizes import BatchInputSizes
 from cubie.batchsolving.arrays.BaseArrayManager import (
     ArrayContainer,
@@ -56,13 +56,21 @@ class InputArrayContainer(ArrayContainer):
     )
 
     @classmethod
-    def host_factory(cls) -> "InputArrayContainer":
-        """Create a container configured for pinned host memory transfers.
+    def host_factory(
+        cls, memory_type: str = "pinned"
+    ) -> "InputArrayContainer":
+        """Create a container configured for host memory transfers.
+
+        Parameters
+        ----------
+        memory_type
+            Memory type for host arrays: "pinned" or "host".
+            Default is "pinned" for non-chunked operation.
 
         Returns
         -------
         InputArrayContainer
-            Pinned host-side container instance.
+            Host-side container instance.
 
         Notes
         -----
@@ -72,7 +80,7 @@ class InputArrayContainer(ArrayContainer):
         async transfers due to required intermediate buffering.
         """
         container = cls()
-        container.set_memory_type("pinned")
+        container.set_memory_type(memory_type)
         return container
 
     @classmethod
@@ -87,42 +95,6 @@ class InputArrayContainer(ArrayContainer):
         container = cls()
         container.set_memory_type("device")
         return container
-
-    # @property
-    # def initial_values(self) -> ArrayTypes:
-    #     """Return the stored initial value array."""
-    #
-    #     return self.get_array("initial_values")
-    #
-    # @initial_values.setter
-    # def initial_values(self, value: ArrayTypes) -> None:
-    #     """Set the initial value array."""
-    #
-    #     self.set_array("initial_values", value)
-    #
-    # @property
-    # def parameters(self) -> ArrayTypes:
-    #     """Return the stored parameter array."""
-    #
-    #     return self.get_array("parameters")
-    #
-    # @parameters.setter
-    # def parameters(self, value: ArrayTypes) -> None:
-    #     """Set the parameter array."""
-    #
-    #     self.set_array("parameters", value)
-    #
-    # @property
-    # def driver_coefficients(self) -> ArrayTypes:
-    #     """Return the stored driver coefficients."""
-    #
-    #     return self.get_array("driver_coefficients")
-    #
-    # @driver_coefficients.setter
-    # def driver_coefficients(self, value: ArrayTypes) -> None:
-    #     """Set the driver coefficient array."""
-    #
-    #     self.set_array("driver_coefficients", value)
 
 
 @define
@@ -160,6 +132,8 @@ class InputArrays(BaseArrayManager):
         validator=attrsval_instance_of(InputArrayContainer),
         init=False,
     )
+    _buffer_pool: ChunkBufferPool = field(factory=ChunkBufferPool, init=False)
+    _active_buffers: List[PinnedBuffer] = field(factory=list, init=False)
 
     def __attrs_post_init__(self) -> None:
         """Ensure host and device containers use explicit memory types.
@@ -289,7 +263,6 @@ class InputArrays(BaseArrayManager):
         """
         self._sizes = BatchInputSizes.from_solver(solver_instance).nonzero
         self._precision = solver_instance.precision
-        self._chunk_axis = solver_instance.chunk_axis
         for name, arr_obj in self.host.iter_managed_arrays():
             arr_obj.shape = getattr(self._sizes, name)
             if np_issubdtype(np_dtype(arr_obj.dtype), np_floating):
@@ -299,49 +272,16 @@ class InputArrays(BaseArrayManager):
             if np_issubdtype(np_dtype(arr_obj.dtype), np_floating):
                 arr_obj.dtype = self._precision
 
-    def finalise(self, host_indices: Union[slice, NDArray]) -> None:
-        """Copy final state slices back to host arrays when requested.
+    def finalise(self, chunk_index: int) -> None:
+        """Release buffers back to host."""
+        self.release_buffers()
 
-        Parameters
-        ----------
-        host_indices
-            Indices for the chunk being finalized.
-
-        Returns
-        -------
-        None
-            Device buffers are read into host arrays in place.
-
-        Notes
-        -----
-        This method copies data from device back to host for the specified
-        chunk indices.
-        """
-        # This functionality was added without the device-code support to make
-        # it do anything, so it just wastes time. To restore it, if useful,
-        # The singleintegratorrun function needs a toggle and to overwrite
-        # the initial states vecotr with it's own final state on exit.
-        # This is requested in #76 https://github.com/ccam80/cubie/issues/76
-
-        # stride_order = self.host.get_managed_array("initial_values").stride_order
-        # slice_tuple = [slice(None)] * len(stride_order)
-        # if self._chunk_axis in stride_order:
-        #     chunk_index = stride_order.index(self._chunk_axis)
-        #     slice_tuple[chunk_index] = host_indices
-        #     slice_tuple = tuple(slice_tuple)
-        #
-        # to_ = [self.host.initial_values.array[slice_tuple]]
-        # from_ = [self.device.initial_values.array]
-        #
-        # self.from_device(from_, to_)
-        pass
-
-    def initialise(self, host_indices: Union[slice, NDArray]) -> None:
+    def initialise(self, chunk_index: int) -> None:
         """Copy a batch chunk of host data to device buffers.
 
         Parameters
         ----------
-        host_indices
+        chunk_index
             Indices for the chunk being initialized.
 
         Returns
@@ -351,8 +291,10 @@ class InputArrays(BaseArrayManager):
 
         Notes
         -----
-        Host slices are made contiguous before transfer to ensure
-        compatible strides with device arrays.
+        For chunked mode, pinned buffers are acquired from the pool for
+        staging data before H2D transfer. Buffers are stored in
+        _active_buffers and released after the H2D transfer completes.
+        For non-chunked mode, pinned buffers are allocated directly.
         """
         from_ = []
         to_ = []
@@ -366,24 +308,44 @@ class InputArrays(BaseArrayManager):
         for array_name in arrays_to_copy:
             device_obj = self.device.get_managed_array(array_name)
             to_.append(device_obj.array)
+
             host_obj = self.host.get_managed_array(array_name)
-            if self._chunks <= 1 or not device_obj.is_chunked:
+
+            # Direct transfer when shapes match; chunked transfer otherwise
+            if not host_obj.needs_chunked_transfer:
                 from_.append(host_obj.array)
             else:
-                stride_order = host_obj.stride_order
-                # Skip chunking if axis not in stride_order
-                if self._chunk_axis not in stride_order:
-                    from_.append(host_obj.array)
-                    continue
-                chunk_index = stride_order.index(self._chunk_axis)
-                slice_tuple = [slice(None)] * len(stride_order)
-                slice_tuple[chunk_index] = host_indices
-                host_slice = host_obj.array[tuple(slice_tuple)]
-                # Create pinned buffer for async device transfer
-                pinned_buffer = cuda.pinned_array(
-                    host_slice.shape, dtype=host_slice.dtype
+                slice_tuple = host_obj.chunked_slice_fn(chunk_index)
+                host_slice = host_obj.array[slice_tuple]
+
+                # Chunked mode: use buffer pool for pinned staging
+                # Buffer must match device array shape for H2D copy
+                device_shape = device_obj.array.shape
+                buffer = self._buffer_pool.acquire(
+                    array_name, device_shape, host_slice.dtype
                 )
-                pinned_buffer[:] = host_slice
-                from_.append(pinned_buffer)
+                # Copy host slice into smallest indices of buffer,
+                # as the final host slice may be smaller than the buffer.
+                data_slice = tuple(slice(0, s) for s in host_slice.shape)
+                buffer.array[data_slice] = host_slice
+                from_.append(buffer.array)
+                # Record that we're using this buffer for later release.
+                self._active_buffers.append(buffer)
 
         self.to_device(from_, to_)
+
+    def release_buffers(self) -> None:
+        """Release all active buffers back to the pool.
+
+        Should be called after H2D transfer completes to return pooled
+        pinned buffers for reuse by subsequent chunks.
+        """
+        for buffer in self._active_buffers:
+            self._buffer_pool.release(buffer)
+        self._active_buffers.clear()
+
+    def reset(self) -> None:
+        """Clear all cached arrays and reset allocation tracking."""
+        super().reset()
+        self._buffer_pool.clear()
+        self._active_buffers.clear()

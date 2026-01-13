@@ -437,10 +437,12 @@ class Solver:
             stream=stream,
             chunk_axis=chunk_axis,
         )
-        self.memory_manager.sync_stream(self.kernel)
 
-        # Stop wall-clock timing and print all timing summaries
-        # (CUDA events retrieved automatically by print_summary)
+        # Synchronize stream, wait until arrays written in "chunked" mode.
+        self.memory_manager.sync_stream(self.kernel)
+        self.kernel.wait_for_writeback()
+
+        # Stop wall-clock timing for solve
         default_timelogger.stop_event("solver_solve")
         default_timelogger.print_summary()
 
@@ -889,6 +891,11 @@ class Solver:
     def stream_group(self):
         """Return the CUDA stream group assigned to this solver."""
         return self.kernel.stream_group
+
+    @property
+    def stream(self):
+        """Return the CUDA stream used by this solver."""
+        return self.kernel.stream
 
     @property
     def mem_proportion(self):
