@@ -608,3 +608,143 @@ class TestBufferPoolAndWatcherIntegration:
 
         # Pending buffers should be clear
         assert len(output_arrays_manager._pending_buffers) == 0
+
+
+class TestNeedsChunkedTransferBranching:
+    """Test needs_chunked_transfer property usage in BatchOutputArrays."""
+
+    def test_convert_host_to_numpy_uses_needs_chunked_transfer(
+        self, output_arrays_manager, solver
+    ):
+        """Verify _convert_host_to_numpy uses needs_chunked_transfer.
+
+        The method should convert pinned arrays to regular numpy only
+        when the device array's needs_chunked_transfer property is True.
+        This is determined by comparing shape vs chunked_shape.
+        """
+        from cubie.memory.mem_manager import ArrayResponse
+
+        # Allocate first to set up arrays
+        output_arrays_manager.update(solver)
+
+        # Create a mock response with chunked_shapes that differ from shape
+        num_runs = output_arrays_manager.state.shape[2]
+
+        # Set up chunked allocation scenario: 2 chunks
+        chunk_size = num_runs // 2
+        chunked_shapes = {}
+        for name, slot in output_arrays_manager.device.iter_managed_arrays():
+            # Unchunkable arrays (status_codes) keep original shape
+            if not slot.is_chunked:
+                chunked_shapes[name] = slot.shape
+            else:
+                # Compute chunked shape with smaller run dimension
+                if "run" in slot.stride_order:
+                    axis_idx = slot.stride_order.index("run")
+                    chunked_shape = tuple(
+                        chunk_size if i == axis_idx else dim
+                        for i, dim in enumerate(slot.shape)
+                    )
+                    chunked_shapes[name] = chunked_shape
+                else:
+                    chunked_shapes[name] = slot.shape
+
+        # Create response simulating 2-chunk allocation
+        response = ArrayResponse(
+            arr={
+                name: output_arrays_manager.device.get_array(name)
+                for name in output_arrays_manager.device.array_names()
+            },
+            chunks=2,
+            chunk_axis="run",
+            chunked_shapes=chunked_shapes,
+        )
+
+        # Trigger allocation complete to store chunked_shapes
+        output_arrays_manager._on_allocation_complete(response)
+
+        # Verify state array had needs_chunked_transfer = True (shapes differ)
+        device_state = output_arrays_manager.device.get_managed_array("state")
+        assert device_state.needs_chunked_transfer is True
+
+        # Verify status_codes had needs_chunked_transfer = False (unchunkable)
+        device_status = output_arrays_manager.device.get_managed_array(
+            "status_codes"
+        )
+        # Status codes is unchunkable, so chunked_shape == shape
+        assert device_status.needs_chunked_transfer is False
+
+        # Verify host arrays for chunkable arrays converted to "host"
+        host_state = output_arrays_manager.host.get_managed_array("state")
+        assert host_state.memory_type == "host"
+
+    def test_finalise_uses_needs_chunked_transfer(
+        self, output_arrays_manager, solver
+    ):
+        """Verify finalise uses needs_chunked_transfer for branching.
+
+        When device_slot.needs_chunked_transfer is True, finalise should
+        acquire buffers from the pool. When False, it should transfer
+        directly without buffering.
+        """
+        from cubie.memory.mem_manager import ArrayResponse
+
+        # Allocate first
+        output_arrays_manager.update(solver)
+
+        num_runs = output_arrays_manager.state.shape[2]
+        chunk_size = max(1, num_runs // 2)
+
+        # Set up chunked_shapes in device arrays
+        chunked_shapes = {}
+        for name, slot in output_arrays_manager.device.iter_managed_arrays():
+            if not slot.is_chunked:
+                chunked_shapes[name] = slot.shape
+            else:
+                if "run" in slot.stride_order:
+                    axis_idx = slot.stride_order.index("run")
+                    chunked_shape = tuple(
+                        chunk_size if i == axis_idx else dim
+                        for i, dim in enumerate(slot.shape)
+                    )
+                    chunked_shapes[name] = chunked_shape
+                else:
+                    chunked_shapes[name] = slot.shape
+
+        response = ArrayResponse(
+            arr={
+                name: output_arrays_manager.device.get_array(name)
+                for name in output_arrays_manager.device.array_names()
+            },
+            chunks=2,
+            chunk_axis="run",
+            chunked_shapes=chunked_shapes,
+        )
+
+        # Apply chunked allocation
+        output_arrays_manager._on_allocation_complete(response)
+
+        # Clear any pending buffers from allocation
+        output_arrays_manager._pending_buffers.clear()
+
+        # Call finalise with chunk indices
+        host_indices = slice(0, chunk_size)
+        output_arrays_manager.finalise(host_indices)
+
+        # Pending buffers should be created for arrays with
+        # needs_chunked_transfer = True
+        assert len(output_arrays_manager._pending_buffers) > 0
+
+        # Verify buffers created for chunked arrays
+        buffer_names = {
+            pb.array_name for pb in output_arrays_manager._pending_buffers
+        }
+        # state should have buffer (is_chunked=True, shapes differ)
+        assert "state" in buffer_names
+        # observables should have buffer
+        assert "observables" in buffer_names
+        # status_codes should NOT have buffer (is_chunked=False)
+        assert "status_codes" not in buffer_names
+
+        # Cleanup
+        output_arrays_manager.wait_pending()

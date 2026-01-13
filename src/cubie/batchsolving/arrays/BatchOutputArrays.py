@@ -9,7 +9,6 @@ from attrs import define, field
 from attrs.validators import instance_of as attrsval_instance_of
 from numba import cuda
 from numpy import (
-    array as np_array,
     float32 as np_float32,
     floating as np_floating,
     int32 as np_int32,
@@ -26,7 +25,6 @@ from cubie.batchsolving.arrays.BaseArrayManager import (
     ManagedArray,
 )
 from cubie.batchsolving import ArrayTypes
-from cubie._utils import slice_variable_dimension
 from cubie.memory.chunk_buffer_pool import ChunkBufferPool
 from cubie.batchsolving.writeback_watcher import (
     WritebackWatcher,
@@ -235,7 +233,7 @@ class OutputArrays(BaseArrayManager):
                         old_array.shape, old_array.dtype, "pinned"
                     )
                     slot.array = new_array
-        self.host.set_memory_type="pinned"
+        self.host.set_memory_type("pinned")
 
     def _convert_host_to_numpy(self) -> None:
         """Convert pinned host arrays to regular numpy for chunked mode.
@@ -245,10 +243,11 @@ class OutputArrays(BaseArrayManager):
         used for staging during transfers.
         """
         for name, slot in self.host.iter_managed_arrays():
+            device_slot = self.device.get_managed_array(name)
+            # Convert to regular numpy only for arrays with chunked transfers
             if (
                 slot.memory_type == "pinned"
-                and slot.is_chunked
-                and self._chunk_axis in slot.stride_order
+                and device_slot.needs_chunked_transfer
             ):
                 old_array = slot.array
                 if old_array is not None:
@@ -413,12 +412,12 @@ class OutputArrays(BaseArrayManager):
                 slot.dtype = self._precision
         return new_arrays
 
-    def finalise(self, host_indices: ChunkIndices) -> None:
+    def finalise(self, chunk_index: int) -> None:
         """Queue device-to-host transfers for a chunk.
 
         Parameters
         ----------
-        host_indices
+        chunk_index
             Indices for the chunk being finalized.
 
         Returns
@@ -442,35 +441,32 @@ class OutputArrays(BaseArrayManager):
 
         for array_name, slot in self.host.iter_managed_arrays():
             device_array = self.device.get_array(array_name)
+            device_slot = self.device.get_managed_array(array_name)
             host_array = slot.array
             stride_order = slot.stride_order
 
             to_target = host_array
             from_target = device_array
-            if self._chunk_axis in stride_order:
-                chunk_index = stride_order.index(self._chunk_axis)
-                slice_tuple = slice_variable_dimension(
-                    host_indices, chunk_index, len(stride_order)
-                )
+            if device_slot.needs_chunked_transfer:
+                slice_tuple = slot.chunked_slice_fn(chunk_index)
                 host_slice = host_array[slice_tuple]
-                if self.is_chunked and slot.is_chunked:
-                    # Chunked mode: use buffer pool and watcher
-                    # Buffer must match device array shape for D2H copy
-                    buffer = self._buffer_pool.acquire(
-                        array_name, device_array.shape, host_slice.dtype
+                # Chunked mode: use buffer pool and watcher
+                # Buffer must match device array shape for D2H copy
+                buffer = self._buffer_pool.acquire(
+                    array_name, device_array.shape, host_slice.dtype
+                )
+                # Set pinned buffer as target and register for writeback
+                to_target = buffer.array
+                self._pending_buffers.append(
+                    PendingBuffer(
+                        buffer=buffer,
+                        target_array=host_array,
+                        slice_tuple=slice_tuple,
+                        array_name=array_name,
+                        data_shape=host_slice.shape,
+                        buffer_pool=self._buffer_pool,
                     )
-                    # Set pinned buffer as target and register for writeback
-                    to_target = buffer.array
-                    self._pending_buffers.append(
-                        PendingBuffer(
-                            buffer=buffer,
-                            target_array=host_array,
-                            slice_tuple=slice_tuple,
-                            array_name=array_name,
-                            data_shape=host_slice.shape,
-                            buffer_pool=self._buffer_pool,
-                        )
-                    )
+                )
 
             to_.append(to_target)
             from_.append(from_target)
@@ -478,7 +474,7 @@ class OutputArrays(BaseArrayManager):
         self.from_device(from_, to_)
 
         # Record events and submit to watcher for chunked mode
-        if self.is_chunked and self._pending_buffers:
+        if self._pending_buffers:
             if not CUDA_SIMULATION:
                 event = cuda.event()
                 event.record(stream)
@@ -512,13 +508,13 @@ class OutputArrays(BaseArrayManager):
             self._watcher.wait_all(timeout=timeout)
             self._pending_buffers.clear()
 
-    def initialise(self, host_indices: ChunkIndices) -> None:
+    def initialise(self, chunk_index: int) -> None:
         """
         Initialize device arrays before kernel execution.
 
         Parameters
         ----------
-        host_indices
+        chunk_index
             Indices for the chunk being initialized.
 
         Returns

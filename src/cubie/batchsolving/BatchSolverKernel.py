@@ -486,7 +486,6 @@ class BatchSolverKernel(CUDAFactory):
         dynamic_sharedmem = max(4, dynamic_sharedmem)
         threads_per_loop = self.single_integrator.threads_per_loop
         runsperblock = int(blocksize / self.single_integrator.threads_per_loop)
-        BLOCKSPERGRID = int(max(1, np_ceil(kernel_runs / blocksize)))
 
         if self.profileCUDA:  # pragma: no cover
             cuda.profile_start()
@@ -498,15 +497,37 @@ class BatchSolverKernel(CUDAFactory):
         self._gpu_workload_event.record_start(stream)
 
         for i in range(self.chunks):
-            indices = slice(i * chunk_params.size, (i + 1) * chunk_params.size)
+            # Compute actual start and end indices for this chunk
+            start_idx = i * chunk_params.size
+            # Final chunk captures all remaining runs/outputs
+            if i == self.chunks - 1:
+                if chunk_axis == "run":
+                    end_idx = numruns
+                else:
+                    end_idx = self.output_length
+            else:
+                if chunk_axis == "run":
+                    end_idx = (i + 1) * chunk_params.size
+                else:
+                    end_idx = (i + 1) * chunk_params.size
+            indices = slice(start_idx, end_idx)
+
+            # Use actual chunk run count for kernel launch
+            if chunk_axis == "run":
+                actual_chunk_runs = end_idx - start_idx
+            else:
+                actual_chunk_runs = kernel_runs
+
+            # Recompute blocks needed for this chunk's actual run count
+            chunk_blocks = int(max(1, np_ceil(actual_chunk_runs / blocksize)))
 
             # Get events for this chunk
             h2d_event, kernel_event, d2h_event = self._get_chunk_events(i)
 
             # h2d transfer timing
             h2d_event.record_start(stream)
-            self.input_arrays.initialise(indices)
-            self.output_arrays.initialise(indices)
+            self.input_arrays.initialise(i)
+            self.output_arrays.initialise(i)
             h2d_event.record_end(stream)
 
             # Don't use warmup in runs starting after t=t0
@@ -517,7 +538,7 @@ class BatchSolverKernel(CUDAFactory):
             # Kernel execution timing
             kernel_event.record_start(stream)
             self.kernel[
-                BLOCKSPERGRID,
+                chunk_blocks,
                 (threads_per_loop, runsperblock),
                 stream,
                 dynamic_sharedmem,
@@ -534,14 +555,14 @@ class BatchSolverKernel(CUDAFactory):
                 chunk_params.duration,
                 chunk_warmup,
                 chunk_t0,
-                kernel_runs,
+                actual_chunk_runs,
             )
             kernel_event.record_end(stream)
 
             # d2h transfer timing
             d2h_event.record_start(stream)
-            self.input_arrays.finalise(indices)
-            self.output_arrays.finalise(indices)
+            self.input_arrays.finalise(i)
+            self.output_arrays.finalise(i)
             d2h_event.record_end(stream)
 
         # Finalize GPU workload timing
@@ -631,11 +652,15 @@ class BatchSolverKernel(CUDAFactory):
         chunk_duration = duration
         chunk_t0 = t0
         if chunk_axis == "run":
-            chunkruns = int(np_ceil(numruns / chunks))
+            # Floor division prevents chunk indices from exceeding run count
+            chunkruns = numruns // chunks
+            chunkruns = max(1, chunkruns)
             chunksize = chunkruns
         elif chunk_axis == "time":
             chunk_duration = duration / chunks
-            chunksize = int(np_ceil(self.output_length / chunks))
+            # Floor division ensures indices stay within output_length bounds
+            chunksize = self.output_length // chunks
+            chunksize = max(1, chunksize)
             chunkruns = numruns
 
         return ChunkParams(

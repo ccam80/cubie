@@ -6,7 +6,7 @@ and memory placement details, while responses track allocated buffers and any
 chunking performed by the memory manager.
 """
 
-from typing import Optional
+from typing import Optional, Callable
 
 import attrs
 import attrs.validators as val
@@ -56,6 +56,7 @@ class ArrayRequest:
     * For 3D arrays, ``("time", "variable", "run")`` is selected.
     * For 2D arrays, ``("variable", "run")`` is selected.
     """
+
     dtype = attrs.field(
         validator=val.in_([np.float64, np.float32, np.int32]),
     )
@@ -72,7 +73,9 @@ class ArrayRequest:
     stride_order: Optional[tuple[str, ...]] = attrs.field(
         default=None, validator=val.optional(val.instance_of(tuple))
     )
-    unchunkable: bool = attrs.field(default=False, validator=val.instance_of(bool))
+    unchunkable: bool = attrs.field(
+        default=False, validator=val.instance_of(bool)
+    )
 
     def __attrs_post_init__(self) -> None:
         """
@@ -107,6 +110,9 @@ class ArrayResponse:
         Mapping that records how many chunks each allocation was divided into.
     chunk_axis
         Axis label along which chunking was performed. Defaults to ``"run"``.
+    chunked_shapes
+        Mapping from array labels to their per-chunk shapes. Empty dict when
+        no chunking occurs.
 
     Attributes
     ----------
@@ -116,6 +122,8 @@ class ArrayResponse:
         Mapping that records how many chunks each allocation was divided into.
     chunk_axis
         Axis label along which chunking was performed.
+    chunked_shapes
+        Mapping from array labels to their per-chunk shapes.
     """
 
     arr: dict[str, DeviceNDArrayBase] = attrs.field(
@@ -126,4 +134,10 @@ class ArrayResponse:
     )
     chunk_axis: str = attrs.field(
         default="run", validator=val.in_(["run", "variable", "time"])
+    )
+    chunked_shapes: dict[str, tuple[int, ...]] = attrs.field(
+        default=attrs.Factory(dict), validator=val.instance_of(dict)
+    )
+    chunked_slices: dict[str, Callable] = attrs.field(
+        default=attrs.Factory(dict), validator=val.instance_of(dict)
     )

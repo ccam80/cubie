@@ -621,3 +621,110 @@ class TestBufferPoolIntegration:
 
         # Buffer IDs should match, indicating reuse
         assert first_buffer_ids == second_buffer_ids
+
+
+class TestNeedsChunkedTransferBranching:
+    """Test that initialise uses needs_chunked_transfer for branching."""
+
+    def test_initialise_uses_needs_chunked_transfer(
+        self, solver, sample_input_arrays, precision
+    ):
+        """Verify initialise uses needs_chunked_transfer for branching.
+
+        When needs_chunked_transfer is False, the array is copied directly.
+        When needs_chunked_transfer is True, buffer pool is used for staging.
+        """
+        input_arrays = InputArrays.from_solver(solver)
+        input_arrays.update(
+            solver,
+            sample_input_arrays["initial_values"],
+            sample_input_arrays["parameters"],
+            sample_input_arrays["driver_coefficients"],
+        )
+
+        # Configure for chunked mode
+        input_arrays._chunks = 3
+        input_arrays._chunk_axis = "run"
+
+        # Set up chunked_shape so needs_chunked_transfer returns True
+        # for arrays with run axis in stride_order
+        num_runs = sample_input_arrays["initial_values"].shape[1]
+        chunk_size = num_runs // 3
+
+        for name, device_slot in input_arrays.device.iter_managed_arrays():
+            # Full shape stored in shape, chunked shape set differently
+            original_shape = device_slot.shape
+            # If array has 'run' in stride_order, set chunked_shape smaller
+            if "run" in device_slot.stride_order:
+                run_idx = device_slot.stride_order.index("run")
+                chunked = list(original_shape)
+                chunked[run_idx] = chunk_size
+                device_slot.chunked_shape = tuple(chunked)
+            else:
+                # Array not chunked - chunked_shape equals shape
+                device_slot.chunked_shape = original_shape
+
+        # Clear any existing active buffers
+        input_arrays._active_buffers.clear()
+
+        # Call initialise with a chunk slice
+        host_indices = slice(0, chunk_size)
+        input_arrays.initialise(host_indices)
+
+        # Arrays with needs_chunked_transfer=True should have used buffers
+        buffer_names = [b.name for b in input_arrays._active_buffers]
+
+        # Check which arrays used buffer pool (needs_chunked_transfer=True)
+        for name, device_slot in input_arrays.device.iter_managed_arrays():
+            if device_slot.needs_chunked_transfer:
+                if input_arrays._chunk_axis in device_slot.stride_order:
+                    # Should have used buffer pool
+                    assert name in buffer_names, (
+                        f"Array {name} with needs_chunked_transfer=True "
+                        "should have used buffer pool"
+                    )
+            else:
+                # Should NOT have used buffer pool
+                assert name not in buffer_names, (
+                    f"Array {name} with needs_chunked_transfer=False "
+                    "should not have used buffer pool"
+                )
+
+    def test_initialise_no_buffers_when_needs_chunked_transfer_false(
+        self, solver, sample_input_arrays, precision
+    ):
+        """Verify no buffers used when all arrays have needs_chunked_transfer=False.
+
+        When chunked_shape equals shape, needs_chunked_transfer returns False
+        and no buffer pool staging is needed.
+        """
+        input_arrays = InputArrays.from_solver(solver)
+        input_arrays.update(
+            solver,
+            sample_input_arrays["initial_values"],
+            sample_input_arrays["parameters"],
+            sample_input_arrays["driver_coefficients"],
+        )
+
+        # Configure for chunked mode but set chunked_shape = shape
+        # so needs_chunked_transfer returns False
+        input_arrays._chunks = 3
+        input_arrays._chunk_axis = "run"
+
+        for name, device_slot in input_arrays.device.iter_managed_arrays():
+            # Set chunked_shape equal to shape
+            device_slot.chunked_shape = device_slot.shape
+
+        # Clear any existing active buffers
+        input_arrays._active_buffers.clear()
+
+        # Call initialise
+        num_runs = sample_input_arrays["initial_values"].shape[1]
+        chunk_size = num_runs // 3
+        host_indices = slice(0, chunk_size)
+        input_arrays.initialise(host_indices)
+
+        # No buffers should be used since needs_chunked_transfer is False
+        assert len(input_arrays._active_buffers) == 0, (
+            "No buffers should be used when needs_chunked_transfer is False"
+        )
