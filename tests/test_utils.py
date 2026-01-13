@@ -824,3 +824,13 @@ class TestEnsureNonzeroSize:
         """Test zero in last position is replaced."""
         result = ensure_nonzero_size((2, 3, 0))
         assert result == (2, 3, 1)
+
+    def test_string_tuple_passthrough(self):
+        """Test that tuple of strings is passed through unchanged."""
+        result = ensure_nonzero_size(("time", "variable", "run"))
+        assert result == ("time", "variable", "run")
+
+    def test_mixed_type_tuple(self):
+        """Test tuple with mixed numeric and non-numeric values."""
+        result = ensure_nonzero_size((0, "label", 2))
+        assert result == (1, "label", 2)

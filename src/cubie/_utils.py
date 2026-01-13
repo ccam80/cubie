@@ -620,7 +620,8 @@ def ensure_nonzero_size(
     Union[int, Tuple[int, ...]]
         The input value with any zeros replaced by ones. For integers,
         returns max(1, value). For tuples, replaces each zero element
-        with 1 while preserving non-zero elements.
+        with 1 while preserving non-zero elements. Non-numeric values
+        (e.g., strings) are passed through unchanged.
 
     Examples
     --------
@@ -638,7 +639,11 @@ def ensure_nonzero_size(
     if isinstance(value, int):
         return max(1, value)
     elif isinstance(value, tuple):
-        return tuple(max(1, v) for v in value)
+        # Only apply max(1, v) to numeric values, pass through others unchanged
+        return tuple(
+            max(1, v) if isinstance(v, (int, float)) else v
+            for v in value
+        )
     else:
         return value
 
