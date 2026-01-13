@@ -526,8 +526,8 @@ class BatchSolverKernel(CUDAFactory):
 
             # h2d transfer timing
             h2d_event.record_start(stream)
-            self.input_arrays.initialise(indices)
-            self.output_arrays.initialise(indices)
+            self.input_arrays.initialise(i)
+            self.output_arrays.initialise(i)
             h2d_event.record_end(stream)
 
             # Don't use warmup in runs starting after t=t0
@@ -561,8 +561,8 @@ class BatchSolverKernel(CUDAFactory):
 
             # d2h transfer timing
             d2h_event.record_start(stream)
-            self.input_arrays.finalise(indices)
-            self.output_arrays.finalise(indices)
+            self.input_arrays.finalise(i)
+            self.output_arrays.finalise(i)
             d2h_event.record_end(stream)
 
         # Finalize GPU workload timing
