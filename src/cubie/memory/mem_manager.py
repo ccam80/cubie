@@ -1297,6 +1297,13 @@ class MemoryManager:
                 f"({available_memory}). Cannot proceed."
             )
 
+        # Guard: unchunkable arrays alone exceed available memory
+        if unchunkable_size >= available_memory:
+            raise ValueError(
+                f"Unchunkable arrays require {unchunkable_size} bytes but only "
+                f"{available_memory} bytes available. Cannot proceed."
+            )
+
         # Calculate chunk size and number of chunks once we know it's eligible
         else:
             available_to_chunk = available_memory - unchunkable_size
@@ -1306,11 +1313,10 @@ class MemoryManager:
             max_chunk_size = int(np_floor(axis_length / chunk_ratio))
             if max_chunk_size == 0:
                 raise ValueError(
-                    "Can't fit a single run in GPU VRAM."
-                    f"Available memory: {available_memory}."
-                    f"Request size: {request_size}. Request "
-                    f"size that is 'chunkable': "
-                    f"{chunkable_size}."
+                    "Can't fit a single run in GPU VRAM. "
+                    f"Available memory: {available_memory}. "
+                    f"Request size: {request_size}. "
+                    f"Chunkable request size: {chunkable_size}."
                 )
             # With floor rounding, we might end up with an extra chunk or two
             num_chunks = int(np_ceil(axis_length / max_chunk_size))
@@ -1394,9 +1400,8 @@ def compute_per_chunk_slice(
     """
     per_chunk_slices = {}
     for key, request in requests.items():
-        chunk_index = request.stride_order.index(chunk_axis)
-
         if is_request_chunkable(request, chunk_axis):
+            chunk_index = request.stride_order.index(chunk_axis)
 
             def get_slice(
                 i: int, *, _request=request, _chunk_index=chunk_index
@@ -1410,9 +1415,9 @@ def compute_per_chunk_slice(
                 return tuple(chunk_slice)
 
         else:
-            # Just return a tuple of None slices
+            # Unchunkable: return full-slice function (no .index() call)
             def get_slice(
-                i: int, *, _request=request, _chunk_index=chunk_index
+                i: int, *, _request=request
             ) -> Tuple[slice, ...]:
                 chunk_slice = [slice(None)] * len(_request.shape)
                 return tuple(chunk_slice)

@@ -608,7 +608,12 @@ def ensure_nonzero_size(
     value: Union[int, Tuple[int, ...]],
 ) -> Union[int, Tuple[int, ...]]:
     """
-    Replace zero-size shape with a one-size shape to ensure non-zero sizes.
+    Replace zero-size shapes with minimal placeholder shapes for safe allocation.
+
+    When creating CUDA local arrays, zero-sized dimensions cause errors. This
+    function converts shapes containing any zero (or None) to minimal size-1
+    placeholder shapes. If ANY dimension is zero, the entire shape becomes
+    all 1s, creating a minimal memory footprint for inactive arrays.
 
     Parameters
     ----------
@@ -618,10 +623,11 @@ def ensure_nonzero_size(
     Returns
     -------
     Union[int, Tuple[int, ...]]
-        The input value with any zeros replaced by ones. For integers,
-        returns max(1, value). For tuples, replaces each zero element
-        with 1 while preserving non-zero elements. Non-numeric values
-        (e.g., strings) are passed through unchanged.
+        For integers: max(1, value).
+        For tuples: if ANY element is 0 or None, returns tuple of all 1s
+        with the same length. If no zeros/Nones, returns original tuple.
+        Non-numeric values in tuples are treated as valid (non-zero).
+        Other types are passed through unchanged.
 
     Examples
     --------
@@ -629,21 +635,26 @@ def ensure_nonzero_size(
     1
     >>> ensure_nonzero_size(5)
     5
+    >>> ensure_nonzero_size((0, 5))
+    (1, 1)
     >>> ensure_nonzero_size((0, 2, 0))
-    (1, 2, 1)
+    (1, 1, 1)
     >>> ensure_nonzero_size((2, 3, 4))
     (2, 3, 4)
-    >>> ensure_nonzero_size((2, 0, 2))
-    (2, 1, 2)
+    >>> ensure_nonzero_size((0, None))
+    (1, 1)
     """
     if isinstance(value, int):
         return max(1, value)
     elif isinstance(value, tuple):
-        # Only apply max(1, v) to numeric values, pass through others unchanged
-        return tuple(
-            max(1, v) if isinstance(v, (int, float)) else v
+        # If ANY element is 0 or None, return all-ones tuple
+        has_zero = any(
+            (isinstance(v, (int, float)) and v == 0) or v is None
             for v in value
         )
+        if has_zero:
+            return tuple(1 for _ in value)
+        return value
     else:
         return value
 

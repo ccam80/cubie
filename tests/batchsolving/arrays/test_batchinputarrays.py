@@ -142,6 +142,8 @@ class TestInputArrays:
             sample_input_arrays["parameters"],
             sample_input_arrays["driver_coefficients"],
         )
+        # Process the allocation queue to create device arrays
+        default_memmgr.allocate_queue(input_arrays_manager, chunk_axis="run")
 
         # Check host getters
         assert input_arrays_manager.initial_values is not None
@@ -209,6 +211,8 @@ class TestInputArrays:
             initial_arrays["parameters"],
             initial_arrays["driver_coefficients"],
         )
+        # Process the allocation queue to create device arrays
+        default_memmgr.allocate_queue(input_arrays_manager, chunk_axis="run")
 
         original_device_initial_values = (
             input_arrays_manager.device_initial_values
@@ -235,6 +239,8 @@ class TestInputArrays:
             new_arrays["parameters"],
             new_arrays["driver_coefficients"],
         )
+        # Process the allocation queue after size change
+        default_memmgr.allocate_queue(input_arrays_manager, chunk_axis="run")
 
         # Should have triggered reallocation for all arrays
         assert (
@@ -265,6 +271,8 @@ class TestInputArrays:
             sample_input_arrays["parameters"],
             sample_input_arrays["driver_coefficients"],
         )
+        # Process the allocation queue to create device arrays
+        default_memmgr.allocate_queue(input_arrays_manager, chunk_axis="run")
 
         # Clear device arrays to test initialise
         input_arrays_manager.device.initial_values.array[:, :] = 0.0
@@ -353,6 +361,8 @@ class TestInputArrays:
             sample_input_arrays["parameters"],
             sample_input_arrays["driver_coefficients"],
         )
+        # Process the allocation queue to create device arrays
+        default_memmgr.allocate_queue(input_arrays_manager, chunk_axis="run")
 
         expected_dtype = precision
         assert input_arrays_manager.initial_values.dtype.type == expected_dtype

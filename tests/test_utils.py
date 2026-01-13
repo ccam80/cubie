@@ -785,18 +785,18 @@ def test_tol_converter_wrong_size_raises():
 class TestEnsureNonzeroSize:
     """Tests for ensure_nonzero_size utility function."""
 
-    def test_single_zero_replaced(self):
-        """Test that single zero in middle is replaced."""
+    def test_single_zero_means_all_ones(self):
+        """Test that single zero causes entire tuple to become all 1s."""
         result = ensure_nonzero_size((2, 0, 2))
-        assert result == (2, 1, 2)
+        assert result == (1, 1, 1)
 
-    def test_multiple_zeros_replaced(self):
-        """Test that multiple zeros are each replaced."""
+    def test_multiple_zeros_all_ones(self):
+        """Test that multiple zeros cause entire tuple to become all 1s."""
         result = ensure_nonzero_size((0, 2, 0))
-        assert result == (1, 2, 1)
+        assert result == (1, 1, 1)
 
     def test_all_zeros_replaced(self):
-        """Test that all zeros are replaced."""
+        """Test that all zeros are replaced with all 1s."""
         result = ensure_nonzero_size((0, 0, 0))
         assert result == (1, 1, 1)
 
@@ -815,22 +815,42 @@ class TestEnsureNonzeroSize:
         result = ensure_nonzero_size(5)
         assert result == 5
 
-    def test_first_element_zero(self):
-        """Test zero in first position is replaced."""
+    def test_first_element_zero_all_ones(self):
+        """Test zero in first position causes all 1s."""
         result = ensure_nonzero_size((0, 3, 4))
-        assert result == (1, 3, 4)
+        assert result == (1, 1, 1)
 
-    def test_last_element_zero(self):
-        """Test zero in last position is replaced."""
+    def test_last_element_zero_all_ones(self):
+        """Test zero in last position causes all 1s."""
         result = ensure_nonzero_size((2, 3, 0))
-        assert result == (2, 3, 1)
+        assert result == (1, 1, 1)
 
     def test_string_tuple_passthrough(self):
         """Test that tuple of strings is passed through unchanged."""
         result = ensure_nonzero_size(("time", "variable", "run"))
         assert result == ("time", "variable", "run")
 
-    def test_mixed_type_tuple(self):
-        """Test tuple with mixed numeric and non-numeric values."""
+    def test_mixed_type_tuple_with_zero(self):
+        """Test tuple with mixed numeric and non-numeric values with zero."""
         result = ensure_nonzero_size((0, "label", 2))
-        assert result == (1, "label", 2)
+        assert result == (1, 1, 1)
+
+    def test_mixed_type_tuple_no_zero(self):
+        """Test tuple with mixed numeric and non-numeric values, no zero."""
+        result = ensure_nonzero_size((3, "label", 2))
+        assert result == (3, "label", 2)
+
+    def test_none_treated_as_zero(self):
+        """Test that None values in tuple cause all 1s."""
+        result = ensure_nonzero_size((5, None, 3))
+        assert result == (1, 1, 1)
+
+    def test_two_element_tuple_with_zero(self):
+        """Test two-element tuple with zero becomes (1, 1)."""
+        result = ensure_nonzero_size((0, 5))
+        assert result == (1, 1)
+
+    def test_two_element_tuple_no_zero(self):
+        """Test two-element tuple without zero is unchanged."""
+        result = ensure_nonzero_size((3, 5))
+        assert result == (3, 5)
