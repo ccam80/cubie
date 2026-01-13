@@ -475,9 +475,7 @@ class CUBIECache(CUDACache):
             compile_time = perf_counter() - self._compile_start_time
             verbosity = default_timelogger.verbosity
             
-            if verbosity in ('verbose', 'debug'):
-                print(f"Compilation complete in {compile_time:.3f}s")
-            elif verbosity == 'default':
+            if verbosity is not None:
                 print(f"Compilation complete in {compile_time:.3f}s")
             
             default_timelogger.stop_event("compile_cuda_kernel")

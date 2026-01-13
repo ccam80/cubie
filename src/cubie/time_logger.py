@@ -255,7 +255,8 @@ class TimeLogger:
             metadata=event_metadata
         )
         self.events.append(event)
-        self._active_starts[event_name] = timestamp
+        # Store both timestamp and skipped flag for efficient lookup in stop
+        self._active_starts[event_name] = (timestamp, skipped)
         
         if self.verbosity == 'debug':
             if skipped:
@@ -305,16 +306,10 @@ class TimeLogger:
         if event_name not in self._active_starts:
             return  # skip extra stops if called twice
 
+        start_timestamp, was_skipped = self._active_starts[event_name]
         timestamp = time.perf_counter()
-        duration = timestamp - self._active_starts[event_name]
+        duration = timestamp - start_timestamp
         del self._active_starts[event_name]
-        
-        # Check if the start event was marked as skipped
-        was_skipped = False
-        for ev in reversed(self.events):
-            if ev.name == event_name and ev.event_type == 'start':
-                was_skipped = ev.metadata.get('skipped', False)
-                break
         
         event = TimingEvent(
             name=event_name,

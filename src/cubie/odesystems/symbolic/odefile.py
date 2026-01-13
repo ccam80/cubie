@@ -25,9 +25,14 @@ HEADER = ("\n# This file was generated automatically by Cubie. Don't make "
 
 
 class ODEFile:
-    """Cache generated ODE functions on disk and reload them when possible."""
-
-    _cache_notification_printed: bool = False
+    """Cache generated ODE functions on disk and reload them when possible.
+    
+    Notes
+    -----
+    Prints a one-time notification when functions are loaded from cache
+    (verbose/debug modes only). The notification is tracked per-instance
+    to avoid duplicates when loading multiple functions from the same file.
+    """
 
     def __init__(self, system_name: str, fn_hash: int) -> None:
         """Initialise a cache file for a system definition.
@@ -43,8 +48,8 @@ class ODEFile:
         system_dir.mkdir(parents=True, exist_ok=True)
         self.file_path = system_dir / f"{system_name}.py"
         self.fn_hash = fn_hash
+        self._cache_notification_printed = False
         self._init_file(fn_hash)
-        ODEFile._cache_notification_printed = False
 
     def _init_file(self, fn_hash: int) -> bool:
         """Create a new generated file when the stored hash is stale.
@@ -132,14 +137,18 @@ class ODEFile:
         return has_function
 
     def _print_cache_notification(self) -> None:
-        """Print one-time notification that codegen cache file exists."""
-        if ODEFile._cache_notification_printed:
+        """Print one-time notification that codegen cache file exists.
+        
+        Only prints once per ODEFile instance to avoid duplicate messages
+        when loading multiple functions from the same cache file.
+        """
+        if self._cache_notification_printed:
             return
         verbosity = default_timelogger.verbosity
         if verbosity in ('verbose', 'debug'):
             print(f"Existing codegen file found at: {self.file_path}. "
                   f"Skipping steps that have functions already cached.")
-        ODEFile._cache_notification_printed = True
+        self._cache_notification_printed = True
 
     def _import_function(self, func_name: str) -> Callable:
         """Import ``func_name`` from the generated module.
