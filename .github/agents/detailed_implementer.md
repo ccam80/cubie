@@ -71,7 +71,7 @@ Receive from plan_new_feature agent:
    - Describe implementation logic in detail
    - Specify required imports and dependencies
    - Note edge cases and validation requirements
-   - **Specify Input Validation Required**: List exactly what validation is needed
+   - **Specify Input Validation Required**: List exactly what validation is needed, keep it minimal.
    - Reference specific files and line numbers
 4. **Dependency Ordering**: Organize tasks by dependencies
    - Architecture changes FIRST (base classes, interfaces)
@@ -129,10 +129,6 @@ Structure:
 - Test function: test_new_function_returns_expected_output
 - Description: Verify correct output for valid inputs
 
-**Tests to Run**:
-- tests/path/to/test_file.py::test_new_function_validates_input
-- tests/path/to/test_file.py::test_new_function_returns_expected_output
-
 **Outcomes**: 
 [Empty - to be filled by taskmaster agent]
 
@@ -159,14 +155,13 @@ Structure:
 - Has fresh context for each task group (no memory of previous groups)
 - CAN read files you list in "Required Context" for each group
 - Cannot independently search for or explore files not listed
-- Cannot run tests (a separate run_tests agent handles this)
+- Cannot run tests (a separate run_tests agent handles this AFTER all task groups are complete)
 - CAN create test files as specified in "Tests to Create"
 
 For each task group, you MUST provide:
 1. **Complete file paths** with line numbers for all required context
 2. **Explicit dependencies** between task groups
 3. **Tests to Create** section listing test files and functions to write
-4. **Tests to Run** section listing exact pytest paths for run_tests agent (format: `tests/path/to/test_file.py::test_function_name`)
 
 ## Behavior Guidelines
 
@@ -187,7 +182,7 @@ For each task group, you MUST provide:
 After completing task_list.md, update the user with your progress, showing:
 1. Total number of task groups
 2. Dependency chain overview
-3. Tests to be created and run
+3. Tests to be created
 4. Estimated complexity
 
 Return task_list.md to user. The default Copilot agent will coordinate any subsequent pipeline steps.
