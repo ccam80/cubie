@@ -1401,8 +1401,6 @@ def compute_per_chunk_slice(
     """
     per_chunk_slices = {}
     for key, request in requests.items():
-        # Check chunkability FIRST, before calling .index() to avoid
-        # ValueError when chunk_axis is not in stride_order
         if is_request_chunkable(request, chunk_axis):
             chunk_index = request.stride_order.index(chunk_axis)
 
