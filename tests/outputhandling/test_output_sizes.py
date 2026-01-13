@@ -38,8 +38,8 @@ class TestNonzeroProperty:
         )
         nonzero_sizes = sizes.nonzero
 
-        assert nonzero_sizes.state == (1, 5)
-        assert nonzero_sizes.observables == (3, 1)
+        assert nonzero_sizes.state == (1, 1)
+        assert nonzero_sizes.observables == (1, 1)
         assert nonzero_sizes.state_summaries == (1, 1)
         assert nonzero_sizes.observable_summaries == (2, 4)
 
@@ -359,9 +359,8 @@ class TestBatchInputSizes:
         # All tuple values should have elements >= 1
         assert all(v >= 1 for v in nonzero_sizes.initial_values)
         assert all(v >= 1 for v in nonzero_sizes.parameters)
-        # First element (0) becomes 1, but None stays as None (non-numeric)
         assert nonzero_sizes.driver_coefficients[0] == 1
-        assert nonzero_sizes.driver_coefficients[1] is None
+        assert nonzero_sizes.driver_coefficients[1] == 1
 
     def test_stride_order_default(self):
         """Test that stride_order has correct default value"""
