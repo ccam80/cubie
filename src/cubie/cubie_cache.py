@@ -40,7 +40,7 @@ default_timelogger.register_event(
     "compile",
     "CUDA kernel compilation time",
     start_message="Compiling CUDA kernel...",
-    stop_message="Compilation complete in {duration:.3f}s",
+    stop_message=" Compilation complete in {duration:.3f}s",
 )
 
 
