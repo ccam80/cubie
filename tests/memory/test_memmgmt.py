@@ -172,11 +172,13 @@ def registered_mgr_context_safe(
     mem_manager_settings, registered_instance_settings
 ):
     fixed_mem_settings_closure = {"free": 1 * 1024**3, "total": 8 * 1024**3}
+
     class TestMemoryManager(MemoryManager):
         def get_memory_info(self):
             free = fixed_mem_settings_closure["free"]
             total = fixed_mem_settings_closure["total"]
             return free, total
+
     manager = TestMemoryManager(**mem_manager_settings)
     registeree = DummyClass(**registered_instance_settings)
 
@@ -187,6 +189,7 @@ def registered_mgr_context_safe(
     )
 
     return manager, registeree
+
 
 class TestMemoryManager:
     @pytest.mark.nocudasim
@@ -213,7 +216,6 @@ class TestMemoryManager:
         assert id(instance) in mgr.stream_groups.groups[group]
         assert mgr.stream_groups.get_stream(instance) is not None
 
-
     # Can't recover from this - context stays stale. This doesn't reflect a
     # real use case; reinstate if live memory manager switching is required
     # @pytest.mark.cupy
@@ -237,7 +239,6 @@ class TestMemoryManager:
     #     regmgr.set_allocator(label)
     #     assert regmgr._allocator == cls
 
-
     def test_set_limit_mode(self, mgr):
         """Test that set_limit_mode assigns the mode correctly,
         and that it raises ValueError if an invalid mode is passed"""
@@ -249,14 +250,14 @@ class TestMemoryManager:
             mgr.set_limit_mode("invalid")
 
     @pytest.mark.nocudasim
-    def test_get_stream(self, mem_manager_settings,
-                registered_instance_settings):
+    def test_get_stream(
+        self, mem_manager_settings, registered_instance_settings
+    ):
         """test that get_stream successfully passes a different stream for
         instances registered in different stream groups"""
 
         regmgr, instance = registered_mgr_context_safe(
-                mem_manager_settings,
-                registered_instance_settings
+            mem_manager_settings, registered_instance_settings
         )
         stream = regmgr.get_stream(instance)
         assert isinstance(stream, Stream)
@@ -268,14 +269,13 @@ class TestMemoryManager:
         assert int(stream.handle.value) != int(stream2.handle.value)
 
     def test_change_stream_group(
-        self,  mem_manager_settings,
-                registered_instance_settings):
+        self, mem_manager_settings, registered_instance_settings
+    ):
         """test that change_stream_group changes the stream group of an
         instance, and that it raises ValueError if the instance wasn't
         already in a group"""
         regmgr, instance = registered_mgr_context_safe(
-                mem_manager_settings,
-                registered_instance_settings
+            mem_manager_settings, registered_instance_settings
         )
         regmgr.change_stream_group(instance, "other")
         assert id(instance) in regmgr.stream_groups.groups["other"]
@@ -285,13 +285,12 @@ class TestMemoryManager:
 
     @pytest.mark.nocudasim
     def test_reinit_streams(
-        self, mem_manager_settings,
-                registered_instance_settings):
+        self, mem_manager_settings, registered_instance_settings
+    ):
         """test that reinit_streams causess a different stream to be
         returned from get_stream"""
         regmgr, instance = registered_mgr_context_safe(
-                mem_manager_settings,
-                registered_instance_settings
+            mem_manager_settings, registered_instance_settings
         )
         stream1 = regmgr.get_stream(instance)
         regmgr.reinit_streams()
@@ -299,14 +298,12 @@ class TestMemoryManager:
         assert int(stream1.handle.value) != int(stream2.handle.value)
 
     def test_invalidate_all(
-        self, mem_manager_settings,
-                registered_instance_settings
+        self, mem_manager_settings, registered_instance_settings
     ):
         """Add a new instance with a measurable invalidate hook, and check
         that it is called when invalidate all is called"""
         regmgr, instance = registered_mgr_context_safe(
-                mem_manager_settings,
-                registered_instance_settings
+            mem_manager_settings, registered_instance_settings
         )
         called = {"flag": False}
 
@@ -326,20 +323,18 @@ class TestMemoryManager:
     ):
         """Test that set_manual_limit_mode sets the instance to manual mode"""
         regmgr, instance = registered_mgr_context_safe(
-                mem_manager_settings,
-                registered_instance_settings
+            mem_manager_settings, registered_instance_settings
         )
         instance_id = id(instance)
         regmgr.set_manual_limit_mode(instance, 0.3)
         assert instance_id in regmgr._manual_pool
 
-
-    def test_set_auto_limit_mode(self, mem_manager_settings,
-                registered_instance_settings):
+    def test_set_auto_limit_mode(
+        self, mem_manager_settings, registered_instance_settings
+    ):
         """Test that set_auto_limit_mode sets the instance to auto mode"""
         regmgr, instance = registered_mgr_context_safe(
-                mem_manager_settings,
-                registered_instance_settings
+            mem_manager_settings, registered_instance_settings
         )
         regmgr.set_auto_limit_mode(instance)
         instance_id = id(instance)
@@ -354,8 +349,7 @@ class TestMemoryManager:
         """Test that proportion returns the requested proportion if set,
         and 1.0 if not set (auto)"""
         regmgr, instance = registered_mgr_context_safe(
-                mem_manager_settings,
-                registered_instance_settings
+            mem_manager_settings, registered_instance_settings
         )
         assert regmgr.proportion(instance) == instance.proportion
         # Register auto instance
@@ -363,12 +357,10 @@ class TestMemoryManager:
         regmgr.register(inst2, proportion=None)
         assert regmgr.proportion(inst2) == 0.5
 
-    def  test_cap(self, mem_manager_settings,
-                registered_instance_settings):
+    def test_cap(self, mem_manager_settings, registered_instance_settings):
         """Test that cap returns the correct value"""
         regmgr, instance = registered_mgr_context_safe(
-                mem_manager_settings,
-                registered_instance_settings
+            mem_manager_settings, registered_instance_settings
         )
         proportion = instance.proportion
         testcap = regmgr.cap(instance)
@@ -380,15 +372,13 @@ class TestMemoryManager:
         "registered_instance_override", [{"proportion": None}], indirect=True
     )
     def test_pool_proportions(
-        self,mem_manager_settings,
-                registered_instance_settings
+        self, mem_manager_settings, registered_instance_settings
     ):
         """Add a few auto and manual instances, check that the total manual
         and auto pool proportions match expected. Test add and rebalance
         methods along the way"""
         regmgr, instance = registered_mgr_context_safe(
-                mem_manager_settings,
-                registered_instance_settings
+            mem_manager_settings, registered_instance_settings
         )
         instance1 = instance
         instance2 = DummyClass()
@@ -453,8 +443,8 @@ class TestMemoryManager:
                 shape=(4, 4, 4), dtype=np.float32, memory="device"
             ),
         }
-        mgr.single_request(instance, requests)
-
+        mgr.queue_request(instance, requests)
+        mgr.allocate_queue(instance)
         # Check that callback was called with correct response
         assert callback_called["flag"] is True
         response = callback_called["response"]
@@ -584,7 +574,7 @@ class TestMemoryManager:
         )
         assert arr.shape == (2, 3, 4)
         assert arr.dtype == np.float32
-        assert arr.flags['C_CONTIGUOUS']
+        assert arr.flags["C_CONTIGUOUS"]
         np.testing.assert_array_equal(
             arr, np.zeros((2, 3, 4), dtype=np.float32)
         )
@@ -915,7 +905,7 @@ class TestMemoryManager:
 
         mgr.queue_request(inst1, requests1)
         mgr.queue_request(inst2, requests2)
-        mgr.allocate_queue(inst1, limit_type="group")
+        mgr.allocate_queue(inst1)
 
         # Both callbacks should be called
         assert callbacks_called["inst1"]["flag"] is True
@@ -931,78 +921,6 @@ class TestMemoryManager:
         ],
         indirect=["fixed_mem_override"],
     )
-    def test_allocate_queue_multiple_instances_instance_limit(
-        self, mgr, limit_type, chunk_axis, precision
-    ):
-        """Test allocate_queue with multiple instances using instance limit."""
-        inst1 = DummyClass()
-        inst2 = DummyClass()
-        callbacks_called = {
-            "inst1": {"flag": False, "response": ArrayRequest(
-                    dtype=precision)},
-            "inst2": {"flag": False, "response": ArrayRequest(
-                    dtype=precision)},
-        }
-
-        def hook1(response):
-            callbacks_called["inst1"]["flag"] = True
-            callbacks_called["inst1"]["response"] = response
-
-        def hook2(response):
-            callbacks_called["inst2"]["flag"] = True
-            callbacks_called["inst2"]["response"] = response
-
-        mgr.register(inst1, allocation_ready_hook=hook1, stream_group="test")
-        mgr.register(inst2, allocation_ready_hook=hook2, stream_group="test")
-        mgr.set_limit_mode("active")
-        requests1 = {
-            "arr": ArrayRequest(
-                shape=(4, 4, 4), dtype=np.float32, memory="device"
-            )
-        }
-        requests2 = {
-            "arr": ArrayRequest(
-                shape=(1000, 256, 1024),
-                # ~4x instance
-                dtype=np.float32,
-                memory="device",
-            )
-        }
-
-        mgr.queue_request(inst1, requests1)
-        mgr.queue_request(inst2, requests2)
-        mgr.allocate_queue(inst1, limit_type=limit_type, chunk_axis=chunk_axis)
-
-        # Both callbacks should be called
-        assert callbacks_called["inst1"]["flag"] is True
-        assert callbacks_called["inst2"]["flag"] is True
-        response1 = callbacks_called["inst1"]["response"]
-        response2 = callbacks_called["inst2"]["response"]
-
-        if limit_type == "instance":
-            expected_chunks = 4
-        else:
-            expected_chunks = 2
-        # With stride order (time, variable, run):
-        # run is at index 2, time is at index 0
-        if chunk_axis == "run":
-            chunk_index = 2
-        elif chunk_axis == "time":
-            chunk_index = 0
-
-        shape_1 = np.asarray([4, 4, 4])
-        shape_2 = np.asarray([1000, 256, 1024])
-        shape_1[chunk_index] = shape_1[chunk_index] // expected_chunks
-        shape_2[chunk_index] = shape_2[chunk_index] // expected_chunks
-
-        assert response1.arr["arr"].shape == tuple(shape_1)
-        assert response1.arr["arr"].dtype == np.float32
-        assert response1.chunks == expected_chunks
-
-        assert response2.arr["arr"].shape == tuple(shape_2)
-        assert response2.arr["arr"].dtype == np.float32
-        assert response2.chunks == expected_chunks
-
     def test_allocate_queue_empty_queue(
         self, registered_mgr, registered_instance
     ):
@@ -1010,8 +928,7 @@ class TestMemoryManager:
         mgr = registered_mgr
         instance = registered_instance
 
-        result = mgr.allocate_queue(instance)
-        assert result is None
+        mgr.allocate_queue(instance)
 
     def test_is_grouped(self, mgr):
         """Test is_grouped returns correct grouping status for instances."""
@@ -1217,7 +1134,7 @@ def test_get_total_request_size():
 def test_ensure_cuda_context():
     """Test _ensure_cuda_context validates CUDA is available."""
     from cubie.memory.mem_manager import _ensure_cuda_context
-    
+
     # This test should not crash when CUDA is available
     # It will raise RuntimeError if CUDA context cannot be initialized
     try:
@@ -1230,7 +1147,7 @@ def test_ensure_cuda_context_simulation():
     """Test _ensure_cuda_context is no-op in simulation mode."""
     from cubie.memory.mem_manager import _ensure_cuda_context
     from cubie.cuda_simsafe import CUDA_SIMULATION
-    
+
     # In simulation mode, the function should do nothing and not raise
     if CUDA_SIMULATION:
         _ensure_cuda_context()  # Should not raise
@@ -1325,8 +1242,9 @@ def test_compute_chunked_shapes_uses_floor_division(mgr):
     }
 
     # 50 // 4 = 12 (floor), not ceil(50/4) = 13
-    chunked_shapes = mgr.compute_chunked_shapes(requests, num_chunks=4,
-                                                 chunk_axis="run")
+    chunked_shapes = mgr.compute_chunked_shapes(
+        requests, num_chunks=4, chunk_axis="run"
+    )
     assert chunked_shapes["arr"] == (100, 10, 12)
 
 
@@ -1349,8 +1267,9 @@ def test_compute_chunked_shapes_preserves_unchunkable(mgr):
         ),
     }
 
-    chunked_shapes = mgr.compute_chunked_shapes(requests, num_chunks=4,
-                                                 chunk_axis="run")
+    chunked_shapes = mgr.compute_chunked_shapes(
+        requests, num_chunks=4, chunk_axis="run"
+    )
     # Chunkable: 50 // 4 = 12
     assert chunked_shapes["chunkable"] == (100, 10, 12)
     # Unchunkable: original shape preserved
@@ -1360,8 +1279,9 @@ def test_compute_chunked_shapes_preserves_unchunkable(mgr):
 def test_compute_chunked_shapes_empty_requests(mgr):
     """Verify empty requests returns empty dict."""
     requests = {}
-    chunked_shapes = mgr.compute_chunked_shapes(requests, num_chunks=4,
-                                                 chunk_axis="run")
+    chunked_shapes = mgr.compute_chunked_shapes(
+        requests, num_chunks=4, chunk_axis="run"
+    )
     assert chunked_shapes == {}
 
 
@@ -1376,8 +1296,9 @@ def test_compute_chunked_shapes_single_chunk(mgr):
         ),
     }
 
-    chunked_shapes = mgr.compute_chunked_shapes(requests, num_chunks=1,
-                                                 chunk_axis="run")
+    chunked_shapes = mgr.compute_chunked_shapes(
+        requests, num_chunks=1, chunk_axis="run"
+    )
     assert chunked_shapes["arr"] == (100, 10, 50)
 
 
@@ -1415,6 +1336,7 @@ def test_chunk_arrays_min_one_element(mgr):
 
 def test_single_request_populates_chunked_shapes():
     """Verify single_request includes chunked_shapes in response."""
+
     # Create a test memory manager with fixed memory
     class TestMemoryManager(MemoryManager):
         def get_memory_info(self):
@@ -1450,6 +1372,7 @@ def test_single_request_populates_chunked_shapes():
 
 def test_allocate_queue_populates_chunked_shapes():
     """Verify allocate_queue includes chunked_shapes in response."""
+
     class TestMemoryManager(MemoryManager):
         def get_memory_info(self):
             return 1 * 1024**3, 8 * 1024**3
@@ -1540,7 +1463,9 @@ def test_chunk_calculation_5_runs_4_chunks(mgr):
     for i in range(4):
         start_idx = i * chunk_size
         end_idx = min((i + 1) * chunk_size, 5)
-        assert start_idx < 5, f"Chunk {i} start index {start_idx} exceeds array"
+        assert start_idx < 5, (
+            f"Chunk {i} start index {start_idx} exceeds array"
+        )
         assert end_idx <= 5, f"Chunk {i} end index {end_idx} exceeds array"
 
 

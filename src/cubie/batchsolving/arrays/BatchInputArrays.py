@@ -272,16 +272,16 @@ class InputArrays(BaseArrayManager):
             if np_issubdtype(np_dtype(arr_obj.dtype), np_floating):
                 arr_obj.dtype = self._precision
 
-    def finalise(self, host_indices: Union[slice, NDArray]) -> None:
+    def finalise(self, chunk_index: Union[slice, NDArray]) -> None:
         """Release buffers back to host."""
         self.release_buffers()
 
-    def initialise(self, host_indices: Union[slice, NDArray]) -> None:
+    def initialise(self, chunk_index: Union[slice, NDArray]) -> None:
         """Copy a batch chunk of host data to device buffers.
 
         Parameters
         ----------
-        host_indices
+        chunk_index
             Indices for the chunk being initialized.
 
         Returns
@@ -308,20 +308,15 @@ class InputArrays(BaseArrayManager):
         for array_name in arrays_to_copy:
             device_obj = self.device.get_managed_array(array_name)
             to_.append(device_obj.array)
+
             host_obj = self.host.get_managed_array(array_name)
 
             # Direct transfer when shapes match; chunked transfer otherwise
-            if not device_obj.needs_chunked_transfer:
+            if not host_obj.needs_chunked_transfer:
                 from_.append(host_obj.array)
             else:
-                stride_order = host_obj.stride_order
-                if self._chunk_axis not in stride_order:
-                    from_.append(host_obj.array)
-                    continue
-                chunk_index = stride_order.index(self._chunk_axis)
-                slice_tuple = [slice(None)] * len(stride_order)
-                slice_tuple[chunk_index] = host_indices
-                host_slice = host_obj.array[tuple(slice_tuple)]
+                slice_tuple = host_obj.chunked_slice_fn(chunk_index)
+                host_slice = host_obj.array[slice_tuple]
 
                 # Chunked mode: use buffer pool for pinned staging
                 # Buffer must match device array shape for H2D copy

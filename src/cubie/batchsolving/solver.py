@@ -439,7 +439,7 @@ class Solver:
         )
 
         # Synchronize stream, wait until arrays written in "chunked" mode.
-        self.stream.synchronize()
+        self.memory_manager.sync_stream(self.kernel)
         self.kernel.wait_for_writeback()
 
         # Stop wall-clock timing for solve

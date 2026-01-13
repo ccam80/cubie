@@ -8,7 +8,7 @@ allocations for batch solver workflows.
 """
 
 from abc import ABC, abstractmethod
-from typing import Dict, Iterator, List, Optional, Union
+from typing import Dict, Iterator, List, Optional, Union, Callable
 from warnings import warn
 
 from attrs import define, field
@@ -74,6 +74,11 @@ class ManagedArray:
                 iterable_validator=attrsval_instance_of(tuple),
             )
         ),
+    )
+    chunked_slice_fn: Optional[Callable] = field(
+        default=None,
+        repr=False,
+        eq=False,
     )
 
     @property
@@ -354,14 +359,18 @@ class BaseArrayManager(ABC):
         Warnings are only issued if the response contains some arrays but
         not the expected one, indicating a potential allocation mismatch.
         """
-
+        chunked_shapes = response.chunked_shapes
+        chunked_slices = response.chunked_slices
+        arrays = response.arr
         for array_label in self._needs_reallocation:
             try:
-                self.device.attach(array_label, response.arr[array_label])
+                self.device.attach(array_label, arrays[array_label])
                 # Store chunked_shape from response in the ManagedArray
                 if array_label in response.chunked_shapes:
-                    managed = self.device.get_managed_array(array_label)
-                    managed.chunked_shape = response.chunked_shapes[array_label]
+                    for container in (self.device, self.host):
+                        array = container.get_managed_array(array_label)
+                        array.chunked_shape = chunked_shapes[array_label]
+                        array.chunked_slice_fn = chunked_slices[array_label]
             except KeyError:
                 warn(
                     f"Device array {array_label} not found in allocation "
@@ -399,7 +408,6 @@ class BaseArrayManager(ABC):
     def request_allocation(
         self,
         request: dict[str, ArrayRequest],
-        force_type: Optional[str] = None,
     ) -> None:
         """
         Send a request for allocation of device arrays.
@@ -408,9 +416,6 @@ class BaseArrayManager(ABC):
         ----------
         request
             Dictionary mapping array names to allocation requests.
-        force_type
-            Force request type to "single" or "group". If ``None``, the type
-            is determined automatically based on stream group membership.
 
         Notes
         -----
@@ -427,16 +432,7 @@ class BaseArrayManager(ABC):
         None
             Nothing is returned.
         """
-        request_type = force_type
-        if request_type is None:
-            if self._memory_manager.is_grouped(self):
-                request_type = "group"
-            else:
-                request_type = "single"
-        if request_type == "single":
-            self._memory_manager.single_request(self, request)
-        else:
-            self._memory_manager.queue_request(self, request)
+        self._memory_manager.queue_request(self, request)
 
     def _invalidate_hook(self) -> None:
         """
@@ -583,7 +579,6 @@ class BaseArrayManager(ABC):
 
         for array_name, array in new_arrays.items():
             managed = container.get_managed_array(array_name)
-
             if array_name not in container.array_names():
                 matches[array_name] = False
                 continue
@@ -635,14 +630,14 @@ class BaseArrayManager(ABC):
         return matches
 
     @abstractmethod
-    def finalise(self, indices: List[int]) -> None:
+    def finalise(self, chunk_index: int) -> None:
         """
         Execute post-chunk behaviour for device outputs.
 
         Parameters
         ----------
-        indices
-            Chunk indices processed by the device execution path.
+        chunk_index
+            Chunk index about to run on the device
 
         Returns
         -------
@@ -651,14 +646,14 @@ class BaseArrayManager(ABC):
         """
 
     @abstractmethod
-    def initialise(self, indices: List[int]) -> None:
+    def initialise(self, chunk_index: int) -> None:
         """
         Execute pre-chunk behaviour for device inputs.
 
         Parameters
         ----------
-        indices
-            Chunk indices about to run on the device.
+        chunk_index
+            Chunk index about to run on the device.
 
         Returns
         -------
@@ -767,12 +762,14 @@ class BaseArrayManager(ABC):
             new_array, current_array, shape_only=shape_only
         ):
             return None
+
         # Handle new array (current is None)
         if current_array is None:
             self._needs_reallocation.append(label)
             self._needs_overwrite.append(label)
             self.host.attach(label, new_array)
             return None
+
         # Arrays differ; determine if shape changed or just values
         if current_array.shape != new_array.shape:
             if label not in self._needs_reallocation:
@@ -784,6 +781,7 @@ class BaseArrayManager(ABC):
                 new_array = np_zeros(newshape, dtype=managed.dtype)
         else:
             self._needs_overwrite.append(label)
+
         self.host.attach(label, new_array)
         return None
 
@@ -813,6 +811,7 @@ class BaseArrayManager(ABC):
             if array_name not in host_names
         ]
         new_arrays = {k: v for k, v in new_arrays.items() if k in host_names}
+
         if any(badnames):
             warn(
                 f"Host arrays '{badnames}' does not exist, ignoring update",
@@ -824,6 +823,7 @@ class BaseArrayManager(ABC):
                 "sizes, ignoring update",
                 UserWarning,
             )
+
         for array_name in new_arrays:
             current_array = self.host.get_array(array_name)
             self._update_host_array(

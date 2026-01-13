@@ -21,11 +21,11 @@ from cubie.memory.array_requests import ArrayResponse
 class ConcreteArrayManager(BaseArrayManager):
     """Concrete implementation of BaseArrayManager for testing."""
 
-    def finalise(self, indices):
-        return indices
+    def finalise(self, chunk_index):
+        return chunk_index
 
-    def initialise(self, indices):
-        return indices
+    def initialise(self, chunk_index):
+        return chunk_index
 
     def update(self):
         return

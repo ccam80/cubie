@@ -26,11 +26,11 @@ else:
 class ConcreteArrayManager(BaseArrayManager):
     """Concrete implementation of BaseArrayManager"""
 
-    def finalise(self, indices):
-        return indices
+    def finalise(self, chunk_index):
+        return chunk_index
 
-    def initialise(self, indices):
-        return indices
+    def initialise(self, chunk_index):
+        return chunk_index
 
     def update(self):
         return
@@ -462,41 +462,7 @@ class TestBaseArrayManager:
         # Check that lists were cleared
         assert test_arrmgr._needs_reallocation == []
 
-    def test_request_allocation_single_force(
-        self, test_arrmgr, array_requests
-    ):
-        """Test allocation request forced to single mode"""
-        # Test that single request can be called without error
-        test_arrmgr.request_allocation(array_requests, force_type="single")
-
-        # Verify that arrays were allocated and attached to the device container
-        # The memory manager should have called the allocation_ready_hook
-        assert test_arrmgr.device.arr1.array is not None
-        assert test_arrmgr.device.arr2.array is not None
-
-    def test_request_allocation_group_force(self, test_arrmgr, array_requests):
-        """Test allocation request forced to group mode"""
-        # Test that group request can be called without error
-        test_arrmgr.request_allocation(array_requests, force_type="group")
-
-        # In group mode, requests get queued until allocation is triggered
-        # We need to trigger the allocation
-        test_arrmgr._memory_manager.allocate_queue(test_arrmgr)
-
-        # Verify that arrays were allocated
-        assert test_arrmgr.device.arr1.array is not None
-        assert test_arrmgr.device.arr2.array is not None
-
-    def test_request_allocation_auto_single(self, test_arrmgr, array_requests):
-        """Test automatic allocation request when not grouped"""
-        # Single instance should automatically use single allocation
-        test_arrmgr.request_allocation(array_requests)
-
-        # Should behave like single request
-        assert test_arrmgr.device.arr1.array is not None
-        assert test_arrmgr.device.arr2.array is not None
-
-    def test_request_allocation_auto_group(
+    def test_request_allocation_auto(
         self, test_arrmgr, second_arrmgr, array_requests
     ):
         """Test automatic allocation request when grouped"""
@@ -1640,12 +1606,8 @@ class TestChunkedShapePropagation:
         )
 
         # Create mock arrays for the response
-        arr1 = device_array(
-            arraytest_settings["devshape1"], dtype=precision
-        )
-        arr2 = device_array(
-            arraytest_settings["devshape2"], dtype=precision
-        )
+        arr1 = device_array(arraytest_settings["devshape1"], dtype=precision)
+        arr2 = device_array(arraytest_settings["devshape2"], dtype=precision)
 
         # Expected chunked shapes (smaller than full shapes)
         chunked_shapes = {
@@ -1750,7 +1712,9 @@ class TestChunkedShapePropagation:
         # Allocate device arrays with chunked shape
         device_arrays.state.array = device_array(chunked_shape, precision)
         device_arrays.state.chunked_shape = chunked_shape
-        device_arrays.observables.array = device_array(chunked_shape, precision)
+        device_arrays.observables.array = device_array(
+            chunked_shape, precision
+        )
         device_arrays.observables.chunked_shape = chunked_shape
 
         manager = ConcreteArrayManager(
