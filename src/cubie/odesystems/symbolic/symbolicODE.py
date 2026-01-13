@@ -390,13 +390,15 @@ class SymbolicODE(BaseODE):
         dxdt_code = generate_dxdt_fac_code(
             self.equations, self.indices, "dxdt_factory"
         )
-        dxdt_factory = self.gen_file.import_function("dxdt_factory", dxdt_code)
+        dxdt_factory, _ = self.gen_file.import_function(
+            "dxdt_factory", dxdt_code
+        )
         dxdt_func = dxdt_factory(constants, numba_precision)
 
         observables_code = generate_observables_fac_code(
             self.equations, self.indices, func_name="observables_factory"
         )
-        observables_factory = self.gen_file.import_function(
+        observables_factory, _ = self.gen_file.import_function(
             "observables_factory", observables_code
         )
         evaluate_observables = observables_factory(constants, numba_precision)
@@ -513,8 +515,21 @@ class SymbolicODE(BaseODE):
         except NotImplementedError:
             pass
 
-        # Start timing for helper generation
-        default_timelogger.start_event(event_name)
+        # Determine factory_name for n_stage helpers (needed to check cache)
+        if func_type == "n_stage_residual":
+            factory_name = f"n_stage_residual_{len(stage_nodes)}"
+        elif func_type == "n_stage_linear_operator":
+            factory_name = f"n_stage_linear_operator_{len(stage_nodes)}"
+        elif func_type == "n_stage_neumann_preconditioner":
+            factory_name = f"n_stage_neumann_preconditioner_{len(stage_nodes)}"
+        else:
+            factory_name = func_type
+
+        # Check if function is already in file cache (skipped if so)
+        is_cached = self.gen_file.function_is_cached(factory_name)
+
+        # Start timing for helper generation, marking as skipped if cached
+        default_timelogger.start_event(event_name, skipped=is_cached)
         numba_precision = self.numba_precision
         constants = self.constants.values_dict
 
@@ -522,13 +537,13 @@ class SymbolicODE(BaseODE):
             "constants": constants,
             "precision": numba_precision,
         }
-        factory_name = func_type
+        # factory_name already set above based on func_type
         if func_type == "linear_operator":
             code = generate_operator_apply_code(
                 self.equations,
                 self.indices,
                 M=mass,
-                func_name=func_type,
+                func_name=factory_name,
                 jvp_equations=self._get_jvp_exprs(),
             )
             factory_kwargs.update(
@@ -541,7 +556,7 @@ class SymbolicODE(BaseODE):
                 self.equations,
                 self.indices,
                 M=mass,
-                func_name=func_type,
+                func_name=factory_name,
                 jvp_equations=self._get_jvp_exprs(),
             )
             factory_kwargs.update(
@@ -553,7 +568,7 @@ class SymbolicODE(BaseODE):
             code, aux_count = generate_prepare_jac_code(
                 self.equations,
                 self.indices,
-                func_name=func_type,
+                func_name=factory_name,
                 jvp_equations=self._get_jvp_exprs(),
             )
             self._jacobian_aux_count = aux_count
@@ -566,14 +581,14 @@ class SymbolicODE(BaseODE):
             code = generate_cached_jvp_code(
                 self.equations,
                 self.indices,
-                func_name=func_type,
+                func_name=factory_name,
                 jvp_equations=self._get_jvp_exprs(),
             )
         elif func_type == "neumann_preconditioner":
             code = generate_neumann_preconditioner_code(
                 self.equations,
                 self.indices,
-                func_type,
+                factory_name,
                 jvp_equations=self._get_jvp_exprs(),
             )
             factory_kwargs.update(
@@ -585,7 +600,7 @@ class SymbolicODE(BaseODE):
             code = generate_neumann_preconditioner_cached_code(
                 self.equations,
                 self.indices,
-                func_type,
+                factory_name,
                 jvp_equations=self._get_jvp_exprs(),
             )
             factory_kwargs.update(
@@ -598,7 +613,7 @@ class SymbolicODE(BaseODE):
                 self.equations,
                 self.indices,
                 M=mass,
-                func_name="stage_residual",
+                func_name=factory_name,
             )
             factory_kwargs.update(
                 beta=beta,
@@ -609,33 +624,30 @@ class SymbolicODE(BaseODE):
             code = generate_time_derivative_fac_code(
                 self.equations,
                 self.indices,
-                func_name=func_type,
+                func_name=factory_name,
             )
         elif func_type == "n_stage_residual":
-            helper_name = f"n_stage_residual_{len(stage_nodes)}"
             code = generate_n_stage_residual_code(
                 equations=self.equations,
                 index_map=self.indices,
                 stage_coefficients=stage_coefficients,
                 stage_nodes=stage_nodes,
                 M=mass,
-                func_name=helper_name,
+                func_name=factory_name,
             )
             factory_kwargs.update(
                 beta=beta,
                 gamma=gamma,
                 order=preconditioner_order,
             )
-            factory_name = helper_name
         elif func_type == "n_stage_linear_operator":
-            helper_name = f"n_stage_linear_operator_{len(stage_nodes)}"
             code = generate_n_stage_linear_operator_code(
                 equations=self.equations,
                 index_map=self.indices,
                 stage_coefficients=stage_coefficients,
                 stage_nodes=stage_nodes,
                 M=mass,
-                func_name=helper_name,
+                func_name=factory_name,
                 jvp_equations=self._get_jvp_exprs(),
             )
             factory_kwargs.update(
@@ -643,15 +655,13 @@ class SymbolicODE(BaseODE):
                 gamma=gamma,
                 order=preconditioner_order,
             )
-            factory_name = helper_name
         elif func_type == "n_stage_neumann_preconditioner":
-            helper_name = f"n_stage_neumann_preconditioner_{len(stage_nodes)}"
             code = generate_n_stage_neumann_preconditioner_code(
                 equations=self.equations,
                 index_map=self.indices,
                 stage_coefficients=stage_coefficients,
                 stage_nodes=stage_nodes,
-                func_name=helper_name,
+                func_name=factory_name,
                 jvp_equations=self._get_jvp_exprs(),
             )
             factory_kwargs.update(
@@ -659,13 +669,12 @@ class SymbolicODE(BaseODE):
                 gamma=gamma,
                 order=preconditioner_order,
             )
-            factory_name = helper_name
         else:
             raise NotImplementedError(
                 f"Solver helper '{func_type}' is not implemented."
             )
 
-        factory = self.gen_file.import_function(factory_name, code)
+        factory, was_cached = self.gen_file.import_function(factory_name, code)
         func = factory(**factory_kwargs)
         setattr(self._cache, func_type, func)
         default_timelogger.stop_event(event_name)

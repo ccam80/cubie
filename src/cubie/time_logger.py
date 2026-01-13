@@ -201,13 +201,17 @@ class TimeLogger:
         self._event_registry: dict[str, dict] = {}
         self._cuda_events: list = []  # Stores CUDAEvent instances
     
-    def start_event(self, event_name: str, **metadata: Any) -> None:
+    def start_event(
+        self, event_name: str, skipped: bool = False, **metadata: Any
+    ) -> None:
         """Record the start of a timed operation.
         
         Parameters
         ----------
         event_name : str
             Unique identifier for this event
+        skipped : bool, default=False
+            If True, the event was found in cache and skipped
         **metadata : Any
             Optional metadata to store with event
         
@@ -241,17 +245,29 @@ class TimeLogger:
 
         
         timestamp = time.perf_counter()
+        # Add skipped flag to metadata
+        event_metadata = dict(metadata)
+        event_metadata['skipped'] = skipped
         event = TimingEvent(
             name=event_name,
             event_type='start',
             timestamp=timestamp,
-            metadata=metadata
+            metadata=event_metadata
         )
         self.events.append(event)
         self._active_starts[event_name] = timestamp
         
         if self.verbosity == 'debug':
-            print(f"TIMELOGGER [DEBUG] Started: {event_name}")
+            if skipped:
+                print(f"TIMELOGGER [DEBUG] Started: {event_name}... "
+                      f"Skipped (found in cache)")
+            else:
+                print(f"TIMELOGGER [DEBUG] Started: {event_name}")
+        elif self.verbosity == 'verbose':
+            if skipped:
+                print(f"Starting {event_name}... Skipped (found in cache)")
+            else:
+                print(f"Starting {event_name}...", end="", flush=True)
     
     def stop_event(self, event_name: str, **metadata: Any) -> None:
         """Record the end of a timed operation.
@@ -287,12 +303,18 @@ class TimeLogger:
             )
         
         if event_name not in self._active_starts:
-            return # skip extra stops if called twice
+            return  # skip extra stops if called twice
 
-        
         timestamp = time.perf_counter()
         duration = timestamp - self._active_starts[event_name]
         del self._active_starts[event_name]
+        
+        # Check if the start event was marked as skipped
+        was_skipped = False
+        for ev in reversed(self.events):
+            if ev.name == event_name and ev.event_type == 'start':
+                was_skipped = ev.metadata.get('skipped', False)
+                break
         
         event = TimingEvent(
             name=event_name,
@@ -302,10 +324,14 @@ class TimeLogger:
         )
         self.events.append(event)
         
-        # Only debug mode prints inline; verbose mode waits for print_summary
         if self.verbosity == 'debug':
             print(f"TIMELOGGER [DEBUG] Stopped: {event_name} "
                   f"({duration:.3f}s)")
+        elif self.verbosity == 'verbose':
+            # Only print completion for non-skipped events
+            # (skipped events already printed their status in start_event)
+            if not was_skipped:
+                print(f" completed in {duration:.3f}s")
     
     def progress(
         self, event_name: str, message: str, **metadata: Any
@@ -437,6 +463,33 @@ class TimeLogger:
         
         return durations
     
+    def _get_category_total(self, cat: str) -> float:
+        """Calculate total duration for a category.
+        
+        Parameters
+        ----------
+        cat : str
+            Category name ('codegen', 'compile', or 'runtime')
+        
+        Returns
+        -------
+        float
+            Total duration in seconds for all events in the category
+        """
+        durations = self.get_aggregate_durations(category=cat)
+        
+        # Add CUDA event durations from metadata
+        for event in self.events:
+            if event.event_type == 'stop' and 'duration_ms' in event.metadata:
+                event_info = self._event_registry.get(event.name)
+                if event_info is None or event_info['category'] != cat:
+                    continue
+                # Convert ms to seconds for consistency
+                duration_s = event.metadata['duration_ms'] / 1000.0
+                durations[event.name] = duration_s
+        
+        return sum(durations.values())
+    
     def print_summary(self, category: Optional[str] = None) -> None:
         """Print timing summary for all events or specific category.
         
@@ -448,11 +501,10 @@ class TimeLogger:
         
         Notes
         -----
-        In 'default' verbosity mode, prints all categories (compile, codegen, runtime).
-        
-        For runtime category with CUDA events:
-        - 'verbose' or 'debug': prints individual chunk timings organized by category
-        - 'default': aggregates chunk timings by type
+        Verbosity modes:
+        - 'default': One line per category, e.g., "codegen completed in 1.23s"
+        - 'verbose': Inline timing already printed; category summaries at end
+        - 'debug': Individual start/stop already printed; category summaries
         
         Automatically retrieves CUDA event timings when category='runtime'.
         Events are cleared after printing to prevent bleeding between calls.
@@ -464,103 +516,58 @@ class TimeLogger:
         if category == 'runtime' or category is None:
             self._retrieve_cuda_events()
         
-        if self.verbosity == 'default':
-            # In default mode, print all categories if category is None
-            if category is None:
-                categories_to_print = ['codegen', 'compile', 'runtime']
-            else:
-                categories_to_print = [category]
-            
-            for cat in categories_to_print:
-                # Get standard durations from start/stop pairs
-                durations = self.get_aggregate_durations(category=cat)
-                
-                # Add CUDA event durations from metadata
-                # Kernel compile event is named "compile_solver_kernel" by CUDAFactory
-                compile_time = durations.get('compile_solver_kernel', 0.0)
-                
-                for event in self.events:
-                    if event.event_type == 'stop' and 'duration_ms' in event.metadata:
-                        event_info = self._event_registry.get(event.name)
-                        if event_info is None or event_info['category'] != cat:
-                            continue
-                        
-                        # Convert ms to seconds for consistency
-                        duration_s = event.metadata['duration_ms'] / 1000.0
-                        
-                        # Subtract compile time from kernel_chunk_0 if compile happened
-                        if event.name == 'kernel_chunk_0' and compile_time > 0:
-                            duration_s = max(0.0, duration_s - compile_time)
-                        
-                        durations[event.name] = duration_s
-                
-                # For runtime category, aggregate chunk events
-                if cat == 'runtime':
-                    aggregated = {}
-                    chunk_events = {}
-                    
-                    for name, duration in durations.items():
-                        if '_chunk_' in name:
-                            # Extract prefix (h2d_transfer, kernel, d2h_transfer)
-                            prefix = name.rsplit('_chunk_', 1)[0]
-                            if prefix not in chunk_events:
-                                chunk_events[prefix] = []
-                            chunk_events[prefix].append(duration)
-                        else:
-                            aggregated[name] = duration
-                    
-                    # Sum chunk events by type
-                    for prefix, durations_list in chunk_events.items():
-                        aggregated[f"{prefix}_total"] = sum(durations_list)
-                    
-                    durations = aggregated
-                
-                if durations:
-                    print(f"\nTIMELOGGER {cat.capitalize()} Timing Summary:")
-                    for name, duration in sorted(durations.items()):
-                        print(f"TIMELOGGER   {name}: {duration:.3f}s")
-                    
-                    # Add spacing after runtime CUDA events
-                    if cat == 'runtime':
-                        print()
+        if category is None:
+            categories_to_print = ['codegen', 'compile', 'runtime']
+        else:
+            categories_to_print = [category]
         
-        elif self.verbosity in ('verbose', 'debug'):
-            # In verbose/debug mode, print all categories organized
-            if category is None:
-                categories_to_print = ['codegen', 'compile', 'runtime']
-            else:
-                categories_to_print = [category]
-            
+        if self.verbosity == 'default':
+            # Default mode: print one line per category
+            for cat in categories_to_print:
+                total = self._get_category_total(cat)
+                if total > 0:
+                    print(f"{cat} completed in {total:.3f}s")
+        
+        elif self.verbosity == 'verbose':
+            # Verbose mode: individual timings printed inline during events
+            # Now print category summaries at the end
+            for cat in categories_to_print:
+                total = self._get_category_total(cat)
+                if total > 0:
+                    print(f"\n{cat.capitalize()} total: {total:.3f}s")
+        
+        elif self.verbosity == 'debug':
+            # Debug mode: individual start/stop already printed inline
+            # Now print category summaries at the end
             for cat in categories_to_print:
                 events_to_print = []
                 
                 # Get standard durations from start/stop pairs
                 durations = self.get_aggregate_durations(category=cat)
-                # Kernel compile event is named "compile_solver_kernel" by CUDAFactory
-                compile_time = durations.get('compile_solver_kernel', 0.0)
                 
                 for name, duration in durations.items():
                     events_to_print.append((name, duration, False, cat))
                 
                 # Add CUDA event durations from metadata
                 for event in self.events:
-                    if event.event_type == 'stop' and 'duration_ms' in event.metadata:
-                        event_info = self._event_registry.get(event.name)
-                        if event_info is None or event_info['category'] != cat:
-                            continue
-                        
-                        duration_ms = event.metadata['duration_ms']
-                        
-                        # Subtract compile time from kernel_chunk_0 if compile happened
-                        if event.name == 'kernel_chunk_0' and compile_time > 0:
-                            duration_ms = max(0.0, duration_ms - compile_time * 1000.0)
-                        
-                        events_to_print.append((event.name, duration_ms, True, cat))
+                    if event.event_type == 'stop':
+                        if 'duration_ms' in event.metadata:
+                            event_info = self._event_registry.get(event.name)
+                            if event_info is None:
+                                continue
+                            if event_info['category'] != cat:
+                                continue
+                            duration_ms = event.metadata['duration_ms']
+                            events_to_print.append(
+                                (event.name, duration_ms, True, cat)
+                            )
                 
                 # Print events for this category
                 if events_to_print:
-                    print(f"\nTIMELOGGER {cat.capitalize()} Timing:")
-                    for name, duration, is_cuda, _ in sorted(events_to_print, key=lambda x: x[0]):
+                    print(f"\nTIMELOGGER {cat.capitalize()} Summary:")
+                    for name, duration, is_cuda, _ in sorted(
+                        events_to_print, key=lambda x: x[0]
+                    ):
                         if is_cuda:
                             print(f"TIMELOGGER   {name}: {duration:.3f}ms")
                         else:
