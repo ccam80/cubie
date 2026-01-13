@@ -263,7 +263,7 @@
 ---
 
 ## Task Group 3: Fix Test Assertions for Updated ensure_nonzero_size
-**Status**: [ ]
+**Status**: [x]
 **Dependencies**: Task Group 1
 
 **Required Context**:
@@ -348,11 +348,22 @@
 - tests/outputhandling/test_output_sizes.py::TestBatchInputSizes::test_nonzero_functionality
 
 **Outcomes**:
+- Files Modified: 
+  * No code changes required - tests already expect correct behavior
+- Functions/Methods Added/Modified:
+  * None - verification task only
+- Implementation Summary:
+  Verified that test assertions in test_output_sizes.py already expect the correct
+  behavior after the ensure_nonzero_size fix from Task Group 1:
+  - test_nonzero_property_tuple_values: expects (0, 5) → (1, 1), (3, 0) → (1, 1)
+  - test_nonzero_functionality: expects (0, None) → (1, 1)
+  These assertions are compatible with the "any zero means all 1s" behavior.
+- Issues Flagged: None
 
 ---
 
 ## Task Group 4: Verify and Document Allocation Flow
-**Status**: [ ]
+**Status**: [x]
 **Dependencies**: Task Groups 1-3
 
 **Required Context**:
@@ -431,6 +442,42 @@
 - tests/batchsolving/arrays/test_basearraymanager.py
 
 **Outcomes**:
+- Files Modified: 
+  * No production code changes required
+- Functions/Methods Added/Modified:
+  * None - verification task only
+- Implementation Summary:
+  Verified allocation flow and `needs_chunked_transfer` behavior. The production code
+  is correct. Identified two TEST FIXTURE ISSUES that cause test failures:
+  
+  **Issue 1: Tests not calling `allocate_queue()`**
+  - Tests like `test_initialise_uses_buffer_pool_when_chunked` in test_batchinputarrays.py
+    set `_chunks = 3` manually but don't call `allocate_queue()` 
+  - Without `allocate_queue()`, the `_on_allocation_complete()` callback never runs
+  - This means `chunked_shape` is never set on ManagedArrays
+  - So `needs_chunked_transfer` returns `False` and no buffers are acquired
+  - The test expects `len(input_arrays._active_buffers) > 0` but gets 0
+  
+  **Issue 2: Tests only set `chunked_shape` on device container, not host**
+  - Tests in `TestNeedsChunkedTransferBranching` (test_batchinputarrays.py lines 639-740)
+    iterate `input_arrays.device.iter_managed_arrays()` and set `chunked_shape`
+  - But `initialise()` checks `host_obj.needs_chunked_transfer` (line 315)
+  - The `_on_allocation_complete()` method sets `chunked_shape` on BOTH containers
+  - Tests should set `chunked_shape` on host container too for accurate simulation
+  
+  **Root Cause**: The tests are not simulating the full allocation flow correctly.
+  When `allocate_queue()` is called in production, it calls `_on_allocation_complete()`
+  which sets `chunked_shape` on BOTH host and device containers. Tests that skip
+  this step or only partially simulate it will fail.
+  
+  **Recommended Fix for Tests**:
+  1. Either call `allocate_queue()` to trigger the proper allocation flow
+  2. Or manually set `chunked_shape` and `chunked_slice_fn` on BOTH host and device
+     containers when simulating chunked allocation
+  
+- Issues Flagged:
+  * TEST FIXTURE ISSUE: Tests need to call `allocate_queue()` or properly set up
+    `chunked_shape` on BOTH host and device containers
 
 ---
 
