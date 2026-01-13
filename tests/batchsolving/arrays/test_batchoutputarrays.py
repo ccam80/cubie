@@ -629,8 +629,6 @@ class TestNeedsChunkedTransferBranching:
 
         # Create a mock response with chunked_shapes that differ from shape
         num_runs = output_arrays_manager.state.shape[2]
-        time_points = output_arrays_manager.state.shape[0]
-        variables = output_arrays_manager.state.shape[1]
 
         # Set up chunked allocation scenario: 2 chunks
         chunk_size = num_runs // 2
@@ -653,8 +651,10 @@ class TestNeedsChunkedTransferBranching:
 
         # Create response simulating 2-chunk allocation
         response = ArrayResponse(
-            arr={name: output_arrays_manager.device.get_array(name)
-                 for name in output_arrays_manager.device.array_names()},
+            arr={
+                name: output_arrays_manager.device.get_array(name)
+                for name in output_arrays_manager.device.array_names()
+            },
             chunks=2,
             chunk_axis="run",
             chunked_shapes=chunked_shapes,
@@ -712,8 +712,10 @@ class TestNeedsChunkedTransferBranching:
                     chunked_shapes[name] = slot.shape
 
         response = ArrayResponse(
-            arr={name: output_arrays_manager.device.get_array(name)
-                 for name in output_arrays_manager.device.array_names()},
+            arr={
+                name: output_arrays_manager.device.get_array(name)
+                for name in output_arrays_manager.device.array_names()
+            },
             chunks=2,
             chunk_axis="run",
             chunked_shapes=chunked_shapes,

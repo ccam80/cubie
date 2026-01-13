@@ -13,7 +13,7 @@ from numpy import (
 )
 
 from numpy.typing import NDArray
-from typing import List, Optional, TYPE_CHECKING, Union
+from typing import List, Optional, TYPE_CHECKING
 
 if TYPE_CHECKING:
     from cubie.batchsolving.BatchSolverKernel import BatchSolverKernel
@@ -272,11 +272,11 @@ class InputArrays(BaseArrayManager):
             if np_issubdtype(np_dtype(arr_obj.dtype), np_floating):
                 arr_obj.dtype = self._precision
 
-    def finalise(self, chunk_index: Union[slice, NDArray]) -> None:
+    def finalise(self, chunk_index: int) -> None:
         """Release buffers back to host."""
         self.release_buffers()
 
-    def initialise(self, chunk_index: Union[slice, NDArray]) -> None:
+    def initialise(self, chunk_index: int) -> None:
         """Copy a batch chunk of host data to device buffers.
 
         Parameters

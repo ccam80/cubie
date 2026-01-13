@@ -412,7 +412,7 @@ class OutputArrays(BaseArrayManager):
                 slot.dtype = self._precision
         return new_arrays
 
-    def finalise(self, chunk_index: ChunkIndices) -> None:
+    def finalise(self, chunk_index: int) -> None:
         """Queue device-to-host transfers for a chunk.
 
         Parameters
@@ -508,7 +508,7 @@ class OutputArrays(BaseArrayManager):
             self._watcher.wait_all(timeout=timeout)
             self._pending_buffers.clear()
 
-    def initialise(self, chunk_index: ChunkIndices) -> None:
+    def initialise(self, chunk_index: int) -> None:
         """
         Initialize device arrays before kernel execution.
 

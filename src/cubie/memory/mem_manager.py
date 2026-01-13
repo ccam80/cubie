@@ -1188,7 +1188,7 @@ class MemoryManager:
         for instance_id, requests_dict in queued_requests.items():
             axis_length = get_chunk_axis_length(requests_dict, chunk_axis)
             if axis_length > 0:
-                continue
+                break
 
         chunk_length, num_chunks = self.get_chunk_parameters(
             queued_requests, chunk_axis, axis_length, stream_group
@@ -1385,19 +1385,23 @@ def compute_per_chunk_slice(
         if is_request_chunkable(request, chunk_axis):
             chunk_index = request.stride_order.index(chunk_axis)
 
-            def get_slice(i: int) -> Tuple[slice, ...]:
-                chunk_slice = [slice(None)] * len(request.shape)
+            def get_slice(
+                i: int, *, _request=request, _chunk_index=chunk_index
+            ) -> Tuple[slice, ...]:
+                chunk_slice = [slice(None)] * len(_request.shape)
                 start = i * chunk_size
                 end = start + chunk_size
-                if chunk_index == num_chunks - 1:
+                if i == num_chunks - 1:
                     end = axis_length
-                chunk_slice[chunk_index] = slice(start, end)
+                chunk_slice[_chunk_index] = slice(start, end)
                 return tuple(chunk_slice)
 
         else:
             # Just return a tuple of None slices
-            def get_slice(i: int) -> Tuple[slice, ...]:
-                chunk_slice = [slice(None)] * len(request.shape)
+            def get_slice(
+                i: int, *, _request=request, _chunk_index=chunk_index
+            ) -> Tuple[slice, ...]:
+                chunk_slice = [slice(None)] * len(_request.shape)
                 return tuple(chunk_slice)
 
         per_chunk_slices[key] = get_slice
