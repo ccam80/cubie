@@ -464,8 +464,9 @@ class Solver:
 
     def build_grid(
         self,
-        initial_values: Union[ndarray, Dict[str, Union[float, ndarray]]],
-        parameters: Union[ndarray, Dict[str, Union[float, ndarray]]],
+        initial_values: Union[ndarray, Dict[str, Union[float, ndarray]]]=None,
+        parameters: Union[None, ndarray, Dict[str, Union[float,
+        ndarray]]]=None,
         grid_type: str = "verbatim",
     ) -> Tuple[ndarray, ndarray]:
         """Build parameter and state grids for external use.
