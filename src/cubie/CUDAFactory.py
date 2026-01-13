@@ -20,6 +20,7 @@ from cubie._utils import (
     precision_converter,
 )
 from cubie.cuda_simsafe import from_dtype as simsafe_dtype
+from cubie.buffer_registry import buffer_registry
 
 
 def hash_tuple(input: Tuple) -> str:
@@ -569,6 +570,39 @@ class CUDAFactory(ABC):
         """Return the CUDA-simulator-safe dtype for the functions."""
 
         return self.compile_settings.simsafe_precision
+
+    @property
+    def shared_buffer_size(self) -> int:
+        """Return total shared memory elements registered for this factory.
+
+        Returns
+        -------
+        int
+            Total shared memory elements from buffer_registry.
+        """
+        return buffer_registry.shared_buffer_size(self)
+
+    @property
+    def local_buffer_size(self) -> int:
+        """Return total local memory elements registered for this factory.
+
+        Returns
+        -------
+        int
+            Total local memory elements from buffer_registry.
+        """
+        return buffer_registry.local_buffer_size(self)
+
+    @property
+    def persistent_local_buffer_size(self) -> int:
+        """Return total persistent local elements registered for this factory.
+
+        Returns
+        -------
+        int
+            Total persistent local elements from buffer_registry.
+        """
+        return buffer_registry.persistent_local_buffer_size(self)
 
 
 @define
