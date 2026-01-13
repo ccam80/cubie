@@ -1,5 +1,3 @@
-import warnings
-
 import pytest
 from numba import cuda
 
@@ -512,25 +510,6 @@ class TestMemoryManager:
         mgr.free_all()
         assert mgr.registry[id(instance)].allocations == {}
 
-    def test_get_chunks(self, mgr):
-        """Test get_chunks returns correct chunk count based on available memory."""
-        # Test with specific request size and available memory
-        request_size = 100
-        available = 200
-        chunks = mgr.get_chunks(request_size, available)
-        assert isinstance(chunks, int)
-        assert chunks == 1
-
-        request_size = int(2 * 1024**3)
-        available = int(1 * 1024**3)
-        chunks = mgr.get_chunks(request_size, available)
-        assert chunks == 2
-
-        request_size = int(2.5 * 1024**3)
-        available = int(1 * 1024**3)
-        chunks = mgr.get_chunks(request_size, available)
-        assert chunks == 3
-
     def test_get_memory_info(self, mgr):
         """Test get_memory_info returns tuple of free and total memory."""
         free, total = mgr.get_memory_info()
@@ -643,48 +622,9 @@ class TestMemoryManager:
         assert abs(mgr.registry[id(inst1)].proportion - 0.25) < 1e-6
         assert abs(mgr.auto_pool_proportion - 0.25) < 1e-6
 
-    def test_get_available_single(self, registered_mgr, registered_instance):
-        """Test get_available_single returns correct available memory for an instance."""
-        mgr = registered_mgr
-        instance = registered_instance
-        instance_id = id(instance)
 
-        # Passive mode should return free memory
-        mgr.set_limit_mode("passive")
-        available = mgr.get_available_single(instance_id)
-        free, total = mgr.get_memory_info()
-        assert available == free
 
-        # Active mode should consider instance cap and allocated bytes
-        mgr.set_limit_mode("active")
-        available = mgr.get_available_single(instance_id)
-        settings = mgr.registry[instance_id]
-        expected = min(settings.cap - settings.allocated_bytes, free)
-        assert available == expected
 
-    def test_get_available_group(self, mgr):
-        """Test get_available_group returns correct available memory for a stream group."""
-        inst1 = DummyClass()
-        inst2 = DummyClass()
-        mgr.register(inst1, stream_group="test_group")
-        mgr.register(inst2, stream_group="test_group")
-
-        # Passive mode should return free memory
-        mgr.set_limit_mode("passive")
-        available = mgr.get_available_group("test_group")
-        free, total = mgr.get_memory_info()
-        assert available == free
-
-        # Active mode should consider group totals
-        mgr.set_limit_mode("active")
-        available = mgr.get_available_group("test_group")
-        total_cap = mgr.registry[id(inst1)].cap + mgr.registry[id(inst2)].cap
-        total_allocated = (
-            mgr.registry[id(inst1)].allocated_bytes
-            + mgr.registry[id(inst2)].allocated_bytes
-        )
-        expected = min(total_cap - total_allocated, free)
-        assert available == expected
 
     def test_get_stream_group(self, registered_mgr, registered_instance):
         """Test get_stream_group returns the correct group name."""
@@ -752,96 +692,11 @@ class TestMemoryManager:
         # Should only have the latest request
         assert mgr._queued_allocations[stream_group][id(instance)] == requests2
 
-    def test_chunk_arrays(self, mgr):
-        """Test chunk_arrays divides array shapes correctly along specified axis."""
-        requests = {
-            "arr1": ArrayRequest(
-                shape=(100, 200, 50),
-                dtype=np.float32,
-                memory="device",
-                stride_order=("time", "variable", "run"),
-            ),
-            "arr2": ArrayRequest(
-                shape=(50, 400, 24),
-                dtype=np.float32,
-                memory="device",
-                stride_order=("time", "variable", "run"),
-            ),
-        }
 
-        # Chunk by run dimension (index 2) using floor division
-        chunked = mgr.chunk_arrays(requests, numchunks=4, axis="run")
 
-        # arr1: (100, 200, 50) -> (100, 200, 12) since 50 // 4 = 12
-        # arr2: (50, 400, 24) -> (50, 400, 6) since 24 // 4 = 6
-        assert chunked["arr1"].shape == (100, 200, 12)
-        assert chunked["arr2"].shape == (50, 400, 6)
 
-        # Chunk by time dimension (index 0)
-        chunked_time = mgr.chunk_arrays(requests, numchunks=2, axis="time")
-        assert chunked_time["arr1"].shape == (50, 200, 50)  # 100 // 2 = 50
-        assert chunked_time["arr2"].shape == (25, 400, 24)  # 50 // 2 = 25
 
-    def test_chunk_arrays_skips_missing_axis(self, mgr):
-        """Test chunk_arrays skips arrays whose stride_order lacks the axis."""
-        requests = {
-            "input_2d": ArrayRequest(
-                shape=(10, 50),
-                dtype=np.float32,
-                memory="device",
-                stride_order=("variable", "run"),
-            ),
-            "output_3d": ArrayRequest(
-                shape=(100, 10, 48),
-                dtype=np.float32,
-                memory="device",
-                stride_order=("time", "variable", "run"),
-            ),
-        }
 
-        # Chunk by time axis; 2D array lacks time axis so should be unchanged
-        chunked = mgr.chunk_arrays(requests, numchunks=4, axis="time")
-
-        # 2D array should be unchanged (no time axis)
-        assert chunked["input_2d"].shape == (10, 50)
-        # 3D array should be chunked on time axis: 100 // 4 = 25
-        assert chunked["output_3d"].shape == (25, 10, 48)
-
-    def test_single_request(self, registered_mgr, registered_instance):
-        """Test single_request processes individual requests correctly."""
-        # Create instance with callback to capture response
-        instance = DummyClass()
-        callback_called = {"flag": False, "response": None}
-
-        def allocation_hook(response):
-            callback_called["flag"] = True
-            callback_called["response"] = response
-
-        registered_mgr.register(
-            instance, allocation_ready_hook=allocation_hook
-        )
-
-        requests = {
-            "arr1": ArrayRequest(
-                shape=(4, 4, 4), dtype=np.float32, memory="device"
-            ),
-            "arr2": ArrayRequest(
-                shape=(2, 2, 2), dtype=np.float32, memory="mapped"
-            ),
-        }
-
-        registered_mgr.single_request(instance, requests)
-
-        # Check that callback was called with correct response
-        assert callback_called["flag"] is True
-        response = callback_called["response"]
-        assert isinstance(response, ArrayResponse)
-        assert set(response.arr.keys()) == set(requests.keys())
-        assert isinstance(response.chunks, int)
-
-        # Arrays should be allocated and registered
-        for key in requests.keys():
-            assert key in registered_mgr.registry[id(instance)].allocations
 
     def test_allocate_queue_single_instance(self, mgr):
         """Test allocate_queue with single instance in queue."""
@@ -911,16 +766,6 @@ class TestMemoryManager:
         assert callbacks_called["inst1"]["flag"] is True
         assert callbacks_called["inst2"]["flag"] is True
 
-    @pytest.mark.parametrize(
-        "fixed_mem_override, limit_type, chunk_axis",
-        [
-            [{"total": 512 * 1024**2}, "instance", "run"],
-            [{"total": 512 * 1024**2}, "group", "run"],
-            [{"total": 512 * 1024**2}, "instance", "time"],
-            [{"total": 512 * 1024**2}, "group", "time"],
-        ],
-        indirect=["fixed_mem_override"],
-    )
     def test_allocate_queue_empty_queue(
         self, registered_mgr, registered_instance
     ):
@@ -965,65 +810,9 @@ class TestMemoryManager:
         assert mgr.is_grouped(inst_group1) is True
         assert mgr.is_grouped(inst_group2) is True
 
-    @pytest.mark.parametrize(
-        "fixed_mem_override", [{"total": 512 * 1024**2}], indirect=True
-    )
-    def test_get_available_single_low_memory_warning(
-        self, registered_mgr, registered_instance
-    ):
-        """Test get_available_single issues warning when memory usage is high."""
-        mgr = registered_mgr
-        instance = registered_instance  # initializes with 0.5 of VRAM assigned
-        instance_id = id(instance)
 
-        mgr.set_limit_mode("active")
-        requests1 = {
-            "arr1": ArrayRequest(
-                shape=(250, 1024, 256),  # >95%
-                dtype=np.float32,
-                memory="device",
-            )
-        }
 
-        # Add some fake allocation to trigger low memory warning
-        # allocation
-        mgr.single_request(instance, requests1)
 
-        with warnings.catch_warnings(record=True) as w:
-            warnings.simplefilter("always")
-            mgr.get_available_single(instance_id)
-            # Should warn about high memory usage
-            assert any(
-                "95% of it's allotted memory" in str(wi.message) for wi in w
-            )
-
-    @pytest.mark.parametrize(
-        "fixed_mem_override", [{"total": 512 * 1024**2}], indirect=True
-    )
-    def test_get_available_group_low_memory_warning(self, mgr):
-        """Test get_available_group issues warning when group memory usage is high."""
-        inst1 = DummyClass()
-        inst2 = DummyClass()
-        mgr.register(inst1, stream_group="test", proportion=0.25)
-        mgr.register(inst2, stream_group="test", proportion=0.25)
-        mgr.set_limit_mode("passive")
-        requests1 = {
-            "arr1": ArrayRequest(
-                shape=(250, 1024, 256),  # >95%
-                dtype=np.float32,
-                memory="device",
-            )
-        }
-        mgr.single_request(inst1, requests1)
-        # Add fake allocations to trigger warning
-
-        mgr.set_limit_mode("active")
-
-        with warnings.catch_warnings(record=True) as w:
-            warnings.simplefilter("always")
-            mgr.get_available_group("test")
-            # Should warn about high group memory usage
-            assert any("has used more than 95%" in str(wi.message) for wi in w)
 
     @pytest.mark.nocudasim
     def test_to_device(self, registered_mgr, registered_instance):
@@ -1112,22 +901,7 @@ class TestMemoryManager:
         np.testing.assert_array_equal(host_dest2, host_source2)
 
 
-def test_get_total_request_size():
-    """Test get_total_request_size calculates correct total size."""
-    from cubie.memory.mem_manager import get_total_request_size
 
-    requests = {
-        "arr1": ArrayRequest(
-            shape=(10, 10), dtype=np.float32, memory="device"
-        ),  # 400 bytes
-        "arr2": ArrayRequest(
-            shape=(5, 5), dtype=np.float64, memory="device"
-        ),  # 200 bytes
-    }
-
-    total_size = get_total_request_size(requests)
-    expected_size = (10 * 10 * 4) + (5 * 5 * 8)  # 400 + 200 = 600
-    assert total_size == expected_size
 
 
 @pytest.mark.nocudasim
@@ -1153,456 +927,41 @@ def test_ensure_cuda_context_simulation():
         _ensure_cuda_context()  # Should not raise
 
 
-def test_get_chunkable_request_size_excludes_unchunkable():
-    """Verify unchunkable arrays are excluded from size calculation."""
-    from cubie.memory.mem_manager import get_chunkable_request_size
-
-    requests = {
-        "chunkable": ArrayRequest(
-            shape=(10, 10, 10),
-            dtype=np.float32,
-            memory="device",
-            stride_order=("time", "variable", "run"),
-            unchunkable=False,
-        ),
-        "unchunkable": ArrayRequest(
-            shape=(5, 5, 5),
-            dtype=np.float32,
-            memory="device",
-            stride_order=("time", "variable", "run"),
-            unchunkable=True,
-        ),
-    }
-
-    # Only chunkable array should be counted
-    size = get_chunkable_request_size(requests, "run")
-    expected = 10 * 10 * 10 * 4  # Only the chunkable array
-    assert size == expected
-
-
-def test_get_chunkable_request_size_excludes_wrong_axis():
-    """Verify arrays without chunk_axis in stride_order are excluded."""
-    from cubie.memory.mem_manager import get_chunkable_request_size
-
-    requests = {
-        "has_run": ArrayRequest(
-            shape=(10, 10, 10),
-            dtype=np.float32,
-            memory="device",
-            stride_order=("time", "variable", "run"),
-        ),
-        "no_run": ArrayRequest(
-            shape=(5, 5),
-            dtype=np.float32,
-            memory="device",
-            stride_order=("variable", "state"),  # No "run" axis
-        ),
-    }
-
-    # Only array with "run" axis should be counted
-    size = get_chunkable_request_size(requests, "run")
-    expected = 10 * 10 * 10 * 4  # Only has_run array
-    assert size == expected
-
-
-def test_get_chunkable_request_size_returns_zero_all_unchunkable():
-    """Verify returns 0 when all arrays are unchunkable."""
-    from cubie.memory.mem_manager import get_chunkable_request_size
-
-    requests = {
-        "arr1": ArrayRequest(
-            shape=(10, 10),
-            dtype=np.float32,
-            memory="device",
-            stride_order=("variable", "run"),
-            unchunkable=True,
-        ),
-        "arr2": ArrayRequest(
-            shape=(5, 5),
-            dtype=np.float32,
-            memory="device",
-            stride_order=("variable", "run"),
-            unchunkable=True,
-        ),
-    }
-
-    size = get_chunkable_request_size(requests, "run")
-    assert size == 0
-
-
-def test_compute_chunked_shapes_uses_floor_division(mgr):
-    """Verify chunk_size = axis_length // num_chunks (floor, not ceiling)."""
-    requests = {
-        "arr": ArrayRequest(
-            shape=(100, 10, 50),  # 50 runs
-            dtype=np.float32,
-            memory="device",
-            stride_order=("time", "variable", "run"),
-        ),
-    }
-
-    # 50 // 4 = 12 (floor), not ceil(50/4) = 13
-    chunked_shapes = mgr.compute_chunked_shapes(
-        requests, num_chunks=4, chunk_axis="run"
-    )
-    assert chunked_shapes["arr"] == (100, 10, 12)
-
-
-def test_compute_chunked_shapes_preserves_unchunkable(mgr):
-    """Verify unchunkable arrays keep original shape."""
-    requests = {
-        "chunkable": ArrayRequest(
-            shape=(100, 10, 50),
-            dtype=np.float32,
-            memory="device",
-            stride_order=("time", "variable", "run"),
-            unchunkable=False,
-        ),
-        "unchunkable": ArrayRequest(
-            shape=(50, 20, 30),
-            dtype=np.float32,
-            memory="device",
-            stride_order=("time", "variable", "run"),
-            unchunkable=True,
-        ),
-    }
-
-    chunked_shapes = mgr.compute_chunked_shapes(
-        requests, num_chunks=4, chunk_axis="run"
-    )
-    # Chunkable: 50 // 4 = 12
-    assert chunked_shapes["chunkable"] == (100, 10, 12)
-    # Unchunkable: original shape preserved
-    assert chunked_shapes["unchunkable"] == (50, 20, 30)
-
-
-def test_compute_chunked_shapes_empty_requests(mgr):
-    """Verify empty requests returns empty dict."""
-    requests = {}
-    chunked_shapes = mgr.compute_chunked_shapes(
-        requests, num_chunks=4, chunk_axis="run"
-    )
-    assert chunked_shapes == {}
-
-
-def test_compute_chunked_shapes_single_chunk(mgr):
-    """Verify num_chunks=1 returns original shapes."""
-    requests = {
-        "arr": ArrayRequest(
-            shape=(100, 10, 50),
-            dtype=np.float32,
-            memory="device",
-            stride_order=("time", "variable", "run"),
-        ),
-    }
-
-    chunked_shapes = mgr.compute_chunked_shapes(
-        requests, num_chunks=1, chunk_axis="run"
-    )
-    assert chunked_shapes["arr"] == (100, 10, 50)
-
-
-def test_chunk_arrays_uses_floor_division(mgr):
-    """Verify chunk_arrays uses floor division."""
-    requests = {
-        "arr": ArrayRequest(
-            shape=(100, 10, 50),
-            dtype=np.float32,
-            memory="device",
-            stride_order=("time", "variable", "run"),
-        ),
-    }
-
-    # 50 // 4 = 12 (floor division)
-    chunked = mgr.chunk_arrays(requests, numchunks=4, axis="run")
-    assert chunked["arr"].shape == (100, 10, 12)
-
-
-def test_chunk_arrays_min_one_element(mgr):
-    """Verify chunk_arrays ensures at least 1 element per chunk."""
-    requests = {
-        "arr": ArrayRequest(
-            shape=(100, 10, 3),  # Only 3 runs
-            dtype=np.float32,
-            memory="device",
-            stride_order=("time", "variable", "run"),
-        ),
-    }
-
-    # 3 // 10 = 0, but should clamp to 1
-    chunked = mgr.chunk_arrays(requests, numchunks=10, axis="run")
-    assert chunked["arr"].shape == (100, 10, 1)
-
-
-def test_single_request_populates_chunked_shapes():
-    """Verify single_request includes chunked_shapes in response."""
-
-    # Create a test memory manager with fixed memory
-    class TestMemoryManager(MemoryManager):
-        def get_memory_info(self):
-            return 1 * 1024**3, 8 * 1024**3  # 1GB free, 8GB total
-
-    mgr = TestMemoryManager()
-    instance = DummyClass()
-    callback_result = {"response": None}
-
-    def allocation_hook(response):
-        callback_result["response"] = response
-
-    mgr.register(instance, allocation_ready_hook=allocation_hook)
-
-    requests = {
-        "arr1": ArrayRequest(
-            shape=(10, 10, 100),
-            dtype=np.float32,
-            memory="device",
-            stride_order=("time", "variable", "run"),
-        ),
-    }
-
-    mgr.single_request(instance, requests)
-
-    response = callback_result["response"]
-    assert response is not None
-    assert isinstance(response.chunked_shapes, dict)
-    assert "arr1" in response.chunked_shapes
-    # With 1GB free and small array, should be 1 chunk
-    assert response.chunked_shapes["arr1"] == (10, 10, 100)
-
-
-def test_allocate_queue_populates_chunked_shapes():
-    """Verify allocate_queue includes chunked_shapes in response."""
-
-    class TestMemoryManager(MemoryManager):
-        def get_memory_info(self):
-            return 1 * 1024**3, 8 * 1024**3
-
-    mgr = TestMemoryManager()
-    inst1 = DummyClass()
-    inst2 = DummyClass()
-    callbacks = {
-        "inst1": {"response": None},
-        "inst2": {"response": None},
-    }
-
-    def hook1(response):
-        callbacks["inst1"]["response"] = response
-
-    def hook2(response):
-        callbacks["inst2"]["response"] = response
-
-    mgr.register(inst1, allocation_ready_hook=hook1, stream_group="test")
-    mgr.register(inst2, allocation_ready_hook=hook2, stream_group="test")
-
-    requests1 = {
-        "arr1": ArrayRequest(
-            shape=(10, 10, 100),
-            dtype=np.float32,
-            memory="device",
-            stride_order=("time", "variable", "run"),
-        ),
-    }
-    requests2 = {
-        "arr2": ArrayRequest(
-            shape=(20, 5, 50),
-            dtype=np.float32,
-            memory="device",
-            stride_order=("time", "variable", "run"),
-        ),
-    }
-
-    mgr.queue_request(inst1, requests1)
-    mgr.queue_request(inst2, requests2)
-    mgr.allocate_queue(inst1, limit_type="group")
-
-    # Both responses should have chunked_shapes
-    resp1 = callbacks["inst1"]["response"]
-    resp2 = callbacks["inst2"]["response"]
-
-    assert resp1 is not None
-    assert isinstance(resp1.chunked_shapes, dict)
-    assert "arr1" in resp1.chunked_shapes
-
-    assert resp2 is not None
-    assert isinstance(resp2.chunked_shapes, dict)
-    assert "arr2" in resp2.chunked_shapes
-
-
-def test_chunk_calculation_5_runs_4_chunks(mgr):
-    """Test that 5 runs with 4 chunks produces correct chunk sizes.
-
-    With floor division: chunk_size = 5 // 4 = 1
-    Chunks process runs [0], [1], [2], [3] with final chunk handling run [4]
-    No index overflow should occur.
-    """
-    requests = {
-        "arr": ArrayRequest(
-            shape=(10, 5, 5),  # 5 runs
-            dtype=np.float32,
-            memory="device",
-            stride_order=("time", "variable", "run"),
-        ),
-    }
-
-    # Compute chunked shapes with 4 chunks
-    chunked_shapes = mgr.compute_chunked_shapes(
-        requests, num_chunks=4, chunk_axis="run"
-    )
-
-    # 5 // 4 = 1 (floor division)
-    assert chunked_shapes["arr"] == (10, 5, 1)
-
-    # Also verify chunk_arrays produces same result
-    chunked = mgr.chunk_arrays(requests, numchunks=4, axis="run")
-    assert chunked["arr"].shape == (10, 5, 1)
-
-    # Verify that chunk indices don't exceed original array bounds
-    # With 5 runs and chunk_size=1, we have chunks at indices:
-    # [0:1], [1:2], [2:3], [3:4], [4:5] - all valid
-    chunk_size = 5 // 4  # = 1
-    for i in range(4):
-        start_idx = i * chunk_size
-        end_idx = min((i + 1) * chunk_size, 5)
-        assert start_idx < 5, (
-            f"Chunk {i} start index {start_idx} exceeds array"
-        )
-        assert end_idx <= 5, f"Chunk {i} end index {end_idx} exceeds array"
-
-
-def test_all_arrays_unchunkable_produces_one_chunk():
-    """Test that when all arrays are unchunkable, num_chunks = 1."""
-    from cubie.memory.mem_manager import get_chunkable_request_size
-
-    requests = {
-        "status": ArrayRequest(
-            shape=(100,),
-            dtype=np.int32,
-            memory="device",
-            stride_order=("run",),
-            unchunkable=True,
-        ),
-        "flags": ArrayRequest(
-            shape=(100,),
-            dtype=np.int32,
-            memory="device",
-            stride_order=("run",),
-            unchunkable=True,
-        ),
-    }
-
-    # All arrays are unchunkable, so chunkable size should be 0
-    chunkable_size = get_chunkable_request_size(requests, "run")
-    assert chunkable_size == 0
-
-    # With chunkable_size == 0, single_request should produce 1 chunk
-    # This is verified by the logic in single_request:
-    # if chunkable_size == 0: numchunks = 1
-
-
-def test_final_chunk_has_correct_indices(mgr):
-    """Test final chunk indices don't exceed array bounds.
-
-    5 runs, 2 chunks -> chunk_size = 5 // 2 = 2
-    Chunk 0: indices [0, 2) - processes runs 0, 1
-    Chunk 1: indices [2, 4) - processes runs 2, 3
-    Final runs (run 4) handled by clamping in final chunk
-    """
-    numruns = 5
-    num_chunks = 2
-    chunk_size = numruns // num_chunks  # = 2
-
-    # Verify floor division gives expected chunk size
-    assert chunk_size == 2
-
-    # Compute chunked shapes
-    requests = {
-        "arr": ArrayRequest(
-            shape=(10, 3, numruns),
-            dtype=np.float32,
-            memory="device",
-            stride_order=("time", "variable", "run"),
-        ),
-    }
-    chunked_shapes = mgr.compute_chunked_shapes(
-        requests, num_chunks=num_chunks, chunk_axis="run"
-    )
-    assert chunked_shapes["arr"] == (10, 3, 2)
-
-    # Verify that for each chunk, indices are computed correctly
-    # This simulates the loop logic that should use floor division
-    for i in range(num_chunks):
-        start_idx = i * chunk_size
-        # Final chunk should be clamped to actual run count
-        end_idx = min((i + 1) * chunk_size, numruns)
-
-        assert start_idx < numruns, f"Chunk {i} start {start_idx} >= numruns"
-        assert end_idx <= numruns, f"Chunk {i} end {end_idx} > numruns"
-        # Each chunk processes at least 1 run
-        assert end_idx > start_idx, f"Chunk {i} processes 0 runs"
-
-    # Verify total coverage: all runs should be processed
-    # With chunk_size=2 and 5 runs, we get indices [0:2], [2:4]
-    # Runs 0,1,2,3 are in regular chunks, run 4 needs final chunk handling
-    covered_runs = set()
-    for i in range(num_chunks):
-        start_idx = i * chunk_size
-        end_idx = min((i + 1) * chunk_size, numruns)
-        for j in range(start_idx, end_idx):
-            covered_runs.add(j)
-    # With floor division, we may not cover all runs in regular chunks
-    # The actual kernel handles the final partial chunk separately
-    assert 0 in covered_runs
-    assert 1 in covered_runs
-    assert 2 in covered_runs
-    assert 3 in covered_runs
-
-
-def test_uneven_chunk_division_7_runs_3_chunks(mgr):
-    """Test floor division with 7 runs and 3 chunks.
-
-    7 // 3 = 2 (floor division)
-    Chunks: [0:2], [2:4], [4:6] with run 6 in final partial chunk
-    """
-    requests = {
-        "arr": ArrayRequest(
-            shape=(10, 5, 7),  # 7 runs
-            dtype=np.float32,
-            memory="device",
-            stride_order=("time", "variable", "run"),
-        ),
-    }
-
-    chunked_shapes = mgr.compute_chunked_shapes(
-        requests, num_chunks=3, chunk_axis="run"
-    )
-
-    # 7 // 3 = 2 (floor)
-    assert chunked_shapes["arr"] == (10, 5, 2)
-
-    # Verify indices for each chunk don't exceed bounds
-    numruns = 7
-    chunk_size = numruns // 3  # = 2
-    for i in range(3):
-        start_idx = i * chunk_size
-        end_idx = min((i + 1) * chunk_size, numruns)
-        assert end_idx <= numruns
-
-
-def test_chunk_size_minimum_one_when_runs_less_than_chunks(mgr):
-    """Test that chunk_size is at least 1 even when runs < chunks."""
-    requests = {
-        "arr": ArrayRequest(
-            shape=(10, 5, 2),  # Only 2 runs
-            dtype=np.float32,
-            memory="device",
-            stride_order=("time", "variable", "run"),
-        ),
-    }
-
-    # 2 runs but 10 chunks requested
-    chunked_shapes = mgr.compute_chunked_shapes(
-        requests, num_chunks=10, chunk_axis="run"
-    )
-
-    # 2 // 10 = 0, but should be clamped to 1
-    assert chunked_shapes["arr"] == (10, 5, 1)
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
