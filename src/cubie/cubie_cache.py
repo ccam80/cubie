@@ -399,7 +399,7 @@ class CUBIECache(CUDACache):
             Reconstructed CUDA kernel if cache hit, None if miss.
         """
         result = super().load_overload(sig, target_context)
-        
+
         if result is not None:
             # Cache hit - notify via TimeLogger
             default_timelogger.print_message(
@@ -408,8 +408,12 @@ class CUBIECache(CUDACache):
             )
         else:
             # Cache miss - start compile timing via TimeLogger
+            default_timelogger.print_message(
+                "No cached file found. Beginning compilation... "
+                "This can take several minutes for larger (n>30) systems."
+            )
             default_timelogger.start_event("compile_cuda_kernel")
-        
+
         return result
 
     def enforce_cache_limit(self) -> None:
@@ -465,7 +469,7 @@ class CUBIECache(CUDACache):
         """
         # Stop compile timing - TimeLogger handles the message
         default_timelogger.stop_event("compile_cuda_kernel")
-        
+
         self.enforce_cache_limit()
         super().save_overload(sig, data)
 
