@@ -926,3 +926,177 @@ def test_ensure_cuda_context_simulation():
     if CUDA_SIMULATION:
         _ensure_cuda_context()  # Should not raise
 
+
+class TestComputePerChunkSlice:
+    """Tests for compute_per_chunk_slice function."""
+
+    def test_compute_per_chunk_slice_missing_axis(self):
+        """Verify compute_per_chunk_slice handles arrays without chunk_axis."""
+        from cubie.memory.mem_manager import compute_per_chunk_slice
+
+        # Array with stride_order that doesn't include chunk_axis "time"
+        requests = {
+            "status_codes": ArrayRequest(
+                shape=(100,),
+                dtype=np.int32,
+                memory="device",
+                stride_order=("run",),
+                unchunkable=False,
+            ),
+        }
+
+        # Should not raise ValueError when chunk_axis not in stride_order
+        result = compute_per_chunk_slice(
+            requests=requests,
+            axis_length=1000,
+            num_chunks=10,
+            chunk_axis="time",
+            chunk_size=100,
+        )
+
+        assert "status_codes" in result
+        # Should return full slice for unchunkable array
+        slice_fn = result["status_codes"]
+        slices = slice_fn(0)
+        assert slices == (slice(None),)
+
+    def test_compute_per_chunk_slice_unchunkable_array(self):
+        """Verify unchunkable arrays return full-slice functions."""
+        from cubie.memory.mem_manager import compute_per_chunk_slice
+
+        # Array explicitly marked as unchunkable
+        requests = {
+            "constants": ArrayRequest(
+                shape=(10, 5),
+                dtype=np.float32,
+                memory="device",
+                stride_order=("variable", "run"),
+                unchunkable=True,
+            ),
+        }
+
+        result = compute_per_chunk_slice(
+            requests=requests,
+            axis_length=100,
+            num_chunks=10,
+            chunk_axis="run",
+            chunk_size=10,
+        )
+
+        assert "constants" in result
+        slice_fn = result["constants"]
+        # Should return full slices for all dimensions
+        slices = slice_fn(0)
+        assert slices == (slice(None), slice(None))
+
+    def test_compute_per_chunk_slice_chunkable_array(self):
+        """Verify chunkable arrays return proper chunk slices."""
+        from cubie.memory.mem_manager import compute_per_chunk_slice
+
+        requests = {
+            "data": ArrayRequest(
+                shape=(10, 100),
+                dtype=np.float32,
+                memory="device",
+                stride_order=("variable", "run"),
+                unchunkable=False,
+            ),
+        }
+
+        result = compute_per_chunk_slice(
+            requests=requests,
+            axis_length=100,
+            num_chunks=10,
+            chunk_axis="run",
+            chunk_size=10,
+        )
+
+        assert "data" in result
+        slice_fn = result["data"]
+        # First chunk should slice from 0 to 10 on run axis
+        slices = slice_fn(0)
+        assert slices[0] == slice(None)  # variable axis unchanged
+        assert slices[1] == slice(0, 10)  # run axis sliced
+
+        # Last chunk should slice to axis_length
+        slices_last = slice_fn(9)
+        assert slices_last[1] == slice(90, 100)
+
+
+class TestGetChunkParameters:
+    """Tests for get_chunk_parameters method."""
+
+    def test_get_chunk_parameters_unchunkable_exceeds_memory(self, mgr):
+        """Verify error when unchunkable arrays exceed available memory."""
+        # Register an instance
+        inst = DummyClass()
+        mgr.register(inst, stream_group="test")
+
+        # Create a request where unchunkable size exceeds available memory
+        # Memory manager has 1GB free (1 * 1024**3 bytes)
+        # Create a large unchunkable array (2GB)
+        huge_shape = (512, 512, 512)  # 512^3 * 4 bytes = 512MB per array
+        requests = {
+            id(inst): {
+                "huge_unchunkable": ArrayRequest(
+                    shape=huge_shape,
+                    dtype=np.float32,
+                    memory="device",
+                    stride_order=("time", "variable", "run"),
+                    unchunkable=True,
+                ),
+                "huge_unchunkable2": ArrayRequest(
+                    shape=huge_shape,
+                    dtype=np.float32,
+                    memory="device",
+                    stride_order=("time", "variable", "run"),
+                    unchunkable=True,
+                ),
+            }
+        }
+
+        with pytest.raises(ValueError, match="Unchunkable arrays require"):
+            mgr.get_chunk_parameters(
+                requests=requests,
+                chunk_axis="run",
+                axis_length=512,
+                stream_group="test",
+            )
+
+    def test_get_chunk_parameters_small_memory_valid_chunks(self):
+        """Verify correct chunking with limited memory."""
+        # Create a memory manager with very limited memory
+        class SmallMemoryManager(MemoryManager):
+            def get_memory_info(self):
+                # 100KB free, 100KB total
+                return 100 * 1024, 100 * 1024
+
+        small_mgr = SmallMemoryManager(mode="passive")
+        inst = DummyClass()
+        small_mgr.register(inst, stream_group="test")
+
+        # Create requests that fit when chunked
+        # 10 x 100 array of float32 = 4000 bytes, needs chunking
+        requests = {
+            id(inst): {
+                "data": ArrayRequest(
+                    shape=(10, 100),
+                    dtype=np.float32,
+                    memory="device",
+                    stride_order=("variable", "run"),
+                    unchunkable=False,
+                ),
+            }
+        }
+
+        chunk_size, num_chunks = small_mgr.get_chunk_parameters(
+            requests=requests,
+            chunk_axis="run",
+            axis_length=100,
+            stream_group="test",
+        )
+
+        # Should return valid chunking (no error)
+        assert chunk_size > 0
+        assert num_chunks >= 1
+
