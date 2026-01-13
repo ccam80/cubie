@@ -3,7 +3,7 @@
 # Plan Reference: .github/active_plans/chunking_refactor_fixes_v2/agent_plan.md
 
 ## Task Group 1: Fix ensure_nonzero_size Function
-**Status**: [ ]
+**Status**: [x]
 **Dependencies**: None
 
 **Required Context**:
@@ -175,6 +175,15 @@
 - tests/outputhandling/test_output_sizes.py::TestBatchInputSizes::test_nonzero_functionality
 
 **Outcomes**:
+- Files Modified: 
+  * src/cubie/_utils.py (53 lines changed - replaced lines 607-648)
+  * tests/test_utils.py (72 lines changed - replaced lines 785-837)
+- Functions/Methods Added/Modified:
+  * ensure_nonzero_size() in _utils.py - changed to return all-1s tuple when ANY element is 0 or None
+  * TestEnsureNonzeroSize class in test_utils.py - updated all tests to expect new behavior
+- Implementation Summary:
+  Changed the function logic so that when any element in a tuple is 0 or None, the entire tuple becomes all 1s (e.g., (0, 5) → (1, 1)). This creates minimal placeholder shapes for inactive CUDA local arrays. Updated the docstring, examples, and all related tests.
+- Issues Flagged: None
 
 ---
 
