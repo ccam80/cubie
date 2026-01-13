@@ -1248,7 +1248,14 @@ class MemoryManager:
 
         Parameters
         ----------
-
+        requests
+            Dictionary mapping instance IDs to their array requests.
+        chunk_axis
+            Axis label along which to chunk.
+        axis_length
+            Unchunked length of the chunking axis.
+        stream_group
+            Name of the stream group making the request.
 
         Returns
         -------
@@ -1366,6 +1373,10 @@ def compute_per_chunk_slice(
     ----------
     requests
         Dictionary mapping labels to array requests.
+    axis_length
+        Unchunked length of the chunking axis.
+    num_chunks
+        Total number of chunks.
     chunk_axis
         Axis label along which to chunk.
     chunk_size
