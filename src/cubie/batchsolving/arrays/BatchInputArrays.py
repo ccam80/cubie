@@ -310,7 +310,7 @@ class InputArrays(BaseArrayManager):
             to_.append(device_obj.array)
             host_obj = self.host.get_managed_array(array_name)
 
-            # Use needs_chunked_transfer for simple branching
+            # Direct transfer when shapes match; chunked transfer otherwise
             if not device_obj.needs_chunked_transfer:
                 from_.append(host_obj.array)
             else:

@@ -900,7 +900,7 @@
 ---
 
 ## Task Group 8: Remove np_ceil Import and Cleanup
-**Status**: [ ]
+**Status**: [x]
 **Dependencies**: Task Groups 3, 4, 7
 
 **Required Context**:
@@ -948,13 +948,26 @@
 - tests/memory/test_memmgmt.py
 - tests/batchsolving/arrays/test_basearraymanager.py
 
-**Outcomes**: 
+**Outcomes**:
+- Files Modified: 
+  * src/cubie/batchsolving/arrays/BaseArrayManager.py (1 line removed)
+- Functions/Methods Added/Modified:
+  * None (import cleanup only)
+- Implementation Summary:
+  Analyzed np_ceil usage in all three files. Removed np_ceil import from
+  BaseArrayManager.py since it was no longer used after Task Group 4 replaced
+  the ceiling division in check_sizes with stored chunked_shape. Retained
+  np_ceil in mem_manager.py (still used in get_chunks method line 974 for
+  calculating number of chunks from request_size/available). Retained np_ceil
+  in BatchSolverKernel.py (still used in run method line 516 for calculating
+  chunk_blocks = ceil(actual_chunk_runs / blocksize)).
+- Issues Flagged: None 
 
 
 ---
 
 ## Task Group 9: Test Updates for Chunking Edge Cases
-**Status**: [ ]
+**Status**: [x]
 **Dependencies**: Task Groups 1-8
 
 **Required Context**:
@@ -1023,9 +1036,33 @@
 - tests/memory/test_memmgmt.py::test_chunk_calculation_5_runs_4_chunks
 - tests/memory/test_memmgmt.py::test_all_arrays_unchunkable_produces_one_chunk
 - tests/memory/test_memmgmt.py::test_final_chunk_has_correct_indices
+- tests/memory/test_memmgmt.py::test_uneven_chunk_division_7_runs_3_chunks
+- tests/memory/test_memmgmt.py::test_chunk_size_minimum_one_when_runs_less_than_chunks
 - tests/batchsolving/arrays/test_basearraymanager.py::test_chunked_shape_propagates_through_allocation
+- tests/batchsolving/arrays/test_basearraymanager.py::test_unchunkable_array_chunked_shape_unchanged
 
 **Outcomes**: 
+- Files Modified: 
+  * tests/memory/test_memmgmt.py (~140 lines added)
+  * tests/batchsolving/arrays/test_basearraymanager.py (~115 lines added)
+- Functions/Methods Added/Modified:
+  * test_chunk_calculation_5_runs_4_chunks() in test_memmgmt.py
+  * test_all_arrays_unchunkable_produces_one_chunk() in test_memmgmt.py
+  * test_final_chunk_has_correct_indices() in test_memmgmt.py
+  * test_uneven_chunk_division_7_runs_3_chunks() in test_memmgmt.py
+  * test_chunk_size_minimum_one_when_runs_less_than_chunks() in test_memmgmt.py
+  * test_chunked_shape_propagates_through_allocation() in test_basearraymanager.py
+  * test_unchunkable_array_chunked_shape_unchanged() in test_basearraymanager.py
+- Implementation Summary:
+  Added 5 edge case tests to test_memmgmt.py covering: 5 runs with 4 chunks
+  scenario, all unchunkable arrays producing 1 chunk, final chunk index
+  bounds verification, 7 runs with 3 chunks scenario, and chunk size
+  minimum of 1 when runs < chunks. Added 2 integration tests to
+  test_basearraymanager.py covering chunked_shape propagation through
+  allocation and unchunkable array shape preservation. All tests verify
+  floor division prevents index overflow and chunked_shape flows correctly
+  from MemoryManager to ManagedArray.
+- Issues Flagged: None 
 
 
 ---

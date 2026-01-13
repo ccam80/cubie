@@ -1222,28 +1222,11 @@ class MemoryManager:
         Unchunkable requests (request.unchunkable == True) are left at full
         size.
         """
+        # Compute chunked shapes using centralized logic
+        chunked_shapes = self.compute_chunked_shapes(requests, numchunks, axis)
         chunked_requests = deepcopy(requests)
         for key, request in chunked_requests.items():
-            # Skip chunking for explicitly unchunkable requests
-            if getattr(request, "unchunkable", False):
-                continue
-            # Skip chunking if stride_order is None
-            if request.stride_order is None:
-                continue
-            # Skip chunking if the axis is not in this array's stride_order
-            if axis not in request.stride_order:
-                continue
-            # Divide along selected axis using floor division
-            run_index = request.stride_order.index(axis)
-            axis_length = request.shape[run_index]
-            chunk_size = axis_length // numchunks
-            # Ensure at least 1 element per chunk
-            chunk_size = max(1, chunk_size)
-            newshape = tuple(
-                chunk_size if i == run_index else value
-                for i, value in enumerate(request.shape)
-            )
-            request.shape = newshape
+            request.shape = chunked_shapes[key]
             chunked_requests[key] = request
         return chunked_requests
 

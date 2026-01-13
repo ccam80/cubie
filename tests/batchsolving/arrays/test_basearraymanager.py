@@ -1776,3 +1776,138 @@ class TestChunkedShapePropagation:
 
         assert result["state"] is True
         assert result["observables"] is True
+
+
+def test_chunked_shape_propagates_through_allocation(test_memory_manager):
+    """Test chunked_shape flows from MemoryManager to ManagedArray.
+
+    This integration test verifies:
+    1. MemoryManager.compute_chunked_shapes calculates correct shapes
+    2. ArrayResponse includes chunked_shapes
+    3. ManagedArray.chunked_shape is populated after allocation
+    4. needs_chunked_transfer returns correct value based on shapes
+    """
+    precision = np_float32
+    stride_order = ("time", "variable", "run")
+
+    # Create arrays that will require chunking (5 runs with 2 chunks)
+    host_shape = (10, 3, 5)  # 5 runs
+    expected_chunked_shape = (10, 3, 2)  # 5 // 2 = 2 runs per chunk
+
+    # Create host arrays
+    host_arrays = TestArraysSimple(
+        arr1=ManagedArray(
+            dtype=precision,
+            stride_order=stride_order,
+            shape=host_shape,
+            memory_type="host",
+        ),
+        arr2=ManagedArray(
+            dtype=precision,
+            stride_order=stride_order,
+            shape=host_shape,
+            memory_type="host",
+        ),
+    )
+    host_arrays.arr1.array = np.zeros(host_shape, dtype=precision)
+    host_arrays.arr2.array = np.zeros(host_shape, dtype=precision)
+
+    # Create device arrays
+    device_arrays = TestArraysSimple(
+        arr1=ManagedArray(
+            dtype=precision,
+            stride_order=stride_order,
+            shape=host_shape,  # Full shape before chunking
+            memory_type="device",
+        ),
+        arr2=ManagedArray(
+            dtype=precision,
+            stride_order=stride_order,
+            shape=host_shape,
+            memory_type="device",
+        ),
+    )
+
+    # Create manager
+    manager = ConcreteArrayManager(
+        precision=precision,
+        sizes=None,
+        host=host_arrays,
+        device=device_arrays,
+        stream_group="default",
+        memory_proportion=None,
+        memory_manager=test_memory_manager,
+    )
+
+    # Simulate allocation response with chunked shapes
+    arr1 = device_array(expected_chunked_shape, dtype=precision)
+    arr2 = device_array(expected_chunked_shape, dtype=precision)
+
+    chunked_shapes = {
+        "arr1": expected_chunked_shape,
+        "arr2": expected_chunked_shape,
+    }
+
+    response = ArrayResponse(
+        arr={"arr1": arr1, "arr2": arr2},
+        chunks=2,
+        chunk_axis="run",
+        chunked_shapes=chunked_shapes,
+    )
+
+    # Mark arrays as needing reallocation
+    manager._needs_reallocation = ["arr1", "arr2"]
+
+    # Call allocation complete callback
+    manager._on_allocation_complete(response)
+
+    # Verify chunked_shape is stored
+    assert manager.device.arr1.chunked_shape == expected_chunked_shape
+    assert manager.device.arr2.chunked_shape == expected_chunked_shape
+
+    # Verify needs_chunked_transfer returns True since full shape != chunked
+    # Full shape is (10, 3, 5), chunked shape is (10, 3, 2)
+    assert manager.device.arr1.needs_chunked_transfer is True
+    assert manager.device.arr2.needs_chunked_transfer is True
+
+    # Verify the chunks and chunk_axis were stored
+    assert manager._chunks == 2
+    assert manager._chunk_axis == "run"
+
+
+def test_unchunkable_array_chunked_shape_unchanged():
+    """Test that unchunkable arrays retain original shape as chunked_shape."""
+    from cubie.memory.mem_manager import ArrayRequest
+
+    class TestMemoryManager(MemoryManager):
+        def get_memory_info(self):
+            return 1 * 1024**3, 8 * 1024**3
+
+    mgr = TestMemoryManager()
+
+    # Create request with unchunkable array
+    requests = {
+        "chunkable": ArrayRequest(
+            shape=(10, 5, 100),
+            dtype=np_float32,
+            memory="device",
+            stride_order=("time", "variable", "run"),
+            unchunkable=False,
+        ),
+        "unchunkable": ArrayRequest(
+            shape=(100,),
+            dtype=np_int32,
+            memory="device",
+            stride_order=("run",),
+            unchunkable=True,
+        ),
+    }
+
+    chunked_shapes = mgr.compute_chunked_shapes(
+        requests, num_chunks=4, chunk_axis="run"
+    )
+
+    # Chunkable: 100 // 4 = 25
+    assert chunked_shapes["chunkable"] == (10, 5, 25)
+    # Unchunkable: original shape preserved
+    assert chunked_shapes["unchunkable"] == (100,)

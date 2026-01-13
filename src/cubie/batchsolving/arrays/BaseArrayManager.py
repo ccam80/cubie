@@ -20,7 +20,6 @@ from attrs.validators import (
 )
 from numpy import (
     array_equal as np_array_equal,
-    ceil as np_ceil,
     float32 as np_float32,
     zeros as np_zeros,
 )

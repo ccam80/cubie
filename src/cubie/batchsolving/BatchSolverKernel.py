@@ -499,11 +499,17 @@ class BatchSolverKernel(CUDAFactory):
         for i in range(self.chunks):
             # Compute actual start and end indices for this chunk
             start_idx = i * chunk_params.size
-            # For final chunk, clamp to actual run/output count
-            if chunk_axis == "run":
-                end_idx = min((i + 1) * chunk_params.size, numruns)
+            # Final chunk captures all remaining runs/outputs
+            if i == self.chunks - 1:
+                if chunk_axis == "run":
+                    end_idx = numruns
+                else:
+                    end_idx = self.output_length
             else:
-                end_idx = min((i + 1) * chunk_params.size, self.output_length)
+                if chunk_axis == "run":
+                    end_idx = (i + 1) * chunk_params.size
+                else:
+                    end_idx = (i + 1) * chunk_params.size
             indices = slice(start_idx, end_idx)
 
             # Use actual chunk run count for kernel launch
@@ -646,13 +652,13 @@ class BatchSolverKernel(CUDAFactory):
         chunk_duration = duration
         chunk_t0 = t0
         if chunk_axis == "run":
-            # Use floor division to match MemoryManager's calculation
+            # Floor division prevents chunk indices from exceeding run count
             chunkruns = numruns // chunks
             chunkruns = max(1, chunkruns)
             chunksize = chunkruns
         elif chunk_axis == "time":
             chunk_duration = duration / chunks
-            # Use floor division to prevent index overflow
+            # Floor division ensures indices stay within output_length bounds
             chunksize = self.output_length // chunks
             chunksize = max(1, chunksize)
             chunkruns = numruns

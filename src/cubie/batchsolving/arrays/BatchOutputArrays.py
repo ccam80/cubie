@@ -235,7 +235,7 @@ class OutputArrays(BaseArrayManager):
                         old_array.shape, old_array.dtype, "pinned"
                     )
                     slot.array = new_array
-        self.host.set_memory_type="pinned"
+        self.host.set_memory_type("pinned")
 
     def _convert_host_to_numpy(self) -> None:
         """Convert pinned host arrays to regular numpy for chunked mode.
@@ -246,7 +246,7 @@ class OutputArrays(BaseArrayManager):
         """
         for name, slot in self.host.iter_managed_arrays():
             device_slot = self.device.get_managed_array(name)
-            # Use needs_chunked_transfer for shape-based branching
+            # Convert to regular numpy only for arrays with chunked transfers
             if slot.memory_type == "pinned" and device_slot.needs_chunked_transfer:
                 old_array = slot.array
                 if old_array is not None:
@@ -452,7 +452,7 @@ class OutputArrays(BaseArrayManager):
                     host_indices, chunk_index, len(stride_order)
                 )
                 host_slice = host_array[slice_tuple]
-                # Use needs_chunked_transfer for shape-based branching
+                # Buffer pool staging for arrays with smaller device shapes
                 if device_slot.needs_chunked_transfer:
                     # Chunked mode: use buffer pool and watcher
                     # Buffer must match device array shape for D2H copy
