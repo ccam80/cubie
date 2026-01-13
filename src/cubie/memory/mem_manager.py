@@ -1313,11 +1313,10 @@ class MemoryManager:
             max_chunk_size = int(np_floor(axis_length / chunk_ratio))
             if max_chunk_size == 0:
                 raise ValueError(
-                    "Can't fit a single run in GPU VRAM."
-                    f"Available memory: {available_memory}."
-                    f"Request size: {request_size}. Request "
-                    f"size that is 'chunkable': "
-                    f"{chunkable_size}."
+                    "Can't fit a single run in GPU VRAM. "
+                    f"Available memory: {available_memory}. "
+                    f"Request size: {request_size}. "
+                    f"Chunkable request size: {chunkable_size}."
                 )
             # With floor rounding, we might end up with an extra chunk or two
             num_chunks = int(np_ceil(axis_length / max_chunk_size))

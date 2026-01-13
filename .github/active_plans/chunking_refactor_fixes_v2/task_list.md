@@ -188,7 +188,7 @@
 ---
 
 ## Task Group 2: Fix Memory Estimation in get_chunk_parameters
-**Status**: [ ]
+**Status**: [x]
 **Dependencies**: Task Group 1
 
 **Required Context**:
@@ -252,6 +252,13 @@
 - tests/memory/test_memmgmt.py
 
 **Outcomes**:
+- Files Modified: 
+  * src/cubie/memory/mem_manager.py (6 lines changed - fixed error message at lines 1314-1320)
+- Functions/Methods Added/Modified:
+  * get_chunk_parameters() in mem_manager.py - fixed error message formatting
+- Implementation Summary:
+  Fixed the ValueError message formatting when max_chunk_size == 0. Added proper spaces after periods and simplified the "Chunkable request size" phrasing for clarity.
+- Issues Flagged: None
 
 ---
 

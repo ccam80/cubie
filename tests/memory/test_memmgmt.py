@@ -1034,7 +1034,7 @@ class TestGetChunkParameters:
 
         # Create a request where unchunkable size exceeds available memory
         # Memory manager has 1GB free (1 * 1024**3 bytes)
-        # Create a large unchunkable array (2GB)
+        # Create a large unchunkable array (2GB total)
         huge_shape = (512, 512, 512)  # 512^3 * 4 bytes = 512MB per array
         requests = {
             id(inst): {
@@ -1051,6 +1051,15 @@ class TestGetChunkParameters:
                     memory="device",
                     stride_order=("time", "variable", "run"),
                     unchunkable=True,
+                ),
+                # Need at least one chunkable array to hit the unchunkable
+                # exceeds memory path (otherwise hits all-unchunkable path)
+                "small_chunkable": ArrayRequest(
+                    shape=(1, 1),
+                    dtype=np.float32,
+                    memory="device",
+                    stride_order=("variable", "run"),
+                    unchunkable=False,
                 ),
             }
         }
