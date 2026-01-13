@@ -107,6 +107,9 @@ class ArrayResponse:
         Mapping that records how many chunks each allocation was divided into.
     chunk_axis
         Axis label along which chunking was performed. Defaults to ``"run"``.
+    chunked_shapes
+        Mapping from array labels to their per-chunk shapes. Empty dict when
+        no chunking occurs.
 
     Attributes
     ----------
@@ -116,6 +119,8 @@ class ArrayResponse:
         Mapping that records how many chunks each allocation was divided into.
     chunk_axis
         Axis label along which chunking was performed.
+    chunked_shapes
+        Mapping from array labels to their per-chunk shapes.
     """
 
     arr: dict[str, DeviceNDArrayBase] = attrs.field(
@@ -126,4 +131,7 @@ class ArrayResponse:
     )
     chunk_axis: str = attrs.field(
         default="run", validator=val.in_(["run", "variable", "time"])
+    )
+    chunked_shapes: dict[str, tuple[int, ...]] = attrs.field(
+        default=attrs.Factory(dict), validator=val.instance_of(dict)
     )

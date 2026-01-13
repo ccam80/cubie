@@ -67,6 +67,27 @@ class ManagedArray:
         default=None,
         repr=False,
     )
+    chunked_shape: Optional[tuple[int, ...]] = field(
+        default=None,
+        validator=attrsval_optional(
+            attrsval_deep_iterable(
+                member_validator=attrsval_instance_of(int),
+                iterable_validator=attrsval_instance_of(tuple),
+            )
+        ),
+    )
+
+    @property
+    def needs_chunked_transfer(self) -> bool:
+        """Return True if this array requires chunked transfers.
+
+        Chunked transfers are needed when the array's full shape differs
+        from its per-chunk shape. This comparison replaces complex
+        is_chunked flag logic.
+        """
+        if self.chunked_shape is None:
+            return False
+        return self.shape != self.chunked_shape
 
     def __attrs_post_init__(self):
         shape = self.shape
@@ -338,6 +359,10 @@ class BaseArrayManager(ABC):
         for array_label in self._needs_reallocation:
             try:
                 self.device.attach(array_label, response.arr[array_label])
+                # Store chunked_shape from response in the ManagedArray
+                if array_label in response.chunked_shapes:
+                    managed = self.device.get_managed_array(array_label)
+                    managed.chunked_shape = response.chunked_shapes[array_label]
             except KeyError:
                 warn(
                     f"Device array {array_label} not found in allocation "
@@ -555,7 +580,6 @@ class BaseArrayManager(ABC):
             )
         expected_sizes = self._sizes
         source_stride_order = getattr(expected_sizes, "_stride_order", None)
-        chunk_axis_name = self._chunk_axis
         matches = {}
 
         for array_name, array in new_arrays.items():
@@ -591,23 +615,9 @@ class BaseArrayManager(ABC):
                         if axis in size_map
                     ]
 
-                # Chunk device arrays when permitted by metadata
-                if (
-                    location == "device"
-                    and self._chunks > 0
-                    and managed.is_chunked
-                ):
-                    if chunk_axis_name in target_stride_order:
-                        chunk_axis_index = target_stride_order.index(
-                            chunk_axis_name
-                        )
-                        if expected_shape[chunk_axis_index] is not None:
-                            expected_shape[chunk_axis_index] = int(
-                                np_ceil(
-                                    expected_shape[chunk_axis_index]
-                                    / self._chunks
-                                )
-                            )
+                # Use stored chunked_shape from allocation response
+                if location == "device" and managed.chunked_shape is not None:
+                    expected_shape = list(managed.chunked_shape)
 
                 if len(array_shape) != len(expected_shape):
                     matches[array_name] = False

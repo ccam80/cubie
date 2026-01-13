@@ -1135,6 +1135,62 @@ class MemoryManager:
         instance_id = id(instance)
         self._queued_allocations[stream_group].update({instance_id: requests})
 
+    def compute_chunked_shapes(
+        self,
+        requests: dict[str, ArrayRequest],
+        num_chunks: int,
+        chunk_axis: str,
+    ) -> dict[str, tuple[int, ...]]:
+        """
+        Compute per-array chunked shapes using floor division.
+
+        Parameters
+        ----------
+        requests
+            Dictionary mapping labels to array requests.
+        num_chunks
+            Number of chunks to divide arrays into.
+        chunk_axis
+            Axis label along which to chunk.
+
+        Returns
+        -------
+        dict[str, tuple[int, ...]]
+            Mapping from array labels to their per-chunk shapes.
+
+        Notes
+        -----
+        Uses floor division (not ceiling) to compute chunk size,
+        ensuring chunk indices never exceed array bounds.
+        Unchunkable arrays retain their original shape.
+        """
+        chunked_shapes = {}
+        for key, request in requests.items():
+            # Unchunkable arrays keep original shape
+            if getattr(request, "unchunkable", False):
+                chunked_shapes[key] = request.shape
+                continue
+            # Arrays without stride_order keep original shape
+            if request.stride_order is None:
+                chunked_shapes[key] = request.shape
+                continue
+            # Arrays without chunk_axis keep original shape
+            if chunk_axis not in request.stride_order:
+                chunked_shapes[key] = request.shape
+                continue
+            # Compute chunked shape using floor division
+            axis_index = request.stride_order.index(chunk_axis)
+            axis_length = request.shape[axis_index]
+            chunk_size = axis_length // num_chunks
+            # Ensure at least 1 element per chunk
+            chunk_size = max(1, chunk_size)
+            newshape = tuple(
+                chunk_size if i == axis_index else dim
+                for i, dim in enumerate(request.shape)
+            )
+            chunked_shapes[key] = newshape
+        return chunked_shapes
+
     def chunk_arrays(
         self,
         requests: dict[str, ArrayRequest],
@@ -1160,23 +1216,31 @@ class MemoryManager:
 
         Notes
         -----
-        The axis must match a label in the stride ordering. Chunking is
-        done conservatively with ceiling division to ensure no data is lost.
+        Uses floor division to prevent chunk indices from exceeding bounds.
+        The axis must match a label in the stride ordering.
 
-        Unchunkable requests (request.unchunkable == True) are left at full size.
+        Unchunkable requests (request.unchunkable == True) are left at full
+        size.
         """
         chunked_requests = deepcopy(requests)
         for key, request in chunked_requests.items():
             # Skip chunking for explicitly unchunkable requests
             if getattr(request, "unchunkable", False):
                 continue
+            # Skip chunking if stride_order is None
+            if request.stride_order is None:
+                continue
             # Skip chunking if the axis is not in this array's stride_order
             if axis not in request.stride_order:
                 continue
-            # Divide all indices along selected axis by chunks
+            # Divide along selected axis using floor division
             run_index = request.stride_order.index(axis)
+            axis_length = request.shape[run_index]
+            chunk_size = axis_length // numchunks
+            # Ensure at least 1 element per chunk
+            chunk_size = max(1, chunk_size)
             newshape = tuple(
-                int(np_ceil(value / numchunks)) if i == run_index else value
+                chunk_size if i == run_index else value
                 for i, value in enumerate(request.shape)
             )
             request.shape = newshape
@@ -1222,9 +1286,20 @@ class MemoryManager:
         else:
             instance_id = id(instance)
 
-        request_size = get_total_request_size(requests)
+        # Use only chunkable memory for chunk count calculation
+        chunkable_size = get_chunkable_request_size(requests, chunk_axis)
         available_memory = self.get_available_single(id(instance))
-        numchunks = self.get_chunks(request_size, available_memory)
+
+        if chunkable_size == 0:
+            numchunks = 1
+        else:
+            numchunks = self.get_chunks(chunkable_size, available_memory)
+
+        # Compute chunked_shapes before modifying requests
+        chunked_shapes = self.compute_chunked_shapes(
+            requests, numchunks, chunk_axis
+        )
+
         chunked_requests = self.chunk_arrays(
             requests, numchunks, axis=chunk_axis
         )
@@ -1233,7 +1308,12 @@ class MemoryManager:
             chunked_requests, instance_id, self.get_stream(instance)
         )
         self.registry[instance_id].allocation_ready_hook(
-            ArrayResponse(arr=arrays, chunks=numchunks, chunk_axis=chunk_axis)
+            ArrayResponse(
+                arr=arrays,
+                chunks=numchunks,
+                chunk_axis=chunk_axis,
+                chunked_shapes=chunked_shapes,
+            )
         )
 
     def allocate_queue(
@@ -1283,25 +1363,35 @@ class MemoryManager:
             numchunks = 1  # safe default
             if limit_type == "group":
                 available_memory = self.get_available_group(stream_group)
-                request_size = sum(
-                    [
-                        get_total_request_size(request)
-                        for request in queued_requests.values()
-                    ]
+                chunkable_size = sum(
+                    get_chunkable_request_size(request, chunk_axis)
+                    for request in queued_requests.values()
                 )
-                numchunks = self.get_chunks(request_size, available_memory)
+                if chunkable_size == 0:
+                    numchunks = 1
+                else:
+                    numchunks = self.get_chunks(chunkable_size, available_memory)
 
             elif limit_type == "instance":
                 numchunks = 0
                 for instance_id, requests_dict in queued_requests.items():
                     available_memory = self.get_available_single(instance_id)
-                    request_size = get_total_request_size(requests_dict)
-                    chunks = self.get_chunks(request_size, available_memory)
-                    # Take the runnning maximum per-instance chunk size
+                    chunkable_size = get_chunkable_request_size(
+                        requests_dict, chunk_axis
+                    )
+                    if chunkable_size == 0:
+                        chunks = 1
+                    else:
+                        chunks = self.get_chunks(chunkable_size, available_memory)
+                    # Take the running maximum per-instance chunk size
                     numchunks = chunks if chunks > numchunks else numchunks
 
             notaries = set(peers) - set(queued_requests.keys())
             for instance_id, requests_dict in queued_requests.items():
+                # Compute chunked_shapes for this instance
+                chunked_shapes = self.compute_chunked_shapes(
+                    requests_dict, numchunks, chunk_axis
+                )
                 chunked_request = self.chunk_arrays(
                     requests_dict, numchunks, chunk_axis
                 )
@@ -1309,14 +1399,20 @@ class MemoryManager:
                     chunked_request, instance_id, stream=stream
                 )
                 response = ArrayResponse(
-                    arr=arrays, chunks=numchunks, chunk_axis=chunk_axis
+                    arr=arrays,
+                    chunks=numchunks,
+                    chunk_axis=chunk_axis,
+                    chunked_shapes=chunked_shapes,
                 )
                 self.registry[instance_id].allocation_ready_hook(response)
 
             for peer in notaries:
                 self.registry[peer].allocation_ready_hook(
                     ArrayResponse(
-                        arr={}, chunks=numchunks, chunk_axis=chunk_axis
+                        arr={},
+                        chunks=numchunks,
+                        chunk_axis=chunk_axis,
+                        chunked_shapes={},
                     )
                 )
         return None
@@ -1415,3 +1511,40 @@ def get_total_request_size(request: dict[str, ArrayRequest]) -> int:
         prod(request.shape) * request.dtype().itemsize
         for request in request.values()
     )
+
+
+def get_chunkable_request_size(
+    requests: dict[str, ArrayRequest],
+    chunk_axis: str,
+) -> int:
+    """
+    Calculate total memory for chunkable arrays only.
+
+    Parameters
+    ----------
+    requests
+        Dictionary of array requests to analyze.
+    chunk_axis
+        Axis along which chunking would occur.
+
+    Returns
+    -------
+    int
+        Total bytes for arrays that can be chunked along chunk_axis.
+
+    Notes
+    -----
+    Arrays are chunkable if:
+    - request.unchunkable is False
+    - chunk_axis is in request.stride_order
+    """
+    total = 0
+    for request in requests.values():
+        if request.unchunkable:
+            continue
+        if request.stride_order is None:
+            continue
+        if chunk_axis not in request.stride_order:
+            continue
+        total += prod(request.shape) * request.dtype().itemsize
+    return total

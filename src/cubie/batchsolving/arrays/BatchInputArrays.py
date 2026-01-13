@@ -309,11 +309,12 @@ class InputArrays(BaseArrayManager):
             device_obj = self.device.get_managed_array(array_name)
             to_.append(device_obj.array)
             host_obj = self.host.get_managed_array(array_name)
-            if self._chunks <= 1 or not device_obj.is_chunked:
+
+            # Use needs_chunked_transfer for simple branching
+            if not device_obj.needs_chunked_transfer:
                 from_.append(host_obj.array)
             else:
                 stride_order = host_obj.stride_order
-                # Skip chunking if axis not in stride_order
                 if self._chunk_axis not in stride_order:
                     from_.append(host_obj.array)
                     continue
@@ -322,23 +323,19 @@ class InputArrays(BaseArrayManager):
                 slice_tuple[chunk_index] = host_indices
                 host_slice = host_obj.array[tuple(slice_tuple)]
 
-                if self.is_chunked:
-                    # Chunked mode: use buffer pool for pinned staging
-                    # Buffer must match device array shape for H2D copy
-                    device_shape = device_obj.array.shape
-                    buffer = self._buffer_pool.acquire(
-                        array_name, device_shape, host_slice.dtype
-                    )
-                    # Copy host slice into smallest indices of buffer,
-                    # as the final host slice may be smaller than the buffer.
-                    data_slice = tuple(slice(0, s) for s in host_slice.shape)
-                    buffer.array[data_slice] = host_slice
-                    from_.append(buffer.array)
-                    # Record that we're using this buffer for later release.
-                    self._active_buffers.append(buffer)
-                else:
-                    # Non-chunked: allocate host array directly
-                    from_.append(host_obj.array[tuple(slice_tuple)])
+                # Chunked mode: use buffer pool for pinned staging
+                # Buffer must match device array shape for H2D copy
+                device_shape = device_obj.array.shape
+                buffer = self._buffer_pool.acquire(
+                    array_name, device_shape, host_slice.dtype
+                )
+                # Copy host slice into smallest indices of buffer,
+                # as the final host slice may be smaller than the buffer.
+                data_slice = tuple(slice(0, s) for s in host_slice.shape)
+                buffer.array[data_slice] = host_slice
+                from_.append(buffer.array)
+                # Record that we're using this buffer for later release.
+                self._active_buffers.append(buffer)
 
         self.to_device(from_, to_)
 

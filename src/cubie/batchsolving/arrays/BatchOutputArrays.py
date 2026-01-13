@@ -245,11 +245,9 @@ class OutputArrays(BaseArrayManager):
         used for staging during transfers.
         """
         for name, slot in self.host.iter_managed_arrays():
-            if (
-                slot.memory_type == "pinned"
-                and slot.is_chunked
-                and self._chunk_axis in slot.stride_order
-            ):
+            device_slot = self.device.get_managed_array(name)
+            # Use needs_chunked_transfer for shape-based branching
+            if slot.memory_type == "pinned" and device_slot.needs_chunked_transfer:
                 old_array = slot.array
                 if old_array is not None:
                     new_array = self._memory_manager.create_host_array(
@@ -442,6 +440,7 @@ class OutputArrays(BaseArrayManager):
 
         for array_name, slot in self.host.iter_managed_arrays():
             device_array = self.device.get_array(array_name)
+            device_slot = self.device.get_managed_array(array_name)
             host_array = slot.array
             stride_order = slot.stride_order
 
@@ -453,7 +452,8 @@ class OutputArrays(BaseArrayManager):
                     host_indices, chunk_index, len(stride_order)
                 )
                 host_slice = host_array[slice_tuple]
-                if self.is_chunked and slot.is_chunked:
+                # Use needs_chunked_transfer for shape-based branching
+                if device_slot.needs_chunked_transfer:
                     # Chunked mode: use buffer pool and watcher
                     # Buffer must match device array shape for D2H copy
                     buffer = self._buffer_pool.acquire(
@@ -478,7 +478,7 @@ class OutputArrays(BaseArrayManager):
         self.from_device(from_, to_)
 
         # Record events and submit to watcher for chunked mode
-        if self.is_chunked and self._pending_buffers:
+        if self._pending_buffers:
             if not CUDA_SIMULATION:
                 event = cuda.event()
                 event.record(stream)
