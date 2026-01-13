@@ -42,7 +42,7 @@ def _build_operator_factory(system, precision):
             M=M,
             func_name=fname,
         )
-        op_fac = system.gen_file.import_function(fname, code)
+        op_fac, was_cached = system.gen_file.import_function(fname, code)
         return op_fac(
             system.constants.values_dict,
             from_dtype(system.precision),
@@ -104,7 +104,8 @@ def prepare_jac_factory(cached_system, precision):
             cached_system.indices,
             func_name=fname,
         )
-        prep_fac = cached_system.gen_file.import_function(fname, code)
+        prep_fac, was_cached = cached_system.gen_file.import_function(fname,
+                                                                    code)
         prepare = prep_fac(
             cached_system.constants.values_dict,
             from_dtype(cached_system.precision),
@@ -125,7 +126,8 @@ def cached_jvp_factory(cached_system, precision):
             cached_system.indices,
             func_name=fname,
         )
-        jvp_fac = cached_system.gen_file.import_function(fname, code)
+        jvp_fac, was_cached = cached_system.gen_file.import_function(fname,
+                                                                    code)
         return jvp_fac(
             cached_system.constants.values_dict,
             from_dtype(cached_system.precision),
@@ -199,7 +201,8 @@ def cached_operator_factory(cached_system, precision):
             M=M,
             func_name=fname,
         )
-        op_fac = cached_system.gen_file.import_function(fname, code)
+        op_fac, was_cached = cached_system.gen_file.import_function(fname,
+                                                                    code)
         return op_fac(
             cached_system.constants.values_dict,
             from_dtype(cached_system.precision),
@@ -812,7 +815,8 @@ def neumann_factory(operator_system, precision):
             operator_system.indices,
             func_name=fname,
         )
-        pre_fac = operator_system.gen_file.import_function(fname, code)
+        pre_fac, was_cached = operator_system.gen_file.import_function(fname,
+                                                                    code)
         return pre_fac(
             operator_system.constants.values_dict,
             from_dtype(operator_system.precision),
@@ -858,7 +862,8 @@ def neumann_cached_factory(cached_system, precision):
             cached_system.indices,
             func_name=fname,
         )
-        pre_fac = cached_system.gen_file.import_function(fname, code)
+        pre_fac, was_cached = cached_system.gen_file.import_function(fname,
+                                                                    code)
         return pre_fac(
             cached_system.constants.values_dict,
             from_dtype(cached_system.precision),
@@ -1100,7 +1105,8 @@ def stage_residual_factory(residual_system, precision):
             M=M,
             func_name=fname,
         )
-        res_fac = residual_system.gen_file.import_function(fname, code)
+        res_fac, was_cached = residual_system.gen_file.import_function(fname,
+                                                                    code)
         return res_fac(
             residual_system.constants.values_dict,
             from_dtype(residual_system.precision),

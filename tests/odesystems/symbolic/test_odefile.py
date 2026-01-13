@@ -42,7 +42,7 @@ def test_header_contains_notice():
 def test_import_generates_and_returns(unique_odefile):
     odefile, _ = unique_odefile
     code = _simple_code("foo_factory")
-    factory = odefile.import_function("foo_factory", code)
+    factory, was_cached = odefile.import_function("foo_factory", code)
     assert factory()() == 1
 
 
@@ -50,7 +50,7 @@ def test_import_uses_cache(unique_odefile):
     odefile, _ = unique_odefile
     code = _simple_code("foo_factory")
     odefile.import_function("foo_factory", code)
-    factory = odefile.import_function("foo_factory")
+    factory, was_cached = odefile.import_function("foo_factory")
     assert factory()() == 1
 
 
@@ -68,7 +68,7 @@ def test_import_reinitialises_on_hash_change(unique_odefile):
     odefile2 = ODEFile(name, "hash2")
     with pytest.raises(ValueError):
         odefile2.import_function("foo_factory")
-    factory = odefile2.import_function("foo_factory", code)
+    factory, was_cached = odefile2.import_function("foo_factory", code)
     assert factory()() == 1
 
 
@@ -104,7 +104,7 @@ def test_cache_persists_across_instances_same_hash(unique_odefile):
     o1.import_function("foo_factory", code)
     # New instance with same name and same hash should reuse cache without code
     o2 = ODEFile(name, "hash1")
-    factory = o2.import_function("foo_factory")
+    factory, was_cached = o2.import_function("foo_factory")
     assert factory()() == 1
 
 
@@ -112,13 +112,13 @@ def test_multiple_factories_appended_and_importable(unique_odefile):
     odefile, _ = unique_odefile
     code1 = _simple_code("foo_factory")
     code2 = _simple_code("bar_factory")
-    f1 = odefile.import_function("foo_factory", code1)
+    f1, was_cached = odefile.import_function("foo_factory", code1)
     assert f1()() == 1
     # Append second factory and ensure both coexist
-    f2 = odefile.import_function("bar_factory", code2)
+    f2, was_cached = odefile.import_function("bar_factory", code2)
     assert f2()() == 1
     # Re-import first factory without code; should still work
-    f1_cached = odefile.import_function("foo_factory")
+    f1_cached, was_cached = odefile.import_function("foo_factory")
     assert f1_cached()() == 1
 
 
@@ -132,7 +132,7 @@ def test_malformed_cached_function_triggers_regeneration(unique_odefile):
     with pytest.raises(ValueError):
         odefile.import_function("foo_factory")
     # Providing code should append a correct definition that is importable
-    factory = odefile.import_function(
+    factory, was_cached = odefile.import_function(
         "foo_factory", _simple_code("foo_factory")
     )
     assert factory()() == 1

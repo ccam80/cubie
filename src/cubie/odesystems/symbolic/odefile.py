@@ -8,7 +8,9 @@ unchanged.
 from importlib import util
 from os import getcwd
 from pathlib import Path
-from typing import Callable, Optional
+from typing import Callable, Optional, Tuple
+
+from cubie.time_logger import default_timelogger
 
 cwd = getcwd()
 GENERATED_DIR = Path(cwd) / "generated"
@@ -20,6 +22,7 @@ HEADER = ("\n# This file was generated automatically by Cubie. Don't make "
           "import math\n"
           "from cubie.cuda_simsafe import *\n"
           "\n")
+
 
 class ODEFile:
     """Cache generated ODE functions on disk and reload them when possible."""
@@ -38,6 +41,7 @@ class ODEFile:
         system_dir.mkdir(parents=True, exist_ok=True)
         self.file_path = system_dir / f"{system_name}.py"
         self.fn_hash = fn_hash
+        self._cache_notification_printed = False
         self._init_file(fn_hash)
 
     def _init_file(self, fn_hash: int) -> bool:
@@ -81,6 +85,50 @@ class ODEFile:
                     return True
         return False
 
+    def function_is_cached(self, func_name: str) -> bool:
+        """Check if a function exists in the cache file.
+
+        Parameters
+        ----------
+        func_name
+            Name of the function to check.
+
+        Returns
+        -------
+        bool
+            ``True`` if the function is properly defined in the cache file.
+        """
+        if not self.file_path.exists():
+            return False
+        text = self.file_path.read_text()
+        has_function = f"def {func_name}(" in text
+        if has_function:
+            lines = text.split('\n')
+            in_function = False
+            func_indent = None
+            has_return = False
+            for line in lines:
+                if f"def {func_name}(" in line:
+                    in_function = True
+                    func_indent = len(line) - len(line.lstrip())
+                elif in_function:
+                    stripped = line.lstrip()
+                    if not stripped:
+                        continue
+                    current_indent = len(line) - len(stripped)
+                    if current_indent <= func_indent and stripped.startswith(
+                        "def "
+                    ):
+                        break
+                    if current_indent == func_indent + 4 and stripped.startswith(
+                        "return "
+                    ):
+                        has_return = True
+                        break
+            if not has_return:
+                has_function = False
+        return has_function
+
     def _import_function(self, func_name: str) -> Callable:
         """Import ``func_name`` from the generated module.
 
@@ -103,7 +151,7 @@ class ODEFile:
         self,
         func_name: str,
         code_lines: Optional[str] = None,
-    ) -> Callable:
+    ) -> Tuple[Callable, bool]:
         """Import a generated function, generating it when absent.
 
         Parameters
@@ -115,8 +163,9 @@ class ODEFile:
 
         Returns
         -------
-        Callable
-            Imported factory function.
+        Tuple[Callable, bool]
+            Tuple of (imported factory function, was_cached). was_cached is
+            True if the function was found in cache, False if it was generated.
 
         Raises
         ------
@@ -126,42 +175,25 @@ class ODEFile:
         """
         if not self.cached_file_valid(self.fn_hash):
             self._init_file(self.fn_hash)
-        text = self.file_path.read_text() if self.file_path.exists() else ""
-        # Check if function is properly defined (has both definition and return)
-        # Look for the function definition followed by a return at the same indentation level
-        has_function = f"def {func_name}(" in text
-        if has_function:
-            lines = text.split('\n')
-            in_function = False
-            func_indent = None
-            has_return = False
-            for line in lines:
-                if f"def {func_name}(" in line:
-                    in_function = True
-                    # Determine indentation level of the function
-                    func_indent = len(line) - len(line.lstrip())
-                elif in_function:
-                    stripped = line.lstrip()
-                    if not stripped:  # Empty line
-                        continue
-                    current_indent = len(line) - len(stripped)
-                    # Check if we've left the function (dedented to same or less indentation)
-                    if current_indent <= func_indent and stripped.startswith("def "):
-                        break
-                    # Look for return statement at the function's indentation level + one indent
-                    if current_indent == func_indent + 4 and stripped.startswith("return "):
-                        has_return = True
-                        break
-            if not has_return:
-                has_function = False
         
-        if not has_function:
+        was_cached = self.function_is_cached(func_name)
+        
+        if was_cached:
+            # Print one-time cache notification via TimeLogger
+            if not self._cache_notification_printed:
+                default_timelogger.print_message(
+                    f"Existing codegen file found at: {self.file_path}. "
+                    f"Skipping steps that have functions already cached."
+                )
+                self._cache_notification_printed = True
+        else:
             if code_lines is None:
                 raise ValueError(
                     f"{func_name} not found in cache and no code provided."
                 )
             self.add_function(code_lines, func_name)
-        return self._import_function(func_name)
+        
+        return self._import_function(func_name), was_cached
 
     def add_function(self, printed_code: str, func_name: str) -> None:
         """Append generated code to the cache file.

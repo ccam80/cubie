@@ -32,6 +32,16 @@ from numba.cuda.core.caching import (  # noqa: F401
 
 from cubie.cuda_simsafe import is_cudasim_enabled, CUDACache
 from cubie.odesystems.symbolic.odefile import GENERATED_DIR
+from cubie.time_logger import default_timelogger
+
+# Register compile timing event with custom messages
+default_timelogger.register_event(
+    "compile_cuda_kernel",
+    "compile",
+    "CUDA kernel compilation time",
+    start_message="Compiling CUDA kernel...",
+    stop_message=" Compilation complete in {duration:.3f}s",
+)
 
 
 ALL_CACHE_PARAMETERS: Set[str] = {
@@ -373,6 +383,39 @@ class CUBIECache(CUDACache):
             self._compile_settings_hash,
         )
 
+    def load_overload(self, sig, target_context):
+        """Load cached kernel, starting compile timer on cache miss.
+
+        Parameters
+        ----------
+        sig
+            Function signature.
+        target_context
+            CUDA target context for kernel reconstruction.
+
+        Returns
+        -------
+        _Kernel or None
+            Reconstructed CUDA kernel if cache hit, None if miss.
+        """
+        result = super().load_overload(sig, target_context)
+
+        if result is not None:
+            # Cache hit - notify via TimeLogger
+            default_timelogger.print_message(
+                f"Matching compiled function found at: "
+                f"{self._cache_path}. Skipping compile!"
+            )
+        else:
+            # Cache miss - start compile timing via TimeLogger
+            default_timelogger.print_message(
+                "No cached file found. Beginning compilation... "
+                "This can take several minutes for larger (n>30) systems."
+            )
+            default_timelogger.start_event("compile_cuda_kernel")
+
+        return result
+
     def enforce_cache_limit(self) -> None:
         """Evict oldest cache entries if count exceeds max_entries.
 
@@ -415,7 +458,7 @@ class CUBIECache(CUDACache):
                     pass
 
     def save_overload(self, sig, data):
-        """Save kernel to cache, enforcing entry limit first.
+        """Save kernel to cache, stopping compile timer.
 
         Parameters
         ----------
@@ -424,6 +467,9 @@ class CUBIECache(CUDACache):
         data
             Kernel data to cache.
         """
+        # Stop compile timing - TimeLogger handles the message
+        default_timelogger.stop_event("compile_cuda_kernel")
+
         self.enforce_cache_limit()
         super().save_overload(sig, data)
 
