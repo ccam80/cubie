@@ -234,8 +234,10 @@ class BatchInputSizes(ArraySizingClass):
     parameters: Tuple[int, int] = attrs.field(
         default=(1, 1), validator=attrs.validators.instance_of(Tuple)
     )
-    driver_coefficients: Tuple[Optional[int], int, Optional[int]] = attrs.field(
-        default=(1, 1, 1), validator=attrs.validators.instance_of(Tuple)
+    driver_coefficients: Tuple[Optional[int], int, Optional[int]] = (
+        attrs.field(
+            default=(1, 1, 1), validator=attrs.validators.instance_of(Tuple)
+        )
     )
 
     stride_order: Tuple[str, ...] = attrs.field(
@@ -264,8 +266,8 @@ class BatchInputSizes(ArraySizingClass):
         system_sizes = solver_instance.system_sizes
         num_runs = solver_instance.num_runs
         initial_values = (system_sizes.states, num_runs)
-        parameters = ( system_sizes.parameters, num_runs)
-        driver_coefficients = (None,  system_sizes.drivers, None)
+        parameters = (system_sizes.parameters, num_runs)
+        driver_coefficients = (None, system_sizes.drivers, None)
         obj = cls(initial_values, parameters, driver_coefficients)
         return obj
 
@@ -366,7 +368,7 @@ class BatchOutputSizes(ArraySizingClass):
             num_runs,
         )
         status_codes = (num_runs,)
-        
+
         # Iteration counters have shape (n_saves, 4, n_runs)
         # where 4 is for [Newton, Krylov, steps, rejections]
         iteration_counters = (
@@ -374,7 +376,7 @@ class BatchOutputSizes(ArraySizingClass):
             4,
             num_runs,
         )
-        
+
         obj = cls(
             state,
             observables,

@@ -1209,6 +1209,9 @@ class MemoryManager:
                 chunk_axis,
                 chunk_length,
             )
+            dangling_chunk_length = (
+                axis_length - (num_chunks - 1) * chunk_length
+            )
 
             chunked_requests = deepcopy(requests_dict)
             for key, request in chunked_requests.items():
@@ -1220,6 +1223,9 @@ class MemoryManager:
             response = ArrayResponse(
                 arr=arrays,
                 chunks=num_chunks,
+                axis_length=axis_length,
+                chunk_length=chunk_length,
+                dangling_chunk_length=dangling_chunk_length,
                 chunk_axis=chunk_axis,
                 chunked_shapes=chunked_shapes,
                 chunked_slices=chunked_slices,
@@ -1231,8 +1237,12 @@ class MemoryManager:
                     ArrayResponse(
                         arr={},
                         chunks=num_chunks,
+                        axis_length=axis_length,
+                        chunk_length=chunk_length,
+                        dangling_chunk_length=dangling_chunk_length,
                         chunk_axis=chunk_axis,
                         chunked_shapes={},
+                        chunked_slices={},
                     )
                 )
         return None
@@ -1416,9 +1426,7 @@ def compute_per_chunk_slice(
 
         else:
             # Unchunkable: return full-slice function (no .index() call)
-            def get_slice(
-                i: int, *, _request=request
-            ) -> Tuple[slice, ...]:
+            def get_slice(i: int, *, _request=request) -> Tuple[slice, ...]:
                 chunk_slice = [slice(None)] * len(_request.shape)
                 return tuple(chunk_slice)
 

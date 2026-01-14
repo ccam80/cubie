@@ -697,6 +697,7 @@ def test_comprehensive_config_plumbing(
     # === PHASE 2: Create updates dict with EVERY value different ===
     print("\n=== Creating updates with all different values ===")
 
+    # Note: obsolete, durtion, warmup, t0 are only set from .run()
     # Set duration, warmup, t0 to different values from defaults
     solver.kernel.duration = precision(3.0)  # Different from initial 0.0
     solver.kernel.warmup = precision(0.2)  # Different from initial 0.0
