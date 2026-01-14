@@ -9,7 +9,8 @@ class MockMemoryManager(MemoryManager):
     """Mock memory manager for testing with controlled memory info."""
 
     def __init__(self, **kwargs):
-        self._custom_limit = kwargs.get("forced_free_mem", 512)
+        super().__init__()
+        self._custom_limit = kwargs.get("forced_free_mem", 950)
 
     def get_memory_info(self):
         return int(self._custom_limit), int(8192)  # 32kb free, total
@@ -19,7 +20,7 @@ class MockMemoryManager(MemoryManager):
 def forced_free_mem(request):
     if hasattr(request, "param"):
         return request.param
-    return 512
+    return 950
 
 
 @pytest.fixture(scope="session")
@@ -75,10 +76,13 @@ def chunked_solved_solver(
     inits = np.ones((n_states, n_runs), dtype=precision)
     params = np.ones((n_params, n_runs), dtype=precision)
 
-    # This run has a combined request size of 1968b, so a 512 limit forces
-    # one run per chunk (4 chunks, then runs rounded to 1, then chunks=5)
-    # A 1024 limit forces a  3 and a 2.
-    # Run with forced chunking (low memory)
+    # This run has a combined request size of 1668b, with 1080 chunkable/588
+    # unchunkable.
+    # An 860b free memory limit forces one run per chunk (4 chunks, then runs
+    # rounded to 1, then chunks=5)
+    # A 950 free memory limit forces a 2 and a 2 and a 1.
+    # A 1130b free memory limit forces a 3 and a 2.
+    # A 1600b free memory limit forces a 4 and a 1.
     result = solver.solve(
         inits,
         params,
@@ -86,6 +90,7 @@ def chunked_solved_solver(
         duration=0.05,
         summarise_every=None,
         save_every=0.01,
+        dt=0.01,
         chunk_axis=chunk_axis,
     )
     return solver, result
@@ -115,6 +120,7 @@ def unchunked_solved_solver(
         duration=0.05,
         summarise_every=None,
         save_every=0.01,
+        dt=0.01,
         chunk_axis=chunk_axis,
     )
     return solver, result
