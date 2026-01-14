@@ -492,22 +492,40 @@ class TestBufferPoolIntegration:
         input_arrays._chunks = 3
         input_arrays._chunk_axis = "run"
 
-        # Set chunked_shape on device arrays to trigger needs_chunked_transfer
+        # Set chunked_shape and chunked_slice_fn on BOTH host and device
+        # arrays to trigger needs_chunked_transfer
         num_runs = sample_input_arrays["initial_values"].shape[1]
-        chunk_size = num_runs // 3
+        chunk_size = max(1, num_runs // 3)
+
+        def make_slice_fn(run_axis_idx, chunk_sz, ndim):
+            def slice_fn(chunk_idx):
+                slices = [slice(None)] * ndim
+                start = chunk_idx * chunk_sz
+                end = start + chunk_sz
+                slices[run_axis_idx] = slice(start, end)
+                return tuple(slices)
+            return slice_fn
+
         for name, device_slot in input_arrays.device.iter_managed_arrays():
             if "run" in device_slot.stride_order:
                 run_idx = device_slot.stride_order.index("run")
                 chunked = list(device_slot.shape)
                 chunked[run_idx] = chunk_size
-                device_slot.chunked_shape = tuple(chunked)
+                chunked_shape = tuple(chunked)
+                ndim = len(device_slot.shape)
+                slice_fn = make_slice_fn(run_idx, chunk_size, ndim)
+                device_slot.chunked_shape = chunked_shape
+                device_slot.chunked_slice_fn = slice_fn
+                # Also set on corresponding host array
+                host_slot = input_arrays.host.get_managed_array(name)
+                host_slot.chunked_shape = chunked_shape
+                host_slot.chunked_slice_fn = slice_fn
 
         # Clear any existing active buffers
         input_arrays._active_buffers.clear()
 
-        # Call initialise with a slice for a chunk
-        host_indices = slice(0, chunk_size)
-        input_arrays.initialise(host_indices)
+        # Call initialise with a chunk index
+        input_arrays.initialise(0)
 
         # Verify buffers were acquired and stored in _active_buffers
         assert len(input_arrays._active_buffers) > 0
@@ -531,19 +549,36 @@ class TestBufferPoolIntegration:
         input_arrays._chunks = 3
         input_arrays._chunk_axis = "run"
 
-        # Set chunked_shape on device arrays to trigger needs_chunked_transfer
+        # Set chunked_shape and chunked_slice_fn on BOTH host and device
         num_runs = sample_input_arrays["initial_values"].shape[1]
-        chunk_size = num_runs // 3
+        chunk_size = max(1, num_runs // 3)
+
+        def make_slice_fn(run_axis_idx, chunk_sz, ndim):
+            def slice_fn(chunk_idx):
+                slices = [slice(None)] * ndim
+                start = chunk_idx * chunk_sz
+                end = start + chunk_sz
+                slices[run_axis_idx] = slice(start, end)
+                return tuple(slices)
+            return slice_fn
+
         for name, device_slot in input_arrays.device.iter_managed_arrays():
             if "run" in device_slot.stride_order:
                 run_idx = device_slot.stride_order.index("run")
                 chunked = list(device_slot.shape)
                 chunked[run_idx] = chunk_size
-                device_slot.chunked_shape = tuple(chunked)
+                chunked_shape = tuple(chunked)
+                ndim = len(device_slot.shape)
+                slice_fn = make_slice_fn(run_idx, chunk_size, ndim)
+                device_slot.chunked_shape = chunked_shape
+                device_slot.chunked_slice_fn = slice_fn
+                # Also set on corresponding host array
+                host_slot = input_arrays.host.get_managed_array(name)
+                host_slot.chunked_shape = chunked_shape
+                host_slot.chunked_slice_fn = slice_fn
 
         # Call initialise to acquire buffers
-        host_indices = slice(0, chunk_size)
-        input_arrays.initialise(host_indices)
+        input_arrays.initialise(0)
 
         # Store reference to buffers before release
         buffers_before = list(input_arrays._active_buffers)
@@ -578,9 +613,8 @@ class TestBufferPoolIntegration:
         # Clear any existing active buffers
         input_arrays._active_buffers.clear()
 
-        # Call initialise with full slice
-        host_indices = slice(None)
-        input_arrays.initialise(host_indices)
+        # Call initialise with chunk index 0 (non-chunked mode)
+        input_arrays.initialise(0)
 
         # Verify no buffers were acquired from pool
         assert len(input_arrays._active_buffers) == 0
@@ -601,18 +635,34 @@ class TestBufferPoolIntegration:
         input_arrays._chunks = 3
         input_arrays._chunk_axis = "run"
         num_runs = sample_input_arrays["initial_values"].shape[1]
-        chunk_size = num_runs // 3
+        chunk_size = max(1, num_runs // 3)
 
-        # Set chunked_shape on device arrays to trigger needs_chunked_transfer
+        def make_slice_fn(run_axis_idx, chunk_sz, ndim):
+            def slice_fn(chunk_idx):
+                slices = [slice(None)] * ndim
+                start = chunk_idx * chunk_sz
+                end = start + chunk_sz
+                slices[run_axis_idx] = slice(start, end)
+                return tuple(slices)
+            return slice_fn
+
+        # Set chunked_shape and chunked_slice_fn on BOTH host and device
         for name, device_slot in input_arrays.device.iter_managed_arrays():
             if "run" in device_slot.stride_order:
                 run_idx = device_slot.stride_order.index("run")
                 chunked = list(device_slot.shape)
                 chunked[run_idx] = chunk_size
-                device_slot.chunked_shape = tuple(chunked)
+                chunked_shape = tuple(chunked)
+                ndim = len(device_slot.shape)
+                slice_fn = make_slice_fn(run_idx, chunk_size, ndim)
+                device_slot.chunked_shape = chunked_shape
+                device_slot.chunked_slice_fn = slice_fn
+                # Also set on corresponding host array
+                host_slot = input_arrays.host.get_managed_array(name)
+                host_slot.chunked_shape = chunked_shape
+                host_slot.chunked_slice_fn = slice_fn
 
-        host_indices = slice(0, chunk_size)
-        input_arrays.initialise(host_indices)
+        input_arrays.initialise(0)
 
         # Verify there are active buffers
         assert len(input_arrays._active_buffers) > 0
@@ -641,26 +691,41 @@ class TestBufferPoolIntegration:
         input_arrays._chunks = 3
         input_arrays._chunk_axis = "run"
         num_runs = sample_input_arrays["initial_values"].shape[1]
-        chunk_size = num_runs // 3
+        chunk_size = max(1, num_runs // 3)
 
-        # Set chunked_shape on device arrays to trigger needs_chunked_transfer
+        def make_slice_fn(run_axis_idx, chunk_sz, ndim):
+            def slice_fn(chunk_idx):
+                slices = [slice(None)] * ndim
+                start = chunk_idx * chunk_sz
+                end = start + chunk_sz
+                slices[run_axis_idx] = slice(start, end)
+                return tuple(slices)
+            return slice_fn
+
+        # Set chunked_shape and chunked_slice_fn on BOTH host and device
         for name, device_slot in input_arrays.device.iter_managed_arrays():
             if "run" in device_slot.stride_order:
                 run_idx = device_slot.stride_order.index("run")
                 chunked = list(device_slot.shape)
                 chunked[run_idx] = chunk_size
-                device_slot.chunked_shape = tuple(chunked)
+                chunked_shape = tuple(chunked)
+                ndim = len(device_slot.shape)
+                slice_fn = make_slice_fn(run_idx, chunk_size, ndim)
+                device_slot.chunked_shape = chunked_shape
+                device_slot.chunked_slice_fn = slice_fn
+                # Also set on corresponding host array
+                host_slot = input_arrays.host.get_managed_array(name)
+                host_slot.chunked_shape = chunked_shape
+                host_slot.chunked_slice_fn = slice_fn
 
         # First chunk
-        host_indices_1 = slice(0, chunk_size)
-        input_arrays.initialise(host_indices_1)
+        input_arrays.initialise(0)
         first_buffers = list(input_arrays._active_buffers)
         first_buffer_ids = [b.buffer_id for b in first_buffers]
         input_arrays.release_buffers()
 
         # Second chunk - should reuse buffers from pool
-        host_indices_2 = slice(chunk_size, 2 * chunk_size)
-        input_arrays.initialise(host_indices_2)
+        input_arrays.initialise(1)
         second_buffers = list(input_arrays._active_buffers)
         second_buffer_ids = [b.buffer_id for b in second_buffers]
 

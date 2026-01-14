@@ -154,9 +154,19 @@ def test_all_lower_plumbing(
     precision,
     driver_array,
 ):
-    """Big plumbing integration check - check that config classes match exactly between an updated solver and one
-    instantiated with the update settings."""
+    """Big plumbing integration check - check that config classes match exactly
+    between an updated solver and one instantiated with the update settings."""
     solverkernel = solverkernel_mutable
+
+    # Limit indices to actual system sizes to prevent IndexError
+    n_states = system.sizes.states
+    n_obs = system.sizes.observables
+
+    saved_state_idx = list(range(min(3, n_states)))
+    saved_obs_idx = list(range(min(3, n_obs)))
+    summarised_state_idx = [0] if n_states > 0 else []
+    summarised_obs_idx = [0] if n_obs > 0 else []
+
     new_settings = {
         # "duration": 1.0,
         "dt_min": 0.0001,
@@ -166,10 +176,10 @@ def test_all_lower_plumbing(
         "sample_summaries_every": 0.05,
         "atol": 1e-2,
         "rtol": 1e-1,
-        "saved_state_indices": [0, 1, 2],
-        "saved_observable_indices": [0, 1, 2],
-        "summarised_state_indices": [0],
-        "summarised_observable_indices": [0],
+        "saved_state_indices": saved_state_idx,
+        "saved_observable_indices": saved_obs_idx,
+        "summarised_state_indices": summarised_state_idx,
+        "summarised_observable_indices": summarised_obs_idx,
         "output_types": [
             "state",
             "observables",
@@ -190,10 +200,10 @@ def test_all_lower_plumbing(
         }
     )
     output_settings = {
-        "saved_state_indices": np.asarray([0, 1, 2]),
-        "saved_observable_indices": np.asarray([0, 1, 2]),
-        "summarised_state_indices": np.asarray([0]),
-        "summarised_observable_indices": np.asarray([0]),
+        "saved_state_indices": np.asarray(saved_state_idx),
+        "saved_observable_indices": np.asarray(saved_obs_idx),
+        "summarised_state_indices": np.asarray(summarised_state_idx),
+        "summarised_observable_indices": np.asarray(summarised_obs_idx),
         "output_types": [
             "state",
             "observables",
@@ -214,8 +224,8 @@ def test_all_lower_plumbing(
             "sample_summaries_every": 0.05,
         },
     )
-    inits = np.ones((3, 1), dtype=precision)
-    params = np.ones((3, 1), dtype=precision)
+    inits = np.ones((n_states, 1), dtype=precision)
+    params = np.ones((system.sizes.parameters, 1), dtype=precision)
     driver_coefficients = driver_array.coefficients
     freshsolver.run(
         inits=inits,

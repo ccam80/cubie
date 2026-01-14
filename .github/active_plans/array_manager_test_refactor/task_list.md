@@ -3,7 +3,7 @@
 # Plan Reference: .github/active_plans/array_manager_test_refactor/agent_plan.md
 
 ## Task Group 1: Fix test_basearraymanager.py::test_chunked_shape_propagates_through_allocation
-**Status**: [ ]
+**Status**: [x]
 **Dependencies**: None
 
 **Required Context**:
@@ -129,12 +129,22 @@
 - tests/batchsolving/arrays/test_basearraymanager.py::test_chunked_shape_propagates_through_allocation
 
 **Outcomes**: 
-[Empty - to be filled by taskmaster agent]
+- Files Modified:
+  * tests/batchsolving/arrays/test_basearraymanager.py (15 lines changed)
+- Functions/Methods Added/Modified:
+  * Added `make_slice_fn` helper within test function
+  * Added `chunked_slices` dict to ArrayResponse creation
+- Implementation Summary:
+  The test was missing `chunked_slices` in the ArrayResponse. When `_on_allocation_complete`
+  tried to access `chunked_slices[array_label]`, it raised KeyError which was caught,
+  but this skipped setting `chunked_shape` on the host container. Added slice functions
+  to the response so the allocation callback completes successfully.
+- Issues Flagged: None
 
 ---
 
 ## Task Group 2: Fix test_batchinputarrays.py Buffer Pool Integration Tests
-**Status**: [ ]
+**Status**: [x]
 **Dependencies**: Task Group 1
 
 **Required Context**:
@@ -298,12 +308,25 @@
 - tests/batchsolving/arrays/test_batchinputarrays.py::TestBufferPoolIntegration::test_reset_clears_buffer_pool_and_active_buffers
 
 **Outcomes**: 
-[Empty - to be filled by taskmaster agent]
+- Files Modified:
+  * tests/batchsolving/arrays/test_batchinputarrays.py (80 lines changed)
+- Functions/Methods Added/Modified:
+  * Fixed test_initialise_uses_buffer_pool_when_chunked
+  * Fixed test_release_buffers_returns_to_pool
+  * Fixed test_reset_clears_buffer_pool_and_active_buffers
+  * Fixed test_buffers_reused_across_chunks
+  * Fixed test_non_chunked_uses_direct_pinned
+- Implementation Summary:
+  Tests were setting chunked_shape only on device arrays but needs_chunked_transfer
+  is checked on host arrays. Added chunked_shape and chunked_slice_fn on both
+  host and device ManagedArrays. Changed initialise() calls to use chunk_index
+  (int) instead of slice. Added make_slice_fn helper functions in each test.
+- Issues Flagged: None
 
 ---
 
 ## Task Group 3: Fix test_batchoutputarrays.py TestNeedsChunkedTransferBranching Tests
-**Status**: [ ]
+**Status**: [x]
 **Dependencies**: Task Group 1
 
 **Required Context**:
@@ -436,12 +459,24 @@
 - tests/batchsolving/arrays/test_batchoutputarrays.py::TestNeedsChunkedTransferBranching::test_finalise_uses_needs_chunked_transfer
 
 **Outcomes**: 
-[Empty - to be filled by taskmaster agent]
+- Files Modified:
+  * tests/batchsolving/arrays/test_batchoutputarrays.py (60 lines changed)
+- Functions/Methods Added/Modified:
+  * Fixed test_convert_host_to_numpy_uses_needs_chunked_transfer
+  * Fixed test_finalise_uses_needs_chunked_transfer
+- Implementation Summary:
+  Tests were missing chunked_slices in ArrayResponse and not setting
+  _needs_reallocation before calling _on_allocation_complete. Added
+  chunked_slices dict with callable slice functions and set
+  _needs_reallocation. Changed ArrayResponse import to use
+  cubie.memory.array_requests module. Fixed finalise() call to use
+  chunk_index (int) instead of slice.
+- Issues Flagged: None
 
 ---
 
 ## Task Group 4: Fix test_SolverKernel.py::test_all_lower_plumbing
-**Status**: [ ]
+**Status**: [x]
 **Dependencies**: None
 
 **Required Context**:
@@ -531,12 +566,21 @@
 - tests/batchsolving/test_SolverKernel.py::test_all_lower_plumbing
 
 **Outcomes**: 
-[Empty - to be filled by taskmaster agent]
+- Files Modified:
+  * tests/batchsolving/test_SolverKernel.py (25 lines changed)
+- Functions/Methods Added/Modified:
+  * Modified test_all_lower_plumbing
+- Implementation Summary:
+  Test was hardcoded to use indices [0, 1, 2] for states and observables,
+  and array shape (3, 1) for inits/params. Changed to use dynamic indices
+  based on system.sizes.states and system.sizes.observables. Also fixed
+  inits/params array shapes to use actual system sizes.
+- Issues Flagged: None
 
 ---
 
 ## Task Group 5: Reinstate Commented Tests in test_chunk_axis_property.py
-**Status**: [ ]
+**Status**: [x]
 **Dependencies**: Task Groups 1-4
 
 **Required Context**:
@@ -662,12 +706,23 @@
 - tests/batchsolving/test_chunk_axis_property.py::TestUpdateFromSolverChunkAxis::test_update_from_solver_does_not_change_chunk_axis
 
 **Outcomes**: 
-[Empty - to be filled by taskmaster agent]
+- Files Modified:
+  * tests/batchsolving/test_chunk_axis_property.py (70 lines changed)
+- Functions/Methods Added/Modified:
+  * Reinstated TestChunkAxisInRun class with two tests
+  * Reinstated TestUpdateFromSolverChunkAxis class with one test
+- Implementation Summary:
+  Uncommented and refactored the previously-commented test classes.
+  Changed from directly instantiating BatchSolverKernel to using
+  solver_mutable fixture and accessing .kernel property. Tests now
+  use solver.solve() instead of kernel.run() for integration testing.
+  Added numpy import at module level.
+- Issues Flagged: None
 
 ---
 
 ## Task Group 6: Cleanup - Remove Unused Properties/Patterns (if any)
-**Status**: [ ]
+**Status**: [x]
 **Dependencies**: Task Groups 1-5
 
 **Required Context**:
@@ -708,7 +763,15 @@
   - tests/batchsolving/test_chunk_axis_property.py
 
 **Outcomes**: 
-[Empty - to be filled by taskmaster agent]
+- Files Modified: None
+- Implementation Summary:
+  Reviewed BaseArrayManager.py, BatchInputArrays.py, and BatchOutputArrays.py
+  for unused properties or patterns related to chunking. No action needed:
+  - `_chunks` and `_chunk_axis` are plain attrs fields set only in
+    `_on_allocation_complete`
+  - No unused setters or properties exist
+  - The manual assignments in tests are acceptable for testing purposes
+- Issues Flagged: None
 
 ---
 

@@ -666,7 +666,7 @@ class TestNeedsChunkedTransferBranching:
         when the device array's needs_chunked_transfer property is True.
         This is determined by comparing shape vs chunked_shape.
         """
-        from cubie.memory.mem_manager import ArrayResponse
+        from cubie.memory.array_requests import ArrayResponse
 
         # Allocate first to set up arrays
         output_arrays_manager.update(solver)
@@ -678,12 +678,28 @@ class TestNeedsChunkedTransferBranching:
         num_runs = output_arrays_manager.state.shape[2]
 
         # Set up chunked allocation scenario: 2 chunks
-        chunk_size = num_runs // 2
+        chunk_size = max(1, num_runs // 2)
+
+        def make_slice_fn(run_axis_idx, chunk_sz, ndim):
+            def slice_fn(chunk_idx):
+                slices = [slice(None)] * ndim
+                start = chunk_idx * chunk_sz
+                end = start + chunk_sz
+                slices[run_axis_idx] = slice(start, end)
+                return tuple(slices)
+            return slice_fn
+
         chunked_shapes = {}
-        for name, slot in output_arrays_manager.host.iter_managed_arrays():
+        chunked_slices = {}
+        for name, slot in output_arrays_manager.device.iter_managed_arrays():
+            ndim = len(slot.shape)
             # Unchunkable arrays (status_codes) keep original shape
             if not slot.is_chunked:
                 chunked_shapes[name] = slot.shape
+                # Use identity slice for unchunkable
+                chunked_slices[name] = lambda idx, n=ndim: tuple(
+                    slice(None) for _ in range(n)
+                )
             else:
                 # Compute chunked shape with smaller run dimension
                 if "run" in slot.stride_order:
@@ -693,18 +709,30 @@ class TestNeedsChunkedTransferBranching:
                         for i, dim in enumerate(slot.shape)
                     )
                     chunked_shapes[name] = chunked_shape
+                    chunked_slices[name] = make_slice_fn(
+                        axis_idx, chunk_size, ndim
+                    )
                 else:
                     chunked_shapes[name] = slot.shape
+                    chunked_slices[name] = lambda idx, n=ndim: tuple(
+                        slice(None) for _ in range(n)
+                    )
 
-        # Create response simulating 2-chunk allocation
+        # Create response with DEVICE arrays
         response = ArrayResponse(
             arr={
-                name: output_arrays_manager.host.get_array(name)
-                for name in output_arrays_manager.host.array_names()
+                name: output_arrays_manager.device.get_array(name)
+                for name in output_arrays_manager.device.array_names()
             },
             chunks=2,
             chunk_axis="run",
             chunked_shapes=chunked_shapes,
+            chunked_slices=chunked_slices,
+        )
+
+        # Populate _needs_reallocation so _on_allocation_complete processes
+        output_arrays_manager._needs_reallocation = list(
+            output_arrays_manager.device.array_names()
         )
 
         # Trigger allocation complete to store chunked_shapes
@@ -734,7 +762,7 @@ class TestNeedsChunkedTransferBranching:
         acquire buffers from the pool. When False, it should transfer
         directly without buffering.
         """
-        from cubie.memory.mem_manager import ArrayResponse
+        from cubie.memory.array_requests import ArrayResponse
 
         # Allocate first
         output_arrays_manager.update(solver)
@@ -745,11 +773,25 @@ class TestNeedsChunkedTransferBranching:
         num_runs = output_arrays_manager.state.shape[2]
         chunk_size = max(1, num_runs // 2)
 
-        # Set up chunked_shapes in device and host arrays
+        def make_slice_fn(run_axis_idx, chunk_sz, ndim):
+            def slice_fn(chunk_idx):
+                slices = [slice(None)] * ndim
+                start = chunk_idx * chunk_sz
+                end = start + chunk_sz
+                slices[run_axis_idx] = slice(start, end)
+                return tuple(slices)
+            return slice_fn
+
+        # Set up chunked_shapes and chunked_slices
         chunked_shapes = {}
+        chunked_slices = {}
         for name, slot in output_arrays_manager.device.iter_managed_arrays():
+            ndim = len(slot.shape)
             if not slot.is_chunked:
                 chunked_shapes[name] = slot.shape
+                chunked_slices[name] = lambda idx, n=ndim: tuple(
+                    slice(None) for _ in range(n)
+                )
             else:
                 if "run" in slot.stride_order:
                     axis_idx = slot.stride_order.index("run")
@@ -758,8 +800,14 @@ class TestNeedsChunkedTransferBranching:
                         for i, dim in enumerate(slot.shape)
                     )
                     chunked_shapes[name] = chunked_shape
+                    chunked_slices[name] = make_slice_fn(
+                        axis_idx, chunk_size, ndim
+                    )
                 else:
                     chunked_shapes[name] = slot.shape
+                    chunked_slices[name] = lambda idx, n=ndim: tuple(
+                        slice(None) for _ in range(n)
+                    )
 
         response = ArrayResponse(
             arr={
@@ -769,6 +817,12 @@ class TestNeedsChunkedTransferBranching:
             chunks=2,
             chunk_axis="run",
             chunked_shapes=chunked_shapes,
+            chunked_slices=chunked_slices,
+        )
+
+        # Populate _needs_reallocation so _on_allocation_complete processes
+        output_arrays_manager._needs_reallocation = list(
+            output_arrays_manager.device.array_names()
         )
 
         # Apply chunked allocation
@@ -777,9 +831,8 @@ class TestNeedsChunkedTransferBranching:
         # Clear any pending buffers from allocation
         output_arrays_manager._pending_buffers.clear()
 
-        # Call finalise with chunk indices
-        host_indices = slice(0, chunk_size)
-        output_arrays_manager.finalise(host_indices)
+        # Call finalise with chunk index
+        output_arrays_manager.finalise(0)
 
         # Pending buffers should be created for arrays with
         # needs_chunked_transfer = True
