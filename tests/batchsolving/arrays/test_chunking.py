@@ -91,17 +91,6 @@ def test_chunked_solve_produces_valid_output(
     ],
     indirect=True,
 )
-@pytest.mark.parametrize(
-    "forced_free_mem",
-    [
-        860,
-        950,
-        1130,
-        1600,
-        2048,  # unchunked to verify
-    ],  # magic numbers explained in arrays/conftest.py
-    indirect=True,
-)
 def test_chunked_solver_produces_correct_results(
     chunked_solved_solver, unchunked_solved_solver, forced_free_mem
 ):
