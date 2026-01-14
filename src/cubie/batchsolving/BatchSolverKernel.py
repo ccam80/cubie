@@ -1145,6 +1145,11 @@ class BatchSolverKernel(CUDAFactory):
         self.full_run_params = evolve(oldparams, runs=value)
 
     @property
+    def chunks(self):
+        """Number of chunks in the most recent run."""
+        return self.chunk_params.num_chunks
+
+    @property
     def chunk_axis(self) -> str:
         """Current chunking axis.
 

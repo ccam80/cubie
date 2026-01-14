@@ -36,21 +36,21 @@ class InputArrayContainer(ArrayContainer):
         factory=lambda: ManagedArray(
             dtype=np_float32,
             stride_order=("variable", "run"),
-            shape=(1, 1),
+            default_shape=(1, 1),
         )
     )
     parameters: ManagedArray = field(
         factory=lambda: ManagedArray(
             dtype=np_float32,
             stride_order=("variable", "run"),
-            shape=(1, 1),
+            default_shape=(1, 1),
         )
     )
     driver_coefficients: ManagedArray = field(
         factory=lambda: ManagedArray(
             dtype=np_float32,
             stride_order=("time", "variable", "run"),
-            shape=(1, 1, 1),
+            default_shape=(1, 1, 1),
             is_chunked=False,
         )
     )

@@ -43,42 +43,42 @@ class OutputArrayContainer(ArrayContainer):
         factory=lambda: ManagedArray(
             dtype=np_float32,
             stride_order=("time", "variable", "run"),
-            shape=(1, 1, 1),
+            default_shape=(1, 1, 1),
         )
     )
     observables: ManagedArray = field(
         factory=lambda: ManagedArray(
             dtype=np_float32,
             stride_order=("time", "variable", "run"),
-            shape=(1, 1, 1),
+            default_shape=(1, 1, 1),
         )
     )
     state_summaries: ManagedArray = field(
         factory=lambda: ManagedArray(
             dtype=np_float32,
             stride_order=("time", "variable", "run"),
-            shape=(1, 1, 1),
+            default_shape=(1, 1, 1),
         )
     )
     observable_summaries: ManagedArray = field(
         factory=lambda: ManagedArray(
             dtype=np_float32,
             stride_order=("time", "variable", "run"),
-            shape=(1, 1, 1),
+            default_shape=(1, 1, 1),
         )
     )
     status_codes: ManagedArray = field(
         factory=lambda: ManagedArray(
             dtype=np_int32,
             stride_order=("run",),
-            shape=(1,),
+            default_shape=(1,),
         )
     )
     iteration_counters: ManagedArray = field(
         factory=lambda: ManagedArray(
             dtype=np_int32,
             stride_order=("time", "variable", "run"),
-            shape=(1, 4, 1),
+            default_shape=(1, 4, 1),
         )
     )
 
@@ -443,7 +443,7 @@ class OutputArrays(BaseArrayManager):
 
             to_target = host_array
             from_target = device_array
-            if device_slot.needs_chunked_transfer:
+            if slot.needs_chunked_transfer:
                 slice_tuple = slot.chunked_slice_fn(chunk_index)
                 host_slice = host_array[slice_tuple]
                 # Chunked mode: use buffer pool and watcher

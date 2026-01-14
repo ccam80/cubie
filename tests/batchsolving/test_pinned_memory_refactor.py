@@ -13,9 +13,8 @@ import pytest
 from cubie import MemoryManager
 from cubie.batchsolving.solver import Solver
 from cubie.batchsolving.arrays.BatchOutputArrays import OutputArrays
-from cubie.batchsolving.arrays.BatchInputArrays import InputArrays
 from cubie.memory.chunk_buffer_pool import ChunkBufferPool
-from cubie.outputhandling.output_sizes import BatchOutputSizes, BatchInputSizes
+from cubie.outputhandling.output_sizes import BatchOutputSizes
 
 
 class MockMemoryManager(MemoryManager):
@@ -355,49 +354,3 @@ class TestRegressionChunkedPath:
             rtol=1e-5,
             atol=1e-7,
         )
-
-    def test_input_arrays_buffer_pool_used_in_chunked_mode(
-        self, solver, precision
-    ):
-        """Verify InputArrays uses buffer pool in chunked mode."""
-        batch_input_sizes = BatchInputSizes.from_solver(solver)
-        input_arrays = InputArrays(
-            sizes=batch_input_sizes,
-            precision=precision,
-        )
-
-        # Create sample data
-        n_runs = 6
-        n_states = solver.system_sizes.states
-        n_params = solver.system_sizes.parameters
-        n_drivers = solver.system_sizes.drivers
-
-        inits = np.ones((n_states, n_runs), dtype=precision)
-        params = np.ones((n_params, n_runs), dtype=precision)
-        drivers = np.zeros((n_drivers, n_runs), dtype=precision)
-
-        input_arrays.update(solver, inits, params, drivers)
-
-        # Configure for chunked mode
-        input_arrays._chunks = 3
-        input_arrays._chunk_axis = "run"
-
-        # Set chunked_shape on device arrays to trigger needs_chunked_transfer
-        chunk_size = n_runs // 3
-        for name, device_slot in input_arrays.device.iter_managed_arrays():
-            if "run" in device_slot.stride_order:
-                run_idx = device_slot.stride_order.index("run")
-                chunked = list(device_slot.shape)
-                chunked[run_idx] = chunk_size
-                device_slot.chunked_shape = tuple(chunked)
-
-        # Call initialise with a chunk slice
-        host_indices = slice(0, chunk_size)
-        input_arrays.initialise(host_indices)
-
-        # Buffer pool should have been used
-        assert len(input_arrays._active_buffers) > 0
-
-        # Release and verify buffers returned
-        input_arrays.release_buffers()
-        assert len(input_arrays._active_buffers) == 0

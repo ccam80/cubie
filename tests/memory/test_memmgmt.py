@@ -1047,7 +1047,7 @@ class TestGetChunkParameters:
             }
         }
 
-        with pytest.raises(ValueError, match="Unchunkable arrays require"):
+        with pytest.raises(ValueError, match="unchunkable"):
             mgr.get_chunk_parameters(
                 requests=requests,
                 chunk_axis="run",

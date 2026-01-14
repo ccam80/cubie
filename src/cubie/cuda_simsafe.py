@@ -122,6 +122,7 @@ class FakeMemoryInfo:  # pragma: no cover - placeholder
 if CUDA_SIMULATION:  # pragma: no cover - simulated
     from numba.cuda.simulator.cudadrv.devicearray import FakeCUDAArray
     from cubie.vendored.numba_cuda_cache import CUDACache
+
     NumbaCUDAMemoryManager = FakeNumbaCUDAMemoryManager
     BaseCUDAMemoryManager = FakeBaseCUDAMemoryManager
     HostOnlyCUDAMemoryManager = FakeHostOnlyCUDAManager
@@ -161,7 +162,7 @@ else:  # pragma: no cover - exercised in GPU environments
         MappedNDArray,
     )
     from numba.cuda.cudadrv.driver import GetIpcHandleMixin  # type: ignore[attr-defined]
-    from numba.cuda.dispatcher import CUDACache # noqa: Linter can't find
+    from numba.cuda.dispatcher import CUDACache  # noqa: Linter can't find
     # cuda.dispatcher
 
     def current_mem_info() -> Tuple[int, int]:

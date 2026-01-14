@@ -12,14 +12,14 @@ from cubie.batchsolving.arrays.BaseArrayManager import (
 from cubie.memory.array_requests import ArrayResponse, ArrayRequest
 from cubie.memory.mem_manager import MemoryManager
 from cubie.outputhandling.output_sizes import BatchOutputSizes
-from cubie.cuda_simsafe import MappedNDArray
-from numpy import int32 as np_int32, float32 as np_float32
+from cubie.cuda_simsafe import DeviceNDArray
+from numpy import float32 as np_float32
 
 if environ.get("NUMBA_ENABLE_CUDASIM", "0") == "1":
-    from numpy import zeros as mapped_array
+    from numpy import zeros as pinned_array
     from numpy import zeros as device_array
 else:
-    from numba.cuda import mapped_array, device_array
+    from numba.cuda import pinned_array, device_array
 
 
 @attrs.define
@@ -42,7 +42,7 @@ class TestArrays(ArrayContainer):
         factory=lambda: ManagedArray(
             dtype=np.float32,
             stride_order=("time", "variable", "run"),
-            shape=(1, 1, 1),
+            default_shape=(1, 1, 1),
             memory_type="host",
         )
     )
@@ -50,7 +50,7 @@ class TestArrays(ArrayContainer):
         factory=lambda: ManagedArray(
             dtype=np.float32,
             stride_order=("time", "variable", "run"),
-            shape=(1, 1, 1),
+            default_shape=(1, 1, 1),
             memory_type="host",
         )
     )
@@ -58,7 +58,7 @@ class TestArrays(ArrayContainer):
         factory=lambda: ManagedArray(
             dtype=np.float32,
             stride_order=("time", "variable", "run"),
-            shape=(1, 1, 1),
+            default_shape=(1, 1, 1),
             memory_type="host",
         )
     )
@@ -66,7 +66,7 @@ class TestArrays(ArrayContainer):
         factory=lambda: ManagedArray(
             dtype=np.float32,
             stride_order=("time", "variable", "run"),
-            shape=(1, 1, 1),
+            default_shape=(1, 1, 1),
             memory_type="host",
         )
     )
@@ -78,7 +78,7 @@ class TestArraysSimple(ArrayContainer):
         factory=lambda: ManagedArray(
             dtype=np.float32,
             stride_order=("time", "variable", "run"),
-            shape=(1, 1, 1),
+            default_shape=(1, 1, 1),
             memory_type="host",
         )
     )
@@ -86,7 +86,7 @@ class TestArraysSimple(ArrayContainer):
         factory=lambda: ManagedArray(
             dtype=np.float32,
             stride_order=("time", "variable", "run"),
-            shape=(1, 1, 1),
+            default_shape=(1, 1, 1),
             memory_type="host",
         )
     )
@@ -156,12 +156,12 @@ def arraytest_settings(arraytest_overrides):
 
 @pytest.fixture(scope="function")
 def hostarrays(arraytest_settings):
-    if arraytest_settings["memory"] == "mapped":
-        empty = mapped_array
+    if arraytest_settings["memory"] == "pinned":
+        empty = pinned_array
     else:
         empty = np.zeros
     host_memory = (
-        "mapped" if arraytest_settings["memory"] == "mapped" else "host"
+        "pinned" if arraytest_settings["memory"] == "pinned" else "host"
     )
     host = TestArraysSimple(
         arr1=ManagedArray(
@@ -186,9 +186,9 @@ def hostarrays(arraytest_settings):
 
 @pytest.fixture(scope="function")
 def devarrays(arraytest_settings, hostarrays):
-    if arraytest_settings["memory"] == "mapped":
-        devarr1 = MappedNDArray(hostarrays.arr1, arraytest_settings["dtype"])
-        devarr2 = MappedNDArray(hostarrays.arr2, arraytest_settings["dtype"])
+    if arraytest_settings["memory"] == "pinned":
+        devarr1 = DeviceNDArray(hostarrays.arr1, arraytest_settings["dtype"])
+        devarr2 = DeviceNDArray(hostarrays.arr2, arraytest_settings["dtype"])
     else:
         devarr1 = device_array(
             arraytest_settings["devshape1"], arraytest_settings["dtype"]
@@ -246,8 +246,8 @@ def test_arrmgr(
 def allocation_response(arraytest_settings, precision):
     """Create a test ArrayResponse based on arraytest_settings for consistent parametrized testing"""
     # Create arrays that match the settings
-    if arraytest_settings["memory"] == "mapped":
-        create_func = mapped_array
+    if arraytest_settings["memory"] == "pinned":
+        create_func = pinned_array
     else:
         create_func = device_array
 
@@ -1302,12 +1302,16 @@ class TestMemoryManagerIntegration:
             )
 
     def test_allocation_with_settings(
-        self, test_arrmgr, array_requests, arraytest_settings
+        self,
+        test_arrmgr,
+        test_memory_manager,
+        array_requests,
+        arraytest_settings,
     ):
         """Test that allocation respects arraytest_settings parameters"""
         # Request allocation
         test_arrmgr.request_allocation(array_requests)
-
+        test_memory_manager.allocate_queue(test_arrmgr)
         # Check that allocated arrays match the settings
         assert test_arrmgr.device.arr1.shape == arraytest_settings["devshape1"]
         assert test_arrmgr.device.arr2.shape == arraytest_settings["devshape2"]
@@ -1440,7 +1444,7 @@ class TestManagedArrayChunkedShape:
         managed = ManagedArray(
             dtype=np_float32,
             stride_order=("time", "variable", "run"),
-            shape=(10, 5, 100),
+            default_shape=(10, 5, 100),
             memory_type="device",
         )
         assert managed.chunked_shape is None
@@ -1450,7 +1454,7 @@ class TestManagedArrayChunkedShape:
         managed = ManagedArray(
             dtype=np_float32,
             stride_order=("time", "variable", "run"),
-            shape=(10, 5, 100),
+            default_shape=(10, 5, 100),
             memory_type="device",
         )
         assert managed.chunked_shape is None
@@ -1461,7 +1465,7 @@ class TestManagedArrayChunkedShape:
         managed = ManagedArray(
             dtype=np_float32,
             stride_order=("time", "variable", "run"),
-            shape=(10, 5, 25),
+            default_shape=(10, 5, 25),
             memory_type="device",
         )
         managed.chunked_shape = (10, 5, 25)
@@ -1472,7 +1476,7 @@ class TestManagedArrayChunkedShape:
         managed = ManagedArray(
             dtype=np_float32,
             stride_order=("time", "variable", "run"),
-            shape=(10, 5, 100),
+            default_shape=(10, 5, 100),
             memory_type="device",
         )
         # Full shape is (10, 5, 100), chunked shape is (10, 5, 25)
@@ -1688,13 +1692,13 @@ def test_chunked_shape_propagates_through_allocation(test_memory_manager):
         arr1=ManagedArray(
             dtype=precision,
             stride_order=stride_order,
-            shape=host_shape,
+            default_shape=host_shape,
             memory_type="host",
         ),
         arr2=ManagedArray(
             dtype=precision,
             stride_order=stride_order,
-            shape=host_shape,
+            default_shape=host_shape,
             memory_type="host",
         ),
     )
@@ -1706,13 +1710,13 @@ def test_chunked_shape_propagates_through_allocation(test_memory_manager):
         arr1=ManagedArray(
             dtype=precision,
             stride_order=stride_order,
-            shape=host_shape,  # Full shape before chunking
+            default_shape=host_shape,  # Full shape before chunking
             memory_type="device",
         ),
         arr2=ManagedArray(
             dtype=precision,
             stride_order=stride_order,
-            shape=host_shape,
+            default_shape=host_shape,
             memory_type="device",
         ),
     )

@@ -39,7 +39,7 @@ class TestArrayContainer(ArrayContainer):
         factory=lambda: ManagedArray(
             dtype=np_float32,
             stride_order=("time", "variable", "run"),
-            shape=(10, 3, 100),
+            default_shape=(10, 3, 100),
             memory_type="pinned",
         )
     )

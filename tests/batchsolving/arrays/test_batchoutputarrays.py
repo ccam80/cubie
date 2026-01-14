@@ -711,15 +711,15 @@ class TestNeedsChunkedTransferBranching:
         output_arrays_manager._on_allocation_complete(response)
 
         # Verify state array had needs_chunked_transfer = True (shapes differ)
-        device_state = output_arrays_manager.device.get_managed_array("state")
-        assert device_state.needs_chunked_transfer is True
+        host_state = output_arrays_manager.host.get_managed_array("state")
+        assert host_state.needs_chunked_transfer is True
 
         # Verify status_codes had needs_chunked_transfer = False (unchunkable)
-        device_status = output_arrays_manager.device.get_managed_array(
+        host_status = output_arrays_manager.host.get_managed_array(
             "status_codes"
         )
         # Status codes is unchunkable, so chunked_shape == shape
-        assert device_status.needs_chunked_transfer is False
+        assert host_status.needs_chunked_transfer is False
 
         # Verify host arrays for chunkable arrays converted to "host"
         host_state = output_arrays_manager.host.get_managed_array("state")
@@ -745,7 +745,7 @@ class TestNeedsChunkedTransferBranching:
         num_runs = output_arrays_manager.state.shape[2]
         chunk_size = max(1, num_runs // 2)
 
-        # Set up chunked_shapes in device arrays
+        # Set up chunked_shapes in device and host arrays
         chunked_shapes = {}
         for name, slot in output_arrays_manager.device.iter_managed_arrays():
             if not slot.is_chunked:
