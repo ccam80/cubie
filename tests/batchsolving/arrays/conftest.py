@@ -77,12 +77,21 @@ def chunked_solved_solver(
     params = np.ones((n_params, n_runs), dtype=precision)
 
     # This run has a combined request size of 1668b, with 1080 chunkable/588
-    # unchunkable.
-    # An 860b free memory limit forces one run per chunk (4 chunks, then runs
-    # rounded to 1, then chunks=5)
-    # A 950 free memory limit forces a 2 and a 2 and a 1.
-    # A 1130b free memory limit forces a 3 and a 2.
-    # A 1600b free memory limit forces a 4 and a 1.
+    # unchunkable if axis is run, and 1300b chunkable/368b unchunkable if time.
+    # For one run per chunk:
+    #  - run axis: free > 588 + 1080/5 -> 850
+    #  - time axis: free > 368 + 1300/5 -> 630b
+    # Two runs per (2-2-1):
+    #  - run axis: free > 588 + 1080/(5/2) -> 1024b
+    #  - time axis: free > 368 + 1300*2/5 -> 890b
+    # Three runs per (3-2):
+    # - run axis: free > 588 + 1080/(5/3) -> 1240
+    # - time axis: free > 368 + 1300*3/5 -> 1150b
+    # Four runs per (4-1):
+    # - run axis: free > 588 + 1080/(5/4) 0> 1460
+    # - time axis: free > 368 + 1300*4/5 -> 1420
+    # Unchunked (5-0):
+    # - 2048
     result = solver.solve(
         inits,
         params,

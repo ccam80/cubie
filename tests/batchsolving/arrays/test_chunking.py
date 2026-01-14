@@ -75,7 +75,22 @@ def test_chunked_solve_produces_valid_output(
     assert not np.any(np.isnan(result.time_domain_array))
 
 
-@pytest.mark.parametrize("chunk_axis", ["run", "time"], indirect=True)
+@pytest.mark.parametrize(
+    "chunk_axis, forced_free_mem",
+    [
+        ["run", 860],
+        ["run", 1024],
+        ["run", 1240],
+        ["run", 1460],
+        ["run", 2048],
+        ["time", 630],
+        ["time", 890],
+        ["time", 1150],
+        ["time", 1410],
+        ["time", 2048],
+    ],
+    indirect=True,
+)
 @pytest.mark.parametrize(
     "forced_free_mem",
     [

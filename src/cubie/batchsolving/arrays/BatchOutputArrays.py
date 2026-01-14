@@ -18,7 +18,6 @@ from numpy import (
 from numpy.typing import NDArray
 
 from cubie.outputhandling.output_sizes import BatchOutputSizes
-from cubie.memory.mem_manager import ArrayResponse
 from cubie.batchsolving.arrays.BaseArrayManager import (
     ArrayContainer,
     BaseArrayManager,
@@ -188,28 +187,6 @@ class OutputArrays(BaseArrayManager):
         super().__attrs_post_init__()
         self.host.set_memory_type("pinned")
         self.device.set_memory_type("device")
-
-    def _on_allocation_complete(self, response: ArrayResponse) -> None:
-        """
-        Callback for when the allocation response is received.
-
-        Parameters
-        ----------
-        response
-            Response object containing allocated arrays and metadata.
-
-        Returns
-        -------
-        None
-            Nothing is returned.
-
-        Notes
-        -----
-        After setting chunk count from parent implementation, converts
-        pinned host arrays to regular numpy when chunking is active.
-        Chunked arrays use per-chunk pinned buffers instead.
-        """
-        super()._on_allocation_complete(response)
 
     def update(self, solver_instance: "BatchSolverKernel") -> None:
         """
@@ -393,9 +370,7 @@ class OutputArrays(BaseArrayManager):
 
         for array_name, slot in self.host.iter_managed_arrays():
             device_array = self.device.get_array(array_name)
-            device_slot = self.device.get_managed_array(array_name)
             host_array = slot.array
-            stride_order = slot.stride_order
 
             to_target = host_array
             from_target = device_array
