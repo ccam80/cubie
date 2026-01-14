@@ -186,7 +186,7 @@ class ChunkParams:
 
         elif self._chunk_axis == "time":
             # Calculate per-chunk t0 and duration
-            dt_save = float64(self._full_params.duration / self._axis_length)
+            dt_save = float64(_duration / self._axis_length)
             fullchunk_duration = float64(dt_save * self._chunk_length)
             _duration = float64(dt_save * length)
             if index > 0:
@@ -547,16 +547,13 @@ class BatchSolverKernel(CUDAFactory):
 
         # Time parameters always use float64 for accumulation accuracy
         duration = np_float64(duration)
-        warmup = np_float64(warmup)
-        t0 = np_float64(t0)
 
         # inits is in (variable, run) format - run count is in shape[1]
-        numruns = inits.shape[1]
         self.full_run_params = FullRunParams(
             duration=duration,
-            warmup=warmup,
-            t0=t0,
-            runs=numruns,
+            warmup=np_float64(warmup),
+            t0=np_float64(t0),
+            runs=inits.shape[1],
             chunk_axis=chunk_axis,
         )
 
@@ -633,12 +630,12 @@ class BatchSolverKernel(CUDAFactory):
 
         # Record start of overall GPU workload
         self._gpu_workload_event.record_start(stream)
-
+        precision = self.precision
         for i in range(chunks):
             chunkparams = self.chunk_params[i]
-            duration = chunkparams.duration
-            warmup = chunkparams.warmup
-            t0 = chunkparams.t0
+            duration = precision(chunkparams.duration)
+            warmup = precision(chunkparams.warmup)
+            t0 = precision(chunkparams.t0)
             runs = chunkparams.runs
 
             # Recompute blocks needed for this chunk's actual run count
@@ -1146,6 +1143,11 @@ class BatchSolverKernel(CUDAFactory):
     def num_runs(self, value: int) -> None:
         oldparams = self.full_run_params
         self.full_run_params = evolve(oldparams, runs=value)
+
+    @property
+    def chunks(self):
+        """Number of chunks in the most recent run."""
+        return self.chunk_params.num_chunks
 
     @property
     def chunk_axis(self) -> str:

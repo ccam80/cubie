@@ -36,21 +36,21 @@ class InputArrayContainer(ArrayContainer):
         factory=lambda: ManagedArray(
             dtype=np_float32,
             stride_order=("variable", "run"),
-            shape=(1, 1),
+            default_shape=(1, 1),
         )
     )
     parameters: ManagedArray = field(
         factory=lambda: ManagedArray(
             dtype=np_float32,
             stride_order=("variable", "run"),
-            shape=(1, 1),
+            default_shape=(1, 1),
         )
     )
     driver_coefficients: ManagedArray = field(
         factory=lambda: ManagedArray(
             dtype=np_float32,
             stride_order=("time", "variable", "run"),
-            shape=(1, 1, 1),
+            default_shape=(1, 1, 1),
             is_chunked=False,
         )
     )
@@ -259,16 +259,13 @@ class InputArrays(BaseArrayManager):
         Returns
         -------
         None
-            This method mutates cached solver metadata in place.
         """
         self._sizes = BatchInputSizes.from_solver(solver_instance).nonzero
         self._precision = solver_instance.precision
         for name, arr_obj in self.host.iter_managed_arrays():
-            arr_obj.shape = getattr(self._sizes, name)
             if np_issubdtype(np_dtype(arr_obj.dtype), np_floating):
                 arr_obj.dtype = self._precision
         for name, arr_obj in self.device.iter_managed_arrays():
-            arr_obj.shape = getattr(self._sizes, name)
             if np_issubdtype(np_dtype(arr_obj.dtype), np_floating):
                 arr_obj.dtype = self._precision
 

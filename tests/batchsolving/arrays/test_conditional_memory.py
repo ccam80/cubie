@@ -39,7 +39,7 @@ class TestArrayContainer(ArrayContainer):
         factory=lambda: ManagedArray(
             dtype=np_float32,
             stride_order=("time", "variable", "run"),
-            shape=(10, 3, 100),
+            default_shape=(10, 3, 100),
             memory_type="pinned",
         )
     )
@@ -136,18 +136,39 @@ class TestOutputArraysConvertToNumpyWhenChunked:
         for name, slot in output_arrays.host.iter_managed_arrays():
             assert slot.memory_type == "pinned"
 
+        # Set up larger shapes so chunking produces different shapes
+        chunks = 3
+        for name, slot in output_arrays.device.iter_managed_arrays():
+            if slot.is_chunked and "run" in slot.stride_order:
+                run_idx = slot.stride_order.index("run")
+                new_shape = list(slot.shape)
+                new_shape[run_idx] = 30  # 30 runs, divisible by 3 chunks
+
+        # Prepare chunked_shapes for each managed array
+        # Divide the "run" axis by chunk count to simulate chunking
+        chunked_shapes = {}
+        for name, slot in output_arrays.device.iter_managed_arrays():
+            full_shape = slot.shape
+            if slot.is_chunked and "run" in slot.stride_order:
+                run_idx = slot.stride_order.index("run")
+                chunked = list(full_shape)
+                chunked[run_idx] = full_shape[run_idx] // chunks
+                chunked_shapes[name] = tuple(chunked)
+
         # Simulate allocation response with multiple chunks
         response = ArrayResponse(
             arr={},
-            chunks=3,
+            chunks=chunks,
             chunk_axis="run",
+            chunked_shapes=chunked_shapes,
         )
         output_arrays._on_allocation_complete(response)
 
         # After chunked allocation, chunked arrays should be host type
         assert output_arrays.is_chunked is True
         for name, slot in output_arrays.host.iter_managed_arrays():
-            if slot.is_chunked:
+            device_slot = output_arrays.device.get_managed_array(name)
+            if device_slot.needs_chunked_transfer:
                 assert slot.memory_type == "host"
             else:
                 # Non-chunked arrays (like status_codes) stay pinned

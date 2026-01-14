@@ -466,9 +466,12 @@ class Solver:
 
     def build_grid(
         self,
-        initial_values: Union[ndarray, Dict[str, Union[float, ndarray]]]=None,
-        parameters: Union[None, ndarray, Dict[str, Union[float,
-        ndarray]]]=None,
+        initial_values: Union[
+            ndarray, Dict[str, Union[float, ndarray]]
+        ] = None,
+        parameters: Union[
+            None, ndarray, Dict[str, Union[float, ndarray]]
+        ] = None,
         grid_type: str = "verbatim",
     ) -> Tuple[ndarray, ndarray]:
         """Build parameter and state grids for external use.
@@ -1010,7 +1013,6 @@ class Solver:
         Invalidates the current cache, causing a rebuild on next access.
         """
         self.kernel.set_cache_dir(path)
-
 
     def set_verbosity(self, verbosity: Optional[str]) -> None:
         """Set the time logging verbosity level.

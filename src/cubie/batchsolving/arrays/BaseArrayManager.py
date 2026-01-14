@@ -46,7 +46,7 @@ class ManagedArray:
             iterable_validator=attrsval_instance_of(tuple),
         ),
     )
-    shape: tuple[Optional[int]] = field(
+    default_shape: tuple[Optional[int], ...] = field(
         factory=tuple,
         validator=attrsval_deep_iterable(
             member_validator=opt_gttype_validator(int, 0),
@@ -82,6 +82,16 @@ class ManagedArray:
     )
 
     @property
+    def shape(self) -> tuple[Optional[int], ...]:
+        """Return the current shape of the array."""
+        if self._array is not None:
+            return self._array.shape
+        else:
+            return self.default_shape
+
+    #
+    # @shape
+    @property
     def needs_chunked_transfer(self) -> bool:
         """Return True if this array requires chunked transfers.
 
@@ -102,7 +112,6 @@ class ManagedArray:
     @property
     def array(self) -> Optional[Union[NDArray, DeviceNDArrayBase]]:
         """Return the attached array reference."""
-
         return self._array
 
     @array.setter
@@ -154,7 +163,6 @@ class ArrayContainer(ABC):
         self, label: str, array: Optional[Union[NDArray, DeviceNDArrayBase]]
     ) -> None:
         """Attach an array reference to ``label``."""
-
         self.get_managed_array(label).array = array
 
     def set_memory_type(self, memory_type: str) -> None:

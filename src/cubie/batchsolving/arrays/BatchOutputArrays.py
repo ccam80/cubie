@@ -43,43 +43,42 @@ class OutputArrayContainer(ArrayContainer):
         factory=lambda: ManagedArray(
             dtype=np_float32,
             stride_order=("time", "variable", "run"),
-            shape=(1, 1, 1),
+            default_shape=(1, 1, 1),
         )
     )
     observables: ManagedArray = field(
         factory=lambda: ManagedArray(
             dtype=np_float32,
             stride_order=("time", "variable", "run"),
-            shape=(1, 1, 1),
+            default_shape=(1, 1, 1),
         )
     )
     state_summaries: ManagedArray = field(
         factory=lambda: ManagedArray(
             dtype=np_float32,
             stride_order=("time", "variable", "run"),
-            shape=(1, 1, 1),
+            default_shape=(1, 1, 1),
         )
     )
     observable_summaries: ManagedArray = field(
         factory=lambda: ManagedArray(
             dtype=np_float32,
             stride_order=("time", "variable", "run"),
-            shape=(1, 1, 1),
+            default_shape=(1, 1, 1),
         )
     )
     status_codes: ManagedArray = field(
         factory=lambda: ManagedArray(
             dtype=np_int32,
             stride_order=("run",),
-            shape=(1,),
-            is_chunked=False,
+            default_shape=(1,),
         )
     )
     iteration_counters: ManagedArray = field(
         factory=lambda: ManagedArray(
             dtype=np_int32,
             stride_order=("time", "variable", "run"),
-            shape=(1, 4, 1),
+            default_shape=(1, 4, 1),
         )
     )
 
@@ -168,9 +167,6 @@ class OutputArrays(BaseArrayManager):
         validator=attrsval_instance_of(OutputArrayContainer),
         init=False,
     )
-    # _deferred_writebacks: List[DeferredWriteback] = field(
-    #     factory=list, init=False
-    # )
     _buffer_pool: ChunkBufferPool = field(factory=ChunkBufferPool, init=False)
     _watcher: WritebackWatcher = field(factory=WritebackWatcher, init=False)
     _pending_buffers: List[PendingBuffer] = field(factory=list, init=False)
@@ -243,12 +239,8 @@ class OutputArrays(BaseArrayManager):
         used for staging during transfers.
         """
         for name, slot in self.host.iter_managed_arrays():
-            device_slot = self.device.get_managed_array(name)
             # Convert to regular numpy only for arrays with chunked transfers
-            if (
-                slot.memory_type == "pinned"
-                and device_slot.needs_chunked_transfer
-            ):
+            if slot.memory_type == "pinned" and slot.needs_chunked_transfer:
                 old_array = slot.array
                 if old_array is not None:
                     new_array = self._memory_manager.create_host_array(
@@ -388,7 +380,6 @@ class OutputArrays(BaseArrayManager):
         new_arrays = {}
         for name, slot in self.host.iter_managed_arrays():
             newshape = getattr(self._sizes, name)
-            slot.shape = newshape
             dtype = slot.dtype
             if np_issubdtype(dtype, np_floating):
                 slot.dtype = self._precision
@@ -406,7 +397,6 @@ class OutputArrays(BaseArrayManager):
                     newshape, dtype, slot.memory_type
                 )
         for name, slot in self.device.iter_managed_arrays():
-            slot.shape = getattr(self._sizes, name)
             dtype = slot.dtype
             if np_issubdtype(dtype, np_floating):
                 slot.dtype = self._precision
@@ -447,7 +437,7 @@ class OutputArrays(BaseArrayManager):
 
             to_target = host_array
             from_target = device_array
-            if device_slot.needs_chunked_transfer:
+            if slot.needs_chunked_transfer:
                 slice_tuple = slot.chunked_slice_fn(chunk_index)
                 host_slice = host_array[slice_tuple]
                 # Chunked mode: use buffer pool and watcher
