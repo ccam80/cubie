@@ -1,6 +1,5 @@
 """Tests for BatchSolverKernel.chunk_axis property and setter."""
 
-import numpy as np
 import pytest
 
 
@@ -57,17 +56,16 @@ class TestChunkAxisInRun:
     """Tests for chunk_axis handling in solver.solve()."""
 
     def test_run_sets_chunk_axis_on_arrays(
-        self, solver_mutable, precision, driver_settings
+        self, solver_mutable, system, driver_settings
     ):
         """Verify solve() sets chunk_axis before array operations."""
         solver = solver_mutable
 
-        inits = np.ones(
-            (solver.system_sizes.states, 1), dtype=precision
-        )
-        params = np.ones(
-            (solver.system_sizes.parameters, 1), dtype=precision
-        )
+        # Use dictionaries for input, which get processed by the input handler
+        state_names = list(system.initial_values.names)
+        param_names = list(system.parameters.names)
+        inits = {state_names[0]: [1.0]}
+        params = {param_names[0]: [1.0]}
 
         solver.solve(
             initial_values=inits,
@@ -82,17 +80,16 @@ class TestChunkAxisInRun:
         assert solver.kernel.output_arrays._chunk_axis == "time"
 
     def test_chunk_axis_property_after_run(
-        self, solver_mutable, precision, driver_settings
+        self, solver_mutable, system, driver_settings
     ):
         """Verify chunk_axis property returns correct value after solve."""
         solver = solver_mutable
 
-        inits = np.ones(
-            (solver.system_sizes.states, 1), dtype=precision
-        )
-        params = np.ones(
-            (solver.system_sizes.parameters, 1), dtype=precision
-        )
+        # Use dictionaries for input, which get processed by the input handler
+        state_names = list(system.initial_values.names)
+        param_names = list(system.parameters.names)
+        inits = {state_names[0]: [1.0]}
+        params = {param_names[0]: [1.0]}
 
         solver.solve(
             initial_values=inits,
