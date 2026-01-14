@@ -1069,3 +1069,71 @@ def device_loop_outputs(
         solver_config=solver_settings,
         driver_array=driver_array,
     )
+
+
+# --------------------------------------------------------------------------- #
+#                       Chunked Array Test Helpers                            #
+# --------------------------------------------------------------------------- #
+
+
+def make_slice_fn(run_axis_idx, chunk_size, ndim):
+    """Create a slice function for chunked array access.
+
+    Returns a callable that generates index tuples to extract a chunk from
+    an array, slicing the run axis while preserving other dimensions.
+
+    Parameters
+    ----------
+    run_axis_idx : int
+        Index of the run axis in the array's shape.
+    chunk_size : int
+        Number of runs per chunk.
+    ndim : int
+        Number of dimensions in the array.
+
+    Returns
+    -------
+    callable
+        A function that takes a chunk index and returns a tuple of slices.
+    """
+    def slice_fn(chunk_idx):
+        slices = [slice(None)] * ndim
+        start = chunk_idx * chunk_size
+        end = start + chunk_size
+        slices[run_axis_idx] = slice(start, end)
+        return tuple(slices)
+    return slice_fn
+
+
+def setup_chunked_arrays(manager, num_runs, num_chunks):
+    """Configure chunked_shape and chunked_slice_fn on array manager slots.
+
+    Sets up both host and device slots in the manager for chunked transfers.
+    Arrays with 'run' in their stride_order get chunked shapes; others are
+    left unchanged.
+
+    Parameters
+    ----------
+    manager : InputArrays or OutputArrays
+        The array manager with host and device containers.
+    num_runs : int
+        Total number of runs across all chunks.
+    num_chunks : int
+        Number of chunks to split runs into.
+    """
+    chunk_size = max(1, num_runs // num_chunks)
+
+    for name, device_slot in manager.device.iter_managed_arrays():
+        if "run" in device_slot.stride_order:
+            run_idx = device_slot.stride_order.index("run")
+            chunked = list(device_slot.shape)
+            chunked[run_idx] = chunk_size
+            chunked_shape = tuple(chunked)
+            ndim = len(device_slot.shape)
+            slice_fn = make_slice_fn(run_idx, chunk_size, ndim)
+            device_slot.chunked_shape = chunked_shape
+            device_slot.chunked_slice_fn = slice_fn
+            # Also configure corresponding host array
+            host_slot = manager.host.get_managed_array(name)
+            host_slot.chunked_shape = chunked_shape
+            host_slot.chunked_slice_fn = slice_fn

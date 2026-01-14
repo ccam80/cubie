@@ -8,6 +8,7 @@ from cubie.batchsolving.arrays.BatchOutputArrays import (
 )
 from cubie.memory.mem_manager import MemoryManager
 from cubie.outputhandling.output_sizes import BatchOutputSizes
+from tests.conftest import make_slice_fn
 
 
 @pytest.fixture(scope="session")
@@ -683,15 +684,6 @@ class TestNeedsChunkedTransferBranching:
         # Set up chunked allocation scenario: 2 chunks
         chunk_size = max(1, num_runs // 2)
 
-        def make_slice_fn(run_axis_idx, chunk_sz, ndim):
-            def slice_fn(chunk_idx):
-                slices = [slice(None)] * ndim
-                start = chunk_idx * chunk_sz
-                end = start + chunk_sz
-                slices[run_axis_idx] = slice(start, end)
-                return tuple(slices)
-            return slice_fn
-
         # Mark status_codes as unchunkable for this test scenario
         status_codes_slot = output_arrays_manager.device.get_managed_array(
             "status_codes"
@@ -784,15 +776,6 @@ class TestNeedsChunkedTransferBranching:
 
         num_runs = output_arrays_manager.state.shape[2]
         chunk_size = max(1, num_runs // 2)
-
-        def make_slice_fn(run_axis_idx, chunk_sz, ndim):
-            def slice_fn(chunk_idx):
-                slices = [slice(None)] * ndim
-                start = chunk_idx * chunk_sz
-                end = start + chunk_sz
-                slices[run_axis_idx] = slice(start, end)
-                return tuple(slices)
-            return slice_fn
 
         # Mark status_codes as unchunkable for this test scenario
         status_codes_slot = output_arrays_manager.device.get_managed_array(

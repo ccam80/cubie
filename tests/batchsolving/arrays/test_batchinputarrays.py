@@ -10,6 +10,7 @@ from cubie.batchsolving.arrays.BatchInputArrays import (
 from cubie.memory import default_memmgr
 from cubie.memory.chunk_buffer_pool import ChunkBufferPool, PinnedBuffer
 from cubie.outputhandling.output_sizes import BatchInputSizes
+from tests.conftest import make_slice_fn, setup_chunked_arrays
 
 
 @pytest.fixture(scope="session")
@@ -497,34 +498,10 @@ class TestBufferPoolIntegration:
         input_arrays._chunks = 3
         input_arrays._chunk_axis = "run"
 
-        # Set chunked_shape and chunked_slice_fn on BOTH host and device
+        # Configure chunked_shape and chunked_slice_fn on both host and device
         # arrays to trigger needs_chunked_transfer
         num_runs = sample_input_arrays["initial_values"].shape[1]
-        chunk_size = max(1, num_runs // 3)
-
-        def make_slice_fn(run_axis_idx, chunk_sz, ndim):
-            def slice_fn(chunk_idx):
-                slices = [slice(None)] * ndim
-                start = chunk_idx * chunk_sz
-                end = start + chunk_sz
-                slices[run_axis_idx] = slice(start, end)
-                return tuple(slices)
-            return slice_fn
-
-        for name, device_slot in input_arrays.device.iter_managed_arrays():
-            if "run" in device_slot.stride_order:
-                run_idx = device_slot.stride_order.index("run")
-                chunked = list(device_slot.shape)
-                chunked[run_idx] = chunk_size
-                chunked_shape = tuple(chunked)
-                ndim = len(device_slot.shape)
-                slice_fn = make_slice_fn(run_idx, chunk_size, ndim)
-                device_slot.chunked_shape = chunked_shape
-                device_slot.chunked_slice_fn = slice_fn
-                # Also set on corresponding host array
-                host_slot = input_arrays.host.get_managed_array(name)
-                host_slot.chunked_shape = chunked_shape
-                host_slot.chunked_slice_fn = slice_fn
+        setup_chunked_arrays(input_arrays, num_runs, num_chunks=3)
 
         # Clear any existing active buffers
         input_arrays._active_buffers.clear()
@@ -556,33 +533,9 @@ class TestBufferPoolIntegration:
         input_arrays._chunks = 3
         input_arrays._chunk_axis = "run"
 
-        # Set chunked_shape and chunked_slice_fn on BOTH host and device
+        # Configure chunked_shape and chunked_slice_fn on both host and device
         num_runs = sample_input_arrays["initial_values"].shape[1]
-        chunk_size = max(1, num_runs // 3)
-
-        def make_slice_fn(run_axis_idx, chunk_sz, ndim):
-            def slice_fn(chunk_idx):
-                slices = [slice(None)] * ndim
-                start = chunk_idx * chunk_sz
-                end = start + chunk_sz
-                slices[run_axis_idx] = slice(start, end)
-                return tuple(slices)
-            return slice_fn
-
-        for name, device_slot in input_arrays.device.iter_managed_arrays():
-            if "run" in device_slot.stride_order:
-                run_idx = device_slot.stride_order.index("run")
-                chunked = list(device_slot.shape)
-                chunked[run_idx] = chunk_size
-                chunked_shape = tuple(chunked)
-                ndim = len(device_slot.shape)
-                slice_fn = make_slice_fn(run_idx, chunk_size, ndim)
-                device_slot.chunked_shape = chunked_shape
-                device_slot.chunked_slice_fn = slice_fn
-                # Also set on corresponding host array
-                host_slot = input_arrays.host.get_managed_array(name)
-                host_slot.chunked_shape = chunked_shape
-                host_slot.chunked_slice_fn = slice_fn
+        setup_chunked_arrays(input_arrays, num_runs, num_chunks=3)
 
         # Call initialise to acquire buffers
         input_arrays.initialise(0)
@@ -644,32 +597,9 @@ class TestBufferPoolIntegration:
         input_arrays._chunks = 3
         input_arrays._chunk_axis = "run"
         num_runs = sample_input_arrays["initial_values"].shape[1]
-        chunk_size = max(1, num_runs // 3)
 
-        def make_slice_fn(run_axis_idx, chunk_sz, ndim):
-            def slice_fn(chunk_idx):
-                slices = [slice(None)] * ndim
-                start = chunk_idx * chunk_sz
-                end = start + chunk_sz
-                slices[run_axis_idx] = slice(start, end)
-                return tuple(slices)
-            return slice_fn
-
-        # Set chunked_shape and chunked_slice_fn on BOTH host and device
-        for name, device_slot in input_arrays.device.iter_managed_arrays():
-            if "run" in device_slot.stride_order:
-                run_idx = device_slot.stride_order.index("run")
-                chunked = list(device_slot.shape)
-                chunked[run_idx] = chunk_size
-                chunked_shape = tuple(chunked)
-                ndim = len(device_slot.shape)
-                slice_fn = make_slice_fn(run_idx, chunk_size, ndim)
-                device_slot.chunked_shape = chunked_shape
-                device_slot.chunked_slice_fn = slice_fn
-                # Also set on corresponding host array
-                host_slot = input_arrays.host.get_managed_array(name)
-                host_slot.chunked_shape = chunked_shape
-                host_slot.chunked_slice_fn = slice_fn
+        # Configure chunked_shape and chunked_slice_fn on both host and device
+        setup_chunked_arrays(input_arrays, num_runs, num_chunks=3)
 
         input_arrays.initialise(0)
 
@@ -700,32 +630,9 @@ class TestBufferPoolIntegration:
         input_arrays._chunks = 3
         input_arrays._chunk_axis = "run"
         num_runs = sample_input_arrays["initial_values"].shape[1]
-        chunk_size = max(1, num_runs // 3)
 
-        def make_slice_fn(run_axis_idx, chunk_sz, ndim):
-            def slice_fn(chunk_idx):
-                slices = [slice(None)] * ndim
-                start = chunk_idx * chunk_sz
-                end = start + chunk_sz
-                slices[run_axis_idx] = slice(start, end)
-                return tuple(slices)
-            return slice_fn
-
-        # Set chunked_shape and chunked_slice_fn on BOTH host and device
-        for name, device_slot in input_arrays.device.iter_managed_arrays():
-            if "run" in device_slot.stride_order:
-                run_idx = device_slot.stride_order.index("run")
-                chunked = list(device_slot.shape)
-                chunked[run_idx] = chunk_size
-                chunked_shape = tuple(chunked)
-                ndim = len(device_slot.shape)
-                slice_fn = make_slice_fn(run_idx, chunk_size, ndim)
-                device_slot.chunked_shape = chunked_shape
-                device_slot.chunked_slice_fn = slice_fn
-                # Also set on corresponding host array
-                host_slot = input_arrays.host.get_managed_array(name)
-                host_slot.chunked_shape = chunked_shape
-                host_slot.chunked_slice_fn = slice_fn
+        # Configure chunked_shape and chunked_slice_fn on both host and device
+        setup_chunked_arrays(input_arrays, num_runs, num_chunks=3)
 
         # First chunk
         input_arrays.initialise(0)
