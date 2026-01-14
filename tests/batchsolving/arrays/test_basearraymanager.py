@@ -1741,11 +1741,27 @@ def test_chunked_shape_propagates_through_allocation(test_memory_manager):
         "arr2": expected_chunked_shape,
     }
 
+    # Slice function for chunking on run axis (index 2)
+    def make_slice_fn(run_axis_idx, chunk_size):
+        def slice_fn(chunk_idx):
+            slices = [slice(None)] * 3
+            start = chunk_idx * chunk_size
+            end = start + chunk_size
+            slices[run_axis_idx] = slice(start, end)
+            return tuple(slices)
+        return slice_fn
+
+    chunked_slices = {
+        "arr1": make_slice_fn(2, 2),  # run is axis 2, chunk_size is 2
+        "arr2": make_slice_fn(2, 2),
+    }
+
     response = ArrayResponse(
         arr={"arr1": arr1, "arr2": arr2},
         chunks=2,
         chunk_axis="run",
         chunked_shapes=chunked_shapes,
+        chunked_slices=chunked_slices,
     )
 
     # Mark arrays as needing reallocation
