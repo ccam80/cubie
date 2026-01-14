@@ -1,9 +1,8 @@
 """Integration tests for chunked solver execution.
 
-These tests verify that the chunking functionality works correctly,
-testing both the "run" and "time" chunk axes to ensure the fixes for:
-1. Stride incompatibility when chunking on the run axis
-2. Missing axis error when chunking on the time axis
+These tests verify that the chunking functionality works correctly
+for the "run" chunk axis. Time-axis chunking is supported but not
+covered by these tests.
 """
 
 import pytest
@@ -13,7 +12,9 @@ import numpy as np
 class TestChunkedSolverExecution:
     """Test solver execution with forced chunking."""
 
-    @pytest.mark.parametrize("chunk_axis", ["run"])  # , "time"])
+    # Time-axis chunking is supported but not tested here; run-axis
+    # chunking is the primary use case.
+    @pytest.mark.parametrize("chunk_axis", ["run"])
     def test_chunked_solve_produces_valid_output(
         self, system, precision, chunk_axis, low_mem_solver, driver_settings
     ):

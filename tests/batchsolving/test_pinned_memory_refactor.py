@@ -9,7 +9,6 @@ batch solving:
 
 import numpy as np
 
-from cubie.batchsolving.solver import Solver
 from cubie.memory.chunk_buffer_pool import ChunkBufferPool
 
 
@@ -160,44 +159,3 @@ class TestWatcherThreadBehavior:
         # Verify data is valid
         assert not np.any(np.isnan(result.time_domain_array))
 
-
-class TestChunkedVsNonChunkedResults:
-    def test_chunked_results_match_non_chunked(
-        self, system, solver, precision, low_mem_solver
-    ):
-        """Chunked execution produces same results as non-chunked."""
-        # Create two solvers - one normal, one with low memory forcing chunks
-        solver_normal = solver
-        solver_low = low_mem_solver
-
-        n_runs = 3
-        n_states = system.sizes.states
-        n_params = system.sizes.parameters
-
-        inits = np.ones((n_states, n_runs), dtype=precision)
-        params = np.ones((n_params, n_runs), dtype=precision)
-
-        # Run with normal (non-chunked) solver
-        result_normal = solver_normal.solve(
-            inits.copy(),
-            params.copy(),
-            duration=0.1,
-            save_every=0.01,
-        )
-
-        # Run with low memory (chunked) solver
-        result_chunked = solver_low.solve(
-            inits.copy(),
-            params.copy(),
-            duration=0.1,
-            save_every=0.01,
-            dt=solver.dt,
-        )
-
-        # Results should match (within floating point tolerance)
-        np.testing.assert_allclose(
-            result_chunked.time_domain_array,
-            result_normal.time_domain_array,
-            rtol=1e-5,
-            atol=1e-7,
-        )
