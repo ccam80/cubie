@@ -487,6 +487,8 @@ class TestBufferPoolIntegration:
             sample_input_arrays["parameters"],
             sample_input_arrays["driver_coefficients"],
         )
+        # Allocate device arrays via memory manager
+        default_memmgr.allocate_queue(input_arrays, chunk_axis="run")
 
         # Configure for chunked mode (multiple chunks)
         input_arrays._chunks = 3
@@ -544,6 +546,8 @@ class TestBufferPoolIntegration:
             sample_input_arrays["parameters"],
             sample_input_arrays["driver_coefficients"],
         )
+        # Allocate device arrays via memory manager
+        default_memmgr.allocate_queue(input_arrays, chunk_axis="run")
 
         # Configure for chunked mode
         input_arrays._chunks = 3
@@ -630,6 +634,8 @@ class TestBufferPoolIntegration:
             sample_input_arrays["parameters"],
             sample_input_arrays["driver_coefficients"],
         )
+        # Allocate device arrays via memory manager
+        default_memmgr.allocate_queue(input_arrays, chunk_axis="run")
 
         # Configure for chunked mode and run initialise
         input_arrays._chunks = 3

@@ -69,14 +69,18 @@ class TestChunkAxisInRun:
             (solver.system_sizes.parameters, 1), dtype=precision
         )
 
-        coefficients = (
-            driver_array.coefficients if driver_array is not None else None
-        )
+        drivers = None
+        if driver_array is not None:
+            # Pass the driver_settings dict, not coefficients
+            drivers = {
+                "placeholder": np.zeros(6, dtype=precision),
+                "dt": 0.1,
+            }
 
         solver.solve(
-            inits=inits,
-            params=params,
-            driver_coefficients=coefficients,
+            initial_values=inits,
+            parameters=params,
+            drivers=drivers,
             duration=0.1,
             chunk_axis="time",
         )
@@ -98,14 +102,18 @@ class TestChunkAxisInRun:
             (solver.system_sizes.parameters, 1), dtype=precision
         )
 
-        coefficients = (
-            driver_array.coefficients if driver_array is not None else None
-        )
+        drivers = None
+        if driver_array is not None:
+            # Pass the driver_settings dict, not coefficients
+            drivers = {
+                "placeholder": np.zeros(6, dtype=precision),
+                "dt": 0.1,
+            }
 
         solver.solve(
-            inits=inits,
-            params=params,
-            driver_coefficients=coefficients,
+            initial_values=inits,
+            parameters=params,
+            drivers=drivers,
             duration=0.1,
             chunk_axis="time",
         )

@@ -668,6 +668,9 @@ class TestNeedsChunkedTransferBranching:
         """
         from cubie.memory.array_requests import ArrayResponse
 
+        # Set num_runs large enough to make chunking meaningful
+        solver.kernel.num_runs = 5
+
         # Allocate first to set up arrays
         output_arrays_manager.update(solver)
         test_memory_manager.allocate_queue(
@@ -763,6 +766,9 @@ class TestNeedsChunkedTransferBranching:
         directly without buffering.
         """
         from cubie.memory.array_requests import ArrayResponse
+
+        # Set num_runs large enough to make chunking meaningful
+        solver.kernel.num_runs = 5
 
         # Allocate first
         output_arrays_manager.update(solver)
