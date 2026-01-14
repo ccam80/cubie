@@ -10,14 +10,15 @@ from importlib.metadata import version
 # These are not actionable for CuBIE users,
 # so they are filtered at import time.
 import os
+
 os.environ["NUMBA_CUDA_LOW_OCCUPANCY_WARNINGS"] = "0"
 
-from cubie.batchsolving import *        # noqa
-from cubie.integrators import *         # noqa
-from cubie.outputhandling import *      # noqa
-from cubie.memory import *              # noqa
-from cubie.odesystems import *        # noqa
-from cubie._utils import *              # noqa
+from cubie.batchsolving import *  # noqa
+from cubie.integrators import *  # noqa
+from cubie.outputhandling import *  # noqa
+from cubie.memory import *  # noqa
+from cubie.odesystems import *  # noqa
+from cubie._utils import *  # noqa
 from cubie.time_logger import TimeLogger, default_timelogger
 
 __all__ = [

@@ -179,7 +179,10 @@ class TestTimeLogger:
         assert result3 is None
 
     def test_print_summary_default_verbosity(self, capsys):
-        """Test summary output at default verbosity."""
+        """Test summary output at default verbosity.
+        
+        Default mode prints one line per category: "codegen completed in xs"
+        """
         logger = TimeLogger(verbosity="default")
         logger.register_event("codegen", "codegen", "Code generation")
         logger.start_event("codegen")
@@ -188,10 +191,15 @@ class TestTimeLogger:
         
         logger.print_summary()
         captured = capsys.readouterr()
-        assert "Timing Summary" in captured.out
+        assert "codegen completed in" in captured.out
 
     def test_print_summary_verbose(self, capsys):
-        """Test summary output at verbose level."""
+        """Test summary output at verbose level.
+        
+        Verbose mode prints inline: "Starting [event]..." then 
+        "completed in x seconds" when the event stops.
+        Summary shows category totals at the end.
+        """
         logger = TimeLogger(verbosity="verbose")
         logger.register_event("codegen", "codegen", "Code generation")
         logger.register_event("codegen.component1", "codegen", "Component 1")
@@ -203,11 +211,18 @@ class TestTimeLogger:
         
         logger.print_summary()
         captured = capsys.readouterr()
-        # Verbose mode prints during stop_event
-        assert "codegen.component1" in captured.out
+        # Verbose mode prints "Starting..." during start_event and 
+        # "completed in..." during stop_event, then category totals
+        assert "Starting" in captured.out
+        assert "completed in" in captured.out
+        assert "Codegen total:" in captured.out
 
     def test_print_summary_debug(self, capsys):
-        """Test summary output at debug level."""
+        """Test summary output at debug level.
+        
+        Debug mode prints individual start/stop messages and a
+        category summary at the end.
+        """
         logger = TimeLogger(verbosity="debug")
         logger.register_event("test", "runtime", "Test event")
         logger.start_event("test")
@@ -219,6 +234,8 @@ class TestTimeLogger:
         # Debug mode prints during events
         assert "DEBUG" in captured.out
         assert "progress" in captured.out.lower()
+        # Debug mode also prints summary at end
+        assert "Summary" in captured.out
 
     def test_get_aggregate_durations(self):
         """Test aggregating event durations."""
@@ -345,8 +362,9 @@ class TestTimeLogger:
     def test_print_summary_by_category(self, capsys):
         """Test printing summary for specific categories.
         
-        Each print_summary call clears events, so we use separate logger
-        instances for each category test.
+        In default mode, print_summary prints one line per category:
+        "codegen completed in xs" format. Test that only the requested
+        category is printed when filtering.
         """
         # Test codegen category summary
         logger = TimeLogger(verbosity="default")
@@ -365,10 +383,9 @@ class TestTimeLogger:
         
         logger.print_summary(category="codegen")
         captured = capsys.readouterr()
-        assert "Codegen Timing Summary" in captured.out
-        assert "codegen1" in captured.out
-        assert "compile1" not in captured.out
-        assert "runtime1" not in captured.out
+        assert "codegen completed in" in captured.out
+        assert "compile" not in captured.out
+        assert "runtime" not in captured.out
         
         # Test compile category summary (fresh logger)
         logger = TimeLogger(verbosity="default")
@@ -387,10 +404,9 @@ class TestTimeLogger:
         
         logger.print_summary(category="compile")
         captured = capsys.readouterr()
-        assert "Compile Timing Summary" in captured.out
-        assert "compile1" in captured.out
-        assert "codegen1" not in captured.out
-        assert "runtime1" not in captured.out
+        assert "compile completed in" in captured.out
+        assert "codegen" not in captured.out
+        assert "runtime" not in captured.out
         
         # Test runtime category summary (fresh logger)
         logger = TimeLogger(verbosity="default")
@@ -409,10 +425,9 @@ class TestTimeLogger:
         
         logger.print_summary(category="runtime")
         captured = capsys.readouterr()
-        assert "Runtime Timing Summary" in captured.out
-        assert "runtime1" in captured.out
-        assert "codegen1" not in captured.out
-        assert "compile1" not in captured.out
+        assert "runtime completed in" in captured.out
+        assert "codegen" not in captured.out
+        assert "compile" not in captured.out
 
         # Test all categories summary (fresh logger)
         logger = TimeLogger(verbosity="default")
@@ -431,10 +446,9 @@ class TestTimeLogger:
         
         logger.print_summary()
         captured = capsys.readouterr()
-        assert "Timing Summary" in captured.out
-        assert "codegen1" in captured.out
-        assert "compile1" in captured.out
-        assert "runtime1" in captured.out
+        assert "codegen completed in" in captured.out
+        assert "compile completed in" in captured.out
+        assert "runtime completed in" in captured.out
 
 
 @pytest.mark.nocudasim

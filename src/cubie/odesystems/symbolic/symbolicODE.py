@@ -45,6 +45,7 @@ from cubie.odesystems.baseODE import BaseODE, ODECache
 from cubie._utils import PrecisionDType
 from cubie.time_logger import default_timelogger
 
+
 def create_ODE_system(
     dxdt: Union[str, Iterable[str]],
     precision: PrecisionDType = float32,
@@ -108,6 +109,7 @@ def create_ODE_system(
         strict=strict,
     )
     return symbolic_ode
+
 
 class SymbolicODE(BaseODE):
     """Symbolic representation of an ODE system.
@@ -183,7 +185,6 @@ class SymbolicODE(BaseODE):
                 equations,
                 constants,
                 observable_labels=all_indexed_bases.observables.ref_map.keys(),
-                parameter_labels=all_indexed_bases.parameters.ref_map.keys(),
             )
         if name is None:
             name = fn_hash
@@ -206,7 +207,7 @@ class SymbolicODE(BaseODE):
             observables=all_indexed_bases.observable_names,
             precision=precision,
             num_drivers=ndriv,
-            name=name
+            name=name,
         )
         self._jacobian_aux_count: Optional[int] = None
         self._jvp_exprs: Optional[JVPEquations] = None
@@ -227,7 +228,9 @@ class SymbolicODE(BaseODE):
         state_units: Optional[Union[dict[str, str], Iterable[str]]] = None,
         parameter_units: Optional[Union[dict[str, str], Iterable[str]]] = None,
         constant_units: Optional[Union[dict[str, str], Iterable[str]]] = None,
-        observable_units: Optional[Union[dict[str, str], Iterable[str]]] = None,
+        observable_units: Optional[
+            Union[dict[str, str], Iterable[str]]
+        ] = None,
         driver_units: Optional[Union[dict[str, str], Iterable[str]]] = None,
     ) -> "SymbolicODE":
         """Parse user inputs and instantiate a :class:`SymbolicODE`.
@@ -284,8 +287,11 @@ class SymbolicODE(BaseODE):
             ArrayInterpolator(precision=precision, drivers_dict=drivers)
 
         # Register timing event for parsing (one-time registration)
-        default_timelogger.register_event("symbolic_ode_parsing", "codegen",
-                                           "Codegen time for symbolic ODE parsing")
+        default_timelogger.register_event(
+            "symbolic_ode_parsing",
+            "codegen",
+            "Codegen time for symbolic ODE parsing",
+        )
 
         # Start timing for parsing operation
         default_timelogger.start_event("symbolic_ode_parsing")
@@ -305,16 +311,17 @@ class SymbolicODE(BaseODE):
             driver_units=driver_units,
         )
         index_map, all_symbols, functions, equations, fn_hash = sys_components
-        symbolic_ode = cls(equations=equations,
-                           all_indexed_bases=index_map,
-                           all_symbols=all_symbols,
-                           name=name,
-                           fn_hash=fn_hash,
-                           user_functions = functions,
-                           precision=precision)
+        symbolic_ode = cls(
+            equations=equations,
+            all_indexed_bases=index_map,
+            all_symbols=all_symbols,
+            name=name,
+            fn_hash=fn_hash,
+            user_functions=functions,
+            precision=precision,
+        )
         default_timelogger.stop_event("symbolic_ode_parsing")
         return symbolic_ode
-
 
     @property
     def jacobian_aux_count(self) -> Optional[int]:
@@ -375,7 +382,6 @@ class SymbolicODE(BaseODE):
             self.equations,
             self.indices.constants.default_values,
             observable_labels=self.indices.observables.ref_map.keys(),
-            parameter_labels=self.indices.parameters.ref_map.keys(),
         )
         if new_hash != self.fn_hash:
             self.gen_file = ODEFile(self.name, new_hash)
@@ -384,13 +390,15 @@ class SymbolicODE(BaseODE):
         dxdt_code = generate_dxdt_fac_code(
             self.equations, self.indices, "dxdt_factory"
         )
-        dxdt_factory = self.gen_file.import_function("dxdt_factory", dxdt_code)
+        dxdt_factory, _ = self.gen_file.import_function(
+            "dxdt_factory", dxdt_code
+        )
         dxdt_func = dxdt_factory(constants, numba_precision)
 
         observables_code = generate_observables_fac_code(
             self.equations, self.indices, func_name="observables_factory"
         )
-        observables_factory = self.gen_file.import_function(
+        observables_factory, _ = self.gen_file.import_function(
             "observables_factory", observables_code
         )
         evaluate_observables = observables_factory(constants, numba_precision)
@@ -399,7 +407,6 @@ class SymbolicODE(BaseODE):
             dxdt=dxdt_func,
             observables=evaluate_observables,
         )
-
 
     def set_constants(
         self,
@@ -429,8 +436,7 @@ class SymbolicODE(BaseODE):
         to :meth:`BaseODE.set_constants` for cache management.
         """
         self.indices.update_constants(updates_dict, **kwargs)
-        recognized = super().set_constants(updates_dict,
-                                 silent=silent)
+        recognized = super().set_constants(updates_dict, silent=silent)
         return recognized
 
     def get_solver_helper(
@@ -496,8 +502,11 @@ class SymbolicODE(BaseODE):
         event_name = f"solver_helper_{func_type}"
 
         if event_name not in self.registered_helper_events:
-            default_timelogger.register_event(event_name, "codegen",
-                                               f"Codegen time for solver helper {func_type}")
+            default_timelogger.register_event(
+                event_name,
+                "codegen",
+                f"Codegen time for solver helper {func_type}",
+            )
             self.registered_helper_events.add(event_name)
 
         try:
@@ -506,8 +515,21 @@ class SymbolicODE(BaseODE):
         except NotImplementedError:
             pass
 
-        # Start timing for helper generation
-        default_timelogger.start_event(event_name)
+        # Determine factory_name for n_stage helpers (needed to check cache)
+        if func_type == "n_stage_residual":
+            factory_name = f"n_stage_residual_{len(stage_nodes)}"
+        elif func_type == "n_stage_linear_operator":
+            factory_name = f"n_stage_linear_operator_{len(stage_nodes)}"
+        elif func_type == "n_stage_neumann_preconditioner":
+            factory_name = f"n_stage_neumann_preconditioner_{len(stage_nodes)}"
+        else:
+            factory_name = func_type
+
+        # Check if function is already in file cache (skipped if so)
+        is_cached = self.gen_file.function_is_cached(factory_name)
+
+        # Start timing for helper generation, marking as skipped if cached
+        default_timelogger.start_event(event_name, skipped=is_cached)
         numba_precision = self.numba_precision
         constants = self.constants.values_dict
 
@@ -515,13 +537,13 @@ class SymbolicODE(BaseODE):
             "constants": constants,
             "precision": numba_precision,
         }
-        factory_name = func_type
+        # factory_name already set above based on func_type
         if func_type == "linear_operator":
             code = generate_operator_apply_code(
                 self.equations,
                 self.indices,
                 M=mass,
-                func_name=func_type,
+                func_name=factory_name,
                 jvp_equations=self._get_jvp_exprs(),
             )
             factory_kwargs.update(
@@ -534,7 +556,7 @@ class SymbolicODE(BaseODE):
                 self.equations,
                 self.indices,
                 M=mass,
-                func_name=func_type,
+                func_name=factory_name,
                 jvp_equations=self._get_jvp_exprs(),
             )
             factory_kwargs.update(
@@ -546,7 +568,7 @@ class SymbolicODE(BaseODE):
             code, aux_count = generate_prepare_jac_code(
                 self.equations,
                 self.indices,
-                func_name=func_type,
+                func_name=factory_name,
                 jvp_equations=self._get_jvp_exprs(),
             )
             self._jacobian_aux_count = aux_count
@@ -559,14 +581,14 @@ class SymbolicODE(BaseODE):
             code = generate_cached_jvp_code(
                 self.equations,
                 self.indices,
-                func_name=func_type,
+                func_name=factory_name,
                 jvp_equations=self._get_jvp_exprs(),
             )
         elif func_type == "neumann_preconditioner":
             code = generate_neumann_preconditioner_code(
                 self.equations,
                 self.indices,
-                func_type,
+                factory_name,
                 jvp_equations=self._get_jvp_exprs(),
             )
             factory_kwargs.update(
@@ -578,7 +600,7 @@ class SymbolicODE(BaseODE):
             code = generate_neumann_preconditioner_cached_code(
                 self.equations,
                 self.indices,
-                func_type,
+                factory_name,
                 jvp_equations=self._get_jvp_exprs(),
             )
             factory_kwargs.update(
@@ -591,7 +613,7 @@ class SymbolicODE(BaseODE):
                 self.equations,
                 self.indices,
                 M=mass,
-                func_name="stage_residual",
+                func_name=factory_name,
             )
             factory_kwargs.update(
                 beta=beta,
@@ -602,33 +624,30 @@ class SymbolicODE(BaseODE):
             code = generate_time_derivative_fac_code(
                 self.equations,
                 self.indices,
-                func_name=func_type,
+                func_name=factory_name,
             )
         elif func_type == "n_stage_residual":
-            helper_name = f"n_stage_residual_{len(stage_nodes)}"
             code = generate_n_stage_residual_code(
                 equations=self.equations,
                 index_map=self.indices,
                 stage_coefficients=stage_coefficients,
                 stage_nodes=stage_nodes,
                 M=mass,
-                func_name=helper_name,
+                func_name=factory_name,
             )
             factory_kwargs.update(
                 beta=beta,
                 gamma=gamma,
                 order=preconditioner_order,
             )
-            factory_name = helper_name
         elif func_type == "n_stage_linear_operator":
-            helper_name = f"n_stage_linear_operator_{len(stage_nodes)}"
             code = generate_n_stage_linear_operator_code(
                 equations=self.equations,
                 index_map=self.indices,
                 stage_coefficients=stage_coefficients,
                 stage_nodes=stage_nodes,
                 M=mass,
-                func_name=helper_name,
+                func_name=factory_name,
                 jvp_equations=self._get_jvp_exprs(),
             )
             factory_kwargs.update(
@@ -636,17 +655,13 @@ class SymbolicODE(BaseODE):
                 gamma=gamma,
                 order=preconditioner_order,
             )
-            factory_name = helper_name
         elif func_type == "n_stage_neumann_preconditioner":
-            helper_name = (
-                f"n_stage_neumann_preconditioner_{len(stage_nodes)}"
-            )
             code = generate_n_stage_neumann_preconditioner_code(
                 equations=self.equations,
                 index_map=self.indices,
                 stage_coefficients=stage_coefficients,
                 stage_nodes=stage_nodes,
-                func_name=helper_name,
+                func_name=factory_name,
                 jvp_equations=self._get_jvp_exprs(),
             )
             factory_kwargs.update(
@@ -654,13 +669,12 @@ class SymbolicODE(BaseODE):
                 gamma=gamma,
                 order=preconditioner_order,
             )
-            factory_name = helper_name
         else:
             raise NotImplementedError(
                 f"Solver helper '{func_type}' is not implemented."
             )
 
-        factory = self.gen_file.import_function(factory_name, code)
+        factory, was_cached = self.gen_file.import_function(factory_name, code)
         func = factory(**factory_kwargs)
         setattr(self._cache, func_type, func)
         default_timelogger.stop_event(event_name)

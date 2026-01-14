@@ -568,21 +568,6 @@ class LinearSolver(MatrixFreeSolver):
         return self.compile_settings.use_cached_auxiliaries
 
     @property
-    def shared_buffer_size(self) -> int:
-        """Return total shared memory elements required."""
-        return buffer_registry.shared_buffer_size(self)
-
-    @property
-    def local_buffer_size(self) -> int:
-        """Return total local memory elements required."""
-        return buffer_registry.local_buffer_size(self)
-
-    @property
-    def persistent_local_buffer_size(self) -> int:
-        """Return total persistent local memory elements required."""
-        return buffer_registry.persistent_local_buffer_size(self)
-
-    @property
     def settings_dict(self) -> Dict[str, Any]:
         """Return linear solver configuration as dictionary.
 
