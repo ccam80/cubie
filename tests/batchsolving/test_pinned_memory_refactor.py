@@ -133,10 +133,10 @@ class TestTwoTierMemoryStrategy:
 class TestWatcherThreadBehavior:
     """Test watcher thread lifecycle and behavior."""
 
-    def test_watcher_completes_all_tasks(self, system, precision, low_memory):
+    def test_watcher_completes_all_tasks(self, system, precision,
+                                         low_mem_solver):
         """All submitted tasks are completed before solve returns."""
-        solver = Solver(system, algorithm="euler", memory_manager=low_memory)
-
+        solver = low_mem_solver
         n_runs = 5
         n_states = system.sizes.states
         n_params = system.sizes.parameters
