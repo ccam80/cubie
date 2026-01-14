@@ -3,7 +3,7 @@
 # Plan Reference: .github/active_plans/remove_chunk_axis/agent_plan.md
 
 ## Task Group 1: Remove chunk_axis from Data Structures
-**Status**: [ ]
+**Status**: [x]
 **Dependencies**: None
 
 **Required Context**:
@@ -152,12 +152,23 @@
 - tests/memory/test_array_requests.py (verify ArrayResponse instantiation)
 - tests/batchsolving/test_solver.py (verify kernel initialization)
 
-**Outcomes**: 
+**Outcomes**:
+- Files Modified:
+  * src/cubie/memory/array_requests.py (7 lines changed)
+  * src/cubie/batchsolving/BatchSolverKernel.py (26 lines changed)
+- Functions/Methods Modified:
+  * ArrayResponse class in array_requests.py - removed chunk_axis field and updated docstring
+  * FullRunParams class in BatchSolverKernel.py - removed chunk_axis field and updated docstring
+  * ChunkParams class in BatchSolverKernel.py - removed _chunk_axis field and updated docstring
+- Implementation Summary:
+  Removed chunk_axis/chunk_axis fields from three data structures as specified. Updated all related docstrings to reflect that chunking always occurs along the run axis. No validation logic needed since we're removing fields, not adding them.
+- Issues Flagged:
+  None - surgical removal completed as specified 
 
 ---
 
 ## Task Group 2: Simplify ChunkParams Logic and Remove Time-Axis Branching
-**Status**: [ ]
+**Status**: [x]
 **Dependencies**: Groups [1]
 
 **Required Context**:
@@ -287,12 +298,21 @@
 - tests/batchsolving/arrays/test_chunking.py (verify run-axis chunking still works)
 - tests/batchsolving/test_solver.py (verify multi-chunk execution)
 
-**Outcomes**: 
+**Outcomes**:
+- Files Modified:
+  * src/cubie/batchsolving/BatchSolverKernel.py (45 lines changed)
+- Functions/Methods Modified:
+  * ChunkParams.from_allocation_response() in BatchSolverKernel.py - removed chunk_axis parameter extraction, updated docstring to clarify run-axis-only chunking
+  * ChunkParams.__getitem__() in BatchSolverKernel.py - removed all time-axis branching logic, simplified to only update runs parameter for run-axis chunking
+- Implementation Summary:
+  Removed chunk_axis parameter extraction from from_allocation_response() method - no longer reads alloc_response.chunk_axis field. Simplified __getitem__() by removing entire time-axis conditional branch (lines ~185-195) and all related variables (_duration, _warmup, _t0, _runs). The method now only calculates chunk length (handling dangling chunks) and returns evolve() with updated runs parameter. All other parameters (duration, warmup, t0) remain unchanged per chunk, which is correct for run-axis-only chunking.
+- Issues Flagged:
+  None - surgical simplification completed as specified 
 
 ---
 
 ## Task Group 3: Remove chunk_axis from MemoryManager
-**Status**: [ ]
+**Status**: [x]
 **Dependencies**: Groups [1, 2]
 
 **Required Context**:
@@ -455,12 +475,26 @@
 - tests/memory/test_memmgmt.py (verify allocate_queue works without chunk_axis)
 - tests/batchsolving/arrays/test_chunking.py (verify chunking still works)
 
-**Outcomes**: 
+**Outcomes**:
+- Files Modified:
+  * src/cubie/memory/mem_manager.py (73 lines changed)
+- Functions/Methods Modified:
+  * allocate_queue() - removed chunk_axis parameter, added hardcoded local variable chunk_axis="run", updated docstring
+  * get_chunk_parameters() - removed chunk_axis parameter, added hardcoded local variable chunk_axis="run", updated docstring and signature, updated call in allocate_queue()
+  * get_portioned_request_size() - removed chunk_axis parameter, added hardcoded local variable chunk_axis="run", updated docstring and signature, updated call in get_chunk_parameters()
+  * get_chunk_axis_length() - removed chunk_axis parameter, added hardcoded local variable chunk_axis="run", updated docstring and signature, updated call in allocate_queue()
+  * is_request_chunkable() - removed chunk_axis parameter, added hardcoded local variable chunk_axis="run", updated docstring and signature, updated 4 call sites (in get_portioned_request_size, get_chunk_axis_length, compute_chunked_shapes, compute_per_chunk_slice)
+  * compute_per_chunk_slice() - removed chunk_axis parameter, added hardcoded local variable chunk_axis="run", updated docstring and signature, updated call in allocate_queue()
+  * Two ArrayResponse constructions in allocate_queue() - removed chunk_axis=chunk_axis field from both constructor calls (main response and notary response)
+- Implementation Summary:
+  Removed chunk_axis parameter from allocate_queue() and all related helper functions (get_chunk_parameters, get_portioned_request_size, get_chunk_axis_length, is_request_chunkable, compute_per_chunk_slice). Each function now hardcodes chunk_axis="run" as a local variable at the start. Updated all function call sites to remove chunk_axis arguments. Removed chunk_axis field from two ArrayResponse constructions in allocate_queue(). All docstrings updated to reflect run-axis-only chunking behavior.
+- Issues Flagged:
+  None - surgical removal completed as specified 
 
 ---
 
 ## Task Group 4: Remove _chunk_axis from BaseArrayManager
-**Status**: [ ]
+**Status**: [x]
 **Dependencies**: Groups [1, 2, 3]
 
 **Required Context**:
@@ -600,12 +634,26 @@
 - tests/batchsolving/arrays/test_batchinputarrays.py
 - tests/batchsolving/arrays/test_batchoutputarrays.py
 
-**Outcomes**: 
+**Outcomes**:
+- Files Modified:
+  * src/cubie/batchsolving/arrays/BaseArrayManager.py (6 lines changed)
+- Functions/Methods Modified:
+  * BaseArrayManager class docstring - removed _chunk_axis from Attributes section, updated _chunks description to clarify run-axis-only chunking
+  * BaseArrayManager._chunk_axis field (lines 261-263) - removed field definition and validator
+  * BaseArrayManager._on_allocation_complete() (line 368) - removed self._chunk_axis assignment
+- Implementation Summary:
+  Removed _chunk_axis attribute from BaseArrayManager class by:
+  1. Removing field definition (lines 261-263) and replacing with comment
+  2. Updating class docstring (lines 224-228) to remove _chunk_axis from Attributes section and clarify that chunking is always on run axis
+  3. Removing self._chunk_axis = response.chunk_axis assignment from _on_allocation_complete() method (line 368) and replacing with explanatory comment
+  No self._chunk_axis references existed elsewhere in the file (Task 4 was not needed - thorough file search confirmed only 3 references existed).
+- Issues Flagged:
+  None - surgical removal completed as specified 
 
 ---
 
 ## Task Group 5: Remove chunk_axis from BatchSolverKernel
-**Status**: [ ]
+**Status**: [x]
 **Dependencies**: Groups [1, 2, 3, 4]
 
 **Required Context**:
@@ -779,11 +827,21 @@
 - tests/batchsolving/arrays/test_chunking.py
 
 **Outcomes**: 
+- Files Modified:
+  * src/cubie/batchsolving/BatchSolverKernel.py (41 lines changed)
+- Functions/Methods Modified:
+  * BatchSolverKernel.__init__() (line 258) - removed chunk_axis="None" from FullRunParams construction
+  * BatchSolverKernel.run() (lines 477-587) - removed chunk_axis parameter from signature, updated docstring to clarify run-axis-only chunking, removed chunk_axis from FullRunParams construction, removed chunk_axis from allocate_queue() call, removed time-axis chunking validation logic (lines 574-585)
+  * BatchSolverKernel.chunk_axis property (lines 1133-1158) - completely removed property and all validation logic
+- Implementation Summary:
+  Removed chunk_axis parameter from run() method signature and docstring. Updated docstring to document that chunking is always performed along the run axis when memory constraints require it. Removed chunk_axis field from FullRunParams construction in run() (line 537). Removed chunk_axis parameter from allocate_queue() call (line 565). Removed time-axis chunking validation block (lines 574-585) since run-axis chunking does not modify timing parameters. Deleted entire chunk_axis property (lines 1133-1158) which validated consistency between input_arrays and output_arrays. Also fixed __init__() line 258 which incorrectly passed chunk_axis="None" to FullRunParams (this was a leftover error from Task Group 1).
+- Issues Flagged:
+  None - surgical removal completed as specified
 
 ---
 
 ## Task Group 6: Remove chunk_axis from Solver Public API
-**Status**: [ ]
+**Status**: [x]
 **Dependencies**: Groups [1, 2, 3, 4, 5]
 
 **Required Context**:
@@ -978,11 +1036,23 @@
 - tests/batchsolving/arrays/test_chunking.py (verify chunking behavior)
 
 **Outcomes**: 
+- Files Modified:
+  * src/cubie/batchsolving/solver.py (9 lines changed)
+- Functions/Methods Modified:
+  * Solver.solve() method (lines 341-355) - removed chunk_axis parameter from signature
+  * Solver.solve() docstring (lines 379-415) - removed chunk_axis from Parameters section, added Note about automatic run-axis chunking in Notes section
+  * Solver.solve() method (lines 441-449) - removed chunk_axis argument from kernel.run() call
+  * Solver.chunk_axis property (lines 892-894) - completely removed property
+  * solve_ivp() function - no changes needed (does not explicitly pass chunk_axis, uses **kwargs)
+- Implementation Summary:
+  Removed chunk_axis parameter from Solver.solve() public API. Updated method signature to remove chunk_axis="run" default parameter. Removed chunk_axis from docstring Parameters section. Added note in docstring explaining that chunking is automatically performed along the run axis when memory is insufficient. Removed chunk_axis argument from kernel.run() call. Deleted chunk_axis property from Solver class (lines 892-894). The solve_ivp() function did not need changes as it passes **kwargs to solver.solve() and does not explicitly reference chunk_axis.
+- Issues Flagged:
+  None - surgical removal completed as specified. This is a breaking change for any user code that explicitly passes chunk_axis to Solver.solve() or accesses the solver.chunk_axis property.
 
 ---
 
 ## Task Group 7: Remove chunk_axis from Test Fixtures
-**Status**: [ ]
+**Status**: [x]
 **Dependencies**: Groups [1, 2, 3, 4, 5, 6]
 
 **Required Context**:
@@ -1126,12 +1196,22 @@
 **Tests to Run**:
 - tests/batchsolving/arrays/test_chunking.py (verify fixtures still work)
 
-**Outcomes**: 
+**Outcomes**:
+- Files Modified:
+  * tests/batchsolving/arrays/conftest.py (24 lines changed)
+- Fixtures Modified:
+  * chunk_axis fixture (lines 59-63) - completely removed
+  * chunked_solved_solver fixture (lines 60-94) - removed chunk_axis parameter from signature (line 68), removed chunk_axis argument from solver.solve() call (line 103), updated comment (lines 72-83) to clarify run-axis-only chunking
+  * unchunked_solved_solver fixture (lines 98-123) - removed chunk_axis parameter from signature (line 114), removed chunk_axis argument from solver.solve() call (line 133)
+- Implementation Summary:
+  Removed chunk_axis fixture entirely from tests/batchsolving/arrays/conftest.py (lines 59-63). Updated chunked_solved_solver fixture by removing chunk_axis from function signature and removing chunk_axis=chunk_axis argument from solver.solve() call, replacing with explanatory comment. Updated comments (lines 72-83) to remove time-axis chunking information and clarify run-axis-only behavior. Updated unchunked_solved_solver fixture by removing chunk_axis from function signature and removing chunk_axis=chunk_axis argument from solver.solve() call, replacing with explanatory comment.
+- Issues Flagged:
+  None - surgical removal completed as specified 
 
 ---
 
 ## Task Group 8: Remove chunk_axis Parametrization from Tests
-**Status**: [ ]
+**Status**: [x]
 **Dependencies**: Groups [1, 2, 3, 4, 5, 6, 7]
 
 **Required Context**:
@@ -1307,11 +1387,37 @@
 - tests/batchsolving/arrays/test_batchoutputarrays.py
 
 **Outcomes**: 
+- Files Modified:
+  * tests/batchsolving/arrays/test_chunking.py (49 lines changed)
+  * tests/batchsolving/arrays/test_basearraymanager.py (10 lines changed)
+  * tests/batchsolving/arrays/test_batchinputarrays.py (17 lines changed)
+  * tests/batchsolving/arrays/test_batchoutputarrays.py (23 lines changed)
+- Functions/Methods Modified:
+  * TestChunkAxisProperty class in test_chunking.py - completely removed (lines 26-50)
+  * test_run_sets_chunk_axis_on_arrays() - removed chunk_axis parameter and assertions on _chunk_axis attribute, simplified to test chunking execution
+  * test_chunked_solve_produces_valid_output() - removed chunk_axis parameter
+  * test_chunked_solver_produces_correct_results() - removed chunk_axis parametrization, kept only run-axis memory values
+  * test_chunked_uses_numpy_host() - removed chunk_axis parameter
+  * test_watcher_completes_all_tasks() - removed chunk_axis parameter
+  * Two ArrayResponse constructions in test_chunking.py - removed chunk_axis field
+  * test_check_sizes_with_chunking() in test_basearraymanager.py - hardcoded chunk_axis="run", removed _chunk_axis assignment
+  * Three ArrayResponse constructions in test_basearraymanager.py - removed chunk_axis field
+  * Two test methods in test_basearraymanager.py - removed manager._chunk_axis assignment
+  * All allocate_queue() calls in test_batchinputarrays.py (8 instances) - removed chunk_axis="run" argument
+  * All _chunk_axis assignments in test_batchinputarrays.py (6 instances) - removed
+  * test_initialise_uses_needs_chunked_transfer() - fixed logic to check needs_chunked_transfer directly instead of run in stride_order
+  * All allocate_queue() calls in test_batchoutputarrays.py (13 instances) - removed chunk_axis="run" argument
+  * All _chunk_axis assignments in test_batchoutputarrays.py (6 instances) - removed
+  * Two ArrayResponse constructions in test_batchoutputarrays.py - removed chunk_axis field
+- Implementation Summary:
+  Completed surgical removal of chunk_axis parametrization from all test files. Removed TestChunkAxisProperty class that tested the now-removed chunk_axis property on BatchSolverKernel. Removed all @pytest.mark.parametrize decorators that tested with both "run" and "time" chunk_axis values - tests now only verify run-axis chunking. Simplified test_chunked_solver_produces_correct_results by removing time-axis test values (630, 890, 1150, 1410) and keeping only run-axis values (860, 1024, 1240, 1460, 2048). Removed chunk_axis="run" arguments from all allocate_queue() calls across all test files. Removed all _chunk_axis attribute assignments in tests. Removed chunk_axis field from all ArrayResponse constructor calls. Updated test_check_sizes_with_chunking to hardcode chunk_axis="run" as local variable. All tests now assume run-axis-only chunking behavior.
+- Issues Flagged:
+  None - all chunk_axis parametrization and references removed successfully. Tests will now verify run-axis chunking behavior only.
 
 ---
 
 ## Task Group 9: Remove chunk_axis from Remaining Tests
-**Status**: [ ]
+**Status**: [x]
 **Dependencies**: Groups [1, 2, 3, 4, 5, 6, 7, 8]
 
 **Required Context**:
@@ -1439,12 +1545,25 @@
 - tests/memory/test_memmgmt.py
 - tests/memory/test_array_requests.py
 
-**Outcomes**: 
+**Outcomes**:
+- Files Modified:
+  * tests/batchsolving/test_solver.py (2 lines changed)
+  * tests/batchsolving/test_config_plumbing.py (0 lines changed - no chunk_axis references found)
+  * tests/memory/test_memmgmt.py (2 lines changed)
+  * tests/memory/test_array_requests.py (4 lines changed)
+- Functions/Methods Modified:
+  * test_chunk_related_properties() in test_solver.py - removed assert solver.chunk_axis is not None (line 428)
+  * test_get_chunk_parameters_unchunkable_exceeds_memory() in test_memmgmt.py - removed chunk_axis="run" argument from get_chunk_parameters() call (line 1052)
+  * test_array_response_has_chunked_shapes_field() in test_array_requests.py - removed chunk_axis="run" from ArrayResponse construction (line 98), updated docstring to clarify run-axis-only chunking
+- Implementation Summary:
+  Removed chunk_axis references from remaining test files. In test_solver.py, removed assertion checking solver.chunk_axis property (line 428) which no longer exists. In test_memmgmt.py, removed chunk_axis="run" argument from get_chunk_parameters() call in test_get_chunk_parameters_unchunkable_exceeds_memory() (line 1052). In test_array_requests.py, removed chunk_axis="run" field from ArrayResponse construction in test_array_response_has_chunked_shapes_field() (line 98) and updated docstring to explain run-axis-only chunking. File test_config_plumbing.py had no chunk_axis references and required no changes.
+- Issues Flagged:
+  None - all chunk_axis references successfully removed from remaining test files 
 
 ---
 
 ## Task Group 10: Final Verification and Documentation
-**Status**: [ ]
+**Status**: [x]
 **Dependencies**: Groups [1, 2, 3, 4, 5, 6, 7, 8, 9]
 
 **Required Context**:
@@ -1553,7 +1672,33 @@
 - tests/memory/test_memmgmt.py
 - tests/batchsolving/test_solver.py
 
-**Outcomes**: 
+**Outcomes**:
+- Files Modified:
+  * src/cubie/batchsolving/solver.py (4 lines changed - module docstring)
+  * src/cubie/batchsolving/BatchSolverKernel.py (4 lines changed - module docstring)
+  * src/cubie/memory/mem_manager.py (5 lines changed - module docstring)
+  * src/cubie/batchsolving/arrays/BaseArrayManager.py (5 lines changed - module docstring)
+- Verification Results:
+  * All source files reviewed - no chunk_axis code references remain
+  * Only educational comments explaining removal found (as intended)
+  * All previous task groups successfully removed chunk_axis from:
+    - Data structures (ArrayResponse, FullRunParams, ChunkParams)
+    - Method signatures (allocate_queue, get_chunk_parameters, run, solve)
+    - Properties (Solver.chunk_axis, BatchSolverKernel.chunk_axis)
+    - Test fixtures and parametrizations
+- Module Docstrings Updated:
+  * solver.py - Added Notes section documenting automatic run-axis chunking
+  * BatchSolverKernel.py - Added Notes section explaining chunking behavior
+  * mem_manager.py - Added Notes section describing run-axis chunking coordination
+  * BaseArrayManager.py - Added Notes section documenting chunking in array transfers
+- Implementation Summary:
+  Task 1: Verified all source code is clean - only explanatory comments remain (e.g., "# chunk_axis removed - hardcoded to 'run'", "# _chunk_axis assignment removed - ArrayResponse no longer has field"). These comments help future developers understand the removal.
+  Task 2: Updated solver.py module docstring to add Notes section explaining automatic run-axis chunking when memory is insufficient.
+  Task 3: Updated mem_manager.py module docstring to add Notes section describing run-axis chunking for memory management.
+  Task 4: Updated BaseArrayManager.py module docstring to add Notes section explaining run-axis chunking in array transfers.
+  Task 5: Test suite execution deferred to run_tests agent as per agent profile instructions.
+- Issues Flagged:
+  None - all chunk_axis references successfully removed from source code. Module documentation updated to reflect run-axis-only chunking behavior. Code is ready for test verification by run_tests agent. 
 
 ---
 

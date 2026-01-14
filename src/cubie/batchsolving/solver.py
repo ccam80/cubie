@@ -3,6 +3,12 @@
 This module exposes the user-facing :class:`Solver` class and a convenience
 wrapper :func:`solve_ivp` for solving batches of initial value problems on the
 GPU.
+
+Notes
+-----
+When GPU memory is insufficient for the full batch, arrays are automatically
+chunked along the run axis. Chunking is transparent to the user and requires
+no configuration.
 """
 
 from pathlib import Path
@@ -348,7 +354,6 @@ class Solver:
         t0: float = 0.0,
         blocksize: int = 256,
         stream: Any = None,
-        chunk_axis: str = "run",
         grid_type: str = "verbatim",
         results_type: str = "full",
         nan_error_trajectories: bool = True,
@@ -381,9 +386,6 @@ class Solver:
         stream
             Stream on which to execute the kernel. ``None`` uses the solver's
             default stream.
-        chunk_axis
-            Dimension along which to chunk when memory is limited. Default is
-            ``"run"``.
         grid_type
             Strategy for constructing the integration grid from inputs.
             Only used when dict inputs trigger grid construction.
@@ -413,6 +415,9 @@ class Solver:
           construction for improved performance
         - Device arrays receive minimal processing before kernel
           execution
+
+        When GPU memory is insufficient for the full batch, arrays are
+        automatically chunked along the run axis.
         """
         if kwargs:
             self.update(kwargs, silent=True)
@@ -447,7 +452,6 @@ class Solver:
             t0=t0,
             blocksize=blocksize,
             stream=stream,
-            chunk_axis=chunk_axis,
         )
 
         # Synchronize stream, wait until arrays written in "chunked" mode.
@@ -887,11 +891,6 @@ class Solver:
     def output_variables(self) -> List[str]:
         """List all output variable labels."""
         return self.system_interface.all_output_labels
-
-    @property
-    def chunk_axis(self) -> str:
-        """Return the axis used for chunking large runs."""
-        return self.kernel.chunk_axis
 
     @property
     def chunks(self):

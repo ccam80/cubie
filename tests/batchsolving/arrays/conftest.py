@@ -57,15 +57,8 @@ def unchunking_solver(
 
 
 @pytest.fixture(scope="session")
-def chunk_axis(request):
-    if hasattr(request, "param"):
-        return request.param
-    return "run"
-
-
-@pytest.fixture(scope="session")
 def chunked_solved_solver(
-    system, precision, low_mem_solver, driver_settings, chunk_axis
+    system, precision, low_mem_solver, driver_settings
 ):
     solver = low_mem_solver
 
@@ -77,19 +70,15 @@ def chunked_solved_solver(
     params = np.ones((n_params, n_runs), dtype=precision)
 
     # This run has a combined request size of 1668b, with 1080 chunkable/588
-    # unchunkable if axis is run, and 1300b chunkable/368b unchunkable if time.
+    # unchunkable along the run axis.
     # For one run per chunk:
     #  - run axis: free > 588 + 1080/5 -> 850
-    #  - time axis: free > 368 + 1300/5 -> 630b
     # Two runs per (2-2-1):
     #  - run axis: free > 588 + 1080/(5/2) -> 1024b
-    #  - time axis: free > 368 + 1300*2/5 -> 890b
     # Three runs per (3-2):
     # - run axis: free > 588 + 1080/(5/3) -> 1240
-    # - time axis: free > 368 + 1300*3/5 -> 1150b
     # Four runs per (4-1):
     # - run axis: free > 588 + 1080/(5/4) 0> 1460
-    # - time axis: free > 368 + 1300*4/5 -> 1420
     # Unchunked (5-0):
     # - 2048
     result = solver.solve(
@@ -100,7 +89,7 @@ def chunked_solved_solver(
         summarise_every=None,
         save_every=0.01,
         dt=0.01,
-        chunk_axis=chunk_axis,
+        # chunk_axis parameter removed - chunking always on run axis
     )
     return solver, result
 
@@ -111,7 +100,6 @@ def unchunked_solved_solver(
     precision,
     driver_settings,
     unchunking_solver,
-    chunk_axis,
 ):
     solver = unchunking_solver
     n_runs = 5
@@ -130,6 +118,6 @@ def unchunked_solved_solver(
         summarise_every=None,
         save_every=0.01,
         dt=0.01,
-        chunk_axis=chunk_axis,
+        # chunk_axis parameter removed - chunking always on run axis
     )
     return solver, result

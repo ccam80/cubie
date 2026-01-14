@@ -5,6 +5,10 @@ Notes
 Defines :class:`ArrayContainer` and :class:`BaseArrayManager`, which surface
 stride metadata, register with :mod:`cubie.memory`, and orchestrate queued CUDA
 allocations for batch solver workflows.
+
+Array chunking for memory management is performed along the run axis when
+batches exceed available GPU memory. The chunking process coordinates transfers
+and synchronization across chunks automatically.
 """
 
 from abc import ABC, abstractmethod
@@ -222,10 +226,8 @@ class BaseArrayManager(ABC):
     host
         Container for host-side arrays.
     _chunks
-        Number of chunks for memory management.
-    _chunk_axis
-        Axis along which to perform chunking. Must be one of "run",
-        "variable", or "time".
+        Number of chunks for memory management. Chunking is always
+        performed along the run axis.
     _stream_group
         Stream group identifier for CUDA operations.
     _memory_proportion
@@ -258,9 +260,7 @@ class BaseArrayManager(ABC):
         factory=ArrayContainer, validator=attrsval_instance_of(ArrayContainer)
     )
     _chunks: int = field(default=0, validator=attrsval_instance_of(int))
-    _chunk_axis: str = field(
-        default="run", validator=attrsval_in(["run", "variable", "time"])
-    )
+    # _chunk_axis removed - chunking is hardcoded to "run" axis
     _stream_group: str = field(
         default="default", validator=attrsval_instance_of(str)
     )
@@ -365,7 +365,7 @@ class BaseArrayManager(ABC):
                 )
 
         self._chunks = response.chunks
-        self._chunk_axis = response.chunk_axis
+        # _chunk_axis assignment removed - ArrayResponse no longer has field
         if self.is_chunked:
             self._convert_host_to_numpy()
         else:

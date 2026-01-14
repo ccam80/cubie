@@ -168,7 +168,7 @@ class TestOutputArrays:
         output_arrays_manager.update(solver)
         # Process the allocation queue to create device arrays
         test_memory_manager.allocate_queue(
-            output_arrays_manager, chunk_axis="run"
+            output_arrays_manager
         )
 
         # Check host getters
@@ -202,7 +202,7 @@ class TestOutputArrays:
         output_arrays_manager.update(solver)
         # Process the allocation queue to create device arrays
         test_memory_manager.allocate_queue(
-            output_arrays_manager, chunk_axis="run"
+            output_arrays_manager
         )
 
         # Check that arrays were allocated
@@ -226,7 +226,7 @@ class TestOutputArrays:
         # Initial allocation
         output_arrays_manager.update(solver)
         test_memory_manager.allocate_queue(
-            output_arrays_manager, chunk_axis="run"
+            output_arrays_manager
         )
         original_device_state = output_arrays_manager.device_state
         original_shape = output_arrays_manager.device_state.shape
@@ -252,17 +252,15 @@ class TestOutputArrays:
         # Allocate initially
         output_arrays_manager.update(solver)
         test_memory_manager.allocate_queue(
-            output_arrays_manager, chunk_axis="run"
+            output_arrays_manager
         )
 
         # Set up chunking - this should affect the device array size
         output_arrays_manager._chunks = 2
-        output_arrays_manager._chunk_axis = "run"
 
         # The chunking logic should be reflected in allocation behavior
         # (This tests the chunking mechanism exists)
         assert output_arrays_manager._chunks == 2
-        assert output_arrays_manager._chunk_axis == "run"
 
     def test_update_from_solver(self, output_arrays_manager, solver):
         """Test update_from_solver method"""
@@ -296,12 +294,11 @@ class TestOutputArrays:
         # Set up the manager
         output_arrays_manager.update(solver)
         test_memory_manager.allocate_queue(
-            output_arrays_manager, chunk_axis="run"
+            output_arrays_manager
         )
 
         # Set up chunking
         output_arrays_manager._chunks = 1
-        output_arrays_manager._chunk_axis = "run"
 
         # Call initialise - should be a no-op for OutputArrays
         host_indices = slice(None)
@@ -320,7 +317,7 @@ class TestOutputArrays:
         # Set up the manager
         output_arrays_manager.update(solver)
         test_memory_manager.allocate_queue(
-            output_arrays_manager, chunk_axis="run"
+            output_arrays_manager
         )
 
         # Simulate computation by modifying device arrays
@@ -342,7 +339,6 @@ class TestOutputArrays:
 
         # Set up chunking
         output_arrays_manager._chunks = 1
-        output_arrays_manager._chunk_axis = "run"
 
         # Call finalise - queues async transfer
         host_indices = slice(None)
@@ -378,7 +374,7 @@ def test_dtype(output_arrays_manager, solver, precision, test_memory_manager):
     """Test OutputArrays with different configurations"""
     # Test that the manager works with different configurations
     output_arrays_manager.update(solver)
-    test_memory_manager.allocate_queue(output_arrays_manager, chunk_axis="run")
+    test_memory_manager.allocate_queue(output_arrays_manager)
 
     expected_dtype = precision
     assert output_arrays_manager.state.dtype == expected_dtype
@@ -412,7 +408,7 @@ def test_output_arrays_with_different_configs(
     # Test that the manager works with different configurations
     solver.kernel.num_runs = output_test_settings["num_runs"]
     output_arrays_manager.update(solver)
-    test_memory_manager.allocate_queue(output_arrays_manager, chunk_axis="run")
+    test_memory_manager.allocate_queue(output_arrays_manager)
 
     # Check shapes match expected configuration based on solver
     expected_num_runs = output_test_settings["num_runs"]
@@ -487,7 +483,7 @@ def test_output_arrays_with_different_systems(
     solver = solver_mutable
     solver.kernel.duration = 1.0
     output_arrays_manager.update(solver)
-    test_memory_manager.allocate_queue(output_arrays_manager, chunk_axis="run")
+    test_memory_manager.allocate_queue(output_arrays_manager)
 
     # Verify the arrays match the system's requirements
     # With stride order (time, variable, run), variable is at index 1
@@ -529,7 +525,7 @@ class TestOutputArraysSpecialCases:
         # Test allocation - arrays should be sized based on solver
         output_arrays_manager.update(solver)
         test_memory_manager.allocate_queue(
-            output_arrays_manager, chunk_axis="run"
+            output_arrays_manager
         )
 
         # Manager should be set up without errors and arrays should exist
@@ -548,12 +544,11 @@ class TestBufferPoolAndWatcherIntegration:
         """Verify chunked finalise acquires buffers from pool."""
         output_arrays_manager.update(solver)
         test_memory_manager.allocate_queue(
-            output_arrays_manager, chunk_axis="run"
+            output_arrays_manager
         )
 
         # Set up chunking
         output_arrays_manager._chunks = 2
-        output_arrays_manager._chunk_axis = "run"
 
         # Get initial buffer pool state
         initial_buffer_count = len(output_arrays_manager._buffer_pool._buffers)
@@ -577,12 +572,11 @@ class TestBufferPoolAndWatcherIntegration:
         """Verify chunked finalise submits tasks to watcher."""
         output_arrays_manager.update(solver)
         test_memory_manager.allocate_queue(
-            output_arrays_manager, chunk_axis="run"
+            output_arrays_manager
         )
 
         # Set up chunking
         output_arrays_manager._chunks = 2
-        output_arrays_manager._chunk_axis = "run"
 
         # Call finalise with host indices
         num_runs = output_arrays_manager.state.shape[2]
@@ -600,12 +594,11 @@ class TestBufferPoolAndWatcherIntegration:
         """Verify wait_pending blocks until watcher completes."""
         output_arrays_manager.update(solver)
         test_memory_manager.allocate_queue(
-            output_arrays_manager, chunk_axis="run"
+            output_arrays_manager
         )
 
         # Set up chunking
         output_arrays_manager._chunks = 2
-        output_arrays_manager._chunk_axis = "run"
 
         # Populate device arrays with known values
         output_arrays_manager.device_state[:] = 42.0
@@ -629,12 +622,11 @@ class TestBufferPoolAndWatcherIntegration:
         """Verify reset clears buffer pool and shuts down watcher."""
         output_arrays_manager.update(solver)
         test_memory_manager.allocate_queue(
-            output_arrays_manager, chunk_axis="run"
+            output_arrays_manager
         )
 
         # Set up chunking
         output_arrays_manager._chunks = 2
-        output_arrays_manager._chunk_axis = "run"
 
         # Call finalise to populate buffer pool
         num_runs = output_arrays_manager.state.shape[2]
@@ -675,7 +667,7 @@ class TestNeedsChunkedTransferBranching:
         # Allocate first to set up arrays
         output_arrays_manager.update(solver)
         test_memory_manager.allocate_queue(
-            output_arrays_manager, chunk_axis="run"
+            output_arrays_manager
         )
 
         # Create a mock response with chunked_shapes that differ from shape
@@ -726,7 +718,6 @@ class TestNeedsChunkedTransferBranching:
                 for name in output_arrays_manager.device.array_names()
             },
             chunks=2,
-            chunk_axis="run",
             chunked_shapes=chunked_shapes,
             chunked_slices=chunked_slices,
         )
@@ -771,7 +762,7 @@ class TestNeedsChunkedTransferBranching:
         # Allocate first
         output_arrays_manager.update(solver)
         test_memory_manager.allocate_queue(
-            output_arrays_manager, chunk_axis="run"
+            output_arrays_manager
         )
 
         num_runs = output_arrays_manager.state.shape[2]

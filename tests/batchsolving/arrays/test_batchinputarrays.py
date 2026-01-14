@@ -160,7 +160,7 @@ class TestInputArrays:
             sample_input_arrays["driver_coefficients"],
         )
         # Process the allocation queue to create device arrays
-        default_memmgr.allocate_queue(input_arrays_manager, chunk_axis="run")
+        default_memmgr.allocate_queue(input_arrays_manager)
 
         # Check host getters
         assert input_arrays_manager.initial_values is not None
@@ -229,7 +229,7 @@ class TestInputArrays:
             initial_arrays["driver_coefficients"],
         )
         # Process the allocation queue to create device arrays
-        default_memmgr.allocate_queue(input_arrays_manager, chunk_axis="run")
+        default_memmgr.allocate_queue(input_arrays_manager)
 
         original_device_initial_values = (
             input_arrays_manager.device_initial_values
@@ -257,7 +257,7 @@ class TestInputArrays:
             new_arrays["driver_coefficients"],
         )
         # Process the allocation queue after size change
-        default_memmgr.allocate_queue(input_arrays_manager, chunk_axis="run")
+        default_memmgr.allocate_queue(input_arrays_manager)
 
         # Should have triggered reallocation for all arrays
         assert (
@@ -289,7 +289,7 @@ class TestInputArrays:
             sample_input_arrays["driver_coefficients"],
         )
         # Process the allocation queue to create device arrays
-        default_memmgr.allocate_queue(input_arrays_manager, chunk_axis="run")
+        default_memmgr.allocate_queue(input_arrays_manager)
 
         # Clear device arrays to test initialise
         input_arrays_manager.device.initial_values.array[:, :] = 0.0
@@ -298,7 +298,6 @@ class TestInputArrays:
 
         # Set up chunking
         input_arrays_manager._chunks = 1
-        input_arrays_manager._chunk_axis = "run"
 
         # Call initialise with host indices (all data)
         host_indices = slice(None)
@@ -336,7 +335,7 @@ class TestInputArrays:
             sample_input_arrays["driver_coefficients"],
         )
         # Process the allocation queue to create device arrays
-        default_memmgr.allocate_queue(input_arrays_manager, chunk_axis="run")
+        default_memmgr.allocate_queue(input_arrays_manager)
 
         expected_dtype = precision
         assert input_arrays_manager.initial_values.dtype.type == expected_dtype
@@ -415,7 +414,7 @@ def test_input_arrays_with_different_systems(
         sample_input_arrays["driver_coefficients"],
     )
     # Process the allocation queue to create device arrays
-    default_memmgr.allocate_queue(input_arrays_manager, chunk_axis="run")
+    default_memmgr.allocate_queue(input_arrays_manager)
 
     # Verify the arrays match the system's requirements
     assert (
@@ -461,11 +460,10 @@ class TestBufferPoolIntegration:
             sample_input_arrays["driver_coefficients"],
         )
         # Allocate device arrays via memory manager
-        default_memmgr.allocate_queue(input_arrays, chunk_axis="run")
+        default_memmgr.allocate_queue(input_arrays)
 
         # Configure for chunked mode (multiple chunks)
         input_arrays._chunks = 3
-        input_arrays._chunk_axis = "run"
 
         # Configure chunked_shape and chunked_slice_fn on both host and device
         # arrays to trigger needs_chunked_transfer
@@ -496,11 +494,10 @@ class TestBufferPoolIntegration:
             sample_input_arrays["driver_coefficients"],
         )
         # Allocate device arrays via memory manager
-        default_memmgr.allocate_queue(input_arrays, chunk_axis="run")
+        default_memmgr.allocate_queue(input_arrays)
 
         # Configure for chunked mode
         input_arrays._chunks = 3
-        input_arrays._chunk_axis = "run"
 
         # Configure chunked_shape and chunked_slice_fn on both host and device
         num_runs = sample_input_arrays["initial_values"].shape[1]
@@ -537,7 +534,6 @@ class TestBufferPoolIntegration:
 
         # Configure for non-chunked mode (single chunk)
         input_arrays._chunks = 1
-        input_arrays._chunk_axis = "run"
 
         # Clear any existing active buffers
         input_arrays._active_buffers.clear()
@@ -560,11 +556,10 @@ class TestBufferPoolIntegration:
             sample_input_arrays["driver_coefficients"],
         )
         # Allocate device arrays via memory manager
-        default_memmgr.allocate_queue(input_arrays, chunk_axis="run")
+        default_memmgr.allocate_queue(input_arrays)
 
         # Configure for chunked mode and run initialise
         input_arrays._chunks = 3
-        input_arrays._chunk_axis = "run"
         num_runs = sample_input_arrays["initial_values"].shape[1]
 
         # Configure chunked_shape and chunked_slice_fn on both host and device
@@ -594,11 +589,10 @@ class TestBufferPoolIntegration:
             sample_input_arrays["parameters"],
             sample_input_arrays["driver_coefficients"],
         )
-        solver.memory_manager.allocate_queue(input_arrays, chunk_axis="run")
+        solver.memory_manager.allocate_queue(input_arrays)
 
         # Configure for chunked mode
         input_arrays._chunks = 3
-        input_arrays._chunk_axis = "run"
         num_runs = sample_input_arrays["initial_values"].shape[1]
 
         # Configure chunked_shape and chunked_slice_fn on both host and device
@@ -640,7 +634,6 @@ class TestNeedsChunkedTransferBranching:
 
         # Configure for chunked mode
         input_arrays._chunks = 3
-        input_arrays._chunk_axis = "run"
 
         # Set up chunked_shape so needs_chunked_transfer returns True
         # for arrays with run axis in stride_order
@@ -705,7 +698,6 @@ class TestNeedsChunkedTransferBranching:
         # Configure for chunked mode but set chunked_shape = shape
         # so needs_chunked_transfer returns False
         input_arrays._chunks = 3
-        input_arrays._chunk_axis = "run"
 
         for name, device_slot in input_arrays.device.iter_managed_arrays():
             # Set chunked_shape equal to shape

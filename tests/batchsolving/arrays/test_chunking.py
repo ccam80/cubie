@@ -23,47 +23,18 @@ from cubie.memory.array_requests import ArrayResponse
 from cubie.memory.chunk_buffer_pool import ChunkBufferPool
 
 
-class TestChunkAxisProperty:
-    """Tests for chunk_axis property getter behavior."""
-
-    def test_chunk_axis_property_returns_consistent_value(
-        self, solverkernel_mutable
-    ):
-        """Verify property returns value when arrays are consistent."""
-        kernel = solverkernel_mutable
-        # Both arrays should have same default value
-        assert kernel.input_arrays._chunk_axis == "run"
-        assert kernel.output_arrays._chunk_axis == "run"
-        assert kernel.chunk_axis == "run"
-
-    def test_chunk_axis_property_raises_on_inconsistency(
-        self, solverkernel_mutable
-    ):
-        """Verify property raises ValueError for mismatched arrays."""
-        kernel = solverkernel_mutable
-        # Manually create inconsistent state
-        kernel.input_arrays._chunk_axis = "run"
-        kernel.output_arrays._chunk_axis = "time"
-
-        with pytest.raises(ValueError, match=r"Inconsistent chunk_axis"):
-            _ = kernel.chunk_axis
-
-
-@pytest.mark.parametrize("chunk_axis", ["run", "time"], indirect=True)
-def test_run_sets_chunk_axis_on_arrays(
-    chunked_solved_solver, system, driver_settings, chunk_axis
+def test_run_executes_with_chunking(
+    chunked_solved_solver, system, driver_settings
 ):
-    """Verify solve() sets chunk_axis before array operations."""
+    """Verify solve() executes with run-axis chunking."""
     solver, result = chunked_solved_solver
 
-    # After solve, kernel arrays should have the chunk_axis value
-    assert solver.kernel.input_arrays._chunk_axis == chunk_axis
-    assert solver.kernel.output_arrays._chunk_axis == chunk_axis
+    # Verify chunking occurred
+    assert solver.chunks > 1
 
 
-@pytest.mark.parametrize("chunk_axis", ["run", "time"], indirect=True)
 def test_chunked_solve_produces_valid_output(
-    system, precision, chunk_axis, chunked_solved_solver
+    system, precision, chunked_solved_solver
 ):
     """Verify chunked solver produces valid output arrays."""
     solver, result = chunked_solved_solver
@@ -76,28 +47,12 @@ def test_chunked_solve_produces_valid_output(
 
 
 @pytest.mark.parametrize(
-    "chunk_axis, forced_free_mem",
-    [
-        ["run", 860],
-        ["run", 1024],
-        ["run", 1240],
-        ["run", 1460],
-        ["run", 2048],
-        ["time", 630],
-        ["time", 890],
-        ["time", 1150],
-        ["time", 1410],
-        ["time", 2048],
-    ],
-    indirect=True,
-)
-@pytest.mark.parametrize(
     "forced_free_mem",
     [
         860,
-        950,
-        1130,
-        1600,
+        1024,
+        1240,
+        1460,
         2048,  # unchunked to verify
     ],  # magic numbers explained in arrays/conftest.py
     indirect=True,
@@ -153,7 +108,6 @@ def test_non_chunked_uses_pinned_host(unchunked_solved_solver):
         assert slot.memory_type == "pinned"
 
 
-@pytest.mark.parametrize("chunk_axis", ["run", "time"], indirect=True)
 def test_chunked_uses_numpy_host(chunked_solved_solver):
     """Chunked runs use numpy host arrays with buffer pool."""
     solver, result = chunked_solved_solver
@@ -179,7 +133,6 @@ def test_pinned_buffers_created(chunked_solved_solver):
             assert buf.in_use is False
 
 
-@pytest.mark.parametrize("chunk_axis", ["run", "time"], indirect=True)
 def test_watcher_completes_all_tasks(chunked_solved_solver):
     """All submitted tasks are completed before solve returns."""
     solver, result = chunked_solved_solver
@@ -582,7 +535,6 @@ class TestOutputArraysConvertToNumpyWhenChunked:
         response = ArrayResponse(
             arr={},
             chunks=chunks,
-            chunk_axis="run",
             chunked_shapes=chunked_shapes,
         )
         output_arrays._on_allocation_complete(response)
@@ -609,7 +561,6 @@ class TestOutputArraysConvertToNumpyWhenChunked:
         response = ArrayResponse(
             arr={},
             chunks=1,
-            chunk_axis="run",
         )
         output_arrays._on_allocation_complete(response)
 

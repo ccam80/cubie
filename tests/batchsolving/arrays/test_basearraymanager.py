@@ -618,7 +618,7 @@ class TestBaseArrayManager:
         test_arrmgr.request_allocation(array_requests)
         # Must allocate device arrays before using them
         test_arrmgr._memory_manager.allocate_queue(
-            test_arrmgr, chunk_axis="run"
+            test_arrmgr
         )
         test_arrmgr.update_host_arrays(
             {
@@ -873,10 +873,9 @@ class TestCheckSizesAndTypes:
     ):
         """Test check_sizes with device location and chunking"""
         stride_order = test_manager_with_sizing.device.state.stride_order
-        chunk_axis = arraytest_settings["chunk_axis"]
+        chunk_axis = "run"  # Chunking always on run axis
         chunks = arraytest_settings["chunks"]
         test_manager_with_sizing._chunks = arraytest_settings["chunks"]
-        test_manager_with_sizing._chunk_axis = chunk_axis
         chunk_index = stride_order.index(chunk_axis)
         expected_shape1 = tuple(
             int(np.ceil(val / chunks)) if i == chunk_index else val
@@ -1547,7 +1546,6 @@ class TestChunkedShapePropagation:
         response = ArrayResponse(
             arr={"arr1": arr1, "arr2": arr2},
             chunks=2,
-            chunk_axis="run",
             chunked_shapes=chunked_shapes,
         )
 
@@ -1656,7 +1654,6 @@ class TestChunkedShapePropagation:
             memory_manager=test_memory_manager,
         )
         manager._chunks = 2
-        manager._chunk_axis = "run"
 
         # Create arrays matching the chunked shape
         arrays = {
@@ -1759,7 +1756,6 @@ def test_chunked_shape_propagates_through_allocation(test_memory_manager):
     response = ArrayResponse(
         arr={"arr1": arr1, "arr2": arr2},
         chunks=2,
-        chunk_axis="run",
         chunked_shapes=chunked_shapes,
         chunked_slices=chunked_slices,
     )
@@ -1779,6 +1775,5 @@ def test_chunked_shape_propagates_through_allocation(test_memory_manager):
     assert manager.host.arr1.needs_chunked_transfer is True
     assert manager.host.arr2.needs_chunked_transfer is True
 
-    # Verify the chunks and chunk_axis were stored
+    # Verify the chunks were stored
     assert manager._chunks == 2
-    assert manager._chunk_axis == "run"

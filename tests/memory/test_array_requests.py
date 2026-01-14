@@ -87,7 +87,10 @@ class TestArrayRequests:
 
 class TestArrayResponse:
     def test_array_response_has_chunked_shapes_field(self):
-        """Verify ArrayResponse can be instantiated with chunked_shapes dict."""
+        """Verify ArrayResponse can be instantiated with chunked_shapes dict.
+        
+        Chunking is always performed along the run axis.
+        """
         chunked_shapes = {
             "output": (100, 3, 50),
             "state": (3, 50),
@@ -95,7 +98,7 @@ class TestArrayResponse:
         response = ArrayResponse(
             arr={},
             chunks=2,
-            chunk_axis="run",
+            # chunk_axis field removed - chunking is hardcoded to "run"
             chunked_shapes=chunked_shapes,
         )
         assert response.chunked_shapes == chunked_shapes

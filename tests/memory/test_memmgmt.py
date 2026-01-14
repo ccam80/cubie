@@ -1050,7 +1050,6 @@ class TestGetChunkParameters:
         with pytest.raises(ValueError, match="unchunkable"):
             mgr.get_chunk_parameters(
                 requests=requests,
-                chunk_axis="run",
                 axis_length=512,
                 stream_group="test",
             )
