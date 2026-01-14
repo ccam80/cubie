@@ -143,7 +143,6 @@ class TestOutputArraysConvertToNumpyWhenChunked:
                 run_idx = slot.stride_order.index("run")
                 new_shape = list(slot.shape)
                 new_shape[run_idx] = 30  # 30 runs, divisible by 3 chunks
-                slot.shape = tuple(new_shape)
 
         # Prepare chunked_shapes for each managed array
         # Divide the "run" axis by chunk count to simulate chunking

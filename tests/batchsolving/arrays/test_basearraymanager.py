@@ -1760,8 +1760,8 @@ def test_chunked_shape_propagates_through_allocation(test_memory_manager):
 
     # Verify needs_chunked_transfer returns True since full shape != chunked
     # Full shape is (10, 3, 5), chunked shape is (10, 3, 2)
-    assert manager.device.arr1.needs_chunked_transfer is True
-    assert manager.device.arr2.needs_chunked_transfer is True
+    assert manager.host.arr1.needs_chunked_transfer is True
+    assert manager.host.arr2.needs_chunked_transfer is True
 
     # Verify the chunks and chunk_axis were stored
     assert manager._chunks == 2

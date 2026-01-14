@@ -680,7 +680,7 @@ class TestNeedsChunkedTransferBranching:
         # Set up chunked allocation scenario: 2 chunks
         chunk_size = num_runs // 2
         chunked_shapes = {}
-        for name, slot in output_arrays_manager.device.iter_managed_arrays():
+        for name, slot in output_arrays_manager.host.iter_managed_arrays():
             # Unchunkable arrays (status_codes) keep original shape
             if not slot.is_chunked:
                 chunked_shapes[name] = slot.shape
@@ -699,8 +699,8 @@ class TestNeedsChunkedTransferBranching:
         # Create response simulating 2-chunk allocation
         response = ArrayResponse(
             arr={
-                name: output_arrays_manager.device.get_array(name)
-                for name in output_arrays_manager.device.array_names()
+                name: output_arrays_manager.host.get_array(name)
+                for name in output_arrays_manager.host.array_names()
             },
             chunks=2,
             chunk_axis="run",

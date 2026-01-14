@@ -239,12 +239,8 @@ class OutputArrays(BaseArrayManager):
         used for staging during transfers.
         """
         for name, slot in self.host.iter_managed_arrays():
-            device_slot = self.device.get_managed_array(name)
             # Convert to regular numpy only for arrays with chunked transfers
-            if (
-                slot.memory_type == "pinned"
-                and device_slot.needs_chunked_transfer
-            ):
+            if slot.memory_type == "pinned" and slot.needs_chunked_transfer:
                 old_array = slot.array
                 if old_array is not None:
                     new_array = self._memory_manager.create_host_array(
@@ -384,7 +380,6 @@ class OutputArrays(BaseArrayManager):
         new_arrays = {}
         for name, slot in self.host.iter_managed_arrays():
             newshape = getattr(self._sizes, name)
-            slot.shape = newshape
             dtype = slot.dtype
             if np_issubdtype(dtype, np_floating):
                 slot.dtype = self._precision
@@ -402,7 +397,6 @@ class OutputArrays(BaseArrayManager):
                     newshape, dtype, slot.memory_type
                 )
         for name, slot in self.device.iter_managed_arrays():
-            slot.shape = getattr(self._sizes, name)
             dtype = slot.dtype
             if np_issubdtype(dtype, np_floating):
                 slot.dtype = self._precision

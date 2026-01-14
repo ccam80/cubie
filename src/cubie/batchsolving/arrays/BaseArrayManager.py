@@ -377,7 +377,6 @@ class BaseArrayManager(ABC):
                         array = container.get_managed_array(array_label)
                         array.chunked_shape = chunked_shapes[array_label]
                         array.chunked_slice_fn = chunked_slices[array_label]
-
             except KeyError:
                 warn(
                     f"Device array {array_label} not found in allocation "

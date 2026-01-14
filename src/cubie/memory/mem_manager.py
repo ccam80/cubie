@@ -305,7 +305,6 @@ class MemoryManager:
     _manual_pool: list[int] = field(
         default=attrsFactory(list), validator=attrsval_instance_of(list)
     )
-
     _queued_allocations: Dict[str, Dict] = field(
         default=attrsFactory(dict), validator=attrsval_instance_of(dict)
     )
@@ -1182,7 +1181,7 @@ class MemoryManager:
         """
         stream_group = self.get_stream_group(triggering_instance)
         stream = self.get_stream(triggering_instance)
-        queued_requests = self._queued_allocations.get(stream_group, {})
+        queued_requests = self._queued_allocations.pop(stream_group, {})
 
         # Get length of axis to chunk
         axis_length = 0
@@ -1245,6 +1244,7 @@ class MemoryManager:
                         chunked_slices={},
                     )
                 )
+
         return None
 
     def get_chunk_parameters(

@@ -186,7 +186,7 @@ class ChunkParams:
 
         elif self._chunk_axis == "time":
             # Calculate per-chunk t0 and duration
-            dt_save = float64(self._full_params.duration / self._axis_length)
+            dt_save = float64(_duration / self._axis_length)
             fullchunk_duration = float64(dt_save * self._chunk_length)
             _duration = float64(dt_save * length)
             if index > 0:
