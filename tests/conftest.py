@@ -25,7 +25,10 @@ from cubie.integrators.step_control.base_step_controller import (
 )
 from cubie.integrators.array_interpolator import ArrayInterpolator
 from cubie.memory import default_memmgr
-from cubie.memory.mem_manager import ALL_MEMORY_MANAGER_PARAMETERS
+from cubie.memory.mem_manager import (
+    ALL_MEMORY_MANAGER_PARAMETERS,
+    MemoryManager,
+)
 from cubie.outputhandling.output_functions import (
     OutputFunctions,
     ALL_OUTPUT_FUNCTION_PARAMETERS,
@@ -143,10 +146,13 @@ def _build_solver_instance(
     system: SymbolicODE,
     solver_settings: Dict[str, Any],
     driver_array: Optional[ArrayInterpolator],
+    memory_manager: Optional[Any] = None,
 ) -> Solver:
     """Instantiate :class:`Solver` configured with ``solver_settings``."""
-
-    solver = Solver(system, **solver_settings)
+    settings = solver_settings.copy()
+    if memory_manager:
+        settings.update(memory_manager=memory_manager)
+    solver = Solver(system, **settings)
     evaluate_driver_at_t = _get_evaluate_driver_at_t(driver_array)
     solver.update({"evaluate_driver_at_t": evaluate_driver_at_t})
     return solver
@@ -782,6 +788,33 @@ def solver_mutable(
     )
 
 
+class MockMemoryManager(MemoryManager):
+    """Mock memory manager for testing with controlled memory info."""
+
+    def get_memory_info(self):
+        return int(32768), int(32768)  # 32kb free, total
+
+
+@pytest.fixture(scope="session")
+def low_memory():
+    return MockMemoryManager()
+
+
+@pytest.fixture(scope="session")
+def low_mem_solver(
+    system,
+    solver_settings,
+    driver_array,
+    low_memory,
+):
+    return _build_solver_instance(
+        system=system,
+        solver_settings=solver_settings,
+        driver_array=driver_array,
+        memory_manager=low_memory,
+    )
+
+
 @pytest.fixture(scope="session")
 def step_controller(precision, step_controller_settings):
     """Instantiate the requested step controller for loop execution."""
@@ -1096,12 +1129,14 @@ def make_slice_fn(run_axis_idx, chunk_size, ndim):
     callable
         A function that takes a chunk index and returns a tuple of slices.
     """
+
     def slice_fn(chunk_idx):
         slices = [slice(None)] * ndim
         start = chunk_idx * chunk_size
         end = start + chunk_size
         slices[run_axis_idx] = slice(start, end)
         return tuple(slices)
+
     return slice_fn
 
 

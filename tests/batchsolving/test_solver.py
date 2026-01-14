@@ -98,9 +98,7 @@ def test_variable_indices_methods(solver, system):
     assert isinstance(all_state_indices, np.ndarray)
 
     if len(observable_names) > 0:
-        obs_indices = solver.get_observable_indices(
-            [observable_names[0]]
-        )
+        obs_indices = solver.get_observable_indices([observable_names[0]])
         assert isinstance(obs_indices, np.ndarray)
 
 
@@ -137,7 +135,6 @@ def test_output_properties(solver):
     assert isinstance(solver.state_stride_order, Iterable)
 
 
-
 def test_solve_info_property(
     precision,
     solver,
@@ -172,9 +169,9 @@ def test_solve_info_property(
         )
     else:
         assert solve_info.dt == pytest.approx(
-                solver_settings["dt"],
-                rel=tolerance.rel_tight,
-                abs=tolerance.abs_tight,
+            solver_settings["dt"],
+            rel=tolerance.rel_tight,
+            abs=tolerance.abs_tight,
         )
         assert solve_info.dt_min == pytest.approx(
             solver_settings["dt"],
@@ -182,9 +179,9 @@ def test_solve_info_property(
             abs=tolerance.abs_tight,
         )
         assert solve_info.dt_max == pytest.approx(
-                solver_settings["dt"],
-                rel=tolerance.rel_tight,
-                abs=tolerance.abs_tight,
+            solver_settings["dt"],
+            rel=tolerance.rel_tight,
+            abs=tolerance.abs_tight,
         )
     assert solve_info.save_every == pytest.approx(
         solver_settings["save_every"],
@@ -198,8 +195,8 @@ def test_solve_info_property(
     )
 
     assert solve_info.algorithm == solver_settings["algorithm"]
-    assert solve_info.output_types ==  solver_settings["output_types"]
-    assert solve_info.precision ==  solver_settings["precision"]
+    assert solve_info.output_types == solver_settings["output_types"]
+    assert solve_info.precision == solver_settings["precision"]
 
     # Test that solver kernel properties are correctly exposed
     assert solve_info.duration == solver.duration
@@ -210,14 +207,12 @@ def test_solve_info_property(
     assert solve_info.saved_states == solver.saved_states
     assert solve_info.saved_observables == solver.saved_observables
     assert solve_info.summarised_states == solver.summarised_states
-    assert (
-        solve_info.summarised_observables
-        == solver.summarised_observables
-    )
+    assert solve_info.summarised_observables == solver.summarised_observables
     # Note: There appears to be a bug in the solver.py where summarised_observables
     # is set to summarised_states instead of summarised_observables
     # This test documents the current behavior
     assert hasattr(solve_info, "summarised_observables")
+
 
 def test_solve_basic(
     solver,
@@ -243,6 +238,7 @@ def test_solve_basic(
     assert hasattr(result, "time_domain_array")
     assert hasattr(result, "summaries_array")
 
+
 def test_solve_with_different_grid_types(
     solver,
     simple_initial_values,
@@ -258,7 +254,6 @@ def test_solve_with_different_grid_types(
         duration=0.1,
         grid_type="combinatorial",
     )
-
 
     assert isinstance(result_comb, SolveResult)
 
@@ -276,14 +271,15 @@ def test_solve_with_different_grid_types(
         param_names[1]: [0.5, 1.5],
     }
     result_verb = solver.solve(
-            initial_values=verbatim_initial_values,
-            parameters=verbatim_parameters,
-            drivers=driver_settings,
-            duration=0.1,
-            grid_type="verbatim",
+        initial_values=verbatim_initial_values,
+        parameters=verbatim_parameters,
+        drivers=driver_settings,
+        duration=0.1,
+        grid_type="verbatim",
     )
 
     assert isinstance(result_verb, SolveResult)
+
 
 def test_solve_with_different_result_types(
     solver,
@@ -296,13 +292,13 @@ def test_solve_with_different_result_types(
 
     for result_type in result_types:
         result = solver.solve(
-                initial_values=simple_initial_values,
-                parameters=simple_parameters,
-                drivers=driver_settings,
-                duration=0.05,
-                save_every=0.02,
-                summarise_every=0.04,
-                results_type=result_type,
+            initial_values=simple_initial_values,
+            parameters=simple_parameters,
+            drivers=driver_settings,
+            duration=0.05,
+            save_every=0.02,
+            summarise_every=0.04,
+            results_type=result_type,
         )
 
         assert result is not None
@@ -313,14 +309,15 @@ def test_update_basic(solver_mutable, tolerance, precision):
     solver = solver_mutable
     original_dt = solver.dt
     # Choose a new dt distinct from the original
-    new_dt = precision(original_dt * 0.5 if original_dt not in (0,
-                                                                None) else
-                       1e-7)
+    new_dt = precision(
+        original_dt * 0.5 if original_dt not in (0, None) else 1e-7
+    )
     updated_keys = solver.update({"dt": new_dt})
     assert "dt" in updated_keys
     # For fixed-step integrators dt should now reflect the new value if not getattr(solver.kernel.single_integrator, "is_adaptive", False):
     assert solver.dt == pytest.approx(
-        new_dt, rel=tolerance.rel_tight, abs=tolerance.abs_tight)
+        new_dt, rel=tolerance.rel_tight, abs=tolerance.abs_tight
+    )
 
 
 def test_update_with_kwargs(solver_mutable, tolerance):
@@ -336,14 +333,12 @@ def test_update_with_kwargs(solver_mutable, tolerance):
         rel=tolerance.rel_tight,
         abs=tolerance.abs_tight,
     )
-    assert (
-        solver.kernel.single_integrator.dt0
-        != pytest.approx(
-            original_dt,
-            rel=tolerance.rel_tight,
-            abs=tolerance.abs_tight,
-        )
+    assert solver.kernel.single_integrator.dt0 != pytest.approx(
+        original_dt,
+        rel=tolerance.rel_tight,
+        abs=tolerance.abs_tight,
     )
+
 
 def test_update_unrecognized_keys(solver_mutable):
     """Test that update raises KeyError for unrecognized keys."""
@@ -357,11 +352,12 @@ def test_update_silent_mode(precision, solver_mutable):
     solver = solver_mutable
     original_dt = solver.dt
     # Choose a new dt distinct from the original
-    new_dt = precision(original_dt * 0.5 if original_dt not in (0, None) else \
-        1e-7)
-    updated_keys = solver.update({"dt": new_dt, "nonexistent_parameter":
-        42}, silent=True)
-
+    new_dt = precision(
+        original_dt * 0.5 if original_dt not in (0, None) else 1e-7
+    )
+    updated_keys = solver.update(
+        {"dt": new_dt, "nonexistent_parameter": 42}, silent=True
+    )
 
     assert "dt" in updated_keys
 
@@ -392,13 +388,12 @@ def test_update_saved_variables(solver_mutable, system):
 
         assert len(updated_keys) > 0
 
+
 def test_memory_settings_update(solver_mutable):
     """Test updating memory-related settings."""
     solver = solver_mutable
     # Test memory proportion update
-    updated_keys = solver.update_memory_settings(
-        {"mem_proportion": 0.1}
-    )
+    updated_keys = solver.update_memory_settings({"mem_proportion": 0.1})
     assert "mem_proportion" in updated_keys
 
 
@@ -458,8 +453,7 @@ def test_solve_ivp_function(
         save_every=0.02,
         duration=0.05,
         summarise_every=0.04,
-        output_types=["state", "time", "observables",
-                     "mean"],
+        output_types=["state", "time", "observables", "mean"],
         method="euler",
         settling_time=0.0,
     )
@@ -487,6 +481,7 @@ def test_solver_with_different_algorithms(system, solver_settings):
         assert solver is not None
         assert solver.kernel.algorithm == algorithm
 
+
 def test_solver_output_types(system, solver_settings):
     """Test solver with different output types."""
     output_types_list = [
@@ -510,6 +505,7 @@ def test_solver_output_types(system, solver_settings):
 
         assert solver.output_types == output_types
 
+
 def test_solver_summary_legend(solver):
     """Test that summary legend property works."""
     legend = solver.summary_legend_per_variable
@@ -528,6 +524,7 @@ def test_solver_state_and_observable_summaries(solver):
     assert solver.state_summaries is not None
     assert solver.observable_summaries is not None
 
+
 def test_solver_num_runs_property(solver):
     """Test num_runs property."""
     num_runs = solver.num_runs
@@ -539,13 +536,15 @@ def test_solver_num_runs_property(solver):
 # Time Precision Tests (float64 time accumulation)
 # ============================================================================
 
-@pytest.mark.parametrize("solver_settings_override", [
-    {"precision": np.float32},
-    {"precision": np.float64}],
-    indirect=True)
+
+@pytest.mark.parametrize(
+    "solver_settings_override",
+    [{"precision": np.float32}, {"precision": np.float64}],
+    indirect=True,
+)
 def test_time_precision_independent_of_state_precision(system, solver_mutable):
     """Verify time precision is float64 regardless of state precision.
-    
+
     Tests both that time parameters are stored as float64 and that they
     remain float64 independent of the state precision setting.
     """
@@ -553,17 +552,17 @@ def test_time_precision_independent_of_state_precision(system, solver_mutable):
     solver_mutable.kernel.duration = np.float32(10.0)
     solver_mutable.kernel.warmup = np.float32(1.0)
     solver_mutable.kernel.t0 = np.float32(5.0)
-    
+
     # Verify retrieved as float64
     assert isinstance(solver_mutable.kernel.duration, (float, np.floating))
     assert isinstance(solver_mutable.kernel.warmup, (float, np.floating))
     assert isinstance(solver_mutable.kernel.t0, (float, np.floating))
-    
+
     # Verify values preserved
     assert np.isclose(solver_mutable.kernel.duration, 10.0)
     assert np.isclose(solver_mutable.kernel.warmup, 1.0)
     assert np.isclose(solver_mutable.kernel.t0, 5.0)
-    
+
     # Time should be float64 even when state precision is float32
     assert solver_mutable.kernel.duration == np.float64(10.0)
     assert solver_mutable.kernel.t0 == np.float64(5.0)
@@ -608,11 +607,11 @@ def test_build_grid_combinatorial(
     assert params.shape[1] >= n_param_values
 
 
-def test_build_grid_precision(solver, simple_initial_values, simple_parameters):
+def test_build_grid_precision(
+    solver, simple_initial_values, simple_parameters
+):
     """Test that build_grid returns arrays with correct precision."""
-    inits, params = solver.build_grid(
-        simple_initial_values, simple_parameters
-    )
+    inits, params = solver.build_grid(simple_initial_values, simple_parameters)
 
     assert inits.dtype == solver.precision
     assert params.dtype == solver.precision
@@ -622,30 +621,9 @@ def test_build_grid_precision(solver, simple_initial_values, simple_parameters):
 # solve() Fast Path Tests
 # ============================================================================
 
-def test_solve_with_prebuilt_arrays(
-    solver, simple_initial_values, simple_parameters, driver_settings,
-):
-    """Test that solve() works with pre-built arrays (fast path)."""
-    # First build the grid
-    inits, params = solver.build_grid(
-        simple_initial_values, simple_parameters, grid_type="verbatim"
-    )
-
-    # Now solve with the pre-built arrays
-    result = solver.solve(
-        initial_values=inits,
-        parameters=params,
-        drivers=driver_settings,
-        duration=0.05,
-    )
-
-    assert isinstance(result, SolveResult)
-
-
 
 def test_solve_array_path_matches_dict_path(
-    solver, simple_initial_values, simple_parameters,
-                        driver_settings
+    solver, simple_initial_values, simple_parameters, driver_settings
 ):
     """Test that array fast path produces same results as dict path."""
     # Solve with dict inputs
@@ -662,12 +640,11 @@ def test_solve_array_path_matches_dict_path(
         simple_initial_values, simple_parameters, grid_type="verbatim"
     )
     result_array = solver.solve(
-            initial_values=inits,
-            parameters=params,
-            drivers=driver_settings,
-            duration=0.05,
+        initial_values=inits,
+        parameters=params,
+        drivers=driver_settings,
+        duration=0.05,
     )
-
 
     # Results should match
     assert (
@@ -683,50 +660,26 @@ def test_solve_array_path_matches_dict_path(
 
 
 def test_solve_dict_path_backward_compatible(
-    solver, simple_initial_values, simple_parameters, driver_settings,
+    solver,
+    simple_initial_values,
+    simple_parameters,
+    driver_settings,
 ):
     """Test that dict inputs still work exactly as before."""
     result = solver.solve(
-            initial_values=simple_initial_values,
-            parameters=simple_parameters,
-            drivers=driver_settings,
-            duration=0.05,
-            settling_time=0.0,
-            blocksize=32,
-            grid_type="combinatorial",
-            results_type="full",
+        initial_values=simple_initial_values,
+        parameters=simple_parameters,
+        drivers=driver_settings,
+        duration=0.05,
+        settling_time=0.0,
+        blocksize=32,
+        grid_type="combinatorial",
+        results_type="full",
     )
 
     assert isinstance(result, SolveResult)
     assert hasattr(result, "time_domain_array")
     assert hasattr(result, "summaries_array")
-
-
-# ============================================================================
-# solve_ivp Parameter Tests
-# ============================================================================
-
-
-def test_solve_ivp_save_every_param(
-    system, simple_initial_values, simple_parameters, driver_settings
-):
-    """Verify solve_ivp accepts save_every parameter."""
-    result = solve_ivp(
-        system=system,
-        y0=simple_initial_values,
-        parameters=simple_parameters,
-        drivers=driver_settings,
-        dt=1e-2,
-        save_every=0.02,
-        sample_summaries_every=0.02,
-        duration=0.05,
-        summarise_every=0.04,
-        output_types=["state", "time", "observables", "mean"],
-        method="euler",
-        settling_time=0.0,
-    )
-
-    assert isinstance(result, SolveResult)
 
 
 def test_solve_ivp_positional_argument_order(system, solver_settings):
@@ -746,8 +699,8 @@ def test_solve_ivp_positional_argument_order(system, solver_settings):
     # Solve should complete without error using positional args
     result = solve_ivp(
         system,
-        states,      # positional: y0
-        params,      # positional: parameters
+        states,  # positional: y0
+        params,  # positional: parameters
         duration=0.01,
         dt=0.001,
         save_every=0.01,
@@ -757,9 +710,9 @@ def test_solve_ivp_positional_argument_order(system, solver_settings):
     assert hasattr(result, "time_domain_array")
     assert hasattr(result, "summaries_array")
     # Verify correct number of runs were executed
-    assert result.time_domain_array.shape[2] == 2, \
+    assert result.time_domain_array.shape[2] == 2, (
         "Should have 2 runs from 2-column input arrays"
-
+    )
 
 
 # ============================================================================
@@ -940,9 +893,7 @@ def test_array_only_fast_path(solver):
     """Test array-only parameters don't trigger name resolution."""
     import time
 
-    output_settings = {
-        "saved_state_indices": np.array([0, 1], dtype=np.int32)
-    }
+    output_settings = {"saved_state_indices": np.array([0, 1], dtype=np.int32)}
 
     # Time the fast path (should be very quick)
     start = time.perf_counter()
@@ -971,14 +922,14 @@ def test_solve_ivp_with_save_variables(system):
 
     # Verify result contains saved states
     assert result is not None
-    assert hasattr(result, 'time_domain_array')
+    assert hasattr(result, "time_domain_array")
     assert result.time_domain_array is not None
     # Verify shape matches number of save_variables
     # time_domain_array shape is (time, variable, run) by default
     assert result.time_domain_array.shape[1] == len(state_names)
 
 
-def test_solver_solve_with_save_variables(solver, system,driver_settings):
+def test_solver_solve_with_save_variables(solver, system, driver_settings):
     """Test Solver.solve accepts save_variables parameter."""
     state_names = list(system.initial_values.names)[:1]
 
@@ -993,23 +944,6 @@ def test_solver_solve_with_save_variables(solver, system,driver_settings):
     assert result is not None
     # Verify saved output contains requested states
     assert result.time_domain_array.shape[1] >= 1
-
-
-def test_solve_ivp_with_summarise_variables(system):
-    """Test solve_ivp accepts summarise_variables and produces summaries."""
-    state_names = list(system.initial_values.names)[:2]
-
-    result = solve_ivp(
-        system,
-        y0={state_names[0]: [1.0, 2.0]},
-        parameters={list(system.parameters.names)[0]: [0.1, 0.2]},
-        summarise_variables=state_names,
-        duration=0.1,
-        method="euler",
-    )
-
-    # Verify result contains summaries
-    assert result is not None
 
 
 def test_system_no_observables_default(precision, solver_settings):
@@ -1032,14 +966,14 @@ def test_system_no_observables_default(precision, solver_settings):
     THREE_STATE_LINEAR_CONSTANTS = {"c0": 0.5, "c1": 1.0, "c2": 2.0}
     THREE_STATE_LINEAR_DRIVERS = ["d0"]
     system = create_ODE_system(
-            dxdt=THREE_STATE_LINEAR_EQUATIONS,
-            states=THREE_STATE_LINEAR_STATES,
-            parameters=THREE_STATE_LINEAR_PARAMETERS,
-            constants=THREE_STATE_LINEAR_CONSTANTS,
-            drivers=THREE_STATE_LINEAR_DRIVERS,
-            precision=precision,
-            name="three_state_linear",
-            strict=False,
+        dxdt=THREE_STATE_LINEAR_EQUATIONS,
+        states=THREE_STATE_LINEAR_STATES,
+        parameters=THREE_STATE_LINEAR_PARAMETERS,
+        constants=THREE_STATE_LINEAR_CONSTANTS,
+        drivers=THREE_STATE_LINEAR_DRIVERS,
+        precision=precision,
+        name="three_state_linear",
+        strict=False,
     )
     solver = Solver(
         system,

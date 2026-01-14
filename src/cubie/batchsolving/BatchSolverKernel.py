@@ -630,12 +630,12 @@ class BatchSolverKernel(CUDAFactory):
 
         # Record start of overall GPU workload
         self._gpu_workload_event.record_start(stream)
-
+        precision = self.precision
         for i in range(chunks):
             chunkparams = self.chunk_params[i]
-            duration = chunkparams.duration
-            warmup = chunkparams.warmup
-            t0 = chunkparams.t0
+            duration = precision(chunkparams.duration)
+            warmup = precision(chunkparams.warmup)
+            t0 = precision(chunkparams.t0)
             runs = chunkparams.runs
 
             # Recompute blocks needed for this chunk's actual run count

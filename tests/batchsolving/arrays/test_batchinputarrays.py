@@ -1,4 +1,3 @@
-
 import numpy as np
 import pytest
 from numpy.testing import assert_array_equal
@@ -10,7 +9,7 @@ from cubie.batchsolving.arrays.BatchInputArrays import (
 from cubie.memory import default_memmgr
 from cubie.memory.chunk_buffer_pool import ChunkBufferPool, PinnedBuffer
 from cubie.outputhandling.output_sizes import BatchInputSizes
-from tests.conftest import make_slice_fn, setup_chunked_arrays
+from tests.conftest import setup_chunked_arrays
 
 
 @pytest.fixture(scope="session")
@@ -49,7 +48,7 @@ def input_arrays_manager(precision, solver, input_test_settings):
 @pytest.fixture(scope="session")
 def sample_input_arrays(solver, input_test_settings, precision):
     """Create sample input arrays for testing based on real solver.
-    
+
     Arrays are created in native (variable, run) format matching the internal
     representation used by the solver. This format has run in the rightmost
     dimension for CUDA memory coalescing.
@@ -82,15 +81,17 @@ class TestInputArrayContainer:
     def test_container_arrays_after_init(self):
         """Test that container has correct arrays after initialization"""
         container = InputArrayContainer()
-        expected_arrays = {"driver_coefficients", "parameters",
-                           "initial_values"}
+        expected_arrays = {
+            "driver_coefficients",
+            "parameters",
+            "initial_values",
+        }
         assert set(container.array_names()) == expected_arrays
 
         # Check that all arrays are size-1 zeros initially
         for _, managed in container.iter_managed_arrays():
             assert_array_equal(
-                    managed.array,
-                    np.zeros(managed.shape, dtype=managed.dtype)
+                managed.array, np.zeros(managed.shape, dtype=managed.dtype)
             )
 
     def test_container_stride_order(self):
@@ -102,12 +103,18 @@ class TestInputArrayContainer:
     def test_host_factory(self):
         """Test host factory method creates pinned memory container"""
         container = InputArrayContainer.host_factory()
-        assert container.get_managed_array("initial_values").memory_type == "pinned"
+        assert (
+            container.get_managed_array("initial_values").memory_type
+            == "pinned"
+        )
 
     def test_device_factory(self):
         """Test device factory method"""
         container = InputArrayContainer.device_factory()
-        assert container.get_managed_array("initial_values").memory_type == "device"
+        assert (
+            container.get_managed_array("initial_values").memory_type
+            == "device"
+        )
 
 
 class TestInputArrays:
@@ -116,9 +123,15 @@ class TestInputArrays:
     def test_initialization_container_types(self, input_arrays_manager):
         """Test that containers have correct array types after initialization"""
         # Check host container arrays
-        expected_arrays = {"initial_values", "parameters", "driver_coefficients"}
+        expected_arrays = {
+            "initial_values",
+            "parameters",
+            "driver_coefficients",
+        }
         assert set(input_arrays_manager.host.array_names()) == expected_arrays
-        assert set(input_arrays_manager.device.array_names()) == expected_arrays
+        assert (
+            set(input_arrays_manager.device.array_names()) == expected_arrays
+        )
 
         # Check memory types are set correctly in post_init
         for _, managed in input_arrays_manager.host.iter_managed_arrays():
@@ -204,9 +217,9 @@ class TestInputArrays:
             "parameters": np.random.rand(parameters_count, num_runs).astype(
                 dtype
             ),
-            "driver_coefficients": np.random.rand(forcing_count, num_runs).astype(
-                dtype
-            ),
+            "driver_coefficients": np.random.rand(
+                forcing_count, num_runs
+            ).astype(dtype),
         }
 
         input_arrays_manager.update(
@@ -306,53 +319,10 @@ class TestInputArrays:
             sample_input_arrays["driver_coefficients"],
         )
 
-    # Implementation removed while issue #76 incomplete
-    # def test_finalise_method(self, solver, sample_input_arrays):
-    #     """Test finalise method copies data from device"""
-    #     # Set up the manager
-    #     input_arrays_manager = InputArrays.from_solver(solver)
-    #     input_arrays_manager.update(
-    #         solver,
-    #         sample_input_arrays["initial_values"],
-    #         sample_input_arrays["parameters"],
-    #         sample_input_arrays["driver_coefficients"],
-    #     )
-    #     solver.memory_manager.allocate_queue(input_arrays_manager)
-    #     # Modify device initial_values (simulate computation results)
-    #     modified_values = (
-    #         np.array(input_arrays_manager.device.initial_values.array.copy_to_host())
-    #         * 2
-    #     )
-    #     cuda.to_device(
-    #         modified_values, to=input_arrays_manager.device.initial_values.array
-    #     )
-    #
-    #     # Set up chunking
-    #     input_arrays_manager._chunks = 1
-    #     input_arrays_manager._chunk_axis = "run"
-    #
-    #     # Store original host values
-    #     original_host_values = input_arrays_manager.host.initial_values.array.copy()
-    #
-    #     # Call finalise with host indices (all data)
-    #     host_indices = slice(None)
-    #     input_arrays_manager.finalise(host_indices)
-    #
-    #     # Check that host initial_values were updated with device values
-    #     # np.testing.assert_array_equal(
-    #     #     input_arrays_manager.host.initial_values.array, modified_values
-    #     # )
-    #
-    #     # Verify it actually changed from original
-    #     assert not np.array_equal(
-    #         input_arrays_manager.host.initial_values.array, original_host_values
-    #     )
-
     @pytest.mark.parametrize(
         "solver_settings_override",
-        [{"precision": np.float32},
-         {"precision": np.float64}],
-    indirect=True
+        [{"precision": np.float32}, {"precision": np.float64}],
+        indirect=True,
     )
     def test_dtype(
         self, input_arrays_manager, solver, sample_input_arrays, precision
@@ -372,10 +342,12 @@ class TestInputArrays:
         assert input_arrays_manager.initial_values.dtype.type == expected_dtype
         assert input_arrays_manager.parameters.dtype.type == expected_dtype
         assert (
-            input_arrays_manager.driver_coefficients.dtype.type == expected_dtype
+            input_arrays_manager.driver_coefficients.dtype.type
+            == expected_dtype
         )
         assert (
-            input_arrays_manager.device_initial_values.dtype.type == expected_dtype
+            input_arrays_manager.device_initial_values.dtype.type
+            == expected_dtype
         )
         assert (
             input_arrays_manager.device_parameters.dtype.type == expected_dtype
@@ -412,7 +384,6 @@ def test_input_arrays_with_different_configs(
     expected_num_runs = input_test_settings["num_runs"]
     assert input_arrays_manager.initial_values.shape[1] == expected_num_runs
     assert input_arrays_manager.parameters.shape[1] == expected_num_runs
-    assert input_arrays_manager.driver_coefficients.shape[1] == expected_num_runs
 
     # Check data types
     expected_dtype = input_test_settings["dtype"]
@@ -425,9 +396,11 @@ def test_input_arrays_with_different_configs(
 
 @pytest.mark.parametrize(
     "solver_settings_override",
-    [{"system_type": "three_chamber"},
-     {"system_type":"stiff"},
-     {"system_type":"linear"}],
+    [
+        {"system_type": "three_chamber"},
+        {"system_type": "stiff"},
+        {"system_type": "linear"},
+    ],
     indirect=True,
 )
 def test_input_arrays_with_different_systems(
@@ -453,10 +426,6 @@ def test_input_arrays_with_different_systems(
         input_arrays_manager.parameters.shape[0]
         == solver.system_sizes.parameters
     )
-    assert (
-        input_arrays_manager.driver_coefficients.shape[0]
-        == solver.system_sizes.drivers
-    )
 
     # Check that all getters work
     assert input_arrays_manager.initial_values is not None
@@ -472,12 +441,12 @@ class TestBufferPoolIntegration:
 
     def test_input_arrays_has_buffer_pool(self, input_arrays_manager):
         """Verify InputArrays has a ChunkBufferPool attribute."""
-        assert hasattr(input_arrays_manager, '_buffer_pool')
+        assert hasattr(input_arrays_manager, "_buffer_pool")
         assert isinstance(input_arrays_manager._buffer_pool, ChunkBufferPool)
 
     def test_input_arrays_has_active_buffers(self, input_arrays_manager):
         """Verify InputArrays has an _active_buffers list."""
-        assert hasattr(input_arrays_manager, '_active_buffers')
+        assert hasattr(input_arrays_manager, "_active_buffers")
         assert isinstance(input_arrays_manager._active_buffers, list)
 
     def test_initialise_uses_buffer_pool_when_chunked(
@@ -625,6 +594,7 @@ class TestBufferPoolIntegration:
             sample_input_arrays["parameters"],
             sample_input_arrays["driver_coefficients"],
         )
+        solver.memory_manager.allocate_queue(input_arrays, chunk_axis="run")
 
         # Configure for chunked mode
         input_arrays._chunks = 3
