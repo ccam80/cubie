@@ -438,7 +438,7 @@ class TestMemoryManager:
                 shape=(8, 8, 8), dtype=np.float32, memory="device"
             ),
             "arr2": ArrayRequest(
-                shape=(4, 4, 4), dtype=np.float32, memory="device"
+                shape=(4, 4, 8), dtype=np.float32, memory="device"
             ),
         }
         mgr.queue_request(instance, requests)
@@ -622,10 +622,6 @@ class TestMemoryManager:
         assert abs(mgr.registry[id(inst1)].proportion - 0.25) < 1e-6
         assert abs(mgr.auto_pool_proportion - 0.25) < 1e-6
 
-
-
-
-
     def test_get_stream_group(self, registered_mgr, registered_instance):
         """Test get_stream_group returns the correct group name."""
         mgr = registered_mgr
@@ -691,12 +687,6 @@ class TestMemoryManager:
         mgr.queue_request(instance, requests2)
         # Should only have the latest request
         assert mgr._queued_allocations[stream_group][id(instance)] == requests2
-
-
-
-
-
-
 
     def test_allocate_queue_single_instance(self, mgr):
         """Test allocate_queue with single instance in queue."""
@@ -810,10 +800,6 @@ class TestMemoryManager:
         assert mgr.is_grouped(inst_group1) is True
         assert mgr.is_grouped(inst_group2) is True
 
-
-
-
-
     @pytest.mark.nocudasim
     def test_to_device(self, registered_mgr, registered_instance):
         """Test to_device copies values to allocated device arrays correctly."""
@@ -899,9 +885,6 @@ class TestMemoryManager:
         # Verify that the data was correctly copied from device to host
         np.testing.assert_array_equal(host_dest1, host_source1)
         np.testing.assert_array_equal(host_dest2, host_source2)
-
-
-
 
 
 @pytest.mark.nocudasim
@@ -1071,4 +1054,3 @@ class TestGetChunkParameters:
                 axis_length=512,
                 stream_group="test",
             )
-
