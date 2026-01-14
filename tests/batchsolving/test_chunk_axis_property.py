@@ -57,7 +57,7 @@ class TestChunkAxisInRun:
     """Tests for chunk_axis handling in solver.solve()."""
 
     def test_run_sets_chunk_axis_on_arrays(
-        self, solver_mutable, precision, driver_array
+        self, solver_mutable, precision, driver_settings
     ):
         """Verify solve() sets chunk_axis before array operations."""
         solver = solver_mutable
@@ -69,18 +69,10 @@ class TestChunkAxisInRun:
             (solver.system_sizes.parameters, 1), dtype=precision
         )
 
-        drivers = None
-        if driver_array is not None:
-            # Pass the driver_settings dict, not coefficients
-            drivers = {
-                "placeholder": np.zeros(6, dtype=precision),
-                "dt": 0.1,
-            }
-
         solver.solve(
             initial_values=inits,
             parameters=params,
-            drivers=drivers,
+            drivers=driver_settings,
             duration=0.1,
             chunk_axis="time",
         )
@@ -90,7 +82,7 @@ class TestChunkAxisInRun:
         assert solver.kernel.output_arrays._chunk_axis == "time"
 
     def test_chunk_axis_property_after_run(
-        self, solver_mutable, precision, driver_array
+        self, solver_mutable, precision, driver_settings
     ):
         """Verify chunk_axis property returns correct value after solve."""
         solver = solver_mutable
@@ -102,18 +94,10 @@ class TestChunkAxisInRun:
             (solver.system_sizes.parameters, 1), dtype=precision
         )
 
-        drivers = None
-        if driver_array is not None:
-            # Pass the driver_settings dict, not coefficients
-            drivers = {
-                "placeholder": np.zeros(6, dtype=precision),
-                "dt": 0.1,
-            }
-
         solver.solve(
             initial_values=inits,
             parameters=params,
-            drivers=drivers,
+            drivers=driver_settings,
             duration=0.1,
             chunk_axis="time",
         )

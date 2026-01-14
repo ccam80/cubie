@@ -61,14 +61,17 @@ def sample_input_arrays(solver, input_test_settings, precision):
     forcing_count = solver.system_sizes.drivers
 
     # Native format: (variable, run) - run in rightmost dimension
+    # driver_coefficients uses (time, variable, run) stride order with
+    # is_chunked=False, so run dimension is 1 (shared across all runs)
+    num_time_segments = 4  # minimal number of time segments for coefficients
     return {
         "initial_values": np.random.rand(variables_count, num_runs).astype(
             dtype
         ),
         "parameters": np.random.rand(parameters_count, num_runs).astype(dtype),
-        "driver_coefficients": np.random.rand(forcing_count, num_runs).astype(
-            dtype
-        ),
+        "driver_coefficients": np.random.rand(
+            num_time_segments, forcing_count, 1
+        ).astype(dtype),
     }
 
 

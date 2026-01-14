@@ -692,6 +692,12 @@ class TestNeedsChunkedTransferBranching:
                 return tuple(slices)
             return slice_fn
 
+        # Mark status_codes as unchunkable for this test scenario
+        status_codes_slot = output_arrays_manager.device.get_managed_array(
+            "status_codes"
+        )
+        status_codes_slot.is_chunked = False
+
         chunked_shapes = {}
         chunked_slices = {}
         for name, slot in output_arrays_manager.device.iter_managed_arrays():
@@ -787,6 +793,12 @@ class TestNeedsChunkedTransferBranching:
                 slices[run_axis_idx] = slice(start, end)
                 return tuple(slices)
             return slice_fn
+
+        # Mark status_codes as unchunkable for this test scenario
+        status_codes_slot = output_arrays_manager.device.get_managed_array(
+            "status_codes"
+        )
+        status_codes_slot.is_chunked = False
 
         # Set up chunked_shapes and chunked_slices
         chunked_shapes = {}
