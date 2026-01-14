@@ -328,6 +328,7 @@ for name, slot in output_arrays.host.iter_managed_arrays():
 ---
 
 ## Task Group 6: Fix test_process_request Shape Mismatch (1 test)
+**Status**: [x]
 
 ### Problem
 Test `test_process_request` in `tests/memory/test_memmgmt.py` expects shape `(4, 4, 4)` but gets `(4, 4, 8)`.
@@ -391,6 +392,18 @@ newshape = tuple(
     dim if i != axis_index else min(chunked_size, dim) for i, dim in enumerate(shape)
 )
 ```
+
+**Outcomes**:
+- Files Modified: 
+  * src/cubie/memory/mem_manager.py (1 line changed)
+- Functions/Methods Modified:
+  * replace_with_chunked_size() in mem_manager.py
+- Implementation Summary:
+  Changed the newshape calculation to use `min(chunked_size, dim)` instead of just `chunked_size`, ensuring arrays smaller than the chunk size retain their original size in the chunk axis.
+- Issues Flagged: None
+
+**Tests to Run**:
+- tests/memory/test_memmgmt.py::test_process_request
 
 ---
 

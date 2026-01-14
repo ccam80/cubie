@@ -616,6 +616,10 @@ class TestBaseArrayManager:
         array_requests = array_requests_sized
         # This method should initialize device arrays to zeros
         test_arrmgr.request_allocation(array_requests)
+        # Must allocate device arrays before using them
+        test_arrmgr._memory_manager.allocate_queue(
+            test_arrmgr, chunk_axis="run"
+        )
         test_arrmgr.update_host_arrays(
             {
                 "state": np.ones(
@@ -883,6 +887,13 @@ class TestCheckSizesAndTypes:
             int(np.ceil(val / chunks)) if i == chunk_index else val
             for i, val in enumerate(arraytest_settings["hostshape2"])
         )
+
+        # Set chunked_shape on device arrays so check_sizes uses chunked shape
+        test_manager_with_sizing.device.state.chunked_shape = expected_shape1
+        test_manager_with_sizing.device.observables.chunked_shape = (
+            expected_shape2
+        )
+
         # For chunked device arrays, the run dimension should be divided by chunks
         arrays = {
             "state": device_array(

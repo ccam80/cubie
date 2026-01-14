@@ -22,7 +22,7 @@ class MockMemoryManager(MemoryManager):
     """Mock memory manager for testing with controlled memory info."""
 
     def get_memory_info(self):
-        return int(4096), int(8192)  # 4kb free, 8kb total
+        return int(65536), int(131072)  # 64kb free, 128kb total
 
 
 @pytest.fixture(scope="module")
@@ -268,10 +268,10 @@ class TestRegressionNonChunkedPath:
             precision=precision,
         )
         output_arrays.update(solver)
-
-        # Configure for non-chunked mode
-        output_arrays._chunks = 1
-        output_arrays._chunk_axis = "run"
+        # Allocate device arrays
+        output_arrays._memory_manager.allocate_queue(
+            output_arrays, chunk_axis="run"
+        )
 
         # Call finalise
         host_indices = slice(None)
@@ -380,8 +380,16 @@ class TestRegressionChunkedPath:
         input_arrays._chunks = 3
         input_arrays._chunk_axis = "run"
 
-        # Call initialise with a chunk slice
+        # Set chunked_shape on device arrays to trigger needs_chunked_transfer
         chunk_size = n_runs // 3
+        for name, device_slot in input_arrays.device.iter_managed_arrays():
+            if "run" in device_slot.stride_order:
+                run_idx = device_slot.stride_order.index("run")
+                chunked = list(device_slot.shape)
+                chunked[run_idx] = chunk_size
+                device_slot.chunked_shape = tuple(chunked)
+
+        # Call initialise with a chunk slice
         host_indices = slice(0, chunk_size)
         input_arrays.initialise(host_indices)
 

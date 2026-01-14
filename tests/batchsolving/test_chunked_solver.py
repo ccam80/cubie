@@ -17,7 +17,7 @@ class MockMemoryManager(MemoryManager):
     """Mock memory manager for testing with controlled memory info."""
 
     def get_memory_info(self):
-        return int(4096), int(8192)  # 4kb free, 8kb total
+        return int(65536), int(131072)  # 64kb free, 128kb total
 
 
 @pytest.fixture(scope="module")

@@ -152,7 +152,7 @@ class ChunkParams:
             dangling_chunk_length=alloc_response.dangling_chunk_length,
         )
 
-    def __getattr__(self, index: int) -> "ChunkParams":
+    def __getitem__(self, index: int) -> "ChunkParams":
         """Get chunk parameters for a specific chunk index.
 
         Parameters
