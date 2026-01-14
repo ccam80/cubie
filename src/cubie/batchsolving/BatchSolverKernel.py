@@ -547,16 +547,13 @@ class BatchSolverKernel(CUDAFactory):
 
         # Time parameters always use float64 for accumulation accuracy
         duration = np_float64(duration)
-        warmup = np_float64(warmup)
-        t0 = np_float64(t0)
 
         # inits is in (variable, run) format - run count is in shape[1]
-        numruns = inits.shape[1]
         self.full_run_params = FullRunParams(
             duration=duration,
-            warmup=warmup,
-            t0=t0,
-            runs=numruns,
+            warmup=np_float64(warmup),
+            t0=np_float64(t0),
+            runs=inits.shape[1],
             chunk_axis=chunk_axis,
         )
 

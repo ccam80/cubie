@@ -72,7 +72,6 @@ class OutputArrayContainer(ArrayContainer):
             dtype=np_int32,
             stride_order=("run",),
             shape=(1,),
-            is_chunked=False,
         )
     )
     iteration_counters: ManagedArray = field(
@@ -168,9 +167,6 @@ class OutputArrays(BaseArrayManager):
         validator=attrsval_instance_of(OutputArrayContainer),
         init=False,
     )
-    # _deferred_writebacks: List[DeferredWriteback] = field(
-    #     factory=list, init=False
-    # )
     _buffer_pool: ChunkBufferPool = field(factory=ChunkBufferPool, init=False)
     _watcher: WritebackWatcher = field(factory=WritebackWatcher, init=False)
     _pending_buffers: List[PendingBuffer] = field(factory=list, init=False)

@@ -1567,7 +1567,6 @@ def replace_with_chunked_size(
     """
     axis_index = stride_order.index(chunk_axis)
     newshape = tuple(
-        dim if i != axis_index else min(chunked_size, dim)
-        for i, dim in enumerate(shape)
+        dim if i != axis_index else chunked_size for i, dim in enumerate(shape)
     )
     return newshape

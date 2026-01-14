@@ -22,7 +22,7 @@ class MockMemoryManager(MemoryManager):
     """Mock memory manager for testing with controlled memory info."""
 
     def get_memory_info(self):
-        return int(65536), int(131072)  # 64kb free, 128kb total
+        return int(4096), int(8192)  # 4kb free, 8kb total
 
 
 @pytest.fixture(scope="module")
@@ -236,7 +236,9 @@ class TestWatcherThreadBehavior:
 class TestRegressionNonChunkedPath:
     """Verify non-chunked path unchanged."""
 
-    def test_small_batch_produces_correct_results(self, system, precision):
+    def test_small_batch_produces_correct_results(
+        self, system, precision, solver
+    ):
         """Small batches work correctly with refactored code."""
         solver = Solver(system, algorithm="euler")
 
