@@ -8359,13 +8359,11 @@ def run_debug_integration(
 
     success_count = np.sum(status_codes_output == 0)
     dt_min_exceeded_runs = np.sum(status_codes_output == 8)
-    max_steps_exceeded_runs = np.sum(status_codes_output == 32)
     max_newton_backtracks_runs = np.sum(status_codes_output == 1)
     newton_max_iters_runs = np.sum(status_codes_output == 2)
     linear_max_iters_runs = np.sum(status_codes_output == 4)
     print(f"\nSuccessful runs: {success_count:,} / {n_runs:,}")
     print(f"dt_min exceeded runs: {dt_min_exceeded_runs:,}")
-    print(f"max steps exceeded runs: {max_steps_exceeded_runs:,}")
     print(f"max newton backtracks runs: {max_newton_backtracks_runs:,}")
     print(f"max newton iters exceeded runs: {newton_max_iters_runs:,}")
     print(f"linear solver max iters exceeded runs: {linear_max_iters_runs:,}")

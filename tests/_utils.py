@@ -2,18 +2,21 @@ from __future__ import annotations
 
 import attrs
 import math
-from typing import Mapping, Optional, Union
+from typing import Mapping, Optional, Union, Dict, Any, Callable
 
 import numpy as np
 import pytest
 from numba import cuda, from_dtype
 from numpy.testing import assert_allclose
 
-from cubie import SingleIntegratorRun
+from cubie.integrators.SingleIntegratorRun import SingleIntegratorRun
+from cubie.odesystems.symbolic import SymbolicODE
+from cubie.batchsolving.solver import Solver
 from cubie.outputhandling import OutputFunctions
 from cubie.integrators.array_interpolator import ArrayInterpolator
 from cubie.odesystems.baseODE import BaseODE
 from numpy.typing import NDArray
+from tests.integrators.cpu_reference import CPUAdaptiveController
 
 Array = NDArray[np.floating]
 
@@ -22,66 +25,156 @@ Array = NDArray[np.floating]
 # --------------------------------------------------------------------------- #
 
 MID_RUN_PARAMS = {
-    'dt': 0.001,
-    'save_every': 0.02,
-    'summarise_every': 0.1,
-    'sample_summaries_every': 0.02,
-    'dt_max': 0.5,
-    'output_types': ['state', 'time', 'observables', 'mean'],
+    "dt": 0.001,
+    "save_every": 0.02,
+    "summarise_every": 0.1,
+    "sample_summaries_every": 0.02,
+    "dt_max": 0.5,
+    "output_types": ["state", "time", "observables", "mean"],
 }
 
 LONG_RUN_PARAMS = {
-    'duration': 0.3,
-    'dt': 0.0005,
-    'save_every': 0.1,
-    'summarise_every': 0.15,
-    'sample_summaries_every': 0.05,
-    'output_types': ['state', 'observables', 'time', 'mean', 'rms'],
+    "duration": 0.3,
+    "dt": 0.0005,
+    "save_every": 0.1,
+    "summarise_every": 0.15,
+    "sample_summaries_every": 0.05,
+    "output_types": ["state", "observables", "time", "mean", "rms"],
 }
 
 
 STEP_CASES = [
-    pytest.param({"algorithm": "euler", "step_controller": "fixed"}, id="euler"),
-    pytest.param({"algorithm": "backwards_euler", "step_controller": "fixed"}, id="backwards_euler"),
-    pytest.param({"algorithm": "backwards_euler_pc", "step_controller": "fixed"}, id="backwards_euler_pc"),
-    pytest.param({"algorithm": "crank_nicolson", "step_controller": "pid"}, id="crank_nicolson"),
-    pytest.param({"algorithm": "rosenbrock", "step_controller": "i"},
-                 id="rosenbrock"),
+    pytest.param(
+        {"algorithm": "euler", "step_controller": "fixed"}, id="euler"
+    ),
+    pytest.param(
+        {"algorithm": "backwards_euler", "step_controller": "fixed"},
+        id="backwards_euler",
+    ),
+    pytest.param(
+        {"algorithm": "backwards_euler_pc", "step_controller": "fixed"},
+        id="backwards_euler_pc",
+    ),
+    pytest.param(
+        {"algorithm": "crank_nicolson", "step_controller": "pid"},
+        id="crank_nicolson",
+    ),
+    pytest.param(
+        {"algorithm": "rosenbrock", "step_controller": "i"}, id="rosenbrock"
+    ),
     pytest.param({"algorithm": "erk", "step_controller": "pid"}, id="erk"),
     pytest.param({"algorithm": "dirk", "step_controller": "fixed"}, id="dirk"),
     pytest.param({"algorithm": "firk", "step_controller": "fixed"}, id="firk"),
     # Specific ERK tableaus
-    pytest.param({"algorithm": "dormand-prince-54", "step_controller": "pid"}, id="erk-dormand-prince-54", marks=pytest.mark.specific_algos),
-    pytest.param({"algorithm": "cash-karp-54", "step_controller": "pid"}, id="erk-cash-karp-54", marks=pytest.mark.specific_algos),
-    pytest.param({"algorithm": "fehlberg-45", "step_controller": "i"},
-                 id="erk-fehlberg-45", marks=pytest.mark.specific_algos),
-    pytest.param({"algorithm": "bogacki-shampine-32", "step_controller": "pid"}, id="erk-bogacki-shampine-32", marks=pytest.mark.specific_algos),
-    pytest.param({"algorithm": "heun-21", "step_controller": "fixed"}, id="erk-heun-21", marks=pytest.mark.specific_algos),
-    pytest.param({"algorithm": "ralston-33", "step_controller": "fixed"}, id="erk-ralston-33", marks=pytest.mark.specific_algos),
-    pytest.param({"algorithm": "classical-rk4", "step_controller": "fixed"}, id="erk-classical-rk4", marks=pytest.mark.specific_algos),
-    pytest.param({"algorithm": "dop853", "step_controller": "pid"},
-                 id="erk-dop853", marks=pytest.mark.specific_algos),
-    pytest.param({"algorithm": "tsit5", "step_controller": "pid"}, id="erk-tsit5", marks=pytest.mark.specific_algos),
-    pytest.param({"algorithm": "vern7", "step_controller": "pid"}, id="erk-vern7", marks=pytest.mark.specific_algos),
+    pytest.param(
+        {"algorithm": "dormand-prince-54", "step_controller": "pid"},
+        id="erk-dormand-prince-54",
+        marks=pytest.mark.specific_algos,
+    ),
+    pytest.param(
+        {"algorithm": "cash-karp-54", "step_controller": "pid"},
+        id="erk-cash-karp-54",
+        marks=pytest.mark.specific_algos,
+    ),
+    pytest.param(
+        {"algorithm": "fehlberg-45", "step_controller": "i"},
+        id="erk-fehlberg-45",
+        marks=pytest.mark.specific_algos,
+    ),
+    pytest.param(
+        {"algorithm": "bogacki-shampine-32", "step_controller": "pid"},
+        id="erk-bogacki-shampine-32",
+        marks=pytest.mark.specific_algos,
+    ),
+    pytest.param(
+        {"algorithm": "heun-21", "step_controller": "fixed"},
+        id="erk-heun-21",
+        marks=pytest.mark.specific_algos,
+    ),
+    pytest.param(
+        {"algorithm": "ralston-33", "step_controller": "fixed"},
+        id="erk-ralston-33",
+        marks=pytest.mark.specific_algos,
+    ),
+    pytest.param(
+        {"algorithm": "classical-rk4", "step_controller": "fixed"},
+        id="erk-classical-rk4",
+        marks=pytest.mark.specific_algos,
+    ),
+    pytest.param(
+        {"algorithm": "dop853", "step_controller": "pid"},
+        id="erk-dop853",
+        marks=pytest.mark.specific_algos,
+    ),
+    pytest.param(
+        {"algorithm": "tsit5", "step_controller": "pid"},
+        id="erk-tsit5",
+        marks=pytest.mark.specific_algos,
+    ),
+    pytest.param(
+        {"algorithm": "vern7", "step_controller": "pid"},
+        id="erk-vern7",
+        marks=pytest.mark.specific_algos,
+    ),
     # Specific DIRK tableaus
-    pytest.param({"algorithm": "implicit_midpoint", "step_controller": "fixed"}, id="dirk-implicit-midpoint", marks=pytest.mark.specific_algos),
-    pytest.param({"algorithm": "trapezoidal_dirk", "step_controller": "fixed"}, id="dirk-trapezoidal", marks=pytest.mark.specific_algos),
-    pytest.param({"algorithm": "sdirk_2_2", "step_controller": "fixed"},
-                 id="dirk-sdirk-2-2", marks=pytest.mark.specific_algos),
-    pytest.param({"algorithm": "lobatto_iiic_3", "step_controller": "fixed"}, id="dirk-lobatto-iiic-3", marks=pytest.mark.specific_algos),
-    pytest.param({"algorithm": "l_stable_dirk_3", "step_controller": "fixed"}, id="dirk-l-stable-3", marks=pytest.mark.specific_algos),
-    pytest.param({"algorithm": "l_stable_sdirk_4", "step_controller": "pid"}, id="dirk-l-stable-4", marks=pytest.mark.specific_algos),
+    pytest.param(
+        {"algorithm": "implicit_midpoint", "step_controller": "fixed"},
+        id="dirk-implicit-midpoint",
+        marks=pytest.mark.specific_algos,
+    ),
+    pytest.param(
+        {"algorithm": "trapezoidal_dirk", "step_controller": "fixed"},
+        id="dirk-trapezoidal",
+        marks=pytest.mark.specific_algos,
+    ),
+    pytest.param(
+        {"algorithm": "sdirk_2_2", "step_controller": "fixed"},
+        id="dirk-sdirk-2-2",
+        marks=pytest.mark.specific_algos,
+    ),
+    pytest.param(
+        {"algorithm": "lobatto_iiic_3", "step_controller": "fixed"},
+        id="dirk-lobatto-iiic-3",
+        marks=pytest.mark.specific_algos,
+    ),
+    pytest.param(
+        {"algorithm": "l_stable_dirk_3", "step_controller": "fixed"},
+        id="dirk-l-stable-3",
+        marks=pytest.mark.specific_algos,
+    ),
+    pytest.param(
+        {"algorithm": "l_stable_sdirk_4", "step_controller": "pid"},
+        id="dirk-l-stable-4",
+        marks=pytest.mark.specific_algos,
+    ),
     # Specific FIRK tableaus
-    pytest.param({"algorithm": "radau", "step_controller": "i"}, id="firk-radau", marks=pytest.mark.specific_algos),
-    pytest.param({"algorithm": "firk_gauss_legendre_2", "step_controller": "fixed"}, id="firk-gauss-legendre-2", marks=pytest.mark.specific_algos),
+    pytest.param(
+        {"algorithm": "radau", "step_controller": "i"},
+        id="firk-radau",
+        marks=pytest.mark.specific_algos,
+    ),
+    pytest.param(
+        {"algorithm": "firk_gauss_legendre_2", "step_controller": "fixed"},
+        id="firk-gauss-legendre-2",
+        marks=pytest.mark.specific_algos,
+    ),
     # Specific Rosenbrock-W tableaus
-    pytest.param({"algorithm": "ros3p", "step_controller": "pid"}, id="rosenbrock-ros3p", marks=pytest.mark.specific_algos),
-    pytest.param({"algorithm": "ode23s", "step_controller": "pid"},
-                 id="rosenbrock-ode23s", marks=pytest.mark.specific_algos),
-    pytest.param({"algorithm": "rodas3p", "step_controller": "pid"},
-                 id="rosenbrock-rodas3p", marks=pytest.mark.specific_algos)
+    pytest.param(
+        {"algorithm": "ros3p", "step_controller": "pid"},
+        id="rosenbrock-ros3p",
+        marks=pytest.mark.specific_algos,
+    ),
+    pytest.param(
+        {"algorithm": "ode23s", "step_controller": "pid"},
+        id="rosenbrock-ode23s",
+        marks=pytest.mark.specific_algos,
+    ),
+    pytest.param(
+        {"algorithm": "rodas3p", "step_controller": "pid"},
+        id="rosenbrock-rodas3p",
+        marks=pytest.mark.specific_algos,
+    ),
 ]
-
 
 
 def merge_dicts(*dicts):
@@ -127,7 +220,7 @@ def merge_param(base_settings, param):
     """
     import pytest
 
-    if hasattr(param, 'values'):
+    if hasattr(param, "values"):
         # It's a pytest.param
         case_settings = param.values[0] if param.values else {}
         merged = merge_dicts(base_settings, case_settings)
@@ -140,9 +233,12 @@ def merge_param(base_settings, param):
         # It's a plain dict
         return pytest.param(merge_dicts(base_settings, param))
 
+
 # Merged cases with STEP_OVERRIDES baked in
-ALGORITHM_PARAM_SETS = [merge_param(MID_RUN_PARAMS, case)
-                     for case in STEP_CASES]
+ALGORITHM_PARAM_SETS = [
+    merge_param(MID_RUN_PARAMS, case) for case in STEP_CASES
+]
+
 
 def calculate_expected_summaries(
     state,
@@ -207,7 +303,9 @@ def calculate_expected_summaries(
 
     for output in output_types:
         if output.startswith("peaks") or output.startswith("negative_peaks"):
-            n_peaks = int(output.split('[')[1].split(']')[0]) if '[' in output else 0
+            n_peaks = (
+                int(output.split("[")[1].split("]")[0]) if "[" in output else 0
+            )
         else:
             n_peaks = 0
 
@@ -218,12 +316,15 @@ def calculate_expected_summaries(
         # When exclude_first=True, peak indices need +1 offset to convert
         # from sliced array indices to original save_idx values
         peak_index_offset = 1 if exclude_first else 0
-        calculate_single_summary_array(_input_array, samples_per_summary,
-                                       summary_height_per_variable,
-                                       output_types,
-                                       output_array=_output_array,
-                                       sample_summaries_every=sample_summaries_every,
-                                       peak_index_offset=peak_index_offset)
+        calculate_single_summary_array(
+            _input_array,
+            samples_per_summary,
+            summary_height_per_variable,
+            output_types,
+            output_array=_output_array,
+            sample_summaries_every=sample_summaries_every,
+            peak_index_offset=peak_index_offset,
+        )
 
     return expected_state_summaries, expected_obs_summaries
 
@@ -326,9 +427,7 @@ def calculate_single_summary_array(
                     summary_index += 1
 
                 if output_type == "std":
-                    std = np.std(
-                        input_array[start_index:end_index, j], axis=0
-                    )
+                    std = np.std(input_array[start_index:end_index, j], axis=0)
                     output_array[
                         i, j * summary_size_per_state + summary_index
                     ] = std
@@ -561,7 +660,7 @@ def calculate_single_summary_array(
 
 def local_maxima(signal: np.ndarray) -> np.ndarray:
     """Find local maxima in a signal.
-    
+
     Returns indices of local maxima. The +1 offset corrects for the
     signal[1:-1] slicing used in the comparison (flatnonzero returns
     indices into the sliced array, not the original signal).
@@ -576,7 +675,7 @@ def local_maxima(signal: np.ndarray) -> np.ndarray:
 
 def local_minima(signal: np.ndarray) -> np.ndarray:
     """Find local minima in a signal.
-    
+
     Returns indices of local minima. The +1 offset corrects for the
     signal[1:-1] slicing used in the comparison (flatnonzero returns
     indices into the sliced array, not the original signal).
@@ -589,11 +688,7 @@ def local_minima(signal: np.ndarray) -> np.ndarray:
     )
 
 
-def deterministic_array(
-    precision,
-    size: Union[int, tuple[int]],
-    scale=1.0
-):
+def deterministic_array(precision, size: Union[int, tuple[int]], scale=1.0):
     """Generate a deterministic array of numerically challenging values.
 
     Creates reproducible test arrays with values spanning multiple orders
@@ -653,10 +748,20 @@ def deterministic_array(
 
     # Base set of challenging values (positive)
     base_values = [
-        1e-12, 1e-9, 1e-6, 1e-3,
-        0.1, 0.5, 1.0, 2.0,
-        math.pi, math.e,
-        1e3, 1e6, 1e9, 1e12,
+        1e-12,
+        1e-9,
+        1e-6,
+        1e-3,
+        0.1,
+        0.5,
+        1.0,
+        2.0,
+        math.pi,
+        math.e,
+        1e3,
+        1e6,
+        1e9,
+        1e12,
     ]
 
     # Filter values to be within the scale range
@@ -671,11 +776,11 @@ def deterministic_array(
         # Use scale-appropriate values if filter removed everything
         mid_exp = (min_exp + max_exp) / 2
         filtered_values = [
-            10 ** min_exp,
+            10**min_exp,
             10 ** ((min_exp + mid_exp) / 2),
-            10 ** mid_exp,
+            10**mid_exp,
             10 ** ((mid_exp + max_exp) / 2),
-            10 ** max_exp,
+            10**max_exp,
         ]
 
     # Create array with alternating signs
@@ -740,7 +845,7 @@ def run_device_loop(
     observable_summary_output = np.zeros(
         (summary_samples, observable_summary_width), dtype=precision
     )
-    
+
     # Iteration counters output (4 counters per save)
     counters_output = np.zeros((save_samples, 4), dtype=np.int32)
 
@@ -771,26 +876,26 @@ def run_device_loop(
     d_counters_out = cuda.to_device(counters_output)
     d_status = cuda.to_device(status)
 
-    shared_bytes = max(4,singleintegratorrun.shared_memory_bytes)
-    shared_elements = max(1,singleintegratorrun.shared_memory_elements)
-    persistent_required = max(1,singleintegratorrun.persistent_local_elements)
+    shared_bytes = max(4, singleintegratorrun.shared_memory_bytes)
+    shared_elements = max(1, singleintegratorrun.shared_memory_elements)
+    persistent_required = max(1, singleintegratorrun.persistent_local_elements)
 
     loop_fn = singleintegratorrun.device_function
     numba_precision = from_dtype(precision)
 
     @cuda.jit(
-            # (
-            #     numba_precision[::1],
-            #     numba_precision[::1],
-            #     numba_precision[:,:,::1],
-            #     numba_precision[:,::1],
-            #     numba_precision[:,::1],
-            #     numba_precision[:,::1],
-            #     numba_precision[:,::1],
-            #     numba_precision[:,::1],
-            #     numba_precision[::1]
-            # )
-     )
+        # (
+        #     numba_precision[::1],
+        #     numba_precision[::1],
+        #     numba_precision[:,:,::1],
+        #     numba_precision[:,::1],
+        #     numba_precision[:,::1],
+        #     numba_precision[:,::1],
+        #     numba_precision[:,::1],
+        #     numba_precision[:,::1],
+        #     numba_precision[::1]
+        # )
+    )
     def kernel(
         init_vec,
         params_vec,
@@ -921,8 +1026,9 @@ def assert_integration_outputs(
             rtol=rtol,
             atol=atol,
             err_msg="state summaries mismatch.\n"
-                    f"device: {device.state_summaries}\n"
-                    f"reference: {reference.state_summaries}")
+            f"device: {device.state_summaries}\n"
+            f"reference: {reference.state_summaries}",
+        )
 
     if flags.summarise_observables:
         assert_allclose(
@@ -948,7 +1054,7 @@ def extract_state_and_time(
         time_values = state_output[:, n_state_columns : n_state_columns + 1]
     else:
         state_values = state_output[:, :, :n_state_columns]
-        time_values = state_output[:, :, n_state_columns : ]
+        time_values = state_output[:, :, n_state_columns:]
 
     return state_values, time_values
 
@@ -968,27 +1074,251 @@ def _driver_sequence(
         times = np.linspace(0.0, total_time, samples, dtype=precision)
         for idx in range(n_drivers):
             drivers[:, idx] = precision(
-                1.0 + np.sin(2 * np.pi * (idx + 1) * times / total_time))
+                1.0 + np.sin(2 * np.pi * (idx + 1) * times / total_time)
+            )
     return drivers
 
 
-def _build_enhanced_algorithm_settings(algorithm_settings, system, driver_array):
+def _build_enhanced_algorithm_settings(
+    algorithm_settings, system, driver_array
+):
     """Add system and driver functions to algorithm settings.
 
     Functions are passed directly to get_algorithm_step, not stored
     in algorithm_settings dict.
     """
     enhanced = algorithm_settings.copy()
-    enhanced['evaluate_f'] = system.evaluate_f
-    enhanced['evaluate_observables'] = system.evaluate_observables
-    enhanced['get_solver_helper_fn'] = system.get_solver_helper
-    enhanced['n_drivers'] = system.num_drivers
+    enhanced["evaluate_f"] = system.evaluate_f
+    enhanced["evaluate_observables"] = system.evaluate_observables
+    enhanced["get_solver_helper_fn"] = system.get_solver_helper
+    enhanced["n_drivers"] = system.num_drivers
 
     if driver_array is not None:
-        enhanced['evaluate_driver_at_t'] = driver_array.evaluation_function
-        enhanced['driver_del_t'] = driver_array.driver_del_t
+        enhanced["evaluate_driver_at_t"] = driver_array.evaluation_function
+        enhanced["driver_del_t"] = driver_array.driver_del_t
     else:
-        enhanced['evaluate_driver_at_t'] = None
-        enhanced['driver_del_t'] = None
+        enhanced["evaluate_driver_at_t"] = None
+        enhanced["driver_del_t"] = None
 
     return enhanced
+
+
+def _build_solver_instance(
+    system: SymbolicODE,
+    solver_settings: Dict[str, Any],
+    driver_array: Optional[ArrayInterpolator],
+    memory_manager: Optional[Any] = None,
+) -> Solver:
+    """Instantiate :class:`Solver` configured with ``solver_settings``."""
+    settings = solver_settings.copy()
+    if memory_manager:
+        settings.update(memory_manager=memory_manager)
+    solver = Solver(system, **settings)
+    evaluate_driver_at_t = _get_evaluate_driver_at_t(driver_array)
+    solver.update({"evaluate_driver_at_t": evaluate_driver_at_t})
+    return solver
+
+
+def _build_cpu_step_controller(
+    precision: np.dtype,
+    step_controller_settings: Dict[str, Any],
+) -> CPUAdaptiveController:
+    """Return a CPU adaptive controller initialised from the settings."""
+
+    kind = step_controller_settings["step_controller"].lower()
+    controller = CPUAdaptiveController(
+        kind=kind,
+        dt=step_controller_settings["dt"],
+        dt_min=step_controller_settings["dt_min"],
+        dt_max=step_controller_settings["dt_max"],
+        atol=step_controller_settings["atol"],
+        rtol=step_controller_settings["rtol"],
+        order=step_controller_settings["algorithm_order"],
+        min_gain=step_controller_settings["min_gain"],
+        max_gain=step_controller_settings["max_gain"],
+        precision=precision,
+        deadband_min=step_controller_settings["deadband_min"],
+        deadband_max=step_controller_settings["deadband_max"],
+        safety=step_controller_settings["safety"],
+        newton_max_iters=step_controller_settings["newton_max_iters"],
+    )
+    if kind == "pi":
+        controller.kp = step_controller_settings["kp"]
+        controller.ki = step_controller_settings["ki"]
+    elif kind == "pid":
+        controller.kp = step_controller_settings["kp"]
+        controller.ki = step_controller_settings["ki"]
+        controller.kd = step_controller_settings["kd"]
+    return controller
+
+
+def _get_algorithm_order(algorithm_name_or_tableau):
+    """Get algorithm order without building step object.
+
+    Parameters
+    ----------
+    algorithm_name_or_tableau : str or ButcherTableau
+        Algorithm identifier or tableau instance.
+
+    Returns
+    -------
+    int
+        Algorithm order.
+    """
+    from cubie.integrators.algorithms import (
+        resolve_alias,
+        resolve_supplied_tableau,
+    )
+    from cubie.integrators.algorithms.generic_rosenbrock_w import (
+        GenericRosenbrockWStep,
+        DEFAULT_ROSENBROCK_TABLEAU,
+    )
+
+    if isinstance(algorithm_name_or_tableau, str):
+        algorithm_type, tableau = resolve_alias(algorithm_name_or_tableau)
+    else:
+        algorithm_type, tableau = resolve_supplied_tableau(
+            algorithm_name_or_tableau
+        )
+
+    # For rosenbrock without explicit tableau, use default
+    if algorithm_type is GenericRosenbrockWStep and tableau is None:
+        tableau = DEFAULT_ROSENBROCK_TABLEAU
+
+    # Extract order from tableau if available
+    if tableau is not None and hasattr(tableau, "order"):
+        return tableau.order
+
+    # Default orders for algorithms without tableaus
+    defaults = {
+        "euler": 1,
+        "backwards_euler": 1,
+        "backwards_euler_pc": 1,
+        "crank_nicolson": 2,
+    }
+
+    if isinstance(algorithm_name_or_tableau, str):
+        algorithm_name = algorithm_name_or_tableau.lower()
+        return defaults.get(algorithm_name, 1)
+
+    return 1
+
+
+def _get_algorithm_tableau(algorithm_name_or_tableau):
+    """Get tableau for an algorithm without building step object.
+
+    Parameters
+    ----------
+    algorithm_name_or_tableau : str or ButcherTableau
+        Algorithm identifier or tableau instance.
+
+    Returns
+    -------
+    tableau or None
+        The tableau if available, None otherwise.
+    """
+    from cubie.integrators.algorithms import (
+        resolve_alias,
+        resolve_supplied_tableau,
+    )
+    from cubie.integrators.algorithms.generic_rosenbrock_w import (
+        GenericRosenbrockWStep,
+        DEFAULT_ROSENBROCK_TABLEAU,
+    )
+
+    if isinstance(algorithm_name_or_tableau, str):
+        algorithm_type, tableau = resolve_alias(algorithm_name_or_tableau)
+    else:
+        algorithm_type, tableau = resolve_supplied_tableau(
+            algorithm_name_or_tableau
+        )
+
+    # For rosenbrock without explicit tableau, use default
+    if algorithm_type is GenericRosenbrockWStep and tableau is None:
+        tableau = DEFAULT_ROSENBROCK_TABLEAU
+
+    return tableau
+
+
+def _get_evaluate_driver_at_t(
+    driver_array: Optional[ArrayInterpolator],
+) -> Optional[Callable[..., Any]]:
+    """Return the evaluation callable for ``driver_array`` if it exists."""
+    if driver_array is None:
+        return None
+    return driver_array.evaluation_function
+
+
+def _get_driver_del_t(
+    driver_array: Optional[ArrayInterpolator],
+) -> Optional[Callable[..., Any]]:
+    """Return the time-derivative evaluation callable for ``driver_array``."""
+
+    if driver_array is None:
+        return None
+    return driver_array.driver_del_t
+
+
+def make_slice_fn(run_axis_idx, chunk_size, ndim):
+    """Create a slice function for chunked array access.
+
+    Returns a callable that generates index tuples to extract a chunk from
+    an array, slicing the run axis while preserving other dimensions.
+
+    Parameters
+    ----------
+    run_axis_idx : int
+        Index of the run axis in the array's shape.
+    chunk_size : int
+        Number of runs per chunk.
+    ndim : int
+        Number of dimensions in the array.
+
+    Returns
+    -------
+    callable
+        A function that takes a chunk index and returns a tuple of slices.
+    """
+
+    def slice_fn(chunk_idx):
+        slices = [slice(None)] * ndim
+        start = chunk_idx * chunk_size
+        end = start + chunk_size
+        slices[run_axis_idx] = slice(start, end)
+        return tuple(slices)
+
+    return slice_fn
+
+
+def setup_chunked_arrays(manager, num_runs, num_chunks):
+    """Configure chunked_shape and chunked_slice_fn on array manager slots.
+
+    Sets up both host and device slots in the manager for chunked transfers.
+    Arrays with 'run' in their stride_order get chunked shapes; others are
+    left unchanged.
+
+    Parameters
+    ----------
+    manager : InputArrays or OutputArrays
+        The array manager with host and device containers.
+    num_runs : int
+        Total number of runs across all chunks.
+    num_chunks : int
+        Number of chunks to split runs into.
+    """
+    chunk_size = max(1, num_runs // num_chunks)
+
+    for name, device_slot in manager.device.iter_managed_arrays():
+        if "run" in device_slot.stride_order:
+            run_idx = device_slot.stride_order.index("run")
+            chunked = list(device_slot.shape)
+            chunked[run_idx] = chunk_size
+            chunked_shape = tuple(chunked)
+            ndim = len(device_slot.shape)
+            slice_fn = make_slice_fn(run_idx, chunk_size, ndim)
+            device_slot.chunked_shape = chunked_shape
+            device_slot.chunked_slice_fn = slice_fn
+            # Also configure corresponding host array
+            host_slot = manager.host.get_managed_array(name)
+            host_slot.chunked_shape = chunked_shape
+            host_slot.chunked_slice_fn = slice_fn

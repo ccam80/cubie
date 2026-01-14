@@ -1176,18 +1176,6 @@ class BatchSolverKernel(CUDAFactory):
             )
         return input_axis
 
-    @chunk_axis.setter
-    def chunk_axis(self, value: str) -> None:
-        """Set chunk_axis on both input and output array managers.
-
-        Parameters
-        ----------
-        value
-            The chunking axis to set.
-        """
-        self.input_arrays._chunk_axis = value
-        self.output_arrays._chunk_axis = value
-
     @property
     def output_length(self) -> int:
         """Number of saved trajectory samples in the main run.
@@ -1245,7 +1233,6 @@ class BatchSolverKernel(CUDAFactory):
     @property
     def save_every(self) -> Optional[float]:
         """Interval between saved samples from the loop, or None if save_last only."""
-
         return self.single_integrator.save_every
 
     @property

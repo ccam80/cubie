@@ -8,7 +8,7 @@ from cubie.batchsolving.arrays.BatchOutputArrays import (
 )
 from cubie.memory.mem_manager import MemoryManager
 from cubie.outputhandling.output_sizes import BatchOutputSizes
-from tests.conftest import make_slice_fn
+from tests._utils import make_slice_fn
 
 
 @pytest.fixture(scope="session")

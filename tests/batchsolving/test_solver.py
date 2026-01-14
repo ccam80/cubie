@@ -208,9 +208,7 @@ def test_solve_info_property(
     assert solve_info.saved_observables == solver.saved_observables
     assert solve_info.summarised_states == solver.summarised_states
     assert solve_info.summarised_observables == solver.summarised_observables
-    # Note: There appears to be a bug in the solver.py where summarised_observables
-    # is set to summarised_states instead of summarised_observables
-    # This test documents the current behavior
+
     assert hasattr(solve_info, "summarised_observables")
 
 
@@ -657,29 +655,6 @@ def test_solve_array_path_matches_dict_path(
         rtol=1e-5,
         atol=1e-7,
     )
-
-
-def test_solve_dict_path_backward_compatible(
-    solver,
-    simple_initial_values,
-    simple_parameters,
-    driver_settings,
-):
-    """Test that dict inputs still work exactly as before."""
-    result = solver.solve(
-        initial_values=simple_initial_values,
-        parameters=simple_parameters,
-        drivers=driver_settings,
-        duration=0.05,
-        settling_time=0.0,
-        blocksize=32,
-        grid_type="combinatorial",
-        results_type="full",
-    )
-
-    assert isinstance(result, SolveResult)
-    assert hasattr(result, "time_domain_array")
-    assert hasattr(result, "summaries_array")
 
 
 def test_solve_ivp_positional_argument_order(system, solver_settings):

@@ -1,0 +1,579 @@
+"""Tests for chunking logic."""
+
+from time import sleep
+
+import numpy as np
+import pytest
+import attrs
+from cubie.batchsolving.arrays.BatchOutputArrays import (
+    OutputArrays,
+    OutputArrayContainer,
+)
+from cubie.batchsolving.arrays.BatchInputArrays import InputArrayContainer
+from cubie.batchsolving.arrays.BaseArrayManager import (
+    ManagedArray,
+    ArrayContainer,
+    BaseArrayManager,
+)
+from cubie.batchsolving.writeback_watcher import (
+    WritebackTask,
+    WritebackWatcher,
+)
+from cubie.memory.array_requests import ArrayResponse
+from cubie.memory.chunk_buffer_pool import ChunkBufferPool
+
+
+class TestChunkAxisProperty:
+    """Tests for chunk_axis property getter behavior."""
+
+    def test_chunk_axis_property_returns_consistent_value(
+        self, solverkernel_mutable
+    ):
+        """Verify property returns value when arrays are consistent."""
+        kernel = solverkernel_mutable
+        # Both arrays should have same default value
+        assert kernel.input_arrays._chunk_axis == "run"
+        assert kernel.output_arrays._chunk_axis == "run"
+        assert kernel.chunk_axis == "run"
+
+    def test_chunk_axis_property_raises_on_inconsistency(
+        self, solverkernel_mutable
+    ):
+        """Verify property raises ValueError for mismatched arrays."""
+        kernel = solverkernel_mutable
+        # Manually create inconsistent state
+        kernel.input_arrays._chunk_axis = "run"
+        kernel.output_arrays._chunk_axis = "time"
+
+        with pytest.raises(ValueError, match=r"Inconsistent chunk_axis"):
+            _ = kernel.chunk_axis
+
+
+@pytest.mark.parametrize("chunk_axis", ["run", "time"], indirect=True)
+def test_run_sets_chunk_axis_on_arrays(
+    chunked_solved_solver, system, driver_settings, chunk_axis
+):
+    """Verify solve() sets chunk_axis before array operations."""
+    solver, result = chunked_solved_solver
+
+    # After solve, kernel arrays should have the chunk_axis value
+    assert solver.kernel.input_arrays._chunk_axis == chunk_axis
+    assert solver.kernel.output_arrays._chunk_axis == chunk_axis
+
+
+@pytest.mark.parametrize("chunk_axis", ["run", "time"], indirect=True)
+def test_chunked_solve_produces_valid_output(
+    system, precision, chunk_axis, chunked_solved_solver
+):
+    """Verify chunked solver produces valid output arrays."""
+    solver, result = chunked_solved_solver
+
+    # Verify output shape and that values are not all zeros/NaN
+    assert result.time_domain_array is not None
+    assert result.time_domain_array.shape[2] == 5
+    assert not np.all(result.time_domain_array == 0)
+    assert not np.any(np.isnan(result.time_domain_array))
+
+
+@pytest.mark.parametrize("chunk_axis", ["run", "time"], indirect=True)
+def test_chunked_solver_produces_correct_results(
+    chunked_solved_solver, unchunked_solved_solver
+):
+    """Verify chunked execution produces same results as non-chunked."""
+    chunked_solver, result_chunked = chunked_solved_solver
+    unchunked_solver, result_normal = unchunked_solved_solver
+
+    assert chunked_solver.chunks > 1
+    assert unchunked_solver.chunks == 1
+
+    # Results should match (within floating point tolerance)
+    np.testing.assert_allclose(
+        result_chunked.time_domain_array,
+        result_normal.time_domain_array,
+        rtol=1e-5,
+        atol=1e-7,
+    )
+
+
+def test_input_buffers_released_after_kernel(chunked_solved_solver):
+    chunked_solver, result_chunked = chunked_solved_solver
+
+    # After solve completes, input_arrays should have empty active buffers
+    input_arrays = chunked_solver.kernel.input_arrays
+    assert len(input_arrays._active_buffers) == 0
+
+
+def test_non_chunked_uses_pinned_host(unchunked_solved_solver):
+    """Non-chunked runs use pinned host arrays."""
+
+    solver, result = unchunked_solved_solver
+
+    # Verify host arrays are pinned when non-chunked
+    for name, slot in solver.kernel.output_arrays.host.iter_managed_arrays():
+        assert slot.memory_type == "pinned"
+
+
+@pytest.mark.parametrize("chunk_axis", ["run", "time"], indirect=True)
+def test_chunked_uses_numpy_host(chunked_solved_solver):
+    """Chunked runs use numpy host arrays with buffer pool."""
+    solver, result = chunked_solved_solver
+
+    # When chunked, host arrays should be numpy (not pinned)
+    # to limit total pinned memory to buffer pool only
+    found_one = False
+    for name, slot in solver.kernel.output_arrays.host.iter_managed_arrays():
+        if slot.needs_chunked_transfer:
+            assert slot.memory_type == "host"
+            found_one = True
+    assert found_one, "No chunked-transfer arrays found"
+
+
+def test_pinned_buffers_created(chunked_solved_solver):
+    """Total pinned memory stays within one chunk's worth."""
+    solver, result = chunked_solved_solver
+    buffer_pool = solver.kernel.output_arrays._buffer_pool
+
+    # After solve completes, buffers should exist in pool list and be fre
+    for buffer_list in buffer_pool._buffers.values():
+        for buf in buffer_list:
+            assert buf.in_use is False
+
+
+@pytest.mark.parametrize("chunk_axis", ["run", "time"], indirect=True)
+def test_watcher_completes_all_tasks(chunked_solved_solver):
+    """All submitted tasks are completed before solve returns."""
+    solver, result = chunked_solved_solver
+    # Verify all tasks completed
+    output_arrays = solver.kernel.output_arrays
+    assert output_arrays._watcher._pending_count == 0
+
+
+class TestWritebackTask:
+    """Tests for WritebackTask data container."""
+
+    def test_task_creation(self):
+        """Verify WritebackTask can be created with valid inputs."""
+        pool = ChunkBufferPool()
+        buffer = pool.acquire("test", (10,), np.float32)
+        target = np.zeros((100,), dtype=np.float32)
+
+        task = WritebackTask(
+            event=None,
+            buffer=buffer,
+            target_array=target,
+            slice_tuple=(slice(0, 10),),
+            buffer_pool=pool,
+            array_name="test",
+        )
+
+        assert task.event is None
+        assert task.buffer is buffer
+        assert task.target_array is target
+        assert task.slice_tuple == (slice(0, 10),)
+        assert task.buffer_pool is pool
+        assert task.array_name == "test"
+
+    def test_task_validates_buffer_type(self):
+        """Verify WritebackTask validates buffer is a PinnedBuffer."""
+        pool = ChunkBufferPool()
+        target = np.zeros((100,), dtype=np.float32)
+
+        with pytest.raises(TypeError):
+            WritebackTask(
+                event=None,
+                buffer="not a buffer",  # Invalid
+                target_array=target,
+                slice_tuple=(slice(0, 10),),
+                buffer_pool=pool,
+                array_name="test",
+            )
+
+
+class TestWritebackWatcher:
+    """Tests for WritebackWatcher class."""
+
+    def test_watcher_starts_and_stops(self):
+        """Verify watcher thread starts on first submit and stops on shutdown.
+
+        Tests lifecycle management: thread should start when first task
+        is submitted and terminate cleanly on shutdown().
+        """
+        watcher = WritebackWatcher()
+        pool = ChunkBufferPool()
+        buffer = pool.acquire("test", (10,), np.float32)
+        target = np.zeros((100,), dtype=np.float32)
+
+        # Thread should not be running initially
+        assert watcher._thread is None
+
+        # Submit a task (should start thread)
+        watcher.submit(
+            event=None,
+            buffer=buffer,
+            target_array=target,
+            slice_tuple=(slice(0, 10),),
+            buffer_pool=pool,
+            array_name="test",
+        )
+
+        # Give thread time to start
+        sleep(0.01)
+
+        # Thread should now be running
+        assert watcher._thread is not None
+        assert watcher._thread.is_alive()
+
+        # Shutdown and verify thread stops
+        watcher.shutdown()
+        assert watcher._thread is None
+
+    def test_submit_and_wait_completes_writeback(self):
+        """Verify submitted task copies data to target array.
+
+        Tests end-to-end functionality: data in buffer should be
+        copied to target array at specified slice after wait_all().
+        """
+        watcher = WritebackWatcher()
+        pool = ChunkBufferPool()
+        buffer = pool.acquire("test", (10,), np.float32)
+        target = np.zeros((100,), dtype=np.float32)
+
+        # Fill buffer with test data
+        buffer.array[:] = np.arange(10, dtype=np.float32)
+
+        # Submit task
+        watcher.submit(
+            event=None,  # CUDASIM treats None as complete
+            buffer=buffer,
+            target_array=target,
+            slice_tuple=(slice(20, 30),),
+            buffer_pool=pool,
+            array_name="test",
+        )
+
+        # Wait for completion
+        watcher.wait_all(timeout=1.0)
+
+        # Verify data was copied to correct slice
+        expected = np.zeros((100,), dtype=np.float32)
+        expected[20:30] = np.arange(10, dtype=np.float32)
+        np.testing.assert_array_equal(target, expected)
+
+        # Cleanup
+        watcher.shutdown()
+
+    def test_wait_all_blocks_until_complete(self):
+        """Verify wait_all blocks until all pending tasks finish.
+
+        Tests synchronization: wait_all should return only when
+        all submitted tasks have completed.
+        """
+        watcher = WritebackWatcher()
+        pool = ChunkBufferPool()
+
+        # Submit multiple tasks
+        targets = []
+        for i in range(3):
+            buffer = pool.acquire(f"test_{i}", (5,), np.float32)
+            buffer.array[:] = float(i + 1)
+            target = np.zeros((20,), dtype=np.float32)
+            targets.append(target)
+
+            watcher.submit(
+                event=None,
+                buffer=buffer,
+                target_array=target,
+                slice_tuple=(slice(i * 5, (i + 1) * 5),),
+                buffer_pool=pool,
+                array_name=f"test_{i}",
+            )
+
+        # Wait for all
+        watcher.wait_all(timeout=1.0)
+
+        # Verify all tasks completed
+        for i, target in enumerate(targets):
+            expected_value = float(i + 1)
+            np.testing.assert_array_equal(
+                target[i * 5 : (i + 1) * 5],
+                np.full((5,), expected_value, dtype=np.float32),
+            )
+
+        # Cleanup
+        watcher.shutdown()
+
+    def test_multiple_concurrent_tasks(self):
+        """Verify multiple tasks can be queued and completed.
+
+        Tests concurrent operation: multiple tasks submitted rapidly
+        should all complete correctly without data corruption.
+        """
+        watcher = WritebackWatcher()
+        pool = ChunkBufferPool()
+
+        num_tasks = 10
+        target = np.zeros((num_tasks * 10,), dtype=np.float32)
+
+        for i in range(num_tasks):
+            buffer = pool.acquire("test", (10,), np.float32)
+            buffer.array[:] = float(i)
+
+            watcher.submit(
+                event=None,
+                buffer=buffer,
+                target_array=target,
+                slice_tuple=(slice(i * 10, (i + 1) * 10),),
+                buffer_pool=pool,
+                array_name="test",
+            )
+
+        # Wait for all tasks
+        watcher.wait_all(timeout=2.0)
+
+        # Verify all slices have correct values
+        for i in range(num_tasks):
+            expected = np.full((10,), float(i), dtype=np.float32)
+            np.testing.assert_array_equal(
+                target[i * 10 : (i + 1) * 10], expected
+            )
+
+        # Cleanup
+        watcher.shutdown()
+
+    def test_wait_all_timeout_raises(self):
+        """Verify wait_all raises TimeoutError when timeout expires."""
+        watcher = WritebackWatcher()
+
+        # Manually set pending count to simulate stuck task
+        watcher._pending_count = 1
+
+        with pytest.raises(TimeoutError):
+            watcher.wait_all(timeout=0.1)
+
+    def test_buffer_released_after_completion(self):
+        """Verify buffer is released back to pool after task completes."""
+        watcher = WritebackWatcher()
+        pool = ChunkBufferPool()
+        buffer = pool.acquire("test", (10,), np.float32)
+        target = np.zeros((10,), dtype=np.float32)
+
+        # Buffer should be in use after acquire
+        assert buffer.in_use
+
+        watcher.submit(
+            event=None,
+            buffer=buffer,
+            target_array=target,
+            slice_tuple=(slice(None),),
+            buffer_pool=pool,
+            array_name="test",
+        )
+
+        watcher.wait_all(timeout=1.0)
+
+        # Buffer should be released after completion
+        assert not buffer.in_use
+
+        # Cleanup
+        watcher.shutdown()
+
+    def test_start_is_idempotent(self):
+        """Verify calling start() multiple times is safe."""
+        watcher = WritebackWatcher()
+
+        # Start multiple times
+        watcher.start()
+        first_thread = watcher._thread
+        watcher.start()
+        second_thread = watcher._thread
+
+        # Should be the same thread
+        assert first_thread is second_thread
+
+        # Cleanup
+        watcher.shutdown()
+
+    def test_2d_array_slice(self):
+        """Verify slicing works correctly for 2D arrays."""
+        watcher = WritebackWatcher()
+        pool = ChunkBufferPool()
+        buffer = pool.acquire("test", (5, 10), np.float64)
+        target = np.zeros((20, 10), dtype=np.float64)
+
+        # Fill buffer with test data
+        buffer.array[:] = np.arange(50, dtype=np.float64).reshape(5, 10)
+
+        watcher.submit(
+            event=None,
+            buffer=buffer,
+            target_array=target,
+            slice_tuple=(slice(5, 10), slice(None)),
+            buffer_pool=pool,
+            array_name="test",
+        )
+
+        watcher.wait_all(timeout=1.0)
+
+        # Verify data was copied to correct slice
+        expected = np.arange(50, dtype=np.float64).reshape(5, 10)
+        np.testing.assert_array_equal(target[5:10, :], expected)
+
+        # Cleanup
+        watcher.shutdown()
+
+
+@attrs.define
+class ConcreteArrayManager(BaseArrayManager):
+    """Concrete implementation of BaseArrayManager for testing."""
+
+    def finalise(self, chunk_index):
+        return chunk_index
+
+    def initialise(self, chunk_index):
+        return chunk_index
+
+    def update(self):
+        return
+
+
+@attrs.define(slots=False)
+class TestArrayContainer(ArrayContainer):
+    """Simple test container with a single managed array."""
+
+    state: ManagedArray = attrs.field(
+        factory=lambda: ManagedArray(
+            dtype=np.float32,
+            stride_order=("time", "variable", "run"),
+            default_shape=(10, 3, 100),
+            memory_type="pinned",
+        )
+    )
+
+
+class TestIsChunkedProperty:
+    """Test the is_chunked property on BaseArrayManager."""
+
+    def test_is_chunked_false_when_single_chunk(self):
+        """Verify is_chunked returns False when chunks <= 1."""
+        manager = ConcreteArrayManager(
+            host=TestArrayContainer(),
+            device=TestArrayContainer(),
+        )
+        # Default is 0 chunks
+        assert manager._chunks == 0
+        assert manager.is_chunked is False
+
+        # Set to 1 chunk
+        manager._chunks = 1
+        assert manager.is_chunked is False
+
+    def test_is_chunked_true_when_multiple_chunks(self):
+        """Verify is_chunked returns True when chunks > 1."""
+        manager = ConcreteArrayManager(
+            host=TestArrayContainer(),
+            device=TestArrayContainer(),
+        )
+        manager._chunks = 2
+        assert manager.is_chunked is True
+
+        manager._chunks = 10
+        assert manager.is_chunked is True
+
+
+class TestHostFactoryMemoryType:
+    """Test host_factory methods accept memory_type parameter."""
+
+    def test_output_container_host_factory_default_pinned(self):
+        """Verify OutputArrayContainer.host_factory defaults to pinned."""
+        container = OutputArrayContainer.host_factory()
+        for _, slot in container.iter_managed_arrays():
+            assert slot.memory_type == "pinned"
+
+    def test_output_container_host_factory_accepts_host(self):
+        """Verify OutputArrayContainer.host_factory accepts host type."""
+        container = OutputArrayContainer.host_factory(memory_type="host")
+        for _, slot in container.iter_managed_arrays():
+            assert slot.memory_type == "host"
+
+    def test_input_container_host_factory_default_pinned(self):
+        """Verify InputArrayContainer.host_factory defaults to pinned."""
+        container = InputArrayContainer.host_factory()
+        for _, slot in container.iter_managed_arrays():
+            assert slot.memory_type == "pinned"
+
+    def test_input_container_host_factory_accepts_host(self):
+        """Verify InputArrayContainer.host_factory accepts host type."""
+        container = InputArrayContainer.host_factory(memory_type="host")
+        for _, slot in container.iter_managed_arrays():
+            assert slot.memory_type == "host"
+
+
+class TestOutputArraysConvertToNumpyWhenChunked:
+    """Test OutputArrays converts pinned to numpy when chunked."""
+
+    def test_output_arrays_converts_to_numpy_when_chunked(self):
+        """Verify OutputArrays converts pinned to numpy in chunked mode."""
+        output_arrays = OutputArrays()
+
+        # Initially arrays are pinned
+        for name, slot in output_arrays.host.iter_managed_arrays():
+            assert slot.memory_type == "pinned"
+
+        # Set up larger shapes so chunking produces different shapes
+        chunks = 3
+        for name, slot in output_arrays.device.iter_managed_arrays():
+            if slot.is_chunked and "run" in slot.stride_order:
+                run_idx = slot.stride_order.index("run")
+                new_shape = list(slot.shape)
+                new_shape[run_idx] = 30  # 30 runs, divisible by 3 chunks
+
+        # Prepare chunked_shapes for each managed array
+        # Divide the "run" axis by chunk count to simulate chunking
+        chunked_shapes = {}
+        for name, slot in output_arrays.device.iter_managed_arrays():
+            full_shape = slot.shape
+            if slot.is_chunked and "run" in slot.stride_order:
+                run_idx = slot.stride_order.index("run")
+                chunked = list(full_shape)
+                chunked[run_idx] = full_shape[run_idx] // chunks
+                chunked_shapes[name] = tuple(chunked)
+
+        # Simulate allocation response with multiple chunks
+        response = ArrayResponse(
+            arr={},
+            chunks=chunks,
+            chunk_axis="run",
+            chunked_shapes=chunked_shapes,
+        )
+        output_arrays._on_allocation_complete(response)
+
+        # After chunked allocation, chunked arrays should be host type
+        assert output_arrays.is_chunked is True
+        for name, slot in output_arrays.host.iter_managed_arrays():
+            device_slot = output_arrays.device.get_managed_array(name)
+            if device_slot.needs_chunked_transfer:
+                assert slot.memory_type == "host"
+            else:
+                # Non-chunked arrays (like status_codes) stay pinned
+                assert slot.memory_type == "pinned"
+
+    def test_output_arrays_stays_pinned_when_not_chunked(self):
+        """Verify OutputArrays stays pinned when not chunked."""
+        output_arrays = OutputArrays()
+
+        # Initially arrays are pinned
+        for name, slot in output_arrays.host.iter_managed_arrays():
+            assert slot.memory_type == "pinned"
+
+        # Simulate allocation response with single chunk
+        response = ArrayResponse(
+            arr={},
+            chunks=1,
+            chunk_axis="run",
+        )
+        output_arrays._on_allocation_complete(response)
+
+        # After single-chunk allocation, arrays should stay pinned
+        assert output_arrays.is_chunked is False
+        for name, slot in output_arrays.host.iter_managed_arrays():
+            assert slot.memory_type == "pinned"

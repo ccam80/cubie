@@ -11,8 +11,6 @@ from .cpu_ode_system import CPUODESystem
 from .cpu_utils import Array, DriverEvaluator, STATUS_MASK, _ensure_array
 from .step_controllers import CPUAdaptiveController
 
-from tests._utils import calculate_expected_summaries
-
 
 def _collect_saved_outputs(
     save_history: list[Array],
@@ -91,8 +89,9 @@ def run_reference_loop(
     save_every = precision(solver_settings["save_every"])
     summarise_every = precision(solver_settings["summarise_every"])
     sample_summaries_every = precision(
-        solver_settings.get("sample_summaries_every",
-                            solver_settings["save_every"])
+        solver_settings.get(
+            "sample_summaries_every", solver_settings["save_every"]
+        )
     )
 
     stepper = get_ref_stepper(
@@ -124,8 +123,9 @@ def run_reference_loop(
     )
 
     save_time = output_functions.save_time
-    max_save_samples = (int(np.floor(precision(duration) / precision(save_every)))
-                        + 1)
+    max_save_samples = (
+        int(np.floor(precision(duration) / precision(save_every))) + 1
+    )
 
     # Calculate summary sample counts
     max_summary_samples = (
@@ -158,7 +158,9 @@ def run_reference_loop(
         save_idx = 0
     else:
         next_save_time = precision(warmup + t0 + save_every)
-        next_summary_sample_time = precision(warmup + t0 + sample_summaries_every)
+        next_summary_sample_time = precision(
+            warmup + t0 + sample_summaries_every
+        )
         state_history = [state.copy()]
         observable_history.append(observables.copy())
         time_history = [precision(t)]
@@ -177,7 +179,9 @@ def run_reference_loop(
         # Determine next event time
         next_event_time = min(
             next_save_time if next_save_time <= end_time else end_time + 1,
-            next_summary_sample_time if next_summary_sample_time <= end_time else end_time + 1
+            next_summary_sample_time
+            if next_summary_sample_time <= end_time
+            else end_time + 1,
         )
         if next_event_time > end_time:
             break
@@ -224,7 +228,9 @@ def run_reference_loop(
             if len(summary_state_history) < max_summary_samples:
                 summary_state_history.append(result.state.copy())
                 summary_observable_history.append(result.observables.copy())
-            next_summary_sample_time = next_summary_sample_time + sample_summaries_every
+            next_summary_sample_time = (
+                next_summary_sample_time + sample_summaries_every
+            )
 
     state_output = _collect_saved_outputs(
         state_history,
@@ -242,7 +248,9 @@ def run_reference_loop(
     if save_time:
         if len(time_history) < state_output.shape[0]:
             time_history.append(precision(0))
-        state_output = np.column_stack((state_output, np.asarray(time_history)))
+        state_output = np.column_stack(
+            (state_output, np.asarray(time_history))
+        )
 
     # Use summary-cadence data for summary calculations
     summary_state_output = _collect_saved_outputs(
@@ -257,6 +265,10 @@ def run_reference_loop(
         summarised_observable_indices,
         precision,
     )
+
+    # Import has been dumped here to avoid a circular dependency that it's
+    # easier not to fix.
+    from tests._utils import calculate_expected_summaries
 
     state_summary, observable_summary = calculate_expected_summaries(
         summary_state_output,

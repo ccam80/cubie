@@ -9,7 +9,7 @@ from cubie.batchsolving.arrays.BatchInputArrays import (
 from cubie.memory import default_memmgr
 from cubie.memory.chunk_buffer_pool import ChunkBufferPool, PinnedBuffer
 from cubie.outputhandling.output_sizes import BatchInputSizes
-from tests.conftest import setup_chunked_arrays
+from tests._utils import setup_chunked_arrays
 
 
 @pytest.fixture(scope="session")

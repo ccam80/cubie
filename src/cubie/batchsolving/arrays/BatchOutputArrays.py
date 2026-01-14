@@ -210,44 +210,6 @@ class OutputArrays(BaseArrayManager):
         Chunked arrays use per-chunk pinned buffers instead.
         """
         super()._on_allocation_complete(response)
-        if self.is_chunked:
-            self._convert_host_to_numpy()
-        else:
-            self.host.set_memory_type("pinned")
-
-    def _convert_host_to_pinned(self) -> None:
-        """Convert regular numpy host arrays to pinned for non-chunked mode.
-
-        When a run is not chunked, the host arrays should be pinned to
-        enable asynchronous transfers.
-        """
-        for name, slot in self.host.iter_managed_arrays():
-            old_array = slot.array
-            if old_array is not None:
-                if slot.memory_type == "host":
-                    new_array = self._memory_manager.create_host_array(
-                        old_array.shape, old_array.dtype, "pinned"
-                    )
-                    slot.array = new_array
-        self.host.set_memory_type("pinned")
-
-    def _convert_host_to_numpy(self) -> None:
-        """Convert pinned host arrays to regular numpy for chunked mode.
-
-        When chunking is active, host arrays should be regular numpy
-        to limit pinned memory usage. Per-chunk pinned buffers are
-        used for staging during transfers.
-        """
-        for name, slot in self.host.iter_managed_arrays():
-            # Convert to regular numpy only for arrays with chunked transfers
-            if slot.memory_type == "pinned" and slot.needs_chunked_transfer:
-                old_array = slot.array
-                if old_array is not None:
-                    new_array = self._memory_manager.create_host_array(
-                        old_array.shape, old_array.dtype, "host"
-                    )
-                    slot.array = new_array
-                    slot.memory_type = "host"
 
     def update(self, solver_instance: "BatchSolverKernel") -> None:
         """

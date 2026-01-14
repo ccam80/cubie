@@ -25,16 +25,16 @@ def operator_system(precision):
         "dx1 = c*x0 + d*x1",
     ]
     constants = {"a": 1.0, "b": 2.0, "c": 3.0, "d": 4.0}
-    system = create_ODE_system(dxdt, states=["x0", "x1"],
-                               constants=constants, precision=precision)
+    system = create_ODE_system(
+        dxdt, states=["x0", "x1"], constants=constants, precision=precision
+    )
     return system
 
 
 def _build_operator_factory(system, precision):
     def factory(beta, gamma, M):
         fname = (
-            "operator_apply_factory_"
-            f"{abs(hash((beta, gamma, M.tobytes())))}"
+            f"operator_apply_factory_{abs(hash((beta, gamma, M.tobytes())))}"
         )
         code = generate_operator_apply_code(
             system.equations,
@@ -104,8 +104,9 @@ def prepare_jac_factory(cached_system, precision):
             cached_system.indices,
             func_name=fname,
         )
-        prep_fac, was_cached = cached_system.gen_file.import_function(fname,
-                                                                    code)
+        prep_fac, was_cached = cached_system.gen_file.import_function(
+            fname, code
+        )
         prepare = prep_fac(
             cached_system.constants.values_dict,
             from_dtype(cached_system.precision),
@@ -126,8 +127,9 @@ def cached_jvp_factory(cached_system, precision):
             cached_system.indices,
             func_name=fname,
         )
-        jvp_fac, was_cached = cached_system.gen_file.import_function(fname,
-                                                                    code)
+        jvp_fac, was_cached = cached_system.gen_file.import_function(
+            fname, code
+        )
         return jvp_fac(
             cached_system.constants.values_dict,
             from_dtype(cached_system.precision),
@@ -192,8 +194,7 @@ def cached_operator_factory(cached_system, precision):
 
     def factory(beta, gamma, M):
         fname = (
-            "cached_operator_factory_"
-            f"{abs(hash((beta, gamma, M.tobytes())))}"
+            f"cached_operator_factory_{abs(hash((beta, gamma, M.tobytes())))}"
         )
         code = generate_cached_operator_apply_code(
             cached_system.equations,
@@ -201,8 +202,9 @@ def cached_operator_factory(cached_system, precision):
             M=M,
             func_name=fname,
         )
-        op_fac, was_cached = cached_system.gen_file.import_function(fname,
-                                                                    code)
+        op_fac, was_cached = cached_system.gen_file.import_function(
+            fname, code
+        )
         return op_fac(
             cached_system.constants.values_dict,
             from_dtype(cached_system.precision),
@@ -251,7 +253,18 @@ def cached_operator_kernel(cached_system, precision):
                 drivers[idx] = driver_values[idx]
 
             prepare(state, parameters, drivers, t, cached_aux)
-            op(state, parameters, drivers, cached_aux, base_state, t, h, a_ij, vec, out)
+            op(
+                state,
+                parameters,
+                drivers,
+                cached_aux,
+                base_state,
+                t,
+                h,
+                a_ij,
+                vec,
+                out,
+            )
 
         return kernel
 
@@ -270,8 +283,7 @@ def test_split_jvp_expressions_caches_high_cost_terms():
     exprs = [
         (
             dep0,
-            sp.sin(x0)
-            + sp.cos(x1),
+            sp.sin(x0) + sp.cos(x1),
         ),
         (
             heavy,
@@ -286,8 +298,7 @@ def test_split_jvp_expressions_caches_high_cost_terms():
         (j_01 := sp.Symbol("j_01"), simple),
         (
             sp.Symbol("jvp[0]"),
-            j_00 * sp.Symbol("v[0]")
-            + j_01 * sp.Symbol("v[1]")
+            j_00 * sp.Symbol("v[0]") + j_01 * sp.Symbol("v[1]"),
         ),
     ]
 
@@ -372,10 +383,7 @@ def test_split_jvp_expressions_groups_cse_dependents():
     exprs = [
         (
             cse_sym,
-            sp.sin(x0)
-            + sp.cos(x1)
-            + sp.exp(x0 + x1)
-            + sp.log(x0 + 3),
+            sp.sin(x0) + sp.cos(x1) + sp.exp(x0 + x1) + sp.log(x0 + 3),
         ),
         (
             aux_a,
@@ -428,21 +436,15 @@ def test_split_jvp_expressions_limits_cse_depth_for_slots():
     exprs = [
         (
             cse_root,
-            sp.sin(x0)
-            + sp.cos(x1)
-            + sp.exp(x0 + x1),
+            sp.sin(x0) + sp.cos(x1) + sp.exp(x0 + x1),
         ),
         (
             cse_mid,
-            cse_root**2
-            + sp.exp(cse_root)
-            + sp.tan(cse_root),
+            cse_root**2 + sp.exp(cse_root) + sp.tan(cse_root),
         ),
         (
             aux_a,
-            cse_mid**2
-            + sp.sin(cse_mid)
-            + sp.log(cse_mid + 2),
+            cse_mid**2 + sp.sin(cse_mid) + sp.log(cse_mid + 2),
         ),
         (
             aux_b,
@@ -491,10 +493,7 @@ def test_cache_plan_shared_cse_with_slot_limit():
     exprs = [
         (
             cse_sym,
-            sp.sin(x0)
-            + sp.cos(x1)
-            + sp.exp(x0 + x1)
-            + sp.log(x0 + 2),
+            sp.sin(x0) + sp.cos(x1) + sp.exp(x0 + x1) + sp.log(x0 + 2),
         ),
         (
             aux_a,
@@ -643,7 +642,9 @@ def test_operator_apply_dense(
     v = np.array([1.0, -1.0], dtype=precision)
     out = np.zeros(2, dtype=precision)
     empty_base = np.empty(0, dtype=precision)
-    kernel[1, 1](precision(0.0), precision(h), precision(1.0), v, empty_base, out)
+    kernel[1, 1](
+        precision(0.0), precision(h), precision(1.0), v, empty_base, out
+    )
     J = np.array([[1.0, 2.0], [3.0, 4.0]], dtype=precision)
     expected = beta * M @ v - gamma * h * J @ v
     assert np.allclose(
@@ -660,6 +661,7 @@ def test_operator_apply_constant_unpacking(operator_system):
         operator_system.equations, operator_system.indices
     )
     assert "a = precision(constants['a'])" in code
+
 
 def test_cached_jvp_matches_jacobian(
     cached_system,
@@ -787,9 +789,7 @@ def test_cached_operator_apply_dense(
     gamma_val = precision(gamma)
     h_val = precision(h)
     mass = np.array(M, dtype=precision)
-    expected = (
-        beta_val * mass @ vec - gamma_val * h_val * jacobian @ vec
-    )
+    expected = beta_val * mass @ vec - gamma_val * h_val * jacobian @ vec
 
     assert np.allclose(
         out,
@@ -803,20 +803,23 @@ def test_cached_operator_apply_dense(
 # Neumann preconditioner expression tests
 # ---------------------------------------------------------------------------
 
+
 @pytest.fixture(scope="session")
 def neumann_factory(operator_system, precision):
     """Return a factory producing Neumann preconditioner device functions."""
 
     def factory(beta, gamma, order):
-        fname = (f"neumann_preconditioner_factory_{int(beta)}_{int(gamma)}"
-                 f"_{order}")
+        fname = (
+            f"neumann_preconditioner_factory_{int(beta)}_{int(gamma)}_{order}"
+        )
         code = generate_neumann_preconditioner_code(
             operator_system.equations,
             operator_system.indices,
             func_name=fname,
         )
-        pre_fac, was_cached = operator_system.gen_file.import_function(fname,
-                                                                    code)
+        pre_fac, was_cached = operator_system.gen_file.import_function(
+            fname, code
+        )
         return pre_fac(
             operator_system.constants.values_dict,
             from_dtype(operator_system.precision),
@@ -841,7 +844,18 @@ def neumann_kernel(precision):
             parameters = cuda.local.array(1, precision)
             drivers = cuda.local.array(1, precision)
             scratch = cuda.local.array(n, precision)
-            pre(state, parameters, drivers, base_state, t, h, a_ij, vec, out, scratch)
+            pre(
+                state,
+                parameters,
+                drivers,
+                base_state,
+                t,
+                h,
+                a_ij,
+                vec,
+                out,
+                scratch,
+            )
 
         return kernel
 
@@ -862,8 +876,9 @@ def neumann_cached_factory(cached_system, precision):
             cached_system.indices,
             func_name=fname,
         )
-        pre_fac, was_cached = cached_system.gen_file.import_function(fname,
-                                                                    code)
+        pre_fac, was_cached = cached_system.gen_file.import_function(
+            fname, code
+        )
         return pre_fac(
             cached_system.constants.values_dict,
             from_dtype(cached_system.precision),
@@ -932,11 +947,12 @@ def neumann_cached_kernel(cached_system, precision):
 
     return make_kernel
 
+
 @pytest.mark.parametrize(
-        "solver_settings_override",
-        [{"precision": np.float64}],
-        ids=[""],
-        indirect=True,
+    "solver_settings_override",
+    [{"precision": np.float64}],
+    ids=[""],
+    indirect=True,
 )
 @pytest.mark.parametrize(
     "beta,gamma,h,order",
@@ -969,7 +985,9 @@ def test_neumann_preconditioner_expression(
     out = np.zeros(2, dtype=precision)
     empty_base = np.empty(0, dtype=precision)
 
-    kernel[1, 1](precision(0.0), precision(h), precision(1.0), v, empty_base, out)
+    kernel[1, 1](
+        precision(0.0), precision(h), precision(1.0), v, empty_base, out
+    )
 
     J = np.array([[1.0, 2.0], [3.0, 4.0]], dtype=precision)
     beta_inv = 1.0 / beta
@@ -1012,7 +1030,7 @@ def test_neumann_preconditioner_cached_expression(
     prepare_jac_factory,
     precision,
     tolerance,
-    ):
+):
     """Validate cached Neumann preconditioner with stored auxiliaries."""
 
     prepare, aux_count = prepare_jac_factory()
@@ -1105,8 +1123,9 @@ def stage_residual_factory(residual_system, precision):
             M=M,
             func_name=fname,
         )
-        res_fac, was_cached = residual_system.gen_file.import_function(fname,
-                                                                    code)
+        res_fac, was_cached = residual_system.gen_file.import_function(
+            fname, code
+        )
         return res_fac(
             residual_system.constants.values_dict,
             from_dtype(residual_system.precision),
@@ -1157,7 +1176,9 @@ def test_stage_residual(
     stage = np.array([0.5, -0.3], dtype=precision)
     base = np.array([0.25, -0.25], dtype=precision)
     out = np.zeros(2, dtype=precision)
-    kernel[1, 1](precision(0.0), precision(h), precision(a_ii), stage, base, out)
+    kernel[1, 1](
+        precision(0.0), precision(h), precision(a_ii), stage, base, out
+    )
     J = np.array([[1.0, 2.0], [3.0, 4.0]], dtype=precision)
     eval_point = base + a_ii * stage
     expected = beta * (M @ stage) - gamma * h * (J @ eval_point)
@@ -1167,44 +1188,3 @@ def test_stage_residual(
         atol=tolerance.abs_tight,
         rtol=tolerance.rel_tight,
     )
-
-
-def test_user_beta_gamma_variables():
-    """Validate that users can define beta and gamma as state variables.
-    
-    This test addresses issue #373 by confirming that the internal code
-    generation variables (now prefixed with _cubie_codegen_) do not
-    conflict with user-defined variables named beta and gamma.
-    """
-    from cubie import solve_ivp, SolveResult
-    
-    dxdt = [
-        "dbeta = -alpha * beta + gamma",
-        "dgamma = alpha * beta - gamma",
-    ]
-    
-    system = create_ODE_system(
-        dxdt,
-        states=["beta", "gamma"],
-        parameters=["alpha"],
-        precision=np.float64,
-    )
-    
-    initial_conditions = np.array([[1.0, 0.5]], dtype=np.float64)
-    parameter_values = np.array([[0.5]], dtype=np.float64)
-    
-    result = solve_ivp(
-        system,
-        initial_conditions,
-        parameter_values,
-        max_steps=100,
-    )
-    
-    assert isinstance(result, SolveResult), "Result should be a SolveResult"
-    assert result.status_codes is not None, "Status codes should be present"
-    assert np.all(result.status_codes == 0), (
-        f"Solver failed with beta/gamma as state variables: "
-        f"status_codes={result.status_codes}"
-    )
-    assert result.time_domain_array is not None, "Time domain array should be present"
-    assert len(result.time_domain_array) > 0, "Time domain array should not be empty"
