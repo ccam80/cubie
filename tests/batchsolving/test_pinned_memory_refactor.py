@@ -95,12 +95,15 @@ class TestTwoTierMemoryStrategy:
 
         # When chunked, host arrays should be numpy (not pinned)
         # to limit total pinned memory to buffer pool only
+        found_one = False
         for (
             name,
             slot,
         ) in solver.kernel.output_arrays.host.iter_managed_arrays():
-            if slot.is_chunked:
+            if slot.needs_chunked_transfer:
                 assert slot.memory_type == "host"
+                found_one = True
+        assert found_one, "No chunked-transfer arrays found"
 
     def test_total_pinned_memory_bounded(self, system, precision, low_memory):
         """Total pinned memory stays within one chunk's worth."""
