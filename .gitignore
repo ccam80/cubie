@@ -60,3 +60,7 @@ generated/
 /scripts/
 /docs/api/
 nvprof/
+
+# Cache
+*.nbi
+*.nbc

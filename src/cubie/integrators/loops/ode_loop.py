@@ -330,22 +330,6 @@ class IVPLoop(CUDAFactory):
             precision=np_int32,
         )
 
-    @property
-    def precision(self) -> PrecisionDType:
-        """Return the numerical precision used for the loop."""
-        return self.compile_settings.precision
-
-    @property
-    def numba_precision(self) -> type:
-        """Return the Numba compatible precision for the loop."""
-
-        return self.compile_settings.numba_precision
-
-    @property
-    def simsafe_precision(self) -> type:
-        """Return the simulator safe precision for the loop."""
-
-        return self.compile_settings.simsafe_precision
 
     def build(self) -> Callable:
         """Compile the CUDA device loop.
@@ -886,21 +870,6 @@ class IVPLoop(CUDAFactory):
     def sample_summaries_every(self) -> Optional[float]:
         """Return the summary sampling interval, or None if not configured."""
         return self.compile_settings.sample_summaries_every
-
-    @property
-    def shared_memory_elements(self) -> int:
-        """Return the loop's shared-memory requirement."""
-        return buffer_registry.shared_buffer_size(self)
-
-    @property
-    def local_memory_elements(self) -> int:
-        """Return the loop's persistent local-memory requirement."""
-        return buffer_registry.local_buffer_size(self)
-
-    @property
-    def persistent_local_elements(self) -> int:
-        """Return the loop's persistent local-memory requirement."""
-        return buffer_registry.persistent_local_buffer_size(self)
 
     @property
     def compile_flags(self) -> OutputCompileFlags:

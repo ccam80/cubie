@@ -36,18 +36,6 @@ class SingleIntegratorRun(SingleIntegratorRunCore):
     # Compile settings
     # ------------------------------------------------------------------
     @property
-    def precision(self) -> PrecisionDType:
-        """Return the numerical precision configured for the run."""
-
-        return self.compile_settings.precision
-
-    @property
-    def numba_precision(self) -> type:
-        """Return the Numba compatible precision for the run."""
-
-        return self.compile_settings.numba_precision
-
-    @property
     def algorithm(self) -> str:
         """Return the configured algorithm identifier."""
 
@@ -71,7 +59,7 @@ class SingleIntegratorRun(SingleIntegratorRunCore):
     @property
     def shared_memory_elements(self) -> int:
         """Return total shared-memory elements required by the loop."""
-        return self._loop.shared_memory_elements
+        return self._loop.shared_buffer_size
 
     @property
     def shared_memory_bytes(self) -> int:
@@ -84,12 +72,12 @@ class SingleIntegratorRun(SingleIntegratorRunCore):
     @property
     def local_memory_elements(self) -> int:
         """Return total persistent local-memory requirement."""
-        return self._loop.local_memory_elements
+        return self._loop.local_buffer_size
 
     @property
     def persistent_local_elements(self) -> int:
         """Return total persistent local-memory elements required by the loop."""
-        return self._loop.persistent_local_elements
+        return self._loop.persistent_local_buffer_size
 
     @property
     def compiled_loop_function(self) -> Callable:
@@ -224,18 +212,6 @@ class SingleIntegratorRun(SingleIntegratorRunCore):
         return regular_summaries
 
     @property
-    def shared_memory_elements_loop(self) -> int:
-        """Return the loop contribution to shared memory."""
-
-        return self._loop.shared_memory_elements
-
-    @property
-    def local_memory_elements_loop(self) -> int:
-        """Return the loop contribution to local memory."""
-
-        return self._loop.local_memory_elements
-
-    @property
     def compile_flags(self) -> Any:
         """Return loop compile flags."""
 
@@ -274,12 +250,6 @@ class SingleIntegratorRun(SingleIntegratorRunCore):
     # ------------------------------------------------------------------
     # Step controller properties
     # ------------------------------------------------------------------
-    @property
-    def local_memory_elements_controller(self) -> int:
-        """Return the controller contribution to local memory."""
-
-        return self._step_controller.local_memory_elements
-
     @property
     def min_gain(self) -> Optional[float]:
         """Return the minimum step size gain."""

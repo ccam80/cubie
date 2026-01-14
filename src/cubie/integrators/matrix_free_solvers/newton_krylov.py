@@ -581,30 +581,6 @@ class NewtonKrylov(MatrixFreeSolver):
         return self.linear_solver.linear_correction_type
 
     @property
-    def shared_buffer_size(self) -> int:
-        """Return total shared memory elements required.
-
-        Includes both Newton buffers and nested LinearSolver buffers.
-        """
-        return buffer_registry.shared_buffer_size(self)
-
-    @property
-    def local_buffer_size(self) -> int:
-        """Return total local memory elements required.
-
-        Includes both Newton buffers and nested LinearSolver buffers.
-        """
-        return buffer_registry.local_buffer_size(self)
-
-    @property
-    def persistent_local_buffer_size(self) -> int:
-        """Return total persistent local memory elements required.
-
-        Includes both Newton buffers and nested LinearSolver buffers.
-        """
-        return buffer_registry.persistent_local_buffer_size(self)
-
-    @property
     def settings_dict(self) -> Dict[str, Any]:
         """Return merged Newton and linear solver configuration.
 
