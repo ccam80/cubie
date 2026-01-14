@@ -112,8 +112,6 @@ class ManagedArray:
         """Attach an array and update stored shape metadata."""
 
         self._array = value
-        if value is not None:
-            self.shape = tuple(value.shape)
 
 
 @define(slots=False)

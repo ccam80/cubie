@@ -1531,6 +1531,12 @@ def is_request_chunkable(request, chunk_axis: str) -> bool:
         return False
     if chunk_axis not in request.stride_order:
         return False
+    if all(
+        dim == 1
+        for i, dim in enumerate(request.shape)
+        if request.stride_order[i] == chunk_axis
+    ):
+        return False
     return True
 
 
