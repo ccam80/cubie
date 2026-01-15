@@ -30,7 +30,7 @@ from numpy import (
 )
 from numpy.typing import NDArray
 
-from cubie._utils import opt_gttype_validator, getype_validator, opt_getype_validator
+from cubie._utils import opt_gttype_validator, getype_validator
 from cubie.cuda_simsafe import DeviceNDArrayBase
 from cubie.memory import default_memmgr
 from cubie.memory.mem_manager import ArrayRequest, ArrayResponse, MemoryManager
@@ -84,9 +84,9 @@ class ManagedArray:
         default=None,
         validator=attrsval_optional(attrsval_instance_of(int)),
     )
-    num_chunks: Optional[int] = field(
-        default=None,
-        validator=attrsval_optional(getype_validator(int, 0)),
+    num_chunks: int = field(
+        default=1,
+        validator=getype_validator(int, 1),
     )
     _chunk_axis_index: Optional[int] = field(
         default=None,
@@ -158,24 +158,12 @@ class ManagedArray:
             )
 
         # Fast path: no chunking
-        if self._chunk_axis_index is None or self.is_chunked is False:
+        if (
+            self._chunk_axis_index is None
+            or self.is_chunked is False
+            or self.chunk_length is None
+        ):
             return self.array
-
-        # Handle None chunk parameters
-        if self.chunk_length is None or self.num_chunks is None:
-            return self.array
-
-        # Validate chunk_index range (Python-style: -num_chunks to num_chunks-1)
-        # Negative indices count from the end, like Python list indexing
-        if chunk_index < -self.num_chunks or chunk_index >= self.num_chunks:
-            raise ValueError(
-                f"chunk_index {chunk_index} out of range "
-                f"[{-self.num_chunks}, {self.num_chunks})"
-            )
-        
-        # Convert negative indices to positive
-        if chunk_index < 0:
-            chunk_index = self.num_chunks + chunk_index
 
         start = chunk_index * self.chunk_length
 
@@ -346,9 +334,7 @@ class BaseArrayManager(ABC):
     _needs_reallocation: list[str] = field(factory=list, init=False)
     _needs_overwrite: list[str] = field(factory=list, init=False)
     _memory_manager: MemoryManager = field(default=default_memmgr)
-    num_runs: Optional[int] = field(
-        default=None, validator=opt_getype_validator(int, 1)
-    )
+    num_runs: int = field(default=1, validator=getype_validator(int, 1))
 
     def __attrs_post_init__(self) -> None:
         """
@@ -396,18 +382,25 @@ class BaseArrayManager(ABC):
         None
             Nothing is returned.
         """
-        # Validate input type and range using the same validator
-        if not isinstance(num_runs, int):
-            raise TypeError(
-                f"num_runs must be int, got {type(num_runs).__name__}"
-            )
-        if num_runs < 1:
-            raise ValueError(
-                f"num_runs must be >= 1, got {num_runs}"
-            )
-        
         # Update the num_runs attribute
         self.num_runs = num_runs
+        for array in self._iter_managed_arrays:
+            array.num_runs = num_runs
+
+    @property
+    def _iter_managed_arrays(self) -> Iterator[tuple[str, ManagedArray]]:
+        """
+        Yield ``(label, managed)`` pairs for each managed array.
+
+        Returns
+        -------
+        Iterator[tuple[str, ManagedArray]]
+            Iterator over array labels and their metadata wrappers.
+        """
+        for label, managed in self.device.iter_managed_arrays():
+            yield label, managed
+        for label, managed in self.host.iter_managed_arrays():
+            yield label, managed
 
     @abstractmethod
     def update(self, *args: object, **kwargs: object) -> None:
@@ -939,20 +932,7 @@ class BaseArrayManager(ABC):
             if host_array is None:
                 continue
             device_array_object = self.device.get_managed_array(array_label)
-            
-            # Determine total_runs based on chunkability
-            # For chunked arrays, use self.num_runs
-            # For unchunked arrays, use total_runs=1 (not None)
-            if host_array_object.is_chunked:
-                if self.num_runs is None:
-                    raise ValueError(
-                        "Cannot allocate chunked arrays before num_runs is "
-                        "set. Call update_from_solver() first."
-                    )
-                total_runs = self.num_runs
-            else:
-                total_runs = 1
-            
+            total_runs = self.num_runs
             request = ArrayRequest(
                 shape=host_array.shape,
                 dtype=device_array_object.dtype,

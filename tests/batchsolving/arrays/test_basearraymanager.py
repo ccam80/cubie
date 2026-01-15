@@ -1231,6 +1231,7 @@ class TestMemoryManagerIntegration:
         """Test that allocation respects arraytest_settings parameters"""
         # Request allocation
         test_arrmgr.request_allocation(array_requests)
+        test_memory_manager._set_num_runs
         test_memory_manager.allocate_queue(test_arrmgr)
         # Check that allocated arrays match the settings
         assert test_arrmgr.device.arr1.shape == arraytest_settings["devshape1"]
@@ -2077,7 +2078,6 @@ def test_managed_array_no_chunked_slice_fn_field():
     assert callable(managed.chunk_slice)
 
 
-
 class TestChunkMetadataFlow:
     """Test chunk metadata propagation from allocation to slicing."""
 
@@ -2092,7 +2092,7 @@ class TestChunkMetadataFlow:
         # Create host and device arrays with known shapes
         host_shape = (10, 5, 100)
         chunked_shape = (10, 5, 25)
-        
+
         host_arrays = TestArraysSimple(
             arr1=ManagedArray(
                 dtype=precision,
@@ -2105,7 +2105,7 @@ class TestChunkMetadataFlow:
         )
         host_arrays.arr1.array = np.zeros(host_shape, dtype=precision)
         host_arrays.arr2.array = np.zeros(host_shape, dtype=precision)
-        
+
         device_arrays = TestArraysSimple(
             arr1=ManagedArray(
                 dtype=precision,
@@ -2116,7 +2116,7 @@ class TestChunkMetadataFlow:
                 memory_type="device",
             ),
         )
-        
+
         manager = ConcreteArrayManager(
             precision=precision,
             sizes=None,
@@ -2126,44 +2126,44 @@ class TestChunkMetadataFlow:
             memory_proportion=None,
             memory_manager=test_memory_manager,
         )
-        
+
         # Create ArrayResponse with chunk metadata
         arr1 = device_array(chunked_shape, dtype=precision)
         arr2 = device_array(chunked_shape, dtype=precision)
-        
+
         # Define chunk parameters: 100 runs / 25 per chunk = 4 chunks
         chunks = 4
         chunk_length = 25
-        
+
         response = ArrayResponse(
             arr={"arr1": arr1, "arr2": arr2},
             chunks=chunks,
             chunk_length=chunk_length,
             chunked_shapes={"arr1": chunked_shape, "arr2": chunked_shape},
         )
-        
+
         # Mark arrays for reallocation
         manager._needs_reallocation = ["arr1", "arr2"]
-        
+
         # Call allocation complete - this should set chunk metadata
         manager._on_allocation_complete(response)
-        
+
         # Verify chunk_length is set on device arrays
         assert manager.device.arr1.chunk_length == chunk_length
         assert manager.device.arr2.chunk_length == chunk_length
-        
+
         # Verify num_chunks is set on device arrays
         assert manager.device.arr1.num_chunks == chunks
         assert manager.device.arr2.num_chunks == chunks
-        
+
         # Verify chunk_length is set on host arrays
         assert manager.host.arr1.chunk_length == chunk_length
         assert manager.host.arr2.chunk_length == chunk_length
-        
+
         # Verify num_chunks is set on host arrays
         assert manager.host.arr1.num_chunks == chunks
         assert manager.host.arr2.num_chunks == chunks
-        
+
         # Verify chunked_shape is also set (existing functionality)
         assert manager.device.arr1.chunked_shape == chunked_shape
         assert manager.device.arr2.chunked_shape == chunked_shape
@@ -2174,11 +2174,13 @@ class TestChunkMetadataFlow:
 class TestNumRunsAttribute:
     """Test the num_runs attribute and set_array_runs method."""
 
-    def test_set_array_runs_sets_attribute(self, test_memory_manager, precision):
+    def test_set_array_runs_sets_attribute(
+        self, test_memory_manager, precision
+    ):
         """Verify set_array_runs sets the num_runs attribute."""
         host_arrays = TestArraysSimple()
         device_arrays = TestArraysSimple()
-        
+
         manager = ConcreteArrayManager(
             precision=precision,
             sizes=None,
@@ -2188,21 +2190,23 @@ class TestNumRunsAttribute:
             memory_proportion=None,
             memory_manager=test_memory_manager,
         )
-        
+
         # Initially num_runs should be None
         assert manager.num_runs is None
-        
+
         # Set num_runs
         manager.set_array_runs(100)
-        
+
         # Verify it's set correctly
         assert manager.num_runs == 100
 
-    def test_set_array_runs_validates_type(self, test_memory_manager, precision):
+    def test_set_array_runs_validates_type(
+        self, test_memory_manager, precision
+    ):
         """Verify set_array_runs validates type."""
         host_arrays = TestArraysSimple()
         device_arrays = TestArraysSimple()
-        
+
         manager = ConcreteArrayManager(
             precision=precision,
             sizes=None,
@@ -2212,20 +2216,22 @@ class TestNumRunsAttribute:
             memory_proportion=None,
             memory_manager=test_memory_manager,
         )
-        
+
         # Test with float (invalid)
         with pytest.raises(TypeError, match="num_runs must be int"):
             manager.set_array_runs(100.5)
-        
+
         # Test with string (invalid)
         with pytest.raises(TypeError, match="num_runs must be int"):
             manager.set_array_runs("100")
 
-    def test_set_array_runs_validates_range(self, test_memory_manager, precision):
+    def test_set_array_runs_validates_range(
+        self, test_memory_manager, precision
+    ):
         """Verify set_array_runs validates range."""
         host_arrays = TestArraysSimple()
         device_arrays = TestArraysSimple()
-        
+
         manager = ConcreteArrayManager(
             precision=precision,
             sizes=None,
@@ -2235,15 +2241,15 @@ class TestNumRunsAttribute:
             memory_proportion=None,
             memory_manager=test_memory_manager,
         )
-        
+
         # Test with 0 (invalid)
         with pytest.raises(ValueError, match="num_runs must be >= 1"):
             manager.set_array_runs(0)
-        
+
         # Test with negative value (invalid)
         with pytest.raises(ValueError, match="num_runs must be >= 1"):
             manager.set_array_runs(-1)
-        
+
         # Test with 1 (valid minimum)
         manager.set_array_runs(1)
         assert manager.num_runs == 1
@@ -2271,7 +2277,7 @@ class TestNumRunsAttribute:
         host_arrays.arr2.array = np.zeros(
             arraytest_settings["hostshape2"], dtype=precision
         )
-        
+
         # Create device arrays
         device_arrays = TestArraysSimple(
             arr1=ManagedArray(
@@ -2283,7 +2289,7 @@ class TestNumRunsAttribute:
                 memory_type="device",
             ),
         )
-        
+
         manager = ConcreteArrayManager(
             precision=precision,
             sizes=None,
@@ -2293,29 +2299,29 @@ class TestNumRunsAttribute:
             memory_proportion=None,
             memory_manager=test_memory_manager,
         )
-        
+
         # Set num_runs
         manager.set_array_runs(42)
-        
+
         # Mark arrays for reallocation
         manager._needs_reallocation = ["arr1", "arr2"]
-        
+
         # Capture the allocation requests
         captured_requests = {}
         original_queue_request = test_memory_manager.queue_request
-        
+
         def mock_queue_request(instance, requests):
             captured_requests.update(requests)
             return original_queue_request(instance, requests)
-        
+
         test_memory_manager.queue_request = mock_queue_request
-        
+
         # Call allocate - should use num_runs for chunked arrays
         manager.allocate()
-        
+
         # Restore original method
         test_memory_manager.queue_request = original_queue_request
-        
+
         # Verify requests have total_runs set to num_runs
         assert "arr1" in captured_requests
         assert "arr2" in captured_requests
@@ -2345,7 +2351,7 @@ class TestNumRunsAttribute:
         host_arrays.arr2.array = np.zeros(
             arraytest_settings["hostshape2"], dtype=precision
         )
-        
+
         # Create device arrays
         device_arrays = TestArraysSimple(
             arr1=ManagedArray(
@@ -2357,7 +2363,7 @@ class TestNumRunsAttribute:
                 memory_type="device",
             ),
         )
-        
+
         manager = ConcreteArrayManager(
             precision=precision,
             sizes=None,
@@ -2367,29 +2373,29 @@ class TestNumRunsAttribute:
             memory_proportion=None,
             memory_manager=test_memory_manager,
         )
-        
+
         # Set num_runs (should be ignored for unchunked arrays)
         manager.set_array_runs(42)
-        
+
         # Mark arrays for reallocation
         manager._needs_reallocation = ["arr1", "arr2"]
-        
+
         # Capture the allocation requests
         captured_requests = {}
         original_queue_request = test_memory_manager.queue_request
-        
+
         def mock_queue_request(instance, requests):
             captured_requests.update(requests)
             return original_queue_request(instance, requests)
-        
+
         test_memory_manager.queue_request = mock_queue_request
-        
+
         # Call allocate - should use total_runs=1 for unchunked arrays
         manager.allocate()
-        
+
         # Restore original method
         test_memory_manager.queue_request = original_queue_request
-        
+
         # Verify requests have total_runs set to 1 (not num_runs or None)
         assert "arr1" in captured_requests
         assert "arr2" in captured_requests
@@ -2411,7 +2417,7 @@ class TestChunkMetadataFlow:
         # Create host and device arrays with known shapes
         host_shape = (10, 5, 100)
         chunked_shape = (10, 5, 25)
-        
+
         host_arrays = TestArraysSimple(
             arr1=ManagedArray(
                 dtype=precision,
@@ -2424,7 +2430,7 @@ class TestChunkMetadataFlow:
         )
         host_arrays.arr1.array = np.zeros(host_shape, dtype=precision)
         host_arrays.arr2.array = np.zeros(host_shape, dtype=precision)
-        
+
         device_arrays = TestArraysSimple(
             arr1=ManagedArray(
                 dtype=precision,
@@ -2435,7 +2441,7 @@ class TestChunkMetadataFlow:
                 memory_type="device",
             ),
         )
-        
+
         manager = ConcreteArrayManager(
             precision=precision,
             sizes=None,
@@ -2445,44 +2451,44 @@ class TestChunkMetadataFlow:
             memory_proportion=None,
             memory_manager=test_memory_manager,
         )
-        
+
         # Create ArrayResponse with chunk metadata
         arr1 = device_array(chunked_shape, dtype=precision)
         arr2 = device_array(chunked_shape, dtype=precision)
-        
+
         # Define chunk parameters: 100 runs / 25 per chunk = 4 chunks
         chunks = 4
         chunk_length = 25
-        
+
         response = ArrayResponse(
             arr={"arr1": arr1, "arr2": arr2},
             chunks=chunks,
             chunk_length=chunk_length,
             chunked_shapes={"arr1": chunked_shape, "arr2": chunked_shape},
         )
-        
+
         # Mark arrays for reallocation
         manager._needs_reallocation = ["arr1", "arr2"]
-        
+
         # Call allocation complete - this should set chunk metadata
         manager._on_allocation_complete(response)
-        
+
         # Verify chunk_length is set on device arrays
         assert manager.device.arr1.chunk_length == chunk_length
         assert manager.device.arr2.chunk_length == chunk_length
-        
+
         # Verify num_chunks is set on device arrays
         assert manager.device.arr1.num_chunks == chunks
         assert manager.device.arr2.num_chunks == chunks
-        
+
         # Verify chunk_length is set on host arrays
         assert manager.host.arr1.chunk_length == chunk_length
         assert manager.host.arr2.chunk_length == chunk_length
-        
+
         # Verify num_chunks is set on host arrays
         assert manager.host.arr1.num_chunks == chunks
         assert manager.host.arr2.num_chunks == chunks
-        
+
         # Verify chunked_shape is also set (existing functionality)
         assert manager.device.arr1.chunked_shape == chunked_shape
         assert manager.device.arr2.chunked_shape == chunked_shape
@@ -2501,7 +2507,7 @@ class TestChunkMetadataFlow:
         # Create host arrays with known data pattern
         host_shape = (10, 5, 100)
         chunked_shape = (10, 5, 25)
-        
+
         host_arrays = TestArraysSimple(
             arr1=ManagedArray(
                 dtype=precision,
@@ -2518,7 +2524,7 @@ class TestChunkMetadataFlow:
             test_data[:, :, i] = i
         host_arrays.arr1.array = test_data.copy()
         host_arrays.arr2.array = test_data.copy()
-        
+
         device_arrays = TestArraysSimple(
             arr1=ManagedArray(
                 dtype=precision,
@@ -2529,7 +2535,7 @@ class TestChunkMetadataFlow:
                 memory_type="device",
             ),
         )
-        
+
         manager = ConcreteArrayManager(
             precision=precision,
             sizes=None,
@@ -2539,53 +2545,53 @@ class TestChunkMetadataFlow:
             memory_proportion=None,
             memory_manager=test_memory_manager,
         )
-        
+
         # Create ArrayResponse with chunk metadata
         arr1 = device_array(chunked_shape, dtype=precision)
         arr2 = device_array(chunked_shape, dtype=precision)
-        
+
         chunks = 4
         chunk_length = 25
-        
+
         response = ArrayResponse(
             arr={"arr1": arr1, "arr2": arr2},
             chunks=chunks,
             chunk_length=chunk_length,
             chunked_shapes={"arr1": chunked_shape, "arr2": chunked_shape},
         )
-        
+
         manager._needs_reallocation = ["arr1", "arr2"]
         manager._on_allocation_complete(response)
-        
+
         # Now test chunk_slice with the set metadata
         # Chunk 0 should be runs 0-25
         chunk0 = manager.host.arr1.chunk_slice(0)
         assert chunk0.shape == (10, 5, 25)
         assert chunk0[0, 0, 0] == 0  # First run
         assert chunk0[0, 0, 24] == 24  # Last run of chunk 0
-        
+
         # Chunk 1 should be runs 25-50
         chunk1 = manager.host.arr1.chunk_slice(1)
         assert chunk1.shape == (10, 5, 25)
         assert chunk1[0, 0, 0] == 25  # First run of chunk 1
         assert chunk1[0, 0, 24] == 49  # Last run of chunk 1
-        
+
         # Chunk 2 should be runs 50-75
         chunk2 = manager.host.arr1.chunk_slice(2)
         assert chunk2.shape == (10, 5, 25)
         assert chunk2[0, 0, 0] == 50
         assert chunk2[0, 0, 24] == 74
-        
+
         # Chunk 3 (final) should be runs 75-100
         chunk3 = manager.host.arr1.chunk_slice(3)
         assert chunk3.shape == (10, 5, 25)
         assert chunk3[0, 0, 0] == 75
         assert chunk3[0, 0, 24] == 99  # Last run
-        
+
         # Test that invalid chunk indices raise errors
         with pytest.raises(ValueError, match="chunk_index 4 out of range"):
             manager.host.arr1.chunk_slice(4)
-        
+
         with pytest.raises(ValueError, match="chunk_index -1 out of range"):
             manager.host.arr1.chunk_slice(-1)
 
@@ -2600,35 +2606,35 @@ class TestChunkMetadataFlow:
         3. Simulate allocation response with chunk_length and chunks
         4. Verify ManagedArray has correct chunk_length and num_chunks
         5. Verify chunk_slice returns correct shapes
-        
+
         Tests multiple scenarios:
         - num_chunks=1 (no chunking)
         - num_chunks=4 (even chunking)
         - num_chunks=5 (dangling chunk)
         """
         from cubie.outputhandling.output_sizes import BatchOutputSizes
-        
+
         # Test case 1: No chunking (num_chunks=1)
         host_shape_1 = (10, 5, 100)
         chunked_shape_1 = (10, 5, 100)  # Same as full shape
-        
+
         sizes_1 = BatchOutputSizes(
             state=host_shape_1,
             observables=host_shape_1,
         )
-        
+
         host_arrays_1 = TestArraysSimple(
             arr1=ManagedArray(dtype=precision, memory_type="host"),
             arr2=ManagedArray(dtype=precision, memory_type="host"),
         )
         host_arrays_1.arr1.array = np.zeros(host_shape_1, dtype=precision)
         host_arrays_1.arr2.array = np.zeros(host_shape_1, dtype=precision)
-        
+
         device_arrays_1 = TestArraysSimple(
             arr1=ManagedArray(dtype=precision, memory_type="device"),
             arr2=ManagedArray(dtype=precision, memory_type="device"),
         )
-        
+
         manager_1 = ConcreteArrayManager(
             precision=precision,
             sizes=sizes_1,
@@ -2638,38 +2644,38 @@ class TestChunkMetadataFlow:
             memory_proportion=None,
             memory_manager=test_memory_manager,
         )
-        
+
         # Simulate allocation response with no chunking
         arr1_dev = device_array(chunked_shape_1, dtype=precision)
         arr2_dev = device_array(chunked_shape_1, dtype=precision)
-        
+
         response_1 = ArrayResponse(
             arr={"arr1": arr1_dev, "arr2": arr2_dev},
             chunks=1,
             chunk_length=100,
             chunked_shapes={"arr1": chunked_shape_1, "arr2": chunked_shape_1},
         )
-        
+
         manager_1._needs_reallocation = ["arr1", "arr2"]
         manager_1._on_allocation_complete(response_1)
-        
+
         # Verify chunk metadata
         assert manager_1.host.arr1.chunk_length == 100
         assert manager_1.host.arr1.num_chunks == 1
-        
+
         # Verify chunk_slice returns full array for single chunk
         chunk = manager_1.host.arr1.chunk_slice(0)
         assert chunk.shape == host_shape_1
-        
+
         # Test case 2: Even chunking (num_chunks=4)
         host_shape_2 = (10, 5, 100)
         chunked_shape_2 = (10, 5, 25)
-        
+
         sizes_2 = BatchOutputSizes(
             state=host_shape_2,
             observables=host_shape_2,
         )
-        
+
         host_arrays_2 = TestArraysSimple(
             arr1=ManagedArray(dtype=precision, memory_type="host"),
             arr2=ManagedArray(dtype=precision, memory_type="host"),
@@ -2677,12 +2683,12 @@ class TestChunkMetadataFlow:
         test_data = np.arange(5000, dtype=precision).reshape(host_shape_2)
         host_arrays_2.arr1.array = test_data.copy()
         host_arrays_2.arr2.array = test_data.copy()
-        
+
         device_arrays_2 = TestArraysSimple(
             arr1=ManagedArray(dtype=precision, memory_type="device"),
             arr2=ManagedArray(dtype=precision, memory_type="device"),
         )
-        
+
         manager_2 = ConcreteArrayManager(
             precision=precision,
             sizes=sizes_2,
@@ -2692,39 +2698,39 @@ class TestChunkMetadataFlow:
             memory_proportion=None,
             memory_manager=test_memory_manager,
         )
-        
+
         # Simulate allocation response with even chunking
         arr1_dev_2 = device_array(chunked_shape_2, dtype=precision)
         arr2_dev_2 = device_array(chunked_shape_2, dtype=precision)
-        
+
         response_2 = ArrayResponse(
             arr={"arr1": arr1_dev_2, "arr2": arr2_dev_2},
             chunks=4,
             chunk_length=25,
             chunked_shapes={"arr1": chunked_shape_2, "arr2": chunked_shape_2},
         )
-        
+
         manager_2._needs_reallocation = ["arr1", "arr2"]
         manager_2._on_allocation_complete(response_2)
-        
+
         # Verify chunk metadata
         assert manager_2.host.arr1.chunk_length == 25
         assert manager_2.host.arr1.num_chunks == 4
-        
+
         # Verify all chunks have correct shape
         for chunk_idx in range(4):
             chunk = manager_2.host.arr1.chunk_slice(chunk_idx)
             assert chunk.shape == (10, 5, 25)
-        
+
         # Test case 3: Dangling chunk (num_chunks=5, last chunk smaller)
         host_shape_3 = (10, 5, 105)  # 105 runs
         chunked_shape_3 = (10, 5, 25)  # 25 per chunk
-        
+
         sizes_3 = BatchOutputSizes(
             state=host_shape_3,
             observables=host_shape_3,
         )
-        
+
         host_arrays_3 = TestArraysSimple(
             arr1=ManagedArray(dtype=precision, memory_type="host"),
             arr2=ManagedArray(dtype=precision, memory_type="host"),
@@ -2732,12 +2738,12 @@ class TestChunkMetadataFlow:
         test_data_3 = np.arange(5250, dtype=precision).reshape(host_shape_3)
         host_arrays_3.arr1.array = test_data_3.copy()
         host_arrays_3.arr2.array = test_data_3.copy()
-        
+
         device_arrays_3 = TestArraysSimple(
             arr1=ManagedArray(dtype=precision, memory_type="device"),
             arr2=ManagedArray(dtype=precision, memory_type="device"),
         )
-        
+
         manager_3 = ConcreteArrayManager(
             precision=precision,
             sizes=sizes_3,
@@ -2747,35 +2753,35 @@ class TestChunkMetadataFlow:
             memory_proportion=None,
             memory_manager=test_memory_manager,
         )
-        
+
         # Simulate allocation response with dangling chunk
         # Last chunk will be smaller (5 runs instead of 25)
         arr1_dev_3 = device_array(chunked_shape_3, dtype=precision)
         arr2_dev_3 = device_array(chunked_shape_3, dtype=precision)
-        
+
         response_3 = ArrayResponse(
             arr={"arr1": arr1_dev_3, "arr2": arr2_dev_3},
             chunks=5,  # 4 full chunks + 1 dangling chunk
             chunk_length=25,
             chunked_shapes={"arr1": chunked_shape_3, "arr2": chunked_shape_3},
         )
-        
+
         manager_3._needs_reallocation = ["arr1", "arr2"]
         manager_3._on_allocation_complete(response_3)
-        
+
         # Verify chunk metadata
         assert manager_3.host.arr1.chunk_length == 25
         assert manager_3.host.arr1.num_chunks == 5
-        
+
         # Verify first 4 chunks have full size
         for chunk_idx in range(4):
             chunk = manager_3.host.arr1.chunk_slice(chunk_idx)
             assert chunk.shape == (10, 5, 25)
-        
+
         # Verify last chunk has correct smaller size (105 - 100 = 5)
         final_chunk = manager_3.host.arr1.chunk_slice(4)
         assert final_chunk.shape == (10, 5, 5)
-        
+
         # Verify data integrity for final chunk
         expected_final = test_data_3[:, :, 100:105]
         np.testing.assert_array_equal(final_chunk, expected_final)
