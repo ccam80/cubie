@@ -131,22 +131,19 @@ class RunParams:
         # Validation
         if index < 0 or index >= self.num_chunks:
             raise IndexError(
-                f"Chunk index {index} out of range [0, {self.num_chunks})"
+                f"Chunk index {index} out of range "
+                f"(valid range: 0 to {self.num_chunks - 1})"
             )
 
-        # Compute runs for this chunk
         if index == self.num_chunks - 1:
             # Last chunk: calculate remaining runs
             chunk_runs = self.runs - (self.num_chunks - 1) * self.chunk_length
         else:
-            # Standard chunk
             chunk_runs = self.chunk_length
 
         return evolve(self, runs=chunk_runs)
 
-    def update_from_allocation(
-        self, response: "ArrayResponse"
-    ) -> "RunParams":
+    def update_from_allocation(self, response: "ArrayResponse") -> "RunParams":
         """Update with chunking metadata from allocation response.
 
         Parameters
@@ -170,8 +167,6 @@ class RunParams:
         if num_chunks == 1:
             chunk_length = self.runs
         else:
-            from numpy import ceil as np_ceil
-
             chunk_length = int(np_ceil(self.runs / num_chunks))
 
         return evolve(
@@ -179,41 +174,6 @@ class RunParams:
             num_chunks=num_chunks,
             chunk_length=chunk_length,
         )
-
-
-@define(frozen=True)
-class FullRunParams:
-    """Full batch run parameters tracked across solver invocations.
-
-    These parameters represent the full batch configuration and are
-    independent of any chunking that may occur during memory allocation.
-    They are primarily used for property getters/setters on the kernel.
-
-    Attributes
-    ----------
-    duration
-        Full duration of the simulation window.
-    warmup
-        Full warmup time before the main simulation.
-    t0
-        Initial integration time.
-    runs
-        Total number of runs in the batch.
-
-    Notes
-    -----
-    RunParams is used during kernel execution and contains chunking
-    metadata. FullRunParams is kept separate for backwards compatibility
-    and to track run configuration across multiple solver invocations.
-    """
-
-    duration: float
-    warmup: float
-    t0: float
-    runs: int
-
-
-
 
 
 @define()
@@ -286,12 +246,7 @@ class BatchSolverKernel(CUDAFactory):
 
         precision = system.precision
 
-        self.full_run_params = FullRunParams(
-            duration=0.0, warmup=0.0, t0=0.0, runs=1
-        )
-
         # Initialize run parameters with defaults
-        # RunParams tracks timing and batch size with chunking metadata
         self.run_params = RunParams(
             duration=precision(0.0),
             warmup=precision(0.0),
@@ -562,14 +517,6 @@ class BatchSolverKernel(CUDAFactory):
         # Time parameters always use float64 for accumulation accuracy
         duration = np_float64(duration)
 
-        # inits is in (variable, run) format - run count is in shape[1]
-        self.full_run_params = FullRunParams(
-            duration=duration,
-            warmup=np_float64(warmup),
-            t0=np_float64(t0),
-            runs=inits.shape[1],
-        )
-
         # Update run params with actual values before allocation
         self.run_params = RunParams(
             duration=duration,
@@ -607,10 +554,8 @@ class BatchSolverKernel(CUDAFactory):
 
         # ------------ from here on dimensions are "chunked" -----------------
         # Get initial chunk parameters from run_params
-        chunk_warmup = self.run_params.warmup
-        chunk_t0 = self.run_params.t0
         chunks = self.run_params.num_chunks
-        
+
         # Get first chunk runs for initial block size calculation
         first_chunk_params = self.run_params[0]
         runs = first_chunk_params.runs
@@ -648,7 +593,7 @@ class BatchSolverKernel(CUDAFactory):
             duration = precision(chunk_run_params.duration)
             warmup = precision(chunk_run_params.warmup)
             t0 = precision(chunk_run_params.t0)
-            
+
             # Use the chunk-local run count
             runs = chunk_run_params.runs
 
@@ -1111,12 +1056,12 @@ class BatchSolverKernel(CUDAFactory):
     def duration(self) -> float:
         """Requested integration duration."""
 
-        return np_float64(self.full_run_params.duration)
+        return np_float64(self.run_params.duration)
 
     @duration.setter
     def duration(self, value: float) -> None:
-        oldparams = self.full_run_params
-        self.full_run_params = evolve(oldparams, duration=np_float64(value))
+        oldparams = self.run_params
+        self.run_params = evolve(oldparams, duration=np_float64(value))
 
     @property
     def dt(self) -> Optional[float]:
@@ -1126,32 +1071,32 @@ class BatchSolverKernel(CUDAFactory):
     @property
     def warmup(self) -> float:
         """Configured warmup duration."""
-        return np_float64(self.full_run_params.warmup)
+        return np_float64(self.run_params.warmup)
 
     @warmup.setter
     def warmup(self, value: float) -> None:
-        oldparams = self.full_run_params
-        self.full_run_params = evolve(oldparams, warmup=np_float64(value))
+        oldparams = self.run_params
+        self.run_params = evolve(oldparams, warmup=np_float64(value))
 
     @property
     def t0(self) -> float:
         """Configured initial integration time."""
-        return np_float64(self.full_run_params.t0)
+        return np_float64(self.run_params.t0)
 
     @t0.setter
     def t0(self, value: float) -> None:
-        oldparams = self.full_run_params
-        self.full_run_params = evolve(oldparams, t0=np_float64(value))
+        oldparams = self.run_params
+        self.run_params = evolve(oldparams, t0=np_float64(value))
 
     @property
     def num_runs(self) -> int:
         """Number of runs scheduled for the batch integration."""
-        return self.full_run_params.runs
+        return self.run_params.runs
 
     @num_runs.setter
     def num_runs(self, value: int) -> None:
-        oldparams = self.full_run_params
-        self.full_run_params = evolve(oldparams, runs=value)
+        oldparams = self.run_params
+        self.run_params = evolve(oldparams, runs=value)
 
     @property
     def chunks(self):

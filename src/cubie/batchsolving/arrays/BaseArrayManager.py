@@ -260,11 +260,6 @@ class BaseArrayManager(ABC):
     Subclasses must implement :meth:`update`, :meth:`finalise`, and
     :meth:`initialise` to wire batching behaviour into host and device
     execution paths.
-    
-    The number of runs in the batch is tracked by the solver (via
-    RunParams) and does not need to be stored separately in the
-    array manager. Chunking metadata (num_chunks, chunk_axis) is
-    received via ArrayResponse after allocation.
     """
 
     _precision: type = field(
