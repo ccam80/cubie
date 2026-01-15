@@ -205,8 +205,8 @@ def load_cellml_model(
     if name is None:
         name = path_obj.stem
     
-    # Initialize cache and compute cache key using arguments
-    # Cache now supports multiple configurations per CellML file
+    # Initialize cache manager with argument-based cache keys
+    # Each unique combination of parameters/observables gets separate cache entry
     cache = CellMLCache(model_name=name, cellml_path=path)
     args_hash = cache.compute_cache_key(parameters, observables, precision, name)
     
