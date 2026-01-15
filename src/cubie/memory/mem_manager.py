@@ -1202,6 +1202,8 @@ class MemoryManager:
             for request in requests_dict.values():
                 num_runs = request.total_runs
                 break
+            if num_runs > 1:
+                break
 
         chunk_length, num_chunks = self.get_chunk_parameters(
             queued_requests, num_runs, stream_group

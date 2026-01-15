@@ -2008,103 +2008,6 @@ def test_managed_array_no_chunked_slice_fn_field():
     assert callable(managed.chunk_slice)
 
 
-class TestChunkMetadataFlow:
-    """Test chunk metadata propagation from allocation to slicing."""
-
-    def test_allocation_complete_sets_chunk_metadata(
-        self, test_memory_manager, precision
-    ):
-        """Verify _on_allocation_complete sets chunk_length and num_chunks.
-
-        This test verifies that chunk metadata from ArrayResponse is properly
-        propagated to ManagedArray objects for both host and device containers.
-        """
-        # Create host and device arrays with known shapes
-        host_shape = (10, 5, 100)
-        chunked_shape = (10, 5, 25)
-
-        host_arrays = TestArraysSimple(
-            arr1=ManagedArray(
-                dtype=precision,
-                memory_type="host",
-                stride_order=("", "", "run"),
-            ),
-            arr2=ManagedArray(
-                dtype=precision,
-                memory_type="host",
-                stride_order=("", "", "run"),
-            ),
-        )
-        host_arrays.arr1.array = np.zeros(host_shape, dtype=precision)
-        host_arrays.arr2.array = np.zeros(host_shape, dtype=precision)
-
-        device_arrays = TestArraysSimple(
-            arr1=ManagedArray(
-                dtype=precision,
-                memory_type="device",
-                stride_order=("", "", "run"),
-            ),
-            arr2=ManagedArray(
-                dtype=precision,
-                memory_type="device",
-                stride_order=("", "", "run"),
-            ),
-        )
-
-        manager = ConcreteArrayManager(
-            precision=precision,
-            sizes=None,
-            host=host_arrays,
-            device=device_arrays,
-            stream_group="default",
-            memory_proportion=None,
-            memory_manager=test_memory_manager,
-        )
-
-        # Create ArrayResponse with chunk metadata
-        arr1 = device_array(chunked_shape, dtype=precision)
-        arr2 = device_array(chunked_shape, dtype=precision)
-
-        # Define chunk parameters: 100 runs / 25 per chunk = 4 chunks
-        chunks = 4
-        chunk_length = 25
-
-        response = ArrayResponse(
-            arr={"arr1": arr1, "arr2": arr2},
-            chunks=chunks,
-            chunk_length=chunk_length,
-            chunked_shapes={"arr1": chunked_shape, "arr2": chunked_shape},
-        )
-
-        # Mark arrays for reallocation
-        manager._needs_reallocation = ["arr1", "arr2"]
-
-        # Call allocation complete - this should set chunk metadata
-        manager._on_allocation_complete(response)
-
-        # Verify chunk_length is set on device arrays
-        assert manager.device.arr1.chunk_length == chunk_length
-        assert manager.device.arr2.chunk_length == chunk_length
-
-        # Verify num_chunks is set on device arrays
-        assert manager.device.arr1.num_chunks == chunks
-        assert manager.device.arr2.num_chunks == chunks
-
-        # Verify chunk_length is set on host arrays
-        assert manager.host.arr1.chunk_length == chunk_length
-        assert manager.host.arr2.chunk_length == chunk_length
-
-        # Verify num_chunks is set on host arrays
-        assert manager.host.arr1.num_chunks == chunks
-        assert manager.host.arr2.num_chunks == chunks
-
-        # Verify chunked_shape is also set (existing functionality)
-        assert manager.device.arr1.chunked_shape == chunked_shape
-        assert manager.device.arr2.chunked_shape == chunked_shape
-        assert manager.host.arr1.chunked_shape == chunked_shape
-        assert manager.host.arr2.chunked_shape == chunked_shape
-
-
 class TestNumRunsAttribute:
     """Test the num_runs attribute and set_array_runs method."""
 
@@ -2189,7 +2092,7 @@ class TestNumRunsAttribute:
         assert manager.num_runs == 1
 
 
-class TestChunkMetadataFlow:
+class TestChunkMetadataFlow2:
     """Test chunk metadata propagation from allocation to slicing."""
 
     def test_allocation_complete_sets_chunk_metadata(

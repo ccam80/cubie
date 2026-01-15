@@ -369,7 +369,6 @@ class TestBatchInputSizes:
         assert nonzero_sizes.driver_coefficients[1] == 1
 
 
-
 class TestBatchOutputSizes:
     """Test BatchOutputSizes class"""
 
@@ -420,7 +419,6 @@ class TestBatchOutputSizes:
         assert all(v >= 1 for v in nonzero_sizes.observables)
         assert all(v >= 1 for v in nonzero_sizes.state_summaries)
         assert all(v >= 1 for v in nonzero_sizes.observable_summaries)
-
 
 
 class TestIntegrationScenarios:

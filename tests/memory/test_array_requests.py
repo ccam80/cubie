@@ -164,28 +164,6 @@ def test_array_request_validates_total_runs_positive():
         ArrayRequest(dtype=np.float64, total_runs=-100)
 
 
-
-def test_array_request_total_runs_validates_minimum():
-    """Verify ArrayRequest raises ValueError for total_runs < 1.
-
-    The total_runs field must be >= 1, as it represents a count of runs to
-    process. Zero or negative values should be rejected since they don't
-    represent valid run counts.
-    """
-    from cubie.memory.array_requests import ArrayRequest
-
-    # Test zero is rejected
-    with pytest.raises(ValueError, match="must be >= 1"):
-        ArrayRequest(dtype=np.float64, total_runs=0)
-
-    # Test negative values are rejected
-    with pytest.raises(ValueError, match="must be >= 1"):
-        ArrayRequest(dtype=np.float64, total_runs=-1)
-
-    with pytest.raises(ValueError, match="must be >= 1"):
-        ArrayRequest(dtype=np.float64, total_runs=-100)
-
-
 def test_array_request_total_runs_is_not_optional():
     """Verify total_runs is always an int, never None.
 
