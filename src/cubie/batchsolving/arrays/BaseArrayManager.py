@@ -26,6 +26,7 @@ from numpy import (
     array_equal as np_array_equal,
     float32 as np_float32,
     zeros as np_zeros,
+    ndarray,
 )
 from numpy.typing import NDArray
 
@@ -84,6 +85,20 @@ class ManagedArray:
         repr=False,
         eq=False,
     )
+    chunk_index: Optional[int] = field(
+        default=None,
+        init=False,
+        repr=False,
+    )
+
+    def __attrs_post_init__(self):
+        shape = self.shape
+        stride_order = self.stride_order
+        defaultshape = shape if shape else (1,) * len(stride_order)
+        self._array = np_zeros(defaultshape, dtype=self.dtype)
+
+        if "run" in stride_order:
+            self.chunk_index = stride_order.index("run")
 
     @property
     def shape(self) -> tuple[Optional[int], ...]:
@@ -93,8 +108,6 @@ class ManagedArray:
         else:
             return self.default_shape
 
-    #
-    # @shape
     @property
     def needs_chunked_transfer(self) -> bool:
         """Return True if this array requires chunked transfers.
@@ -107,11 +120,14 @@ class ManagedArray:
             return False
         return self.shape != self.chunked_shape
 
-    def __attrs_post_init__(self):
-        shape = self.shape
-        stride_order = self.stride_order
-        defaultshape = shape if shape else (1,) * len(stride_order)
-        self._array = np_zeros(defaultshape, dtype=self.dtype)
+    def chunk_slice(self, runslice: slice) -> ndarray:
+        """Return a slice of the array along the "run" axis."""
+        if self.chunk_index is None or self.is_chunked is False:
+            return self.array
+        else:
+            chunk_slice = [slice(None)] * len(self.shape)
+            chunk_slice[self.chunk_index] = runslice
+            return self.array[tuple(chunk_slice)]
 
     @property
     def array(self) -> Optional[Union[NDArray, DeviceNDArrayBase]]:
@@ -270,11 +286,6 @@ class BaseArrayManager(ABC):
     _needs_overwrite: list[str] = field(factory=list, init=False)
     _memory_manager: MemoryManager = field(default=default_memmgr)
 
-    @property
-    def is_chunked(self) -> bool:
-        """Return True if arrays are being processed in multiple chunks."""
-        return self._chunks > 1
-
     def __attrs_post_init__(self) -> None:
         """
         Initialize the array manager after attrs initialization.
@@ -291,6 +302,11 @@ class BaseArrayManager(ABC):
         """
         self.register_with_memory_manager()
         self._invalidate_hook()
+
+    @property
+    def is_chunked(self) -> bool:
+        """Return True if arrays are being processed in multiple chunks."""
+        return self._chunks > 1
 
     @abstractmethod
     def update(self, *args: object, **kwargs: object) -> None:
