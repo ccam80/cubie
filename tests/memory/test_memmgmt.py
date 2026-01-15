@@ -1062,3 +1062,191 @@ class TestGetChunkParameters:
                 axis_length=512,
                 stream_group="test",
             )
+
+
+class TestAllocateQueueExtractsNumRuns:
+    """Tests for allocate_queue extraction of num_runs from triggering
+    instance."""
+
+    def test_allocate_queue_extracts_num_runs(self, mgr):
+        """Verify allocate_queue correctly extracts num_runs from
+        triggering instance.
+
+        The allocate_queue method should extract num_runs from
+        triggering_instance.run_params.runs instead of computing it
+        from array request shapes. This test verifies that behavior.
+        """
+        # Create a mock instance with run_params
+        class MockRunParams:
+            def __init__(self, runs):
+                self.runs = runs
+
+        class MockInstance:
+            def __init__(self, runs):
+                self.run_params = MockRunParams(runs)
+
+        instance = MockInstance(runs=100)
+
+        # Track whether the allocation callback was called with correct
+        # response
+        callback_called = {"flag": False, "response": None}
+
+        def allocation_hook(response):
+            callback_called["flag"] = True
+            callback_called["response"] = response
+
+        mgr.register(instance, allocation_ready_hook=allocation_hook)
+
+        # Create requests with arrays that have run axis
+        # The shape indicates 50 runs, but run_params.runs is 100
+        # allocate_queue should use 100 from run_params, not 50 from
+        # shape
+        requests = {
+            "arr1": ArrayRequest(
+                shape=(10, 50),  # 50 in run axis (second dimension)
+                dtype=np.float32,
+                memory="device",
+                stride_order=("variable", "run"),
+                unchunkable=False,
+            ),
+        }
+
+        mgr.queue_request(instance, requests)
+        mgr.allocate_queue(instance)
+
+        # Verify callback was called
+        assert callback_called["flag"] is True
+        response = callback_called["response"]
+        assert isinstance(response, ArrayResponse)
+
+        # The key validation: chunk_length should be computed based on
+        # num_runs=100 from run_params, not from the array shape
+        # Since we have 1GB free and small arrays, no chunking should
+        # occur, giving us chunk_length matching the full num_runs
+        assert response.chunks == 1
+        # chunk_length should equal num_runs when no chunking occurs
+        assert response.chunk_length == 100
+
+    def test_allocate_queue_chunks_correctly(self, mgr):
+        """Verify chunking calculations work with num_runs from instance.
+
+        When memory constraints force chunking, the chunk calculations
+        should be based on num_runs extracted from
+        triggering_instance.run_params.runs.
+        """
+        # Create instance with large num_runs to force chunking
+        class MockRunParams:
+            def __init__(self, runs):
+                self.runs = runs
+
+        class MockInstance:
+            def __init__(self, runs):
+                self.run_params = MockRunParams(runs)
+
+        # Use large num_runs to increase memory requirements
+        instance = MockInstance(runs=10000)
+
+        callback_called = {"flag": False, "response": None}
+
+        def allocation_hook(response):
+            callback_called["flag"] = True
+            callback_called["response"] = response
+
+        mgr.register(instance, allocation_ready_hook=allocation_hook)
+
+        # Create large requests to force chunking
+        # Each element is 4 bytes, so 10000 runs * 100 vars * 4 bytes =
+        # 4MB per array. With multiple arrays, this should exceed the
+        # 1GB available and trigger chunking.
+        requests = {
+            "arr1": ArrayRequest(
+                shape=(100, 10000),
+                dtype=np.float32,
+                memory="device",
+                stride_order=("variable", "run"),
+                unchunkable=False,
+            ),
+            "arr2": ArrayRequest(
+                shape=(100, 10000),
+                dtype=np.float32,
+                memory="device",
+                stride_order=("variable", "run"),
+                unchunkable=False,
+            ),
+        }
+
+        mgr.queue_request(instance, requests)
+        mgr.allocate_queue(instance)
+
+        # Verify callback was called
+        assert callback_called["flag"] is True
+        response = callback_called["response"]
+        assert isinstance(response, ArrayResponse)
+
+        # With 10000 runs and 1GB available memory, chunking should
+        # occur. The exact chunk_length depends on available memory,
+        # but it should be less than 10000.
+        # Verify that chunking occurred
+        if response.chunks > 1:
+            # chunk_length should be calculated to fit in available
+            # memory
+            assert response.chunk_length < 10000
+            assert response.chunk_length > 0
+            # Verify chunks * chunk_length covers all runs (with
+            # possible dangling chunk)
+            total_covered = (
+                response.chunks - 1
+            ) * response.chunk_length + response.chunk_length
+            assert total_covered >= 10000
+        else:
+            # If no chunking occurred (e.g., in CUDA sim with more
+            # memory), chunk_length should equal num_runs
+            assert response.chunk_length == 10000
+
+    def test_allocate_queue_fallback_without_runparams(self, mgr):
+        """Verify allocate_queue falls back gracefully when run_params
+        not available.
+
+        If the triggering instance doesn't have a run_params attribute,
+        allocate_queue should fall back to extracting num_runs from the
+        array request shapes.
+        """
+
+        # Create instance WITHOUT run_params attribute
+        class MockInstance:
+            pass
+
+        instance = MockInstance()
+
+        callback_called = {"flag": False, "response": None}
+
+        def allocation_hook(response):
+            callback_called["flag"] = True
+            callback_called["response"] = response
+
+        mgr.register(instance, allocation_ready_hook=allocation_hook)
+
+        # Create requests where run axis has 75 elements
+        requests = {
+            "arr1": ArrayRequest(
+                shape=(10, 75),
+                dtype=np.float32,
+                memory="device",
+                stride_order=("variable", "run"),
+                unchunkable=False,
+            ),
+        }
+
+        mgr.queue_request(instance, requests)
+        mgr.allocate_queue(instance)
+
+        # Verify callback was called
+        assert callback_called["flag"] is True
+        response = callback_called["response"]
+        assert isinstance(response, ArrayResponse)
+
+        # Should have extracted num_runs=75 from array shape as fallback
+        assert response.chunks == 1
+        # chunk_length should equal the fallback num_runs when no
+        # chunking
+        assert response.chunk_length == 75

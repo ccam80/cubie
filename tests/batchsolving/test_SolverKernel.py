@@ -423,3 +423,147 @@ class TestActiveOutputsFromCompileFlags:
         assert active.observable_summaries is False
         assert active.iteration_counters is False
         assert active.status_codes is True
+
+
+class TestRunParamsIntegration:
+    """Tests for RunParams integration into BatchSolverKernel."""
+
+    def test_runparams_initialized_on_construction(self, solverkernel):
+        """Verify BatchSolverKernel initializes run_params with defaults."""
+        # Check that run_params exists and has default values
+        assert hasattr(solverkernel, 'run_params')
+        assert solverkernel.run_params.duration == 0.0
+        assert solverkernel.run_params.warmup == 0.0
+        assert solverkernel.run_params.t0 == 0.0
+        assert solverkernel.run_params.runs == 1
+        assert solverkernel.run_params.num_chunks == 1
+        assert solverkernel.run_params.chunk_length == 0
+
+    def test_runparams_updated_on_run(
+        self, solverkernel, precision, driver_array
+    ):
+        """Verify run_params gets updated when run() is called."""
+        n_states = solverkernel.system.sizes.states
+        n_params = solverkernel.system.sizes.parameters
+        num_runs = 10
+        
+        inits = np.ones((n_states, num_runs), dtype=precision)
+        params = np.ones((n_params, num_runs), dtype=precision)
+        driver_coefficients = driver_array.coefficients
+        
+        # Before run, run_params should have defaults
+        assert solverkernel.run_params.runs == 1
+        
+        solverkernel.run(
+            inits=inits,
+            params=params,
+            driver_coefficients=driver_coefficients,
+            duration=1.0,
+            warmup=0.1,
+            t0=0.5,
+        )
+        
+        # After run, run_params should be updated with actual values
+        assert solverkernel.run_params.duration == 1.0
+        assert solverkernel.run_params.warmup == 0.1
+        assert solverkernel.run_params.t0 == 0.5
+        assert solverkernel.run_params.runs == num_runs
+
+    def test_on_allocation_updates_runparams(
+        self, solverkernel, precision, driver_array
+    ):
+        """Verify _on_allocation updates run_params chunking metadata."""
+        n_states = solverkernel.system.sizes.states
+        n_params = solverkernel.system.sizes.parameters
+        num_runs = 10
+        
+        inits = np.ones((n_states, num_runs), dtype=precision)
+        params = np.ones((n_params, num_runs), dtype=precision)
+        driver_coefficients = driver_array.coefficients
+        
+        solverkernel.run(
+            inits=inits,
+            params=params,
+            driver_coefficients=driver_coefficients,
+            duration=1.0,
+        )
+        
+        # After allocation, run_params should have chunking metadata
+        # (num_chunks and chunk_length are updated by _on_allocation)
+        assert solverkernel.run_params.num_chunks >= 1
+        if solverkernel.run_params.num_chunks == 1:
+            # Single chunk: chunk_length equals total runs
+            assert solverkernel.run_params.chunk_length == num_runs
+        else:
+            # Multiple chunks: chunk_length should be positive
+            assert solverkernel.run_params.chunk_length > 0
+
+    def test_chunk_iteration_uses_runparams(
+        self, solverkernel, precision, driver_array
+    ):
+        """Verify chunk iteration correctly uses run_params[i]."""
+        n_states = solverkernel.system.sizes.states
+        n_params = solverkernel.system.sizes.parameters
+        num_runs = 10
+        
+        inits = np.ones((n_states, num_runs), dtype=precision)
+        params = np.ones((n_params, num_runs), dtype=precision)
+        driver_coefficients = driver_array.coefficients
+        
+        solverkernel.run(
+            inits=inits,
+            params=params,
+            driver_coefficients=driver_coefficients,
+            duration=1.0,
+        )
+        
+        # Verify we can access chunk parameters via run_params[i]
+        num_chunks = solverkernel.run_params.num_chunks
+        
+        total_chunk_runs = 0
+        for i in range(num_chunks):
+            chunk_params = solverkernel.run_params[i]
+            # Each chunk should have valid run count
+            assert chunk_params.runs > 0
+            total_chunk_runs += chunk_params.runs
+        
+        # Sum of all chunk runs should equal total runs
+        assert total_chunk_runs == num_runs
+
+    def test_total_runs_property(self, solverkernel, precision, driver_array):
+        """Verify total_runs property returns run_params.runs."""
+        n_states = solverkernel.system.sizes.states
+        n_params = solverkernel.system.sizes.parameters
+        num_runs = 15
+        
+        inits = np.ones((n_states, num_runs), dtype=precision)
+        params = np.ones((n_params, num_runs), dtype=precision)
+        driver_coefficients = driver_array.coefficients
+        
+        solverkernel.run(
+            inits=inits,
+            params=params,
+            driver_coefficients=driver_coefficients,
+            duration=1.0,
+        )
+        
+        # Verify total_runs property works
+        assert solverkernel.total_runs == num_runs
+        assert solverkernel.total_runs == solverkernel.run_params.runs
+
+
+class TestChunkParamsRemoval:
+    """Tests to verify ChunkParams class has been removed."""
+
+    def test_chunkparams_not_defined(self):
+        """Verify ChunkParams class no longer exists."""
+        # Try to import ChunkParams - should fail
+        with pytest.raises(ImportError):
+            from cubie.batchsolving.BatchSolverKernel import ChunkParams
+
+    def test_chunk_run_not_defined(self, solverkernel):
+        """Verify chunk_run method no longer exists."""
+        # BatchSolverKernel should not have chunk_run method
+        assert not hasattr(solverkernel, 'chunk_run')
+
+

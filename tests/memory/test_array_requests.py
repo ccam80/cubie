@@ -89,3 +89,27 @@ class TestArrayResponse:
         response = ArrayResponse()
         assert response.chunked_shapes == {}
         assert isinstance(response.chunked_shapes, dict)
+
+    def test_array_response_has_no_axis_length(self):
+        """Verify ArrayResponse does not have axis_length field.
+
+        The axis_length field has been removed as part of the chunk
+        refactoring. This test ensures it doesn't exist.
+        """
+        response = ArrayResponse()
+        # Verify the field doesn't exist as an attribute
+        assert not hasattr(response, "axis_length"), (
+            "ArrayResponse should not have axis_length field"
+        )
+
+    def test_array_response_has_no_dangling_chunk_length(self):
+        """Verify ArrayResponse does not have dangling_chunk_length field.
+
+        The dangling_chunk_length field has been removed as part of the
+        chunk refactoring. This test ensures it doesn't exist.
+        """
+        response = ArrayResponse()
+        # Verify the field doesn't exist as an attribute
+        assert not hasattr(response, "dangling_chunk_length"), (
+            "ArrayResponse should not have dangling_chunk_length field"
+        )
