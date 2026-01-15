@@ -118,9 +118,6 @@ class ArrayResponse:
     chunks: int = attrs.field(
         default=1,
     )
-    axis_length: int = attrs.field(
-        default=1,
-    )
     chunk_length: int = attrs.field(
         default=1,
     )
@@ -129,7 +126,4 @@ class ArrayResponse:
     )
     chunked_slices: dict[str, Callable] = attrs.field(
         default=attrs.Factory(dict), validator=val.instance_of(dict)
-    )
-    dangling_chunk_length: int = attrs.field(
-        default=0,
     )

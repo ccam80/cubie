@@ -1188,6 +1188,9 @@ class MemoryManager:
         coordinated chunking based on available memory. Calls
         allocation_ready_hook for each instance with their results.
 
+        The num_runs value is extracted from triggering_instance.run_params.runs
+        for determining chunk parameters.
+
         Returns
         -------
         None
@@ -1196,15 +1199,20 @@ class MemoryManager:
         stream = self.get_stream(triggering_instance)
         queued_requests = self._queued_allocations.pop(stream_group, {})
 
-        # Get length of axis to chunk
-        axis_length = 0
-        for instance_id, requests_dict in queued_requests.items():
-            axis_length = get_chunk_axis_length(requests_dict)
-            if axis_length > 0:
-                break
+        # Extract num_runs from triggering instance's run_params
+        # This replaces computing axis_length from array request shapes
+        if hasattr(triggering_instance, 'run_params'):
+            num_runs = triggering_instance.run_params.runs
+        else:
+            # Fallback to old method if run_params not available
+            num_runs = 0
+            for instance_id, requests_dict in queued_requests.items():
+                num_runs = get_chunk_axis_length(requests_dict)
+                if num_runs > 0:
+                    break
 
         chunk_length, num_chunks = self.get_chunk_parameters(
-            queued_requests, axis_length, stream_group
+            queued_requests, num_runs, stream_group
         )
         peers = self.stream_groups.get_instances_in_group(stream_group)
         notaries = set(peers) - set(queued_requests.keys())
@@ -1215,12 +1223,9 @@ class MemoryManager:
             )
             chunked_slices = compute_per_chunk_slice(
                 requests_dict,
-                axis_length,
+                num_runs,
                 num_chunks,
                 chunk_length,
-            )
-            dangling_chunk_length = (
-                axis_length - (num_chunks - 1) * chunk_length
             )
 
             chunked_requests = deepcopy(requests_dict)
@@ -1233,9 +1238,7 @@ class MemoryManager:
             response = ArrayResponse(
                 arr=arrays,
                 chunks=num_chunks,
-                axis_length=axis_length,
                 chunk_length=chunk_length,
-                dangling_chunk_length=dangling_chunk_length,
                 chunked_shapes=chunked_shapes,
                 chunked_slices=chunked_slices,
             )
@@ -1246,9 +1249,7 @@ class MemoryManager:
                     ArrayResponse(
                         arr={},
                         chunks=num_chunks,
-                        axis_length=axis_length,
                         chunk_length=chunk_length,
-                        dangling_chunk_length=dangling_chunk_length,
                         chunked_shapes={},
                         chunked_slices={},
                     )

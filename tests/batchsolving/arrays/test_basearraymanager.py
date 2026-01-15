@@ -1625,3 +1625,117 @@ def test_chunked_shape_propagates_through_allocation(test_memory_manager):
 
     # Verify the chunks were stored
     assert manager._chunks == 2
+
+
+class TestAllocationCallbackSimplifiedResponse:
+    """Test allocation callback works with simplified ArrayResponse."""
+
+    def test_allocation_callback_works_with_simplified_response(
+        self, test_memory_manager
+    ):
+        """Verify array managers handle ArrayResponse without removed fields.
+
+        This test ensures that _on_allocation_complete works correctly with
+        the simplified ArrayResponse that no longer has axis_length or
+        dangling_chunk_length fields. The array manager should only access:
+        - response.arr (dict of allocated arrays)
+        - response.chunks (int, number of chunks)
+        - response.chunked_shapes (dict of per-chunk shapes)
+        - response.chunked_slices (dict of slicing functions)
+        """
+        precision = np_float32
+        stride_order = ("time", "variable", "run")
+        host_shape = (10, 3, 100)
+        chunked_shape = (10, 3, 25)
+
+        # Create host arrays
+        host_arrays = TestArraysSimple(
+            arr1=ManagedArray(
+                dtype=precision,
+                stride_order=stride_order,
+                default_shape=host_shape,
+                memory_type="host",
+            ),
+            arr2=ManagedArray(
+                dtype=precision,
+                stride_order=stride_order,
+                default_shape=host_shape,
+                memory_type="host",
+            ),
+        )
+        host_arrays.arr1.array = np.zeros(host_shape, dtype=precision)
+        host_arrays.arr2.array = np.zeros(host_shape, dtype=precision)
+
+        # Create device arrays
+        device_arrays = TestArraysSimple(
+            arr1=ManagedArray(
+                dtype=precision,
+                stride_order=stride_order,
+                default_shape=host_shape,
+                memory_type="device",
+            ),
+            arr2=ManagedArray(
+                dtype=precision,
+                stride_order=stride_order,
+                default_shape=host_shape,
+                memory_type="device",
+            ),
+        )
+
+        # Create manager
+        manager = ConcreteArrayManager(
+            precision=precision,
+            sizes=None,
+            host=host_arrays,
+            device=device_arrays,
+            stream_group="default",
+            memory_proportion=None,
+            memory_manager=test_memory_manager,
+        )
+
+        # Create simplified ArrayResponse (no axis_length, no
+        # dangling_chunk_length)
+        arr1 = device_array(chunked_shape, dtype=precision)
+        arr2 = device_array(chunked_shape, dtype=precision)
+
+        # Create slice function for chunking
+        def make_slice_fn(chunk_size):
+            def slice_fn(chunk_idx):
+                start = chunk_idx * chunk_size
+                end = start + chunk_size
+                return (slice(None), slice(None), slice(start, end))
+
+            return slice_fn
+
+        response = ArrayResponse(
+            arr={"arr1": arr1, "arr2": arr2},
+            chunks=4,  # 100 runs / 25 per chunk = 4 chunks
+            chunked_shapes={"arr1": chunked_shape, "arr2": chunked_shape},
+            chunked_slices={
+                "arr1": make_slice_fn(25),
+                "arr2": make_slice_fn(25),
+            },
+        )
+
+        # Verify response does NOT have removed fields
+        assert not hasattr(response, "axis_length")
+        assert not hasattr(response, "dangling_chunk_length")
+
+        # Mark arrays for reallocation
+        manager._needs_reallocation = ["arr1", "arr2"]
+
+        # Call allocation complete - should work without accessing removed
+        # fields
+        manager._on_allocation_complete(response)
+
+        # Verify allocation completed successfully
+        assert manager.device.arr1.array is arr1
+        assert manager.device.arr2.array is arr2
+        assert manager._chunks == 4
+        assert manager.device.arr1.chunked_shape == chunked_shape
+        assert manager.device.arr2.chunked_shape == chunked_shape
+        assert manager._needs_reallocation == []
+
+        # Verify chunked transfer detection works
+        assert manager.host.arr1.needs_chunked_transfer is True
+        assert manager.host.arr2.needs_chunked_transfer is True
