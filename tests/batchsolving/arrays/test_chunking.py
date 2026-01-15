@@ -437,7 +437,6 @@ class TestArrayContainer(ArrayContainer):
     state: ManagedArray = attrs.field(
         factory=lambda: ManagedArray(
             dtype=np.float32,
-            stride_order=("time", "variable", "run"),
             default_shape=(10, 3, 100),
             memory_type="pinned",
         )
@@ -515,21 +514,15 @@ class TestOutputArraysConvertToNumpyWhenChunked:
 
         # Set up larger shapes so chunking produces different shapes
         chunks = 3
-        for name, slot in output_arrays.device.iter_managed_arrays():
-            if slot.is_chunked and "run" in slot.stride_order:
-                run_idx = slot.stride_order.index("run")
-                new_shape = list(slot.shape)
-                new_shape[run_idx] = 30  # 30 runs, divisible by 3 chunks
-
         # Prepare chunked_shapes for each managed array
-        # Divide the "run" axis by chunk count to simulate chunking
+        # Divide the run axis (axis 0) by chunk count to simulate chunking
         chunked_shapes = {}
         for name, slot in output_arrays.device.iter_managed_arrays():
             full_shape = slot.shape
-            if slot.is_chunked and "run" in slot.stride_order:
-                run_idx = slot.stride_order.index("run")
+            if slot.is_chunked:
+                # Run axis is at index 0 by convention
                 chunked = list(full_shape)
-                chunked[run_idx] = full_shape[run_idx] // chunks
+                chunked[0] = full_shape[0] // chunks
                 chunked_shapes[name] = tuple(chunked)
 
         # Simulate allocation response with multiple chunks

@@ -35,7 +35,7 @@ class TestArrayRequests:
         assert array_request.shape == (20000,)
         assert array_request.dtype == np.float64
         assert array_request.memory == "device"
-        assert array_request.stride_order == ("time", "variable", "run")
+        # stride_order field has been removed from ArrayRequest
 
     @pytest.mark.parametrize(
         "array_request_override",
@@ -90,26 +90,23 @@ class TestArrayResponse:
         assert response.chunked_shapes == {}
         assert isinstance(response.chunked_shapes, dict)
 
-    def test_array_response_has_no_axis_length(self):
-        """Verify ArrayResponse does not have axis_length field.
+    def test_array_response_has_axis_length_field(self):
+        """Verify ArrayResponse has axis_length field.
 
-        The axis_length field has been removed as part of the chunk
-        refactoring. This test ensures it doesn't exist.
+        The axis_length field stores the full length of the run axis before
+        chunking, used by ManagedArray for chunk slice computation.
         """
-        response = ArrayResponse()
-        # Verify the field doesn't exist as an attribute
-        assert not hasattr(response, "axis_length"), (
-            "ArrayResponse should not have axis_length field"
-        )
+        response = ArrayResponse(axis_length=100)
+        assert hasattr(response, "axis_length")
+        assert response.axis_length == 100
 
-    def test_array_response_has_no_dangling_chunk_length(self):
-        """Verify ArrayResponse does not have dangling_chunk_length field.
+    def test_array_response_has_dangling_chunk_length_field(self):
+        """Verify ArrayResponse has dangling_chunk_length field.
 
-        The dangling_chunk_length field has been removed as part of the
-        chunk refactoring. This test ensures it doesn't exist.
+        The dangling_chunk_length field stores the length of the final chunk
+        if it differs from chunk_length, used by ManagedArray for chunk
+        slice computation.
         """
-        response = ArrayResponse()
-        # Verify the field doesn't exist as an attribute
-        assert not hasattr(response, "dangling_chunk_length"), (
-            "ArrayResponse should not have dangling_chunk_length field"
-        )
+        response = ArrayResponse(dangling_chunk_length=23)
+        assert hasattr(response, "dangling_chunk_length")
+        assert response.dangling_chunk_length == 23

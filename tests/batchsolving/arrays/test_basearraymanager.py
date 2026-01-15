@@ -1739,3 +1739,400 @@ class TestAllocationCallbackSimplifiedResponse:
         # Verify chunked transfer detection works
         assert manager.host.arr1.needs_chunked_transfer is True
         assert manager.host.arr2.needs_chunked_transfer is True
+
+
+class TestChunkSliceMethod:
+    """Test the enhanced chunk_slice() method with chunk_index parameter."""
+
+    def test_chunk_slice_no_chunking_returns_full_array(self):
+        """Verify chunk_slice returns full array when is_chunked=False."""
+        # Create ManagedArray with chunking disabled
+        managed = ManagedArray(
+            dtype=np_float32,
+            stride_order=("time", "variable", "run"),
+            default_shape=(10, 5, 100),
+            memory_type="host",
+            is_chunked=False,
+        )
+        managed.array = np.arange(5000, dtype=np_float32).reshape(10, 5, 100)
+
+        # Set chunk parameters (even though chunking is disabled)
+        managed.num_chunks = 4
+        managed.chunk_length = 25
+        managed.dangling_chunk_length = None
+
+        # chunk_slice should return the full array
+        result = managed.chunk_slice(0)
+        assert result.shape == (10, 5, 100)
+        np.testing.assert_array_equal(result, managed.array)
+
+    def test_chunk_slice_computes_correct_slices(self):
+        """Verify chunk_slice computes correct start/end for each chunk."""
+        # Create ManagedArray with known data pattern
+        managed = ManagedArray(
+            dtype=np_float32,
+            stride_order=("time", "variable", "run"),
+            default_shape=(10, 5, 100),
+            memory_type="host",
+            is_chunked=True,
+        )
+        # Fill array with values that make chunks easy to identify
+        # Each "run" (last axis) position has its own value
+        test_array = np.zeros((10, 5, 100), dtype=np_float32)
+        for i in range(100):
+            test_array[:, :, i] = i
+        managed.array = test_array
+
+        # Set chunk parameters: 100 runs, 25 per chunk, 4 chunks
+        managed.num_chunks = 4
+        managed.chunk_length = 25
+        managed.dangling_chunk_length = None
+
+        # Test each chunk
+        for chunk_idx in range(4):
+            result = managed.chunk_slice(chunk_idx)
+            expected_start = chunk_idx * 25
+            expected_end = expected_start + 25
+
+            # Shape should be (10, 5, 25) for each chunk
+            assert result.shape == (10, 5, 25)
+
+            # Verify data corresponds to correct slice
+            expected = test_array[:, :, expected_start:expected_end]
+            np.testing.assert_array_equal(result, expected)
+
+            # Check that first position has correct value
+            assert result[0, 0, 0] == expected_start
+
+    def test_chunk_slice_handles_dangling_final_chunk(self):
+        """Verify final chunk uses dangling_chunk_length when set."""
+        # Create ManagedArray with 105 runs (4 chunks of 25, last chunk
+        # has 5)
+        managed = ManagedArray(
+            dtype=np_float32,
+            stride_order=("time", "variable", "run"),
+            default_shape=(10, 5, 105),
+            memory_type="host",
+            is_chunked=True,
+        )
+        test_array = np.arange(5250, dtype=np_float32).reshape(10, 5, 105)
+        managed.array = test_array
+
+        # Set chunk parameters with dangling final chunk
+        managed.num_chunks = 5
+        managed.chunk_length = 25
+        managed.dangling_chunk_length = 5  # Final chunk has only 5 runs
+
+        # Test regular chunks (0-3)
+        for chunk_idx in range(4):
+            result = managed.chunk_slice(chunk_idx)
+            assert result.shape == (10, 5, 25)
+
+        # Test final chunk - should be shorter
+        final_chunk = managed.chunk_slice(4)
+        assert final_chunk.shape == (10, 5, 5)
+
+        # Verify data is from correct slice (runs 100-105)
+        expected = test_array[:, :, 100:105]
+        np.testing.assert_array_equal(final_chunk, expected)
+
+    def test_chunk_slice_validates_chunk_index(self):
+        """Verify chunk_slice raises ValueError for invalid chunk_index."""
+        managed = ManagedArray(
+            dtype=np_float32,
+            stride_order=("time", "variable", "run"),
+            default_shape=(10, 5, 100),
+            memory_type="host",
+            is_chunked=True,
+        )
+        managed.array = np.zeros((10, 5, 100), dtype=np_float32)
+        managed.num_chunks = 4
+        managed.chunk_length = 25
+
+        # Test negative chunk_index
+        with pytest.raises(ValueError, match="chunk_index -1 out of range"):
+            managed.chunk_slice(-1)
+
+        # Test chunk_index >= num_chunks
+        with pytest.raises(ValueError, match="chunk_index 4 out of range"):
+            managed.chunk_slice(4)
+
+        with pytest.raises(ValueError, match="chunk_index 10 out of range"):
+            managed.chunk_slice(10)
+
+        # Test non-integer chunk_index
+        with pytest.raises(
+            TypeError, match="chunk_index must be int, got str"
+        ):
+            managed.chunk_slice("0")
+
+        with pytest.raises(
+            TypeError, match="chunk_index must be int, got float"
+        ):
+            managed.chunk_slice(0.5)
+
+    def test_chunk_slice_none_chunk_axis_returns_full_array(self):
+        """Verify chunk_slice returns full array when _chunk_axis_index is
+        None."""
+        # Create ManagedArray without "run" in stride_order
+        managed = ManagedArray(
+            dtype=np_float32,
+            stride_order=("time", "variable"),
+            default_shape=(10, 5),
+            memory_type="host",
+            is_chunked=True,
+        )
+        managed.array = np.arange(50, dtype=np_float32).reshape(10, 5)
+
+        # _chunk_axis_index should be None (no "run" axis)
+        assert managed._chunk_axis_index is None
+
+        # chunk_slice should return full array
+        result = managed.chunk_slice(0)
+        assert result.shape == (10, 5)
+        np.testing.assert_array_equal(result, managed.array)
+
+    def test_chunk_slice_none_parameters_returns_full_array(self):
+        """Verify chunk_slice returns full array when chunk parameters are
+        None."""
+        managed = ManagedArray(
+            dtype=np_float32,
+            stride_order=("time", "variable", "run"),
+            default_shape=(10, 5, 100),
+            memory_type="host",
+            is_chunked=True,
+        )
+        managed.array = np.arange(5000, dtype=np_float32).reshape(10, 5, 100)
+
+        # Leave chunk parameters as None
+        assert managed.num_chunks is None
+        assert managed.chunk_length is None
+
+        # chunk_slice should return full array (fast path)
+        result = managed.chunk_slice(0)
+        assert result.shape == (10, 5, 100)
+        np.testing.assert_array_equal(result, managed.array)
+
+    def test_chunk_slice_single_chunk(self):
+        """Verify chunk_slice works correctly with num_chunks=1."""
+        managed = ManagedArray(
+            dtype=np_float32,
+            stride_order=("time", "variable", "run"),
+            default_shape=(10, 5, 100),
+            memory_type="host",
+            is_chunked=True,
+        )
+        managed.array = np.arange(5000, dtype=np_float32).reshape(10, 5, 100)
+
+        # Single chunk spanning entire run axis
+        managed.num_chunks = 1
+        managed.chunk_length = 100
+        managed.dangling_chunk_length = None
+
+        # Only valid chunk_index is 0
+        result = managed.chunk_slice(0)
+        assert result.shape == (10, 5, 100)
+        np.testing.assert_array_equal(result, managed.array)
+
+        # chunk_index=1 should raise error
+        with pytest.raises(ValueError, match="chunk_index 1 out of range"):
+            managed.chunk_slice(1)
+
+    def test_chunk_slice_different_axis_indices(self):
+        """Verify chunk_slice works with chunk axis at different
+        positions."""
+        # Test with "run" at axis 0
+        managed_axis0 = ManagedArray(
+            dtype=np_float32,
+            stride_order=("run", "variable", "time"),
+            default_shape=(100, 5, 10),
+            memory_type="host",
+            is_chunked=True,
+        )
+        test_array = np.arange(5000, dtype=np_float32).reshape(100, 5, 10)
+        managed_axis0.array = test_array
+        managed_axis0.num_chunks = 4
+        managed_axis0.chunk_length = 25
+        assert managed_axis0._chunk_axis_index == 0
+
+        # Chunk 0 should be runs 0-25 on first axis
+        result = managed_axis0.chunk_slice(0)
+        assert result.shape == (25, 5, 10)
+        np.testing.assert_array_equal(result, test_array[0:25, :, :])
+
+        # Test with "run" at axis 1
+        managed_axis1 = ManagedArray(
+            dtype=np_float32,
+            stride_order=("time", "run", "variable"),
+            default_shape=(10, 100, 5),
+            memory_type="host",
+            is_chunked=True,
+        )
+        test_array2 = np.arange(5000, dtype=np_float32).reshape(10, 100, 5)
+        managed_axis1.array = test_array2
+        managed_axis1.num_chunks = 4
+        managed_axis1.chunk_length = 25
+        assert managed_axis1._chunk_axis_index == 1
+
+        # Chunk 0 should be runs 0-25 on middle axis
+        result2 = managed_axis1.chunk_slice(0)
+        assert result2.shape == (10, 25, 5)
+        np.testing.assert_array_equal(result2, test_array2[:, 0:25, :])
+
+
+def test_on_allocation_complete_stores_chunk_parameters(test_memory_manager):
+    """Verify _on_allocation_complete stores chunk parameters in ManagedArray.
+
+    Tests that chunk_length, num_chunks, and dangling_chunk_length are
+    extracted from ArrayResponse and stored in both host and device
+    ManagedArray objects. Also verifies that chunked_slice_fn is no
+    longer set (that field still exists but is not populated).
+    """
+    precision = np_float32
+    stride_order = ("time", "variable", "run")
+    host_shape = (10, 3, 100)
+    chunked_shape = (10, 3, 25)
+
+    # Create host arrays
+    host_arrays = TestArraysSimple(
+        arr1=ManagedArray(
+            dtype=precision,
+            stride_order=stride_order,
+            default_shape=host_shape,
+            memory_type="host",
+        ),
+        arr2=ManagedArray(
+            dtype=precision,
+            stride_order=stride_order,
+            default_shape=host_shape,
+            memory_type="host",
+        ),
+    )
+    host_arrays.arr1.array = np.zeros(host_shape, dtype=precision)
+    host_arrays.arr2.array = np.zeros(host_shape, dtype=precision)
+
+    # Create device arrays
+    device_arrays = TestArraysSimple(
+        arr1=ManagedArray(
+            dtype=precision,
+            stride_order=stride_order,
+            default_shape=host_shape,
+            memory_type="device",
+        ),
+        arr2=ManagedArray(
+            dtype=precision,
+            stride_order=stride_order,
+            default_shape=host_shape,
+            memory_type="device",
+        ),
+    )
+
+    # Create manager
+    manager = ConcreteArrayManager(
+        precision=precision,
+        sizes=None,
+        host=host_arrays,
+        device=device_arrays,
+        stream_group="default",
+        memory_proportion=None,
+        memory_manager=test_memory_manager,
+    )
+
+    # Create ArrayResponse with chunk parameters
+    arr1 = device_array(chunked_shape, dtype=precision)
+    arr2 = device_array(chunked_shape, dtype=precision)
+
+    # Chunk parameters: 100 runs divided into 4 chunks of 25 each
+    chunks = 4
+    chunk_length = 25
+    dangling_chunk_length = None  # All chunks have equal length
+
+    # Create slice function (will not be used by new implementation)
+    def make_slice_fn(chunk_size):
+        def slice_fn(chunk_idx):
+            start = chunk_idx * chunk_size
+            end = start + chunk_size
+            return (slice(None), slice(None), slice(start, end))
+
+        return slice_fn
+
+    response = ArrayResponse(
+        arr={"arr1": arr1, "arr2": arr2},
+        chunks=chunks,
+        chunk_length=chunk_length,
+        chunked_shapes={"arr1": chunked_shape, "arr2": chunked_shape},
+        chunked_slices={
+            "arr1": make_slice_fn(25),
+            "arr2": make_slice_fn(25),
+        },
+    )
+
+    # Mark arrays for reallocation
+    manager._needs_reallocation = ["arr1", "arr2"]
+
+    # Call allocation complete callback
+    manager._on_allocation_complete(response)
+
+    # Verify chunk parameters are stored in both device and host arrays
+    # Device arrays
+    assert manager.device.arr1.chunk_length == chunk_length
+    assert manager.device.arr1.num_chunks == chunks
+    assert manager.device.arr1.dangling_chunk_length == dangling_chunk_length
+    assert manager.device.arr2.chunk_length == chunk_length
+    assert manager.device.arr2.num_chunks == chunks
+    assert manager.device.arr2.dangling_chunk_length == dangling_chunk_length
+
+    # Host arrays
+    assert manager.host.arr1.chunk_length == chunk_length
+    assert manager.host.arr1.num_chunks == chunks
+    assert manager.host.arr1.dangling_chunk_length == dangling_chunk_length
+    assert manager.host.arr2.chunk_length == chunk_length
+    assert manager.host.arr2.num_chunks == chunks
+    assert manager.host.arr2.dangling_chunk_length == dangling_chunk_length
+
+    # Verify chunked_slice_fn is NOT set (field exists but is None)
+    assert manager.device.arr1.chunked_slice_fn is None
+    assert manager.device.arr2.chunked_slice_fn is None
+    assert manager.host.arr1.chunked_slice_fn is None
+    assert manager.host.arr2.chunked_slice_fn is None
+
+    # Verify chunked_shape is still set (existing functionality)
+    assert manager.device.arr1.chunked_shape == chunked_shape
+    assert manager.device.arr2.chunked_shape == chunked_shape
+    assert manager.host.arr1.chunked_shape == chunked_shape
+    assert manager.host.arr2.chunked_shape == chunked_shape
+
+    # Verify chunks was stored in manager
+    assert manager._chunks == chunks
+
+
+def test_managed_array_no_chunked_slice_fn_field():
+    """Verify ManagedArray does not have chunked_slice_fn attribute.
+
+    This test ensures that the obsolete chunked_slice_fn field has been
+    removed from ManagedArray after the refactoring that replaced
+    callable-based slicing with parameter-based slicing in chunk_slice().
+    """
+    # Create a fresh ManagedArray instance
+    managed = ManagedArray(
+        dtype=np_float32,
+        stride_order=("time", "variable", "run"),
+        default_shape=(10, 5, 100),
+        memory_type="host",
+        is_chunked=True,
+    )
+
+    # Verify chunked_slice_fn attribute does not exist
+    assert not hasattr(managed, "chunked_slice_fn"), (
+        "ManagedArray should not have chunked_slice_fn field after "
+        "refactoring to parameter-based chunk_slice() method"
+    )
+
+    # Verify the new chunk parameter fields exist instead
+    assert hasattr(managed, "chunk_length")
+    assert hasattr(managed, "num_chunks")
+    assert hasattr(managed, "dangling_chunk_length")
+
+    # Verify chunk_slice method exists
+    assert hasattr(managed, "chunk_slice")
+    assert callable(managed.chunk_slice)

@@ -80,10 +80,17 @@ class ManagedArray:
             )
         ),
     )
-    chunked_slice_fn: Optional[Callable] = field(
+    chunk_length: Optional[int] = field(
         default=None,
-        repr=False,
-        eq=False,
+        validator=attrsval_optional(attrsval_instance_of(int)),
+    )
+    num_chunks: Optional[int] = field(
+        default=None,
+        validator=attrsval_optional(attrsval_instance_of(int)),
+    )
+    dangling_chunk_length: Optional[int] = field(
+        default=None,
+        validator=attrsval_optional(attrsval_instance_of(int)),
     )
     _chunk_axis_index: Optional[int] = field(
         default=None,
@@ -120,14 +127,75 @@ class ManagedArray:
             return False
         return self.shape != self.chunked_shape
 
-    def chunk_slice(self, runslice: slice) -> ndarray:
-        """Return a slice of the array along the "run" axis."""
+    def chunk_slice(
+        self, chunk_index: int
+    ) -> Union[ndarray, DeviceNDArrayBase]:
+        """Return a slice of the array for the specified chunk index.
+
+        Parameters
+        ----------
+        chunk_index
+            Zero-based index of the chunk to slice.
+
+        Returns
+        -------
+        Union[ndarray, DeviceNDArrayBase]
+            View or slice of the array for the specified chunk.
+
+        Raises
+        ------
+        TypeError
+            If chunk_index is not an integer.
+        ValueError
+            If chunk_index is out of range.
+
+        Notes
+        -----
+        When chunking is inactive (is_chunked=False or _chunk_axis_index=None),
+        returns the full array. Otherwise computes slice based on stored
+        chunk parameters and _chunk_axis_index.
+
+        The final chunk may be shorter than chunk_length if
+        dangling_chunk_length is set, indicating a partial final chunk.
+        """
+        # Fast path: no chunking
         if self._chunk_axis_index is None or self.is_chunked is False:
             return self.array
+
+        # Fast path: no chunk parameters set (shouldn't happen but safe)
+        if self.num_chunks is None or self.chunk_length is None:
+            return self.array
+
+        # Validate chunk_index type
+        if not isinstance(chunk_index, int):
+            raise TypeError(
+                f"chunk_index must be int, got {type(chunk_index).__name__}"
+            )
+
+        # Validate chunk_index range
+        if chunk_index < 0 or chunk_index >= self.num_chunks:
+            raise ValueError(
+                f"chunk_index {chunk_index} out of range "
+                f"[0, {self.num_chunks})"
+            )
+
+        # Compute slice based on chunk parameters
+        start = chunk_index * self.chunk_length
+
+        # Final chunk may be shorter due to dangling_chunk_length
+        if (
+            chunk_index == self.num_chunks - 1
+            and self.dangling_chunk_length is not None
+        ):
+            end = start + self.dangling_chunk_length
         else:
-            chunk_slice = [slice(None)] * len(self.shape)
-            chunk_slice[self._chunk_axis_index] = runslice
-            return self.array[tuple(chunk_slice)]
+            end = start + self.chunk_length
+
+        # Build slice tuple - slice on chunk axis, full slice on others
+        chunk_slice_list = [slice(None)] * len(self.shape)
+        chunk_slice_list[self._chunk_axis_index] = slice(start, end)
+
+        return self.array[tuple(chunk_slice_list)]
 
     @property
     def array(self) -> Optional[Union[NDArray, DeviceNDArrayBase]]:
@@ -357,19 +425,33 @@ class BaseArrayManager(ABC):
         -----
         Warnings are only issued if the response contains some arrays but
         not the expected one, indicating a potential allocation mismatch.
+
+        Stores chunk parameters from response in ManagedArray objects for
+        both host and device containers.
         """
         chunked_shapes = response.chunked_shapes
-        chunked_slices = response.chunked_slices
         arrays = response.arr
+
+        # Extract chunk parameters from response
+        chunks = response.chunks
+        chunk_length = response.chunk_length
+        # Extract dangling_chunk_length if available, else None
+        dangling_chunk_length = getattr(
+            response, "dangling_chunk_length", None
+        )
+
         for array_label in self._needs_reallocation:
             try:
                 self.device.attach(array_label, arrays[array_label])
-                # Store chunked_shape from response in the ManagedArray
+                # Store chunked_shape and chunk parameters in ManagedArray
                 if array_label in response.chunked_shapes:
                     for container in (self.device, self.host):
                         array = container.get_managed_array(array_label)
                         array.chunked_shape = chunked_shapes[array_label]
-                        array.chunked_slice_fn = chunked_slices[array_label]
+                        # Store chunk parameters (no longer store slice_fn)
+                        array.chunk_length = chunk_length
+                        array.num_chunks = chunks
+                        array.dangling_chunk_length = dangling_chunk_length
             except KeyError:
                 warn(
                     f"Device array {array_label} not found in allocation "
@@ -815,6 +897,8 @@ class BaseArrayManager(ABC):
         Builds :class:`ArrayRequest` objects for arrays marked for
         reallocation and sets the ``unchunkable`` hint based on host metadata.
 
+        Chunking is always performed along axis 0 (run axis) by convention.
+
         Returns
         -------
         None
@@ -831,7 +915,6 @@ class BaseArrayManager(ABC):
                 shape=host_array.shape,
                 dtype=device_array_object.dtype,
                 memory=device_array_object.memory_type,
-                stride_order=device_array_object.stride_order,
                 unchunkable=not host_array_object.is_chunked,
             )
             requests[array_label] = request

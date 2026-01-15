@@ -910,111 +910,6 @@ def test_ensure_cuda_context_simulation():
         _ensure_cuda_context()  # Should not raise
 
 
-class TestComputePerChunkSlice:
-    """Tests for compute_per_chunk_slice function."""
-
-    def test_compute_per_chunk_slice_missing_axis(self):
-        """Verify compute_per_chunk_slice handles arrays without run axis.
-        
-        When the run axis is not in stride_order, the array is treated as
-        unchunkable and returns full slices.
-        """
-        from cubie.memory.mem_manager import compute_per_chunk_slice
-
-        # Array with stride_order that doesn't include "run" axis
-        requests = {
-            "status_codes": ArrayRequest(
-                shape=(100,),
-                dtype=np.int32,
-                memory="device",
-                stride_order=("time",),  # No "run" axis
-                unchunkable=False,
-            ),
-        }
-
-        # Should handle missing run axis gracefully (treats as unchunkable)
-        result = compute_per_chunk_slice(
-            requests=requests,
-            axis_length=1000,
-            num_chunks=10,
-            chunk_size=100,
-        )
-
-        assert "status_codes" in result
-        # Should return full slice since "run" not in stride_order
-        slice_fn = result["status_codes"]
-        slices = slice_fn(0)
-        assert slices == (slice(None),)
-
-    def test_compute_per_chunk_slice_unchunkable_array(self):
-        """Verify unchunkable arrays return full-slice functions.
-        
-        Arrays explicitly marked as unchunkable return full slices for all
-        dimensions, regardless of whether "run" is in stride_order.
-        """
-        from cubie.memory.mem_manager import compute_per_chunk_slice
-
-        # Array explicitly marked as unchunkable
-        requests = {
-            "constants": ArrayRequest(
-                shape=(10, 5),
-                dtype=np.float32,
-                memory="device",
-                stride_order=("variable", "run"),
-                unchunkable=True,
-            ),
-        }
-
-        result = compute_per_chunk_slice(
-            requests=requests,
-            axis_length=100,
-            num_chunks=10,
-            chunk_size=10,
-        )
-
-        assert "constants" in result
-        slice_fn = result["constants"]
-        # Should return full slices for all dimensions
-        slices = slice_fn(0)
-        assert slices == (slice(None), slice(None))
-
-    def test_compute_per_chunk_slice_chunkable_array(self):
-        """Verify chunkable arrays return proper chunk slices.
-        
-        Arrays with "run" in stride_order and unchunkable=False should return
-        slice functions that properly partition the run axis across chunks.
-        """
-        from cubie.memory.mem_manager import compute_per_chunk_slice
-
-        requests = {
-            "data": ArrayRequest(
-                shape=(10, 100),
-                dtype=np.float32,
-                memory="device",
-                stride_order=("variable", "run"),
-                unchunkable=False,
-            ),
-        }
-
-        result = compute_per_chunk_slice(
-            requests=requests,
-            axis_length=100,
-            num_chunks=10,
-            chunk_size=10,
-        )
-
-        assert "data" in result
-        slice_fn = result["data"]
-        # First chunk should slice from 0 to 10 on run axis
-        slices = slice_fn(0)
-        assert slices[0] == slice(None)  # variable axis unchanged
-        assert slices[1] == slice(0, 10)  # run axis sliced
-
-        # Last chunk should slice to axis_length
-        slices_last = slice_fn(9)
-        assert slices_last[1] == slice(90, 100)
-
-
 class TestGetChunkParameters:
     """Tests for get_chunk_parameters method."""
 
@@ -1034,14 +929,12 @@ class TestGetChunkParameters:
                     shape=huge_shape,
                     dtype=np.float32,
                     memory="device",
-                    stride_order=("time", "variable", "run"),
                     unchunkable=True,
                 ),
                 "huge_unchunkable2": ArrayRequest(
                     shape=huge_shape,
                     dtype=np.float32,
                     memory="device",
-                    stride_order=("time", "variable", "run"),
                     unchunkable=True,
                 ),
                 # Need at least one chunkable array to hit the unchunkable
@@ -1050,7 +943,6 @@ class TestGetChunkParameters:
                     shape=(1, 1),
                     dtype=np.float32,
                     memory="device",
-                    stride_order=("variable", "run"),
                     unchunkable=False,
                 ),
             }
@@ -1106,7 +998,6 @@ class TestAllocateQueueExtractsNumRuns:
                 shape=(10, 50),  # 50 in run axis (second dimension)
                 dtype=np.float32,
                 memory="device",
-                stride_order=("variable", "run"),
                 unchunkable=False,
             ),
         }
@@ -1163,14 +1054,12 @@ class TestAllocateQueueExtractsNumRuns:
                 shape=(100, 10000),
                 dtype=np.float32,
                 memory="device",
-                stride_order=("variable", "run"),
                 unchunkable=False,
             ),
             "arr2": ArrayRequest(
                 shape=(100, 10000),
                 dtype=np.float32,
                 memory="device",
-                stride_order=("variable", "run"),
                 unchunkable=False,
             ),
         }
@@ -1203,50 +1092,78 @@ class TestAllocateQueueExtractsNumRuns:
             # memory), chunk_length should equal num_runs
             assert response.chunk_length == 10000
 
-    def test_allocate_queue_fallback_without_runparams(self, mgr):
-        """Verify allocate_queue falls back gracefully when run_params
-        not available.
 
-        If the triggering instance doesn't have a run_params attribute,
-        allocate_queue should fall back to extracting num_runs from the
-        array request shapes.
-        """
 
-        # Create instance WITHOUT run_params attribute
-        class MockInstance:
-            pass
 
-        instance = MockInstance()
+def test_allocate_queue_no_chunked_slices_in_response(mgr):
+    """Verify ArrayResponse from allocate_queue does not have chunked_slices.
 
-        callback_called = {"flag": False, "response": None}
+    After refactoring to use on-demand chunk slice computation, the
+    ArrayResponse should no longer contain a chunked_slices field. This test
+    verifies that the response contains the necessary chunk parameters
+    (chunks, axis_length, chunk_length, dangling_chunk_length) but not
+    chunked_slices.
+    """
+    # Create instance with run_params
+    class MockRunParams:
+        def __init__(self, runs):
+            self.runs = runs
 
-        def allocation_hook(response):
-            callback_called["flag"] = True
-            callback_called["response"] = response
+    class MockInstance:
+        def __init__(self, runs):
+            self.run_params = MockRunParams(runs)
 
-        mgr.register(instance, allocation_ready_hook=allocation_hook)
+    instance = MockInstance(runs=100)
 
-        # Create requests where run axis has 75 elements
-        requests = {
-            "arr1": ArrayRequest(
-                shape=(10, 75),
-                dtype=np.float32,
-                memory="device",
-                stride_order=("variable", "run"),
-                unchunkable=False,
-            ),
-        }
+    # Track the allocation callback response
+    callback_called = {"flag": False, "response": None}
 
-        mgr.queue_request(instance, requests)
-        mgr.allocate_queue(instance)
+    def allocation_hook(response):
+        callback_called["flag"] = True
+        callback_called["response"] = response
 
-        # Verify callback was called
-        assert callback_called["flag"] is True
-        response = callback_called["response"]
-        assert isinstance(response, ArrayResponse)
+    mgr.register(instance, allocation_ready_hook=allocation_hook)
 
-        # Should have extracted num_runs=75 from array shape as fallback
-        assert response.chunks == 1
-        # chunk_length should equal the fallback num_runs when no
-        # chunking
-        assert response.chunk_length == 75
+    # Create requests with chunkable arrays
+    requests = {
+        "arr1": ArrayRequest(
+            shape=(10, 100),
+            dtype=np.float32,
+            memory="device",
+            unchunkable=False,
+        ),
+        "arr2": ArrayRequest(
+            shape=(5, 100),
+            dtype=np.float32,
+            memory="device",
+            unchunkable=False,
+        ),
+    }
+
+    mgr.queue_request(instance, requests)
+    mgr.allocate_queue(instance)
+
+    # Verify callback was called
+    assert callback_called["flag"] is True
+    response = callback_called["response"]
+    assert isinstance(response, ArrayResponse)
+
+    # Verify chunked_slices is NOT in the response
+    assert not hasattr(response, "chunked_slices")
+
+    # Verify that chunk parameters ARE in the response
+    assert hasattr(response, "chunks")
+    assert hasattr(response, "axis_length")
+    assert hasattr(response, "chunk_length")
+    assert hasattr(response, "dangling_chunk_length")
+    assert hasattr(response, "chunked_shapes")
+
+    # Verify chunk parameters have expected values
+    assert isinstance(response.chunks, int)
+    assert isinstance(response.axis_length, int)
+    assert isinstance(response.chunk_length, int)
+    assert isinstance(response.dangling_chunk_length, int)
+    assert isinstance(response.chunked_shapes, dict)
+
+    # Verify axis_length matches num_runs
+    assert response.axis_length == 100

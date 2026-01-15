@@ -512,3 +512,69 @@ class TestOutputArraysSpecialCases:
         assert output_arrays_manager.observables is not None
         assert output_arrays_manager.state_summaries is not None
         assert output_arrays_manager.observable_summaries is not None
+
+
+class TestFinaliseChunkSliceMethod:
+    """Test finalise() uses chunk_slice() method correctly"""
+
+    def test_finalise_uses_chunk_slice_method(
+        self, output_arrays_manager, solver, test_memory_manager
+    ):
+        """Verify finalise calls chunk_slice and computes slice_tuple correctly.
+        
+        This test ensures that finalise() uses the new chunk_slice() method
+        to get the array slice and computes the slice_tuple separately for
+        the PendingBuffer writeback operation. Both values must be consistent.
+        """
+        # Set up a large batch to trigger chunking
+        # Need 100 runs to ensure memory manager chunks the arrays
+        solver.kernel.num_runs = 100
+        output_arrays_manager.update(solver)
+        test_memory_manager.allocate_queue(output_arrays_manager)
+        
+        # Verify chunking was triggered
+        if output_arrays_manager._chunks <= 1:
+            pytest.skip("Chunking not triggered with current setup")
+        
+        # Verify chunk parameters were set in managed arrays
+        for array_name, slot in output_arrays_manager.host.iter_managed_arrays():
+            if slot.needs_chunked_transfer:
+                assert slot.chunk_length is not None
+                assert slot.num_chunks is not None
+                assert slot.num_chunks == output_arrays_manager._chunks
+                
+                # Verify chunk_slice() method works for this slot
+                chunk_0_slice = slot.chunk_slice(0)
+                assert chunk_0_slice is not None
+                assert chunk_0_slice.shape[slot._chunk_axis_index] == slot.chunk_length
+        
+        # Call finalise for chunk 0
+        # This should use chunk_slice() and compute slice_tuple
+        output_arrays_manager.finalise(0)
+        
+        # Verify pending buffers were created
+        assert len(output_arrays_manager._pending_buffers) > 0
+        
+        # Check that pending buffers have correct slice_tuple
+        for pending in output_arrays_manager._pending_buffers:
+            array_name = pending.array_name
+            slot = output_arrays_manager.host.get_managed_array(array_name)
+            
+            # Verify slice_tuple was computed correctly
+            assert pending.slice_tuple is not None
+            
+            # Verify the slice_tuple matches what chunk_slice(0) would produce
+            chunk_axis = slot._chunk_axis_index
+            expected_start = 0 * slot.chunk_length
+            expected_end = expected_start + slot.chunk_length
+            expected_slice = slice(expected_start, expected_end)
+            
+            assert pending.slice_tuple[chunk_axis] == expected_slice
+            
+            # Verify all other axes are full slices
+            for i in range(len(pending.slice_tuple)):
+                if i != chunk_axis:
+                    assert pending.slice_tuple[i] == slice(None)
+        
+        # Clean up pending buffers
+        output_arrays_manager._pending_buffers.clear()

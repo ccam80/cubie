@@ -310,6 +310,72 @@ class TestInputArrays:
             sample_input_arrays["driver_coefficients"],
         )
 
+    def test_initialise_uses_chunk_slice_method(
+        self, input_arrays_manager, solver, input_test_settings
+    ):
+        """Verify initialise calls chunk_slice instead of chunked_slice_fn"""
+        dtype = input_test_settings["dtype"]
+        num_runs = 100  # Use larger number to enable chunking
+
+        variables_count = solver.system_sizes.states
+        parameters_count = solver.system_sizes.parameters
+
+        # Create large arrays to trigger chunking
+        large_arrays = {
+            "initial_values": np.random.rand(variables_count, num_runs).astype(
+                dtype
+            ),
+            "parameters": np.random.rand(parameters_count, num_runs).astype(
+                dtype
+            ),
+            "driver_coefficients": np.random.rand(4, 1, 1).astype(dtype),
+        }
+
+        # Update and allocate
+        input_arrays_manager.update(
+            solver,
+            large_arrays["initial_values"],
+            large_arrays["parameters"],
+            large_arrays["driver_coefficients"],
+        )
+        default_memmgr.allocate_queue(input_arrays_manager)
+
+        # Check that chunking was triggered
+        if input_arrays_manager._chunks > 1:
+            # Get host managed arrays for checking
+            host_iv = input_arrays_manager.host.get_managed_array(
+                "initial_values"
+            )
+            host_params = input_arrays_manager.host.get_managed_array(
+                "parameters"
+            )
+
+            # Verify chunk parameters were set by allocation callback
+            assert host_iv.num_chunks is not None
+            assert host_iv.chunk_length is not None
+            assert host_params.num_chunks is not None
+            assert host_params.chunk_length is not None
+
+            # Verify chunk_slice method works by calling it directly
+            chunk_0_slice = host_iv.chunk_slice(0)
+            expected_end = min(host_iv.chunk_length, num_runs)
+            # chunk_slice returns a view, so check its shape
+            assert chunk_0_slice.shape == (variables_count, expected_end)
+
+            # Call initialise for first chunk
+            input_arrays_manager.initialise(0)
+
+            # Verify data was transferred correctly by checking device arrays
+            # For the first chunk, compare sliced data
+            device_iv = input_arrays_manager.device_initial_values
+            expected_slice = large_arrays["initial_values"][:, :expected_end]
+            np.testing.assert_array_equal(
+                np.array(device_iv), expected_slice
+            )
+        else:
+            # If chunking wasn't triggered, skip test
+            pytest.skip("Chunking was not triggered; test not applicable")
+
     @pytest.mark.parametrize(
         "solver_settings_override",
         [{"precision": np.float32}, {"precision": np.float64}],

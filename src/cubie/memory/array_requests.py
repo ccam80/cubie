@@ -29,9 +29,6 @@ class ArrayRequest:
     memory
         Memory placement option. Must be one of ``"device"``, ``"mapped"``,
         ``"pinned"``, or ``"managed"``.
-    stride_order
-        Optional tuple describing logical dimension labels in stride order. When
-        omitted, the initializer selects an order based on dimensionality.
     unchunkable
         Whether the memory manager is allowed to chunk the allocation.
 
@@ -43,11 +40,13 @@ class ArrayRequest:
         NumPy precision constructor used to produce the allocation.
     memory
         Memory placement option.
-    stride_order
-        Tuple describing logical dimension labels in stride order.
     unchunkable
         Flag indicating that chunking should be disabled.
 
+    Notes
+    -----
+    By CuBIE convention, the run axis is always axis 0 of the shape tuple.
+    The memory manager performs chunking along axis 0 when memory is limited.
     """
 
     dtype = attrs.field(
@@ -63,24 +62,9 @@ class ArrayRequest:
         default="device",
         validator=val.in_(["device", "mapped", "pinned", "managed"]),
     )
-    stride_order: Optional[tuple[str, ...]] = attrs.field(
-        default=None, validator=val.optional(val.instance_of(tuple))
-    )
     unchunkable: bool = attrs.field(
         default=False, validator=val.instance_of(bool)
     )
-
-    def __attrs_post_init__(self) -> None:
-        """
-        Set cubie-native stride order if not set already.
-
-        Returns
-        -------
-        None
-            ``None``.
-        """
-        if self.stride_order is None:
-            self.stride_order = ("",) * len(self.shape)
 
     @property
     def size(self) -> int:
@@ -97,7 +81,13 @@ class ArrayResponse:
     arr
         Dictionary mapping array labels to allocated device arrays.
     chunks
-        Mapping that records how many chunks each allocation was divided into.
+        Number of chunks the allocation was divided into.
+    axis_length
+        Full length of the run axis before chunking.
+    chunk_length
+        Length of each chunk along the run axis (except possibly last).
+    dangling_chunk_length
+        Length of the final chunk if different from chunk_length.
     chunked_shapes
         Mapping from array labels to their per-chunk shapes. Empty dict when
         no chunking occurs.
@@ -107,7 +97,13 @@ class ArrayResponse:
     arr
         Dictionary mapping array labels to allocated device arrays.
     chunks
-        Mapping that records how many chunks each allocation was divided into.
+        Number of chunks the allocation was divided into.
+    axis_length
+        Full length of the run axis before chunking.
+    chunk_length
+        Length of each chunk along the run axis.
+    dangling_chunk_length
+        Length of the final chunk if different from chunk_length.
     chunked_shapes
         Mapping from array labels to their per-chunk shapes.
     """
@@ -118,12 +114,15 @@ class ArrayResponse:
     chunks: int = attrs.field(
         default=1,
     )
+    axis_length: int = attrs.field(
+        default=1,
+    )
     chunk_length: int = attrs.field(
         default=1,
     )
-    chunked_shapes: dict[str, tuple[int, ...]] = attrs.field(
-        default=attrs.Factory(dict), validator=val.instance_of(dict)
+    dangling_chunk_length: int = attrs.field(
+        default=0,
     )
-    chunked_slices: dict[str, Callable] = attrs.field(
+    chunked_shapes: dict[str, tuple[int, ...]] = attrs.field(
         default=attrs.Factory(dict), validator=val.instance_of(dict)
     )
