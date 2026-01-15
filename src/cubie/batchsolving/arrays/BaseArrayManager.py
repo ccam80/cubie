@@ -85,7 +85,7 @@ class ManagedArray:
         repr=False,
         eq=False,
     )
-    chunk_index: Optional[int] = field(
+    _chunk_axis_index: Optional[int] = field(
         default=None,
         init=False,
         repr=False,
@@ -98,7 +98,7 @@ class ManagedArray:
         self._array = np_zeros(defaultshape, dtype=self.dtype)
 
         if "run" in stride_order:
-            self.chunk_index = stride_order.index("run")
+            self._chunk_axis_index = stride_order.index("run")
 
     @property
     def shape(self) -> tuple[Optional[int], ...]:
@@ -122,11 +122,11 @@ class ManagedArray:
 
     def chunk_slice(self, runslice: slice) -> ndarray:
         """Return a slice of the array along the "run" axis."""
-        if self.chunk_index is None or self.is_chunked is False:
+        if self._chunk_axis_index is None or self.is_chunked is False:
             return self.array
         else:
             chunk_slice = [slice(None)] * len(self.shape)
-            chunk_slice[self.chunk_index] = runslice
+            chunk_slice[self._chunk_axis_index] = runslice
             return self.array[tuple(chunk_slice)]
 
     @property
