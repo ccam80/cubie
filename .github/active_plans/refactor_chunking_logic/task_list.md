@@ -2,52 +2,82 @@
 # Feature: Refactor Chunking Logic
 # Plan Reference: .github/active_plans/refactor_chunking_logic/agent_plan.md
 
-## Overview
-
-This refactoring removes array-indexing logic from the memory manager and localizes it within ManagedArray objects. The memory manager will return simple chunk parameters, and ManagedArray will compute per-chunk slices on demand using its `_chunk_axis_index` field.
-
----
-
-## Task Group 1: Add Chunk Parameters to ManagedArray
+## Task Group 1: Add Chunk Metadata Fields to ManagedArray
 **Status**: [ ]
 **Dependencies**: None
 
 **Required Context**:
 - File: src/cubie/batchsolving/arrays/BaseArrayManager.py (lines 40-144)
-- File: .github/context/cubie_internal_structure.md (lines 1-100)
+- File: .github/context/cubie_internal_structure.md (entire file)
 
 **Input Validation Required**:
-- axis_length: Check type is int or None, if int then > 0
-- chunk_length: Check type is int or None, if int then > 0
-- num_chunks: Check type is int or None, if int then > 0
-- dangling_chunk_length: Check type is int or None, if int then >= 0
+- chunk_length: Validate type is int, value > 0 (only when not None)
+- num_chunks: Validate type is int, value > 0 (only when not None)
 
 **Tasks**:
-1. **Add chunk parameter fields to ManagedArray**
+1. **Add chunk_length field to ManagedArray**
    - File: src/cubie/batchsolving/arrays/BaseArrayManager.py
    - Action: Modify
    - Details:
      ```python
-     @define(slots=False)
-     class ManagedArray:
-         # ... existing fields ...
-         
-         # Add new chunk parameter fields after chunked_slice_fn
-         axis_length: Optional[int] = field(
-             default=None,
-             validator=attrsval_optional(attrsval_instance_of(int)),
-         )
-         chunk_length: Optional[int] = field(
-             default=None,
-             validator=attrsval_optional(attrsval_instance_of(int)),
-         )
-         num_chunks: Optional[int] = field(
-             default=None,
-             validator=attrsval_optional(attrsval_instance_of(int)),
-         )
-         dangling_chunk_length: Optional[int] = field(
-             default=None,
-             validator=attrsval_optional(attrsval_instance_of(int)),
+     # Add after line 82 (after chunked_shape field):
+     chunk_length: Optional[int] = field(
+         default=None,
+         validator=attrsval_optional(attrsval_instance_of(int)),
+     )
+     ```
+   - Edge cases: None value is valid (array not chunked)
+   - Integration: Will be populated by BaseArrayManager._on_allocation_complete
+
+2. **Add num_chunks field to ManagedArray**
+   - File: src/cubie/batchsolving/arrays/BaseArrayManager.py
+   - Action: Modify
+   - Details:
+     ```python
+     # Add after chunk_length field:
+     num_chunks: Optional[int] = field(
+         default=None,
+         validator=attrsval_optional(attrsval_instance_of(int)),
+     )
+     ```
+   - Edge cases: None value is valid (array not chunked)
+   - Integration: Will be populated by BaseArrayManager._on_allocation_complete
+
+**Tests to Create**:
+- Test file: tests/batchsolving/arrays/test_managed_array.py
+- Test function: test_managed_array_chunk_fields_default_none
+- Description: Verify that chunk_length and num_chunks default to None
+- Test function: test_managed_array_chunk_fields_accept_valid_values
+- Description: Verify that valid chunk_length and num_chunks can be set
+
+**Tests to Run**:
+- tests/batchsolving/arrays/test_managed_array.py::test_managed_array_chunk_fields_default_none
+- tests/batchsolving/arrays/test_managed_array.py::test_managed_array_chunk_fields_accept_valid_values
+
+**Outcomes**:
+
+---
+
+## Task Group 2: Modify ManagedArray.chunk_slice() Method
+**Status**: [ ]
+**Dependencies**: Group 1
+
+**Required Context**:
+- File: src/cubie/batchsolving/arrays/BaseArrayManager.py (lines 123-130, full ManagedArray class lines 40-144)
+- File: .github/context/cubie_internal_structure.md (entire file)
+
+**Input Validation Required**:
+- chunk_index: Validate type is int, value >= 0
+- chunk_index: Validate chunk_index < num_chunks when num_chunks is not None
+
+**Tasks**:
+1. **Update chunk_slice() signature and implementation**
+   - File: src/cubie/batchsolving/arrays/BaseArrayManager.py
+   - Action: Modify
+   - Details:
+     ```python
+     # Replace existing chunk_slice method (lines 123-130):
+     def chunk_slice(self, chunk_index: int) -> tuple[slice, ...]:
          )
          
          # Keep _chunk_axis_index as is
