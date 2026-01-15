@@ -1,5 +1,6 @@
 """Unit tests for CellML caching functionality."""
 
+import os
 import pytest
 from pathlib import Path
 import pickle
@@ -107,7 +108,6 @@ def test_cache_valid_missing_file(basic_cellml_path, tmp_path, monkeypatch):
     is present in the expected location.
     """
     # Change to tmp directory so cache files don't interfere with real ones
-    import os
     monkeypatch.chdir(tmp_path)
     
     cache = CellMLCache(model_name="basic_ode", cellml_path=basic_cellml_path)
@@ -124,7 +124,6 @@ def test_cache_valid_hash_mismatch(tmp_cellml_file, tmp_path, monkeypatch):
     modified after cache creation.
     """
     # Change to tmp directory
-    import os
     monkeypatch.chdir(tmp_path)
     
     cache = CellMLCache(model_name="test", cellml_path=tmp_cellml_file)
@@ -148,7 +147,6 @@ def test_load_from_cache_returns_none_invalid(
     returns None rather than raising an exception.
     """
     # Change to tmp directory
-    import os
     monkeypatch.chdir(tmp_path)
     
     cache = CellMLCache(model_name="test", cellml_path=tmp_cellml_file)
@@ -176,7 +174,6 @@ def test_save_and_load_roundtrip(tmp_cellml_file, tmp_path, monkeypatch):
     from sympy import symbols
     
     # Change to tmp directory
-    import os
     monkeypatch.chdir(tmp_path)
     
     cache = CellMLCache(model_name="test", cellml_path=tmp_cellml_file)
@@ -246,7 +243,6 @@ def test_corrupted_cache_returns_none(tmp_cellml_file, tmp_path, monkeypatch):
     None rather than raising exceptions that would crash the parsing.
     """
     # Change to tmp directory
-    import os
     monkeypatch.chdir(tmp_path)
     
     cache = CellMLCache(model_name="test", cellml_path=tmp_cellml_file)

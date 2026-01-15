@@ -10,7 +10,6 @@ from typing import Optional
 import pickle
 from hashlib import sha256
 
-from os import getcwd
 from cubie.odesystems.symbolic.parsing.parser import ParsedEquations
 from cubie.odesystems.symbolic.indexedbasemaps import IndexedBases
 from cubie._utils import PrecisionDType
@@ -74,7 +73,7 @@ class CellMLCache:
         self.cellml_path = cellml_path
         # Compute generated directory dynamically based on current working
         # directory to support tests that change cwd
-        generated_dir = Path(getcwd()) / "generated"
+        generated_dir = Path.cwd() / "generated"
         self.cache_dir = generated_dir / model_name
         self.cache_file = self.cache_dir / "cellml_cache.pkl"
     

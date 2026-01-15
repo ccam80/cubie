@@ -1,3 +1,4 @@
+import os
 import pytest
 from pathlib import Path
 import numpy as np
@@ -95,7 +96,6 @@ def test_nonexistent_file():
 def test_invalid_extension():
     """Verify ValueError raised for non-.cellml extension."""
     import tempfile
-    import os
     
     # Create a temporary file with wrong extension
     with tempfile.NamedTemporaryFile(mode='w', suffix='.xml',
@@ -455,7 +455,6 @@ def test_cache_used_on_reload(cellml_fixtures_dir, tmp_path):
     )
     
     # Change working directory to tmp_path for generated/ directory
-    import os
     original_cwd = os.getcwd()
     try:
         os.chdir(tmp_path)
@@ -482,7 +481,6 @@ def test_cache_used_on_reload(cellml_fixtures_dir, tmp_path):
 def test_cache_invalidated_on_file_change(cellml_fixtures_dir, tmp_path):
     """Verify cache invalidates when CellML file content changes."""
     import shutil
-    import os
     
     # Copy fixture to tmp directory
     tmp_cellml = tmp_path / "basic_ode.cellml"
@@ -522,7 +520,6 @@ def test_cache_invalidated_on_file_change(cellml_fixtures_dir, tmp_path):
 def test_cache_isolated_per_model(cellml_fixtures_dir, tmp_path):
     """Verify each model has separate cache file."""
     import shutil
-    import os
     
     # Copy both fixtures to tmp directory
     tmp_basic = tmp_path / "basic_ode.cellml"
