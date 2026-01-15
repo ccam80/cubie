@@ -335,9 +335,10 @@ def test_cellml_time_logging_events_recorded(cellml_fixtures_dir):
     cellml.default_timelogger = test_logger
     
     try:
-        # Load a model
+        # Load a model with unique name to bypass cache from other tests
         ode_system = load_cellml_model(
-            str(cellml_fixtures_dir / "basic_ode.cellml")
+            str(cellml_fixtures_dir / "basic_ode.cellml"),
+            name="basic_ode_timelogging_test"
         )
 
         # Verify model loaded successfully
@@ -413,9 +414,10 @@ def test_cellml_time_logging_aggregation(cellml_fixtures_dir):
     cellml.default_timelogger = test_logger
     
     try:
-        # Load a model
+        # Load a model with unique name to bypass cache from other tests
         ode_system = load_cellml_model(
-            str(cellml_fixtures_dir / "basic_ode.cellml")
+            str(cellml_fixtures_dir / "basic_ode.cellml"),
+            name="basic_ode_aggregation_test"
         )
 
         # Verify model loaded successfully

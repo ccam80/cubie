@@ -206,9 +206,12 @@ def load_cellml_model(
         name = path_obj.stem
     
     # Initialize cache and check for cached parse results
+    # Skip cache if custom parameters or observables are provided since
+    # these affect parsing output and require a fresh parse
+    use_cache = (parameters is None and observables is None)
     cache = CellMLCache(model_name=name, cellml_path=path)
     
-    if cache.cache_valid():
+    if use_cache and cache.cache_valid():
         cached_data = cache.load_from_cache()
         
         if cached_data is not None:
@@ -230,10 +233,11 @@ def load_cellml_model(
             )
             return ode
     
-    # Cache miss - continue with normal parsing
-    default_timelogger.print_message(
-        f"No CellML cache found for {name}, parsing from source..."
-    )
+    # Cache miss or custom parameters/observables - parse from source
+    if use_cache:
+        default_timelogger.print_message(
+            f"No CellML cache found for {name}, parsing from source..."
+        )
     
     default_timelogger.start_event("codegen_cellml_load_model")
     model = cellmlmanip.load_model(path)
@@ -422,16 +426,18 @@ def load_cellml_model(
     index_map, all_symbols, functions, equations, fn_hash = sys_components
     default_timelogger.stop_event("symbolic_ode_parsing")
     
-    # Save to cache (silent - no timing events)
-    cache.save_to_cache(
-        parsed_equations=equations,
-        indexed_bases=index_map,
-        all_symbols=all_symbols,
-        user_functions=functions,
-        fn_hash=fn_hash,
-        precision=precision,
-        name=name,
-    )
+    # Save to cache only if caching is appropriate
+    # (silent - no timing events)
+    if use_cache:
+        cache.save_to_cache(
+            parsed_equations=equations,
+            indexed_bases=index_map,
+            all_symbols=all_symbols,
+            user_functions=functions,
+            fn_hash=fn_hash,
+            precision=precision,
+            name=name,
+        )
     
     # Construct SymbolicODE directly (not via .create())
     symbolic_ode = SymbolicODE(

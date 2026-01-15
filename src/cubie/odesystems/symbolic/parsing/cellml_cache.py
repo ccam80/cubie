@@ -10,7 +10,7 @@ from typing import Optional
 import pickle
 from hashlib import sha256
 
-from cubie.odesystems.symbolic.odefile import GENERATED_DIR
+from os import getcwd
 from cubie.odesystems.symbolic.parsing.parser import ParsedEquations
 from cubie.odesystems.symbolic.indexedbasemaps import IndexedBases
 from cubie._utils import PrecisionDType
@@ -72,7 +72,10 @@ class CellMLCache:
         
         self.model_name = model_name
         self.cellml_path = cellml_path
-        self.cache_dir = GENERATED_DIR / model_name
+        # Compute generated directory dynamically based on current working
+        # directory to support tests that change cwd
+        generated_dir = Path(getcwd()) / "generated"
+        self.cache_dir = generated_dir / model_name
         self.cache_file = self.cache_dir / "cellml_cache.pkl"
     
     def get_cellml_hash(self) -> str:
@@ -118,9 +121,10 @@ class CellMLCache:
             return False
         
         try:
-            # Read first line (hash comment)
-            with open(self.cache_file, 'r', encoding='utf-8') as f:
-                first_line = f.readline().strip()
+            # Read first line (hash comment) in binary mode
+            # to handle pickle data that follows
+            with open(self.cache_file, 'rb') as f:
+                first_line = f.readline().decode('utf-8').strip()
             
             # Extract hash (remove # prefix if present)
             stored_hash = first_line.lstrip('#')
