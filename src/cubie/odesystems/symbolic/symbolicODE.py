@@ -540,6 +540,7 @@ class SymbolicODE(BaseODE):
         # Handle cached_aux_count specially - it doesn't generate code
         # and doesn't depend on whether other functions are cached
         if func_type == "cached_aux_count":
+            default_timelogger.start_event(event_name, skipped=True)
             if self._jacobian_aux_count is None:
                 self.get_solver_helper("prepare_jac")
             default_timelogger.stop_event(event_name)
