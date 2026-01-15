@@ -1,27 +1,24 @@
 # Implementation Task List
-# Feature: CellML Object Caching
+# Feature: LRU CellML Cache with Argument-Based Keys
 # Plan Reference: .github/active_plans/cellml_object_caching/agent_plan.md
 
-## Task Group 1: Create CellMLCache Class
-**Status**: [x]
+## Task Group 1: Core Cache Infrastructure - Serialization and Key Generation
+**Status**: [ ]
 **Dependencies**: None
 
 **Required Context**:
-- File: src/cubie/odesystems/symbolic/odefile.py (lines 1-100)
-- File: src/cubie/time_logger.py (entire file for TimeLogger interface)
-- File: src/cubie/_utils.py (lines 1-50 for PrecisionDType)
+- File: src/cubie/odesystems/symbolic/parsing/cellml_cache.py (entire file)
+- File: src/cubie/_utils.py (lines 1-100) - for PrecisionDType type alias
+- File: .github/context/cubie_internal_structure.md (lines 1-50) - for architecture context
 
 **Input Validation Required**:
-- model_name: Check type is str, not empty string
-- cellml_path: Check type is str, file exists at path
-- parsed_equations: Check type is ParsedEquations (attrs class validation)
-- indexed_bases: Check type is IndexedBases
-- precision: Validate against ALLOWED_PRECISIONS set
-- name: Check type is str
+- parameters: Check type is dict or None; if dict, verify keys are strings
+- observables: Check type is list or None; if list, verify elements are strings
+- precision: Validate is PrecisionDType (np.float16/32/64)
+- name: Check type is str and not empty string
 
 **Tasks**:
-
-1. **Create cellml_cache.py module**
+1. **Add _serialize_args() method**
    - File: src/cubie/odesystems/symbolic/parsing/cellml_cache.py
    - Action: Create
    - Details:

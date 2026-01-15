@@ -462,9 +462,9 @@ def test_cache_used_on_reload(cellml_fixtures_dir, tmp_path):
         # First load - creates cache
         ode1 = load_cellml_model(str(tmp_cellml), name="basic_ode")
         
-        # Verify cache file created
-        cache_file = tmp_path / "generated" / "basic_ode" / "cellml_cache.pkl"
-        assert cache_file.exists(), "Cache file should exist after first load"
+        # Verify cache manifest created (LRU cache uses manifest file)
+        manifest_file = tmp_path / "generated" / "basic_ode" / "cellml_cache_manifest.json"
+        assert manifest_file.exists(), "Cache manifest should exist after first load"
         
         # Second load - should use cache
         ode2 = load_cellml_model(str(tmp_cellml), name="basic_ode")
@@ -494,24 +494,29 @@ def test_cache_invalidated_on_file_change(cellml_fixtures_dir, tmp_path):
         os.chdir(tmp_path)
         
         # First load - creates cache
-        ode1 = load_cellml_model(str(tmp_cellml), name="basic_ode")
-        cache_file = tmp_path / "generated" / "basic_ode" / "cellml_cache.pkl"
-        assert cache_file.exists()
+        load_cellml_model(str(tmp_cellml), name="basic_ode")
+        manifest_file = tmp_path / "generated" / "basic_ode" / "cellml_cache_manifest.json"
+        assert manifest_file.exists()
         
         # Modify CellML file (add comment)
         with open(tmp_cellml, 'a') as f:
             f.write("\n<!-- Modified for test -->\n")
         
-        # Verify cache becomes invalid
+        # Verify cache becomes invalid (file hash changed)
         from cubie.odesystems.symbolic.parsing.cellml_cache import CellMLCache
+        import numpy as np
         cache = CellMLCache("basic_ode", str(tmp_cellml))
-        assert not cache.cache_valid(), "Cache should be invalid after file change"
+        # Compute args_hash for default arguments (precision=np.float32)
+        args_hash = cache.compute_cache_key(None, None, np.float32, "basic_ode")
+        assert not cache.cache_valid(args_hash), "Cache should be invalid after file change"
         
         # Load again - should re-parse and update cache
         load_cellml_model(str(tmp_cellml), name="basic_ode")
         
-        # Verify new cache is valid
-        assert cache.cache_valid(), "Cache should be valid after re-parse"
+        # Verify new cache is valid (need fresh CellMLCache for updated file hash)
+        cache2 = CellMLCache("basic_ode", str(tmp_cellml))
+        args_hash2 = cache2.compute_cache_key(None, None, np.float32, "basic_ode")
+        assert cache2.cache_valid(args_hash2), "Cache should be valid after re-parse"
     
     finally:
         os.chdir(original_cwd)
@@ -538,12 +543,12 @@ def test_cache_isolated_per_model(cellml_fixtures_dir, tmp_path):
         ode_basic = load_cellml_model(str(tmp_basic), name="basic_ode")
         ode_br = load_cellml_model(str(tmp_br), name="beeler_reuter_model_1977")
         
-        # Verify separate cache files exist
-        cache_basic = tmp_path / "generated" / "basic_ode" / "cellml_cache.pkl"
-        cache_br = tmp_path / "generated" / "beeler_reuter_model_1977" / "cellml_cache.pkl"
+        # Verify separate cache manifests exist (LRU cache uses manifest files)
+        manifest_basic = tmp_path / "generated" / "basic_ode" / "cellml_cache_manifest.json"
+        manifest_br = tmp_path / "generated" / "beeler_reuter_model_1977" / "cellml_cache_manifest.json"
         
-        assert cache_basic.exists(), "basic_ode cache should exist"
-        assert cache_br.exists(), "beeler_reuter cache should exist"
+        assert manifest_basic.exists(), "basic_ode cache manifest should exist"
+        assert manifest_br.exists(), "beeler_reuter cache manifest should exist"
         
         # Verify different models have different hashes
         assert ode_basic.fn_hash != ode_br.fn_hash

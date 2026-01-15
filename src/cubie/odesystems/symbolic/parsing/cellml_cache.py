@@ -6,9 +6,11 @@ directory alongside compiled code, with hash-based invalidation.
 """
 
 from pathlib import Path
-from typing import Optional
+from typing import Optional, List
 import pickle
 from hashlib import sha256
+import json
+import time
 
 from cubie.odesystems.symbolic.parsing.parser import ParsedEquations
 from cubie.odesystems.symbolic.indexedbasemaps import IndexedBases
@@ -76,6 +78,8 @@ class CellMLCache:
         generated_dir = Path.cwd() / "generated"
         self.cache_dir = generated_dir / model_name
         self.cache_file = self.cache_dir / "cellml_cache.pkl"
+        self.manifest_file = self.cache_dir / "cellml_cache_manifest.json"
+        self.max_entries = 5  # LRU cache limit
     
     def get_cellml_hash(self) -> str:
         """Compute SHA256 hash of CellML file content.
@@ -103,110 +107,150 @@ class CellMLCache:
         hash_obj = sha256(content)
         return hash_obj.hexdigest()
     
-    def cache_valid(self) -> bool:
-        """Check if cache file exists and hash matches current file.
+    def _serialize_args(
+        self,
+        parameters: Optional[List[str]],
+        observables: Optional[List[str]],
+        precision,
+        name: str
+    ) -> str:
+        """Serialize arguments to a deterministic string for cache key.
         
-        Reads first line of cache file and compares against current
-        CellML file hash. Returns False if cache doesn't exist or
-        hash mismatch.
+        Sorts lists to ensure order-independence. Returns JSON string.
+        """
+        args_dict = {
+            'parameters': sorted(parameters) if parameters else None,
+            'observables': sorted(observables) if observables else None,
+            'precision': str(precision),
+            'name': name
+        }
+        return json.dumps(args_dict, sort_keys=True)
+    
+    def compute_cache_key(
+        self,
+        parameters: Optional[List[str]],
+        observables: Optional[List[str]],
+        precision,
+        name: str
+    ) -> str:
+        """Compute cache key from file content hash and argument hash.
+        
+        Returns a short hash (first 16 chars) for use in filename.
+        """
+        file_hash = self.get_cellml_hash()
+        args_str = self._serialize_args(parameters, observables, precision, name)
+        combined = file_hash + args_str
+        return sha256(combined.encode()).hexdigest()[:16]
+    
+    def _load_manifest(self) -> dict:
+        """Load manifest from disk or return empty structure."""
+        if not self.manifest_file.exists():
+            return {"version": 1, "file_hash": None, "entries": []}
+        try:
+            with open(self.manifest_file, 'r') as f:
+                return json.load(f)
+        except (json.JSONDecodeError, IOError):
+            return {"version": 1, "file_hash": None, "entries": []}
+    
+    def _save_manifest(self, manifest: dict) -> None:
+        """Save manifest to disk. Creates directory if needed."""
+        try:
+            self.cache_dir.mkdir(parents=True, exist_ok=True)
+            with open(self.manifest_file, 'w') as f:
+                json.dump(manifest, f, indent=2)
+        except Exception:
+            pass  # Silently fail - caching is opportunistic
+    
+    def _update_lru_order(self, manifest: dict, args_hash: str) -> dict:
+        """Move args_hash to end of entries list (most recently used)."""
+        entries = manifest.get("entries", [])
+        # Remove existing entry if present
+        entries = [e for e in entries if e.get("args_hash") != args_hash]
+        # Add at end with updated timestamp
+        entries.append({"args_hash": args_hash, "last_used": time.time()})
+        manifest["entries"] = entries
+        return manifest
+    
+    def _evict_lru(self, manifest: dict) -> dict:
+        """Remove oldest entry if over max_entries limit."""
+        entries = manifest.get("entries", [])
+        while len(entries) > self.max_entries:
+            oldest = entries.pop(0)  # First entry is oldest
+            # Delete the cache file
+            cache_file = self.cache_dir / f"cache_{oldest['args_hash']}.pkl"
+            try:
+                cache_file.unlink()
+            except FileNotFoundError:
+                pass
+        manifest["entries"] = entries
+        return manifest
+    
+    def cache_valid(self, args_hash: str) -> bool:
+        """Check if cache for given args_hash exists and file hash matches.
         
         Returns
         -------
         bool
             True if cache exists and is current, False otherwise
         """
-        # Check cache file exists
-        if not self.cache_file.exists():
+        manifest = self._load_manifest()
+        current_file_hash = self.get_cellml_hash()
+        
+        # If file hash changed, all caches are invalid
+        if manifest.get("file_hash") != current_file_hash:
             return False
         
-        try:
-            # Read first line (hash comment) in binary mode
-            # to handle pickle data that follows
-            with open(self.cache_file, 'rb') as f:
-                first_line = f.readline().decode('utf-8').strip()
-            
-            # Extract hash (remove # prefix if present)
-            stored_hash = first_line.lstrip('#')
-            
-            # Compute current hash
-            current_hash = self.get_cellml_hash()
-            
-            # Compare hashes
-            return stored_hash == current_hash
-        
-        except Exception:
-            # Any error reading cache = invalid cache
-            return False
+        # Check if args_hash is in entries
+        entries = manifest.get("entries", [])
+        for entry in entries:
+            if entry.get("args_hash") == args_hash:
+                cache_file = self.cache_dir / f"cache_{args_hash}.pkl"
+                return cache_file.exists()
+        return False
     
-    def load_from_cache(self) -> Optional[dict]:
-        """Load cached parse results from disk.
-        
-        Reads pickled data from cache file. First line is hash comment,
-        remainder is pickled dictionary. Returns None if cache invalid
-        or unpickling fails.
+    def load_from_cache(self, args_hash: str) -> Optional[dict]:
+        """Load cached data for given args_hash. Updates LRU order.
         
         Returns
         -------
         dict or None
-            Dictionary with keys: 'cellml_hash', 'parsed_equations',
-            'indexed_bases', 'all_symbols', 'user_functions', 'fn_hash',
-            'precision', 'name'. Returns None if load fails.
+            Dictionary with cached data. Returns None if load fails.
         """
-        # Validate cache before attempting load
-        if not self.cache_valid():
+        if not self.cache_valid(args_hash):
             return None
         
+        cache_file = self.cache_dir / f"cache_{args_hash}.pkl"
         try:
-            # Read file, skip first line (hash comment)
-            with open(self.cache_file, 'rb') as f:
-                # Read and discard first line
-                _ = f.readline()
-                # Unpickle remaining content
+            with open(cache_file, 'rb') as f:
                 cached_data = pickle.load(f)
             
-            # Verify expected keys present
-            required_keys = {
-                'cellml_hash', 'parsed_equations', 'indexed_bases',
-                'all_symbols', 'user_functions', 'fn_hash',
-                'precision', 'name'
-            }
-            if not all(key in cached_data for key in required_keys):
-                default_timelogger.print_message(
-                    "Cache file missing required keys, will re-parse"
-                )
-                return None
+            # Update LRU order
+            manifest = self._load_manifest()
+            manifest = self._update_lru_order(manifest, args_hash)
+            self._save_manifest(manifest)
             
             return cached_data
-        
-        except pickle.UnpicklingError as e:
-            default_timelogger.print_message(
-                f"Cache unpickling failed: {e}, will re-parse"
-            )
-            return None
         except Exception as e:
-            default_timelogger.print_message(
-                f"Cache load error: {e}, will re-parse"
-            )
+            default_timelogger.print_message(f"Cache load error: {e}")
             return None
     
     def save_to_cache(
         self,
-        parsed_equations: ParsedEquations,
-        indexed_bases: IndexedBases,
+        args_hash: str,
+        parsed_equations,
+        indexed_bases,
         all_symbols: dict,
         user_functions: Optional[dict],
         fn_hash: str,
-        precision: PrecisionDType,
+        precision,
         name: str,
     ) -> None:
-        """Save parse results to cache file.
-        
-        Creates cache directory if needed, writes hash comment as first
-        line, then pickles data dictionary. Silently continues if write
-        fails (caching is opportunistic).
+        """Save cached data for given args_hash. Handles LRU eviction.
         
         Parameters
         ----------
+        args_hash : str
+            Cache key computed from arguments
         parsed_equations : ParsedEquations
             Equation container from parse_input
         indexed_bases : IndexedBases
@@ -223,15 +267,10 @@ class CellMLCache:
             Model name
         """
         try:
-            # Create cache directory if needed
             self.cache_dir.mkdir(parents=True, exist_ok=True)
-            
-            # Compute current file hash
-            cellml_hash = self.get_cellml_hash()
             
             # Build cache dictionary
             cache_data = {
-                'cellml_hash': cellml_hash,
                 'parsed_equations': parsed_equations,
                 'indexed_bases': indexed_bases,
                 'all_symbols': all_symbols,
@@ -241,20 +280,17 @@ class CellMLCache:
                 'name': name,
             }
             
-            # Write cache file: hash comment + pickled data
-            with open(self.cache_file, 'wb') as f:
-                # Write hash as first line (text mode for comment)
-                f.write(f"#{cellml_hash}\n".encode('utf-8'))
-                # Pickle data
-                pickle.dump(
-                    cache_data, f, protocol=pickle.HIGHEST_PROTOCOL
-                )
-        
-        except PermissionError as e:
-            default_timelogger.print_message(
-                f"Cannot write cache (permission denied): {e}"
-            )
+            # Save pickle file
+            cache_file = self.cache_dir / f"cache_{args_hash}.pkl"
+            with open(cache_file, 'wb') as f:
+                pickle.dump(cache_data, f, protocol=pickle.HIGHEST_PROTOCOL)
+            
+            # Update manifest
+            manifest = self._load_manifest()
+            manifest["file_hash"] = self.get_cellml_hash()
+            manifest = self._update_lru_order(manifest, args_hash)
+            manifest = self._evict_lru(manifest)
+            self._save_manifest(manifest)
+            
         except Exception as e:
-            default_timelogger.print_message(
-                f"Cache save failed: {e}"
-            )
+            default_timelogger.print_message(f"Cache save failed: {e}")
