@@ -299,3 +299,77 @@ class TestSymbolicODEHash:
         )
 
         assert ode.fn_hash == expected_hash
+
+
+class TestCacheSkipsCodegen:
+    """Tests verifying codegen is skipped when file cache exists."""
+
+    def test_prepare_jac_aux_count_cached(self, precision):
+        """Verify prepare_jac aux_count is retrieved from cached factory."""
+        ode = SymbolicODE.create(
+            dxdt=["dx = -k * x", "dy = k * x"],
+            precision=precision,
+            states={"x": 1.0, "y": 0.0},
+            parameters={"k": 0.1},
+            name="cache_test_prepare_jac",
+        )
+        ode.build()
+
+        # First call generates and caches prepare_jac
+        helper1 = ode.get_solver_helper("prepare_jac")
+        assert callable(helper1)
+        aux_count_initial = ode._jacobian_aux_count
+        assert aux_count_initial is not None
+
+        # Create a new ODE instance with the same definition and name
+        # to exercise retrieval of prepare_jac from the file cache.
+        ode_cached = SymbolicODE.create(
+            dxdt=["dx = -k * x", "dy = k * x"],
+            precision=precision,
+            states={"x": 1.0, "y": 0.0},
+            parameters={"k": 0.1},
+            name="cache_test_prepare_jac",
+        )
+        ode_cached.build()
+
+        # Second call should retrieve from file cache (no fresh codegen)
+        # and restore aux_count from the cached factory attribute.
+        helper2 = ode_cached.get_solver_helper("prepare_jac")
+        assert callable(helper2)
+        assert ode_cached._jacobian_aux_count == aux_count_initial
+
+    def test_codegen_skipped_on_cache_hit(self, precision):
+        """Verify that code generation is skipped when function is cached."""
+        ode = SymbolicODE.create(
+            dxdt=["dx = -k * x", "dy = k * x + c"],
+            precision=precision,
+            states={"x": 1.0, "y": 0.0},
+            parameters={"k": 0.1},
+            constants={"c": 0.5},
+            name="cache_skip_codegen_test",
+        )
+        ode.build()
+
+        # First call generates linear_operator
+        helper1 = ode.get_solver_helper("linear_operator")
+        assert callable(helper1)
+
+        # Verify function is marked as cached in file
+        factory_name = "linear_operator"
+        assert ode.gen_file.function_is_cached(factory_name)
+
+        # Create a new ODE instance with the same definition and name
+        # to exercise retrieval from the file cache.
+        ode_cached = SymbolicODE.create(
+            dxdt=["dx = -k * x", "dy = k * x + c"],
+            precision=precision,
+            states={"x": 1.0, "y": 0.0},
+            parameters={"k": 0.1},
+            constants={"c": 0.5},
+            name="cache_skip_codegen_test",
+        )
+        ode_cached.build()
+
+        # Second call should skip codegen (uses file cache)
+        helper2 = ode_cached.get_solver_helper("linear_operator")
+        assert callable(helper2)

@@ -1188,6 +1188,9 @@ class MemoryManager:
         coordinated chunking based on available memory. Calls
         allocation_ready_hook for each instance with their results.
 
+        The num_runs value is extracted from triggering_instance.run_params.runs
+        for determining chunk parameters.
+
         Returns
         -------
         None
