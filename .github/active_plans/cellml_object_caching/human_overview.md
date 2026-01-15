@@ -181,15 +181,16 @@ generated/
 
 ### 6. TimeLogger Integration
 
-**Decision:** Reuse existing `default_timelogger` events for cache operations
+**Decision:** Use `default_timelogger.print_message()` for cache hit/miss notifications
 
 **Rationale:**
-- Consistent with existing timing infrastructure
-- User sees cache hit/miss messages naturally
-- New events:
-  - `codegen_cellml_cache_check` - Time to check cache validity
-  - `codegen_cellml_cache_load` - Time to load from cache
-  - `codegen_cellml_cache_save` - Time to save to cache
+- Consistent with existing cache notification pattern in `cubie_cache.py`
+- Simple print messages for cache hit/miss (no event registration needed)
+- Optionally time cache save operation if useful for diagnostics
+- Pattern from `cubie_cache.py`:
+  - Cache hit: `print_message("Loaded {name} from CellML cache at: {path}")`
+  - Cache miss: `print_message("No CellML cache found for {name}, parsing from source...")`
+  - Cache save: Can optionally use `start_event()`/`stop_event()` for timing
 
 ## Expected Impact
 

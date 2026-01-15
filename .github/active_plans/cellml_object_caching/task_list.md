@@ -352,63 +352,11 @@
 
 ---
 
-## Task Group 2: Register TimeLogger Events
+
+
+## Task Group 2: Modify load_cellml_model() for Cache Integration
 **Status**: [ ]
 **Dependencies**: Groups [1]
-
-**Required Context**:
-- File: src/cubie/odesystems/symbolic/parsing/cellml.py (lines 57-75)
-- File: src/cubie/time_logger.py (entire file for registration pattern)
-
-**Input Validation Required**:
-None (event registration is declarative, no user input)
-
-**Tasks**:
-
-1. **Register cache timing events in cellml.py**
-   - File: src/cubie/odesystems/symbolic/parsing/cellml.py
-   - Action: Modify
-   - Details:
-     Add new event registrations after existing cellml timing events (after line 74):
-     ```python
-     # Existing events at lines 59-74
-     default_timelogger.register_event(
-         "codegen_cellml_load_model", "codegen",
-         "Codegen time for cellmlmanip.load_model()"
-     )
-     # ... other existing events ...
-     
-     # NEW: Add cache events after line 74
-     default_timelogger.register_event(
-         "codegen_cellml_cache_check", "codegen",
-         "Codegen time for checking CellML cache validity"
-     )
-     default_timelogger.register_event(
-         "codegen_cellml_cache_load", "codegen",
-         "Codegen time for loading from CellML cache"
-     )
-     default_timelogger.register_event(
-         "codegen_cellml_cache_save", "codegen",
-         "Codegen time for saving to CellML cache"
-     )
-     ```
-   - Edge cases: None (module-level registration)
-   - Integration: Events used in Task Group 3 to time cache operations
-
-**Tests to Create**:
-None (event registration tested implicitly by integration tests)
-
-**Tests to Run**:
-None
-
-**Outcomes**:
-[Empty - to be filled by taskmaster agent]
-
----
-
-## Task Group 3: Modify load_cellml_model() for Cache Integration
-**Status**: [ ]
-**Dependencies**: Groups [1, 2]
 
 **Required Context**:
 - File: src/cubie/odesystems/symbolic/parsing/cellml.py (lines 105-377)
@@ -447,12 +395,7 @@ None (load_cellml_model already validates inputs; cache operations handle their 
      # NEW: Cache check and load
      cache = CellMLCache(model_name=name, cellml_path=path)
      
-     default_timelogger.start_event("codegen_cellml_cache_check")
-     cache_is_valid = cache.cache_valid()
-     default_timelogger.stop_event("codegen_cellml_cache_check")
-     
-     if cache_is_valid:
-         default_timelogger.start_event("codegen_cellml_cache_load")
+     if cache.cache_valid():
          cached_data = cache.load_from_cache()
          
          if cached_data is not None:
@@ -469,15 +412,15 @@ None (load_cellml_model already validates inputs; cache operations handle their 
                  name=cached_data['name'],
                  precision=precision,
              )
-             default_timelogger.stop_event("codegen_cellml_cache_load")
              default_timelogger.print_message(
-                 f"Loaded {name} from CellML cache"
+                 f"Loaded {name} from CellML cache at: {cache.cache_file}"
              )
              return ode
-         
-         default_timelogger.stop_event("codegen_cellml_cache_load")
      
-     # Cache miss or invalid - continue with normal parsing below
+     # Cache miss - continue with normal parsing
+     default_timelogger.print_message(
+         f"No CellML cache found for {name}, parsing from source..."
+     )
      # Existing code continues at line 207: default_timelogger.start_event(...)
      ```
    - Edge cases: Cache invalid returns None and continues to parse; corrupted cache handled by load_from_cache()
@@ -542,8 +485,7 @@ None (load_cellml_model already validates inputs; cache operations handle their 
      index_map, all_symbols, functions, equations, fn_hash = sys_components
      default_timelogger.stop_event("symbolic_ode_parsing")
      
-     # Save to cache before creating SymbolicODE
-     default_timelogger.start_event("codegen_cellml_cache_save")
+     # Save to cache (silent - no timing events)
      cache.save_to_cache(
          parsed_equations=equations,
          indexed_bases=index_map,
@@ -553,7 +495,6 @@ None (load_cellml_model already validates inputs; cache operations handle their 
          precision=precision,
          name=name,
      )
-     default_timelogger.stop_event("codegen_cellml_cache_save")
      
      # Construct SymbolicODE directly (not via .create())
      symbolic_ode = SymbolicODE(
@@ -572,7 +513,7 @@ None (load_cellml_model already validates inputs; cache operations handle their 
    - Integration: Matches pattern in SymbolicODE.create() but adds cache save step; reconstruction logic matches cache load in Task 3.2
 
 **Tests to Create**:
-None (integration tests added in Task Group 4)
+None (integration tests added in Task Group 3)
 
 **Tests to Run**:
 - tests/odesystems/symbolic/test_cellml.py::test_load_simple_cellml_model
@@ -584,9 +525,9 @@ None (integration tests added in Task Group 4)
 
 ---
 
-## Task Group 4: Add Integration Tests
+## Task Group 3: Add Integration Tests
 **Status**: [ ]
-**Dependencies**: Groups [1, 2, 3]
+**Dependencies**: Groups [1, 2]
 
 **Required Context**:
 - File: tests/odesystems/symbolic/test_cellml.py (lines 1-120)
@@ -754,13 +695,12 @@ None (tests validate system behavior)
 
 ## Summary
 
-**Total Task Groups**: 4
+**Total Task Groups**: 3
 
 **Dependency Chain**:
 1. Task Group 1 (Create CellMLCache) - No dependencies
-2. Task Group 2 (Register TimeLogger Events) - Depends on Group 1
-3. Task Group 3 (Modify load_cellml_model) - Depends on Groups 1, 2
-4. Task Group 4 (Integration Tests) - Depends on Groups 1, 2, 3
+2. Task Group 2 (Modify load_cellml_model) - Depends on Group 1
+3. Task Group 3 (Integration Tests) - Depends on Groups 1, 2
 
 **Tests Overview**:
 - **Unit tests**: 8 tests in test_cellml_cache.py validating CellMLCache class

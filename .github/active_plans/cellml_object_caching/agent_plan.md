@@ -132,12 +132,14 @@ def load_cellml_model(path, precision=np.float32, name=None, ...):
     cache = CellMLCache(model_name=name, cellml_path=path)
     
     # Try loading from cache
-    default_timelogger.start_event("codegen_cellml_cache_check")
     if cache.cache_valid():
-        default_timelogger.stop_event("codegen_cellml_cache_check")
-        default_timelogger.start_event("codegen_cellml_cache_load")
         cached_data = cache.load_from_cache()
         if cached_data is not None:
+            # Cache hit - print message
+            default_timelogger.print_message(
+                f"Loaded {name} from CellML cache at: {cache.cache_file}"
+            )
+            
             # Reconstruct SymbolicODE from cached data
             ode = SymbolicODE(
                 equations=cached_data['parsed_equations'],
@@ -148,13 +150,14 @@ def load_cellml_model(path, precision=np.float32, name=None, ...):
                 name=cached_data['name'],
                 precision=precision,
             )
-            default_timelogger.stop_event("codegen_cellml_cache_load")
             return ode
-        default_timelogger.stop_event("codegen_cellml_cache_load")
-    else:
-        default_timelogger.stop_event("codegen_cellml_cache_check")
     
-    # Cache miss or invalid - continue with normal parsing
+    # Cache miss - print message
+    default_timelogger.print_message(
+        f"No CellML cache found for {name}, parsing from source..."
+    )
+    
+    # Continue with normal parsing
     # ... existing cellmlmanip code ...
 ```
 
@@ -173,7 +176,7 @@ def load_cellml_model(path, ...):
     index_map, all_symbols, functions, equations, fn_hash = sys_components
     
     # Save to cache before creating SymbolicODE
-    default_timelogger.start_event("codegen_cellml_cache_save")
+    # No timing events needed - just save silently
     cache.save_to_cache(
         parsed_equations=equations,
         indexed_bases=index_map,
@@ -183,30 +186,29 @@ def load_cellml_model(path, ...):
         precision=precision,
         name=name,
     )
-    default_timelogger.stop_event("codegen_cellml_cache_save")
     
     # Continue with SymbolicODE.create() as before
     symbolic_ode = SymbolicODE.create(...)
     return symbolic_ode
 ```
 
-### 3. Register New TimeLogger Events
-**Location:** Module-level, near existing event registrations
+### 3. TimeLogger Integration
+**Location:** Within cache check/load/save flow
 
-**Events to Add:**
+**Messages to Print:**
 ```python
-default_timelogger.register_event(
-    "codegen_cellml_cache_check", "codegen",
-    "Codegen time for checking CellML cache validity"
+# On cache hit
+default_timelogger.print_message(
+    f"Loaded {name} from CellML cache at: {cache.cache_file}"
 )
-default_timelogger.register_event(
-    "codegen_cellml_cache_load", "codegen",
-    "Codegen time for loading from CellML cache"
+
+# On cache miss
+default_timelogger.print_message(
+    f"No CellML cache found for {name}, parsing from source..."
 )
-default_timelogger.register_event(
-    "codegen_cellml_cache_save", "codegen",
-    "Codegen time for saving to CellML cache"
-)
+
+# Optionally time cache save (no event registration needed)
+# Cache save can use existing event timing if desired
 ```
 
 ### 4. Handle user_functions Special Case
@@ -301,17 +303,18 @@ from .cellml_cache import CellMLCache
 3. Cache manager checks if `generated/<name>/cellml_cache.pkl` exists
 4. Cache manager reads first line, validates hash matches
 5. Cache manager unpickles data dictionary
-6. SymbolicODE constructed directly from cached components
-7. TimeLogger shows cache hit message
+6. TimeLogger prints message: "Loaded {name} from CellML cache at: {path}"
+7. SymbolicODE constructed directly from cached components
 8. Function returns SymbolicODE in <5 seconds
 
 ### Cache Miss Behavior
 1. User calls `load_cellml_model(path)`
 2. Cache check fails (missing file or hash mismatch)
-3. Function proceeds with normal cellmlmanip parsing
-4. After `parse_input()` completes, results pickled to cache
-5. SymbolicODE created as normal
-6. Function returns SymbolicODE (takes ~2 minutes first time)
+3. TimeLogger prints message: "No CellML cache found for {name}, parsing from source..."
+4. Function proceeds with normal cellmlmanip parsing
+5. After `parse_input()` completes, results pickled to cache (silently)
+6. SymbolicODE created as normal
+7. Function returns SymbolicODE (takes ~2 minutes first time)
 
 ### Cache Invalidation Behavior
 1. User modifies CellML file (even whitespace change)
@@ -334,8 +337,9 @@ from .cellml_cache import CellMLCache
 **Test 1: Cache Creation and Loading**
 - Load CellML model fresh (no cache)
 - Verify cache file created
+- Verify "parsing from source" message printed
 - Load same model again
-- Verify loaded from cache (check TimeLogger events)
+- Verify loaded from cache (check for "Loaded from cache" message)
 - Verify SymbolicODE instances equivalent
 
 **Test 2: Hash-Based Invalidation**
@@ -365,8 +369,8 @@ from .cellml_cache import CellMLCache
 
 **Test 1: Beeler-Reuter Model Caching**
 - Use existing `beeler_reuter_model` fixture
-- First load → verify parse events fired
-- Second load → verify cache events fired
+- First load → verify "parsing from source" message
+- Second load → verify "Loaded from cache" message
 - Compare results from both loads
 
 **Test 2: Multiple Models**
@@ -443,16 +447,20 @@ SymPy Symbol instances must maintain identity across pickle/unpickle for correct
 ### Note 4: Backward Compatibility
 This is a new feature; no backward compatibility concerns. If pickle format changes in future Python versions, cache will simply be invalidated and regenerated.
 
-### Note 5: TimeLogger Event Placement
-- `cache_check`: Start before hash computation, stop after validity check
-- `cache_load`: Start before unpickling, stop after SymbolicODE construction
-- `cache_save`: Start before pickling, stop after file write
+### Note 5: TimeLogger Integration Pattern
+- Use `default_timelogger.print_message()` for cache hit/miss notifications
+- DO NOT register new events for cache check/load
+- DO NOT use `start_event()`/`stop_event()` for cache operations
+- Pattern matches `cubie_cache.py` lines 401-415
 
 ### Note 6: Import Organization
 Follow CuBIE conventions: use explicit imports in CUDAFactory-adjacent files, though `cellml_cache.py` is not a CUDAFactory subclass.
 
-### Note 7: Error Messages
-Use `default_timelogger.print_message()` for cache hit notifications and warnings, consistent with `ODEFile._cache_notification_printed` pattern.
+### Note 7: Cache Notification Messages
+Use `default_timelogger.print_message()` for cache hit/miss notifications, consistent with `cubie_cache.py` pattern (lines 401-415):
+- Cache hit: Print informational message with cache file path
+- Cache miss: Print informational message that parsing will occur
+- No event registration or timing needed for these notifications
 
 ## Success Criteria
 
