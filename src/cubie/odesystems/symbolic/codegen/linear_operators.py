@@ -132,6 +132,7 @@ PREPARE_JAC_TEMPLATE = (
     "    def prepare_jac(state, parameters, drivers, t, cached_aux):\n"
     "{body}\n"
     "    return prepare_jac\n"
+    "# Store aux_count for retrieval when loading from file cache\n"
     "{func_name}.aux_count = {aux_count}\n"
 )
 

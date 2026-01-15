@@ -45,6 +45,18 @@ from cubie.odesystems.baseODE import BaseODE, ODECache
 from cubie._utils import PrecisionDType
 from cubie.time_logger import default_timelogger
 
+# Helper types that require beta, gamma, and order factory kwargs
+_HELPERS_NEEDING_PRECONDITIONER_KWARGS = frozenset((
+    "linear_operator",
+    "linear_operator_cached",
+    "neumann_preconditioner",
+    "neumann_preconditioner_cached",
+    "stage_residual",
+    "n_stage_residual",
+    "n_stage_linear_operator",
+    "n_stage_neumann_preconditioner",
+))
+
 
 def create_ODE_system(
     dxdt: Union[str, Iterable[str]],
@@ -525,6 +537,14 @@ class SymbolicODE(BaseODE):
         else:
             factory_name = func_type
 
+        # Handle cached_aux_count specially - it doesn't generate code
+        # and doesn't depend on whether other functions are cached
+        if func_type == "cached_aux_count":
+            if self._jacobian_aux_count is None:
+                self.get_solver_helper("prepare_jac")
+            default_timelogger.stop_event(event_name)
+            return self._jacobian_aux_count
+
         # Check if function is already in file cache (skipped if so)
         is_cached = self.gen_file.function_is_cached(factory_name)
 
@@ -550,11 +570,6 @@ class SymbolicODE(BaseODE):
                     func_name=factory_name,
                     jvp_equations=self._get_jvp_exprs(),
                 )
-                factory_kwargs.update(
-                    beta=beta,
-                    gamma=gamma,
-                    order=preconditioner_order,
-                )
             elif func_type == "linear_operator_cached":
                 code = generate_cached_operator_apply_code(
                     self.equations,
@@ -562,11 +577,6 @@ class SymbolicODE(BaseODE):
                     M=mass,
                     func_name=factory_name,
                     jvp_equations=self._get_jvp_exprs(),
-                )
-                factory_kwargs.update(
-                    beta=beta,
-                    gamma=gamma,
-                    order=preconditioner_order,
                 )
             elif func_type == "prepare_jac":
                 code, aux_count = generate_prepare_jac_code(
@@ -576,11 +586,6 @@ class SymbolicODE(BaseODE):
                     jvp_equations=self._get_jvp_exprs(),
                 )
                 self._jacobian_aux_count = aux_count
-            elif func_type == "cached_aux_count":
-                if self._jacobian_aux_count is None:
-                    self.get_solver_helper("prepare_jac")
-                default_timelogger.stop_event(event_name)
-                return self._jacobian_aux_count
             elif func_type == "calculate_cached_jvp":
                 code = generate_cached_jvp_code(
                     self.equations,
@@ -595,11 +600,6 @@ class SymbolicODE(BaseODE):
                     factory_name,
                     jvp_equations=self._get_jvp_exprs(),
                 )
-                factory_kwargs.update(
-                    beta=beta,
-                    gamma=gamma,
-                    order=preconditioner_order,
-                )
             elif func_type == "neumann_preconditioner_cached":
                 code = generate_neumann_preconditioner_cached_code(
                     self.equations,
@@ -607,22 +607,12 @@ class SymbolicODE(BaseODE):
                     factory_name,
                     jvp_equations=self._get_jvp_exprs(),
                 )
-                factory_kwargs.update(
-                    beta=beta,
-                    gamma=gamma,
-                    order=preconditioner_order,
-                )
             elif func_type == "stage_residual":
                 code = generate_stage_residual_code(
                     self.equations,
                     self.indices,
                     M=mass,
                     func_name=factory_name,
-                )
-                factory_kwargs.update(
-                    beta=beta,
-                    gamma=gamma,
-                    order=preconditioner_order,
                 )
             elif func_type == "time_derivative_rhs":
                 code = generate_time_derivative_fac_code(
@@ -639,11 +629,6 @@ class SymbolicODE(BaseODE):
                     M=mass,
                     func_name=factory_name,
                 )
-                factory_kwargs.update(
-                    beta=beta,
-                    gamma=gamma,
-                    order=preconditioner_order,
-                )
             elif func_type == "n_stage_linear_operator":
                 code = generate_n_stage_linear_operator_code(
                     equations=self.equations,
@@ -654,11 +639,6 @@ class SymbolicODE(BaseODE):
                     func_name=factory_name,
                     jvp_equations=self._get_jvp_exprs(),
                 )
-                factory_kwargs.update(
-                    beta=beta,
-                    gamma=gamma,
-                    order=preconditioner_order,
-                )
             elif func_type == "n_stage_neumann_preconditioner":
                 code = generate_n_stage_neumann_preconditioner_code(
                     equations=self.equations,
@@ -668,33 +648,18 @@ class SymbolicODE(BaseODE):
                     func_name=factory_name,
                     jvp_equations=self._get_jvp_exprs(),
                 )
-                factory_kwargs.update(
-                    beta=beta,
-                    gamma=gamma,
-                    order=preconditioner_order,
-                )
             else:
                 raise NotImplementedError(
                     f"Solver helper '{func_type}' is not implemented."
                 )
-        else:
-            # Cached path: set factory_kwargs for types that need them
-            if func_type in (
-                "linear_operator", "linear_operator_cached",
-                "neumann_preconditioner", "neumann_preconditioner_cached",
-                "stage_residual", "n_stage_residual",
-                "n_stage_linear_operator", "n_stage_neumann_preconditioner",
-            ):
-                factory_kwargs.update(
-                    beta=beta,
-                    gamma=gamma,
-                    order=preconditioner_order,
-                )
-            elif func_type == "cached_aux_count":
-                if self._jacobian_aux_count is None:
-                    self.get_solver_helper("prepare_jac")
-                default_timelogger.stop_event(event_name)
-                return self._jacobian_aux_count
+
+        # Set factory_kwargs for types that need preconditioner parameters
+        if func_type in _HELPERS_NEEDING_PRECONDITIONER_KWARGS:
+            factory_kwargs.update(
+                beta=beta,
+                gamma=gamma,
+                order=preconditioner_order,
+            )
 
         factory, was_cached = self.gen_file.import_function(factory_name, code)
 
