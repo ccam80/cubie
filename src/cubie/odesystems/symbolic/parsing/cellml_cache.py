@@ -73,8 +73,7 @@ class CellMLCache:
         
         self.model_name = model_name
         self.cellml_path = cellml_path
-        # Compute generated directory dynamically based on current working
-        # directory to support tests that change cwd
+        # Generated directory computed relative to current working directory
         generated_dir = Path.cwd() / "generated"
         self.cache_dir = generated_dir / model_name
         self.cache_file = self.cache_dir / "cellml_cache.pkl"
@@ -117,11 +116,25 @@ class CellMLCache:
         """Serialize arguments to a deterministic string for cache key.
         
         Sorts lists to ensure order-independence. Returns JSON string.
+        
+        Returns
+        -------
+        str
+            JSON string representation of arguments.
         """
+        # Handle precision consistently - convert numpy dtype to string name
+        if precision is not None:
+            try:
+                precision_str = precision.__name__ if hasattr(precision, '__name__') else str(precision)
+            except Exception:
+                precision_str = str(precision)
+        else:
+            precision_str = 'None'
+        
         args_dict = {
             'parameters': sorted(parameters) if parameters else None,
             'observables': sorted(observables) if observables else None,
-            'precision': str(precision),
+            'precision': precision_str,
             'name': name
         }
         return json.dumps(args_dict, sort_keys=True)
@@ -153,13 +166,18 @@ class CellMLCache:
             return {"version": 1, "file_hash": None, "entries": []}
     
     def _save_manifest(self, manifest: dict) -> None:
-        """Save manifest to disk. Creates directory if needed."""
+        """Save manifest to disk. Creates directory if needed.
+        
+        Caching is opportunistic - failures are logged but don't raise.
+        """
         try:
             self.cache_dir.mkdir(parents=True, exist_ok=True)
             with open(self.manifest_file, 'w') as f:
                 json.dump(manifest, f, indent=2)
-        except Exception:
-            pass  # Silently fail - caching is opportunistic
+        except Exception as e:
+            default_timelogger.print_message(
+                f"Cache manifest save failed: {e}"
+            )
     
     def _update_lru_order(self, manifest: dict, args_hash: str) -> dict:
         """Move args_hash to end of entries list (most recently used)."""
@@ -167,7 +185,8 @@ class CellMLCache:
         # Remove existing entry if present
         entries = [e for e in entries if e.get("args_hash") != args_hash]
         # Add at end with updated timestamp
-        entries.append({"args_hash": args_hash, "last_used": time.time()})
+        new_entry = {"args_hash": args_hash, "last_used": time.time()}
+        entries.append(new_entry)
         manifest["entries"] = entries
         return manifest
     
