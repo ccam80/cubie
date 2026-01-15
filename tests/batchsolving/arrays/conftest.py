@@ -13,7 +13,7 @@ class MockMemoryManager(MemoryManager):
         self._custom_limit = kwargs.get("forced_free_mem", 950)
 
     def get_memory_info(self):
-        return int(self._custom_limit), int(8192)  # 32kb free, total
+        return int(self._custom_limit), int(8192)
 
 
 @pytest.fixture(scope="session")

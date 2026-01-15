@@ -131,8 +131,6 @@ def test_output_properties(solver):
     assert solver.active_outputs is not None
     assert solver.output_types is not None
     assert isinstance(solver.output_types, Iterable)
-    assert solver.state_stride_order is not None
-    assert isinstance(solver.state_stride_order, Iterable)
 
 
 def test_solve_info_property(

@@ -49,7 +49,6 @@ class InputArrayContainer(ArrayContainer):
     driver_coefficients: ManagedArray = field(
         factory=lambda: ManagedArray(
             dtype=np_float32,
-            stride_order=("time", "variable", "run"),
             default_shape=(1, 1, 1),
             is_chunked=False,
         )

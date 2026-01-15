@@ -1,6 +1,6 @@
 import pytest
 import numpy as np
-from cubie.memory.array_requests import ArrayRequest, ArrayResponse
+from cubie.memory.array_requests import ArrayResponse
 from cubie.memory.mem_manager import MemoryManager
 
 
@@ -36,26 +36,6 @@ class TestArrayRequests:
         assert array_request.dtype == np.float64
         assert array_request.memory == "device"
         assert array_request.stride_order == ("time", "variable", "run")
-
-    def test_default_stride_ordering(self):
-        # 3D shape default _stride_order
-        req3 = ArrayRequest(
-            shape=(2, 3, 4),
-            dtype=np.float32,
-            memory="device",
-            stride_order=None,
-        )
-        assert req3.stride_order == ("time", "variable", "run")
-        # 2D shape default _stride_order
-        req2 = ArrayRequest(
-            shape=(5, 6), dtype=np.float32, memory="device", stride_order=None
-        )
-        assert req2.stride_order == ("variable", "run")
-        # 1D shape leaves _stride_order None
-        req1 = ArrayRequest(
-            shape=(10,), dtype=np.float32, memory="device", stride_order=None
-        )
-        assert req1.stride_order is None
 
     @pytest.mark.parametrize(
         "array_request_override",

@@ -182,7 +182,6 @@ class ChunkParams:
         if index == self.num_chunks - 1:
             length = self._dangling_chunk_length
 
-        # For run-axis chunking, only runs changes per chunk
         return evolve(
             self,
             runs=length,
@@ -570,12 +569,8 @@ class BatchSolverKernel(CUDAFactory):
 
         # ------------ from here on dimensions are "chunked" -----------------
         chunk_params = self.chunk_params[0]
-        duration = chunk_params.duration
         runs = chunk_params.runs
         chunks = chunk_params.num_chunks
-
-        # Run-axis chunking does not modify timing parameters
-        # (only the number of runs changes per chunk)
 
         pad = 4 if self.shared_memory_needs_padding else 0
         padded_bytes = self.shared_memory_bytes + pad
@@ -694,10 +689,7 @@ class BatchSolverKernel(CUDAFactory):
                 warn(
                     "Block size has been reduced to less than 32 threads, "
                     "which means your code will suffer a "
-                    "performance hit. This is due to your problem requiring "
-                    "too much shared memory - try changing "
-                    "some parameters to constants, or trying a different "
-                    "solving algorithm."
+                    "performance hit."
                 )
             blocksize = int(blocksize // 2)
             dynamic_sharedmem = int(bytes_per_run * min(numruns, blocksize))
@@ -1342,12 +1334,6 @@ class BatchSolverKernel(CUDAFactory):
         """Device-resident driver coefficients."""
 
         return self.input_arrays.device_driver_coefficients
-
-    @property
-    def state_stride_order(self) -> Tuple[str, ...]:
-        """Stride order for state arrays on the host."""
-
-        return self.output_arrays.host.state.stride_order
 
     @property
     def save_time(self) -> float:

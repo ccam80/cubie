@@ -654,7 +654,6 @@ def batch_output_sizes(arraytest_settings):
         observables=arraytest_settings["hostshape2"],
         state_summaries=arraytest_settings["hostshape3"],
         observable_summaries=arraytest_settings["hostshape4"],
-        stride_order=arraytest_settings["stride_tuple"],
     )
 
 
@@ -864,45 +863,6 @@ class TestCheckSizesAndTypes:
 
         assert result["state"] is False
         assert result["observables"] is False
-
-    def test_check_sizes_with_chunking(
-        self, test_manager_with_sizing, arraytest_settings
-    ):
-        """Test check_sizes with device location and chunking"""
-        stride_order = test_manager_with_sizing.device.state.stride_order
-        chunks = arraytest_settings["chunks"]
-        test_manager_with_sizing._chunks = arraytest_settings["chunks"]
-        chunk_index = stride_order.index("run")
-        expected_shape1 = tuple(
-            int(np.ceil(val / chunks)) if i == chunk_index else val
-            for i, val in enumerate(arraytest_settings["hostshape1"])
-        )
-
-        expected_shape2 = tuple(
-            int(np.ceil(val / chunks)) if i == chunk_index else val
-            for i, val in enumerate(arraytest_settings["hostshape2"])
-        )
-
-        # Set chunked_shape on device arrays so check_sizes uses chunked shape
-        test_manager_with_sizing.device.state.chunked_shape = expected_shape1
-        test_manager_with_sizing.device.observables.chunked_shape = (
-            expected_shape2
-        )
-
-        # For chunked device arrays, the run dimension should be divided by chunks
-        arrays = {
-            "state": device_array(
-                expected_shape1, dtype=np.float32
-            ),  # 5 runs / 2 chunks = 3 (ceil)
-            "observables": device_array(expected_shape2, dtype=np.float32),
-        }
-
-        result = test_manager_with_sizing.check_sizes(
-            arrays, location="device"
-        )
-
-        assert result["state"] is True
-        assert result["observables"] is True
 
     def test_check_sizes_invalid_location(self, test_manager_with_sizing):
         """Test check_sizes with invalid location raises AttributeError"""
@@ -1187,7 +1147,6 @@ class TestUpdateSizes:
             observables=(12, 6, 3),
             state_summaries=(10, 6, 4),
             observable_summaries=(10, 6, 3),
-            stride_order=arraytest_settings["stride_tuple"],
         )
 
         test_manager_with_sizing.update_sizes(new_sizes)
@@ -1554,114 +1513,6 @@ class TestChunkedShapePropagation:
         # Verify chunked_shape was stored in the ManagedArrays
         assert manager.device.arr1.chunked_shape == (4, 3, 2)
         assert manager.device.arr2.chunked_shape == (4, 3, 2)
-
-    def test_check_sizes_uses_chunked_shape(
-        self, arraytest_settings, test_memory_manager
-    ):
-        """Verify check_sizes uses stored chunked_shape instead of recalculating."""
-        precision = np.float32
-        stride_order = ("time", "variable", "run")
-
-        # Create BatchOutputSizes for the manager
-        sizes = BatchOutputSizes(
-            state=arraytest_settings["hostshape1"],
-            observables=arraytest_settings["hostshape2"],
-            state_summaries=arraytest_settings["hostshape3"],
-            observable_summaries=arraytest_settings["hostshape4"],
-            stride_order=stride_order,
-        )
-
-        # Create host arrays
-        host_arrays = TestArrays(
-            state=ManagedArray(
-                dtype=precision,
-                stride_order=stride_order,
-                memory_type="host",
-            ),
-            observables=ManagedArray(
-                dtype=precision,
-                stride_order=stride_order,
-                memory_type="host",
-            ),
-            state_summaries=ManagedArray(
-                dtype=precision,
-                stride_order=stride_order,
-                memory_type="host",
-            ),
-            observable_summaries=ManagedArray(
-                dtype=precision,
-                stride_order=stride_order,
-                memory_type="host",
-            ),
-        )
-        host_arrays.state.array = np.zeros(
-            arraytest_settings["hostshape1"], dtype=precision
-        )
-        host_arrays.observables.array = np.zeros(
-            arraytest_settings["hostshape2"], dtype=precision
-        )
-        host_arrays.state_summaries.array = np.zeros(
-            arraytest_settings["hostshape3"], dtype=precision
-        )
-        host_arrays.observable_summaries.array = np.zeros(
-            arraytest_settings["hostshape4"], dtype=precision
-        )
-
-        # Create device arrays with chunked shapes set
-        chunked_shape = (4, 3, 2)  # Floor division: 4 runs / 2 chunks = 2
-        device_arrays = TestArrays(
-            state=ManagedArray(
-                dtype=precision,
-                stride_order=stride_order,
-                memory_type="device",
-            ),
-            observables=ManagedArray(
-                dtype=precision,
-                stride_order=stride_order,
-                memory_type="device",
-            ),
-            state_summaries=ManagedArray(
-                dtype=precision,
-                stride_order=stride_order,
-                memory_type="device",
-            ),
-            observable_summaries=ManagedArray(
-                dtype=precision,
-                stride_order=stride_order,
-                memory_type="device",
-            ),
-        )
-
-        # Allocate device arrays with chunked shape
-        device_arrays.state.array = device_array(chunked_shape, precision)
-        device_arrays.state.chunked_shape = chunked_shape
-        device_arrays.observables.array = device_array(
-            chunked_shape, precision
-        )
-        device_arrays.observables.chunked_shape = chunked_shape
-
-        manager = ConcreteArrayManager(
-            precision=precision,
-            sizes=sizes,
-            host=host_arrays,
-            device=device_arrays,
-            stream_group="default",
-            memory_proportion=None,
-            memory_manager=test_memory_manager,
-        )
-        manager._chunks = 2
-
-        # Create arrays matching the chunked shape
-        arrays = {
-            "state": device_array(chunked_shape, precision),
-            "observables": device_array(chunked_shape, precision),
-        }
-
-        # check_sizes should use the stored chunked_shape for comparison
-        result = manager.check_sizes(arrays, location="device")
-
-        assert result["state"] is True
-        assert result["observables"] is True
 
 
 def test_chunked_shape_propagates_through_allocation(test_memory_manager):

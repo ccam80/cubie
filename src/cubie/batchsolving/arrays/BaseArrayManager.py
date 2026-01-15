@@ -561,59 +561,30 @@ class BaseArrayManager(ABC):
                 f"Invalid location: {location} - must be 'host' or 'device'"
             )
         expected_sizes = self._sizes
-        source_stride_order = getattr(expected_sizes, "_stride_order", None)
         matches = {}
 
         for array_name, array in new_arrays.items():
-            managed = container.get_managed_array(array_name)
             if array_name not in container.array_names():
                 matches[array_name] = False
                 continue
+
+            array_shape = array.shape
+            expected_size_tuple = getattr(expected_sizes, array_name)
+            if expected_size_tuple is None:
+                continue  # No size information for this array
+            expected_shape = list(expected_size_tuple)
+
+            if len(array_shape) != len(expected_shape):
+                matches[array_name] = False
             else:
-                array_shape = array.shape
-                expected_size_tuple = getattr(expected_sizes, array_name)
-                if expected_size_tuple is None:
-                    continue  # No size information for this array
-                expected_shape = list(expected_size_tuple)
-
-                target_stride_order = managed.stride_order
-
-                # Reorder expected_shape to match the container's stride order
-                if (
-                    source_stride_order
-                    and target_stride_order
-                    and source_stride_order != target_stride_order
+                shape_matches = True
+                for actual_dim, expected_dim in zip(
+                    array_shape, expected_shape
                 ):
-                    size_map = {
-                        axis: size
-                        for axis, size in zip(
-                            source_stride_order, expected_shape
-                        )
-                    }
-                    expected_shape = [
-                        size_map[axis]
-                        for axis in target_stride_order
-                        if axis in size_map
-                    ]
-
-                # Use stored chunked_shape from allocation response
-                if location == "device" and managed.chunked_shape is not None:
-                    expected_shape = list(managed.chunked_shape)
-
-                if len(array_shape) != len(expected_shape):
-                    matches[array_name] = False
-                else:
-                    shape_matches = True
-                    for actual_dim, expected_dim in zip(
-                        array_shape, expected_shape
-                    ):
-                        if (
-                            expected_dim is not None
-                            and actual_dim != expected_dim
-                        ):
-                            shape_matches = False
-                            break
-                    matches[array_name] = shape_matches
+                    if expected_dim is not None and actual_dim != expected_dim:
+                        shape_matches = False
+                        break
+                matches[array_name] = shape_matches
         return matches
 
     @abstractmethod

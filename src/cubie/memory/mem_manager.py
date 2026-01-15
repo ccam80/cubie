@@ -1531,7 +1531,14 @@ def is_request_chunkable(request) -> bool:
         return False
     if "run" not in request.stride_order:
         return False
-    if all(dim == 1 for i, dim in enumerate(request.shape)):
+    if all(  # This is a code smell - somewhere we are creating requests that
+        # cause errors (array returned with run axis of size 1) if we
+        # check for all 1s. Every axis marked "run" should be the same
+        # length, unless the whole array has been set to size 1.
+        dim == 1
+        for i, dim in enumerate(request.shape)
+        if request.stride_order[i] == "run"
+    ):
         return False
     return True
 

@@ -670,17 +670,6 @@ class Solver:
         """
         self.kernel.disable_profiling()
 
-    def set_stride_order(self, order: Tuple[str]) -> None:
-        """Set the stride order for device arrays.
-
-        Parameters
-        ----------
-        order
-            Tuple of labels in ["time", "run", "variable"]. The last string in
-            this order is the contiguous dimension on chip.
-        """
-        self.kernel.set_stride_order(order)
-
     def get_state_indices(
         self, state_labels: Optional[List[str]] = None
     ) -> ndarray:
@@ -876,11 +865,6 @@ class Solver:
     def output_types(self) -> List[str]:
         """List active output types."""
         return self.kernel.output_types
-
-    @property
-    def state_stride_order(self) -> Tuple[str, ...]:
-        """Describe the stride order of state arrays."""
-        return self.kernel.state_stride_order
 
     @property
     def input_variables(self) -> List[str]:

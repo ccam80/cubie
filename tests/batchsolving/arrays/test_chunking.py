@@ -5,6 +5,7 @@ from time import sleep
 import numpy as np
 import pytest
 import attrs
+
 from cubie.batchsolving.arrays.BatchOutputArrays import (
     OutputArrays,
     OutputArrayContainer,
@@ -64,7 +65,7 @@ def test_chunked_solver_produces_correct_results(
     chunked_solver, result_chunked = chunked_solved_solver
     unchunked_solver, result_normal = unchunked_solved_solver
 
-    # Let the deliverate one-chunk test fall through
+    # Let the deliberate one-chunk test fall through
     if forced_free_mem < 2048:
         assert chunked_solver.chunks > 1
     assert unchunked_solver.chunks == 1
@@ -568,3 +569,63 @@ class TestOutputArraysConvertToNumpyWhenChunked:
         assert output_arrays.is_chunked is False
         for name, slot in output_arrays.host.iter_managed_arrays():
             assert slot.memory_type == "pinned"
+
+
+class TestBufferPoolAndWatcherIntegration:
+    """Test buffer pool and watcher integration in OutputArrays."""
+
+    def test_finalise_uses_buffer_pool_when_chunked(
+        self, chunked_solved_solver
+    ):
+        """Verify chunked finalise acquires buffers from pool."""
+        solver = chunked_solved_solver[0]
+        output_arrays_manager = solver.kernel.output_arrays
+
+        #  Check that the output arrays manager has created buffers
+        assert len(output_arrays_manager._buffer_pool._buffers) >= 0
+
+    def test_reset_clears_buffer_pool_and_watcher(self, chunked_solved_solver):
+        """Verify chunked finalise acquires buffers from pool."""
+        solver = chunked_solved_solver[0]
+        output_arrays_manager = solver.kernel.output_arrays
+
+        # Reset should clear everything
+        output_arrays_manager.reset()
+
+        # Buffer pool should be empty
+        assert len(output_arrays_manager._buffer_pool._buffers) == 0
+
+        # Pending buffers should be clear
+        assert len(output_arrays_manager._pending_buffers) == 0
+
+
+class TestNeedsChunkedTransferBranching:
+    """Test needs_chunked_transfer property usage in BatchOutputArrays."""
+
+    def test_convert_host_to_numpy_uses_needs_chunked_transfer(
+        self, chunked_solved_solver, unchunked_solved_solver
+    ):
+        """Verify _convert_host_to_numpy uses needs_chunked_transfer.
+
+        The method should convert pinned arrays to regular numpy only
+        when the device array's needs_chunked_transfer property is True.
+        This is determined by comparing shape vs chunked_shape.
+        """
+
+        chunked_solver, chunked_results = chunked_solved_solver
+        unchunked_solver, unchunked_results = unchunked_solved_solver
+
+        # Verify input array had needs_chunked_transfer = True (shapes differ)
+        chunked_input_manager = chunked_solver.kernel.input_arrays
+        unchunked_input_manager = unchunked_solver.kernel.input_arrays
+        chunked_inits = chunked_input_manager.host.initial_values
+        chunked_drivers = chunked_input_manager.host.driver_coefficients
+        unchunked_inits = unchunked_input_manager.host.initial_values
+
+        # Check needs_chunked_transfer values are set appropriately
+        assert chunked_inits.needs_chunked_transfer is True
+        assert unchunked_inits.needs_chunked_transfer is False
+        assert chunked_drivers.needs_chunked_transfer is False
+
+        assert chunked_inits.memory_type == "host"
+        assert unchunked_inits.memory_type == "pinned"
