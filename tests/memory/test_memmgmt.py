@@ -914,37 +914,44 @@ class TestComputePerChunkSlice:
     """Tests for compute_per_chunk_slice function."""
 
     def test_compute_per_chunk_slice_missing_axis(self):
-        """Verify compute_per_chunk_slice handles arrays without chunk_axis."""
+        """Verify compute_per_chunk_slice handles arrays without run axis.
+        
+        When the run axis is not in stride_order, the array is treated as
+        unchunkable and returns full slices.
+        """
         from cubie.memory.mem_manager import compute_per_chunk_slice
 
-        # Array with stride_order that doesn't include chunk_axis "time"
+        # Array with stride_order that doesn't include "run" axis
         requests = {
             "status_codes": ArrayRequest(
                 shape=(100,),
                 dtype=np.int32,
                 memory="device",
-                stride_order=("run",),
+                stride_order=("time",),  # No "run" axis
                 unchunkable=False,
             ),
         }
 
-        # Should not raise ValueError when chunk_axis not in stride_order
+        # Should handle missing run axis gracefully (treats as unchunkable)
         result = compute_per_chunk_slice(
             requests=requests,
             axis_length=1000,
             num_chunks=10,
-            chunk_axis="time",
             chunk_size=100,
         )
 
         assert "status_codes" in result
-        # Should return full slice for unchunkable array
+        # Should return full slice since "run" not in stride_order
         slice_fn = result["status_codes"]
         slices = slice_fn(0)
         assert slices == (slice(None),)
 
     def test_compute_per_chunk_slice_unchunkable_array(self):
-        """Verify unchunkable arrays return full-slice functions."""
+        """Verify unchunkable arrays return full-slice functions.
+        
+        Arrays explicitly marked as unchunkable return full slices for all
+        dimensions, regardless of whether "run" is in stride_order.
+        """
         from cubie.memory.mem_manager import compute_per_chunk_slice
 
         # Array explicitly marked as unchunkable
@@ -962,7 +969,6 @@ class TestComputePerChunkSlice:
             requests=requests,
             axis_length=100,
             num_chunks=10,
-            chunk_axis="run",
             chunk_size=10,
         )
 
@@ -973,7 +979,11 @@ class TestComputePerChunkSlice:
         assert slices == (slice(None), slice(None))
 
     def test_compute_per_chunk_slice_chunkable_array(self):
-        """Verify chunkable arrays return proper chunk slices."""
+        """Verify chunkable arrays return proper chunk slices.
+        
+        Arrays with "run" in stride_order and unchunkable=False should return
+        slice functions that properly partition the run axis across chunks.
+        """
         from cubie.memory.mem_manager import compute_per_chunk_slice
 
         requests = {
@@ -990,7 +1000,6 @@ class TestComputePerChunkSlice:
             requests=requests,
             axis_length=100,
             num_chunks=10,
-            chunk_axis="run",
             chunk_size=10,
         )
 
