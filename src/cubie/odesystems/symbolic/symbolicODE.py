@@ -537,144 +537,171 @@ class SymbolicODE(BaseODE):
             "constants": constants,
             "precision": numba_precision,
         }
-        # factory_name already set above based on func_type
-        if func_type == "linear_operator":
-            code = generate_operator_apply_code(
-                self.equations,
-                self.indices,
-                M=mass,
-                func_name=factory_name,
-                jvp_equations=self._get_jvp_exprs(),
-            )
-            factory_kwargs.update(
-                beta=beta,
-                gamma=gamma,
-                order=preconditioner_order,
-            )
-        elif func_type == "linear_operator_cached":
-            code = generate_cached_operator_apply_code(
-                self.equations,
-                self.indices,
-                M=mass,
-                func_name=factory_name,
-                jvp_equations=self._get_jvp_exprs(),
-            )
-            factory_kwargs.update(
-                beta=beta,
-                gamma=gamma,
-                order=preconditioner_order,
-            )
-        elif func_type == "prepare_jac":
-            code, aux_count = generate_prepare_jac_code(
-                self.equations,
-                self.indices,
-                func_name=factory_name,
-                jvp_equations=self._get_jvp_exprs(),
-            )
-            self._jacobian_aux_count = aux_count
-        elif func_type == "cached_aux_count":
-            if self._jacobian_aux_count is None:
-                self.get_solver_helper("prepare_jac")
-            default_timelogger.stop_event(event_name)
-            return self._jacobian_aux_count
-        elif func_type == "calculate_cached_jvp":
-            code = generate_cached_jvp_code(
-                self.equations,
-                self.indices,
-                func_name=factory_name,
-                jvp_equations=self._get_jvp_exprs(),
-            )
-        elif func_type == "neumann_preconditioner":
-            code = generate_neumann_preconditioner_code(
-                self.equations,
-                self.indices,
-                factory_name,
-                jvp_equations=self._get_jvp_exprs(),
-            )
-            factory_kwargs.update(
-                beta=beta,
-                gamma=gamma,
-                order=preconditioner_order,
-            )
-        elif func_type == "neumann_preconditioner_cached":
-            code = generate_neumann_preconditioner_cached_code(
-                self.equations,
-                self.indices,
-                factory_name,
-                jvp_equations=self._get_jvp_exprs(),
-            )
-            factory_kwargs.update(
-                beta=beta,
-                gamma=gamma,
-                order=preconditioner_order,
-            )
-        elif func_type == "stage_residual":
-            code = generate_stage_residual_code(
-                self.equations,
-                self.indices,
-                M=mass,
-                func_name=factory_name,
-            )
-            factory_kwargs.update(
-                beta=beta,
-                gamma=gamma,
-                order=preconditioner_order,
-            )
-        elif func_type == "time_derivative_rhs":
-            code = generate_time_derivative_fac_code(
-                self.equations,
-                self.indices,
-                func_name=factory_name,
-            )
-        elif func_type == "n_stage_residual":
-            code = generate_n_stage_residual_code(
-                equations=self.equations,
-                index_map=self.indices,
-                stage_coefficients=stage_coefficients,
-                stage_nodes=stage_nodes,
-                M=mass,
-                func_name=factory_name,
-            )
-            factory_kwargs.update(
-                beta=beta,
-                gamma=gamma,
-                order=preconditioner_order,
-            )
-        elif func_type == "n_stage_linear_operator":
-            code = generate_n_stage_linear_operator_code(
-                equations=self.equations,
-                index_map=self.indices,
-                stage_coefficients=stage_coefficients,
-                stage_nodes=stage_nodes,
-                M=mass,
-                func_name=factory_name,
-                jvp_equations=self._get_jvp_exprs(),
-            )
-            factory_kwargs.update(
-                beta=beta,
-                gamma=gamma,
-                order=preconditioner_order,
-            )
-        elif func_type == "n_stage_neumann_preconditioner":
-            code = generate_n_stage_neumann_preconditioner_code(
-                equations=self.equations,
-                index_map=self.indices,
-                stage_coefficients=stage_coefficients,
-                stage_nodes=stage_nodes,
-                func_name=factory_name,
-                jvp_equations=self._get_jvp_exprs(),
-            )
-            factory_kwargs.update(
-                beta=beta,
-                gamma=gamma,
-                order=preconditioner_order,
-            )
+
+        # Skip expensive code generation when function is already cached
+        code = None
+        if not is_cached:
+            # factory_name already set above based on func_type
+            if func_type == "linear_operator":
+                code = generate_operator_apply_code(
+                    self.equations,
+                    self.indices,
+                    M=mass,
+                    func_name=factory_name,
+                    jvp_equations=self._get_jvp_exprs(),
+                )
+                factory_kwargs.update(
+                    beta=beta,
+                    gamma=gamma,
+                    order=preconditioner_order,
+                )
+            elif func_type == "linear_operator_cached":
+                code = generate_cached_operator_apply_code(
+                    self.equations,
+                    self.indices,
+                    M=mass,
+                    func_name=factory_name,
+                    jvp_equations=self._get_jvp_exprs(),
+                )
+                factory_kwargs.update(
+                    beta=beta,
+                    gamma=gamma,
+                    order=preconditioner_order,
+                )
+            elif func_type == "prepare_jac":
+                code, aux_count = generate_prepare_jac_code(
+                    self.equations,
+                    self.indices,
+                    func_name=factory_name,
+                    jvp_equations=self._get_jvp_exprs(),
+                )
+                self._jacobian_aux_count = aux_count
+            elif func_type == "cached_aux_count":
+                if self._jacobian_aux_count is None:
+                    self.get_solver_helper("prepare_jac")
+                default_timelogger.stop_event(event_name)
+                return self._jacobian_aux_count
+            elif func_type == "calculate_cached_jvp":
+                code = generate_cached_jvp_code(
+                    self.equations,
+                    self.indices,
+                    func_name=factory_name,
+                    jvp_equations=self._get_jvp_exprs(),
+                )
+            elif func_type == "neumann_preconditioner":
+                code = generate_neumann_preconditioner_code(
+                    self.equations,
+                    self.indices,
+                    factory_name,
+                    jvp_equations=self._get_jvp_exprs(),
+                )
+                factory_kwargs.update(
+                    beta=beta,
+                    gamma=gamma,
+                    order=preconditioner_order,
+                )
+            elif func_type == "neumann_preconditioner_cached":
+                code = generate_neumann_preconditioner_cached_code(
+                    self.equations,
+                    self.indices,
+                    factory_name,
+                    jvp_equations=self._get_jvp_exprs(),
+                )
+                factory_kwargs.update(
+                    beta=beta,
+                    gamma=gamma,
+                    order=preconditioner_order,
+                )
+            elif func_type == "stage_residual":
+                code = generate_stage_residual_code(
+                    self.equations,
+                    self.indices,
+                    M=mass,
+                    func_name=factory_name,
+                )
+                factory_kwargs.update(
+                    beta=beta,
+                    gamma=gamma,
+                    order=preconditioner_order,
+                )
+            elif func_type == "time_derivative_rhs":
+                code = generate_time_derivative_fac_code(
+                    self.equations,
+                    self.indices,
+                    func_name=factory_name,
+                )
+            elif func_type == "n_stage_residual":
+                code = generate_n_stage_residual_code(
+                    equations=self.equations,
+                    index_map=self.indices,
+                    stage_coefficients=stage_coefficients,
+                    stage_nodes=stage_nodes,
+                    M=mass,
+                    func_name=factory_name,
+                )
+                factory_kwargs.update(
+                    beta=beta,
+                    gamma=gamma,
+                    order=preconditioner_order,
+                )
+            elif func_type == "n_stage_linear_operator":
+                code = generate_n_stage_linear_operator_code(
+                    equations=self.equations,
+                    index_map=self.indices,
+                    stage_coefficients=stage_coefficients,
+                    stage_nodes=stage_nodes,
+                    M=mass,
+                    func_name=factory_name,
+                    jvp_equations=self._get_jvp_exprs(),
+                )
+                factory_kwargs.update(
+                    beta=beta,
+                    gamma=gamma,
+                    order=preconditioner_order,
+                )
+            elif func_type == "n_stage_neumann_preconditioner":
+                code = generate_n_stage_neumann_preconditioner_code(
+                    equations=self.equations,
+                    index_map=self.indices,
+                    stage_coefficients=stage_coefficients,
+                    stage_nodes=stage_nodes,
+                    func_name=factory_name,
+                    jvp_equations=self._get_jvp_exprs(),
+                )
+                factory_kwargs.update(
+                    beta=beta,
+                    gamma=gamma,
+                    order=preconditioner_order,
+                )
+            else:
+                raise NotImplementedError(
+                    f"Solver helper '{func_type}' is not implemented."
+                )
         else:
-            raise NotImplementedError(
-                f"Solver helper '{func_type}' is not implemented."
-            )
+            # Cached path: set factory_kwargs for types that need them
+            if func_type in (
+                "linear_operator", "linear_operator_cached",
+                "neumann_preconditioner", "neumann_preconditioner_cached",
+                "stage_residual", "n_stage_residual",
+                "n_stage_linear_operator", "n_stage_neumann_preconditioner",
+            ):
+                factory_kwargs.update(
+                    beta=beta,
+                    gamma=gamma,
+                    order=preconditioner_order,
+                )
+            elif func_type == "cached_aux_count":
+                if self._jacobian_aux_count is None:
+                    self.get_solver_helper("prepare_jac")
+                default_timelogger.stop_event(event_name)
+                return self._jacobian_aux_count
 
         factory, was_cached = self.gen_file.import_function(factory_name, code)
+
+        # For prepare_jac, retrieve aux_count from cached factory if needed
+        if func_type == "prepare_jac" and self._jacobian_aux_count is None:
+            self._jacobian_aux_count = getattr(factory, 'aux_count', 0)
+
         func = factory(**factory_kwargs)
         setattr(self._cache, func_type, func)
         default_timelogger.stop_event(event_name)
