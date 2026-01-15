@@ -88,6 +88,10 @@ class ManagedArray:
         default=1,
         validator=getype_validator(int, 0),
     )
+    dangling_chunk_length: Optional[int] = field(
+        default=None,
+        validator=attrsval_optional(attrsval_instance_of(int)),
+    )
     _chunk_axis_index: Optional[int] = field(
         default=None,
         init=False,
@@ -140,6 +144,8 @@ class ManagedArray:
 
         Raises
         ------
+        TypeError
+            If chunk_index is not an integer.
         ValueError
             If chunk_index is out of range.
 
@@ -149,8 +155,18 @@ class ManagedArray:
         returns the full array. Otherwise computes slice based on stored
         chunk parameters and _chunk_axis_index.
         """
+        # Validate chunk_index type
+        if not isinstance(chunk_index, int):
+            raise TypeError(
+                f"chunk_index must be int, got {type(chunk_index).__name__}"
+            )
+
         # Fast path: no chunking
         if self._chunk_axis_index is None or self.is_chunked is False:
+            return self.array
+
+        # Handle None chunk parameters
+        if self.chunk_length is None or self.num_chunks is None:
             return self.array
 
         # Validate chunk_index range
@@ -411,6 +427,7 @@ class BaseArrayManager(ABC):
         # Extract chunk parameters from response
         chunks = response.chunks
         chunk_length = response.chunk_length
+        dangling_chunk_length = getattr(response, 'dangling_chunk_length', None)
 
         for array_label in self._needs_reallocation:
             try:
@@ -422,6 +439,7 @@ class BaseArrayManager(ABC):
                         array.chunked_shape = chunked_shapes[array_label]
                         array.chunk_length = chunk_length
                         array.num_chunks = chunks
+                        array.dangling_chunk_length = dangling_chunk_length
             except KeyError:
                 warn(
                     f"Device array {array_label} not found in allocation "

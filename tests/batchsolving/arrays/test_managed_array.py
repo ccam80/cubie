@@ -13,7 +13,6 @@ def test_managed_array_chunk_fields_default_none():
     # Create a minimal ManagedArray with no chunk parameters
     managed_array = ManagedArray(
         dtype=float,
-        stride_order=('run', 'state'),
         default_shape=(100, 3),
         memory_type='device',
         is_chunked=True,
@@ -34,7 +33,6 @@ def test_managed_array_chunk_fields_accept_valid_values():
     # Create ManagedArray with explicit chunk parameters
     managed_array = ManagedArray(
         dtype=float,
-        stride_order=('run', 'state'),
         default_shape=(100, 3),
         memory_type='device',
         is_chunked=True,

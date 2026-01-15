@@ -41,7 +41,6 @@ class TestArrays(ArrayContainer):
     state: ManagedArray = attrs.field(
         factory=lambda: ManagedArray(
             dtype=np.float32,
-            stride_order=("time", "variable", "run"),
             default_shape=(1, 1, 1),
             memory_type="host",
         )
@@ -49,7 +48,6 @@ class TestArrays(ArrayContainer):
     observables: ManagedArray = attrs.field(
         factory=lambda: ManagedArray(
             dtype=np.float32,
-            stride_order=("time", "variable", "run"),
             default_shape=(1, 1, 1),
             memory_type="host",
         )
@@ -57,7 +55,6 @@ class TestArrays(ArrayContainer):
     state_summaries: ManagedArray = attrs.field(
         factory=lambda: ManagedArray(
             dtype=np.float32,
-            stride_order=("time", "variable", "run"),
             default_shape=(1, 1, 1),
             memory_type="host",
         )
@@ -65,7 +62,6 @@ class TestArrays(ArrayContainer):
     observable_summaries: ManagedArray = attrs.field(
         factory=lambda: ManagedArray(
             dtype=np.float32,
-            stride_order=("time", "variable", "run"),
             default_shape=(1, 1, 1),
             memory_type="host",
         )
@@ -77,7 +73,6 @@ class TestArraysSimple(ArrayContainer):
     arr1: ManagedArray = attrs.field(
         factory=lambda: ManagedArray(
             dtype=np.float32,
-            stride_order=("time", "variable", "run"),
             default_shape=(1, 1, 1),
             memory_type="host",
         )
@@ -85,7 +80,6 @@ class TestArraysSimple(ArrayContainer):
     arr2: ManagedArray = attrs.field(
         factory=lambda: ManagedArray(
             dtype=np.float32,
-            stride_order=("time", "variable", "run"),
             default_shape=(1, 1, 1),
             memory_type="host",
         )
@@ -165,12 +159,10 @@ def hostarrays(arraytest_settings):
     host = TestArraysSimple(
         arr1=ManagedArray(
             dtype=arraytest_settings["dtype"],
-            stride_order=arraytest_settings["_stride_order"]["arr1"],
             memory_type=host_memory,
         ),
         arr2=ManagedArray(
             dtype=arraytest_settings["dtype"],
-            stride_order=arraytest_settings["_stride_order"]["arr2"],
             memory_type=host_memory,
         ),
     )
@@ -199,12 +191,10 @@ def devarrays(arraytest_settings, hostarrays):
     device = TestArraysSimple(
         arr1=ManagedArray(
             dtype=arraytest_settings["dtype"],
-            stride_order=arraytest_settings["_stride_order"]["arr1"],
             memory_type=device_memory,
         ),
         arr2=ManagedArray(
             dtype=arraytest_settings["dtype"],
-            stride_order=arraytest_settings["_stride_order"]["arr2"],
             memory_type=device_memory,
         ),
     )
@@ -265,13 +255,11 @@ def array_requests(arraytest_settings, precision):
             shape=arraytest_settings["devshape1"],
             dtype=precision,
             memory=arraytest_settings["memory"],
-            stride_order=arraytest_settings["_stride_order"]["arr1"],
         ),
         "arr2": ArrayRequest(
             shape=arraytest_settings["devshape2"],
             dtype=precision,
             memory=arraytest_settings["memory"],
-            stride_order=arraytest_settings["_stride_order"]["arr2"],
         ),
     }
 
@@ -284,13 +272,11 @@ def array_requests_sized(arraytest_settings, precision):
             shape=arraytest_settings["devshape1"],
             dtype=precision,
             memory=arraytest_settings["memory"],
-            stride_order=arraytest_settings["_stride_order"]["state"],
         ),
         "observables": ArrayRequest(
             shape=arraytest_settings["devshape2"],
             dtype=precision,
             memory=arraytest_settings["memory"],
-            stride_order=arraytest_settings["_stride_order"]["observables"],
         ),
     }
 
@@ -304,12 +290,10 @@ def second_arrmgr(
     host_arrays = TestArraysSimple(
         arr1=ManagedArray(
             dtype=arraytest_settings["dtype"],
-            stride_order=arraytest_settings["_stride_order"]["arr1"],
             memory_type="host",
         ),
         arr2=ManagedArray(
             dtype=arraytest_settings["dtype"],
-            stride_order=arraytest_settings["_stride_order"]["arr2"],
             memory_type="host",
         ),
     )
@@ -322,12 +306,10 @@ def second_arrmgr(
     dev_arrays = TestArraysSimple(
         arr1=ManagedArray(
             dtype=arraytest_settings["dtype"],
-            stride_order=arraytest_settings["_stride_order"]["arr1"],
             memory_type=arraytest_settings["memory"],
         ),
         arr2=ManagedArray(
             dtype=arraytest_settings["dtype"],
-            stride_order=arraytest_settings["_stride_order"]["arr2"],
             memory_type=arraytest_settings["memory"],
         ),
     )
@@ -663,26 +645,18 @@ def test_arrays_with_stride_order(arraytest_settings):
     host_arrays = TestArrays(
         state=ManagedArray(
             dtype=arraytest_settings["dtype"],
-            stride_order=arraytest_settings["_stride_order"]["state"],
             memory_type="host",
         ),
         observables=ManagedArray(
             dtype=arraytest_settings["dtype"],
-            stride_order=arraytest_settings["_stride_order"]["observables"],
             memory_type="host",
         ),
         state_summaries=ManagedArray(
             dtype=arraytest_settings["dtype"],
-            stride_order=arraytest_settings["_stride_order"][
-                "state_summaries"
-            ],
             memory_type="host",
         ),
         observable_summaries=ManagedArray(
             dtype=arraytest_settings["dtype"],
-            stride_order=arraytest_settings["_stride_order"][
-                "observable_summaries"
-            ],
             memory_type="host",
         ),
     )
@@ -702,26 +676,18 @@ def test_arrays_with_stride_order(arraytest_settings):
     device_arrays = TestArrays(
         state=ManagedArray(
             dtype=arraytest_settings["dtype"],
-            stride_order=arraytest_settings["_stride_order"]["state"],
             memory_type=arraytest_settings["memory"],
         ),
         observables=ManagedArray(
             dtype=arraytest_settings["dtype"],
-            stride_order=arraytest_settings["_stride_order"]["observables"],
             memory_type=arraytest_settings["memory"],
         ),
         state_summaries=ManagedArray(
             dtype=arraytest_settings["dtype"],
-            stride_order=arraytest_settings["_stride_order"][
-                "state_summaries"
-            ],
             memory_type=arraytest_settings["memory"],
         ),
         observable_summaries=ManagedArray(
             dtype=arraytest_settings["dtype"],
-            stride_order=arraytest_settings["_stride_order"][
-                "observable_summaries"
-            ],
             memory_type=arraytest_settings["memory"],
         ),
     )
@@ -1397,7 +1363,6 @@ class TestManagedArrayChunkedShape:
         """Verify ManagedArray has chunked_shape field defaulting to None."""
         managed = ManagedArray(
             dtype=np_float32,
-            stride_order=("time", "variable", "run"),
             default_shape=(10, 5, 100),
             memory_type="device",
         )
@@ -1407,7 +1372,6 @@ class TestManagedArrayChunkedShape:
         """Verify needs_chunked_transfer returns False when chunked_shape is None."""
         managed = ManagedArray(
             dtype=np_float32,
-            stride_order=("time", "variable", "run"),
             default_shape=(10, 5, 100),
             memory_type="device",
         )
@@ -1418,7 +1382,6 @@ class TestManagedArrayChunkedShape:
         """Verify needs_chunked_transfer returns False when shapes match."""
         managed = ManagedArray(
             dtype=np_float32,
-            stride_order=("time", "variable", "run"),
             default_shape=(10, 5, 25),
             memory_type="device",
         )
@@ -1429,7 +1392,6 @@ class TestManagedArrayChunkedShape:
         """Verify needs_chunked_transfer returns True when shapes differ."""
         managed = ManagedArray(
             dtype=np_float32,
-            stride_order=("time", "variable", "run"),
             default_shape=(10, 5, 100),
             memory_type="device",
         )
@@ -1449,12 +1411,10 @@ class TestChunkedShapePropagation:
         host_arrays = TestArraysSimple(
             arr1=ManagedArray(
                 dtype=precision,
-                stride_order=arraytest_settings["_stride_order"]["arr1"],
                 memory_type="host",
             ),
             arr2=ManagedArray(
                 dtype=precision,
-                stride_order=arraytest_settings["_stride_order"]["arr2"],
                 memory_type="host",
             ),
         )
@@ -1468,12 +1428,10 @@ class TestChunkedShapePropagation:
         device_arrays = TestArraysSimple(
             arr1=ManagedArray(
                 dtype=precision,
-                stride_order=arraytest_settings["_stride_order"]["arr1"],
                 memory_type="device",
             ),
             arr2=ManagedArray(
                 dtype=precision,
-                stride_order=arraytest_settings["_stride_order"]["arr2"],
                 memory_type="device",
             ),
         )
@@ -1525,7 +1483,6 @@ def test_chunked_shape_propagates_through_allocation(test_memory_manager):
     4. needs_chunked_transfer returns correct value based on shapes
     """
     precision = np_float32
-    stride_order = ("time", "variable", "run")
 
     # Create arrays that will require chunking (5 runs with 2 chunks)
     host_shape = (10, 3, 5)  # 5 runs
@@ -1535,13 +1492,11 @@ def test_chunked_shape_propagates_through_allocation(test_memory_manager):
     host_arrays = TestArraysSimple(
         arr1=ManagedArray(
             dtype=precision,
-            stride_order=stride_order,
             default_shape=host_shape,
             memory_type="host",
         ),
         arr2=ManagedArray(
             dtype=precision,
-            stride_order=stride_order,
             default_shape=host_shape,
             memory_type="host",
         ),
@@ -1553,13 +1508,11 @@ def test_chunked_shape_propagates_through_allocation(test_memory_manager):
     device_arrays = TestArraysSimple(
         arr1=ManagedArray(
             dtype=precision,
-            stride_order=stride_order,
             default_shape=host_shape,  # Full shape before chunking
             memory_type="device",
         ),
         arr2=ManagedArray(
             dtype=precision,
-            stride_order=stride_order,
             default_shape=host_shape,
             memory_type="device",
         ),
@@ -1641,7 +1594,6 @@ class TestAllocationCallbackSimplifiedResponse:
         - response.chunked_slices (dict of slicing functions)
         """
         precision = np_float32
-        stride_order = ("time", "variable", "run")
         host_shape = (10, 3, 100)
         chunked_shape = (10, 3, 25)
 
@@ -1649,13 +1601,11 @@ class TestAllocationCallbackSimplifiedResponse:
         host_arrays = TestArraysSimple(
             arr1=ManagedArray(
                 dtype=precision,
-                stride_order=stride_order,
                 default_shape=host_shape,
                 memory_type="host",
             ),
             arr2=ManagedArray(
                 dtype=precision,
-                stride_order=stride_order,
                 default_shape=host_shape,
                 memory_type="host",
             ),
@@ -1667,13 +1617,11 @@ class TestAllocationCallbackSimplifiedResponse:
         device_arrays = TestArraysSimple(
             arr1=ManagedArray(
                 dtype=precision,
-                stride_order=stride_order,
                 default_shape=host_shape,
                 memory_type="device",
             ),
             arr2=ManagedArray(
                 dtype=precision,
-                stride_order=stride_order,
                 default_shape=host_shape,
                 memory_type="device",
             ),
@@ -1740,7 +1688,6 @@ class TestChunkSliceMethod:
         # Create ManagedArray with chunking disabled
         managed = ManagedArray(
             dtype=np_float32,
-            stride_order=("time", "variable", "run"),
             default_shape=(10, 5, 100),
             memory_type="host",
             is_chunked=False,
@@ -1761,7 +1708,6 @@ class TestChunkSliceMethod:
         # Create ManagedArray with known data pattern
         managed = ManagedArray(
             dtype=np_float32,
-            stride_order=("time", "variable", "run"),
             default_shape=(10, 5, 100),
             memory_type="host",
             is_chunked=True,
@@ -1799,7 +1745,6 @@ class TestChunkSliceMethod:
         # has 5)
         managed = ManagedArray(
             dtype=np_float32,
-            stride_order=("time", "variable", "run"),
             default_shape=(10, 5, 105),
             memory_type="host",
             is_chunked=True,
@@ -1829,7 +1774,6 @@ class TestChunkSliceMethod:
         """Verify chunk_slice raises ValueError for invalid chunk_index."""
         managed = ManagedArray(
             dtype=np_float32,
-            stride_order=("time", "variable", "run"),
             default_shape=(10, 5, 100),
             memory_type="host",
             is_chunked=True,
@@ -1866,7 +1810,6 @@ class TestChunkSliceMethod:
         # Create ManagedArray without "run" in stride_order
         managed = ManagedArray(
             dtype=np_float32,
-            stride_order=("time", "variable"),
             default_shape=(10, 5),
             memory_type="host",
             is_chunked=True,
@@ -1886,7 +1829,6 @@ class TestChunkSliceMethod:
         None."""
         managed = ManagedArray(
             dtype=np_float32,
-            stride_order=("time", "variable", "run"),
             default_shape=(10, 5, 100),
             memory_type="host",
             is_chunked=True,
@@ -1906,7 +1848,6 @@ class TestChunkSliceMethod:
         """Verify chunk_slice works correctly with num_chunks=1."""
         managed = ManagedArray(
             dtype=np_float32,
-            stride_order=("time", "variable", "run"),
             default_shape=(10, 5, 100),
             memory_type="host",
             is_chunked=True,
@@ -1933,7 +1874,6 @@ class TestChunkSliceMethod:
         # Test with "run" at axis 0
         managed_axis0 = ManagedArray(
             dtype=np_float32,
-            stride_order=("run", "variable", "time"),
             default_shape=(100, 5, 10),
             memory_type="host",
             is_chunked=True,
@@ -1952,7 +1892,6 @@ class TestChunkSliceMethod:
         # Test with "run" at axis 1
         managed_axis1 = ManagedArray(
             dtype=np_float32,
-            stride_order=("time", "run", "variable"),
             default_shape=(10, 100, 5),
             memory_type="host",
             is_chunked=True,
@@ -1978,7 +1917,6 @@ def test_on_allocation_complete_stores_chunk_parameters(test_memory_manager):
     longer set (that field still exists but is not populated).
     """
     precision = np_float32
-    stride_order = ("time", "variable", "run")
     host_shape = (10, 3, 100)
     chunked_shape = (10, 3, 25)
 
@@ -1986,13 +1924,11 @@ def test_on_allocation_complete_stores_chunk_parameters(test_memory_manager):
     host_arrays = TestArraysSimple(
         arr1=ManagedArray(
             dtype=precision,
-            stride_order=stride_order,
             default_shape=host_shape,
             memory_type="host",
         ),
         arr2=ManagedArray(
             dtype=precision,
-            stride_order=stride_order,
             default_shape=host_shape,
             memory_type="host",
         ),
@@ -2004,13 +1940,11 @@ def test_on_allocation_complete_stores_chunk_parameters(test_memory_manager):
     device_arrays = TestArraysSimple(
         arr1=ManagedArray(
             dtype=precision,
-            stride_order=stride_order,
             default_shape=host_shape,
             memory_type="device",
         ),
         arr2=ManagedArray(
             dtype=precision,
-            stride_order=stride_order,
             default_shape=host_shape,
             memory_type="device",
         ),
@@ -2036,24 +1970,12 @@ def test_on_allocation_complete_stores_chunk_parameters(test_memory_manager):
     chunk_length = 25
     dangling_chunk_length = None  # All chunks have equal length
 
-    # Create slice function (will not be used by new implementation)
-    def make_slice_fn(chunk_size):
-        def slice_fn(chunk_idx):
-            start = chunk_idx * chunk_size
-            end = start + chunk_size
-            return (slice(None), slice(None), slice(start, end))
-
-        return slice_fn
-
     response = ArrayResponse(
         arr={"arr1": arr1, "arr2": arr2},
         chunks=chunks,
         chunk_length=chunk_length,
+        dangling_chunk_length=dangling_chunk_length,
         chunked_shapes={"arr1": chunked_shape, "arr2": chunked_shape},
-        chunked_slices={
-            "arr1": make_slice_fn(25),
-            "arr2": make_slice_fn(25),
-        },
     )
 
     # Mark arrays for reallocation
@@ -2079,12 +2001,6 @@ def test_on_allocation_complete_stores_chunk_parameters(test_memory_manager):
     assert manager.host.arr2.num_chunks == chunks
     assert manager.host.arr2.dangling_chunk_length == dangling_chunk_length
 
-    # Verify chunked_slice_fn is NOT set (field exists but is None)
-    assert manager.device.arr1.chunked_slice_fn is None
-    assert manager.device.arr2.chunked_slice_fn is None
-    assert manager.host.arr1.chunked_slice_fn is None
-    assert manager.host.arr2.chunked_slice_fn is None
-
     # Verify chunked_shape is still set (existing functionality)
     assert manager.device.arr1.chunked_shape == chunked_shape
     assert manager.device.arr2.chunked_shape == chunked_shape
@@ -2105,7 +2021,6 @@ def test_managed_array_no_chunked_slice_fn_field():
     # Create a fresh ManagedArray instance
     managed = ManagedArray(
         dtype=np_float32,
-        stride_order=("time", "variable", "run"),
         default_shape=(10, 5, 100),
         memory_type="host",
         is_chunked=True,

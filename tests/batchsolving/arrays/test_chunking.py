@@ -426,7 +426,6 @@ class TestArrayContainer(ArrayContainer):
     state: ManagedArray = attrs.field(
         factory=lambda: ManagedArray(
             dtype=np.float32,
-            stride_order=("time", "variable", "run"),
             default_shape=(10, 3, 100),
             memory_type="pinned",
         )
