@@ -1196,7 +1196,8 @@ class MemoryManager:
         stream = self.get_stream(triggering_instance)
         queued_requests = self._queued_allocations.pop(stream_group, {})
 
-        num_runs = get_chunk_axis_length(queued_requests)
+        # Extract num_runs from triggering instance's run parameters
+        num_runs = triggering_instance.run_params.runs
 
         chunk_length, num_chunks = self.get_chunk_parameters(
             queued_requests, num_runs, stream_group
@@ -1359,27 +1360,7 @@ class MemoryManager:
         return chunked_shapes
 
 
-def get_chunk_axis_length(
-    request: dict[int, dict[str, ArrayRequest]],
-) -> int:
-    """
-    Get the length of the chunking axis from the first chunkable request.
 
-    Parameters
-    ----------
-    request
-        Dictionary of array requests to analyze.
-
-    Returns
-    -------
-    int
-        Length of the chunking axis. Zero if no chunkable axes found.
-    """
-    for reqs in request.values():
-        for req in reqs.values():
-            if is_request_chunkable(req):
-                return req.shape[req.chunk_axis_index]
-    return 0
 
 
 def get_portioned_request_size(
@@ -1444,11 +1425,16 @@ def is_request_chunkable(request) -> bool:
     -----
     A request is considered chunkable if:
     - request.unchunkable is False
+    - chunk_axis_index is not None and within bounds
     - run axis has length > 1 (not a degenerate run axis)
     """
     if request.unchunkable:
         return False
     if len(request.shape) == 0:
+        return False
+    if request.chunk_axis_index is None:
+        return False
+    if request.chunk_axis_index >= len(request.shape):
         return False
     if request.shape[request.chunk_axis_index] == 1:
         return False
