@@ -314,7 +314,8 @@ class TestTimingParameterValidation:
             params,
             drivers=driver_settings,
             save_every=None,
-            duration=0.5,
+            duration=0.05,
+            dt=0.02,
         )
 
     def test_summarise_every_greater_than_duration_raises(
