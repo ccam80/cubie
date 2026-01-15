@@ -1309,8 +1309,8 @@ class MemoryManager:
         # Check for all arrays unchunkable
         if chunkable_size == 0:
             raise ValueError(
-                "All requested arrays are unchunkable, but request size ({request_size}) "
-                "exceeds available memory "
+                f"All requested arrays are unchunkable, but request size "
+                f"({request_size}) exceeds available memory "
                 f"({available_memory}). Cannot proceed."
             )
 
@@ -1486,7 +1486,7 @@ def get_portioned_request_size(
     -----
     Arrays are chunkable if:
     - request.unchunkable is False
-    - The array doesn't have a "run" axis
+    - The array has a "run" axis
     """
     chunkable = 0
     unchunkable = 0
@@ -1524,7 +1524,7 @@ def is_request_chunkable(request) -> bool:
     -----
     A request is considered chunkable if:
     - request.unchunkable is False
-    - the array doesn't have a "run" axis
+    - the array has a "run" axis
     """
     if request.unchunkable:
         return False
