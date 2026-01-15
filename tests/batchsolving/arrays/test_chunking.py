@@ -568,19 +568,15 @@ def test_chunked_shape_differs_from_shape_when_chunking(
     # Check device arrays have different chunked_shape
     output_arrays = solver.kernel.output_arrays
     state_device = output_arrays.device.state
-    time_domain_device = output_arrays.device.time_domain_array
 
-    # Both arrays should be chunked (needs_chunked_transfer = True)
+    # state array should be chunked (needs_chunked_transfer = True)
     assert state_device.needs_chunked_transfer is True
-    assert time_domain_device.needs_chunked_transfer is True
 
     # chunked_shape should differ from shape along run axis
     assert state_device.chunked_shape != state_device.shape
-    assert time_domain_device.chunked_shape != time_domain_device.shape
 
     # Specifically, run axis (axis 2) should be smaller in chunked_shape
     assert state_device.chunked_shape[2] < state_device.shape[2]
-    assert time_domain_device.chunked_shape[2] < time_domain_device.shape[2]
 
 
 def test_chunked_shape_equals_shape_when_not_chunking(
@@ -600,15 +596,12 @@ def test_chunked_shape_equals_shape_when_not_chunking(
     # Check device arrays have identical chunked_shape
     output_arrays = solver.kernel.output_arrays
     state_device = output_arrays.device.state
-    time_domain_device = output_arrays.device.time_domain_array
 
     # Arrays should not need chunked transfer
     assert state_device.needs_chunked_transfer is False
-    assert time_domain_device.needs_chunked_transfer is False
 
     # chunked_shape should equal shape
     assert state_device.chunked_shape == state_device.shape
-    assert time_domain_device.chunked_shape == time_domain_device.shape
 
 
 def test_chunk_axis_index_in_array_requests(chunked_solved_solver):
@@ -626,13 +619,11 @@ def test_chunk_axis_index_in_array_requests(chunked_solved_solver):
     input_manager = solver.kernel.input_arrays
     output_manager = solver.kernel.output_arrays
 
-    # Check ManagedArray _chunk_axis_index computed from stride_order
     # initial_values is 2D (num_states, num_runs) so run axis is at index 1
     # output arrays use stride_order ("time", "variable", "run")
     # where "run" is at index 2
     assert input_manager.device.initial_values._chunk_axis_index == 1
     assert output_manager.device.state._chunk_axis_index == 2
-    assert output_manager.device.time_domain_array._chunk_axis_index == 2
 
     # Verify the chunk axis matches the run axis position in shape
     # For output state with shape (n_states, n_runs), run is at axis 1

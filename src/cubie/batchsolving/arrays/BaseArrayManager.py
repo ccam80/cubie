@@ -924,7 +924,8 @@ class BaseArrayManager(ABC):
         Builds :class:`ArrayRequest` objects for arrays marked for
         reallocation and sets the ``unchunkable`` hint based on host metadata.
 
-        Chunking is always performed along axis 0 (run axis) by convention.
+        Chunking is always performed along the run axis by convention.
+        The specific axis index is determined by each array's chunk_axis_index.
 
         Returns
         -------
@@ -943,6 +944,11 @@ class BaseArrayManager(ABC):
             # For chunked arrays, use self.num_runs
             # For unchunked arrays, use total_runs=1 (not None)
             if host_array_object.is_chunked:
+                if self.num_runs is None:
+                    raise ValueError(
+                        "Cannot allocate chunked arrays before num_runs is "
+                        "set. Call update_from_solver() first."
+                    )
                 total_runs = self.num_runs
             else:
                 total_runs = 1
