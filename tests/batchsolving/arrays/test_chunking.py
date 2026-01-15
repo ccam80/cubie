@@ -159,7 +159,7 @@ class TestWritebackTask:
 
         assert task.event is None
         assert task.buffer is buffer
-        assert task.target_array is target
+        assert task.target_array is target[:10]
         assert task.buffer_pool is pool
         assert task.array_name == "test"
 

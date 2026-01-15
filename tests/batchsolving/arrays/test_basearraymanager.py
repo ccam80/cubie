@@ -1605,7 +1605,6 @@ def test_chunked_shape_propagates_through_allocation(test_memory_manager):
         arr={"arr1": arr1, "arr2": arr2},
         chunks=2,
         chunked_shapes=chunked_shapes,
-        chunked_slices=chunked_slices,
     )
 
     # Mark arrays as needing reallocation

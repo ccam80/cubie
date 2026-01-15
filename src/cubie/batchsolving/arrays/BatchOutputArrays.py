@@ -387,7 +387,7 @@ class OutputArrays(BaseArrayManager):
                 self._pending_buffers.append(
                     PendingBuffer(
                         buffer=buffer,
-                        target_array=host_array,
+                        target_array=host_slice,
                         array_name=array_name,
                         data_shape=host_slice.shape,
                         buffer_pool=self._buffer_pool,
