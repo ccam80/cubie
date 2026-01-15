@@ -1188,9 +1188,6 @@ class MemoryManager:
         coordinated chunking based on available memory. Calls
         allocation_ready_hook for each instance with their results.
 
-        The num_runs value is extracted from triggering_instance.run_params.runs
-        for determining chunk parameters.
-
         Returns
         -------
         None
@@ -1199,8 +1196,12 @@ class MemoryManager:
         stream = self.get_stream(triggering_instance)
         queued_requests = self._queued_allocations.pop(stream_group, {})
 
-        # Extract num_runs from triggering instance's run parameters
-        num_runs = triggering_instance.run_params.runs
+        # Get total_runs from first request
+        num_runs = 1
+        for requests_dict in queued_requests.values():
+            for request in requests_dict.values():
+                num_runs = request.total_runs
+                break
 
         chunk_length, num_chunks = self.get_chunk_parameters(
             queued_requests, num_runs, stream_group
@@ -1361,9 +1362,6 @@ class MemoryManager:
                 chunked_shapes[key] = request.shape
 
         return chunked_shapes
-
-
-
 
 
 def get_portioned_request_size(

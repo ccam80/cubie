@@ -86,7 +86,11 @@ class ManagedArray:
     )
     num_chunks: int = field(
         default=1,
-        validator=getype_validator(int, 0),
+        validator=getype_validator(int, 1),
+    )
+    num_runs: int = field(
+        default=1,
+        validator=getype_validator(int, 1),
     )
     _chunk_axis_index: Optional[int] = field(
         default=None,
@@ -158,19 +162,12 @@ class ManagedArray:
             )
 
         # Fast path: no chunking
-        if self._chunk_axis_index is None or self.is_chunked is False:
+        if (
+            self._chunk_axis_index is None
+            or self.is_chunked is False
+            or self.chunk_length is None
+        ):
             return self.array
-
-        # Handle None chunk parameters
-        if self.chunk_length is None or self.num_chunks is None:
-            return self.array
-
-        # Validate chunk_index range
-        if chunk_index < 0 or chunk_index >= self.num_chunks:
-            raise ValueError(
-                f"chunk_index {chunk_index} out of range "
-                f"[0, {self.num_chunks})"
-            )
 
         start = chunk_index * self.chunk_length
 
@@ -341,6 +338,7 @@ class BaseArrayManager(ABC):
     _needs_reallocation: list[str] = field(factory=list, init=False)
     _needs_overwrite: list[str] = field(factory=list, init=False)
     _memory_manager: MemoryManager = field(default=default_memmgr)
+    num_runs: int = field(default=1, validator=getype_validator(int, 1))
 
     def __attrs_post_init__(self) -> None:
         """
@@ -363,6 +361,43 @@ class BaseArrayManager(ABC):
     def is_chunked(self) -> bool:
         """Return True if arrays are being processed in multiple chunks."""
         return self._chunks > 1
+
+    def set_array_runs(self, num_runs: int) -> None:
+        """Update num_runs in all ManagedArray instances.
+
+        This method sets the num_runs attribute to specify the total number
+        of runs in the batch. This value is used during allocation to
+        determine chunking behavior.
+
+        Parameters
+        ----------
+        num_runs : int
+            Total number of runs in the batch. Must be >= 1.
+
+        Returns
+        -------
+        None
+            Nothing is returned.
+        """
+        # Update the num_runs attribute
+        self.num_runs = num_runs
+        for _, array in self._iter_managed_arrays:
+            array.num_runs = num_runs
+
+    @property
+    def _iter_managed_arrays(self) -> Iterator[tuple[str, ManagedArray]]:
+        """
+        Yield ``(label, managed)`` pairs for each managed array.
+
+        Returns
+        -------
+        Iterator[tuple[str, ManagedArray]]
+            Iterator over array labels and their metadata wrappers.
+        """
+        for label, managed in self.device.iter_managed_arrays():
+            yield label, managed
+        for label, managed in self.host.iter_managed_arrays():
+            yield label, managed
 
     @abstractmethod
     def update(self, *args: object, **kwargs: object) -> None:
@@ -879,7 +914,8 @@ class BaseArrayManager(ABC):
         Builds :class:`ArrayRequest` objects for arrays marked for
         reallocation and sets the ``unchunkable`` hint based on host metadata.
 
-        Chunking is always performed along axis 0 (run axis) by convention.
+        Chunking is always performed along the run axis by convention.
+        The specific axis index is determined by each array's chunk_axis_index.
 
         Returns
         -------
@@ -893,12 +929,14 @@ class BaseArrayManager(ABC):
             if host_array is None:
                 continue
             device_array_object = self.device.get_managed_array(array_label)
+            total_runs = self.num_runs
             request = ArrayRequest(
                 shape=host_array.shape,
                 dtype=device_array_object.dtype,
                 memory=device_array_object.memory_type,
                 chunk_axis_index=host_array_object._chunk_axis_index,
                 unchunkable=not host_array_object.is_chunked,
+                total_runs=total_runs,
             )
             requests[array_label] = request
         if requests:

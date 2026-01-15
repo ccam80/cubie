@@ -435,10 +435,16 @@ class TestMemoryManager:
 
         requests = {
             "arr1": ArrayRequest(
-                shape=(8, 8, 8), dtype=np.float32, memory="device"
+                shape=(8, 8, 8),
+                dtype=np.float32,
+                memory="device",
+                total_runs=8,
             ),
             "arr2": ArrayRequest(
-                shape=(4, 4, 8), dtype=np.float32, memory="device"
+                shape=(4, 4, 8),
+                dtype=np.float32,
+                memory="device",
+                total_runs=8,
             ),
         }
         mgr.queue_request(instance, requests)
@@ -459,10 +465,16 @@ class TestMemoryManager:
         instance = registered_instance
         requests = {
             "arr1": ArrayRequest(
-                shape=(2, 2, 2), dtype=np.float32, memory="device"
+                shape=(2, 2, 2),
+                dtype=np.float32,
+                memory="device",
+                total_runs=2,
             ),
             "arr2": ArrayRequest(
-                shape=(2, 2, 2), dtype=np.float32, memory="device"
+                shape=(2, 2, 2),
+                dtype=np.float32,
+                memory="device",
+                total_runs=2,
             ),
         }
         stream = mgr.get_stream(instance)
@@ -639,10 +651,10 @@ class TestMemoryManager:
         # Valid requests should pass
         valid_requests = {
             "arr1": ArrayRequest(
-                shape=(2, 2), dtype=np.float32, memory="device"
+                shape=(2, 2), dtype=np.float32, memory="device", total_runs=2
             ),
             "arr2": ArrayRequest(
-                shape=(3, 3), dtype=np.float64, memory="mapped"
+                shape=(3, 3), dtype=np.float64, memory="mapped", total_runs=3
             ),
         }
         mgr._check_requests(valid_requests)  # Should not raise
@@ -654,7 +666,7 @@ class TestMemoryManager:
         # Invalid request values should raise TypeError
         invalid_requests = {
             "arr1": ArrayRequest(
-                shape=(2, 2), dtype=np.float32, memory="device"
+                shape=(2, 2), dtype=np.float32, memory="device", total_runs=2
             ),
             "arr2": "not an ArrayRequest",
         }
@@ -668,7 +680,7 @@ class TestMemoryManager:
 
         requests = {
             "arr1": ArrayRequest(
-                shape=(2, 2), dtype=np.float32, memory="device"
+                shape=(2, 2), dtype=np.float32, memory="device", total_runs=2
             ),
         }
 
@@ -701,7 +713,10 @@ class TestMemoryManager:
 
         requests = {
             "arr1": ArrayRequest(
-                shape=(2, 2, 2), dtype=np.float32, memory="device"
+                shape=(2, 2, 2),
+                dtype=np.float32,
+                memory="device",
+                total_runs=2,
             ),
         }
 
@@ -739,12 +754,18 @@ class TestMemoryManager:
 
         requests1 = {
             "arr1": ArrayRequest(
-                shape=(2, 2, 2), dtype=np.float32, memory="device"
+                shape=(2, 2, 2),
+                dtype=np.float32,
+                memory="device",
+                total_runs=2,
             )
         }
         requests2 = {
             "arr2": ArrayRequest(
-                shape=(3, 3, 3), dtype=np.float32, memory="device"
+                shape=(3, 3, 3),
+                dtype=np.float32,
+                memory="device",
+                total_runs=3,
             )
         }
 
@@ -810,10 +831,10 @@ class TestMemoryManager:
         # Allocate device arrays through the memory manager
         requests = {
             "arr1": ArrayRequest(
-                shape=(3, 4), dtype=np.float32, memory="device"
+                shape=(3, 4), dtype=np.float32, memory="device", total_runs=4
             ),
             "arr2": ArrayRequest(
-                shape=(2, 3), dtype=np.float64, memory="device"
+                shape=(2, 3), dtype=np.float64, memory="device", total_runs=3
             ),
         }
 
@@ -850,10 +871,10 @@ class TestMemoryManager:
         # Allocate device arrays through the memory manager
         requests = {
             "arr1": ArrayRequest(
-                shape=(2, 5), dtype=np.float32, memory="device"
+                shape=(2, 5), dtype=np.float32, memory="device", total_runs=5
             ),
             "arr2": ArrayRequest(
-                shape=(3, 2), dtype=np.float64, memory="device"
+                shape=(3, 2), dtype=np.float64, memory="device", total_runs=2
             ),
         }
 
@@ -930,12 +951,14 @@ class TestGetChunkParameters:
                     dtype=np.float32,
                     memory="device",
                     unchunkable=True,
+                    total_runs=1,
                 ),
                 "huge_unchunkable2": ArrayRequest(
                     shape=huge_shape,
                     dtype=np.float32,
                     memory="device",
                     unchunkable=True,
+                    total_runs=1,
                 ),
                 # Need at least one chunkable array to hit the unchunkable
                 # exceeds memory path (otherwise hits all-unchunkable path)
@@ -944,6 +967,7 @@ class TestGetChunkParameters:
                     dtype=np.float32,
                     memory="device",
                     unchunkable=False,
+                    total_runs=1,
                 ),
             }
         }
@@ -1000,6 +1024,7 @@ class TestAllocateQueueExtractsNumRuns:
                 dtype=np.float32,
                 memory="device",
                 unchunkable=False,
+                total_runs=100,
             ),
         }
 
@@ -1057,12 +1082,14 @@ class TestAllocateQueueExtractsNumRuns:
                 dtype=np.float32,
                 memory="device",
                 unchunkable=False,
+                total_runs=10000,
             ),
             "arr2": ArrayRequest(
                 shape=(100, 10000),
                 dtype=np.float32,
                 memory="device",
                 unchunkable=False,
+                total_runs=10000,
             ),
         }
 
@@ -1131,12 +1158,14 @@ def test_allocate_queue_no_chunked_slices_in_response(mgr):
             dtype=np.float32,
             memory="device",
             unchunkable=False,
+            total_runs=100,
         ),
         "arr2": ArrayRequest(
             shape=(5, 100),
             dtype=np.float32,
             memory="device",
             unchunkable=False,
+            total_runs=100,
         ),
     }
 
@@ -1160,3 +1189,124 @@ def test_allocate_queue_no_chunked_slices_in_response(mgr):
     assert isinstance(response.chunks, int)
     assert isinstance(response.chunk_length, int)
     assert isinstance(response.chunked_shapes, dict)
+
+
+def test_allocate_queue_uses_first_request_total_runs(mgr):
+    """Verify allocate_queue extracts num_runs from first request in queue.
+
+    After refactoring, allocate_queue should get num_runs directly from
+    the first request's total_runs field instead of using the complex
+    _extract_num_runs() method. This test verifies that behavior.
+    """
+
+    # Create instance without run_params (not needed anymore)
+    class MockInstance:
+        pass
+
+    instance = MockInstance()
+
+    # Track the allocation callback response
+    callback_called = {"flag": False, "response": None}
+
+    def allocation_hook(response):
+        callback_called["flag"] = True
+        callback_called["response"] = response
+
+    mgr.register(instance, allocation_ready_hook=allocation_hook)
+
+    # Create requests where first request has total_runs=150
+    requests = {
+        "arr1": ArrayRequest(
+            shape=(10, 150),
+            dtype=np.float32,
+            memory="device",
+            unchunkable=False,
+            total_runs=150,
+        ),
+        "arr2": ArrayRequest(
+            shape=(5, 150),
+            dtype=np.float32,
+            memory="device",
+            unchunkable=False,
+            total_runs=150,
+        ),
+    }
+
+    mgr.queue_request(instance, requests)
+    mgr.allocate_queue(instance)
+
+    # Verify callback was called
+    assert callback_called["flag"] is True
+    response = callback_called["response"]
+    assert isinstance(response, ArrayResponse)
+
+    # Verify chunk_length matches num_runs=150 (no chunking with 1GB free)
+    assert response.chunks == 1
+    assert response.chunk_length == 150
+
+
+def test_allocate_queue_handles_all_requests_same_total_runs(mgr):
+    """Verify allocate_queue works when all requests have same total_runs.
+
+    With the refactored implementation, all requests in a queue must have
+    the same total_runs value (guaranteed by array managers). This test
+    verifies that allocate_queue correctly handles this case.
+    """
+
+    # Create instance without run_params (not needed anymore)
+    class MockInstance:
+        pass
+
+    instance = MockInstance()
+
+    # Track the allocation callback response
+    callback_called = {"flag": False, "response": None}
+
+    def allocation_hook(response):
+        callback_called["flag"] = True
+        callback_called["response"] = response
+
+    mgr.register(instance, allocation_ready_hook=allocation_hook)
+
+    # Create multiple requests all with same total_runs=200
+    requests = {
+        "arr1": ArrayRequest(
+            shape=(10, 200),
+            dtype=np.float32,
+            memory="device",
+            unchunkable=False,
+            total_runs=200,
+        ),
+        "arr2": ArrayRequest(
+            shape=(5, 200),
+            dtype=np.float32,
+            memory="device",
+            unchunkable=False,
+            total_runs=200,
+        ),
+        "arr3": ArrayRequest(
+            shape=(8, 200),
+            dtype=np.float32,
+            memory="device",
+            unchunkable=False,
+            total_runs=200,
+        ),
+    }
+
+    mgr.queue_request(instance, requests)
+    mgr.allocate_queue(instance)
+
+    # Verify callback was called
+    assert callback_called["flag"] is True
+    response = callback_called["response"]
+    assert isinstance(response, ArrayResponse)
+
+    # Verify chunk_length matches num_runs=200 (no chunking with 1GB free)
+    assert response.chunks == 1
+    assert response.chunk_length == 200
+
+    # Verify all arrays were allocated
+    assert len(response.arr) == 3
+    assert "arr1" in response.arr
+    assert "arr2" in response.arr
+    assert "arr3" in response.arr

@@ -12,7 +12,7 @@ import attrs
 import attrs.validators as val
 import numpy as np
 
-from cubie._utils import opt_getype_validator
+from cubie._utils import opt_getype_validator, getype_validator
 from cubie.cuda_simsafe import DeviceNDArrayBase
 
 
@@ -32,6 +32,11 @@ class ArrayRequest:
         ``"pinned"``, or ``"managed"``.
     unchunkable
         Whether the memory manager is allowed to chunk the allocation.
+    total_runs
+        Total number of runs for chunking calculations. Defaults to ``1`` for
+        arrays not intended for run-axis chunking (e.g., driver_coefficients).
+        Memory manager extracts this value to determine chunk parameters.
+        Always >= 1.
 
     Attributes
     ----------
@@ -45,6 +50,8 @@ class ArrayRequest:
         Axis index along which chunking may occur.
     unchunkable
         Flag indicating that chunking should be disabled.
+    total_runs
+        Total number of runs for chunking calculations. Always >= 1.
     """
 
     dtype = attrs.field(
@@ -66,6 +73,10 @@ class ArrayRequest:
     )
     unchunkable: bool = attrs.field(
         default=False, validator=val.instance_of(bool)
+    )
+    total_runs: int = attrs.field(
+        default=1,
+        validator=getype_validator(int, 1),
     )
 
     @property
