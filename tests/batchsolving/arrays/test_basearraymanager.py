@@ -1635,9 +1635,7 @@ class TestAllocationCallbackSimplifiedResponse:
     ):
         """Verify array managers handle ArrayResponse without removed fields.
 
-        This test ensures that _on_allocation_complete works correctly with
-        the simplified ArrayResponse that no longer has axis_length or
-        dangling_chunk_length fields. The array manager should only access:
+        This test ensures that _on_allocation_complete works correctlyhe array manager should only access:
         - response.arr (dict of allocated arrays)
         - response.chunks (int, number of chunks)
         - response.chunked_shapes (dict of per-chunk shapes)
@@ -1693,8 +1691,6 @@ class TestAllocationCallbackSimplifiedResponse:
             memory_manager=test_memory_manager,
         )
 
-        # Create simplified ArrayResponse (no axis_length, no
-        # dangling_chunk_length)
         arr1 = device_array(chunked_shape, dtype=precision)
         arr2 = device_array(chunked_shape, dtype=precision)
 
@@ -1711,10 +1707,6 @@ class TestAllocationCallbackSimplifiedResponse:
             arr={"arr1": arr1, "arr2": arr2},
             chunks=4,  # 100 runs / 25 per chunk = 4 chunks
             chunked_shapes={"arr1": chunked_shape, "arr2": chunked_shape},
-            chunked_slices={
-                "arr1": make_slice_fn(25),
-                "arr2": make_slice_fn(25),
-            },
         )
 
         # Verify response does NOT have removed fields
@@ -1759,7 +1751,6 @@ class TestChunkSliceMethod:
         # Set chunk parameters (even though chunking is disabled)
         managed.num_chunks = 4
         managed.chunk_length = 25
-        managed.dangling_chunk_length = None
 
         # chunk_slice should return the full array
         result = managed.chunk_slice(0)
@@ -1786,7 +1777,6 @@ class TestChunkSliceMethod:
         # Set chunk parameters: 100 runs, 25 per chunk, 4 chunks
         managed.num_chunks = 4
         managed.chunk_length = 25
-        managed.dangling_chunk_length = None
 
         # Test each chunk
         for chunk_idx in range(4):

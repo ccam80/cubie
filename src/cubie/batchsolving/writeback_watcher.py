@@ -23,7 +23,6 @@ class PendingBuffer:
 
     buffer: PinnedBuffer
     target_array: NDArray
-    slice_tuple: tuple
     array_name: str
     data_shape: tuple
     buffer_pool: ChunkBufferPool
@@ -41,8 +40,6 @@ class WritebackTask:
         Pinned buffer containing data to copy.
     target_array
         Host array to write data into.
-    slice_tuple
-        Index tuple for target array slice.
     buffer_pool
         Pool to release buffer to after completion.
     array_name
@@ -54,7 +51,6 @@ class WritebackTask:
     event: object = field()  # cuda.Event or None
     buffer: PinnedBuffer = field(validator=attrsval_instance_of(PinnedBuffer))
     target_array: ndarray = field(validator=attrsval_instance_of(ndarray))
-    slice_tuple: tuple = field(validator=attrsval_instance_of(tuple))
     buffer_pool: ChunkBufferPool = field(
         validator=attrsval_instance_of(ChunkBufferPool)
     )
@@ -72,7 +68,6 @@ class WritebackTask:
             event=event,
             buffer=pending_buffer.buffer,
             target_array=pending_buffer.target_array,
-            slice_tuple=pending_buffer.slice_tuple,
             buffer_pool=pending_buffer.buffer_pool,
             array_name=pending_buffer.array_name,
             data_shape=pending_buffer.data_shape,
@@ -162,7 +157,6 @@ class WritebackWatcher:
         event: object,
         buffer: PinnedBuffer,
         target_array: ndarray,
-        slice_tuple: tuple,
         buffer_pool: ChunkBufferPool,
         array_name: str,
         data_shape: Optional[tuple] = None,
@@ -177,8 +171,6 @@ class WritebackWatcher:
             Pinned buffer containing source data.
         target_array
             Host array to write into.
-        slice_tuple
-            Slice indices for target array.
         buffer_pool
             Pool to release buffer to.
         array_name
@@ -192,7 +184,6 @@ class WritebackWatcher:
             event=event,
             buffer=buffer,
             target_array=target_array,
-            slice_tuple=slice_tuple,
             buffer_pool=buffer_pool,
             array_name=array_name,
             data_shape=data_shape,
@@ -308,11 +299,9 @@ class WritebackWatcher:
             # If data_shape provided, only copy that portion of the buffer
             if task.data_shape is not None:
                 buffer_slice = tuple(slice(0, s) for s in task.data_shape)
-                task.target_array[task.slice_tuple] = task.buffer.array[
-                    buffer_slice
-                ]
+                task.target_array[:] = task.buffer.array[buffer_slice]
             else:
-                task.target_array[task.slice_tuple] = task.buffer.array
+                task.target_array[:] = task.buffer.array
             # Release buffer back to pool
             task.buffer_pool.release(task.buffer)
             return True

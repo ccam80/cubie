@@ -7,7 +7,6 @@ import pytest
 import attrs
 
 from cubie.batchsolving.arrays.BatchOutputArrays import (
-    OutputArrays,
     OutputArrayContainer,
 )
 from cubie.batchsolving.arrays.BatchInputArrays import InputArrayContainer
@@ -20,7 +19,6 @@ from cubie.batchsolving.writeback_watcher import (
     WritebackTask,
     WritebackWatcher,
 )
-from cubie.memory.array_requests import ArrayResponse
 from cubie.memory.chunk_buffer_pool import ChunkBufferPool
 
 
@@ -154,8 +152,7 @@ class TestWritebackTask:
         task = WritebackTask(
             event=None,
             buffer=buffer,
-            target_array=target,
-            slice_tuple=(slice(0, 10),),
+            target_array=target[:10],
             buffer_pool=pool,
             array_name="test",
         )
@@ -163,7 +160,6 @@ class TestWritebackTask:
         assert task.event is None
         assert task.buffer is buffer
         assert task.target_array is target
-        assert task.slice_tuple == (slice(0, 10),)
         assert task.buffer_pool is pool
         assert task.array_name == "test"
 
@@ -176,8 +172,7 @@ class TestWritebackTask:
             WritebackTask(
                 event=None,
                 buffer="not a buffer",  # Invalid
-                target_array=target,
-                slice_tuple=(slice(0, 10),),
+                target_array=target[0:10],
                 buffer_pool=pool,
                 array_name="test",
             )
@@ -204,8 +199,7 @@ class TestWritebackWatcher:
         watcher.submit(
             event=None,
             buffer=buffer,
-            target_array=target,
-            slice_tuple=(slice(0, 10),),
+            target_array=target[0:10],
             buffer_pool=pool,
             array_name="test",
         )
@@ -239,8 +233,7 @@ class TestWritebackWatcher:
         watcher.submit(
             event=None,  # CUDASIM treats None as complete
             buffer=buffer,
-            target_array=target,
-            slice_tuple=(slice(20, 30),),
+            target_array=target[20:30],
             buffer_pool=pool,
             array_name="test",
         )
@@ -276,8 +269,7 @@ class TestWritebackWatcher:
             watcher.submit(
                 event=None,
                 buffer=buffer,
-                target_array=target,
-                slice_tuple=(slice(i * 5, (i + 1) * 5),),
+                target_array=target[5 * i : 5 * (i + 1)],
                 buffer_pool=pool,
                 array_name=f"test_{i}",
             )
@@ -315,8 +307,7 @@ class TestWritebackWatcher:
             watcher.submit(
                 event=None,
                 buffer=buffer,
-                target_array=target,
-                slice_tuple=(slice(i * 10, (i + 1) * 10),),
+                target_array=target[10 * i : 10 * (i + 1)],
                 buffer_pool=pool,
                 array_name="test",
             )
@@ -358,7 +349,6 @@ class TestWritebackWatcher:
             event=None,
             buffer=buffer,
             target_array=target,
-            slice_tuple=(slice(None),),
             buffer_pool=pool,
             array_name="test",
         )
@@ -392,7 +382,7 @@ class TestWritebackWatcher:
         watcher = WritebackWatcher()
         pool = ChunkBufferPool()
         buffer = pool.acquire("test", (5, 10), np.float64)
-        target = np.zeros((20, 10), dtype=np.float64)
+        target = np.zeros((5, 10), dtype=np.float64)
 
         # Fill buffer with test data
         buffer.array[:] = np.arange(50, dtype=np.float64).reshape(5, 10)
@@ -401,7 +391,6 @@ class TestWritebackWatcher:
             event=None,
             buffer=buffer,
             target_array=target,
-            slice_tuple=(slice(5, 10), slice(None)),
             buffer_pool=pool,
             array_name="test",
         )
@@ -437,6 +426,7 @@ class TestArrayContainer(ArrayContainer):
     state: ManagedArray = attrs.field(
         factory=lambda: ManagedArray(
             dtype=np.float32,
+            stride_order=("time", "variable", "run"),
             default_shape=(10, 3, 100),
             memory_type="pinned",
         )
@@ -499,69 +489,6 @@ class TestHostFactoryMemoryType:
         container = InputArrayContainer.host_factory(memory_type="host")
         for _, slot in container.iter_managed_arrays():
             assert slot.memory_type == "host"
-
-
-class TestOutputArraysConvertToNumpyWhenChunked:
-    """Test OutputArrays converts pinned to numpy when chunked."""
-
-    def test_output_arrays_converts_to_numpy_when_chunked(self):
-        """Verify OutputArrays converts pinned to numpy in chunked mode."""
-        output_arrays = OutputArrays()
-
-        # Initially arrays are pinned
-        for name, slot in output_arrays.host.iter_managed_arrays():
-            assert slot.memory_type == "pinned"
-
-        # Set up larger shapes so chunking produces different shapes
-        chunks = 3
-        # Prepare chunked_shapes for each managed array
-        # Divide the run axis (axis 0) by chunk count to simulate chunking
-        chunked_shapes = {}
-        for name, slot in output_arrays.device.iter_managed_arrays():
-            full_shape = slot.shape
-            if slot.is_chunked:
-                # Run axis is at index 0 by convention
-                chunked = list(full_shape)
-                chunked[0] = full_shape[0] // chunks
-                chunked_shapes[name] = tuple(chunked)
-
-        # Simulate allocation response with multiple chunks
-        response = ArrayResponse(
-            arr={},
-            chunks=chunks,
-            chunked_shapes=chunked_shapes,
-        )
-        output_arrays._on_allocation_complete(response)
-
-        # After chunked allocation, chunked arrays should be host type
-        assert output_arrays.is_chunked is True
-        for name, slot in output_arrays.host.iter_managed_arrays():
-            device_slot = output_arrays.device.get_managed_array(name)
-            if device_slot.needs_chunked_transfer:
-                assert slot.memory_type == "host"
-            else:
-                # Non-chunked arrays (like status_codes) stay pinned
-                assert slot.memory_type == "pinned"
-
-    def test_output_arrays_stays_pinned_when_not_chunked(self):
-        """Verify OutputArrays stays pinned when not chunked."""
-        output_arrays = OutputArrays()
-
-        # Initially arrays are pinned
-        for name, slot in output_arrays.host.iter_managed_arrays():
-            assert slot.memory_type == "pinned"
-
-        # Simulate allocation response with single chunk
-        response = ArrayResponse(
-            arr={},
-            chunks=1,
-        )
-        output_arrays._on_allocation_complete(response)
-
-        # After single-chunk allocation, arrays should stay pinned
-        assert output_arrays.is_chunked is False
-        for name, slot in output_arrays.host.iter_managed_arrays():
-            assert slot.memory_type == "pinned"
 
 
 class TestBufferPoolAndWatcherIntegration:

@@ -311,7 +311,6 @@ class InputArrays(BaseArrayManager):
             if not host_obj.needs_chunked_transfer:
                 from_.append(host_obj.array)
             else:
-                # Call chunk_slice method to get sliced array directly
                 host_slice = host_obj.chunk_slice(chunk_index)
 
                 # Chunked mode: use buffer pool for pinned staging

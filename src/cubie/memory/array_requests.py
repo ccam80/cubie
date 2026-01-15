@@ -6,12 +6,13 @@ and memory placement details, while responses track allocated buffers and any
 chunking performed by the memory manager.
 """
 
-from typing import Optional, Callable
+from typing import Optional
 
 import attrs
 import attrs.validators as val
 import numpy as np
 
+from cubie._utils import opt_getype_validator
 from cubie.cuda_simsafe import DeviceNDArrayBase
 
 
@@ -40,13 +41,10 @@ class ArrayRequest:
         NumPy precision constructor used to produce the allocation.
     memory
         Memory placement option.
+    chunk_axis_index
+        Axis index along which chunking may occur.
     unchunkable
         Flag indicating that chunking should be disabled.
-
-    Notes
-    -----
-    By CuBIE convention, the run axis is always axis 0 of the shape tuple.
-    The memory manager performs chunking along axis 0 when memory is limited.
     """
 
     dtype = attrs.field(
@@ -61,6 +59,10 @@ class ArrayRequest:
     memory: str = attrs.field(
         default="device",
         validator=val.in_(["device", "mapped", "pinned", "managed"]),
+    )
+    chunk_axis_index: Optional[int] = attrs.field(
+        default=2,
+        validator=opt_getype_validator(int, 0),
     )
     unchunkable: bool = attrs.field(
         default=False, validator=val.instance_of(bool)
@@ -82,12 +84,8 @@ class ArrayResponse:
         Dictionary mapping array labels to allocated device arrays.
     chunks
         Number of chunks the allocation was divided into.
-    axis_length
-        Full length of the run axis before chunking.
     chunk_length
         Length of each chunk along the run axis (except possibly last).
-    dangling_chunk_length
-        Length of the final chunk if different from chunk_length.
     chunked_shapes
         Mapping from array labels to their per-chunk shapes. Empty dict when
         no chunking occurs.
@@ -98,12 +96,8 @@ class ArrayResponse:
         Dictionary mapping array labels to allocated device arrays.
     chunks
         Number of chunks the allocation was divided into.
-    axis_length
-        Full length of the run axis before chunking.
     chunk_length
         Length of each chunk along the run axis.
-    dangling_chunk_length
-        Length of the final chunk if different from chunk_length.
     chunked_shapes
         Mapping from array labels to their per-chunk shapes.
     """
@@ -114,14 +108,8 @@ class ArrayResponse:
     chunks: int = attrs.field(
         default=1,
     )
-    axis_length: int = attrs.field(
-        default=1,
-    )
     chunk_length: int = attrs.field(
         default=1,
-    )
-    dangling_chunk_length: int = attrs.field(
-        default=0,
     )
     chunked_shapes: dict[str, tuple[int, ...]] = attrs.field(
         default=attrs.Factory(dict), validator=val.instance_of(dict)

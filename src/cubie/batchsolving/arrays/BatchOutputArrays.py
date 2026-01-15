@@ -375,23 +375,8 @@ class OutputArrays(BaseArrayManager):
             to_target = host_array
             from_target = device_array
             if slot.needs_chunked_transfer:
-                # Get the sliced array using the new chunk_slice method
                 host_slice = slot.chunk_slice(chunk_index)
-                
-                # Compute slice_tuple separately for PendingBuffer writeback
-                # This mirrors the logic in chunk_slice() to get the tuple
-                chunk_slice_tuple = [slice(None)] * len(host_array.shape)
-                start = chunk_index * slot.chunk_length
-                if (
-                    chunk_index == slot.num_chunks - 1
-                    and slot.dangling_chunk_length is not None
-                ):
-                    end = start + slot.dangling_chunk_length
-                else:
-                    end = start + slot.chunk_length
-                chunk_slice_tuple[slot._chunk_axis_index] = slice(start, end)
-                slice_tuple = tuple(chunk_slice_tuple)
-                
+
                 # Chunked mode: use buffer pool and watcher
                 # Buffer must match device array shape for D2H copy
                 buffer = self._buffer_pool.acquire(
@@ -403,7 +388,6 @@ class OutputArrays(BaseArrayManager):
                     PendingBuffer(
                         buffer=buffer,
                         target_array=host_array,
-                        slice_tuple=slice_tuple,
                         array_name=array_name,
                         data_shape=host_slice.shape,
                         buffer_pool=self._buffer_pool,

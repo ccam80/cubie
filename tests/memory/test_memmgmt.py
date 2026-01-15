@@ -968,6 +968,7 @@ class TestAllocateQueueExtractsNumRuns:
         triggering_instance.run_params.runs instead of computing it
         from array request shapes. This test verifies that behavior.
         """
+
         # Create a mock instance with run_params
         class MockRunParams:
             def __init__(self, runs):
@@ -1025,6 +1026,7 @@ class TestAllocateQueueExtractsNumRuns:
         should be based on num_runs extracted from
         triggering_instance.run_params.runs.
         """
+
         # Create instance with large num_runs to force chunking
         class MockRunParams:
             def __init__(self, runs):
@@ -1093,17 +1095,15 @@ class TestAllocateQueueExtractsNumRuns:
             assert response.chunk_length == 10000
 
 
-
-
 def test_allocate_queue_no_chunked_slices_in_response(mgr):
     """Verify ArrayResponse from allocate_queue does not have chunked_slices.
 
     After refactoring to use on-demand chunk slice computation, the
     ArrayResponse should no longer contain a chunked_slices field. This test
     verifies that the response contains the necessary chunk parameters
-    (chunks, axis_length, chunk_length, dangling_chunk_length) but not
-    chunked_slices.
+    (chunks, , chunk_length, )
     """
+
     # Create instance with run_params
     class MockRunParams:
         def __init__(self, runs):
@@ -1153,16 +1153,12 @@ def test_allocate_queue_no_chunked_slices_in_response(mgr):
 
     # Verify that chunk parameters ARE in the response
     assert hasattr(response, "chunks")
-    assert hasattr(response, "axis_length")
     assert hasattr(response, "chunk_length")
-    assert hasattr(response, "dangling_chunk_length")
     assert hasattr(response, "chunked_shapes")
 
     # Verify chunk parameters have expected values
     assert isinstance(response.chunks, int)
-    assert isinstance(response.axis_length, int)
     assert isinstance(response.chunk_length, int)
-    assert isinstance(response.dangling_chunk_length, int)
     assert isinstance(response.chunked_shapes, dict)
 
     # Verify axis_length matches num_runs

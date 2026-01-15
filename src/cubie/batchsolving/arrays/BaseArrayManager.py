@@ -12,7 +12,7 @@ and synchronization across chunks automatically.
 """
 
 from abc import ABC, abstractmethod
-from typing import Dict, Iterator, List, Optional, Union, Callable
+from typing import Dict, Iterator, List, Optional, Union
 from warnings import warn
 
 from attrs import define, field
@@ -30,7 +30,7 @@ from numpy import (
 )
 from numpy.typing import NDArray
 
-from cubie._utils import opt_gttype_validator
+from cubie._utils import opt_gttype_validator, getype_validator
 from cubie.cuda_simsafe import DeviceNDArrayBase
 from cubie.memory import default_memmgr
 from cubie.memory.mem_manager import ArrayRequest, ArrayResponse, MemoryManager
@@ -84,13 +84,9 @@ class ManagedArray:
         default=None,
         validator=attrsval_optional(attrsval_instance_of(int)),
     )
-    num_chunks: Optional[int] = field(
-        default=None,
-        validator=attrsval_optional(attrsval_instance_of(int)),
-    )
-    dangling_chunk_length: Optional[int] = field(
-        default=None,
-        validator=attrsval_optional(attrsval_instance_of(int)),
+    num_chunks: int = field(
+        default=1,
+        validator=getype_validator(int, 0),
     )
     _chunk_axis_index: Optional[int] = field(
         default=None,
@@ -144,8 +140,6 @@ class ManagedArray:
 
         Raises
         ------
-        TypeError
-            If chunk_index is not an integer.
         ValueError
             If chunk_index is out of range.
 
@@ -154,23 +148,10 @@ class ManagedArray:
         When chunking is inactive (is_chunked=False or _chunk_axis_index=None),
         returns the full array. Otherwise computes slice based on stored
         chunk parameters and _chunk_axis_index.
-
-        The final chunk may be shorter than chunk_length if
-        dangling_chunk_length is set, indicating a partial final chunk.
         """
         # Fast path: no chunking
         if self._chunk_axis_index is None or self.is_chunked is False:
             return self.array
-
-        # Fast path: no chunk parameters set (shouldn't happen but safe)
-        if self.num_chunks is None or self.chunk_length is None:
-            return self.array
-
-        # Validate chunk_index type
-        if not isinstance(chunk_index, int):
-            raise TypeError(
-                f"chunk_index must be int, got {type(chunk_index).__name__}"
-            )
 
         # Validate chunk_index range
         if chunk_index < 0 or chunk_index >= self.num_chunks:
@@ -179,15 +160,10 @@ class ManagedArray:
                 f"[0, {self.num_chunks})"
             )
 
-        # Compute slice based on chunk parameters
         start = chunk_index * self.chunk_length
 
-        # Final chunk may be shorter due to dangling_chunk_length
-        if (
-            chunk_index == self.num_chunks - 1
-            and self.dangling_chunk_length is not None
-        ):
-            end = start + self.dangling_chunk_length
+        if chunk_index == self.num_chunks - 1:
+            end = None
         else:
             end = start + self.chunk_length
 
@@ -435,10 +411,6 @@ class BaseArrayManager(ABC):
         # Extract chunk parameters from response
         chunks = response.chunks
         chunk_length = response.chunk_length
-        # Extract dangling_chunk_length if available, else None
-        dangling_chunk_length = getattr(
-            response, "dangling_chunk_length", None
-        )
 
         for array_label in self._needs_reallocation:
             try:
@@ -448,10 +420,8 @@ class BaseArrayManager(ABC):
                     for container in (self.device, self.host):
                         array = container.get_managed_array(array_label)
                         array.chunked_shape = chunked_shapes[array_label]
-                        # Store chunk parameters (no longer store slice_fn)
                         array.chunk_length = chunk_length
                         array.num_chunks = chunks
-                        array.dangling_chunk_length = dangling_chunk_length
             except KeyError:
                 warn(
                     f"Device array {array_label} not found in allocation "
@@ -915,6 +885,7 @@ class BaseArrayManager(ABC):
                 shape=host_array.shape,
                 dtype=device_array_object.dtype,
                 memory=device_array_object.memory_type,
+                chunk_axis_index=host_array_object._chunk_axis_index,
                 unchunkable=not host_array_object.is_chunked,
             )
             requests[array_label] = request
