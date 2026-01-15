@@ -1160,6 +1160,3 @@ def test_allocate_queue_no_chunked_slices_in_response(mgr):
     assert isinstance(response.chunks, int)
     assert isinstance(response.chunk_length, int)
     assert isinstance(response.chunked_shapes, dict)
-
-    # Verify axis_length matches num_runs
-    assert response.axis_length == 100

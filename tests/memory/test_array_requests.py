@@ -88,3 +88,40 @@ class TestArrayResponse:
         response = ArrayResponse()
         assert response.chunked_shapes == {}
         assert isinstance(response.chunked_shapes, dict)
+
+
+def test_array_request_chunk_axis_index_validation():
+    """Verify ArrayRequest validates chunk_axis_index correctly.
+
+    The chunk_axis_index field should:
+    - Accept None (no chunking axis)
+    - Accept non-negative integers (valid axis indices)
+    - Reject negative integers (invalid axis indices)
+    - Default to 2 (run axis in standard stride order)
+    """
+    from cubie.memory.array_requests import ArrayRequest
+
+    # Test default value is 2
+    request = ArrayRequest(dtype=np.float64)
+    assert request.chunk_axis_index == 2
+
+    # Test None is accepted (no chunking axis)
+    request_none = ArrayRequest(dtype=np.float64, chunk_axis_index=None)
+    assert request_none.chunk_axis_index is None
+
+    # Test non-negative integers are accepted
+    request_0 = ArrayRequest(dtype=np.float64, chunk_axis_index=0)
+    assert request_0.chunk_axis_index == 0
+
+    request_1 = ArrayRequest(dtype=np.float64, chunk_axis_index=1)
+    assert request_1.chunk_axis_index == 1
+
+    request_5 = ArrayRequest(dtype=np.float64, chunk_axis_index=5)
+    assert request_5.chunk_axis_index == 5
+
+    # Test negative values are rejected
+    with pytest.raises(ValueError, match="must be >= 0"):
+        ArrayRequest(dtype=np.float64, chunk_axis_index=-1)
+
+    with pytest.raises(ValueError, match="must be >= 0"):
+        ArrayRequest(dtype=np.float64, chunk_axis_index=-5)
