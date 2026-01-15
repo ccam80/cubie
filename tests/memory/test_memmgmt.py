@@ -435,10 +435,12 @@ class TestMemoryManager:
 
         requests = {
             "arr1": ArrayRequest(
-                shape=(8, 8, 8), dtype=np.float32, memory="device"
+                shape=(8, 8, 8), dtype=np.float32, memory="device",
+                total_runs=8
             ),
             "arr2": ArrayRequest(
-                shape=(4, 4, 8), dtype=np.float32, memory="device"
+                shape=(4, 4, 8), dtype=np.float32, memory="device",
+                total_runs=8
             ),
         }
         mgr.queue_request(instance, requests)
@@ -459,10 +461,12 @@ class TestMemoryManager:
         instance = registered_instance
         requests = {
             "arr1": ArrayRequest(
-                shape=(2, 2, 2), dtype=np.float32, memory="device"
+                shape=(2, 2, 2), dtype=np.float32, memory="device",
+                total_runs=2
             ),
             "arr2": ArrayRequest(
-                shape=(2, 2, 2), dtype=np.float32, memory="device"
+                shape=(2, 2, 2), dtype=np.float32, memory="device",
+                total_runs=2
             ),
         }
         stream = mgr.get_stream(instance)
@@ -639,10 +643,12 @@ class TestMemoryManager:
         # Valid requests should pass
         valid_requests = {
             "arr1": ArrayRequest(
-                shape=(2, 2), dtype=np.float32, memory="device"
+                shape=(2, 2), dtype=np.float32, memory="device",
+                total_runs=2
             ),
             "arr2": ArrayRequest(
-                shape=(3, 3), dtype=np.float64, memory="mapped"
+                shape=(3, 3), dtype=np.float64, memory="mapped",
+                total_runs=3
             ),
         }
         mgr._check_requests(valid_requests)  # Should not raise
@@ -654,7 +660,8 @@ class TestMemoryManager:
         # Invalid request values should raise TypeError
         invalid_requests = {
             "arr1": ArrayRequest(
-                shape=(2, 2), dtype=np.float32, memory="device"
+                shape=(2, 2), dtype=np.float32, memory="device",
+                total_runs=2
             ),
             "arr2": "not an ArrayRequest",
         }
@@ -668,7 +675,8 @@ class TestMemoryManager:
 
         requests = {
             "arr1": ArrayRequest(
-                shape=(2, 2), dtype=np.float32, memory="device"
+                shape=(2, 2), dtype=np.float32, memory="device",
+                total_runs=2
             ),
         }
 
@@ -701,7 +709,8 @@ class TestMemoryManager:
 
         requests = {
             "arr1": ArrayRequest(
-                shape=(2, 2, 2), dtype=np.float32, memory="device"
+                shape=(2, 2, 2), dtype=np.float32, memory="device",
+                total_runs=2
             ),
         }
 
@@ -739,12 +748,14 @@ class TestMemoryManager:
 
         requests1 = {
             "arr1": ArrayRequest(
-                shape=(2, 2, 2), dtype=np.float32, memory="device"
+                shape=(2, 2, 2), dtype=np.float32, memory="device",
+                total_runs=2
             )
         }
         requests2 = {
             "arr2": ArrayRequest(
-                shape=(3, 3, 3), dtype=np.float32, memory="device"
+                shape=(3, 3, 3), dtype=np.float32, memory="device",
+                total_runs=3
             )
         }
 
@@ -810,10 +821,12 @@ class TestMemoryManager:
         # Allocate device arrays through the memory manager
         requests = {
             "arr1": ArrayRequest(
-                shape=(3, 4), dtype=np.float32, memory="device"
+                shape=(3, 4), dtype=np.float32, memory="device",
+                total_runs=4
             ),
             "arr2": ArrayRequest(
-                shape=(2, 3), dtype=np.float64, memory="device"
+                shape=(2, 3), dtype=np.float64, memory="device",
+                total_runs=3
             ),
         }
 
@@ -850,10 +863,12 @@ class TestMemoryManager:
         # Allocate device arrays through the memory manager
         requests = {
             "arr1": ArrayRequest(
-                shape=(2, 5), dtype=np.float32, memory="device"
+                shape=(2, 5), dtype=np.float32, memory="device",
+                total_runs=5
             ),
             "arr2": ArrayRequest(
-                shape=(3, 2), dtype=np.float64, memory="device"
+                shape=(3, 2), dtype=np.float64, memory="device",
+                total_runs=2
             ),
         }
 
@@ -930,12 +945,14 @@ class TestGetChunkParameters:
                     dtype=np.float32,
                     memory="device",
                     unchunkable=True,
+                    total_runs=None,
                 ),
                 "huge_unchunkable2": ArrayRequest(
                     shape=huge_shape,
                     dtype=np.float32,
                     memory="device",
                     unchunkable=True,
+                    total_runs=None,
                 ),
                 # Need at least one chunkable array to hit the unchunkable
                 # exceeds memory path (otherwise hits all-unchunkable path)
@@ -944,6 +961,7 @@ class TestGetChunkParameters:
                     dtype=np.float32,
                     memory="device",
                     unchunkable=False,
+                    total_runs=1,
                 ),
             }
         }
@@ -1000,6 +1018,7 @@ class TestAllocateQueueExtractsNumRuns:
                 dtype=np.float32,
                 memory="device",
                 unchunkable=False,
+                total_runs=100,
             ),
         }
 
@@ -1057,12 +1076,14 @@ class TestAllocateQueueExtractsNumRuns:
                 dtype=np.float32,
                 memory="device",
                 unchunkable=False,
+                total_runs=10000,
             ),
             "arr2": ArrayRequest(
                 shape=(100, 10000),
                 dtype=np.float32,
                 memory="device",
                 unchunkable=False,
+                total_runs=10000,
             ),
         }
 
@@ -1131,12 +1152,14 @@ def test_allocate_queue_no_chunked_slices_in_response(mgr):
             dtype=np.float32,
             memory="device",
             unchunkable=False,
+            total_runs=100,
         ),
         "arr2": ArrayRequest(
             shape=(5, 100),
             dtype=np.float32,
             memory="device",
             unchunkable=False,
+            total_runs=100,
         ),
     }
 

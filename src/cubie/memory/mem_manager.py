@@ -1215,8 +1215,9 @@ class MemoryManager:
         # Validate all total_runs are consistent
         if len(total_runs_values) > 1:
             raise ValueError(
-                f"Inconsistent total_runs in requests: found {total_runs_values}. "
-                "All requests with total_runs must have the same value."
+                f"Inconsistent total_runs in requests: found "
+                f"{total_runs_values}. All requests with total_runs "
+                "must have the same value."
             )
         
         # Return the single value

@@ -2137,22 +2137,27 @@ class TestGetTotalRuns:
         # Mark arrays for reallocation to trigger request creation
         manager._needs_reallocation = ["arr1", "arr2"]
         
-        # Capture the allocation requests by intercepting the queue
-        original_queue = test_memory_manager.queue.copy()
+        # Capture the allocation requests by mocking queue_request
+        captured_requests = {}
+        original_queue_request = test_memory_manager.queue_request
+        
+        def mock_queue_request(instance, requests):
+            captured_requests.update(requests)
+            return original_queue_request(instance, requests)
+        
+        test_memory_manager.queue_request = mock_queue_request
         
         # Call allocate - this should create requests with total_runs
         manager.allocate()
         
-        # Get the newly queued requests for this manager
-        instance_id = id(manager)
-        assert instance_id in test_memory_manager.queue
-        requests = test_memory_manager.queue[instance_id]
+        # Restore original method
+        test_memory_manager.queue_request = original_queue_request
         
         # Verify both requests have total_runs set correctly
-        assert "arr1" in requests
-        assert "arr2" in requests
-        assert requests["arr1"].total_runs == expected_runs
-        assert requests["arr2"].total_runs == expected_runs
+        assert "arr1" in captured_requests
+        assert "arr2" in captured_requests
+        assert captured_requests["arr1"].total_runs == expected_runs
+        assert captured_requests["arr2"].total_runs == expected_runs
 
 
 class TestChunkMetadataFlow:

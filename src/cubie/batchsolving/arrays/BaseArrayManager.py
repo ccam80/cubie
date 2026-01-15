@@ -84,9 +84,9 @@ class ManagedArray:
         default=None,
         validator=attrsval_optional(attrsval_instance_of(int)),
     )
-    num_chunks: int = field(
-        default=1,
-        validator=getype_validator(int, 0),
+    num_chunks: Optional[int] = field(
+        default=None,
+        validator=attrsval_optional(getype_validator(int, 0)),
     )
     _chunk_axis_index: Optional[int] = field(
         default=None,
@@ -908,6 +908,9 @@ class BaseArrayManager(ABC):
         None
             Nothing is returned.
         """
+        # Get total_runs once before the loop for efficiency
+        total_runs_value = self._get_total_runs()
+        
         requests = {}
         for array_label in list(set(self._needs_reallocation)):
             host_array_object = self.host.get_managed_array(array_label)
@@ -915,13 +918,20 @@ class BaseArrayManager(ABC):
             if host_array is None:
                 continue
             device_array_object = self.device.get_managed_array(array_label)
+            
+            # Determine total_runs based on chunkability
+            if host_array_object.is_chunked:
+                total_runs = total_runs_value
+            else:
+                total_runs = None
+            
             request = ArrayRequest(
                 shape=host_array.shape,
                 dtype=device_array_object.dtype,
                 memory=device_array_object.memory_type,
                 chunk_axis_index=host_array_object._chunk_axis_index,
                 unchunkable=not host_array_object.is_chunked,
-                total_runs=self._get_total_runs(),
+                total_runs=total_runs,
             )
             requests[array_label] = request
         if requests:
