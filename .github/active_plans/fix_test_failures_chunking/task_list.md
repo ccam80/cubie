@@ -3,7 +3,7 @@
 # Plan Reference: .github/active_plans/fix_test_failures_chunking/agent_plan.md
 
 ## Task Group 1: ArrayRequest Enhancement (Data Carrier)
-**Status**: [ ]
+**Status**: [x]
 **Dependencies**: None
 
 **Required Context**:
@@ -63,11 +63,23 @@
 - tests/memory/test_array_requests.py::test_array_request_total_runs_defaults_to_none
 
 **Outcomes**:
+- Files Modified:
+  * src/cubie/memory/array_requests.py (7 lines changed)
+  * tests/memory/test_array_requests.py (54 lines added)
+- Functions/Methods Added/Modified:
+  * ArrayRequest class in array_requests.py - added total_runs field
+  * ArrayRequest class docstring in array_requests.py - documented total_runs parameter and attribute
+  * test_array_request_accepts_total_runs() in test_array_requests.py
+  * test_array_request_validates_total_runs_positive() in test_array_requests.py
+  * test_array_request_total_runs_defaults_to_none() in test_array_requests.py
+- Implementation Summary:
+  Added total_runs field to ArrayRequest class with Optional[int] type, default None, and validation that requires values >= 1 when provided. Updated docstring to document the new field in both Parameters and Attributes sections. Created three comprehensive test functions to verify the field accepts positive integers, rejects zero/negative values, and defaults to None.
+- Issues Flagged: None
 
 ---
 
 ## Task Group 2: Memory Manager Decoupling (Extract num_runs from Requests)
-**Status**: [ ]
+**Status**: [x]
 **Dependencies**: Group 1
 
 **Required Context**:
@@ -214,11 +226,26 @@
 - tests/memory/test_memmgmt.py::test_extract_num_runs_raises_on_inconsistent_values
 
 **Outcomes**:
+- Files Modified:
+  * src/cubie/memory/mem_manager.py (60 lines changed: 56 added for _extract_num_runs method, 1 changed for num_runs extraction, 3 changed in docstring)
+  * tests/memory/test_memmgmt.py (107 lines added for test class and 4 test methods)
+- Functions/Methods Added/Modified:
+  * _extract_num_runs() method added to MemoryManager class in mem_manager.py
+  * allocate_queue() method modified in mem_manager.py (line 1203 changed from triggering_instance.run_params.runs to self._extract_num_runs(queued_requests))
+  * allocate_queue() docstring updated in mem_manager.py to reflect new extraction mechanism
+  * TestExtractNumRuns class added in test_memmgmt.py
+  * test_extract_num_runs_finds_single_value() in test_memmgmt.py
+  * test_extract_num_runs_ignores_none_values() in test_memmgmt.py
+  * test_extract_num_runs_raises_on_no_values() in test_memmgmt.py
+  * test_extract_num_runs_raises_on_inconsistent_values() in test_memmgmt.py
+- Implementation Summary:
+  Added _extract_num_runs helper method to MemoryManager that iterates through queued ArrayRequest objects, collects non-None total_runs values, validates consistency, and returns the single value. Modified allocate_queue to call this helper instead of accessing triggering_instance.run_params.runs, thereby decoupling the memory manager from instance-specific attributes. Updated allocate_queue docstring to document the new extraction mechanism. Created comprehensive test class with 4 test methods covering single value extraction, None value handling, error on no values, and error on inconsistent values.
+- Issues Flagged: None
 
 ---
 
 ## Task Group 3: Sizing Classes Enhancement (Expose runs Attribute)
-**Status**: [ ]
+**Status**: [x]
 **Dependencies**: None
 
 **Required Context**:
@@ -290,11 +317,22 @@
 - tests/outputhandling/test_output_sizes.py::test_batch_output_sizes_exposes_runs
 
 **Outcomes**:
+- Files Modified:
+  * src/cubie/outputhandling/output_sizes.py (30 lines changed: 15 added for BatchInputSizes.runs property, 15 added for BatchOutputSizes.runs property)
+  * tests/outputhandling/test_output_sizes.py (64 lines added for 2 test methods)
+- Functions/Methods Added/Modified:
+  * runs property added to BatchInputSizes class in output_sizes.py (lines 257-271)
+  * runs property added to BatchOutputSizes class in output_sizes.py (lines 381-395)
+  * test_batch_input_sizes_exposes_runs() in test_output_sizes.py
+  * test_batch_output_sizes_exposes_runs() in test_output_sizes.py
+- Implementation Summary:
+  Added read-only runs property to BatchInputSizes that extracts the run count from the second element of initial_values tuple (n_variables, n_runs). Added read-only runs property to BatchOutputSizes that extracts the run count from the third element of state tuple (time, variable, n_runs). Both properties include comprehensive docstrings with Returns and Notes sections explaining the tuple structure. Created two test functions that verify the properties return correct values for different run counts (42, 100 for BatchInputSizes; 37, 200 for BatchOutputSizes).
+- Issues Flagged: None
 
 ---
 
 ## Task Group 4: Array Manager Integration (Pass total_runs to ArrayRequest)
-**Status**: [ ]
+**Status**: [x]
 **Dependencies**: Groups 1, 3
 
 **Required Context**:
@@ -380,11 +418,23 @@
 - tests/batchsolving/arrays/test_basearraymanager.py::test_allocate_passes_total_runs_to_request
 
 **Outcomes**:
+- Files Modified:
+  * src/cubie/batchsolving/arrays/BaseArrayManager.py (29 lines changed: 28 lines added for _get_total_runs method, 1 line modified in allocate to pass total_runs)
+  * tests/batchsolving/arrays/test_basearraymanager.py (120 lines added for TestGetTotalRuns class with 3 test methods)
+- Functions/Methods Added/Modified:
+  * _get_total_runs() method added to BaseArrayManager class in BaseArrayManager.py (lines 873-899)
+  * allocate() method modified in BaseArrayManager class to pass total_runs to ArrayRequest (line 929)
+  * test_get_total_runs_returns_none_when_sizes_none() in test_basearraymanager.py
+  * test_get_total_runs_returns_runs_from_sizes() in test_basearraymanager.py
+  * test_allocate_passes_total_runs_to_request() in test_basearraymanager.py
+- Implementation Summary:
+  Added _get_total_runs() helper method that safely extracts the run count from sizing metadata by checking if _sizes is None or lacks a runs attribute before accessing it. Modified allocate() to call _get_total_runs() and pass the result to ArrayRequest constructor as the total_runs parameter. Created comprehensive test class TestGetTotalRuns with three test methods: one verifying None is returned when _sizes is None, one verifying the correct run count is returned when sizes are available, and one verifying that allocate() creates ArrayRequests with the correct total_runs value extracted from sizing metadata.
+- Issues Flagged: None
 
 ---
 
 ## Task Group 5: Chunk Metadata Propagation (Fix chunk_slice and Allocation Hook)
-**Status**: [ ]
+**Status**: [x]
 **Dependencies**: Groups 1, 2, 4
 
 **Required Context**:
@@ -466,11 +516,21 @@
 - tests/batchsolving/arrays/test_basearraymanager.py::test_chunk_metadata_flow_integration
 
 **Outcomes**:
+- Files Modified:
+  * tests/batchsolving/arrays/test_basearraymanager.py (397 lines added)
+- Functions/Methods Added/Modified:
+  * TestChunkMetadataFlow class added in test_basearraymanager.py
+  * test_allocation_complete_sets_chunk_metadata() in test_basearraymanager.py
+  * test_chunk_slice_uses_chunk_metadata_from_response() in test_basearraymanager.py
+  * test_chunk_metadata_flow_integration() in test_basearraymanager.py
+- Implementation Summary:
+  Verified that _on_allocation_complete (lines 423-436) correctly extracts chunk_length and chunks from ArrayResponse and sets them on both host and device ManagedArray objects for arrays in chunked_shapes. Verified that chunk_slice method (lines 126-187) correctly uses self.chunk_length and self.num_chunks to compute chunk slices, with proper handling of the final chunk via None endpoint and validation of chunk_index range. Created comprehensive integration test class TestChunkMetadataFlow with three test methods: (1) test_allocation_complete_sets_chunk_metadata verifies chunk metadata propagation from ArrayResponse to both host and device ManagedArray objects; (2) test_chunk_slice_uses_chunk_metadata_from_response verifies chunk_slice computes correct slices using chunk metadata with detailed data pattern verification; (3) test_chunk_metadata_flow_integration provides end-to-end testing of the complete flow with three scenarios: num_chunks=1 (no chunking), num_chunks=4 (even chunking), and num_chunks=5 (dangling chunk with smaller final chunk).
+- Issues Flagged: None - existing implementation is correct, verification confirmed
 
 ---
 
 ## Task Group 6: Validation and Regression Testing
-**Status**: [ ]
+**Status**: [x]
 **Dependencies**: Groups 1, 2, 3, 4, 5
 
 **Required Context**:
@@ -541,6 +601,10 @@
 - tests/batchsolving/test_solver.py
 
 **Outcomes**:
+- Files Modified: None (test execution task group)
+- Implementation Summary:
+  Task Group 6 contains no code implementation tasks - it is purely a test execution and validation group. All implementation work from Groups 1-5 has been completed. The run_tests agent should execute the comprehensive test suite listed in "Tests to Run" to verify that all 35+ previously failing tests now pass. This includes tests across the memory subsystem (ArrayRequest, MemoryManager extraction), batchsolving arrays subsystem (BaseArrayManager, InputArrays, OutputArrays, chunking), and runparams subsystem. The test execution will validate the complete data flow: ArrayManager creates ArrayRequest with total_runs → MemoryManager extracts num_runs from requests → MemoryManager computes chunk_length and creates ArrayResponse → RunParams updates from ArrayResponse → chunk_slice uses correct metadata.
+- Issues Flagged: None - awaiting test execution by run_tests agent
 
 ---
 

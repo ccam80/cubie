@@ -125,3 +125,57 @@ def test_array_request_chunk_axis_index_validation():
 
     with pytest.raises(ValueError, match="must be >= 0"):
         ArrayRequest(dtype=np.float64, chunk_axis_index=-5)
+
+
+def test_array_request_accepts_total_runs():
+    """Verify ArrayRequest can be created with total_runs=100.
+
+    The total_runs field carries the number of runs for chunking calculations
+    and should accept positive integers.
+    """
+    from cubie.memory.array_requests import ArrayRequest
+
+    # Create ArrayRequest with total_runs=100
+    request = ArrayRequest(dtype=np.float64, total_runs=100)
+    assert request.total_runs == 100
+
+    # Verify other fields still work correctly
+    assert request.dtype == np.float64
+    assert request.chunk_axis_index == 2
+
+
+def test_array_request_validates_total_runs_positive():
+    """Verify ArrayRequest raises ValueError for total_runs=0 or negative.
+
+    The total_runs field must be >= 1 when provided, as it represents a count
+    of runs to process. Zero or negative values should be rejected.
+    """
+    from cubie.memory.array_requests import ArrayRequest
+
+    # Test zero is rejected
+    with pytest.raises(ValueError, match="must be >= 1"):
+        ArrayRequest(dtype=np.float64, total_runs=0)
+
+    # Test negative values are rejected
+    with pytest.raises(ValueError, match="must be >= 1"):
+        ArrayRequest(dtype=np.float64, total_runs=-1)
+
+    with pytest.raises(ValueError, match="must be >= 1"):
+        ArrayRequest(dtype=np.float64, total_runs=-100)
+
+
+def test_array_request_total_runs_defaults_to_none():
+    """Verify total_runs defaults to None when not provided.
+
+    When total_runs is None, the array is not intended for run-axis chunking,
+    such as driver_coefficients which don't vary per run.
+    """
+    from cubie.memory.array_requests import ArrayRequest
+
+    # Create ArrayRequest without specifying total_runs
+    request = ArrayRequest(dtype=np.float64)
+    assert request.total_runs is None
+
+    # Verify None can be explicitly set
+    request_explicit = ArrayRequest(dtype=np.float64, total_runs=None)
+    assert request_explicit.total_runs is None

@@ -368,6 +368,30 @@ class TestBatchInputSizes:
         assert nonzero_sizes.driver_coefficients[0] == 1
         assert nonzero_sizes.driver_coefficients[1] == 1
 
+    def test_batch_input_sizes_exposes_runs(self):
+        """Verify BatchInputSizes.runs returns correct value from initial_values"""
+        # Create BatchInputSizes with specific run count
+        n_states = 5
+        n_runs = 42
+        n_params = 3
+        sizes = BatchInputSizes(
+            initial_values=(n_states, n_runs),
+            parameters=(n_params, n_runs),
+            driver_coefficients=(None, 2, None),
+        )
+
+        # Verify runs property returns correct value
+        assert sizes.runs == n_runs
+
+        # Test with different run count
+        different_runs = 100
+        sizes_2 = BatchInputSizes(
+            initial_values=(n_states, different_runs),
+            parameters=(n_params, different_runs),
+            driver_coefficients=(None, 2, None),
+        )
+        assert sizes_2.runs == different_runs
+
 
 class TestBatchOutputSizes:
     """Test BatchOutputSizes class"""
@@ -419,6 +443,36 @@ class TestBatchOutputSizes:
         assert all(v >= 1 for v in nonzero_sizes.observables)
         assert all(v >= 1 for v in nonzero_sizes.state_summaries)
         assert all(v >= 1 for v in nonzero_sizes.observable_summaries)
+
+    def test_batch_output_sizes_exposes_runs(self):
+        """Verify BatchOutputSizes.runs returns correct value from state shape"""
+        # Create BatchOutputSizes with specific run count
+        n_time_samples = 100
+        n_variables = 5
+        n_runs = 37
+        sizes = BatchOutputSizes(
+            state=(n_time_samples, n_variables, n_runs),
+            observables=(n_time_samples, 3, n_runs),
+            state_summaries=(50, 2, n_runs),
+            observable_summaries=(50, 1, n_runs),
+            status_codes=(n_runs,),
+            iteration_counters=(n_time_samples, 4, n_runs),
+        )
+
+        # Verify runs property returns correct value
+        assert sizes.runs == n_runs
+
+        # Test with different run count
+        different_runs = 200
+        sizes_2 = BatchOutputSizes(
+            state=(n_time_samples, n_variables, different_runs),
+            observables=(n_time_samples, 3, different_runs),
+            state_summaries=(50, 2, different_runs),
+            observable_summaries=(50, 1, different_runs),
+            status_codes=(different_runs,),
+            iteration_counters=(n_time_samples, 4, different_runs),
+        )
+        assert sizes_2.runs == different_runs
 
 
 class TestIntegrationScenarios:

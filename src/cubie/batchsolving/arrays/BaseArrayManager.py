@@ -870,6 +870,28 @@ class BaseArrayManager(ABC):
                 shape_only=shape_only,
             )
 
+    def _get_total_runs(self) -> Optional[int]:
+        """Extract total runs from sizing metadata.
+        
+        Returns
+        -------
+        Optional[int]
+            Number of runs if sizing metadata available and has runs
+            attribute, otherwise None.
+        
+        Notes
+        -----
+        Returns None when _sizes is None or doesn't have a runs attribute.
+        This allows graceful handling of edge cases during initialization.
+        """
+        if self._sizes is None:
+            return None
+        
+        if not hasattr(self._sizes, 'runs'):
+            return None
+        
+        return self._sizes.runs
+
     def allocate(self) -> None:
         """
         Queue allocation requests for arrays that need reallocation.
@@ -899,6 +921,7 @@ class BaseArrayManager(ABC):
                 memory=device_array_object.memory_type,
                 chunk_axis_index=host_array_object._chunk_axis_index,
                 unchunkable=not host_array_object.is_chunked,
+                total_runs=self._get_total_runs(),
             )
             requests[array_label] = request
         if requests:

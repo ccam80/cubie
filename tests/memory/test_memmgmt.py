@@ -1160,3 +1160,102 @@ def test_allocate_queue_no_chunked_slices_in_response(mgr):
     assert isinstance(response.chunks, int)
     assert isinstance(response.chunk_length, int)
     assert isinstance(response.chunked_shapes, dict)
+
+
+class TestExtractNumRuns:
+    """Tests for _extract_num_runs helper method."""
+
+    def test_extract_num_runs_finds_single_value(self, mgr):
+        """Verify _extract_num_runs returns correct value when one request has total_runs."""
+        # Create queued_requests with single instance and single array
+        queued_requests = {
+            "instance_1": {
+                "arr1": ArrayRequest(
+                    shape=(10, 100),
+                    dtype=np.float32,
+                    memory="device",
+                    total_runs=100,
+                ),
+            }
+        }
+        
+        num_runs = mgr._extract_num_runs(queued_requests)
+        assert num_runs == 100
+
+    def test_extract_num_runs_ignores_none_values(self, mgr):
+        """Verify _extract_num_runs works when some requests have total_runs=None."""
+        # Create queued_requests with multiple arrays, some with None total_runs
+        queued_requests = {
+            "instance_1": {
+                "arr1": ArrayRequest(
+                    shape=(10, 100),
+                    dtype=np.float32,
+                    memory="device",
+                    total_runs=None,  # Should be ignored
+                ),
+                "arr2": ArrayRequest(
+                    shape=(5, 100),
+                    dtype=np.float32,
+                    memory="device",
+                    total_runs=100,  # Should use this value
+                ),
+            },
+            "instance_2": {
+                "arr3": ArrayRequest(
+                    shape=(3, 100),
+                    dtype=np.float32,
+                    memory="device",
+                    total_runs=None,  # Should be ignored
+                ),
+            },
+        }
+        
+        num_runs = mgr._extract_num_runs(queued_requests)
+        assert num_runs == 100
+
+    def test_extract_num_runs_raises_on_no_values(self, mgr):
+        """Verify _extract_num_runs raises ValueError when all total_runs are None."""
+        # Create queued_requests where all arrays have total_runs=None
+        queued_requests = {
+            "instance_1": {
+                "arr1": ArrayRequest(
+                    shape=(10, 100),
+                    dtype=np.float32,
+                    memory="device",
+                    total_runs=None,
+                ),
+                "arr2": ArrayRequest(
+                    shape=(5, 100),
+                    dtype=np.float32,
+                    memory="device",
+                    total_runs=None,
+                ),
+            }
+        }
+        
+        with pytest.raises(ValueError, match="No total_runs found"):
+            mgr._extract_num_runs(queued_requests)
+
+    def test_extract_num_runs_raises_on_inconsistent_values(self, mgr):
+        """Verify _extract_num_runs raises ValueError when requests have different total_runs."""
+        # Create queued_requests with inconsistent total_runs values
+        queued_requests = {
+            "instance_1": {
+                "arr1": ArrayRequest(
+                    shape=(10, 100),
+                    dtype=np.float32,
+                    memory="device",
+                    total_runs=100,
+                ),
+                "arr2": ArrayRequest(
+                    shape=(5, 200),
+                    dtype=np.float32,
+                    memory="device",
+                    total_runs=200,  # Different value - should raise
+                ),
+            }
+        }
+        
+        with pytest.raises(ValueError, match="Inconsistent total_runs"):
+            mgr._extract_num_runs(queued_requests)
+

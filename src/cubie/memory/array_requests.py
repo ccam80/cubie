@@ -32,6 +32,11 @@ class ArrayRequest:
         ``"pinned"``, or ``"managed"``.
     unchunkable
         Whether the memory manager is allowed to chunk the allocation.
+    total_runs
+        Total number of runs for chunking calculations. When ``None``, the
+        array is not intended for run-axis chunking (e.g., driver_coefficients).
+        Memory manager extracts this value to determine chunk parameters.
+        Defaults to ``None``.
 
     Attributes
     ----------
@@ -45,6 +50,9 @@ class ArrayRequest:
         Axis index along which chunking may occur.
     unchunkable
         Flag indicating that chunking should be disabled.
+    total_runs
+        Total number of runs for chunking calculations, or ``None`` if not
+        applicable.
     """
 
     dtype = attrs.field(
@@ -66,6 +74,10 @@ class ArrayRequest:
     )
     unchunkable: bool = attrs.field(
         default=False, validator=val.instance_of(bool)
+    )
+    total_runs: Optional[int] = attrs.field(
+        default=None,
+        validator=opt_getype_validator(int, 1),
     )
 
     @property
