@@ -22,7 +22,7 @@ from attrs.validators import (
 from numpy import (
     ceil as np_ceil,
     ndarray,
-    zeros as np_zeros,
+    empty as np_empty,
     floor as np_floor,
 )
 from math import prod
@@ -853,6 +853,7 @@ class MemoryManager:
         shape: tuple[int, ...],
         dtype: type,
         memory_type: str = "pinned",
+        like: Optional[ndarray] = None,
     ) -> ndarray:
         """
         Create a C-contiguous host array.
@@ -866,6 +867,9 @@ class MemoryManager:
         memory_type
             Memory type for the host array. Must be ``"pinned"`` or
             ``"host"``. Defaults to ``"pinned"``.
+        like
+            A source array to copy data from. If provided, the new array has
+            the same data as like; if not, it is filled with zeros
 
         Returns
         -------
@@ -878,12 +882,14 @@ class MemoryManager:
                 f"memory_type must be 'pinned' or 'host', got '{memory_type}'"
             )
         use_pinned = memory_type == "pinned"
-
         if use_pinned:
             arr = cuda.pinned_array(shape, dtype=dtype)
-            arr.fill(0)
         else:
-            arr = np_zeros(shape, dtype=dtype)
+            arr = np_empty(shape, dtype=dtype)
+        if like is not None:
+            arr[:] = like
+        else:
+            arr.fill(0.0)
         return arr
 
     def get_available_memory(self, group: str) -> int:

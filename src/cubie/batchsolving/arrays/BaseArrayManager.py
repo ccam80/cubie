@@ -812,7 +812,6 @@ class BaseArrayManager(ABC):
                 "sizes, ignoring update",
                 UserWarning,
             )
-
         for array_name in new_arrays:
             current_array = self.host.get_array(array_name)
             self._update_host_array(
@@ -938,7 +937,10 @@ class BaseArrayManager(ABC):
             if old_array is not None:
                 if slot.memory_type == "host":
                     new_array = self._memory_manager.create_host_array(
-                        old_array.shape, old_array.dtype, "pinned"
+                        old_array.shape,
+                        old_array.dtype,
+                        "pinned",
+                        like=old_array,
                     )
                     slot.array = new_array
         self.host.set_memory_type("pinned")
@@ -956,7 +958,10 @@ class BaseArrayManager(ABC):
                 old_array = slot.array
                 if old_array is not None:
                     new_array = self._memory_manager.create_host_array(
-                        old_array.shape, old_array.dtype, "host"
+                        old_array.shape,
+                        old_array.dtype,
+                        "host",
+                        like=old_array,
                     )
                     slot.array = new_array
                     slot.memory_type = "host"
