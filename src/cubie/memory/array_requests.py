@@ -86,9 +86,6 @@ class ArrayResponse:
         Number of chunks the allocation was divided into.
     chunk_length
         Length of each chunk along the run axis (except possibly last).
-    dangling_chunk_length
-        Length of the last chunk if it differs from chunk_length. None if all
-        chunks have equal length.
     chunked_shapes
         Mapping from array labels to their per-chunk shapes. Empty dict when
         no chunking occurs.
@@ -101,8 +98,6 @@ class ArrayResponse:
         Number of chunks the allocation was divided into.
     chunk_length
         Length of each chunk along the run axis.
-    dangling_chunk_length
-        Length of the last chunk if different from chunk_length.
     chunked_shapes
         Mapping from array labels to their per-chunk shapes.
     """
@@ -115,9 +110,6 @@ class ArrayResponse:
     )
     chunk_length: int = attrs.field(
         default=1,
-    )
-    dangling_chunk_length: Optional[int] = attrs.field(
-        default=None,
     )
     chunked_shapes: dict[str, tuple[int, ...]] = attrs.field(
         default=attrs.Factory(dict), validator=val.instance_of(dict)

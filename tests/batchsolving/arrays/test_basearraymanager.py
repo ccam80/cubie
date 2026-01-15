@@ -1739,10 +1739,9 @@ class TestChunkSliceMethod:
             # Check that first position has correct value
             assert result[0, 0, 0] == expected_start
 
-    def test_chunk_slice_handles_dangling_final_chunk(self):
-        """Verify final chunk uses dangling_chunk_length when set."""
-        # Create ManagedArray with 105 runs (4 chunks of 25, last chunk
-        # has 5)
+    def test_chunk_slice_handles_final_chunk_dynamically(self):
+        """Verify final chunk is handled dynamically without dangling_chunk_length."""
+        # Create ManagedArray with 105 runs (4 chunks of 25, last chunk has 5)
         managed = ManagedArray(
             dtype=np_float32,
             default_shape=(10, 5, 105),
@@ -1752,17 +1751,16 @@ class TestChunkSliceMethod:
         test_array = np.arange(5250, dtype=np_float32).reshape(10, 5, 105)
         managed.array = test_array
 
-        # Set chunk parameters with dangling final chunk
+        # Set chunk parameters - no dangling_chunk_length needed
         managed.num_chunks = 5
         managed.chunk_length = 25
-        managed.dangling_chunk_length = 5  # Final chunk has only 5 runs
 
         # Test regular chunks (0-3)
         for chunk_idx in range(4):
             result = managed.chunk_slice(chunk_idx)
             assert result.shape == (10, 5, 25)
 
-        # Test final chunk - should be shorter
+        # Test final chunk - should be shorter (dynamically calculated)
         final_chunk = managed.chunk_slice(4)
         assert final_chunk.shape == (10, 5, 5)
 
@@ -1857,7 +1855,6 @@ class TestChunkSliceMethod:
         # Single chunk spanning entire run axis
         managed.num_chunks = 1
         managed.chunk_length = 100
-        managed.dangling_chunk_length = None
 
         # Only valid chunk_index is 0
         result = managed.chunk_slice(0)
@@ -1911,10 +1908,8 @@ class TestChunkSliceMethod:
 def test_on_allocation_complete_stores_chunk_parameters(test_memory_manager):
     """Verify _on_allocation_complete stores chunk parameters in ManagedArray.
 
-    Tests that chunk_length, num_chunks, and dangling_chunk_length are
-    extracted from ArrayResponse and stored in both host and device
-    ManagedArray objects. Also verifies that chunked_slice_fn is no
-    longer set (that field still exists but is not populated).
+    Tests that chunk_length and num_chunks are extracted from ArrayResponse
+    and stored in both host and device ManagedArray objects.
     """
     precision = np_float32
     host_shape = (10, 3, 100)
@@ -1968,13 +1963,11 @@ def test_on_allocation_complete_stores_chunk_parameters(test_memory_manager):
     # Chunk parameters: 100 runs divided into 4 chunks of 25 each
     chunks = 4
     chunk_length = 25
-    dangling_chunk_length = None  # All chunks have equal length
 
     response = ArrayResponse(
         arr={"arr1": arr1, "arr2": arr2},
         chunks=chunks,
         chunk_length=chunk_length,
-        dangling_chunk_length=dangling_chunk_length,
         chunked_shapes={"arr1": chunked_shape, "arr2": chunked_shape},
     )
 
@@ -1988,18 +1981,14 @@ def test_on_allocation_complete_stores_chunk_parameters(test_memory_manager):
     # Device arrays
     assert manager.device.arr1.chunk_length == chunk_length
     assert manager.device.arr1.num_chunks == chunks
-    assert manager.device.arr1.dangling_chunk_length == dangling_chunk_length
     assert manager.device.arr2.chunk_length == chunk_length
     assert manager.device.arr2.num_chunks == chunks
-    assert manager.device.arr2.dangling_chunk_length == dangling_chunk_length
 
     # Host arrays
     assert manager.host.arr1.chunk_length == chunk_length
     assert manager.host.arr1.num_chunks == chunks
-    assert manager.host.arr1.dangling_chunk_length == dangling_chunk_length
     assert manager.host.arr2.chunk_length == chunk_length
     assert manager.host.arr2.num_chunks == chunks
-    assert manager.host.arr2.dangling_chunk_length == dangling_chunk_length
 
     # Verify chunked_shape is still set (existing functionality)
     assert manager.device.arr1.chunked_shape == chunked_shape
@@ -2035,7 +2024,6 @@ def test_managed_array_no_chunked_slice_fn_field():
     # Verify the new chunk parameter fields exist instead
     assert hasattr(managed, "chunk_length")
     assert hasattr(managed, "num_chunks")
-    assert hasattr(managed, "dangling_chunk_length")
 
     # Verify chunk_slice method exists
     assert hasattr(managed, "chunk_slice")

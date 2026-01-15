@@ -88,10 +88,6 @@ class ManagedArray:
         default=1,
         validator=getype_validator(int, 0),
     )
-    dangling_chunk_length: Optional[int] = field(
-        default=None,
-        validator=attrsval_optional(attrsval_instance_of(int)),
-    )
     _chunk_axis_index: Optional[int] = field(
         default=None,
         init=False,
@@ -427,7 +423,6 @@ class BaseArrayManager(ABC):
         # Extract chunk parameters from response
         chunks = response.chunks
         chunk_length = response.chunk_length
-        dangling_chunk_length = getattr(response, 'dangling_chunk_length', None)
 
         for array_label in self._needs_reallocation:
             try:
@@ -439,7 +434,6 @@ class BaseArrayManager(ABC):
                         array.chunked_shape = chunked_shapes[array_label]
                         array.chunk_length = chunk_length
                         array.num_chunks = chunks
-                        array.dangling_chunk_length = dangling_chunk_length
             except KeyError:
                 warn(
                     f"Device array {array_label} not found in allocation "
