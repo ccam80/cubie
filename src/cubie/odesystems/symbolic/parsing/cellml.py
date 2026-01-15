@@ -53,6 +53,7 @@ import re
 
 from cubie._utils import PrecisionDType
 from cubie.time_logger import default_timelogger
+from .cellml_cache import CellMLCache
 
 # Register timing events for cellml import functions
 # Module-level registration required for proper event tracking
@@ -203,6 +204,36 @@ def load_cellml_model(
     # Use filename as default name if not provided
     if name is None:
         name = path_obj.stem
+    
+    # Initialize cache and check for cached parse results
+    cache = CellMLCache(model_name=name, cellml_path=path)
+    
+    if cache.cache_valid():
+        cached_data = cache.load_from_cache()
+        
+        if cached_data is not None:
+            # Reconstruct SymbolicODE from cached data
+            # Import needed here to avoid circular import
+            from cubie.odesystems.symbolic.symbolicODE import SymbolicODE
+            
+            ode = SymbolicODE(
+                equations=cached_data['parsed_equations'],
+                all_indexed_bases=cached_data['indexed_bases'],
+                all_symbols=cached_data['all_symbols'],
+                fn_hash=cached_data['fn_hash'],
+                user_functions=cached_data['user_functions'],
+                name=cached_data['name'],
+                precision=precision,
+            )
+            default_timelogger.print_message(
+                f"Loaded {name} from CellML cache at: {cache.cache_file}"
+            )
+            return ode
+    
+    # Cache miss - continue with normal parsing
+    default_timelogger.print_message(
+        f"No CellML cache found for {name}, parsing from source..."
+    )
     
     default_timelogger.start_event("codegen_cellml_load_model")
     model = cellmlmanip.load_model(path)
@@ -360,18 +391,57 @@ def load_cellml_model(
     
     default_timelogger.stop_event("codegen_cellml_sympy_preparation")
     
+    # Import required modules for direct parse_input call
     from cubie.odesystems.symbolic.symbolicODE import SymbolicODE
+    from cubie.odesystems.symbolic.parsing import parse_input
     
-    return SymbolicODE.create(
+    # Register parsing event (same as SymbolicODE.create)
+    default_timelogger.register_event(
+        "symbolic_ode_parsing",
+        "codegen",
+        "Codegen time for symbolic ODE parsing",
+    )
+    
+    # Parse equations into structured components
+    default_timelogger.start_event("symbolic_ode_parsing")
+    sys_components = parse_input(
         dxdt=all_equations,
         states=initial_values if initial_values else None,
+        observables=observables,
         parameters=parameters_dict if parameters_dict else None,
         constants=constants_dict if constants_dict else None,
-        observables=observables,
-        name=name,
-        precision=precision,
+        drivers=None,
+        user_functions=None,
         strict=False,
         state_units=state_units if state_units else None,
         parameter_units=parameter_units if parameter_units else None,
+        constant_units=None,
         observable_units=observable_units if observable_units else None,
+        driver_units=None,
     )
+    index_map, all_symbols, functions, equations, fn_hash = sys_components
+    default_timelogger.stop_event("symbolic_ode_parsing")
+    
+    # Save to cache (silent - no timing events)
+    cache.save_to_cache(
+        parsed_equations=equations,
+        indexed_bases=index_map,
+        all_symbols=all_symbols,
+        user_functions=functions,
+        fn_hash=fn_hash,
+        precision=precision,
+        name=name,
+    )
+    
+    # Construct SymbolicODE directly (not via .create())
+    symbolic_ode = SymbolicODE(
+        equations=equations,
+        all_indexed_bases=index_map,
+        all_symbols=all_symbols,
+        name=name,
+        fn_hash=fn_hash,
+        user_functions=functions,
+        precision=precision,
+    )
+    
+    return symbolic_ode

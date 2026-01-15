@@ -440,3 +440,117 @@ def test_cellml_time_logging_aggregation(cellml_fixtures_dir):
         cellml.default_timelogger = original_logger
 
 
+def test_cache_used_on_reload(cellml_fixtures_dir, tmp_path):
+    """Verify CellML cache is used on second load of same model."""
+    import shutil
+    from pathlib import Path
+    
+    # Copy fixture to tmp directory so we can control generated/ location
+    tmp_cellml = tmp_path / "basic_ode.cellml"
+    shutil.copy(
+        cellml_fixtures_dir / "basic_ode.cellml",
+        tmp_cellml
+    )
+    
+    # Change working directory to tmp_path for generated/ directory
+    import os
+    original_cwd = os.getcwd()
+    try:
+        os.chdir(tmp_path)
+        
+        # First load - creates cache
+        ode1 = load_cellml_model(str(tmp_cellml), name="basic_ode")
+        
+        # Verify cache file created
+        cache_file = tmp_path / "generated" / "basic_ode" / "cellml_cache.pkl"
+        assert cache_file.exists(), "Cache file should exist after first load"
+        
+        # Second load - should use cache
+        ode2 = load_cellml_model(str(tmp_cellml), name="basic_ode")
+        
+        # Verify both ODEs are equivalent
+        assert ode1.num_states == ode2.num_states
+        assert ode1.fn_hash == ode2.fn_hash
+        assert len(ode1.indices.states.index_map) == len(ode2.indices.states.index_map)
+    
+    finally:
+        os.chdir(original_cwd)
+
+
+def test_cache_invalidated_on_file_change(cellml_fixtures_dir, tmp_path):
+    """Verify cache invalidates when CellML file content changes."""
+    import shutil
+    import os
+    
+    # Copy fixture to tmp directory
+    tmp_cellml = tmp_path / "basic_ode.cellml"
+    shutil.copy(
+        cellml_fixtures_dir / "basic_ode.cellml",
+        tmp_cellml
+    )
+    
+    original_cwd = os.getcwd()
+    try:
+        os.chdir(tmp_path)
+        
+        # First load - creates cache
+        ode1 = load_cellml_model(str(tmp_cellml), name="basic_ode")
+        cache_file = tmp_path / "generated" / "basic_ode" / "cellml_cache.pkl"
+        assert cache_file.exists()
+        
+        # Modify CellML file (add comment)
+        with open(tmp_cellml, 'a') as f:
+            f.write("\n<!-- Modified for test -->\n")
+        
+        # Verify cache becomes invalid
+        from cubie.odesystems.symbolic.parsing.cellml_cache import CellMLCache
+        cache = CellMLCache("basic_ode", str(tmp_cellml))
+        assert not cache.cache_valid(), "Cache should be invalid after file change"
+        
+        # Load again - should re-parse and update cache
+        ode2 = load_cellml_model(str(tmp_cellml), name="basic_ode")
+        
+        # Verify new cache is valid
+        assert cache.cache_valid(), "Cache should be valid after re-parse"
+    
+    finally:
+        os.chdir(original_cwd)
+
+
+def test_cache_isolated_per_model(cellml_fixtures_dir, tmp_path):
+    """Verify each model has separate cache file."""
+    import shutil
+    import os
+    
+    # Copy both fixtures to tmp directory
+    tmp_basic = tmp_path / "basic_ode.cellml"
+    tmp_br = tmp_path / "beeler_reuter_model_1977.cellml"
+    shutil.copy(cellml_fixtures_dir / "basic_ode.cellml", tmp_basic)
+    shutil.copy(
+        cellml_fixtures_dir / "beeler_reuter_model_1977.cellml",
+        tmp_br
+    )
+    
+    original_cwd = os.getcwd()
+    try:
+        os.chdir(tmp_path)
+        
+        # Load both models
+        ode_basic = load_cellml_model(str(tmp_basic), name="basic_ode")
+        ode_br = load_cellml_model(str(tmp_br), name="beeler_reuter_model_1977")
+        
+        # Verify separate cache files exist
+        cache_basic = tmp_path / "generated" / "basic_ode" / "cellml_cache.pkl"
+        cache_br = tmp_path / "generated" / "beeler_reuter_model_1977" / "cellml_cache.pkl"
+        
+        assert cache_basic.exists(), "basic_ode cache should exist"
+        assert cache_br.exists(), "beeler_reuter cache should exist"
+        
+        # Verify different models have different hashes
+        assert ode_basic.fn_hash != ode_br.fn_hash
+        assert ode_basic.num_states != ode_br.num_states
+    
+    finally:
+        os.chdir(original_cwd)
+
+

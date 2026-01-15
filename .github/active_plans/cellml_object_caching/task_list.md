@@ -3,7 +3,7 @@
 # Plan Reference: .github/active_plans/cellml_object_caching/agent_plan.md
 
 ## Task Group 1: Create CellMLCache Class
-**Status**: [ ]
+**Status**: [x]
 **Dependencies**: None
 
 **Required Context**:
@@ -348,14 +348,41 @@
 - tests/odesystems/symbolic/test_cellml_cache.py::test_corrupted_cache_returns_none
 
 **Outcomes**:
-[Empty - to be filled by taskmaster agent]
+- Files Modified:
+  * src/cubie/odesystems/symbolic/parsing/cellml_cache.py (271 lines created)
+  * tests/odesystems/symbolic/test_cellml_cache.py (328 lines created)
+- Functions/Methods Added/Modified:
+  * CellMLCache.__init__() in cellml_cache.py
+  * CellMLCache.get_cellml_hash() in cellml_cache.py
+  * CellMLCache.cache_valid() in cellml_cache.py
+  * CellMLCache.load_from_cache() in cellml_cache.py
+  * CellMLCache.save_to_cache() in cellml_cache.py
+- Implementation Summary:
+  Created complete CellMLCache class with SHA256-based cache validation.
+  Cache files stored at generated/<model_name>/cellml_cache.pkl with
+  hash comment on first line followed by pickled data dictionary.
+  All error handling implemented gracefully (returns None, logs via
+  default_timelogger). Created 8 comprehensive unit tests covering
+  initialization validation, hash consistency, cache validity checks,
+  save/load roundtrips, and corrupted cache handling.
+- Issues Flagged: None
+
+**Tests to Run**:
+- tests/odesystems/symbolic/test_cellml_cache.py::test_cache_initialization_valid_inputs
+- tests/odesystems/symbolic/test_cellml_cache.py::test_cache_initialization_invalid_inputs
+- tests/odesystems/symbolic/test_cellml_cache.py::test_get_cellml_hash_consistent
+- tests/odesystems/symbolic/test_cellml_cache.py::test_cache_valid_missing_file
+- tests/odesystems/symbolic/test_cellml_cache.py::test_cache_valid_hash_mismatch
+- tests/odesystems/symbolic/test_cellml_cache.py::test_load_from_cache_returns_none_invalid
+- tests/odesystems/symbolic/test_cellml_cache.py::test_save_and_load_roundtrip
+- tests/odesystems/symbolic/test_cellml_cache.py::test_corrupted_cache_returns_none
 
 ---
 
 
 
 ## Task Group 2: Modify load_cellml_model() for Cache Integration
-**Status**: [ ]
+**Status**: [x]
 **Dependencies**: Groups [1]
 
 **Required Context**:
@@ -521,12 +548,33 @@ None (integration tests added in Task Group 3)
 - tests/odesystems/symbolic/test_cellml.py::test_algebraic_equations_as_observables
 
 **Outcomes**:
-[Empty - to be filled by taskmaster agent]
+- Files Modified:
+  * src/cubie/odesystems/symbolic/parsing/cellml.py (83 lines modified)
+- Functions/Methods Added/Modified:
+  * load_cellml_model() in cellml.py - added cache integration
+- Implementation Summary:
+  Added CellMLCache integration to load_cellml_model():
+  1. Import for CellMLCache added at top of file (line 56)
+  2. Cache check and early return added after name determination (lines 208-236)
+     - Initializes CellMLCache with model_name and cellml_path
+     - If cache valid, loads cached data and reconstructs SymbolicODE directly
+     - Prints cache hit message via default_timelogger.print_message()
+     - Returns early on cache hit, bypassing cellmlmanip parsing
+     - Prints cache miss message and continues with normal parsing
+  3. Refactored end of function to call parse_input() directly (lines 394-447)
+     - Removed SymbolicODE.create() call
+     - Added direct parse_input() call to get intermediate results
+     - Saves intermediate results to cache (silent - no timing events)
+     - Constructs SymbolicODE directly using constructor
+  Cache hit path: Bypasses all cellmlmanip parsing, ~24x speedup expected
+  Cache miss path: Performs full parsing, saves results for next load
+  All timing events preserved (cache operations are silent per spec)
+- Issues Flagged: None
 
 ---
 
 ## Task Group 3: Add Integration Tests
-**Status**: [ ]
+**Status**: [x]
 **Dependencies**: Groups [1, 2]
 
 **Required Context**:
@@ -689,7 +737,37 @@ None (tests validate system behavior)
 - tests/odesystems/symbolic/test_cellml.py (full suite to verify no regressions)
 
 **Outcomes**:
-[Empty - to be filled by taskmaster agent]
+- Files Modified:
+  * tests/odesystems/symbolic/test_cellml.py (112 lines added)
+- Functions/Methods Added/Modified:
+  * test_cache_used_on_reload() in test_cellml.py (new test)
+  * test_cache_invalidated_on_file_change() in test_cellml.py (new test)
+  * test_cache_isolated_per_model() in test_cellml.py (new test)
+- Implementation Summary:
+  Added three integration tests to verify end-to-end cache functionality:
+  1. test_cache_used_on_reload - Verifies cache is created on first load
+     and used on second load. Tests in tmp directory with working
+     directory change to control generated/ location. Confirms cache file
+     exists and both ODE instances are equivalent (same num_states,
+     fn_hash, and index_map structure).
+  2. test_cache_invalidated_on_file_change - Verifies cache becomes
+     invalid when CellML file content changes. Modifies file by adding
+     XML comment, checks cache_valid() returns False, then verifies
+     re-parsing updates cache and makes it valid again.
+  3. test_cache_isolated_per_model - Verifies each model gets separate
+     cache file in its own directory. Loads basic_ode and beeler_reuter
+     models, confirms separate cache files exist, and verifies models
+     have different fn_hash and num_states values.
+  All tests use tmp_path fixture for clean isolation and restore working
+  directory in finally blocks. Tests import CellMLCache directly to check
+  cache validity. Educational comments explain test setup and assertions.
+- Issues Flagged: None
+
+**Tests to Run**:
+- tests/odesystems/symbolic/test_cellml.py::test_cache_used_on_reload
+- tests/odesystems/symbolic/test_cellml.py::test_cache_invalidated_on_file_change
+- tests/odesystems/symbolic/test_cellml.py::test_cache_isolated_per_model
+- tests/odesystems/symbolic/test_cellml.py (full suite to verify no regressions)
 
 ---
 
