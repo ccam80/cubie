@@ -55,7 +55,7 @@ def test_runparams_single_chunk(integration_solver, integration_system):
     # Create small arrays that fit in memory (no chunking)
     num_runs = 10
     inits = np.random.rand(integration_system.num_states, num_runs)
-    params = np.random.rand(integration_system.num_params, num_runs)
+    params = np.random.rand(integration_system.num_parameters, num_runs)
     
     result = integration_solver.solve(
         initial_values=inits,
@@ -77,8 +77,8 @@ def test_runparams_single_chunk(integration_solver, integration_system):
     
     # Verify result was produced
     assert result is not None
-    assert result.time_domain_array is not None
-    assert result.time_domain_array.shape[2] == num_runs
+    assert result.state is not None
+    assert result.state.shape[2] == num_runs
 
 
 def test_runparams_multiple_chunks(integration_solver, integration_system):
@@ -96,7 +96,7 @@ def test_runparams_multiple_chunks(integration_solver, integration_system):
     # Use enough runs to require chunking
     num_runs = 100
     inits = np.random.rand(integration_system.num_states, num_runs)
-    params = np.random.rand(integration_system.num_params, num_runs)
+    params = np.random.rand(integration_system.num_parameters, num_runs)
     
     result = integration_solver.solve(
         initial_values=inits,
@@ -139,8 +139,8 @@ def test_runparams_multiple_chunks(integration_solver, integration_system):
     
     # Verify result was produced correctly
     assert result is not None
-    assert result.time_domain_array is not None
-    assert result.time_domain_array.shape[2] == num_runs
+    assert result.state is not None
+    assert result.state.shape[2] == num_runs
     
     # Reset memory proportion for other tests
     integration_solver.kernel.memory_manager.set_auto_limit_mode(
@@ -164,7 +164,7 @@ def test_runparams_exact_division(integration_solver, integration_system):
     
     num_runs = 100
     inits = np.random.rand(integration_system.num_states, num_runs)
-    params = np.random.rand(integration_system.num_params, num_runs)
+    params = np.random.rand(integration_system.num_parameters, num_runs)
     
     result = integration_solver.solve(
         initial_values=inits,
@@ -196,8 +196,8 @@ def test_runparams_exact_division(integration_solver, integration_system):
     
     # Verify result was produced
     assert result is not None
-    assert result.time_domain_array is not None
-    assert result.time_domain_array.shape[2] == num_runs
+    assert result.state is not None
+    assert result.state.shape[2] == num_runs
     
     # Reset memory proportion
     integration_solver.kernel.memory_manager.set_auto_limit_mode(

@@ -786,7 +786,7 @@
 ---
 
 ## Task Group 8: Fix Attribute Name Mismatches in Tests
-**Status**: [ ]
+**Status**: [x]
 **Dependencies**: None
 
 **Required Context**:
@@ -854,6 +854,31 @@
 - tests/batchsolving/test_runparams_integration.py
 
 **Outcomes**:
+- Files Modified:
+  * tests/batchsolving/arrays/test_chunking.py (12 lines changed)
+    - Line 42, 44-45: Changed result.time_domain_array to result.state (3 references)
+    - Lines 73-74, 79-86: Changed result_chunked.time_domain_array and result_normal.time_domain_array to result_chunked.state and result_normal.state (6 references in assertions and error messages)
+    - Line 632: Changed assert input_manager.device.initial_values._chunk_axis_index == 2 to == 1
+    - Line 630: Updated comment to clarify initial_values is 2D (num_states, num_runs)
+  * tests/batchsolving/test_runparams_integration.py (9 lines changed)
+    - Line 58: Changed integration_system.num_params to integration_system.num_parameters
+    - Line 99: Changed integration_system.num_params to integration_system.num_parameters
+    - Line 167: Changed integration_system.num_params to integration_system.num_parameters
+    - Lines 80-81, 142-143, 199-200: Changed result.time_domain_array to result.state (6 references)
+- Functions/Methods Added/Modified:
+  * test_chunked_solve_produces_valid_output() - updated to use result.state instead of result.time_domain_array
+  * test_chunked_solver_produces_correct_results() - updated to use result.state in both chunked and unchunked assertions
+  * test_chunk_axis_index_in_array_requests() - updated initial_values assertion to use index 1 instead of 2
+  * test_runparams_single_chunk() - updated to use num_parameters and result.state
+  * test_runparams_multiple_chunks() - updated to use num_parameters and result.state
+  * test_runparams_exact_division() - updated to use num_parameters and result.state
+- Implementation Summary:
+  - Fixed all references to time_domain_array in OutputArrayContainer - changed to state attribute
+  - Fixed initial_values._chunk_axis_index assertion from 2 to 1 (initial_values is 2D with run axis at index 1)
+  - Fixed all references to num_params in SymbolicODE - changed to num_parameters attribute
+  - Updated comments to clarify that initial_values is 2D (num_states, num_runs) vs output arrays which use 3D stride order ("time", "variable", "run")
+  - All changes are simple attribute name corrections to match actual implementation
+- Issues Flagged: None
 
 ---
 

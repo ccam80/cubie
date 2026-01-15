@@ -39,10 +39,10 @@ def test_chunked_solve_produces_valid_output(
     solver, result = chunked_solved_solver
 
     # Verify output shape and that values are not all zeros/NaN
-    assert result.time_domain_array is not None
-    assert result.time_domain_array.shape[2] == 5
-    assert not np.all(result.time_domain_array == 0)
-    assert not np.any(np.isnan(result.time_domain_array))
+    assert result.state is not None
+    assert result.state.shape[2] == 5
+    assert not np.all(result.state == 0)
+    assert not np.any(np.isnan(result.state))
 
 
 @pytest.mark.parametrize(
@@ -70,20 +70,20 @@ def test_chunked_solver_produces_correct_results(
 
     # Results should match (within floating point tolerance)
     np.testing.assert_allclose(
-        result_chunked.time_domain_array,
-        result_normal.time_domain_array,
+        result_chunked.state,
+        result_normal.state,
         rtol=1e-5,
         atol=1e-7,
         err_msg=(
             " ################################### \n"
             " Delta \n"
-            f"{result_chunked.time_domain_array - result_normal.time_domain_array} \n"
+            f"{result_chunked.state - result_normal.state} \n"
             " ------------------------------------ \n"
             " Chunked output: \n"
-            f"{result_chunked.time_domain_array} \n"
+            f"{result_chunked.state} \n"
             " ------------------------------------ \n"
             " Unchunked output: \n"
-            f"{result_normal.time_domain_array} \n"
+            f"{result_normal.state} \n"
             " ################################### "
         ),
     )
@@ -627,9 +627,10 @@ def test_chunk_axis_index_in_array_requests(chunked_solved_solver):
     output_manager = solver.kernel.output_arrays
 
     # Check ManagedArray _chunk_axis_index computed from stride_order
-    # All arrays use stride_order ("time", "variable", "run")
+    # initial_values is 2D (num_states, num_runs) so run axis is at index 1
+    # output arrays use stride_order ("time", "variable", "run")
     # where "run" is at index 2
-    assert input_manager.device.initial_values._chunk_axis_index == 2
+    assert input_manager.device.initial_values._chunk_axis_index == 1
     assert output_manager.device.state._chunk_axis_index == 2
     assert output_manager.device.time_domain_array._chunk_axis_index == 2
 
