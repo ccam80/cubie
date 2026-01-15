@@ -132,6 +132,8 @@ PREPARE_JAC_TEMPLATE = (
     "    def prepare_jac(state, parameters, drivers, t, cached_aux):\n"
     "{body}\n"
     "    return prepare_jac\n"
+    "# Store aux_count for retrieval when loading from file cache\n"
+    "{func_name}.aux_count = {aux_count}\n"
 )
 
 
@@ -405,10 +407,12 @@ def generate_prepare_jac_code_from_jvp(
     cached_aux, _, prepare_assigns = _partition_cached_assignments(equations)
     body = _build_prepare_body(cached_aux, prepare_assigns, index_map)
     const_block = render_constant_assignments(index_map.constants.symbol_map)
+    aux_count = len(cached_aux)
     code = PREPARE_JAC_TEMPLATE.format(
-        func_name=func_name, body=body, const_lines=const_block
+        func_name=func_name, body=body, const_lines=const_block,
+        aux_count=aux_count
     )
-    return code, len(cached_aux)
+    return code, aux_count
 
 
 def generate_cached_jvp_code_from_jvp(
