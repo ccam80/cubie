@@ -146,8 +146,6 @@ class ManagedArray:
         ------
         TypeError
             If chunk_index is not an integer.
-        ValueError
-            If chunk_index is out of range.
 
         Notes
         -----
