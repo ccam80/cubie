@@ -524,7 +524,7 @@ def test_solver_num_runs_property(solver):
     """Test num_runs property."""
     num_runs = solver.num_runs
     # num_runs might be None before solving, so just check it's accessible
-    assert num_runs is not None or num_runs is None
+    assert num_runs is not None or num_runs == 1
 
 
 # ============================================================================

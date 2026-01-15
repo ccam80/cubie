@@ -1197,9 +1197,11 @@ class MemoryManager:
         queued_requests = self._queued_allocations.pop(stream_group, {})
 
         # Get total_runs from first request
-        first_instance_requests = next(iter(queued_requests.values()))
-        first_request = next(iter(first_instance_requests.values()))
-        num_runs = first_request.total_runs
+        num_runs = 1
+        for requests_dict in queued_requests.values():
+            for request in requests_dict.values():
+                num_runs = request.total_runs
+                break
 
         chunk_length, num_chunks = self.get_chunk_parameters(
             queued_requests, num_runs, stream_group
@@ -1360,9 +1362,6 @@ class MemoryManager:
                 chunked_shapes[key] = request.shape
 
         return chunked_shapes
-
-
-
 
 
 def get_portioned_request_size(

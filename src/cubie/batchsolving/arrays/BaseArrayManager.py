@@ -88,6 +88,10 @@ class ManagedArray:
         default=1,
         validator=getype_validator(int, 1),
     )
+    num_runs: int = field(
+        default=1,
+        validator=getype_validator(int, 1),
+    )
     _chunk_axis_index: Optional[int] = field(
         default=None,
         init=False,
@@ -370,13 +374,6 @@ class BaseArrayManager(ABC):
         num_runs : int
             Total number of runs in the batch. Must be >= 1.
 
-        Raises
-        ------
-        TypeError
-            If num_runs is not an integer.
-        ValueError
-            If num_runs is less than 1.
-
         Returns
         -------
         None
@@ -384,7 +381,7 @@ class BaseArrayManager(ABC):
         """
         # Update the num_runs attribute
         self.num_runs = num_runs
-        for array in self._iter_managed_arrays:
+        for _, array in self._iter_managed_arrays:
             array.num_runs = num_runs
 
     @property

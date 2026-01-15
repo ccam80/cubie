@@ -316,10 +316,7 @@ class OutputArrays(BaseArrayManager):
         """
         self._sizes = BatchOutputSizes.from_solver(solver_instance).nonzero
         self._precision = solver_instance.precision
-        # Extract num_runs from sizes and set it in the manager
-        # The third element of state shape is num_runs
-        num_runs = self._sizes.state[2]
-        self.set_array_runs(num_runs)
+        self.set_array_runs(solver_instance.num_runs)
         new_arrays = {}
         for name, slot in self.host.iter_managed_arrays():
             newshape = getattr(self._sizes, name)

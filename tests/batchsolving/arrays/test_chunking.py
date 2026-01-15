@@ -39,10 +39,10 @@ def test_chunked_solve_produces_valid_output(
     solver, result = chunked_solved_solver
 
     # Verify output shape and that values are not all zeros/NaN
-    assert result.state is not None
-    assert result.state.shape[2] == 5
-    assert not np.all(result.state == 0)
-    assert not np.any(np.isnan(result.state))
+    assert result.time_domain_array is not None
+    assert result.time_domain_array.shape[2] == 5
+    assert not np.all(result.time_domain_array == 0)
+    assert not np.any(np.isnan(result.time_domain_array))
 
 
 @pytest.mark.parametrize(
@@ -70,20 +70,20 @@ def test_chunked_solver_produces_correct_results(
 
     # Results should match (within floating point tolerance)
     np.testing.assert_allclose(
-        result_chunked.state,
-        result_normal.state,
+        result_chunked.time_domain_array,
+        result_normal.time_domain_array,
         rtol=1e-5,
         atol=1e-7,
         err_msg=(
             " ################################### \n"
             " Delta \n"
-            f"{result_chunked.state - result_normal.state} \n"
+            f"{result_chunked.time_domain_array - result_normal.time_domain_array} \n"
             " ------------------------------------ \n"
             " Chunked output: \n"
-            f"{result_chunked.state} \n"
+            f"{result_chunked.time_domain_array} \n"
             " ------------------------------------ \n"
             " Unchunked output: \n"
-            f"{result_normal.state} \n"
+            f"{result_normal.time_domain_array} \n"
             " ################################### "
         ),
     )
@@ -147,8 +147,8 @@ class TestWritebackTask:
         """Verify WritebackTask can be created with valid inputs."""
         pool = ChunkBufferPool()
         buffer = pool.acquire("test", (10,), np.float32)
-        target = np.zeros((100,), dtype=np.float32)
-
+        target = np.arange(100, dtype=np.float32)
+        buffer.array[:] = np.arange(10, dtype=np.float32)
         task = WritebackTask(
             event=None,
             buffer=buffer,
@@ -159,7 +159,7 @@ class TestWritebackTask:
 
         assert task.event is None
         assert task.buffer is buffer
-        assert task.target_array is target[:10]
+        assert np.array_equal(task.target_array, target[:10])
         assert task.buffer_pool is pool
         assert task.array_name == "test"
 
@@ -382,7 +382,7 @@ class TestWritebackWatcher:
         watcher = WritebackWatcher()
         pool = ChunkBufferPool()
         buffer = pool.acquire("test", (5, 10), np.float64)
-        target = np.zeros((5, 10), dtype=np.float64)
+        target = np.zeros((10, 10), dtype=np.float64)
 
         # Fill buffer with test data
         buffer.array[:] = np.arange(50, dtype=np.float64).reshape(5, 10)
@@ -390,7 +390,7 @@ class TestWritebackWatcher:
         watcher.submit(
             event=None,
             buffer=buffer,
-            target_array=target,
+            target_array=target[5:10, :],
             buffer_pool=pool,
             array_name="test",
         )
@@ -567,16 +567,16 @@ def test_chunked_shape_differs_from_shape_when_chunking(
 
     # Check device arrays have different chunked_shape
     output_arrays = solver.kernel.output_arrays
-    state_device = output_arrays.device.state
+    state_host = output_arrays.host.state
 
     # state array should be chunked (needs_chunked_transfer = True)
-    assert state_device.needs_chunked_transfer is True
+    assert state_host.needs_chunked_transfer is True
 
     # chunked_shape should differ from shape along run axis
-    assert state_device.chunked_shape != state_device.shape
+    assert state_host.chunked_shape != state_host.shape
 
     # Specifically, run axis (axis 2) should be smaller in chunked_shape
-    assert state_device.chunked_shape[2] < state_device.shape[2]
+    assert state_host.chunked_shape[2] < state_host.shape[2]
 
 
 def test_chunked_shape_equals_shape_when_not_chunking(
