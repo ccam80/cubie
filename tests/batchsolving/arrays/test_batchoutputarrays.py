@@ -254,6 +254,32 @@ class TestOutputArrays:
         assert output_arrays_manager._precision == solver.precision
         assert isinstance(output_arrays_manager._sizes, BatchOutputSizes)
 
+    def test_update_from_solver_sets_num_runs(
+        self, output_arrays_manager, solver
+    ):
+        """Test that update_from_solver sets num_runs from sizes.
+        
+        This test verifies that update_from_solver() correctly extracts 
+        num_runs from the third element of state shape and sets it via 
+        set_array_runs().
+        """
+        # Initially num_runs should be None
+        assert output_arrays_manager.num_runs is None
+        
+        # Call update_from_solver
+        output_arrays_manager.update_from_solver(solver)
+        
+        # Verify num_runs was set from sizes
+        # The num_runs should match the third element of state shape
+        expected_num_runs = solver.num_runs
+        assert output_arrays_manager.num_runs == expected_num_runs
+        
+        # Verify it matches what's in the sizes object
+        assert (
+            output_arrays_manager.num_runs
+            == output_arrays_manager._sizes.state[2]
+        )
+
     def test_update_from_solver_fast_path(self, output_arrays_manager, solver):
         """Test that update_from_solver reuses arrays when shape/dtype match."""
         # First call allocates arrays

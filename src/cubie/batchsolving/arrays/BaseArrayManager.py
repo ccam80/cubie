@@ -30,7 +30,7 @@ from numpy import (
 )
 from numpy.typing import NDArray
 
-from cubie._utils import opt_gttype_validator, getype_validator
+from cubie._utils import opt_gttype_validator, getype_validator, opt_getype_validator
 from cubie.cuda_simsafe import DeviceNDArrayBase
 from cubie.memory import default_memmgr
 from cubie.memory.mem_manager import ArrayRequest, ArrayResponse, MemoryManager
@@ -165,12 +165,17 @@ class ManagedArray:
         if self.chunk_length is None or self.num_chunks is None:
             return self.array
 
-        # Validate chunk_index range
-        if chunk_index < 0 or chunk_index >= self.num_chunks:
+        # Validate chunk_index range (Python-style: -num_chunks to num_chunks-1)
+        # Negative indices count from the end, like Python list indexing
+        if chunk_index < -self.num_chunks or chunk_index >= self.num_chunks:
             raise ValueError(
                 f"chunk_index {chunk_index} out of range "
-                f"[0, {self.num_chunks})"
+                f"[{-self.num_chunks}, {self.num_chunks})"
             )
+        
+        # Convert negative indices to positive
+        if chunk_index < 0:
+            chunk_index = self.num_chunks + chunk_index
 
         start = chunk_index * self.chunk_length
 
@@ -341,6 +346,9 @@ class BaseArrayManager(ABC):
     _needs_reallocation: list[str] = field(factory=list, init=False)
     _needs_overwrite: list[str] = field(factory=list, init=False)
     _memory_manager: MemoryManager = field(default=default_memmgr)
+    num_runs: Optional[int] = field(
+        default=None, validator=opt_getype_validator(int, 1)
+    )
 
     def __attrs_post_init__(self) -> None:
         """
@@ -363,6 +371,43 @@ class BaseArrayManager(ABC):
     def is_chunked(self) -> bool:
         """Return True if arrays are being processed in multiple chunks."""
         return self._chunks > 1
+
+    def set_array_runs(self, num_runs: int) -> None:
+        """Update num_runs in all ManagedArray instances.
+
+        This method sets the num_runs attribute to specify the total number
+        of runs in the batch. This value is used during allocation to
+        determine chunking behavior.
+
+        Parameters
+        ----------
+        num_runs : int
+            Total number of runs in the batch. Must be >= 1.
+
+        Raises
+        ------
+        TypeError
+            If num_runs is not an integer.
+        ValueError
+            If num_runs is less than 1.
+
+        Returns
+        -------
+        None
+            Nothing is returned.
+        """
+        # Validate input type and range using the same validator
+        if not isinstance(num_runs, int):
+            raise TypeError(
+                f"num_runs must be int, got {type(num_runs).__name__}"
+            )
+        if num_runs < 1:
+            raise ValueError(
+                f"num_runs must be >= 1, got {num_runs}"
+            )
+        
+        # Update the num_runs attribute
+        self.num_runs = num_runs
 
     @abstractmethod
     def update(self, *args: object, **kwargs: object) -> None:
@@ -870,28 +915,6 @@ class BaseArrayManager(ABC):
                 shape_only=shape_only,
             )
 
-    def _get_total_runs(self) -> Optional[int]:
-        """Extract total runs from sizing metadata.
-        
-        Returns
-        -------
-        Optional[int]
-            Number of runs if sizing metadata available and has runs
-            attribute, otherwise None.
-        
-        Notes
-        -----
-        Returns None when _sizes is None or doesn't have a runs attribute.
-        This allows graceful handling of edge cases during initialization.
-        """
-        if self._sizes is None:
-            return None
-        
-        if not hasattr(self._sizes, 'runs'):
-            return None
-        
-        return self._sizes.runs
-
     def allocate(self) -> None:
         """
         Queue allocation requests for arrays that need reallocation.
@@ -908,9 +931,6 @@ class BaseArrayManager(ABC):
         None
             Nothing is returned.
         """
-        # Get total_runs once before the loop for efficiency
-        total_runs_value = self._get_total_runs()
-        
         requests = {}
         for array_label in list(set(self._needs_reallocation)):
             host_array_object = self.host.get_managed_array(array_label)
@@ -920,10 +940,12 @@ class BaseArrayManager(ABC):
             device_array_object = self.device.get_managed_array(array_label)
             
             # Determine total_runs based on chunkability
+            # For chunked arrays, use self.num_runs
+            # For unchunked arrays, use total_runs=1 (not None)
             if host_array_object.is_chunked:
-                total_runs = total_runs_value
+                total_runs = self.num_runs
             else:
-                total_runs = None
+                total_runs = 1
             
             request = ArrayRequest(
                 shape=host_array.shape,

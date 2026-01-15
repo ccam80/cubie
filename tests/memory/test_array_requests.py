@@ -164,18 +164,48 @@ def test_array_request_validates_total_runs_positive():
         ArrayRequest(dtype=np.float64, total_runs=-100)
 
 
-def test_array_request_total_runs_defaults_to_none():
-    """Verify total_runs defaults to None when not provided.
 
-    When total_runs is None, the array is not intended for run-axis chunking,
-    such as driver_coefficients which don't vary per run.
+def test_array_request_total_runs_validates_minimum():
+    """Verify ArrayRequest raises ValueError for total_runs < 1.
+
+    The total_runs field must be >= 1, as it represents a count of runs to
+    process. Zero or negative values should be rejected since they don't
+    represent valid run counts.
     """
     from cubie.memory.array_requests import ArrayRequest
 
-    # Create ArrayRequest without specifying total_runs
-    request = ArrayRequest(dtype=np.float64)
-    assert request.total_runs is None
+    # Test zero is rejected
+    with pytest.raises(ValueError, match="must be >= 1"):
+        ArrayRequest(dtype=np.float64, total_runs=0)
 
-    # Verify None can be explicitly set
-    request_explicit = ArrayRequest(dtype=np.float64, total_runs=None)
-    assert request_explicit.total_runs is None
+    # Test negative values are rejected
+    with pytest.raises(ValueError, match="must be >= 1"):
+        ArrayRequest(dtype=np.float64, total_runs=-1)
+
+    with pytest.raises(ValueError, match="must be >= 1"):
+        ArrayRequest(dtype=np.float64, total_runs=-100)
+
+
+def test_array_request_total_runs_is_not_optional():
+    """Verify total_runs is always an int, never None.
+
+    The total_runs field should always be an integer >= 1, defaulting to 1
+    for unchunkable arrays. This ensures consistent behavior in the memory
+    manager without needing to handle None as a special case.
+    """
+    from cubie.memory.array_requests import ArrayRequest
+
+    # Test default value is 1 (not None)
+    request = ArrayRequest(dtype=np.float64)
+    assert request.total_runs == 1
+    assert isinstance(request.total_runs, int)
+
+    # Test that positive integers are accepted
+    request_100 = ArrayRequest(dtype=np.float64, total_runs=100)
+    assert request_100.total_runs == 100
+    assert isinstance(request_100.total_runs, int)
+
+    # Test that None is NOT accepted (should raise TypeError)
+    # Note: attrs validators raise TypeError for wrong type, not ValueError
+    with pytest.raises((TypeError, ValueError)):
+        ArrayRequest(dtype=np.float64, total_runs=None)

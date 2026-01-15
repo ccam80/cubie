@@ -269,6 +269,32 @@ class TestInputArrays:
         assert input_arrays_manager._precision == solver.precision
         assert isinstance(input_arrays_manager._sizes, BatchInputSizes)
 
+    def test_update_from_solver_sets_num_runs(
+        self, input_arrays_manager, solver
+    ):
+        """Test that update_from_solver sets num_runs from sizes.
+        
+        This test verifies that update_from_solver() correctly extracts 
+        num_runs from the second element of initial_values shape and sets it 
+        via set_array_runs().
+        """
+        # Initially num_runs should be None
+        assert input_arrays_manager.num_runs is None
+        
+        # Call update_from_solver
+        input_arrays_manager.update_from_solver(solver)
+        
+        # Verify num_runs was set from sizes
+        # The num_runs should match the second element of initial_values shape
+        expected_num_runs = solver.num_runs
+        assert input_arrays_manager.num_runs == expected_num_runs
+        
+        # Verify it matches what's in the sizes object
+        assert (
+            input_arrays_manager.num_runs
+            == input_arrays_manager._sizes.initial_values[1]
+        )
+
     def test_initialise_method(
         self, input_arrays_manager, solver, sample_input_arrays
     ):

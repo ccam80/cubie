@@ -261,6 +261,10 @@ class InputArrays(BaseArrayManager):
         """
         self._sizes = BatchInputSizes.from_solver(solver_instance).nonzero
         self._precision = solver_instance.precision
+        # Extract num_runs from sizes and set it in the manager
+        # The second element of initial_values shape is num_runs
+        num_runs = self._sizes.initial_values[1]
+        self.set_array_runs(num_runs)
         for name, arr_obj in self.host.iter_managed_arrays():
             if np_issubdtype(np_dtype(arr_obj.dtype), np_floating):
                 arr_obj.dtype = self._precision

@@ -1780,16 +1780,20 @@ class TestChunkSliceMethod:
         managed.num_chunks = 4
         managed.chunk_length = 25
 
-        # Test negative chunk_index
-        with pytest.raises(ValueError, match="chunk_index -1 out of range"):
-            managed.chunk_slice(-1)
-
-        # Test chunk_index >= num_chunks
+        # Test chunk_index too large (out of range positive)
         with pytest.raises(ValueError, match="chunk_index 4 out of range"):
             managed.chunk_slice(4)
 
         with pytest.raises(ValueError, match="chunk_index 10 out of range"):
             managed.chunk_slice(10)
+
+        # Test chunk_index too negative (out of range negative)
+        # For num_chunks=4, valid negative indices are -4 to -1
+        with pytest.raises(ValueError, match="chunk_index -5 out of range"):
+            managed.chunk_slice(-5)
+
+        with pytest.raises(ValueError, match="chunk_index -10 out of range"):
+            managed.chunk_slice(-10)
 
         # Test non-integer chunk_index
         with pytest.raises(
@@ -1801,6 +1805,49 @@ class TestChunkSliceMethod:
             TypeError, match="chunk_index must be int, got float"
         ):
             managed.chunk_slice(0.5)
+
+    def test_chunk_slice_accepts_valid_negative_indices(self):
+        """Verify chunk_slice accepts valid negative indices like Python lists."""
+        # Create ManagedArray with known data pattern
+        managed = ManagedArray(
+            dtype=np_float32,
+            default_shape=(10, 5, 100),
+            memory_type="host",
+            is_chunked=True,
+        )
+        # Fill array with values that make chunks easy to identify
+        test_array = np.zeros((10, 5, 100), dtype=np_float32)
+        for i in range(100):
+            test_array[:, :, i] = i
+        managed.array = test_array
+
+        # Set chunk parameters: 100 runs, 25 per chunk, 4 chunks
+        managed.num_chunks = 4
+        managed.chunk_length = 25
+
+        # Test -1 means last chunk (chunk 3)
+        last_chunk = managed.chunk_slice(-1)
+        assert last_chunk.shape == (10, 5, 25)
+        assert last_chunk[0, 0, 0] == 75  # Chunk 3 starts at run 75
+        # Verify it's the same as chunk_slice(3)
+        chunk3 = managed.chunk_slice(3)
+        np.testing.assert_array_equal(last_chunk, chunk3)
+
+        # Test -2 means second-to-last chunk (chunk 2)
+        second_last = managed.chunk_slice(-2)
+        assert second_last.shape == (10, 5, 25)
+        assert second_last[0, 0, 0] == 50  # Chunk 2 starts at run 50
+        # Verify it's the same as chunk_slice(2)
+        chunk2 = managed.chunk_slice(2)
+        np.testing.assert_array_equal(second_last, chunk2)
+
+        # Test -4 means first chunk (chunk 0)
+        first_chunk = managed.chunk_slice(-4)
+        assert first_chunk.shape == (10, 5, 25)
+        assert first_chunk[0, 0, 0] == 0  # Chunk 0 starts at run 0
+        # Verify it's the same as chunk_slice(0)
+        chunk0 = managed.chunk_slice(0)
+        np.testing.assert_array_equal(first_chunk, chunk0)
 
     def test_chunk_slice_none_chunk_axis_returns_full_array(self):
         """Verify chunk_slice returns full array when _chunk_axis_index is
@@ -2030,71 +2077,22 @@ def test_managed_array_no_chunked_slice_fn_field():
     assert callable(managed.chunk_slice)
 
 
-class TestGetTotalRuns:
-    """Test the _get_total_runs helper method."""
 
-    def test_get_total_runs_returns_none_when_sizes_none(
+class TestChunkMetadataFlow:
+    """Test chunk metadata propagation from allocation to slicing."""
+
+    def test_allocation_complete_sets_chunk_metadata(
         self, test_memory_manager, precision
     ):
-        """Verify _get_total_runs returns None when _sizes is None."""
-        # Create array manager without sizes
-        host_arrays = TestArraysSimple()
-        device_arrays = TestArraysSimple()
-        
-        manager = ConcreteArrayManager(
-            precision=precision,
-            sizes=None,  # No sizes provided
-            host=host_arrays,
-            device=device_arrays,
-            stream_group="default",
-            memory_proportion=None,
-            memory_manager=test_memory_manager,
-        )
-        
-        # _get_total_runs should return None
-        result = manager._get_total_runs()
-        assert result is None
+        """Verify _on_allocation_complete sets chunk_length and num_chunks.
 
-    def test_get_total_runs_returns_runs_from_sizes(
-        self, test_memory_manager, precision
-    ):
-        """Verify _get_total_runs returns correct value when _sizes has runs."""
-        # Create sizing object with runs property
-        sizes = BatchOutputSizes(
-            state=(10, 5, 42),  # 42 runs
-            observables=(10, 5, 42),
-        )
+        This test verifies that chunk metadata from ArrayResponse is properly
+        propagated to ManagedArray objects for both host and device containers.
+        """
+        # Create host and device arrays with known shapes
+        host_shape = (10, 5, 100)
+        chunked_shape = (10, 5, 25)
         
-        host_arrays = TestArraysSimple()
-        device_arrays = TestArraysSimple()
-        
-        manager = ConcreteArrayManager(
-            precision=precision,
-            sizes=sizes,
-            host=host_arrays,
-            device=device_arrays,
-            stream_group="default",
-            memory_proportion=None,
-            memory_manager=test_memory_manager,
-        )
-        
-        # _get_total_runs should return 42
-        result = manager._get_total_runs()
-        assert result == 42
-
-    def test_allocate_passes_total_runs_to_request(
-        self, test_memory_manager, precision, arraytest_settings
-    ):
-        """Verify allocate() creates ArrayRequest with correct total_runs."""
-        # Create sizing object with known run count
-        sizes = BatchOutputSizes(
-            state=arraytest_settings["hostshape1"],
-            observables=arraytest_settings["hostshape2"],
-        )
-        # BatchOutputSizes.runs extracts from the last dimension of state
-        expected_runs = arraytest_settings["hostshape1"][2]
-        
-        # Create host arrays with data
         host_arrays = TestArraysSimple(
             arr1=ManagedArray(
                 dtype=precision,
@@ -2103,6 +2101,168 @@ class TestGetTotalRuns:
             arr2=ManagedArray(
                 dtype=precision,
                 memory_type="host",
+            ),
+        )
+        host_arrays.arr1.array = np.zeros(host_shape, dtype=precision)
+        host_arrays.arr2.array = np.zeros(host_shape, dtype=precision)
+        
+        device_arrays = TestArraysSimple(
+            arr1=ManagedArray(
+                dtype=precision,
+                memory_type="device",
+            ),
+            arr2=ManagedArray(
+                dtype=precision,
+                memory_type="device",
+            ),
+        )
+        
+        manager = ConcreteArrayManager(
+            precision=precision,
+            sizes=None,
+            host=host_arrays,
+            device=device_arrays,
+            stream_group="default",
+            memory_proportion=None,
+            memory_manager=test_memory_manager,
+        )
+        
+        # Create ArrayResponse with chunk metadata
+        arr1 = device_array(chunked_shape, dtype=precision)
+        arr2 = device_array(chunked_shape, dtype=precision)
+        
+        # Define chunk parameters: 100 runs / 25 per chunk = 4 chunks
+        chunks = 4
+        chunk_length = 25
+        
+        response = ArrayResponse(
+            arr={"arr1": arr1, "arr2": arr2},
+            chunks=chunks,
+            chunk_length=chunk_length,
+            chunked_shapes={"arr1": chunked_shape, "arr2": chunked_shape},
+        )
+        
+        # Mark arrays for reallocation
+        manager._needs_reallocation = ["arr1", "arr2"]
+        
+        # Call allocation complete - this should set chunk metadata
+        manager._on_allocation_complete(response)
+        
+        # Verify chunk_length is set on device arrays
+        assert manager.device.arr1.chunk_length == chunk_length
+        assert manager.device.arr2.chunk_length == chunk_length
+        
+        # Verify num_chunks is set on device arrays
+        assert manager.device.arr1.num_chunks == chunks
+        assert manager.device.arr2.num_chunks == chunks
+        
+        # Verify chunk_length is set on host arrays
+        assert manager.host.arr1.chunk_length == chunk_length
+        assert manager.host.arr2.chunk_length == chunk_length
+        
+        # Verify num_chunks is set on host arrays
+        assert manager.host.arr1.num_chunks == chunks
+        assert manager.host.arr2.num_chunks == chunks
+        
+        # Verify chunked_shape is also set (existing functionality)
+        assert manager.device.arr1.chunked_shape == chunked_shape
+        assert manager.device.arr2.chunked_shape == chunked_shape
+        assert manager.host.arr1.chunked_shape == chunked_shape
+        assert manager.host.arr2.chunked_shape == chunked_shape
+
+
+class TestNumRunsAttribute:
+    """Test the num_runs attribute and set_array_runs method."""
+
+    def test_set_array_runs_sets_attribute(self, test_memory_manager, precision):
+        """Verify set_array_runs sets the num_runs attribute."""
+        host_arrays = TestArraysSimple()
+        device_arrays = TestArraysSimple()
+        
+        manager = ConcreteArrayManager(
+            precision=precision,
+            sizes=None,
+            host=host_arrays,
+            device=device_arrays,
+            stream_group="default",
+            memory_proportion=None,
+            memory_manager=test_memory_manager,
+        )
+        
+        # Initially num_runs should be None
+        assert manager.num_runs is None
+        
+        # Set num_runs
+        manager.set_array_runs(100)
+        
+        # Verify it's set correctly
+        assert manager.num_runs == 100
+
+    def test_set_array_runs_validates_type(self, test_memory_manager, precision):
+        """Verify set_array_runs validates type."""
+        host_arrays = TestArraysSimple()
+        device_arrays = TestArraysSimple()
+        
+        manager = ConcreteArrayManager(
+            precision=precision,
+            sizes=None,
+            host=host_arrays,
+            device=device_arrays,
+            stream_group="default",
+            memory_proportion=None,
+            memory_manager=test_memory_manager,
+        )
+        
+        # Test with float (invalid)
+        with pytest.raises(TypeError, match="num_runs must be int"):
+            manager.set_array_runs(100.5)
+        
+        # Test with string (invalid)
+        with pytest.raises(TypeError, match="num_runs must be int"):
+            manager.set_array_runs("100")
+
+    def test_set_array_runs_validates_range(self, test_memory_manager, precision):
+        """Verify set_array_runs validates range."""
+        host_arrays = TestArraysSimple()
+        device_arrays = TestArraysSimple()
+        
+        manager = ConcreteArrayManager(
+            precision=precision,
+            sizes=None,
+            host=host_arrays,
+            device=device_arrays,
+            stream_group="default",
+            memory_proportion=None,
+            memory_manager=test_memory_manager,
+        )
+        
+        # Test with 0 (invalid)
+        with pytest.raises(ValueError, match="num_runs must be >= 1"):
+            manager.set_array_runs(0)
+        
+        # Test with negative value (invalid)
+        with pytest.raises(ValueError, match="num_runs must be >= 1"):
+            manager.set_array_runs(-1)
+        
+        # Test with 1 (valid minimum)
+        manager.set_array_runs(1)
+        assert manager.num_runs == 1
+
+    def test_allocate_uses_num_runs_for_chunked_arrays(
+        self, test_memory_manager, precision, arraytest_settings
+    ):
+        """Verify allocate() uses num_runs for chunked arrays."""
+        # Create host arrays with data
+        host_arrays = TestArraysSimple(
+            arr1=ManagedArray(
+                dtype=precision,
+                memory_type="host",
+                is_chunked=True,  # Explicitly chunked
+            ),
+            arr2=ManagedArray(
+                dtype=precision,
+                memory_type="host",
+                is_chunked=True,  # Explicitly chunked
             ),
         )
         host_arrays.arr1.array = np.zeros(
@@ -2126,7 +2286,7 @@ class TestGetTotalRuns:
         
         manager = ConcreteArrayManager(
             precision=precision,
-            sizes=sizes,
+            sizes=None,
             host=host_arrays,
             device=device_arrays,
             stream_group="default",
@@ -2134,10 +2294,13 @@ class TestGetTotalRuns:
             memory_manager=test_memory_manager,
         )
         
-        # Mark arrays for reallocation to trigger request creation
+        # Set num_runs
+        manager.set_array_runs(42)
+        
+        # Mark arrays for reallocation
         manager._needs_reallocation = ["arr1", "arr2"]
         
-        # Capture the allocation requests by mocking queue_request
+        # Capture the allocation requests
         captured_requests = {}
         original_queue_request = test_memory_manager.queue_request
         
@@ -2147,17 +2310,91 @@ class TestGetTotalRuns:
         
         test_memory_manager.queue_request = mock_queue_request
         
-        # Call allocate - this should create requests with total_runs
+        # Call allocate - should use num_runs for chunked arrays
         manager.allocate()
         
         # Restore original method
         test_memory_manager.queue_request = original_queue_request
         
-        # Verify both requests have total_runs set correctly
+        # Verify requests have total_runs set to num_runs
         assert "arr1" in captured_requests
         assert "arr2" in captured_requests
-        assert captured_requests["arr1"].total_runs == expected_runs
-        assert captured_requests["arr2"].total_runs == expected_runs
+        assert captured_requests["arr1"].total_runs == 42
+        assert captured_requests["arr2"].total_runs == 42
+
+    def test_allocate_uses_one_for_unchunked_arrays(
+        self, test_memory_manager, precision, arraytest_settings
+    ):
+        """Verify allocate() uses total_runs=1 for unchunked arrays."""
+        # Create host arrays with data
+        host_arrays = TestArraysSimple(
+            arr1=ManagedArray(
+                dtype=precision,
+                memory_type="host",
+                is_chunked=False,  # Explicitly unchunked
+            ),
+            arr2=ManagedArray(
+                dtype=precision,
+                memory_type="host",
+                is_chunked=False,  # Explicitly unchunked
+            ),
+        )
+        host_arrays.arr1.array = np.zeros(
+            arraytest_settings["hostshape1"], dtype=precision
+        )
+        host_arrays.arr2.array = np.zeros(
+            arraytest_settings["hostshape2"], dtype=precision
+        )
+        
+        # Create device arrays
+        device_arrays = TestArraysSimple(
+            arr1=ManagedArray(
+                dtype=precision,
+                memory_type="device",
+            ),
+            arr2=ManagedArray(
+                dtype=precision,
+                memory_type="device",
+            ),
+        )
+        
+        manager = ConcreteArrayManager(
+            precision=precision,
+            sizes=None,
+            host=host_arrays,
+            device=device_arrays,
+            stream_group="default",
+            memory_proportion=None,
+            memory_manager=test_memory_manager,
+        )
+        
+        # Set num_runs (should be ignored for unchunked arrays)
+        manager.set_array_runs(42)
+        
+        # Mark arrays for reallocation
+        manager._needs_reallocation = ["arr1", "arr2"]
+        
+        # Capture the allocation requests
+        captured_requests = {}
+        original_queue_request = test_memory_manager.queue_request
+        
+        def mock_queue_request(instance, requests):
+            captured_requests.update(requests)
+            return original_queue_request(instance, requests)
+        
+        test_memory_manager.queue_request = mock_queue_request
+        
+        # Call allocate - should use total_runs=1 for unchunked arrays
+        manager.allocate()
+        
+        # Restore original method
+        test_memory_manager.queue_request = original_queue_request
+        
+        # Verify requests have total_runs set to 1 (not num_runs or None)
+        assert "arr1" in captured_requests
+        assert "arr2" in captured_requests
+        assert captured_requests["arr1"].total_runs == 1
+        assert captured_requests["arr2"].total_runs == 1
 
 
 class TestChunkMetadataFlow:

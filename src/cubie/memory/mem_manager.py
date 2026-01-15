@@ -1167,62 +1167,6 @@ class MemoryManager:
         stream = self.get_stream(instance)
         stream.synchronize()
 
-    def _extract_num_runs(
-        self,
-        queued_requests: Dict[str, Dict[str, ArrayRequest]],
-    ) -> int:
-        """Extract total_runs from queued allocation requests.
-        
-        Iterates through all ArrayRequest objects in queued_requests and returns
-        the first non-None total_runs value found. Validates that all requests
-        with total_runs set have the same value.
-        
-        Parameters
-        ----------
-        queued_requests
-            Nested dict: instance_id -> {array_label -> ArrayRequest}
-        
-        Returns
-        -------
-        int
-            The total number of runs for chunking calculations
-        
-        Raises
-        ------
-        ValueError
-            If no requests contain total_runs, or if inconsistent values found
-        
-        Notes
-        -----
-        Requests with total_runs=None are ignored (e.g., driver_coefficients).
-        At least one request must provide total_runs for chunking to work.
-        """
-        total_runs_values = set()
-        
-        # Iterate through nested dict structure
-        for instance_id, requests_dict in queued_requests.items():
-            for array_label, request in requests_dict.items():
-                if request.total_runs is not None:
-                    total_runs_values.add(request.total_runs)
-        
-        # Validate we found at least one total_runs
-        if len(total_runs_values) == 0:
-            raise ValueError(
-                "No total_runs found in allocation requests. At least one "
-                "request must specify total_runs for chunking calculations."
-            )
-        
-        # Validate all total_runs are consistent
-        if len(total_runs_values) > 1:
-            raise ValueError(
-                f"Inconsistent total_runs in requests: found "
-                f"{total_runs_values}. All requests with total_runs "
-                "must have the same value."
-            )
-        
-        # Return the single value
-        return total_runs_values.pop()
-
     def allocate_queue(
         self,
         triggering_instance: object,
@@ -1244,10 +1188,6 @@ class MemoryManager:
         coordinated chunking based on available memory. Calls
         allocation_ready_hook for each instance with their results.
 
-        The num_runs value is extracted from ArrayRequest.total_runs fields
-        rather than from triggering_instance attributes. All requests with
-        non-None total_runs must have the same value.
-
         Returns
         -------
         None
@@ -1256,8 +1196,10 @@ class MemoryManager:
         stream = self.get_stream(triggering_instance)
         queued_requests = self._queued_allocations.pop(stream_group, {})
 
-        # Extract num_runs from ArrayRequest total_runs fields
-        num_runs = self._extract_num_runs(queued_requests)
+        # Get total_runs from first request
+        first_instance_requests = next(iter(queued_requests.values()))
+        first_request = next(iter(first_instance_requests.values()))
+        num_runs = first_request.total_runs
 
         chunk_length, num_chunks = self.get_chunk_parameters(
             queued_requests, num_runs, stream_group

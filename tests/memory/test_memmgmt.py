@@ -1185,100 +1185,122 @@ def test_allocate_queue_no_chunked_slices_in_response(mgr):
     assert isinstance(response.chunked_shapes, dict)
 
 
-class TestExtractNumRuns:
-    """Tests for _extract_num_runs helper method."""
 
-    def test_extract_num_runs_finds_single_value(self, mgr):
-        """Verify _extract_num_runs returns correct value when one request has total_runs."""
-        # Create queued_requests with single instance and single array
-        queued_requests = {
-            "instance_1": {
-                "arr1": ArrayRequest(
-                    shape=(10, 100),
-                    dtype=np.float32,
-                    memory="device",
-                    total_runs=100,
-                ),
-            }
-        }
-        
-        num_runs = mgr._extract_num_runs(queued_requests)
-        assert num_runs == 100
+def test_allocate_queue_uses_first_request_total_runs(mgr):
+    """Verify allocate_queue extracts num_runs from first request in queue.
+    
+    After refactoring, allocate_queue should get num_runs directly from
+    the first request's total_runs field instead of using the complex
+    _extract_num_runs() method. This test verifies that behavior.
+    """
+    # Create instance without run_params (not needed anymore)
+    class MockInstance:
+        pass
+    
+    instance = MockInstance()
+    
+    # Track the allocation callback response
+    callback_called = {"flag": False, "response": None}
+    
+    def allocation_hook(response):
+        callback_called["flag"] = True
+        callback_called["response"] = response
+    
+    mgr.register(instance, allocation_ready_hook=allocation_hook)
+    
+    # Create requests where first request has total_runs=150
+    requests = {
+        "arr1": ArrayRequest(
+            shape=(10, 150),
+            dtype=np.float32,
+            memory="device",
+            unchunkable=False,
+            total_runs=150,
+        ),
+        "arr2": ArrayRequest(
+            shape=(5, 150),
+            dtype=np.float32,
+            memory="device",
+            unchunkable=False,
+            total_runs=150,
+        ),
+    }
+    
+    mgr.queue_request(instance, requests)
+    mgr.allocate_queue(instance)
+    
+    # Verify callback was called
+    assert callback_called["flag"] is True
+    response = callback_called["response"]
+    assert isinstance(response, ArrayResponse)
+    
+    # Verify chunk_length matches num_runs=150 (no chunking with 1GB free)
+    assert response.chunks == 1
+    assert response.chunk_length == 150
 
-    def test_extract_num_runs_ignores_none_values(self, mgr):
-        """Verify _extract_num_runs works when some requests have total_runs=None."""
-        # Create queued_requests with multiple arrays, some with None total_runs
-        queued_requests = {
-            "instance_1": {
-                "arr1": ArrayRequest(
-                    shape=(10, 100),
-                    dtype=np.float32,
-                    memory="device",
-                    total_runs=None,  # Should be ignored
-                ),
-                "arr2": ArrayRequest(
-                    shape=(5, 100),
-                    dtype=np.float32,
-                    memory="device",
-                    total_runs=100,  # Should use this value
-                ),
-            },
-            "instance_2": {
-                "arr3": ArrayRequest(
-                    shape=(3, 100),
-                    dtype=np.float32,
-                    memory="device",
-                    total_runs=None,  # Should be ignored
-                ),
-            },
-        }
-        
-        num_runs = mgr._extract_num_runs(queued_requests)
-        assert num_runs == 100
 
-    def test_extract_num_runs_raises_on_no_values(self, mgr):
-        """Verify _extract_num_runs raises ValueError when all total_runs are None."""
-        # Create queued_requests where all arrays have total_runs=None
-        queued_requests = {
-            "instance_1": {
-                "arr1": ArrayRequest(
-                    shape=(10, 100),
-                    dtype=np.float32,
-                    memory="device",
-                    total_runs=None,
-                ),
-                "arr2": ArrayRequest(
-                    shape=(5, 100),
-                    dtype=np.float32,
-                    memory="device",
-                    total_runs=None,
-                ),
-            }
-        }
-        
-        with pytest.raises(ValueError, match="No total_runs found"):
-            mgr._extract_num_runs(queued_requests)
-
-    def test_extract_num_runs_raises_on_inconsistent_values(self, mgr):
-        """Verify _extract_num_runs raises ValueError when requests have different total_runs."""
-        # Create queued_requests with inconsistent total_runs values
-        queued_requests = {
-            "instance_1": {
-                "arr1": ArrayRequest(
-                    shape=(10, 100),
-                    dtype=np.float32,
-                    memory="device",
-                    total_runs=100,
-                ),
-                "arr2": ArrayRequest(
-                    shape=(5, 200),
-                    dtype=np.float32,
-                    memory="device",
-                    total_runs=200,  # Different value - should raise
-                ),
-            }
-        }
-        
-        with pytest.raises(ValueError, match="Inconsistent total_runs"):
-            mgr._extract_num_runs(queued_requests)
+def test_allocate_queue_handles_all_requests_same_total_runs(mgr):
+    """Verify allocate_queue works when all requests have same total_runs.
+    
+    With the refactored implementation, all requests in a queue must have
+    the same total_runs value (guaranteed by array managers). This test
+    verifies that allocate_queue correctly handles this case.
+    """
+    # Create instance without run_params (not needed anymore)
+    class MockInstance:
+        pass
+    
+    instance = MockInstance()
+    
+    # Track the allocation callback response
+    callback_called = {"flag": False, "response": None}
+    
+    def allocation_hook(response):
+        callback_called["flag"] = True
+        callback_called["response"] = response
+    
+    mgr.register(instance, allocation_ready_hook=allocation_hook)
+    
+    # Create multiple requests all with same total_runs=200
+    requests = {
+        "arr1": ArrayRequest(
+            shape=(10, 200),
+            dtype=np.float32,
+            memory="device",
+            unchunkable=False,
+            total_runs=200,
+        ),
+        "arr2": ArrayRequest(
+            shape=(5, 200),
+            dtype=np.float32,
+            memory="device",
+            unchunkable=False,
+            total_runs=200,
+        ),
+        "arr3": ArrayRequest(
+            shape=(8, 200),
+            dtype=np.float32,
+            memory="device",
+            unchunkable=False,
+            total_runs=200,
+        ),
+    }
+    
+    mgr.queue_request(instance, requests)
+    mgr.allocate_queue(instance)
+    
+    # Verify callback was called
+    assert callback_called["flag"] is True
+    response = callback_called["response"]
+    assert isinstance(response, ArrayResponse)
+    
+    # Verify chunk_length matches num_runs=200 (no chunking with 1GB free)
+    assert response.chunks == 1
+    assert response.chunk_length == 200
+    
+    # Verify all arrays were allocated
+    assert len(response.arr) == 3
+    assert "arr1" in response.arr
+    assert "arr2" in response.arr
+    assert "arr3" in response.arr
 

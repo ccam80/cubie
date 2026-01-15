@@ -254,22 +254,6 @@ class BatchInputSizes(ArraySizingClass):
         obj = cls(initial_values, parameters, driver_coefficients)
         return obj
 
-    @property
-    def runs(self) -> int:
-        """Extract number of runs from initial_values shape.
-
-        Returns
-        -------
-        int
-            Number of runs (second element of initial_values shape).
-
-        Notes
-        -----
-        The run count is stored in the second position of the
-        initial_values and parameters tuples: (n_variables, n_runs).
-        """
-        return self.initial_values[1]
-
 
 @attrs.define
 class BatchOutputSizes(ArraySizingClass):
@@ -377,19 +361,3 @@ class BatchOutputSizes(ArraySizingClass):
             iteration_counters,
         )
         return obj
-
-    @property
-    def runs(self) -> int:
-        """Extract number of runs from state shape.
-
-        Returns
-        -------
-        int
-            Number of runs (third element of state shape).
-
-        Notes
-        -----
-        The run count is stored in the third position of the
-        state, observables, and summary tuples: (time, variable, n_runs).
-        """
-        return self.state[2]
