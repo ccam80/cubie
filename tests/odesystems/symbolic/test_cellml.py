@@ -508,7 +508,7 @@ def test_cache_invalidated_on_file_change(cellml_fixtures_dir, tmp_path):
         assert not cache.cache_valid(), "Cache should be invalid after file change"
         
         # Load again - should re-parse and update cache
-        ode2 = load_cellml_model(str(tmp_cellml), name="basic_ode")
+        load_cellml_model(str(tmp_cellml), name="basic_ode")
         
         # Verify new cache is valid
         assert cache.cache_valid(), "Cache should be valid after re-parse"

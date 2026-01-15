@@ -1,14 +1,14 @@
 """Unit tests for CellML caching functionality."""
 
-import os
+
 import pytest
 from pathlib import Path
 import pickle
 from numpy import float64
 
 from cubie.odesystems.symbolic.parsing.cellml_cache import CellMLCache
-from cubie.odesystems.symbolic.parsing.parser import ParsedEquations
-from cubie.odesystems.symbolic.indexedbasemaps import IndexedBases
+
+
 
 
 @pytest.fixture
