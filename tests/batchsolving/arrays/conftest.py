@@ -57,9 +57,7 @@ def unchunking_solver(
 
 
 @pytest.fixture(scope="session")
-def chunked_solved_solver(
-    system, precision, low_mem_solver, driver_settings
-):
+def chunked_solved_solver(system, precision, low_mem_solver, driver_settings):
     solver = low_mem_solver
 
     n_runs = 5
@@ -89,7 +87,6 @@ def chunked_solved_solver(
         summarise_every=None,
         save_every=0.01,
         dt=0.01,
-        # chunk_axis parameter removed - chunking always on run axis
     )
     return solver, result
 
@@ -118,6 +115,5 @@ def unchunked_solved_solver(
         summarise_every=None,
         save_every=0.01,
         dt=0.01,
-        # chunk_axis parameter removed - chunking always on run axis
     )
     return solver, result

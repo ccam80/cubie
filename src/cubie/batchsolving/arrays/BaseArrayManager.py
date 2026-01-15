@@ -260,7 +260,6 @@ class BaseArrayManager(ABC):
         factory=ArrayContainer, validator=attrsval_instance_of(ArrayContainer)
     )
     _chunks: int = field(default=0, validator=attrsval_instance_of(int))
-    # _chunk_axis removed - chunking is hardcoded to "run" axis
     _stream_group: str = field(
         default="default", validator=attrsval_instance_of(str)
     )
@@ -365,7 +364,6 @@ class BaseArrayManager(ABC):
                 )
 
         self._chunks = response.chunks
-        # _chunk_axis assignment removed - ArrayResponse no longer has field
         if self.is_chunked:
             self._convert_host_to_numpy()
         else:

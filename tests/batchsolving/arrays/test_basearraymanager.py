@@ -112,7 +112,6 @@ def arraytest_settings(arraytest_overrides):
         "devshape3": (2, 3, 4),
         "devshape4": (2, 3, 4),
         "chunks": 2,
-        "chunk_axis": "run",
         "dtype": np.float32,
         "memory": "device",
         "stride_tuple": stride_template,
@@ -617,9 +616,7 @@ class TestBaseArrayManager:
         # This method should initialize device arrays to zeros
         test_arrmgr.request_allocation(array_requests)
         # Must allocate device arrays before using them
-        test_arrmgr._memory_manager.allocate_queue(
-            test_arrmgr
-        )
+        test_arrmgr._memory_manager.allocate_queue(test_arrmgr)
         test_arrmgr.update_host_arrays(
             {
                 "state": np.ones(
@@ -873,10 +870,9 @@ class TestCheckSizesAndTypes:
     ):
         """Test check_sizes with device location and chunking"""
         stride_order = test_manager_with_sizing.device.state.stride_order
-        chunk_axis = "run"  # Chunking always on run axis
         chunks = arraytest_settings["chunks"]
         test_manager_with_sizing._chunks = arraytest_settings["chunks"]
-        chunk_index = stride_order.index(chunk_axis)
+        chunk_index = stride_order.index("run")
         expected_shape1 = tuple(
             int(np.ceil(val / chunks)) if i == chunk_index else val
             for i, val in enumerate(arraytest_settings["hostshape1"])
@@ -1746,6 +1742,7 @@ def test_chunked_shape_propagates_through_allocation(test_memory_manager):
             end = start + chunk_size
             slices[run_axis_idx] = slice(start, end)
             return tuple(slices)
+
         return slice_fn
 
     chunked_slices = {

@@ -666,7 +666,7 @@ class TestNeedsChunkedTransferBranching:
         # Check which arrays used buffer pool (needs_chunked_transfer=True)
         for name, device_slot in input_arrays.device.iter_managed_arrays():
             if device_slot.needs_chunked_transfer:
-                if input_arrays._chunk_axis in device_slot.stride_order:
+                if "run" in device_slot.stride_order:
                     # Should have used buffer pool
                     assert name in buffer_names, (
                         f"Array {name} with needs_chunked_transfer=True "

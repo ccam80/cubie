@@ -69,7 +69,7 @@ DEFAULT_MEMORY_SETTINGS = {
 @define(frozen=True)
 class FullRunParams:
     """Full batch run parameters before chunking.
-    
+
     Chunking always occurs along the run axis.
 
     Attributes
@@ -93,7 +93,7 @@ class FullRunParams:
 @define(frozen=True)
 class ChunkParams:
     """Chunked execution parameters calculated for a batch run.
-    
+
     Chunking always occurs along the run axis.
 
     Attributes
@@ -135,7 +135,7 @@ class ChunkParams:
         alloc_response: "ArrayResponse",
     ) -> "ChunkParams":
         """Construct ChunkParams from memory allocation response.
-        
+
         Chunking is always performed along the run axis.
 
         Parameters
@@ -155,16 +155,15 @@ class ChunkParams:
             t0=full_params.t0,
             runs=full_params.runs,
             num_chunks=alloc_response.chunks,
-            _full_params=full_params,
-            _axis_length=alloc_response.axis_length,
-            _chunk_length=alloc_response.chunk_length,
-            _dangling_chunk_length=alloc_response.dangling_chunk_length,
-            # _chunk_axis removed - hardcoded to "run"
+            full_params=full_params,
+            axis_length=alloc_response.axis_length,
+            chunk_length=alloc_response.chunk_length,
+            dangling_chunk_length=alloc_response.dangling_chunk_length,
         )
 
     def __getitem__(self, index: int) -> "ChunkParams":
         """Get chunk parameters for a specific chunk index.
-        
+
         Chunking is performed along the run axis, so each chunk
         contains a subset of the total runs.
 
@@ -540,7 +539,6 @@ class BatchSolverKernel(CUDAFactory):
             warmup=np_float64(warmup),
             t0=np_float64(t0),
             runs=inits.shape[1],
-            # chunk_axis field removed from FullRunParams
         )
 
         # Update the single integrator with requested duration if required

@@ -237,7 +237,7 @@ def assert_solverkernel_config(kernel, settings, tolerance):
     # Not tested from kernel properties (computed/runtime values):
     # - atol, rtol: None for fixed-step
     # - cache_valid: runtime state
-    # - chunk_axis, chunks: batching configuration, not settings
+    # - chunks: batching configuration, not settings
     # - device_* arrays: runtime GPU memory, not settings
     # - driver_coefficients: runtime data
     # - input_arrays, output_arrays: runtime data structures

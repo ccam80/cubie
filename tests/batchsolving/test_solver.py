@@ -425,7 +425,6 @@ def test_output_length_and_summaries_length(solver):
 def test_chunk_related_properties(solved_solver_simple):
     """Test chunk-related properties."""
     solver, result = solved_solver_simple
-    # chunk_axis property removed - chunking is always on run axis
     assert solver.chunks == 1
 
 
