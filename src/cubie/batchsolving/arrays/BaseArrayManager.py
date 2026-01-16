@@ -5,6 +5,10 @@ Notes
 Defines :class:`ArrayContainer` and :class:`BaseArrayManager`, which surface
 stride metadata, register with :mod:`cubie.memory`, and orchestrate queued CUDA
 allocations for batch solver workflows.
+
+Array chunking for memory management is performed along the run axis when
+batches exceed available GPU memory. The chunking process coordinates transfers
+and synchronization across chunks automatically.
 """
 
 from abc import ABC, abstractmethod
@@ -20,15 +24,13 @@ from attrs.validators import (
 )
 from numpy import (
     array_equal as np_array_equal,
-    ceil as np_ceil,
-    dtype as np_dtype,
     float32 as np_float32,
     zeros as np_zeros,
+    ndarray,
 )
 from numpy.typing import NDArray
 
-from cubie._utils import opt_gttype_validator
-from cubie._utils import getype_validator
+from cubie._utils import opt_gttype_validator, getype_validator
 from cubie.cuda_simsafe import DeviceNDArrayBase
 from cubie.memory import default_memmgr
 from cubie.memory.mem_manager import ArrayRequest, ArrayResponse, MemoryManager
@@ -39,7 +41,9 @@ from cubie.outputhandling.output_sizes import ArraySizingClass
 class ManagedArray:
     """Metadata wrapper for a single managed array."""
 
-    dtype: type = field(default=np_float32, validator=attrsval_instance_of(type))
+    dtype: type = field(
+        default=np_float32, validator=attrsval_instance_of(type)
+    )
     stride_order: tuple[str, ...] = field(
         factory=tuple,
         validator=attrsval_deep_iterable(
@@ -47,7 +51,7 @@ class ManagedArray:
             iterable_validator=attrsval_instance_of(tuple),
         ),
     )
-    shape: tuple[Optional[int]] = field(
+    default_shape: tuple[Optional[int], ...] = field(
         factory=tuple,
         validator=attrsval_deep_iterable(
             member_validator=opt_gttype_validator(int, 0),
@@ -56,11 +60,41 @@ class ManagedArray:
     )
     memory_type: str = field(
         default="device",
-        validator=attrsval_in(["device", "mapped", "pinned", "managed", "host"]),
+        validator=attrsval_in(
+            ["device", "mapped", "pinned", "managed", "host"]
+        ),
     )
-    is_chunked: bool = field(default=True, validator=attrsval_instance_of(bool))
+    is_chunked: bool = field(
+        default=True, validator=attrsval_instance_of(bool)
+    )
     _array: Optional[Union[NDArray, DeviceNDArrayBase]] = field(
         default=None,
+        repr=False,
+    )
+    chunked_shape: Optional[tuple[int, ...]] = field(
+        default=None,
+        validator=attrsval_optional(
+            attrsval_deep_iterable(
+                member_validator=attrsval_instance_of(int),
+                iterable_validator=attrsval_instance_of(tuple),
+            )
+        ),
+    )
+    chunk_length: Optional[int] = field(
+        default=None,
+        validator=attrsval_optional(attrsval_instance_of(int)),
+    )
+    num_chunks: int = field(
+        default=1,
+        validator=getype_validator(int, 1),
+    )
+    num_runs: int = field(
+        default=1,
+        validator=getype_validator(int, 1),
+    )
+    _chunk_axis_index: Optional[int] = field(
+        default=None,
+        init=False,
         repr=False,
     )
 
@@ -70,10 +104,85 @@ class ManagedArray:
         defaultshape = shape if shape else (1,) * len(stride_order)
         self._array = np_zeros(defaultshape, dtype=self.dtype)
 
+        if "run" in stride_order:
+            self._chunk_axis_index = stride_order.index("run")
+
+    @property
+    def shape(self) -> tuple[Optional[int], ...]:
+        """Return the current shape of the array."""
+        if self._array is not None:
+            return self._array.shape
+        else:
+            return self.default_shape
+
+    @property
+    def needs_chunked_transfer(self) -> bool:
+        """Return True if this array requires chunked transfers.
+
+        Chunked transfers are needed when the array's full shape differs
+        from its per-chunk shape. This comparison replaces complex
+        is_chunked flag logic.
+        """
+        if self.chunked_shape is None:
+            return False
+        return self.shape != self.chunked_shape
+
+    def chunk_slice(
+        self, chunk_index: int
+    ) -> Union[ndarray, DeviceNDArrayBase]:
+        """Return a slice of the array for the specified chunk index.
+
+        Parameters
+        ----------
+        chunk_index
+            Zero-based index of the chunk to slice.
+
+        Returns
+        -------
+        Union[ndarray, DeviceNDArrayBase]
+            View or slice of the array for the specified chunk.
+
+        Raises
+        ------
+        TypeError
+            If chunk_index is not an integer.
+
+        Notes
+        -----
+        When chunking is inactive (is_chunked=False or _chunk_axis_index=None),
+        returns the full array. Otherwise computes slice based on stored
+        chunk parameters and _chunk_axis_index.
+        """
+        # Validate chunk_index type
+        if not isinstance(chunk_index, int):
+            raise TypeError(
+                f"chunk_index must be int, got {type(chunk_index).__name__}"
+            )
+
+        # Fast path: no chunking
+        if (
+            self._chunk_axis_index is None
+            or self.is_chunked is False
+            or self.chunk_length is None
+        ):
+            return self.array
+
+        start = chunk_index * self.chunk_length
+
+        if chunk_index == self.num_chunks - 1:
+            end = None
+        else:
+            end = start + self.chunk_length
+
+        # Build slice tuple - slice on chunk axis, full slice on others
+        chunk_slice_list = [slice(None)] * len(self.shape)
+        chunk_slice_list[self._chunk_axis_index] = slice(start, end)
+
+        return self.array[tuple(chunk_slice_list)]
+
     @property
     def array(self) -> Optional[Union[NDArray, DeviceNDArrayBase]]:
         """Return the attached array reference."""
-
         return self._array
 
     @array.setter
@@ -83,8 +192,6 @@ class ManagedArray:
         """Attach an array and update stored shape metadata."""
 
         self._array = value
-        if value is not None:
-            self.shape = tuple(value.shape)
 
 
 @define(slots=False)
@@ -112,7 +219,9 @@ class ArrayContainer(ABC):
         for managed_label, managed in self.iter_managed_arrays():
             if managed_label == label:
                 return managed
-        raise AttributeError(f"Managed array with label '{label}' does not exist.")
+        raise AttributeError(
+            f"Managed array with label '{label}' does not exist."
+        )
 
     def get_array(
         self, label: str
@@ -125,7 +234,6 @@ class ArrayContainer(ABC):
         self, label: str, array: Optional[Union[NDArray, DeviceNDArrayBase]]
     ) -> None:
         """Attach an array reference to ``label``."""
-
         self.get_managed_array(label).array = array
 
     def set_memory_type(self, memory_type: str) -> None:
@@ -134,6 +242,13 @@ class ArrayContainer(ABC):
         for _, managed in self.iter_managed_arrays():
             managed.memory_type = memory_type
 
+    @property
+    def memory_type(self) -> str:
+        """Return the memory type of the first managed array."""
+
+        for _, managed in self.iter_managed_arrays():
+            return managed.memory_type
+        return "No arrays managed"
 
     def delete_all(self) -> None:
         """Delete all array references."""
@@ -178,10 +293,8 @@ class BaseArrayManager(ABC):
     host
         Container for host-side arrays.
     _chunks
-        Number of chunks for memory management.
-    _chunk_axis
-        Axis along which to perform chunking. Must be one of "run",
-        "variable", or "time".
+        Number of chunks for memory management. Chunking is always
+        performed along the run axis.
     _stream_group
         Stream group identifier for CUDA operations.
     _memory_proportion
@@ -204,7 +317,8 @@ class BaseArrayManager(ABC):
         default=np_float32, validator=attrsval_instance_of(type)
     )
     _sizes: Optional[ArraySizingClass] = field(
-        default=None, validator=attrsval_optional(attrsval_instance_of(ArraySizingClass))
+        default=None,
+        validator=attrsval_optional(attrsval_instance_of(ArraySizingClass)),
     )
     device: ArrayContainer = field(
         factory=ArrayContainer, validator=attrsval_instance_of(ArrayContainer)
@@ -213,9 +327,6 @@ class BaseArrayManager(ABC):
         factory=ArrayContainer, validator=attrsval_instance_of(ArrayContainer)
     )
     _chunks: int = field(default=0, validator=attrsval_instance_of(int))
-    _chunk_axis: str = field(
-        default="run", validator=attrsval_in(["run", "variable", "time"])
-    )
     _stream_group: str = field(
         default="default", validator=attrsval_instance_of(str)
     )
@@ -225,6 +336,7 @@ class BaseArrayManager(ABC):
     _needs_reallocation: list[str] = field(factory=list, init=False)
     _needs_overwrite: list[str] = field(factory=list, init=False)
     _memory_manager: MemoryManager = field(default=default_memmgr)
+    num_runs: int = field(default=1, validator=getype_validator(int, 1))
 
     def __attrs_post_init__(self) -> None:
         """
@@ -242,6 +354,48 @@ class BaseArrayManager(ABC):
         """
         self.register_with_memory_manager()
         self._invalidate_hook()
+
+    @property
+    def is_chunked(self) -> bool:
+        """Return True if arrays are being processed in multiple chunks."""
+        return self._chunks > 1
+
+    def set_array_runs(self, num_runs: int) -> None:
+        """Update num_runs in all ManagedArray instances.
+
+        This method sets the num_runs attribute to specify the total number
+        of runs in the batch. This value is used during allocation to
+        determine chunking behavior.
+
+        Parameters
+        ----------
+        num_runs : int
+            Total number of runs in the batch. Must be >= 1.
+
+        Returns
+        -------
+        None
+            Nothing is returned.
+        """
+        # Update the num_runs attribute
+        self.num_runs = num_runs
+        for _, array in self._iter_managed_arrays:
+            array.num_runs = num_runs
+
+    @property
+    def _iter_managed_arrays(self) -> Iterator[tuple[str, ManagedArray]]:
+        """
+        Yield ``(label, managed)`` pairs for each managed array.
+
+        Returns
+        -------
+        Iterator[tuple[str, ManagedArray]]
+            Iterator over array labels and their metadata wrappers.
+        """
+        for label, managed in self.device.iter_managed_arrays():
+            yield label, managed
+        for label, managed in self.host.iter_managed_arrays():
+            yield label, managed
 
     @abstractmethod
     def update(self, *args: object, **kwargs: object) -> None:
@@ -281,38 +435,52 @@ class BaseArrayManager(ABC):
         Warns
         -----
         UserWarning
-            If a device array is not found in the allocation response during
-            an actual allocation (not dummy compilation).
-
-        Notes
-        -----
-        During dummy kernel compilation, arrays are not actually allocated,
-        so an empty response is expected and no warning is issued. Warnings
-        are only issued if the response contains some arrays but not the
-        expected one, indicating a potential allocation mismatch.
+            If a device array is not found in the allocation response.
 
         Returns
         -------
         None
             Nothing is returned.
+
+        Notes
+        -----
+        Warnings are only issued if the response contains some arrays but
+        not the expected one, indicating a potential allocation mismatch.
+
+        Stores chunk parameters from response in ManagedArray objects for
+        both host and device containers.
         """
-        # Suppress warnings if response is empty (dummy compilation)
-        is_dummy_compile = len(response.arr) == 0
+        chunked_shapes = response.chunked_shapes
+        arrays = response.arr
+
+        # Extract chunk parameters from response
+        chunks = response.chunks
+        chunk_length = response.chunk_length
 
         for array_label in self._needs_reallocation:
             try:
-                self.device.attach(array_label, response.arr[array_label])
+                self.device.attach(array_label, arrays[array_label])
+                # Store chunked_shape and chunk parameters in ManagedArray
+                if array_label in response.chunked_shapes:
+                    for container in (self.device, self.host):
+                        array = container.get_managed_array(array_label)
+                        array.chunked_shape = chunked_shapes[array_label]
+                        array.chunk_length = chunk_length
+                        array.num_chunks = chunks
             except KeyError:
-                if not is_dummy_compile:
-                    warn(
-                        f"Device array {array_label} not found in allocation "
-                        f"response. See "
-                        f"BaseArrayManager._on_allocation_complete docstring "
-                        f"for more info.",
-                        UserWarning,
-                    )
+                warn(
+                    f"Device array {array_label} not found in allocation "
+                    f"response. See "
+                    f"BaseArrayManager._on_allocation_complete docstring "
+                    f"for more info.",
+                    UserWarning,
+                )
+
         self._chunks = response.chunks
-        self._chunk_axis = response.chunk_axis
+        if self.is_chunked:
+            self._convert_host_to_numpy()
+        else:
+            self._convert_host_to_pinned()
         self._needs_reallocation.clear()
 
     def register_with_memory_manager(self) -> None:
@@ -340,7 +508,6 @@ class BaseArrayManager(ABC):
     def request_allocation(
         self,
         request: dict[str, ArrayRequest],
-        force_type: Optional[str] = None,
     ) -> None:
         """
         Send a request for allocation of device arrays.
@@ -349,9 +516,6 @@ class BaseArrayManager(ABC):
         ----------
         request
             Dictionary mapping array names to allocation requests.
-        force_type
-            Force request type to "single" or "group". If ``None``, the type
-            is determined automatically based on stream group membership.
 
         Notes
         -----
@@ -368,16 +532,7 @@ class BaseArrayManager(ABC):
         None
             Nothing is returned.
         """
-        request_type = force_type
-        if request_type is None:
-            if self._memory_manager.is_grouped(self):
-                request_type = "group"
-            else:
-                request_type = "single"
-        if request_type == "single":
-            self._memory_manager.single_request(self, request)
-        else:
-            self._memory_manager.queue_request(self, request)
+        self._memory_manager.queue_request(self, request)
 
     def _invalidate_hook(self) -> None:
         """
@@ -400,10 +555,10 @@ class BaseArrayManager(ABC):
 
     def _arrays_equal(
         self,
-            arr1: Optional[NDArray],
-            arr2: Optional[NDArray],
-            check_type: bool = True,
-            shape_only: bool = False,
+        arr1: Optional[NDArray],
+        arr2: Optional[NDArray],
+        check_type: bool = True,
+        shape_only: bool = False,
     ) -> bool:
         """
         Check if two arrays are equal in shape and optionally content.
@@ -519,86 +674,41 @@ class BaseArrayManager(ABC):
                 f"Invalid location: {location} - must be 'host' or 'device'"
             )
         expected_sizes = self._sizes
-        source_stride_order = getattr(expected_sizes, "_stride_order", None)
-        chunk_axis_name = self._chunk_axis
         matches = {}
 
         for array_name, array in new_arrays.items():
-            managed = container.get_managed_array(array_name)
-
             if array_name not in container.array_names():
                 matches[array_name] = False
                 continue
+
+            array_shape = array.shape
+            expected_size_tuple = getattr(expected_sizes, array_name)
+            if expected_size_tuple is None:
+                continue  # No size information for this array
+            expected_shape = list(expected_size_tuple)
+
+            if len(array_shape) != len(expected_shape):
+                matches[array_name] = False
             else:
-                array_shape = array.shape
-                expected_size_tuple = getattr(expected_sizes, array_name)
-                if expected_size_tuple is None:
-                    continue  # No size information for this array
-                expected_shape = list(expected_size_tuple)
-
-                target_stride_order = managed.stride_order
-
-                # Reorder expected_shape to match the container's stride order
-                if (
-                    source_stride_order
-                    and target_stride_order
-                    and source_stride_order != target_stride_order
+                shape_matches = True
+                for actual_dim, expected_dim in zip(
+                    array_shape, expected_shape
                 ):
-                    size_map = {
-                        axis: size
-                        for axis, size in zip(
-                            source_stride_order, expected_shape
-                        )
-                    }
-                    expected_shape = [
-                        size_map[axis]
-                        for axis in target_stride_order
-                        if axis in size_map
-                    ]
-
-                # Chunk device arrays when permitted by metadata
-                if (
-                    location == "device"
-                    and self._chunks > 0
-                    and managed.is_chunked
-                ):
-                    if chunk_axis_name in target_stride_order:
-                        chunk_axis_index = target_stride_order.index(
-                            chunk_axis_name
-                        )
-                        if expected_shape[chunk_axis_index] is not None:
-                            expected_shape[chunk_axis_index] = int(
-                                np_ceil(
-                                    expected_shape[chunk_axis_index]
-                                    / self._chunks
-                                )
-                            )
-
-                if len(array_shape) != len(expected_shape):
-                    matches[array_name] = False
-                else:
-                    shape_matches = True
-                    for actual_dim, expected_dim in zip(
-                        array_shape, expected_shape
-                    ):
-                        if (
-                            expected_dim is not None
-                            and actual_dim != expected_dim
-                        ):
-                            shape_matches = False
-                            break
-                    matches[array_name] = shape_matches
+                    if expected_dim is not None and actual_dim != expected_dim:
+                        shape_matches = False
+                        break
+                matches[array_name] = shape_matches
         return matches
 
     @abstractmethod
-    def finalise(self, indices: List[int]) -> None:
+    def finalise(self, chunk_index: int) -> None:
         """
         Execute post-chunk behaviour for device outputs.
 
         Parameters
         ----------
-        indices
-            Chunk indices processed by the device execution path.
+        chunk_index
+            Chunk index about to run on the device
 
         Returns
         -------
@@ -607,14 +717,14 @@ class BaseArrayManager(ABC):
         """
 
     @abstractmethod
-    def initialise(self, indices: List[int]) -> None:
+    def initialise(self, chunk_index: int) -> None:
         """
         Execute pre-chunk behaviour for device inputs.
 
         Parameters
         ----------
-        indices
-            Chunk indices about to run on the device.
+        chunk_index
+            Chunk index about to run on the device.
 
         Returns
         -------
@@ -682,77 +792,12 @@ class BaseArrayManager(ABC):
             )
         return True
 
-    def _convert_to_device_strides(
-        self, array: NDArray, stride_order: tuple[str, ...],
-        memory_type: str = "pinned"
-    ) -> NDArray:
-        """
-        Convert array to have strides compatible with device allocations.
-
-        Parameters
-        ----------
-        array
-            Source array to convert.
-        stride_order
-            Logical dimension labels in the array's native order.
-        memory_type
-            Memory type for the converted array. Must be ``"pinned"`` or
-            ``"host"``. Defaults to ``"pinned"``.
-
-        Returns
-        -------
-        numpy.ndarray
-            Array with strides matching the memory manager's stride order.
-
-        Notes
-        -----
-        For 2D arrays, returns unchanged (expects input in native format).
-        For 3D arrays, creates a new array with strides matching the memory
-        manager's ``_stride_order``, then copies data.
-        """
-        if stride_order is None:
-            return array
-
-        # 2D arrays are expected in native (variable, run) format
-        if len(array.shape) == 2:
-            return array
-
-        # Only convert 3D arrays; return others unchanged
-        if len(array.shape) != 3:
-            return array
-
-        # Fast path: compute expected strides before allocating target
-        desired_order = self._memory_manager._stride_order
-        if stride_order == desired_order:
-            return array
-
-        # Compute expected strides to check if conversion is needed
-        shape = array.shape
-        itemsize = array.dtype.itemsize
-        dims = {name: size for name, size in zip(stride_order, shape)}
-        expected_strides = {}
-        current_stride = itemsize
-        for name in reversed(desired_order):
-            expected_strides[name] = current_stride
-            current_stride *= dims[name]
-        expected_strides = tuple(
-            expected_strides[dim] for dim in stride_order
-        )
-
-        # Skip allocation if strides already match
-        if array.strides == expected_strides:
-            return array
-
-        target = self._memory_manager.create_host_array(
-            array.shape, array.dtype, stride_order, memory_type
-        )
-        # Copy data to array with matching strides
-        target[:] = array
-        return target
-
     def _update_host_array(
-        self, new_array: NDArray, current_array: Optional[NDArray], label: str,
-        shape_only: bool = False
+        self,
+        new_array: NDArray,
+        current_array: Optional[NDArray],
+        label: str,
+        shape_only: bool = False,
     ) -> None:
         """
         Mark host arrays for overwrite or reallocation based on updates.
@@ -782,22 +827,20 @@ class BaseArrayManager(ABC):
         if new_array is None:
             raise ValueError("New array is None")
         managed = self.host.get_managed_array(label)
-        # Convert to strides compatible with device allocations
-        new_array = self._convert_to_device_strides(
-            new_array, managed.stride_order, managed.memory_type
-        )
         # Fast path: if current exists and arrays have matching shape/dtype
         # (and optionally content when shape_only=False), skip update
         if current_array is not None and self._arrays_equal(
             new_array, current_array, shape_only=shape_only
         ):
             return None
+
         # Handle new array (current is None)
         if current_array is None:
             self._needs_reallocation.append(label)
             self._needs_overwrite.append(label)
             self.host.attach(label, new_array)
             return None
+
         # Arrays differ; determine if shape changed or just values
         if current_array.shape != new_array.shape:
             if label not in self._needs_reallocation:
@@ -809,6 +852,7 @@ class BaseArrayManager(ABC):
                 new_array = np_zeros(newshape, dtype=managed.dtype)
         else:
             self._needs_overwrite.append(label)
+
         self.host.attach(label, new_array)
         return None
 
@@ -833,13 +877,12 @@ class BaseArrayManager(ABC):
         """
         host_names = set(self.host.array_names())
         badnames = [
-            array_name for array_name in new_arrays if array_name not in host_names
+            array_name
+            for array_name in new_arrays
+            if array_name not in host_names
         ]
-        new_arrays = {
-            k: v
-            for k, v in new_arrays.items()
-            if k in host_names
-        }
+        new_arrays = {k: v for k, v in new_arrays.items() if k in host_names}
+
         if any(badnames):
             warn(
                 f"Host arrays '{badnames}' does not exist, ignoring update",
@@ -854,8 +897,10 @@ class BaseArrayManager(ABC):
         for array_name in new_arrays:
             current_array = self.host.get_array(array_name)
             self._update_host_array(
-                new_arrays[array_name], current_array, array_name,
-                shape_only=shape_only
+                new_arrays[array_name],
+                current_array,
+                array_name,
+                shape_only=shape_only,
             )
 
     def allocate(self) -> None:
@@ -866,6 +911,9 @@ class BaseArrayManager(ABC):
         -----
         Builds :class:`ArrayRequest` objects for arrays marked for
         reallocation and sets the ``unchunkable`` hint based on host metadata.
+
+        Chunking is always performed along the run axis by convention.
+        The specific axis index is determined by each array's chunk_axis_index.
 
         Returns
         -------
@@ -879,12 +927,14 @@ class BaseArrayManager(ABC):
             if host_array is None:
                 continue
             device_array_object = self.device.get_managed_array(array_label)
+            total_runs = self.num_runs
             request = ArrayRequest(
                 shape=host_array.shape,
                 dtype=device_array_object.dtype,
                 memory=device_array_object.memory_type,
-                stride_order=device_array_object.stride_order,
+                chunk_axis_index=host_array_object._chunk_axis_index,
                 unchunkable=not host_array_object.is_chunked,
+                total_runs=total_runs,
             )
             requests[array_label] = request
         if requests:
@@ -923,7 +973,8 @@ class BaseArrayManager(ABC):
         self._needs_reallocation.clear()
         self._needs_overwrite.clear()
 
-    def to_device(self, from_arrays: List[object], to_arrays: List[object]
+    def to_device(
+        self, from_arrays: List[object], to_arrays: List[object]
     ) -> None:
         """
         Copy host arrays to the device using the memory manager.
@@ -961,3 +1012,43 @@ class BaseArrayManager(ABC):
             Nothing is returned.
         """
         self._memory_manager.from_device(self, from_arrays, to_arrays)
+
+    def _convert_host_to_pinned(self) -> None:
+        """Convert regular numpy host arrays to pinned for non-chunked mode.
+
+        When a run is not chunked, the host arrays should be pinned to
+        enable asynchronous transfers.
+        """
+        for name, slot in self.host.iter_managed_arrays():
+            old_array = slot.array
+            if old_array is not None:
+                if slot.memory_type == "host":
+                    new_array = self._memory_manager.create_host_array(
+                        old_array.shape,
+                        old_array.dtype,
+                        "pinned",
+                        like=old_array,
+                    )
+                    slot.array = new_array
+        self.host.set_memory_type("pinned")
+
+    def _convert_host_to_numpy(self) -> None:
+        """Convert pinned host arrays to regular numpy for chunked mode.
+
+        When chunking is active, host arrays should be regular numpy
+        to limit pinned memory usage. Per-chunk pinned buffers are
+        used for staging during transfers.
+        """
+        for name, slot in self.host.iter_managed_arrays():
+            # Convert to regular numpy only for arrays with chunked transfers
+            if slot.memory_type == "pinned" and slot.needs_chunked_transfer:
+                old_array = slot.array
+                if old_array is not None:
+                    new_array = self._memory_manager.create_host_array(
+                        old_array.shape,
+                        old_array.dtype,
+                        "host",
+                        like=old_array,
+                    )
+                    slot.array = new_array
+                    slot.memory_type = "host"

@@ -3,6 +3,12 @@
 This module exposes the user-facing :class:`Solver` class and a convenience
 wrapper :func:`solve_ivp` for solving batches of initial value problems on the
 GPU.
+
+Notes
+-----
+When GPU memory is insufficient for the full batch, arrays are automatically
+chunked along the run axis. Chunking is transparent to the user and requires
+no configuration.
 """
 
 from pathlib import Path
@@ -348,7 +354,6 @@ class Solver:
         t0: float = 0.0,
         blocksize: int = 256,
         stream: Any = None,
-        chunk_axis: str = "run",
         grid_type: str = "verbatim",
         results_type: str = "full",
         nan_error_trajectories: bool = True,
@@ -381,9 +386,6 @@ class Solver:
         stream
             Stream on which to execute the kernel. ``None`` uses the solver's
             default stream.
-        chunk_axis
-            Dimension along which to chunk when memory is limited. Default is
-            ``"run"``.
         grid_type
             Strategy for constructing the integration grid from inputs.
             Only used when dict inputs trigger grid construction.
@@ -413,6 +415,9 @@ class Solver:
           construction for improved performance
         - Device arrays receive minimal processing before kernel
           execution
+
+        When GPU memory is insufficient for the full batch, arrays are
+        automatically chunked along the run axis.
         """
         if kwargs:
             self.update(kwargs, silent=True)
@@ -447,12 +452,13 @@ class Solver:
             t0=t0,
             blocksize=blocksize,
             stream=stream,
-            chunk_axis=chunk_axis,
         )
-        self.memory_manager.sync_stream(self.kernel)
 
-        # Stop wall-clock timing and print all timing summaries
-        # (CUDA events retrieved automatically by print_summary)
+        # Synchronize stream, wait until arrays written in "chunked" mode.
+        self.memory_manager.sync_stream(self.kernel)
+        self.kernel.wait_for_writeback()
+
+        # Stop wall-clock timing for solve
         default_timelogger.stop_event("solver_solve")
         default_timelogger.print_summary()
 
@@ -464,9 +470,12 @@ class Solver:
 
     def build_grid(
         self,
-        initial_values: Union[ndarray, Dict[str, Union[float, ndarray]]]=None,
-        parameters: Union[None, ndarray, Dict[str, Union[float,
-        ndarray]]]=None,
+        initial_values: Union[
+            ndarray, Dict[str, Union[float, ndarray]]
+        ] = None,
+        parameters: Union[
+            None, ndarray, Dict[str, Union[float, ndarray]]
+        ] = None,
         grid_type: str = "verbatim",
     ) -> Tuple[ndarray, ndarray]:
         """Build parameter and state grids for external use.
@@ -660,17 +669,6 @@ class Solver:
             This method alters kernel profiling configuration in-place.
         """
         self.kernel.disable_profiling()
-
-    def set_stride_order(self, order: Tuple[str]) -> None:
-        """Set the stride order for device arrays.
-
-        Parameters
-        ----------
-        order
-            Tuple of labels in ["time", "run", "variable"]. The last string in
-            this order is the contiguous dimension on chip.
-        """
-        self.kernel.set_stride_order(order)
 
     def get_state_indices(
         self, state_labels: Optional[List[str]] = None
@@ -869,11 +867,6 @@ class Solver:
         return self.kernel.output_types
 
     @property
-    def state_stride_order(self) -> Tuple[str, ...]:
-        """Describe the stride order of state arrays."""
-        return self.kernel.state_stride_order
-
-    @property
     def input_variables(self) -> List[str]:
         """List all input variable labels."""
         return self.system_interface.all_input_labels
@@ -882,11 +875,6 @@ class Solver:
     def output_variables(self) -> List[str]:
         """List all output variable labels."""
         return self.system_interface.all_output_labels
-
-    @property
-    def chunk_axis(self) -> str:
-        """Return the axis used for chunking large runs."""
-        return self.kernel.chunk_axis
 
     @property
     def chunks(self):
@@ -902,6 +890,11 @@ class Solver:
     def stream_group(self):
         """Return the CUDA stream group assigned to this solver."""
         return self.kernel.stream_group
+
+    @property
+    def stream(self):
+        """Return the CUDA stream used by this solver."""
+        return self.kernel.stream
 
     @property
     def mem_proportion(self):
@@ -1003,7 +996,6 @@ class Solver:
         Invalidates the current cache, causing a rebuild on next access.
         """
         self.kernel.set_cache_dir(path)
-
 
     def set_verbosity(self, verbosity: Optional[str]) -> None:
         """Set the time logging verbosity level.

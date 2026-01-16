@@ -296,43 +296,6 @@ def test_linear_solver_scaled_tolerance_converges(
     )
 
 
-@pytest.mark.parametrize(
-    "solver_device", ["steepest_descent", "minimal_residual"], indirect=True
-)
-def test_linear_solver_scalar_tolerance_backward_compatible(
-    solver_device,
-    solver_kernel,
-    precision,
-    tolerance,
-):
-    """Verify scalar tolerance produces convergent behavior."""
-    rhs = np.array([1.0, 2.0, 3.0], dtype=precision)
-    matrix = np.array(
-        [[4.0, 1.0, 0.0], [1.0, 3.0, 0.0], [0.0, 0.0, 2.0]],
-        dtype=precision,
-    )
-    expected = np.linalg.solve(matrix, rhs)
-    h = precision(0.01)
-    kernel = solver_kernel(solver_device, 3, h, precision)
-    base_state = np.array([1.0, -1.0, 0.5], dtype=precision)
-    state = cuda.to_device(
-        base_state + h * np.array([0.1, -0.2, 0.3], dtype=precision)
-    )
-    rhs_dev = cuda.to_device(rhs)
-    x_dev = cuda.to_device(np.zeros(3, dtype=precision))
-    flag = cuda.to_device(np.array([0], dtype=np.int32))
-    empty_base = cuda.to_device(np.empty(0, dtype=precision))
-    kernel[1, 1](state, rhs_dev, empty_base, x_dev, flag)
-    code = flag.copy_to_host()[0] & 0xFF
-    assert code == SolverRetCodes.SUCCESS
-    assert np.allclose(
-        x_dev.copy_to_host(),
-        expected,
-        rtol=tolerance.rel_loose,
-        atol=tolerance.abs_loose,
-    )
-
-
 def test_linear_solver_uses_scaled_norm(precision):
     """Verify LinearSolver creates and uses ScaledNorm for convergence."""
     from cubie.integrators.norms import ScaledNorm

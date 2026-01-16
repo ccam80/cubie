@@ -1,20 +1,25 @@
 from pathlib import Path
 from types import SimpleNamespace
-from typing import Any, Callable, Dict, Optional
 import os
 
 import numpy as np
 import pytest
 from pytest import MonkeyPatch
 
+from tests._utils import (
+    _build_solver_instance,
+    _build_cpu_step_controller,
+    _get_algorithm_order,
+    _get_algorithm_tableau,
+    _build_enhanced_algorithm_settings,
+    _get_evaluate_driver_at_t,
+    _get_driver_del_t,
+)
 from cubie.buffer_registry import buffer_registry
-from tests._utils import _build_enhanced_algorithm_settings
-from cubie import SymbolicODE
 from cubie.integrators.SingleIntegratorRun import SingleIntegratorRun
 from cubie._utils import merge_kwargs_into_settings
 from cubie.integrators.step_control import get_controller
 from cubie.batchsolving.BatchSolverKernel import BatchSolverKernel
-from cubie.batchsolving.solver import Solver
 from cubie.integrators.algorithms.base_algorithm_step import (
     ALL_ALGORITHM_STEP_PARAMETERS,
 )
@@ -25,13 +30,15 @@ from cubie.integrators.step_control.base_step_controller import (
 )
 from cubie.integrators.array_interpolator import ArrayInterpolator
 from cubie.memory import default_memmgr
-from cubie.memory.mem_manager import ALL_MEMORY_MANAGER_PARAMETERS
+from cubie.memory.mem_manager import (
+    ALL_MEMORY_MANAGER_PARAMETERS,
+    MemoryManager,
+)
 from cubie.outputhandling.output_functions import (
     OutputFunctions,
     ALL_OUTPUT_FUNCTION_PARAMETERS,
 )
 from tests.integrators.cpu_reference import (
-    CPUAdaptiveController,
     CPUODESystem,
     DriverEvaluator,
     run_reference_loop,
@@ -113,164 +120,6 @@ def codegen_dir():
             shutil.rmtree(gen_dir, ignore_errors=True)
         except PermissionError:
             pass
-
-
-# ========================================
-# HELPER BUILDERS
-# ========================================
-
-
-def _get_evaluate_driver_at_t(
-    driver_array: Optional[ArrayInterpolator],
-) -> Optional[Callable[..., Any]]:
-    """Return the evaluation callable for ``driver_array`` if it exists."""
-    if driver_array is None:
-        return None
-    return driver_array.evaluation_function
-
-
-def _get_driver_del_t(
-    driver_array: Optional[ArrayInterpolator],
-) -> Optional[Callable[..., Any]]:
-    """Return the time-derivative evaluation callable for ``driver_array``."""
-
-    if driver_array is None:
-        return None
-    return driver_array.driver_del_t
-
-
-def _build_solver_instance(
-    system: SymbolicODE,
-    solver_settings: Dict[str, Any],
-    driver_array: Optional[ArrayInterpolator],
-) -> Solver:
-    """Instantiate :class:`Solver` configured with ``solver_settings``."""
-
-    solver = Solver(system, **solver_settings)
-    evaluate_driver_at_t = _get_evaluate_driver_at_t(driver_array)
-    solver.update({"evaluate_driver_at_t": evaluate_driver_at_t})
-    return solver
-
-
-def _build_cpu_step_controller(
-    precision: np.dtype,
-    step_controller_settings: Dict[str, Any],
-) -> CPUAdaptiveController:
-    """Return a CPU adaptive controller initialised from the settings."""
-
-    kind = step_controller_settings["step_controller"].lower()
-    controller = CPUAdaptiveController(
-        kind=kind,
-        dt=step_controller_settings["dt"],
-        dt_min=step_controller_settings["dt_min"],
-        dt_max=step_controller_settings["dt_max"],
-        atol=step_controller_settings["atol"],
-        rtol=step_controller_settings["rtol"],
-        order=step_controller_settings["algorithm_order"],
-        min_gain=step_controller_settings["min_gain"],
-        max_gain=step_controller_settings["max_gain"],
-        precision=precision,
-        deadband_min=step_controller_settings["deadband_min"],
-        deadband_max=step_controller_settings["deadband_max"],
-        safety=step_controller_settings["safety"],
-        newton_max_iters=step_controller_settings["newton_max_iters"],
-    )
-    if kind == "pi":
-        controller.kp = step_controller_settings["kp"]
-        controller.ki = step_controller_settings["ki"]
-    elif kind == "pid":
-        controller.kp = step_controller_settings["kp"]
-        controller.ki = step_controller_settings["ki"]
-        controller.kd = step_controller_settings["kd"]
-    return controller
-
-
-def _get_algorithm_order(algorithm_name_or_tableau):
-    """Get algorithm order without building step object.
-
-    Parameters
-    ----------
-    algorithm_name_or_tableau : str or ButcherTableau
-        Algorithm identifier or tableau instance.
-
-    Returns
-    -------
-    int
-        Algorithm order.
-    """
-    from cubie.integrators.algorithms import (
-        resolve_alias,
-        resolve_supplied_tableau,
-    )
-    from cubie.integrators.algorithms.generic_rosenbrock_w import (
-        GenericRosenbrockWStep,
-        DEFAULT_ROSENBROCK_TABLEAU,
-    )
-
-    if isinstance(algorithm_name_or_tableau, str):
-        algorithm_type, tableau = resolve_alias(algorithm_name_or_tableau)
-    else:
-        algorithm_type, tableau = resolve_supplied_tableau(
-            algorithm_name_or_tableau
-        )
-
-    # For rosenbrock without explicit tableau, use default
-    if algorithm_type is GenericRosenbrockWStep and tableau is None:
-        tableau = DEFAULT_ROSENBROCK_TABLEAU
-
-    # Extract order from tableau if available
-    if tableau is not None and hasattr(tableau, "order"):
-        return tableau.order
-
-    # Default orders for algorithms without tableaus
-    defaults = {
-        "euler": 1,
-        "backwards_euler": 1,
-        "backwards_euler_pc": 1,
-        "crank_nicolson": 2,
-    }
-
-    if isinstance(algorithm_name_or_tableau, str):
-        algorithm_name = algorithm_name_or_tableau.lower()
-        return defaults.get(algorithm_name, 1)
-
-    return 1
-
-
-def _get_algorithm_tableau(algorithm_name_or_tableau):
-    """Get tableau for an algorithm without building step object.
-
-    Parameters
-    ----------
-    algorithm_name_or_tableau : str or ButcherTableau
-        Algorithm identifier or tableau instance.
-
-    Returns
-    -------
-    tableau or None
-        The tableau if available, None otherwise.
-    """
-    from cubie.integrators.algorithms import (
-        resolve_alias,
-        resolve_supplied_tableau,
-    )
-    from cubie.integrators.algorithms.generic_rosenbrock_w import (
-        GenericRosenbrockWStep,
-        DEFAULT_ROSENBROCK_TABLEAU,
-    )
-
-    if isinstance(algorithm_name_or_tableau, str):
-        algorithm_type, tableau = resolve_alias(algorithm_name_or_tableau)
-    else:
-        algorithm_type, tableau = resolve_supplied_tableau(
-            algorithm_name_or_tableau
-        )
-
-    # For rosenbrock without explicit tableau, use default
-    if algorithm_type is GenericRosenbrockWStep and tableau is None:
-        tableau = DEFAULT_ROSENBROCK_TABLEAU
-
-    return tableau
 
 
 # ========================================
@@ -364,6 +213,12 @@ def system(
         return model_type
 
     raise ValueError(f"Unknown model type: {model_type}")
+
+
+@pytest.fixture(scope="session")
+def thread_mem_manager():
+    """Instantiate a memory manager instance in each thread"""
+    return MemoryManager()
 
 
 @pytest.fixture(scope="session")
@@ -757,15 +612,12 @@ def solverkernel_mutable(
 
 
 @pytest.fixture(scope="session")
-def solver(
-    system,
-    solver_settings,
-    driver_array,
-):
+def solver(system, solver_settings, driver_array, thread_mem_manager):
     return _build_solver_instance(
         system=system,
         solver_settings=solver_settings,
         driver_array=driver_array,
+        memory_manager=thread_mem_manager,
     )
 
 
@@ -774,11 +626,13 @@ def solver_mutable(
     system,
     solver_settings,
     driver_array,
+    thread_mem_manager,
 ):
     return _build_solver_instance(
         system=system,
         solver_settings=solver_settings,
         driver_array=driver_array,
+        memory_manager=thread_mem_manager,
     )
 
 

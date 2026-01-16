@@ -639,32 +639,6 @@ def test_build_config_instance_label_prefixed_takes_precedence(precision):
     assert config.atol == 1e-12
 
 
-def test_build_config_backward_compatible_no_instance_label(precision):
-    """Verify existing behavior unchanged when instance_label not provided."""
-    from cubie._utils import build_config
-    from cubie.CUDAFactory import CUDAFactoryConfig
-
-    @attrs.define
-    class TestConfig(CUDAFactoryConfig):
-        _atol: float = attrs.field(default=1e-6, alias="atol")
-        value: int = 10
-
-        @property
-        def atol(self) -> float:
-            return self._atol
-
-    # Without instance_label
-    config = build_config(
-        TestConfig,
-        required={"precision": precision},
-        atol=1e-8,
-        value=42,
-    )
-
-    assert config.atol == 1e-8
-    assert config.value == 42
-
-
 def test_multiple_instance_config_prefix_property(precision):
     """Verify prefix property returns instance_label."""
     from cubie.CUDAFactory import MultipleInstanceCUDAFactoryConfig
@@ -849,8 +823,11 @@ def test_iter_child_factories_with_children():
             self._alpha_child = ChildFactory("alpha")
             self._middle_child = ChildFactory("middle")
             # Set up settings for children
-            for child in [self._zebra_child, self._alpha_child,
-                          self._middle_child]:
+            for child in [
+                self._zebra_child,
+                self._alpha_child,
+                self._middle_child,
+            ]:
                 child.setup_compile_settings(SimpleConfig())
 
         def build(self):

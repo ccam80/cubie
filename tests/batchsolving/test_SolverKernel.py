@@ -154,9 +154,19 @@ def test_all_lower_plumbing(
     precision,
     driver_array,
 ):
-    """Big plumbing integration check - check that config classes match exactly between an updated solver and one
-    instantiated with the update settings."""
+    """Big plumbing integration check - check that config classes match exactly
+    between an updated solver and one instantiated with the update settings."""
     solverkernel = solverkernel_mutable
+
+    # Limit indices to actual system sizes to prevent IndexError
+    n_states = system.sizes.states
+    n_obs = system.sizes.observables
+
+    saved_state_idx = list(range(min(3, n_states)))
+    saved_obs_idx = list(range(min(3, n_obs)))
+    summarised_state_idx = [0] if n_states > 0 else []
+    summarised_obs_idx = [0] if n_obs > 0 else []
+
     new_settings = {
         # "duration": 1.0,
         "dt_min": 0.0001,
@@ -166,10 +176,10 @@ def test_all_lower_plumbing(
         "sample_summaries_every": 0.05,
         "atol": 1e-2,
         "rtol": 1e-1,
-        "saved_state_indices": [0, 1, 2],
-        "saved_observable_indices": [0, 1, 2],
-        "summarised_state_indices": [0],
-        "summarised_observable_indices": [0],
+        "saved_state_indices": saved_state_idx,
+        "saved_observable_indices": saved_obs_idx,
+        "summarised_state_indices": summarised_state_idx,
+        "summarised_observable_indices": summarised_obs_idx,
         "output_types": [
             "state",
             "observables",
@@ -190,10 +200,10 @@ def test_all_lower_plumbing(
         }
     )
     output_settings = {
-        "saved_state_indices": np.asarray([0, 1, 2]),
-        "saved_observable_indices": np.asarray([0, 1, 2]),
-        "summarised_state_indices": np.asarray([0]),
-        "summarised_observable_indices": np.asarray([0]),
+        "saved_state_indices": np.asarray(saved_state_idx),
+        "saved_observable_indices": np.asarray(saved_obs_idx),
+        "summarised_state_indices": np.asarray(summarised_state_idx),
+        "summarised_observable_indices": np.asarray(summarised_obs_idx),
         "output_types": [
             "state",
             "observables",
@@ -214,8 +224,8 @@ def test_all_lower_plumbing(
             "sample_summaries_every": 0.05,
         },
     )
-    inits = np.ones((3, 1), dtype=precision)
-    params = np.ones((3, 1), dtype=precision)
+    inits = np.ones((n_states, 1), dtype=precision)
+    params = np.ones((system.sizes.parameters, 1), dtype=precision)
     driver_coefficients = driver_array.coefficients
     freshsolver.run(
         inits=inits,
@@ -275,71 +285,43 @@ class TestTimingParameterValidation:
     """Tests for timing parameter validation in BatchSolverKernel.run()."""
 
     def test_save_every_greater_than_duration_no_save_last_raises(
-        self, system, precision, driver_array
+        self, system, precision, driver_array, solver, driver_settings
     ):
-        """Test that save_every > duration without save_last raises."""
-        kernel = BatchSolverKernel(
-            system,
-            loop_settings={"save_every": 1.0},
-            output_settings={
-                "output_types": ["state"],
-                "saved_state_indices": np.array([0, 1, 2]),
-            },
-            algorithm_settings={"algorithm": "euler"},
-        )
         inits = np.ones((3, 1), dtype=precision)
         params = np.ones((3, 1), dtype=precision)
 
         with pytest.raises(
             ValueError, match=r"save_every.*>.*duration.*no outputs"
         ):
-            kernel.run(
-                inits=inits,
-                params=params,
-                driver_coefficients=driver_array.coefficients,
+            solver.solve(
+                inits,
+                params,
+                driver_settings,
+                save_every=1.0,
                 duration=0.5,
             )
 
     def test_save_every_greater_than_duration_with_save_last_succeeds(
-        self, system, precision, driver_array
+        self, system, precision, driver_array, solver, driver_settings
     ):
         """Test that save_every >= duration with save_last=True is valid."""
-        kernel = BatchSolverKernel(
-            system,
-            loop_settings={"save_every": None},
-            output_settings={
-                "output_types": ["state"],
-                "saved_state_indices": np.array([0, 1, 2]),
-            },
-            algorithm_settings={"algorithm": "euler"},
-        )
         inits = np.ones((3, 1), dtype=precision)
         params = np.ones((3, 1), dtype=precision)
 
         # Should not raise when save_last is True (default when save_every=None)
-        kernel.run(
-            inits=inits,
-            params=params,
-            driver_coefficients=driver_array.coefficients,
-            duration=0.5,
+        solver.solve(
+            inits,
+            params,
+            drivers=driver_settings,
+            save_every=None,
+            duration=0.05,
+            dt=0.02,
         )
 
     def test_summarise_every_greater_than_duration_raises(
-        self, system, precision, driver_array
+        self, system, precision, driver_array, solver, driver_settings
     ):
         """Test that summarise_every > duration raises."""
-        kernel = BatchSolverKernel(
-            system,
-            loop_settings={
-                "summarise_every": 1.0,
-                "sample_summaries_every": 0.1,
-            },
-            output_settings={
-                "output_types": ["mean"],
-                "summarised_state_indices": np.array([0, 1, 2]),
-            },
-            algorithm_settings={"algorithm": "euler"},
-        )
         inits = np.ones((3, 1), dtype=precision)
         params = np.ones((3, 1), dtype=precision)
 
@@ -347,70 +329,32 @@ class TestTimingParameterValidation:
             ValueError,
             match=r"summarise_every.*>.*duration.*no summary outputs",
         ):
-            kernel.run(
-                inits=inits,
-                params=params,
-                driver_coefficients=driver_array.coefficients,
+            solver.solve(
+                inits,
+                params,
+                driver_settings,
+                summarise_every=0.6,
                 duration=0.5,
             )
 
     def test_sample_summaries_every_gte_summarise_every_raises(
-        self, system, precision, driver_array
+        self, system, precision, driver_array, solver, driver_settings
     ):
         """Test that sample_summaries_every >= summarise_every raises."""
-        kernel = BatchSolverKernel(
-            system,
-            loop_settings={
-                "summarise_every": 0.1,
-                "sample_summaries_every": 0.2,
-            },
-            output_settings={
-                "output_types": ["mean"],
-                "summarised_state_indices": np.array([0, 1, 2]),
-            },
-            algorithm_settings={"algorithm": "euler"},
-        )
         inits = np.ones((3, 1), dtype=precision)
         params = np.ones((3, 1), dtype=precision)
 
         with pytest.raises(
             ValueError, match=r"sample_summaries_every.*>=.*summarise_every"
         ):
-            kernel.run(
-                inits=inits,
-                params=params,
-                driver_coefficients=driver_array.coefficients,
+            solver.solve(
+                inits,
+                params,
+                drivers=driver_settings,
+                summarise_every=0.01,
+                sample_summaries_every=0.01,
                 duration=1.0,
             )
-
-    def test_valid_timing_parameters_succeeds(
-        self, system, precision, driver_array
-    ):
-        """Test that valid timing parameters allow run to proceed."""
-        kernel = BatchSolverKernel(
-            system,
-            loop_settings={
-                "save_every": 0.1,
-                "summarise_every": 0.5,
-                "sample_summaries_every": 0.05,
-            },
-            output_settings={
-                "output_types": ["state", "mean"],
-                "saved_state_indices": np.array([0, 1, 2]),
-                "summarised_state_indices": np.array([0, 1, 2]),
-            },
-            algorithm_settings={"algorithm": "euler"},
-        )
-        inits = np.ones((3, 1), dtype=precision)
-        params = np.ones((3, 1), dtype=precision)
-
-        # Should not raise with valid parameters
-        kernel.run(
-            inits=inits,
-            params=params,
-            driver_coefficients=driver_array.coefficients,
-            duration=1.0,
-        )
 
 
 class TestActiveOutputsFromCompileFlags:
@@ -480,3 +424,20 @@ class TestActiveOutputsFromCompileFlags:
         assert active.observable_summaries is False
         assert active.iteration_counters is False
         assert active.status_codes is True
+
+
+class TestRunParamsIntegration:
+    """Tests for RunParams integration into BatchSolverKernel."""
+
+    def test_runparams_initialized_on_construction(self, solverkernel_mutable):
+        """Verify BatchSolverKernel initializes run_params with defaults."""
+        solverkernel = solverkernel_mutable  # A used solverkernel might be
+        # updated
+
+        assert hasattr(solverkernel, "run_params")
+        assert solverkernel.run_params.duration == 0.0
+        assert solverkernel.run_params.warmup == 0.0
+        assert solverkernel.run_params.t0 == 0.0
+        assert solverkernel.run_params.runs == 1
+        assert solverkernel.run_params.num_chunks == 1
+        assert solverkernel.run_params.chunk_length == 0

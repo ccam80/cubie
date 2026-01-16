@@ -1,14 +1,13 @@
-
 import numpy as np
 import pytest
 from numpy.testing import assert_array_equal
 
-from cubie.batchsolving.arrays.BatchOutputArrays import (OutputArrayContainer,
+from cubie.batchsolving.arrays.BatchOutputArrays import (
+    OutputArrayContainer,
     OutputArrays,
 )
 from cubie.memory.mem_manager import MemoryManager
 from cubie.outputhandling.output_sizes import BatchOutputSizes
-
 
 
 @pytest.fixture(scope="session")
@@ -38,8 +37,9 @@ def test_memory_manager():
 
 
 @pytest.fixture(scope="function")
-def output_arrays_manager(precision, solver, output_test_settings,
-                          test_memory_manager):
+def output_arrays_manager(
+    precision, solver, output_test_settings, test_memory_manager
+):
     """Create a OutputArrays instance using real solver"""
     solver.kernel.duration = 1.0
 
@@ -56,7 +56,7 @@ def output_arrays_manager(precision, solver, output_test_settings,
 @pytest.fixture(scope="function")
 def sample_output_arrays(solver_mutable, output_test_settings, precision):
     """Create sample output arrays for testing based on real solver"""
-    solver=solver_mutable
+    solver = solver_mutable
     solver.kernel.duration = 1.0
     num_runs = output_test_settings["num_runs"]
     dtype = precision
@@ -101,16 +101,8 @@ class TestOutputArrayContainer:
         assert set(container.array_names()) == expected_arrays
         for _, managed in container.iter_managed_arrays():
             assert_array_equal(
-                    managed.array,
-                    np.zeros(managed.shape, dtype=managed.dtype)
+                managed.array, np.zeros(managed.shape, dtype=managed.dtype)
             )
-
-
-    def test_container_stride_order(self):
-        """Test that stride order is set correctly"""
-        container = OutputArrayContainer()
-        stride_order = container.state.stride_order
-        assert stride_order == ("time", "variable", "run")
 
     def test_container_memory_type_default(self):
         """Test default memory type"""
@@ -143,7 +135,9 @@ class TestOutputArrays:
             "status_codes",
         }
         assert set(output_arrays_manager.host.array_names()) == expected_arrays
-        assert set(output_arrays_manager.device.array_names()) == expected_arrays
+        assert (
+            set(output_arrays_manager.device.array_names()) == expected_arrays
+        )
 
         # Check memory types are set correctly in post_init
         for _, managed in output_arrays_manager.host.iter_managed_arrays():
@@ -160,11 +154,13 @@ class TestOutputArrays:
         assert output_arrays._precision == solver.precision
 
     def test_allocation_and_getters_not_none(
-        self, output_arrays_manager, solver
+        self, output_arrays_manager, solver, test_memory_manager
     ):
         """Test that all getters return non-None after allocation"""
         # Call the manager to allocate arrays based on solver
         output_arrays_manager.update(solver)
+        # Process the allocation queue to create device arrays
+        test_memory_manager.allocate_queue(output_arrays_manager)
 
         # Check host getters
         assert output_arrays_manager.state is not None
@@ -189,10 +185,14 @@ class TestOutputArrays:
         assert output_arrays_manager.device_state_summaries is None
         assert output_arrays_manager.device_observable_summaries is None
 
-    def test_call_method_allocates_arrays(self, output_arrays_manager, solver):
+    def test_call_method_allocates_arrays(
+        self, output_arrays_manager, solver, test_memory_manager
+    ):
         """Test that update method allocates arrays based on solver"""
         # Call the manager - it allocates based on solver sizes only
         output_arrays_manager.update(solver)
+        # Process the allocation queue to create device arrays
+        test_memory_manager.allocate_queue(output_arrays_manager)
 
         # Check that arrays were allocated
         assert output_arrays_manager.state is not None
@@ -208,10 +208,13 @@ class TestOutputArrays:
         assert output_arrays_manager.device_observable_summaries is not None
         assert output_arrays_manager.device_status_codes is not None
 
-    def test_reallocation_on_size_change(self, output_arrays_manager, solver):
+    def test_reallocation_on_size_change(
+        self, output_arrays_manager, solver, test_memory_manager
+    ):
         """Test that arrays are reallocated when sizes change"""
         # Initial allocation
         output_arrays_manager.update(solver)
+        test_memory_manager.allocate_queue(output_arrays_manager)
         original_device_state = output_arrays_manager.device_state
         original_shape = output_arrays_manager.device_state.shape
 
@@ -230,21 +233,19 @@ class TestOutputArrays:
         assert output_arrays_manager.device_state is not None
 
     def test_chunking_affects_device_array_size(
-        self, output_arrays_manager, solver
+        self, output_arrays_manager, solver, test_memory_manager
     ):
         """Test that chunking changes device array allocation size"""
         # Allocate initially
         output_arrays_manager.update(solver)
+        test_memory_manager.allocate_queue(output_arrays_manager)
 
         # Set up chunking - this should affect the device array size
         output_arrays_manager._chunks = 2
-        output_arrays_manager._chunk_axis = "run"
 
         # The chunking logic should be reflected in allocation behavior
         # (This tests the chunking mechanism exists)
         assert output_arrays_manager._chunks == 2
-        assert output_arrays_manager._chunk_axis == "run"
-
 
     def test_update_from_solver(self, output_arrays_manager, solver):
         """Test update_from_solver method"""
@@ -252,6 +253,32 @@ class TestOutputArrays:
 
         assert output_arrays_manager._precision == solver.precision
         assert isinstance(output_arrays_manager._sizes, BatchOutputSizes)
+
+    def test_update_from_solver_sets_num_runs(
+        self, output_arrays_manager, solver
+    ):
+        """Test that update_from_solver sets num_runs from sizes.
+
+        This test verifies that update_from_solver() correctly extracts
+        num_runs from the third element of state shape and sets it via
+        set_array_runs().
+        """
+        # Initially num_runs should be None
+        assert output_arrays_manager.num_runs == 1
+
+        # Call update_from_solver
+        output_arrays_manager.update_from_solver(solver)
+
+        # Verify num_runs was set from sizes
+        # The num_runs should match the third element of state shape
+        expected_num_runs = solver.num_runs
+        assert output_arrays_manager.num_runs == expected_num_runs
+
+        # Verify it matches what's in the sizes object
+        assert (
+            output_arrays_manager.num_runs
+            == output_arrays_manager._sizes.state[2]
+        )
 
     def test_update_from_solver_fast_path(self, output_arrays_manager, solver):
         """Test that update_from_solver reuses arrays when shape/dtype match."""
@@ -271,14 +298,16 @@ class TestOutputArrays:
         assert new_arrays["observables"] is original_observables
         assert new_arrays["status_codes"] is original_status_codes
 
-    def test_initialise_method(self, output_arrays_manager, solver):
+    def test_initialise_method(
+        self, output_arrays_manager, solver, test_memory_manager
+    ):
         """Test initialise method (no-op for outputs)"""
         # Set up the manager
         output_arrays_manager.update(solver)
+        test_memory_manager.allocate_queue(output_arrays_manager)
 
         # Set up chunking
         output_arrays_manager._chunks = 1
-        output_arrays_manager._chunk_axis = "run"
 
         # Call initialise - should be a no-op for OutputArrays
         host_indices = slice(None)
@@ -291,11 +320,12 @@ class TestOutputArrays:
 
     @pytest.mark.nocudasim
     def test_finalise_method_copies_device_to_host(
-        self, output_arrays_manager, solver
+        self, output_arrays_manager, solver, test_memory_manager
     ):
         """Test finalise method copies data from device to host"""
         # Set up the manager
         output_arrays_manager.update(solver)
+        test_memory_manager.allocate_queue(output_arrays_manager)
 
         # Simulate computation by modifying device arrays
         # (In reality, CUDA kernels would write to these device arrays)
@@ -316,11 +346,16 @@ class TestOutputArrays:
 
         # Set up chunking
         output_arrays_manager._chunks = 1
-        output_arrays_manager._chunk_axis = "run"
 
-        # Call finalise - should copy device data to host
+        # Call finalise - queues async transfer
         host_indices = slice(None)
         output_arrays_manager.finalise(host_indices)
+
+        # Sync stream and complete writebacks
+        output_arrays_manager._memory_manager.sync_stream(
+            output_arrays_manager
+        )
+        output_arrays_manager.wait_pending()
 
         # Verify that host arrays now contain the modified device data
         np.testing.assert_array_equal(
@@ -338,37 +373,30 @@ class TestOutputArrays:
 
 
 @pytest.mark.parametrize(
-    "solver_settings_override", [{"precision": np.float32},
-                                 {"precision": np.float64}],
-                                 indirect=True,
+    "solver_settings_override",
+    [{"precision": np.float32}, {"precision": np.float64}],
+    indirect=True,
 )
-def test_dtype(output_arrays_manager, solver, precision):
+def test_dtype(output_arrays_manager, solver, precision, test_memory_manager):
     """Test OutputArrays with different configurations"""
     # Test that the manager works with different configurations
     output_arrays_manager.update(solver)
+    test_memory_manager.allocate_queue(output_arrays_manager)
 
     expected_dtype = precision
     assert output_arrays_manager.state.dtype == expected_dtype
     assert output_arrays_manager.observables.dtype == expected_dtype
     assert output_arrays_manager.state_summaries.dtype == expected_dtype
-    assert (
-        output_arrays_manager.observable_summaries.dtype == expected_dtype
-    )
+    assert output_arrays_manager.observable_summaries.dtype == expected_dtype
     assert output_arrays_manager.status_codes.dtype == np.int32
     assert output_arrays_manager.device_status_codes.dtype == np.int32
     assert output_arrays_manager.device_state.dtype == expected_dtype
-    assert (
-        output_arrays_manager.device_observables.dtype == expected_dtype
-    )
-    assert (
-        output_arrays_manager.device_state_summaries.dtype
-        == expected_dtype
-    )
+    assert output_arrays_manager.device_observables.dtype == expected_dtype
+    assert output_arrays_manager.device_state_summaries.dtype == expected_dtype
     assert (
         output_arrays_manager.device_observable_summaries.dtype
         == expected_dtype
     )
-
 
 
 @pytest.mark.parametrize(
@@ -381,12 +409,13 @@ def test_dtype(output_arrays_manager, solver, precision):
     indirect=True,
 )
 def test_output_arrays_with_different_configs(
-    output_arrays_manager, solver, output_test_settings
+    output_arrays_manager, solver, output_test_settings, test_memory_manager
 ):
     """Test OutputArrays with different configurations"""
     # Test that the manager works with different configurations
     solver.kernel.num_runs = output_test_settings["num_runs"]
     output_arrays_manager.update(solver)
+    test_memory_manager.allocate_queue(output_arrays_manager)
 
     # Check shapes match expected configuration based on solver
     expected_num_runs = output_test_settings["num_runs"]
@@ -424,7 +453,7 @@ def test_output_arrays_with_different_configs(
                 "peaks[2]",
             ],
         },
-{
+        {
             "system_type": "stiff",
             "saved_state_indices": None,
             "saved_observable_indices": None,
@@ -437,7 +466,7 @@ def test_output_arrays_with_different_configs(
                 "peaks[2]",
             ],
         },
-{
+        {
             "system_type": "linear",
             "saved_state_indices": None,
             "saved_observable_indices": None,
@@ -449,17 +478,19 @@ def test_output_arrays_with_different_configs(
                 "rms",
                 "peaks[2]",
             ],
-        }
+        },
     ],
     indirect=True,
 )
-def test_output_arrays_with_different_systems(output_arrays_manager,
-                                              solver_mutable):
+def test_output_arrays_with_different_systems(
+    output_arrays_manager, solver_mutable, test_memory_manager
+):
     """Test OutputArrays with different system models"""
     # Test that the manager works with different system types
     solver = solver_mutable
     solver.kernel.duration = 1.0
     output_arrays_manager.update(solver)
+    test_memory_manager.allocate_queue(output_arrays_manager)
 
     # Verify the arrays match the system's requirements
     # With stride order (time, variable, run), variable is at index 1
@@ -495,11 +526,12 @@ class TestOutputArraysSpecialCases:
     """Test special cases for OutputArrays"""
 
     def test_allocation_with_different_solver_sizes(
-        self, output_arrays_manager, solver
+        self, output_arrays_manager, solver, test_memory_manager
     ):
         """Test that arrays are allocated based on solver sizes"""
         # Test allocation - arrays should be sized based on solver
         output_arrays_manager.update(solver)
+        test_memory_manager.allocate_queue(output_arrays_manager)
 
         # Manager should be set up without errors and arrays should exist
         assert output_arrays_manager.state is not None

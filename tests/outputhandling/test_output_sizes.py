@@ -13,14 +13,18 @@ from cubie.outputhandling.output_sizes import (
     BatchInputSizes,
 )
 
+
 class TestNonzeroProperty:
     """Test the nonzero property functionality"""
 
     def test_nonzero_property_int_values(self):
         """Test that nonzero property converts zero int values to 1"""
         sizes = OutputArrayHeights(
-            state=0, observables=0, state_summaries=0,
-            observable_summaries=0, per_variable=5
+            state=0,
+            observables=0,
+            state_summaries=0,
+            observable_summaries=0,
+            per_variable=5,
         )
         nonzero_sizes = sizes.nonzero
 
@@ -46,8 +50,11 @@ class TestNonzeroProperty:
     def test_nonzero_property_preserves_original(self):
         """Test that nonzero property doesn't modify the original object"""
         original = OutputArrayHeights(
-            state=0, observables=3, state_summaries=0,
-            observable_summaries=0, per_variable=0
+            state=0,
+            observables=3,
+            state_summaries=0,
+            observable_summaries=0,
+            per_variable=0,
         )
         nonzero_copy = original.nonzero
 
@@ -165,7 +172,6 @@ class TestOutputArrayHeights:
             == output_functions.observable_summaries_output_height
         )
 
-
     def test_explicit_vs_from_output_fns(self, output_functions):
         """Test that explicit initialization matches from_output_fns result"""
         from_fns = OutputArrayHeights.from_output_fns(output_functions)
@@ -237,7 +243,6 @@ class TestSingleRunOutputSizes:
         assert all(v >= 1 for v in nonzero_sizes.state_summaries)
         assert all(v >= 1 for v in nonzero_sizes.observable_summaries)
 
-
     def test_from_output_fns_and_run_settings_default(
         self, output_functions, run_settings, solverkernel
     ):
@@ -284,7 +289,6 @@ class TestSingleRunOutputSizes:
         assert all(v >= 1 for v in nonzero_sizes.observables)
         assert all(v >= 1 for v in nonzero_sizes.state_summaries)
         assert all(v >= 1 for v in nonzero_sizes.observable_summaries)
-
 
     def test_explicit_vs_from_solver(
         self, output_functions, run_settings, solverkernel
@@ -352,7 +356,9 @@ class TestBatchInputSizes:
     def test_nonzero_functionality(self):
         """Test that nonzero property works correctly"""
         sizes = BatchInputSizes(
-            initial_values=(0, 0), parameters=(0, 0), driver_coefficients=(0, None)
+            initial_values=(0, 0),
+            parameters=(0, 0),
+            driver_coefficients=(0, None),
         )
         nonzero_sizes = sizes.nonzero
 
@@ -361,11 +367,6 @@ class TestBatchInputSizes:
         assert all(v >= 1 for v in nonzero_sizes.parameters)
         assert nonzero_sizes.driver_coefficients[0] == 1
         assert nonzero_sizes.driver_coefficients[1] == 1
-
-    def test_stride_order_default(self):
-        """Test that stride_order has correct default value"""
-        sizes = BatchInputSizes()
-        assert sizes.stride_order == ("variable", "run")
 
 
 class TestBatchOutputSizes:

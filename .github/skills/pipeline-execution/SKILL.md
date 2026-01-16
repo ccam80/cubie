@@ -39,6 +39,8 @@ After step 8 (final run_tests), the pipeline MUST terminate regardless of test r
 
 Include any remaining test failures in the final summary for user review.
 
+If pipeline execution finishes before reaching the final subagent due to time or iteration limits, include a large 
+notice in your summary for the user that the pipeline terminated early, and where to start from to complete it.
 ## Default Configuration
 
 - **Default return_after level**: Use `taskmaster_2` for complete implementation

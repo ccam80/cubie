@@ -146,8 +146,6 @@ class SingleRunOutputSizes(ArraySizingClass):
         Shape of state summary array as (summary_samples, n_summaries).
     observable_summaries : tuple[int, int], default (1, 1)
         Shape of observable summary array as (summary_samples, n_summaries).
-    stride_order : tuple[str, ...], default ("time", "variable")
-        Order of dimensions in the arrays.
     """
 
     state: Tuple[int, int] = attrs.field(
@@ -161,12 +159,6 @@ class SingleRunOutputSizes(ArraySizingClass):
     )
     observable_summaries: Tuple[int, int] = attrs.field(
         default=(1, 1), validator=attrs.validators.instance_of(Tuple)
-    )
-    stride_order: Tuple[str, ...] = attrs.field(
-        default=("time", "variable"),
-        validator=attrs.validators.deep_iterable(
-            attrs.validators.in_(["time", "variable"])
-        ),
     )
 
     @classmethod
@@ -224,8 +216,6 @@ class BatchInputSizes(ArraySizingClass):
         default (1, 1, 1)
         Shape of the driver coefficient array as
         (num_segments, num_drivers, polynomial_degree).
-    stride_order : tuple[str, ...], default ("variable", "run")
-        Order of dimensions in the input arrays.
     """
 
     initial_values: Tuple[int, int] = attrs.field(
@@ -234,15 +224,10 @@ class BatchInputSizes(ArraySizingClass):
     parameters: Tuple[int, int] = attrs.field(
         default=(1, 1), validator=attrs.validators.instance_of(Tuple)
     )
-    driver_coefficients: Tuple[Optional[int], int, Optional[int]] = attrs.field(
-        default=(1, 1, 1), validator=attrs.validators.instance_of(Tuple)
-    )
-
-    stride_order: Tuple[str, ...] = attrs.field(
-        default=("variable", "run"),
-        validator=attrs.validators.deep_iterable(
-            attrs.validators.in_(["run", "variable"])
-        ),
+    driver_coefficients: Tuple[Optional[int], int, Optional[int]] = (
+        attrs.field(
+            default=(1, 1, 1), validator=attrs.validators.instance_of(Tuple)
+        )
     )
 
     @classmethod
@@ -264,8 +249,8 @@ class BatchInputSizes(ArraySizingClass):
         system_sizes = solver_instance.system_sizes
         num_runs = solver_instance.num_runs
         initial_values = (system_sizes.states, num_runs)
-        parameters = ( system_sizes.parameters, num_runs)
-        driver_coefficients = (None,  system_sizes.drivers, None)
+        parameters = (system_sizes.parameters, num_runs)
+        driver_coefficients = (None, system_sizes.drivers, None)
         obj = cls(initial_values, parameters, driver_coefficients)
         return obj
 
@@ -292,8 +277,6 @@ class BatchOutputSizes(ArraySizingClass):
         n_runs).
     status_codes : tuple[int], default (1,)
         Shape of the status code output array indexed by run.
-    stride_order : tuple[str, ...], default ("time", "variable", "run")
-        Order of dimensions in the output arrays.
     """
 
     state: Tuple[int, int, int] = attrs.field(
@@ -313,12 +296,6 @@ class BatchOutputSizes(ArraySizingClass):
     )
     iteration_counters: Tuple[int, int, int] = attrs.field(
         default=(1, 4, 1), validator=attrs.validators.instance_of(Tuple)
-    )
-    stride_order: Tuple[str, ...] = attrs.field(
-        default=("time", "variable", "run"),
-        validator=attrs.validators.deep_iterable(
-            attrs.validators.in_(["time", "run", "variable"])
-        ),
     )
 
     @classmethod
@@ -366,7 +343,7 @@ class BatchOutputSizes(ArraySizingClass):
             num_runs,
         )
         status_codes = (num_runs,)
-        
+
         # Iteration counters have shape (n_saves, 4, n_runs)
         # where 4 is for [Newton, Krylov, steps, rejections]
         iteration_counters = (
@@ -374,7 +351,7 @@ class BatchOutputSizes(ArraySizingClass):
             4,
             num_runs,
         )
-        
+
         obj = cls(
             state,
             observables,

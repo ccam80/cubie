@@ -274,7 +274,7 @@ class SolveResult:
         time, state_less_time = cls.cleave_time(
             solver.state,
             time_saved=solver.save_time,
-            stride_order=solver.state_stride_order,
+            stride_order=solver.kernel.output_arrays.host.state.stride_order,
         )
 
         time_domain_array = cls.combine_time_domain_arrays(
@@ -302,7 +302,9 @@ class SolveResult:
 
             if len(error_run_indices) > 0:
                 # Get stride order and find run dimension
-                stride_order = solver.state_stride_order
+                stride_order = (
+                    solver.kernel.output_arrays.host.state.stride_order
+                )
                 run_index = stride_order.index("run")
 
                 # Set error trajectories to NaN using vectorized indexing
@@ -337,7 +339,7 @@ class SolveResult:
             summaries_legend=summaries_legend,
             active_outputs=active_outputs,
             solve_settings=solve_settings,
-            stride_order=solver.state_stride_order,
+            stride_order=solver.kernel.output_arrays.host.state.stride_order,
             singlevar_summary_legend=singlevar_summary_legend,
         )
 

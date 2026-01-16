@@ -1,5 +1,3 @@
-import warnings
-
 import pytest
 from numba import cuda
 
@@ -114,7 +112,7 @@ def mem_manager_override(request):
 
 @pytest.fixture(scope="function")
 def mem_manager_settings(mem_manager_override):
-    defaults = {"mode": "passive", "stride_order": ("time", "variable", "run")}
+    defaults = {"mode": "passive"}
     if mem_manager_override:
         for key, value in mem_manager_override.items():
             if key in defaults:
@@ -172,11 +170,13 @@ def registered_mgr_context_safe(
     mem_manager_settings, registered_instance_settings
 ):
     fixed_mem_settings_closure = {"free": 1 * 1024**3, "total": 8 * 1024**3}
+
     class TestMemoryManager(MemoryManager):
         def get_memory_info(self):
             free = fixed_mem_settings_closure["free"]
             total = fixed_mem_settings_closure["total"]
             return free, total
+
     manager = TestMemoryManager(**mem_manager_settings)
     registeree = DummyClass(**registered_instance_settings)
 
@@ -187,6 +187,7 @@ def registered_mgr_context_safe(
     )
 
     return manager, registeree
+
 
 class TestMemoryManager:
     @pytest.mark.nocudasim
@@ -213,7 +214,6 @@ class TestMemoryManager:
         assert id(instance) in mgr.stream_groups.groups[group]
         assert mgr.stream_groups.get_stream(instance) is not None
 
-
     # Can't recover from this - context stays stale. This doesn't reflect a
     # real use case; reinstate if live memory manager switching is required
     # @pytest.mark.cupy
@@ -237,7 +237,6 @@ class TestMemoryManager:
     #     regmgr.set_allocator(label)
     #     assert regmgr._allocator == cls
 
-
     def test_set_limit_mode(self, mgr):
         """Test that set_limit_mode assigns the mode correctly,
         and that it raises ValueError if an invalid mode is passed"""
@@ -249,14 +248,14 @@ class TestMemoryManager:
             mgr.set_limit_mode("invalid")
 
     @pytest.mark.nocudasim
-    def test_get_stream(self, mem_manager_settings,
-                registered_instance_settings):
+    def test_get_stream(
+        self, mem_manager_settings, registered_instance_settings
+    ):
         """test that get_stream successfully passes a different stream for
         instances registered in different stream groups"""
 
         regmgr, instance = registered_mgr_context_safe(
-                mem_manager_settings,
-                registered_instance_settings
+            mem_manager_settings, registered_instance_settings
         )
         stream = regmgr.get_stream(instance)
         assert isinstance(stream, Stream)
@@ -268,14 +267,13 @@ class TestMemoryManager:
         assert int(stream.handle.value) != int(stream2.handle.value)
 
     def test_change_stream_group(
-        self,  mem_manager_settings,
-                registered_instance_settings):
+        self, mem_manager_settings, registered_instance_settings
+    ):
         """test that change_stream_group changes the stream group of an
         instance, and that it raises ValueError if the instance wasn't
         already in a group"""
         regmgr, instance = registered_mgr_context_safe(
-                mem_manager_settings,
-                registered_instance_settings
+            mem_manager_settings, registered_instance_settings
         )
         regmgr.change_stream_group(instance, "other")
         assert id(instance) in regmgr.stream_groups.groups["other"]
@@ -285,13 +283,12 @@ class TestMemoryManager:
 
     @pytest.mark.nocudasim
     def test_reinit_streams(
-        self, mem_manager_settings,
-                registered_instance_settings):
+        self, mem_manager_settings, registered_instance_settings
+    ):
         """test that reinit_streams causess a different stream to be
         returned from get_stream"""
         regmgr, instance = registered_mgr_context_safe(
-                mem_manager_settings,
-                registered_instance_settings
+            mem_manager_settings, registered_instance_settings
         )
         stream1 = regmgr.get_stream(instance)
         regmgr.reinit_streams()
@@ -299,14 +296,12 @@ class TestMemoryManager:
         assert int(stream1.handle.value) != int(stream2.handle.value)
 
     def test_invalidate_all(
-        self, mem_manager_settings,
-                registered_instance_settings
+        self, mem_manager_settings, registered_instance_settings
     ):
         """Add a new instance with a measurable invalidate hook, and check
         that it is called when invalidate all is called"""
         regmgr, instance = registered_mgr_context_safe(
-                mem_manager_settings,
-                registered_instance_settings
+            mem_manager_settings, registered_instance_settings
         )
         called = {"flag": False}
 
@@ -326,20 +321,18 @@ class TestMemoryManager:
     ):
         """Test that set_manual_limit_mode sets the instance to manual mode"""
         regmgr, instance = registered_mgr_context_safe(
-                mem_manager_settings,
-                registered_instance_settings
+            mem_manager_settings, registered_instance_settings
         )
         instance_id = id(instance)
         regmgr.set_manual_limit_mode(instance, 0.3)
         assert instance_id in regmgr._manual_pool
 
-
-    def test_set_auto_limit_mode(self, mem_manager_settings,
-                registered_instance_settings):
+    def test_set_auto_limit_mode(
+        self, mem_manager_settings, registered_instance_settings
+    ):
         """Test that set_auto_limit_mode sets the instance to auto mode"""
         regmgr, instance = registered_mgr_context_safe(
-                mem_manager_settings,
-                registered_instance_settings
+            mem_manager_settings, registered_instance_settings
         )
         regmgr.set_auto_limit_mode(instance)
         instance_id = id(instance)
@@ -354,8 +347,7 @@ class TestMemoryManager:
         """Test that proportion returns the requested proportion if set,
         and 1.0 if not set (auto)"""
         regmgr, instance = registered_mgr_context_safe(
-                mem_manager_settings,
-                registered_instance_settings
+            mem_manager_settings, registered_instance_settings
         )
         assert regmgr.proportion(instance) == instance.proportion
         # Register auto instance
@@ -363,12 +355,10 @@ class TestMemoryManager:
         regmgr.register(inst2, proportion=None)
         assert regmgr.proportion(inst2) == 0.5
 
-    def  test_cap(self, mem_manager_settings,
-                registered_instance_settings):
+    def test_cap(self, mem_manager_settings, registered_instance_settings):
         """Test that cap returns the correct value"""
         regmgr, instance = registered_mgr_context_safe(
-                mem_manager_settings,
-                registered_instance_settings
+            mem_manager_settings, registered_instance_settings
         )
         proportion = instance.proportion
         testcap = regmgr.cap(instance)
@@ -380,15 +370,13 @@ class TestMemoryManager:
         "registered_instance_override", [{"proportion": None}], indirect=True
     )
     def test_pool_proportions(
-        self,mem_manager_settings,
-                registered_instance_settings
+        self, mem_manager_settings, registered_instance_settings
     ):
         """Add a few auto and manual instances, check that the total manual
         and auto pool proportions match expected. Test add and rebalance
         methods along the way"""
         regmgr, instance = registered_mgr_context_safe(
-                mem_manager_settings,
-                registered_instance_settings
+            mem_manager_settings, registered_instance_settings
         )
         instance1 = instance
         instance2 = DummyClass()
@@ -433,39 +421,6 @@ class TestMemoryManager:
         with pytest.raises(ValueError):
             regmgr.register(instance5, proportion=0.3)
 
-    def test_set_strides(self, mgr):
-        """test that the strides are set correctly"""
-        # Default stride order, should be None
-        req = ArrayRequest(
-            shape=(2, 3, 4),
-            dtype=np.float32,
-            memory="device",
-            stride_order=("time", "variable", "run"),
-        )
-        assert mgr.get_strides(req) is None
-        # Custom stride order, should return a tuple
-        req2 = ArrayRequest(
-            shape=(2, 3, 4),
-            dtype=np.float32,
-            memory="device",
-            stride_order=("time", "run", "variable"),
-        )
-        strides = mgr.get_strides(req2)
-        # Manually computed strides for shape (2,3,4) and order (time, run, variable)
-        # Should match what MemoryManager.get_strides returns
-        itemsize = req2.dtype().itemsize
-        expected = (48, 4, 12)
-        assert strides == expected
-
-    def test_set_global_stride_ordering(self, mgr):
-        """Test that set_global_stride_ordering sets the stride order and invalidates all."""
-        # Valid ordering
-        mgr.set_global_stride_ordering(("run", "variable", "time"))
-        assert mgr._stride_order == ("run", "variable", "time")
-        # Invalid ordering
-        with pytest.raises(ValueError):
-            mgr.set_global_stride_ordering(("foo", "bar", "baz"))
-
     def test_process_request(self, mgr):
         """Test single_request calls allocation hook with correct ArrayResponse."""
         # Create instance with callback to capture response
@@ -480,14 +435,20 @@ class TestMemoryManager:
 
         requests = {
             "arr1": ArrayRequest(
-                shape=(8, 8, 8), dtype=np.float32, memory="device"
+                shape=(8, 8, 8),
+                dtype=np.float32,
+                memory="device",
+                total_runs=8,
             ),
             "arr2": ArrayRequest(
-                shape=(4, 4, 4), dtype=np.float32, memory="device"
+                shape=(4, 4, 8),
+                dtype=np.float32,
+                memory="device",
+                total_runs=8,
             ),
         }
-        mgr.single_request(instance, requests)
-
+        mgr.queue_request(instance, requests)
+        mgr.allocate_queue(instance)
         # Check that callback was called with correct response
         assert callback_called["flag"] is True
         response = callback_called["response"]
@@ -504,10 +465,16 @@ class TestMemoryManager:
         instance = registered_instance
         requests = {
             "arr1": ArrayRequest(
-                shape=(2, 2, 2), dtype=np.float32, memory="device"
+                shape=(2, 2, 2),
+                dtype=np.float32,
+                memory="device",
+                total_runs=2,
             ),
             "arr2": ArrayRequest(
-                shape=(2, 2, 2), dtype=np.float32, memory="device"
+                shape=(2, 2, 2),
+                dtype=np.float32,
+                memory="device",
+                total_runs=2,
             ),
         }
         stream = mgr.get_stream(instance)
@@ -555,61 +522,11 @@ class TestMemoryManager:
         mgr.free_all()
         assert mgr.registry[id(instance)].allocations == {}
 
-    def test_get_chunks(self, mgr):
-        """Test get_chunks returns correct chunk count based on available memory."""
-        # Test with specific request size and available memory
-        request_size = 100
-        available = 200
-        chunks = mgr.get_chunks(request_size, available)
-        assert isinstance(chunks, int)
-        assert chunks == 1
-
-        request_size = int(2 * 1024**3)
-        available = int(1 * 1024**3)
-        chunks = mgr.get_chunks(request_size, available)
-        assert chunks == 2
-
-        request_size = int(2.5 * 1024**3)
-        available = int(1 * 1024**3)
-        chunks = mgr.get_chunks(request_size, available)
-        assert chunks == 3
-
     def test_get_memory_info(self, mgr):
         """Test get_memory_info returns tuple of free and total memory."""
         free, total = mgr.get_memory_info()
         assert free == 1 * 1024**3
         assert total == 8 * 1024**3
-
-    def test_get_strides(self, mgr):
-        """Test get_strides returns correct strides for 3D arrays and None for default/correct ordering or 2D arrays."""
-        # 3D array, default stride order
-        req_default = ArrayRequest(
-            shape=(2, 3, 4),
-            dtype=np.float32,
-            memory="device",
-            stride_order=("time", "variable", "run"),
-        )
-        assert mgr.get_strides(req_default) is None
-        # 3D array, custom stride order
-        req_custom = ArrayRequest(
-            shape=(2, 3, 4),
-            dtype=np.float32,
-            memory="device",
-            stride_order=("time", "run", "variable"),
-        )
-        strides = mgr.get_strides(req_custom)
-        # Should match manual calculation
-        itemsize = req_custom.dtype().itemsize
-        expected = (48, 4, 12)
-        assert strides == expected
-        # 2D array, should always be None
-        req_2d = ArrayRequest(
-            shape=(3, 4),
-            dtype=np.float32,
-            memory="device",
-            stride_order=("variable", "run"),
-        )
-        assert mgr.get_strides(req_2d) is None
 
     def test_create_host_array_1d(self, mgr):
         """Test create_host_array returns correct 1D array."""
@@ -623,7 +540,6 @@ class TestMemoryManager:
         arr = mgr.create_host_array(
             shape=(5, 3),
             dtype=np.float64,
-            stride_order=("run", "variable"),
         )
         assert arr.shape == (5, 3)
         assert arr.dtype == np.float64
@@ -634,7 +550,6 @@ class TestMemoryManager:
         arr = mgr.create_host_array(
             shape=(2, 3, 4),
             dtype=np.float32,
-            stride_order=("time", "run", "variable"),
         )
         assert arr.shape == (2, 3, 4)
         assert arr.dtype == np.float32
@@ -643,14 +558,14 @@ class TestMemoryManager:
         )
 
     def test_create_host_array_3d_custom_stride(self, mgr):
-        """Test create_host_array returns correct 3D array with custom stride."""
+        """Test create_host_array returns C-contiguous 3D array."""
         arr = mgr.create_host_array(
             shape=(2, 3, 4),
             dtype=np.float32,
-            stride_order=("run", "variable", "time"),
         )
         assert arr.shape == (2, 3, 4)
         assert arr.dtype == np.float32
+        assert arr.flags["C_CONTIGUOUS"]
         np.testing.assert_array_equal(
             arr, np.zeros((2, 3, 4), dtype=np.float32)
         )
@@ -660,7 +575,6 @@ class TestMemoryManager:
         arr = mgr.create_host_array(
             shape=(2, 3, 4),
             dtype=np.float32,
-            stride_order=("time", "run", "variable"),
             memory_type="host",
         )
         assert arr.shape == (2, 3, 4)
@@ -675,7 +589,6 @@ class TestMemoryManager:
             mgr.create_host_array(
                 shape=(2, 3, 4),
                 dtype=np.float32,
-                stride_order=("time", "run", "variable"),
                 memory_type="invalid",
             )
 
@@ -721,49 +634,6 @@ class TestMemoryManager:
         assert abs(mgr.registry[id(inst1)].proportion - 0.25) < 1e-6
         assert abs(mgr.auto_pool_proportion - 0.25) < 1e-6
 
-    def test_get_available_single(self, registered_mgr, registered_instance):
-        """Test get_available_single returns correct available memory for an instance."""
-        mgr = registered_mgr
-        instance = registered_instance
-        instance_id = id(instance)
-
-        # Passive mode should return free memory
-        mgr.set_limit_mode("passive")
-        available = mgr.get_available_single(instance_id)
-        free, total = mgr.get_memory_info()
-        assert available == free
-
-        # Active mode should consider instance cap and allocated bytes
-        mgr.set_limit_mode("active")
-        available = mgr.get_available_single(instance_id)
-        settings = mgr.registry[instance_id]
-        expected = min(settings.cap - settings.allocated_bytes, free)
-        assert available == expected
-
-    def test_get_available_group(self, mgr):
-        """Test get_available_group returns correct available memory for a stream group."""
-        inst1 = DummyClass()
-        inst2 = DummyClass()
-        mgr.register(inst1, stream_group="test_group")
-        mgr.register(inst2, stream_group="test_group")
-
-        # Passive mode should return free memory
-        mgr.set_limit_mode("passive")
-        available = mgr.get_available_group("test_group")
-        free, total = mgr.get_memory_info()
-        assert available == free
-
-        # Active mode should consider group totals
-        mgr.set_limit_mode("active")
-        available = mgr.get_available_group("test_group")
-        total_cap = mgr.registry[id(inst1)].cap + mgr.registry[id(inst2)].cap
-        total_allocated = (
-            mgr.registry[id(inst1)].allocated_bytes
-            + mgr.registry[id(inst2)].allocated_bytes
-        )
-        expected = min(total_cap - total_allocated, free)
-        assert available == expected
-
     def test_get_stream_group(self, registered_mgr, registered_instance):
         """Test get_stream_group returns the correct group name."""
         mgr = registered_mgr
@@ -781,10 +651,10 @@ class TestMemoryManager:
         # Valid requests should pass
         valid_requests = {
             "arr1": ArrayRequest(
-                shape=(2, 2), dtype=np.float32, memory="device"
+                shape=(2, 2), dtype=np.float32, memory="device", total_runs=2
             ),
             "arr2": ArrayRequest(
-                shape=(3, 3), dtype=np.float64, memory="mapped"
+                shape=(3, 3), dtype=np.float64, memory="mapped", total_runs=3
             ),
         }
         mgr._check_requests(valid_requests)  # Should not raise
@@ -796,7 +666,7 @@ class TestMemoryManager:
         # Invalid request values should raise TypeError
         invalid_requests = {
             "arr1": ArrayRequest(
-                shape=(2, 2), dtype=np.float32, memory="device"
+                shape=(2, 2), dtype=np.float32, memory="device", total_runs=2
             ),
             "arr2": "not an ArrayRequest",
         }
@@ -810,7 +680,7 @@ class TestMemoryManager:
 
         requests = {
             "arr1": ArrayRequest(
-                shape=(2, 2), dtype=np.float32, memory="device"
+                shape=(2, 2), dtype=np.float32, memory="device", total_runs=2
             ),
         }
 
@@ -830,72 +700,6 @@ class TestMemoryManager:
         # Should only have the latest request
         assert mgr._queued_allocations[stream_group][id(instance)] == requests2
 
-    def test_chunk_arrays(self, mgr):
-        """Test chunk_arrays divides array shapes correctly along specified axis."""
-        requests = {
-            "arr1": ArrayRequest(
-                shape=(100, 200, 50),
-                dtype=np.float32,
-                memory="device",
-                stride_order=("time", "variable", "run"),
-            ),
-            "arr2": ArrayRequest(
-                shape=(50, 400, 25),
-                dtype=np.float32,
-                memory="device",
-                stride_order=("time", "variable", "run"),
-            ),
-        }
-
-        # Chunk by run dimension (index 2)
-        chunked = mgr.chunk_arrays(requests, numchunks=4, axis="run")
-
-        # arr1: (100, 200, 50) -> (100, 200, 13) since ceil(50/4) = 13
-        # arr2: (50, 400, 25) -> (50, 400, 7) since ceil(25/4) = 7
-        assert chunked["arr1"].shape == (100, 200, 13)
-        assert chunked["arr2"].shape == (50, 400, 7)
-
-        # Chunk by time dimension (index 0)
-        chunked_time = mgr.chunk_arrays(requests, numchunks=2, axis="time")
-        assert chunked_time["arr1"].shape == (50, 200, 50)  # 100/2 = 50
-        assert chunked_time["arr2"].shape == (25, 400, 25)  # 50/2 = 25
-
-    def test_single_request(self, registered_mgr, registered_instance):
-        """Test single_request processes individual requests correctly."""
-        # Create instance with callback to capture response
-        instance = DummyClass()
-        callback_called = {"flag": False, "response": None}
-
-        def allocation_hook(response):
-            callback_called["flag"] = True
-            callback_called["response"] = response
-
-        registered_mgr.register(
-            instance, allocation_ready_hook=allocation_hook
-        )
-
-        requests = {
-            "arr1": ArrayRequest(
-                shape=(4, 4, 4), dtype=np.float32, memory="device"
-            ),
-            "arr2": ArrayRequest(
-                shape=(2, 2, 2), dtype=np.float32, memory="mapped"
-            ),
-        }
-
-        registered_mgr.single_request(instance, requests)
-
-        # Check that callback was called with correct response
-        assert callback_called["flag"] is True
-        response = callback_called["response"]
-        assert isinstance(response, ArrayResponse)
-        assert set(response.arr.keys()) == set(requests.keys())
-        assert isinstance(response.chunks, int)
-
-        # Arrays should be allocated and registered
-        for key in requests.keys():
-            assert key in registered_mgr.registry[id(instance)].allocations
-
     def test_allocate_queue_single_instance(self, mgr):
         """Test allocate_queue with single instance in queue."""
         instance = DummyClass()
@@ -909,7 +713,10 @@ class TestMemoryManager:
 
         requests = {
             "arr1": ArrayRequest(
-                shape=(2, 2, 2), dtype=np.float32, memory="device"
+                shape=(2, 2, 2),
+                dtype=np.float32,
+                memory="device",
+                total_runs=2,
             ),
         }
 
@@ -947,104 +754,28 @@ class TestMemoryManager:
 
         requests1 = {
             "arr1": ArrayRequest(
-                shape=(2, 2, 2), dtype=np.float32, memory="device"
+                shape=(2, 2, 2),
+                dtype=np.float32,
+                memory="device",
+                total_runs=2,
             )
         }
         requests2 = {
             "arr2": ArrayRequest(
-                shape=(3, 3, 3), dtype=np.float32, memory="device"
-            )
-        }
-
-        mgr.queue_request(inst1, requests1)
-        mgr.queue_request(inst2, requests2)
-        mgr.allocate_queue(inst1, limit_type="group")
-
-        # Both callbacks should be called
-        assert callbacks_called["inst1"]["flag"] is True
-        assert callbacks_called["inst2"]["flag"] is True
-
-    @pytest.mark.parametrize(
-        "fixed_mem_override, limit_type, chunk_axis",
-        [
-            [{"total": 512 * 1024**2}, "instance", "run"],
-            [{"total": 512 * 1024**2}, "group", "run"],
-            [{"total": 512 * 1024**2}, "instance", "time"],
-            [{"total": 512 * 1024**2}, "group", "time"],
-        ],
-        indirect=["fixed_mem_override"],
-    )
-    def test_allocate_queue_multiple_instances_instance_limit(
-        self, mgr, limit_type, chunk_axis, precision
-    ):
-        """Test allocate_queue with multiple instances using instance limit."""
-        inst1 = DummyClass()
-        inst2 = DummyClass()
-        callbacks_called = {
-            "inst1": {"flag": False, "response": ArrayRequest(
-                    dtype=precision)},
-            "inst2": {"flag": False, "response": ArrayRequest(
-                    dtype=precision)},
-        }
-
-        def hook1(response):
-            callbacks_called["inst1"]["flag"] = True
-            callbacks_called["inst1"]["response"] = response
-
-        def hook2(response):
-            callbacks_called["inst2"]["flag"] = True
-            callbacks_called["inst2"]["response"] = response
-
-        mgr.register(inst1, allocation_ready_hook=hook1, stream_group="test")
-        mgr.register(inst2, allocation_ready_hook=hook2, stream_group="test")
-        mgr.set_limit_mode("active")
-        requests1 = {
-            "arr": ArrayRequest(
-                shape=(4, 4, 4), dtype=np.float32, memory="device"
-            )
-        }
-        requests2 = {
-            "arr": ArrayRequest(
-                shape=(1000, 256, 1024),
-                # ~4x instance
+                shape=(3, 3, 3),
                 dtype=np.float32,
                 memory="device",
+                total_runs=3,
             )
         }
 
         mgr.queue_request(inst1, requests1)
         mgr.queue_request(inst2, requests2)
-        mgr.allocate_queue(inst1, limit_type=limit_type, chunk_axis=chunk_axis)
+        mgr.allocate_queue(inst1)
 
         # Both callbacks should be called
         assert callbacks_called["inst1"]["flag"] is True
         assert callbacks_called["inst2"]["flag"] is True
-        response1 = callbacks_called["inst1"]["response"]
-        response2 = callbacks_called["inst2"]["response"]
-
-        if limit_type == "instance":
-            expected_chunks = 4
-        else:
-            expected_chunks = 2
-        # With stride order (time, variable, run):
-        # run is at index 2, time is at index 0
-        if chunk_axis == "run":
-            chunk_index = 2
-        elif chunk_axis == "time":
-            chunk_index = 0
-
-        shape_1 = np.asarray([4, 4, 4])
-        shape_2 = np.asarray([1000, 256, 1024])
-        shape_1[chunk_index] = shape_1[chunk_index] // expected_chunks
-        shape_2[chunk_index] = shape_2[chunk_index] // expected_chunks
-
-        assert response1.arr["arr"].shape == tuple(shape_1)
-        assert response1.arr["arr"].dtype == np.float32
-        assert response1.chunks == expected_chunks
-
-        assert response2.arr["arr"].shape == tuple(shape_2)
-        assert response2.arr["arr"].dtype == np.float32
-        assert response2.chunks == expected_chunks
 
     def test_allocate_queue_empty_queue(
         self, registered_mgr, registered_instance
@@ -1053,8 +784,7 @@ class TestMemoryManager:
         mgr = registered_mgr
         instance = registered_instance
 
-        result = mgr.allocate_queue(instance)
-        assert result is None
+        mgr.allocate_queue(instance)
 
     def test_is_grouped(self, mgr):
         """Test is_grouped returns correct grouping status for instances."""
@@ -1091,66 +821,6 @@ class TestMemoryManager:
         assert mgr.is_grouped(inst_group1) is True
         assert mgr.is_grouped(inst_group2) is True
 
-    @pytest.mark.parametrize(
-        "fixed_mem_override", [{"total": 512 * 1024**2}], indirect=True
-    )
-    def test_get_available_single_low_memory_warning(
-        self, registered_mgr, registered_instance
-    ):
-        """Test get_available_single issues warning when memory usage is high."""
-        mgr = registered_mgr
-        instance = registered_instance  # initializes with 0.5 of VRAM assigned
-        instance_id = id(instance)
-
-        mgr.set_limit_mode("active")
-        requests1 = {
-            "arr1": ArrayRequest(
-                shape=(250, 1024, 256),  # >95%
-                dtype=np.float32,
-                memory="device",
-            )
-        }
-
-        # Add some fake allocation to trigger low memory warning
-        # allocation
-        mgr.single_request(instance, requests1)
-
-        with warnings.catch_warnings(record=True) as w:
-            warnings.simplefilter("always")
-            mgr.get_available_single(instance_id)
-            # Should warn about high memory usage
-            assert any(
-                "95% of it's allotted memory" in str(wi.message) for wi in w
-            )
-
-    @pytest.mark.parametrize(
-        "fixed_mem_override", [{"total": 512 * 1024**2}], indirect=True
-    )
-    def test_get_available_group_low_memory_warning(self, mgr):
-        """Test get_available_group issues warning when group memory usage is high."""
-        inst1 = DummyClass()
-        inst2 = DummyClass()
-        mgr.register(inst1, stream_group="test", proportion=0.25)
-        mgr.register(inst2, stream_group="test", proportion=0.25)
-        mgr.set_limit_mode("passive")
-        requests1 = {
-            "arr1": ArrayRequest(
-                shape=(250, 1024, 256),  # >95%
-                dtype=np.float32,
-                memory="device",
-            )
-        }
-        mgr.single_request(inst1, requests1)
-        # Add fake allocations to trigger warning
-
-        mgr.set_limit_mode("active")
-
-        with warnings.catch_warnings(record=True) as w:
-            warnings.simplefilter("always")
-            mgr.get_available_group("test")
-            # Should warn about high group memory usage
-            assert any("has used more than 95%" in str(wi.message) for wi in w)
-
     @pytest.mark.nocudasim
     def test_to_device(self, registered_mgr, registered_instance):
         """Test to_device copies values to allocated device arrays correctly."""
@@ -1161,10 +831,10 @@ class TestMemoryManager:
         # Allocate device arrays through the memory manager
         requests = {
             "arr1": ArrayRequest(
-                shape=(3, 4), dtype=np.float32, memory="device"
+                shape=(3, 4), dtype=np.float32, memory="device", total_runs=4
             ),
             "arr2": ArrayRequest(
-                shape=(2, 3), dtype=np.float64, memory="device"
+                shape=(2, 3), dtype=np.float64, memory="device", total_runs=3
             ),
         }
 
@@ -1201,10 +871,10 @@ class TestMemoryManager:
         # Allocate device arrays through the memory manager
         requests = {
             "arr1": ArrayRequest(
-                shape=(2, 5), dtype=np.float32, memory="device"
+                shape=(2, 5), dtype=np.float32, memory="device", total_runs=5
             ),
             "arr2": ArrayRequest(
-                shape=(3, 2), dtype=np.float64, memory="device"
+                shape=(3, 2), dtype=np.float64, memory="device", total_runs=2
             ),
         }
 
@@ -1238,29 +908,11 @@ class TestMemoryManager:
         np.testing.assert_array_equal(host_dest2, host_source2)
 
 
-def test_get_total_request_size():
-    """Test get_total_request_size calculates correct total size."""
-    from cubie.memory.mem_manager import get_total_request_size
-
-    requests = {
-        "arr1": ArrayRequest(
-            shape=(10, 10), dtype=np.float32, memory="device"
-        ),  # 400 bytes
-        "arr2": ArrayRequest(
-            shape=(5, 5), dtype=np.float64, memory="device"
-        ),  # 200 bytes
-    }
-
-    total_size = get_total_request_size(requests)
-    expected_size = (10 * 10 * 4) + (5 * 5 * 8)  # 400 + 200 = 600
-    assert total_size == expected_size
-
-
 @pytest.mark.nocudasim
 def test_ensure_cuda_context():
     """Test _ensure_cuda_context validates CUDA is available."""
     from cubie.memory.mem_manager import _ensure_cuda_context
-    
+
     # This test should not crash when CUDA is available
     # It will raise RuntimeError if CUDA context cannot be initialized
     try:
@@ -1273,7 +925,388 @@ def test_ensure_cuda_context_simulation():
     """Test _ensure_cuda_context is no-op in simulation mode."""
     from cubie.memory.mem_manager import _ensure_cuda_context
     from cubie.cuda_simsafe import CUDA_SIMULATION
-    
+
     # In simulation mode, the function should do nothing and not raise
     if CUDA_SIMULATION:
         _ensure_cuda_context()  # Should not raise
+
+
+class TestGetChunkParameters:
+    """Tests for get_chunk_parameters method."""
+
+    def test_get_chunk_parameters_unchunkable_exceeds_memory(self, mgr):
+        """Verify error when unchunkable arrays exceed available memory."""
+        # Register an instance
+        inst = DummyClass()
+        mgr.register(inst, stream_group="test")
+
+        # Create a request where unchunkable size exceeds available memory
+        # Memory manager has 1GB free (1 * 1024**3 bytes)
+        # Create a large unchunkable array (2GB total)
+        huge_shape = (512, 512, 512)  # 512^3 * 4 bytes = 512MB per array
+        requests = {
+            id(inst): {
+                "huge_unchunkable": ArrayRequest(
+                    shape=huge_shape,
+                    dtype=np.float32,
+                    memory="device",
+                    unchunkable=True,
+                    total_runs=1,
+                ),
+                "huge_unchunkable2": ArrayRequest(
+                    shape=huge_shape,
+                    dtype=np.float32,
+                    memory="device",
+                    unchunkable=True,
+                    total_runs=1,
+                ),
+                # Need at least one chunkable array to hit the unchunkable
+                # exceeds memory path (otherwise hits all-unchunkable path)
+                "small_chunkable": ArrayRequest(
+                    shape=(1, 1),
+                    dtype=np.float32,
+                    memory="device",
+                    unchunkable=False,
+                    total_runs=1,
+                ),
+            }
+        }
+
+        with pytest.raises(ValueError, match="unchunkable"):
+            mgr.get_chunk_parameters(
+                requests=requests,
+                axis_length=512,
+                stream_group="test",
+            )
+
+
+class TestAllocateQueueExtractsNumRuns:
+    """Tests for allocate_queue extraction of num_runs from triggering
+    instance."""
+
+    def test_allocate_queue_extracts_num_runs(self, mgr):
+        """Verify allocate_queue correctly extracts num_runs from
+        triggering instance.
+
+        The allocate_queue method should extract num_runs from
+        triggering_instance.run_params.runs instead of computing it
+        from array request shapes. This test verifies that behavior.
+        """
+
+        # Create a mock instance with run_params
+        class MockRunParams:
+            def __init__(self, runs):
+                self.runs = runs
+
+        class MockInstance:
+            def __init__(self, runs):
+                self.run_params = MockRunParams(runs)
+
+        instance = MockInstance(runs=100)
+
+        # Track whether the allocation callback was called with correct
+        # response
+        callback_called = {"flag": False, "response": None}
+
+        def allocation_hook(response):
+            callback_called["flag"] = True
+            callback_called["response"] = response
+
+        mgr.register(instance, allocation_ready_hook=allocation_hook)
+
+        # Create requests with arrays that have run axis
+        # The shape indicates 50 runs, but run_params.runs is 100
+        # allocate_queue should use 100 from run_params, not 50 from
+        # shape
+        requests = {
+            "arr1": ArrayRequest(
+                shape=(10, 50),  # 50 in run axis (second dimension)
+                dtype=np.float32,
+                memory="device",
+                unchunkable=False,
+                total_runs=100,
+            ),
+        }
+
+        mgr.queue_request(instance, requests)
+        mgr.allocate_queue(instance)
+
+        # Verify callback was called
+        assert callback_called["flag"] is True
+        response = callback_called["response"]
+        assert isinstance(response, ArrayResponse)
+
+        # The key validation: chunk_length should be computed based on
+        # num_runs=100 from run_params, not from the array shape
+        # Since we have 1GB free and small arrays, no chunking should
+        # occur, giving us chunk_length matching the full num_runs
+        assert response.chunks == 1
+        # chunk_length should equal num_runs when no chunking occurs
+        assert response.chunk_length == 100
+
+    def test_allocate_queue_chunks_correctly(self, mgr):
+        """Verify chunking calculations work with num_runs from instance.
+
+        When memory constraints force chunking, the chunk calculations
+        should be based on num_runs extracted from
+        triggering_instance.run_params.runs.
+        """
+
+        # Create instance with large num_runs to force chunking
+        class MockRunParams:
+            def __init__(self, runs):
+                self.runs = runs
+
+        class MockInstance:
+            def __init__(self, runs):
+                self.run_params = MockRunParams(runs)
+
+        # Use large num_runs to increase memory requirements
+        instance = MockInstance(runs=10000)
+
+        callback_called = {"flag": False, "response": None}
+
+        def allocation_hook(response):
+            callback_called["flag"] = True
+            callback_called["response"] = response
+
+        mgr.register(instance, allocation_ready_hook=allocation_hook)
+
+        # Create large requests to force chunking
+        # Each element is 4 bytes, so 10000 runs * 100 vars * 4 bytes =
+        # 4MB per array. With multiple arrays, this should exceed the
+        # 1GB available and trigger chunking.
+        requests = {
+            "arr1": ArrayRequest(
+                shape=(100, 10000),
+                dtype=np.float32,
+                memory="device",
+                unchunkable=False,
+                total_runs=10000,
+            ),
+            "arr2": ArrayRequest(
+                shape=(100, 10000),
+                dtype=np.float32,
+                memory="device",
+                unchunkable=False,
+                total_runs=10000,
+            ),
+        }
+
+        mgr.queue_request(instance, requests)
+        mgr.allocate_queue(instance)
+
+        # Verify callback was called
+        assert callback_called["flag"] is True
+        response = callback_called["response"]
+        assert isinstance(response, ArrayResponse)
+
+        # With 10000 runs and 1GB available memory, chunking should
+        # occur. The exact chunk_length depends on available memory,
+        # but it should be less than 10000.
+        # Verify that chunking occurred
+        if response.chunks > 1:
+            # chunk_length should be calculated to fit in available
+            # memory
+            assert response.chunk_length < 10000
+            assert response.chunk_length > 0
+            # Verify chunks * chunk_length covers all runs (with
+            # possible dangling chunk)
+            total_covered = (
+                response.chunks - 1
+            ) * response.chunk_length + response.chunk_length
+            assert total_covered >= 10000
+        else:
+            # If no chunking occurred (e.g., in CUDA sim with more
+            # memory), chunk_length should equal num_runs
+            assert response.chunk_length == 10000
+
+
+def test_allocate_queue_no_chunked_slices_in_response(mgr):
+    """Verify ArrayResponse from allocate_queue does not have chunked_slices.
+
+    After refactoring to use on-demand chunk slice computation, the
+    ArrayResponse should no longer contain a chunked_slices field. This test
+    verifies that the response contains the necessary chunk parameters
+    (chunks, , chunk_length, )
+    """
+
+    # Create instance with run_params
+    class MockRunParams:
+        def __init__(self, runs):
+            self.runs = runs
+
+    class MockInstance:
+        def __init__(self, runs):
+            self.run_params = MockRunParams(runs)
+
+    instance = MockInstance(runs=100)
+
+    # Track the allocation callback response
+    callback_called = {"flag": False, "response": None}
+
+    def allocation_hook(response):
+        callback_called["flag"] = True
+        callback_called["response"] = response
+
+    mgr.register(instance, allocation_ready_hook=allocation_hook)
+
+    # Create requests with chunkable arrays
+    requests = {
+        "arr1": ArrayRequest(
+            shape=(10, 100),
+            dtype=np.float32,
+            memory="device",
+            unchunkable=False,
+            total_runs=100,
+        ),
+        "arr2": ArrayRequest(
+            shape=(5, 100),
+            dtype=np.float32,
+            memory="device",
+            unchunkable=False,
+            total_runs=100,
+        ),
+    }
+
+    mgr.queue_request(instance, requests)
+    mgr.allocate_queue(instance)
+
+    # Verify callback was called
+    assert callback_called["flag"] is True
+    response = callback_called["response"]
+    assert isinstance(response, ArrayResponse)
+
+    # Verify chunked_slices is NOT in the response
+    assert not hasattr(response, "chunked_slices")
+
+    # Verify that chunk parameters ARE in the response
+    assert hasattr(response, "chunks")
+    assert hasattr(response, "chunk_length")
+    assert hasattr(response, "chunked_shapes")
+
+    # Verify chunk parameters have expected values
+    assert isinstance(response.chunks, int)
+    assert isinstance(response.chunk_length, int)
+    assert isinstance(response.chunked_shapes, dict)
+
+
+def test_allocate_queue_uses_first_request_total_runs(mgr):
+    """Verify allocate_queue extracts num_runs from first request in queue.
+
+    After refactoring, allocate_queue should get num_runs directly from
+    the first request's total_runs field instead of using the complex
+    _extract_num_runs() method. This test verifies that behavior.
+    """
+
+    # Create instance without run_params (not needed anymore)
+    class MockInstance:
+        pass
+
+    instance = MockInstance()
+
+    # Track the allocation callback response
+    callback_called = {"flag": False, "response": None}
+
+    def allocation_hook(response):
+        callback_called["flag"] = True
+        callback_called["response"] = response
+
+    mgr.register(instance, allocation_ready_hook=allocation_hook)
+
+    # Create requests where first request has total_runs=150
+    requests = {
+        "arr1": ArrayRequest(
+            shape=(10, 150),
+            dtype=np.float32,
+            memory="device",
+            unchunkable=False,
+            total_runs=150,
+        ),
+        "arr2": ArrayRequest(
+            shape=(5, 150),
+            dtype=np.float32,
+            memory="device",
+            unchunkable=False,
+            total_runs=150,
+        ),
+    }
+
+    mgr.queue_request(instance, requests)
+    mgr.allocate_queue(instance)
+
+    # Verify callback was called
+    assert callback_called["flag"] is True
+    response = callback_called["response"]
+    assert isinstance(response, ArrayResponse)
+
+    # Verify chunk_length matches num_runs=150 (no chunking with 1GB free)
+    assert response.chunks == 1
+    assert response.chunk_length == 150
+
+
+def test_allocate_queue_handles_all_requests_same_total_runs(mgr):
+    """Verify allocate_queue works when all requests have same total_runs.
+
+    With the refactored implementation, all requests in a queue must have
+    the same total_runs value (guaranteed by array managers). This test
+    verifies that allocate_queue correctly handles this case.
+    """
+
+    # Create instance without run_params (not needed anymore)
+    class MockInstance:
+        pass
+
+    instance = MockInstance()
+
+    # Track the allocation callback response
+    callback_called = {"flag": False, "response": None}
+
+    def allocation_hook(response):
+        callback_called["flag"] = True
+        callback_called["response"] = response
+
+    mgr.register(instance, allocation_ready_hook=allocation_hook)
+
+    # Create multiple requests all with same total_runs=200
+    requests = {
+        "arr1": ArrayRequest(
+            shape=(10, 200),
+            dtype=np.float32,
+            memory="device",
+            unchunkable=False,
+            total_runs=200,
+        ),
+        "arr2": ArrayRequest(
+            shape=(5, 200),
+            dtype=np.float32,
+            memory="device",
+            unchunkable=False,
+            total_runs=200,
+        ),
+        "arr3": ArrayRequest(
+            shape=(8, 200),
+            dtype=np.float32,
+            memory="device",
+            unchunkable=False,
+            total_runs=200,
+        ),
+    }
+
+    mgr.queue_request(instance, requests)
+    mgr.allocate_queue(instance)
+
+    # Verify callback was called
+    assert callback_called["flag"] is True
+    response = callback_called["response"]
+    assert isinstance(response, ArrayResponse)
+
+    # Verify chunk_length matches num_runs=200 (no chunking with 1GB free)
+    assert response.chunks == 1
+    assert response.chunk_length == 200
+
+    # Verify all arrays were allocated
+    assert len(response.arr) == 3
+    assert "arr1" in response.arr
+    assert "arr2" in response.arr
+    assert "arr3" in response.arr

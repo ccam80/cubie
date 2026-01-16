@@ -12,6 +12,7 @@ import attrs
 import attrs.validators as val
 import numpy as np
 
+from cubie._utils import opt_getype_validator, getype_validator
 from cubie.cuda_simsafe import DeviceNDArrayBase
 
 
@@ -29,11 +30,13 @@ class ArrayRequest:
     memory
         Memory placement option. Must be one of ``"device"``, ``"mapped"``,
         ``"pinned"``, or ``"managed"``.
-    stride_order
-        Optional tuple describing logical dimension labels in stride order. When
-        omitted, the initializer selects an order based on dimensionality.
     unchunkable
         Whether the memory manager is allowed to chunk the allocation.
+    total_runs
+        Total number of runs for chunking calculations. Defaults to ``1`` for
+        arrays not intended for run-axis chunking (e.g., driver_coefficients).
+        Memory manager extracts this value to determine chunk parameters.
+        Always >= 1.
 
     Attributes
     ----------
@@ -43,19 +46,14 @@ class ArrayRequest:
         NumPy precision constructor used to produce the allocation.
     memory
         Memory placement option.
-    stride_order
-        Tuple describing logical dimension labels in stride order.
+    chunk_axis_index
+        Axis index along which chunking may occur.
     unchunkable
         Flag indicating that chunking should be disabled.
-
-    Notes
-    -----
-    When ``stride_order`` is ``None``, it is set automatically during
-    initialization:
-
-    * For 3D arrays, ``("time", "variable", "run")`` is selected.
-    * For 2D arrays, ``("variable", "run")`` is selected.
+    total_runs
+        Total number of runs for chunking calculations. Always >= 1.
     """
+
     dtype = attrs.field(
         validator=val.in_([np.float64, np.float32, np.int32]),
     )
@@ -69,25 +67,17 @@ class ArrayRequest:
         default="device",
         validator=val.in_(["device", "mapped", "pinned", "managed"]),
     )
-    stride_order: Optional[tuple[str, ...]] = attrs.field(
-        default=None, validator=val.optional(val.instance_of(tuple))
+    chunk_axis_index: Optional[int] = attrs.field(
+        default=2,
+        validator=opt_getype_validator(int, 0),
     )
-    unchunkable: bool = attrs.field(default=False, validator=val.instance_of(bool))
-
-    def __attrs_post_init__(self) -> None:
-        """
-        Set cubie-native stride order if not set already.
-
-        Returns
-        -------
-        None
-            ``None``.
-        """
-        if self.stride_order is None:
-            if len(self.shape) == 3:
-                self.stride_order = ("time", "variable", "run")
-            elif len(self.shape) == 2:
-                self.stride_order = ("variable", "run")
+    unchunkable: bool = attrs.field(
+        default=False, validator=val.instance_of(bool)
+    )
+    total_runs: int = attrs.field(
+        default=1,
+        validator=getype_validator(int, 1),
+    )
 
     @property
     def size(self) -> int:
@@ -104,18 +94,23 @@ class ArrayResponse:
     arr
         Dictionary mapping array labels to allocated device arrays.
     chunks
-        Mapping that records how many chunks each allocation was divided into.
-    chunk_axis
-        Axis label along which chunking was performed. Defaults to ``"run"``.
+        Number of chunks the allocation was divided into.
+    chunk_length
+        Length of each chunk along the run axis (except possibly last).
+    chunked_shapes
+        Mapping from array labels to their per-chunk shapes. Empty dict when
+        no chunking occurs.
 
     Attributes
     ----------
     arr
         Dictionary mapping array labels to allocated device arrays.
     chunks
-        Mapping that records how many chunks each allocation was divided into.
-    chunk_axis
-        Axis label along which chunking was performed.
+        Number of chunks the allocation was divided into.
+    chunk_length
+        Length of each chunk along the run axis.
+    chunked_shapes
+        Mapping from array labels to their per-chunk shapes.
     """
 
     arr: dict[str, DeviceNDArrayBase] = attrs.field(
@@ -124,6 +119,9 @@ class ArrayResponse:
     chunks: int = attrs.field(
         default=1,
     )
-    chunk_axis: str = attrs.field(
-        default="run", validator=val.in_(["run", "variable", "time"])
+    chunk_length: int = attrs.field(
+        default=1,
+    )
+    chunked_shapes: dict[str, tuple[int, ...]] = attrs.field(
+        default=attrs.Factory(dict), validator=val.instance_of(dict)
     )
