@@ -1,3 +1,4 @@
+import attrs
 import numpy as np
 import pytest
 from numpy.testing import assert_array_equal
@@ -190,15 +191,15 @@ class TestInputArrays:
         )
 
     def test_call_method_size_change_triggers_reallocation(
-        self, input_arrays_manager, solver, input_test_settings
+        self, input_arrays_manager, solver_mutable, input_test_settings
     ):
         """Test that update method triggers reallocation when size changes"""
         dtype = input_test_settings["dtype"]
         num_runs = input_test_settings["num_runs"]
 
-        variables_count = solver.system_sizes.states
-        parameters_count = solver.system_sizes.parameters
-        forcing_count = solver.system_sizes.drivers
+        variables_count = solver_mutable.system_sizes.states
+        parameters_count = solver_mutable.system_sizes.parameters
+        forcing_count = solver_mutable.system_sizes.drivers
 
         # Initial call with original sizes
         # Native format: (variable, run)
@@ -215,7 +216,7 @@ class TestInputArrays:
         }
 
         input_arrays_manager.update(
-            solver,
+            solver_mutable,
             initial_arrays["initial_values"],
             initial_arrays["parameters"],
             initial_arrays["driver_coefficients"],
@@ -241,9 +242,11 @@ class TestInputArrays:
                 forcing_count, new_num_runs
             ).astype(dtype),
         }
-
+        solver_mutable.kernel.run_params = attrs.evolve(
+            solver_mutable.kernel.run_params, runs=new_num_runs
+        )
         input_arrays_manager.update(
-            solver,
+            solver_mutable,
             new_arrays["initial_values"],
             new_arrays["parameters"],
             new_arrays["driver_coefficients"],
@@ -269,11 +272,42 @@ class TestInputArrays:
         assert input_arrays_manager._precision == solver.precision
         assert isinstance(input_arrays_manager._sizes, BatchInputSizes)
 
+    def test_update_from_solver_sets_num_runs(
+        self, input_arrays_manager, solver
+    ):
+        """Test that update_from_solver sets num_runs from sizes.
+
+        This test verifies that update_from_solver() correctly extracts
+        num_runs from the second element of initial_values shape and sets it
+        via set_array_runs().
+        """
+        # Initially num_runs should be None
+        assert input_arrays_manager.num_runs == 1
+
+        # Call update_from_solver
+        input_arrays_manager.update_from_solver(solver)
+
+        # Verify num_runs was set from sizes
+        # The num_runs should match the second element of initial_values shape
+        expected_num_runs = solver.num_runs
+        assert input_arrays_manager.num_runs == expected_num_runs
+
+        # Verify it matches what's in the sizes object
+        assert (
+            input_arrays_manager.num_runs
+            == input_arrays_manager._sizes.initial_values[1]
+        )
+
     def test_initialise_method(
-        self, input_arrays_manager, solver, sample_input_arrays
+        self, input_arrays_manager, solver_mutable, sample_input_arrays
     ):
         """Test initialise method copies data to device"""
         # Set up the manager
+        solver = solver_mutable
+        solver.kernel.run_params = attrs.evolve(
+            solver.kernel.run_params,
+            runs=sample_input_arrays["initial_values"].shape[1],
+        )
         input_arrays_manager.update(
             solver,
             sample_input_arrays["initial_values"],
@@ -291,9 +325,7 @@ class TestInputArrays:
         # Set up chunking
         input_arrays_manager._chunks = 1
 
-        # Call initialise with host indices (all data)
-        host_indices = slice(None)
-        input_arrays_manager.initialise(host_indices)
+        input_arrays_manager.initialise(0)
 
         # Check that device arrays now match host arrays
         # Arrays are in native (variable, run) format - no transpose needed

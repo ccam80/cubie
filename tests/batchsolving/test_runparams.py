@@ -1,7 +1,6 @@
 """Tests for RunParams class."""
 
 import pytest
-import numpy as np
 from attrs import evolve
 
 from cubie.batchsolving.BatchSolverKernel import RunParams
@@ -67,14 +66,10 @@ def test_runparams_creation_validates_runs():
 def test_runparams_creation_validates_num_chunks():
     """Verify num_chunks validation rejects zero and negative values."""
     with pytest.raises(ValueError):
-        RunParams(
-            duration=1.0, warmup=0.0, t0=0.0, runs=10, num_chunks=0
-        )
+        RunParams(duration=1.0, warmup=0.0, t0=0.0, runs=10, num_chunks=0)
 
     with pytest.raises(ValueError):
-        RunParams(
-            duration=1.0, warmup=0.0, t0=0.0, runs=10, num_chunks=-1
-        )
+        RunParams(duration=1.0, warmup=0.0, t0=0.0, runs=10, num_chunks=-1)
 
 
 def test_runparams_getitem_single_chunk():
@@ -217,6 +212,7 @@ def test_runparams_update_from_allocation():
     response = ArrayResponse(
         arr={},
         chunks=4,
+        chunk_length=25,
     )
 
     # Update params from allocation response
@@ -224,7 +220,6 @@ def test_runparams_update_from_allocation():
 
     # Check that chunking metadata was updated
     assert updated_params.num_chunks == 4
-    # chunk_length should be ceil(100/4) = 25
     assert updated_params.chunk_length == 25
 
     # Original time parameters should be preserved
@@ -247,6 +242,7 @@ def test_runparams_update_from_allocation_single_chunk():
     response = ArrayResponse(
         arr={},
         chunks=1,
+        chunk_length=50,
     )
 
     updated_params = params.update_from_allocation(response)
@@ -269,6 +265,7 @@ def test_runparams_update_from_allocation_dangling_chunk():
     response = ArrayResponse(
         arr={},
         chunks=3,
+        chunk_length=34,
     )
 
     updated_params = params.update_from_allocation(response)

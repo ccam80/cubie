@@ -32,6 +32,7 @@ from cubie.integrators.array_interpolator import ArrayInterpolator
 from cubie.memory import default_memmgr
 from cubie.memory.mem_manager import (
     ALL_MEMORY_MANAGER_PARAMETERS,
+    MemoryManager,
 )
 from cubie.outputhandling.output_functions import (
     OutputFunctions,
@@ -212,6 +213,12 @@ def system(
         return model_type
 
     raise ValueError(f"Unknown model type: {model_type}")
+
+
+@pytest.fixture(scope="session")
+def thread_mem_manager():
+    """Instantiate a memory manager instance in each thread"""
+    return MemoryManager()
 
 
 @pytest.fixture(scope="session")
@@ -605,15 +612,12 @@ def solverkernel_mutable(
 
 
 @pytest.fixture(scope="session")
-def solver(
-    system,
-    solver_settings,
-    driver_array,
-):
+def solver(system, solver_settings, driver_array, thread_mem_manager):
     return _build_solver_instance(
         system=system,
         solver_settings=solver_settings,
         driver_array=driver_array,
+        memory_manager=thread_mem_manager,
     )
 
 
@@ -622,11 +626,13 @@ def solver_mutable(
     system,
     solver_settings,
     driver_array,
+    thread_mem_manager,
 ):
     return _build_solver_instance(
         system=system,
         solver_settings=solver_settings,
         driver_array=driver_array,
+        memory_manager=thread_mem_manager,
     )
 
 

@@ -7,7 +7,6 @@ import pytest
 import attrs
 
 from cubie.batchsolving.arrays.BatchOutputArrays import (
-    OutputArrays,
     OutputArrayContainer,
 )
 from cubie.batchsolving.arrays.BatchInputArrays import InputArrayContainer
@@ -20,7 +19,6 @@ from cubie.batchsolving.writeback_watcher import (
     WritebackTask,
     WritebackWatcher,
 )
-from cubie.memory.array_requests import ArrayResponse
 from cubie.memory.chunk_buffer_pool import ChunkBufferPool
 
 
@@ -149,21 +147,19 @@ class TestWritebackTask:
         """Verify WritebackTask can be created with valid inputs."""
         pool = ChunkBufferPool()
         buffer = pool.acquire("test", (10,), np.float32)
-        target = np.zeros((100,), dtype=np.float32)
-
+        target = np.arange(100, dtype=np.float32)
+        buffer.array[:] = np.arange(10, dtype=np.float32)
         task = WritebackTask(
             event=None,
             buffer=buffer,
-            target_array=target,
-            slice_tuple=(slice(0, 10),),
+            target_array=target[:10],
             buffer_pool=pool,
             array_name="test",
         )
 
         assert task.event is None
         assert task.buffer is buffer
-        assert task.target_array is target
-        assert task.slice_tuple == (slice(0, 10),)
+        assert np.array_equal(task.target_array, target[:10])
         assert task.buffer_pool is pool
         assert task.array_name == "test"
 
@@ -176,8 +172,7 @@ class TestWritebackTask:
             WritebackTask(
                 event=None,
                 buffer="not a buffer",  # Invalid
-                target_array=target,
-                slice_tuple=(slice(0, 10),),
+                target_array=target[0:10],
                 buffer_pool=pool,
                 array_name="test",
             )
@@ -204,8 +199,7 @@ class TestWritebackWatcher:
         watcher.submit(
             event=None,
             buffer=buffer,
-            target_array=target,
-            slice_tuple=(slice(0, 10),),
+            target_array=target[0:10],
             buffer_pool=pool,
             array_name="test",
         )
@@ -239,8 +233,7 @@ class TestWritebackWatcher:
         watcher.submit(
             event=None,  # CUDASIM treats None as complete
             buffer=buffer,
-            target_array=target,
-            slice_tuple=(slice(20, 30),),
+            target_array=target[20:30],
             buffer_pool=pool,
             array_name="test",
         )
@@ -276,8 +269,7 @@ class TestWritebackWatcher:
             watcher.submit(
                 event=None,
                 buffer=buffer,
-                target_array=target,
-                slice_tuple=(slice(i * 5, (i + 1) * 5),),
+                target_array=target[5 * i : 5 * (i + 1)],
                 buffer_pool=pool,
                 array_name=f"test_{i}",
             )
@@ -315,8 +307,7 @@ class TestWritebackWatcher:
             watcher.submit(
                 event=None,
                 buffer=buffer,
-                target_array=target,
-                slice_tuple=(slice(i * 10, (i + 1) * 10),),
+                target_array=target[10 * i : 10 * (i + 1)],
                 buffer_pool=pool,
                 array_name="test",
             )
@@ -358,7 +349,6 @@ class TestWritebackWatcher:
             event=None,
             buffer=buffer,
             target_array=target,
-            slice_tuple=(slice(None),),
             buffer_pool=pool,
             array_name="test",
         )
@@ -392,7 +382,7 @@ class TestWritebackWatcher:
         watcher = WritebackWatcher()
         pool = ChunkBufferPool()
         buffer = pool.acquire("test", (5, 10), np.float64)
-        target = np.zeros((20, 10), dtype=np.float64)
+        target = np.zeros((10, 10), dtype=np.float64)
 
         # Fill buffer with test data
         buffer.array[:] = np.arange(50, dtype=np.float64).reshape(5, 10)
@@ -400,8 +390,7 @@ class TestWritebackWatcher:
         watcher.submit(
             event=None,
             buffer=buffer,
-            target_array=target,
-            slice_tuple=(slice(5, 10), slice(None)),
+            target_array=target[5:10, :],
             buffer_pool=pool,
             array_name="test",
         )
@@ -437,7 +426,6 @@ class TestArrayContainer(ArrayContainer):
     state: ManagedArray = attrs.field(
         factory=lambda: ManagedArray(
             dtype=np.float32,
-            stride_order=("time", "variable", "run"),
             default_shape=(10, 3, 100),
             memory_type="pinned",
         )
@@ -502,75 +490,6 @@ class TestHostFactoryMemoryType:
             assert slot.memory_type == "host"
 
 
-class TestOutputArraysConvertToNumpyWhenChunked:
-    """Test OutputArrays converts pinned to numpy when chunked."""
-
-    def test_output_arrays_converts_to_numpy_when_chunked(self):
-        """Verify OutputArrays converts pinned to numpy in chunked mode."""
-        output_arrays = OutputArrays()
-
-        # Initially arrays are pinned
-        for name, slot in output_arrays.host.iter_managed_arrays():
-            assert slot.memory_type == "pinned"
-
-        # Set up larger shapes so chunking produces different shapes
-        chunks = 3
-        for name, slot in output_arrays.device.iter_managed_arrays():
-            if slot.is_chunked and "run" in slot.stride_order:
-                run_idx = slot.stride_order.index("run")
-                new_shape = list(slot.shape)
-                new_shape[run_idx] = 30  # 30 runs, divisible by 3 chunks
-
-        # Prepare chunked_shapes for each managed array
-        # Divide the "run" axis by chunk count to simulate chunking
-        chunked_shapes = {}
-        for name, slot in output_arrays.device.iter_managed_arrays():
-            full_shape = slot.shape
-            if slot.is_chunked and "run" in slot.stride_order:
-                run_idx = slot.stride_order.index("run")
-                chunked = list(full_shape)
-                chunked[run_idx] = full_shape[run_idx] // chunks
-                chunked_shapes[name] = tuple(chunked)
-
-        # Simulate allocation response with multiple chunks
-        response = ArrayResponse(
-            arr={},
-            chunks=chunks,
-            chunked_shapes=chunked_shapes,
-        )
-        output_arrays._on_allocation_complete(response)
-
-        # After chunked allocation, chunked arrays should be host type
-        assert output_arrays.is_chunked is True
-        for name, slot in output_arrays.host.iter_managed_arrays():
-            device_slot = output_arrays.device.get_managed_array(name)
-            if device_slot.needs_chunked_transfer:
-                assert slot.memory_type == "host"
-            else:
-                # Non-chunked arrays (like status_codes) stay pinned
-                assert slot.memory_type == "pinned"
-
-    def test_output_arrays_stays_pinned_when_not_chunked(self):
-        """Verify OutputArrays stays pinned when not chunked."""
-        output_arrays = OutputArrays()
-
-        # Initially arrays are pinned
-        for name, slot in output_arrays.host.iter_managed_arrays():
-            assert slot.memory_type == "pinned"
-
-        # Simulate allocation response with single chunk
-        response = ArrayResponse(
-            arr={},
-            chunks=1,
-        )
-        output_arrays._on_allocation_complete(response)
-
-        # After single-chunk allocation, arrays should stay pinned
-        assert output_arrays.is_chunked is False
-        for name, slot in output_arrays.host.iter_managed_arrays():
-            assert slot.memory_type == "pinned"
-
-
 class TestBufferPoolAndWatcherIntegration:
     """Test buffer pool and watcher integration in OutputArrays."""
 
@@ -629,3 +548,93 @@ class TestNeedsChunkedTransferBranching:
 
         assert chunked_inits.memory_type == "host"
         assert unchunked_inits.memory_type == "pinned"
+
+
+def test_chunked_shape_differs_from_shape_when_chunking(
+    chunked_solved_solver,
+):
+    """Verify chunked_shape differs from shape when chunking is active.
+
+    When chunking is active (chunks > 1), device arrays that are chunked
+    should have a chunked_shape that differs from their full shape along
+    the run axis (axis 2). This verifies that the memory manager
+    correctly computed chunked shapes based on chunk_axis_index.
+    """
+    solver, result = chunked_solved_solver
+
+    # Verify chunking occurred
+    assert solver.chunks > 1
+
+    # Check device arrays have different chunked_shape
+    output_arrays = solver.kernel.output_arrays
+    state_host = output_arrays.host.state
+
+    # state array should be chunked (needs_chunked_transfer = True)
+    assert state_host.needs_chunked_transfer is True
+
+    # chunked_shape should differ from shape along run axis
+    assert state_host.chunked_shape != state_host.shape
+
+    # Specifically, run axis (axis 2) should be smaller in chunked_shape
+    assert state_host.chunked_shape[2] < state_host.shape[2]
+
+
+def test_chunked_shape_equals_shape_when_not_chunking(
+    unchunked_solved_solver,
+):
+    """Verify chunked_shape equals shape when chunking is not active.
+
+    When chunking is not active (chunks == 1), all device arrays should
+    have chunked_shape equal to their full shape. This verifies that
+    unchunked runs do not perform unnecessary shape modifications.
+    """
+    solver, result = unchunked_solved_solver
+
+    # Verify no chunking occurred
+    assert solver.chunks == 1
+
+    # Check device arrays have identical chunked_shape
+    output_arrays = solver.kernel.output_arrays
+    state_device = output_arrays.device.state
+
+    # Arrays should not need chunked transfer
+    assert state_device.needs_chunked_transfer is False
+
+    # chunked_shape should equal shape
+    assert state_device.chunked_shape == state_device.shape
+
+
+def test_chunk_axis_index_in_array_requests(chunked_solved_solver):
+    """Verify ArrayRequest objects have correct chunk_axis_index.
+
+    Array requests created by the solver should have chunk_axis_index=2,
+    which corresponds to the run axis in the stride order
+    ("time", "variable", "run"). This verifies that the system correctly
+    sets the chunking axis for memory allocation.
+    """
+    solver, result = chunked_solved_solver
+
+    # Access the array requests used by the memory manager
+    # These are stored when allocate() is called
+    input_manager = solver.kernel.input_arrays
+    output_manager = solver.kernel.output_arrays
+
+    # initial_values is 2D (num_states, num_runs) so run axis is at index 1
+    # output arrays use stride_order ("time", "variable", "run")
+    # where "run" is at index 2
+    assert input_manager.device.initial_values._chunk_axis_index == 1
+    assert output_manager.device.state._chunk_axis_index == 2
+
+    # Verify the chunk axis matches the run axis position in shape
+    # For output state with shape (n_states, n_runs), run is at axis 1
+    # Wait - the fixture uses default stride order, need to check actual
+    # Let's verify by checking that chunked_shape differs at that axis
+    state_device = output_manager.device.state
+    if state_device.needs_chunked_transfer:
+        chunk_axis = state_device._chunk_axis_index
+        # chunked_shape should differ from shape at chunk_axis
+        for i in range(len(state_device.shape)):
+            if i == chunk_axis:
+                assert state_device.chunked_shape[i] < state_device.shape[i]
+            else:
+                assert state_device.chunked_shape[i] == state_device.shape[i]

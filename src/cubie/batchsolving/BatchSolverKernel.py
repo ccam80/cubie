@@ -161,18 +161,11 @@ class RunParams:
         Extracts num_chunks and chunk_length from the response. When
         num_chunks=1, chunk_length is set equal to runs (no chunking).
         """
-        num_chunks = response.chunks
-
-        # Calculate chunk_length from total runs and num_chunks
-        if num_chunks == 1:
-            chunk_length = self.runs
-        else:
-            chunk_length = int(np_ceil(self.runs / num_chunks))
 
         return evolve(
             self,
-            num_chunks=num_chunks,
-            chunk_length=chunk_length,
+            num_chunks=response.chunks,
+            chunk_length=response.chunk_length,
         )
 
 
@@ -553,7 +546,7 @@ class BatchSolverKernel(CUDAFactory):
         self.memory_manager.allocate_queue(self)
 
         # ------------ from here on dimensions are "chunked" -----------------
-        # Get initial chunk parameters from run_params
+        # self.run_params is updated in the on_allocation callback.
         chunks = self.run_params.num_chunks
 
         # Get first chunk runs for initial block size calculation
@@ -982,7 +975,6 @@ class BatchSolverKernel(CUDAFactory):
 
     def _on_allocation(self, response: "ArrayResponse") -> None:
         """Update run parameters with chunking metadata from allocation."""
-        # Update RunParams with chunking metadata
         self.run_params = self.run_params.update_from_allocation(response)
 
     def _invalidate_cache(self) -> None:
@@ -1055,7 +1047,6 @@ class BatchSolverKernel(CUDAFactory):
     @property
     def duration(self) -> float:
         """Requested integration duration."""
-
         return np_float64(self.run_params.duration)
 
     @duration.setter

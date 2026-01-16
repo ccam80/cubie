@@ -16,19 +16,19 @@ class MockMemoryManager(MemoryManager):
         return int(self._custom_limit), int(8192)
 
 
-@pytest.fixture(scope="session")
+@pytest.fixture(scope="function")
 def forced_free_mem(request):
     if hasattr(request, "param"):
         return request.param
     return 950
 
 
-@pytest.fixture(scope="session")
+@pytest.fixture(scope="function")
 def low_memory(forced_free_mem):
     return MockMemoryManager(forced_free_mem=forced_free_mem)
 
 
-@pytest.fixture(scope="session")
+@pytest.fixture(scope="function")
 def low_mem_solver(
     system,
     solver_settings,
@@ -56,7 +56,7 @@ def unchunking_solver(
     )
 
 
-@pytest.fixture(scope="session")
+@pytest.fixture(scope="function")
 def chunked_solved_solver(system, precision, low_mem_solver, driver_settings):
     solver = low_mem_solver
 
