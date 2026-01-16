@@ -429,9 +429,11 @@ class TestActiveOutputsFromCompileFlags:
 class TestRunParamsIntegration:
     """Tests for RunParams integration into BatchSolverKernel."""
 
-    def test_runparams_initialized_on_construction(self, solverkernel):
+    def test_runparams_initialized_on_construction(self, solverkernel_mutable):
         """Verify BatchSolverKernel initializes run_params with defaults."""
-        # Check that run_params exists and has default values
+        solverkernel = solverkernel_mutable  # A used solverkernel might be
+        # updated
+
         assert hasattr(solverkernel, "run_params")
         assert solverkernel.run_params.duration == 0.0
         assert solverkernel.run_params.warmup == 0.0
