@@ -5,10 +5,14 @@ Notes
 Defines :class:`ArrayContainer` and :class:`BaseArrayManager`, which surface
 stride metadata, register with :mod:`cubie.memory`, and orchestrate queued CUDA
 allocations for batch solver workflows.
+
+Array chunking for memory management is performed along the run axis when
+batches exceed available GPU memory. The chunking process coordinates transfers
+and synchronization across chunks automatically.
 """
 
 from abc import ABC, abstractmethod
-from typing import Dict, Iterator, List, Optional, Union, Callable
+from typing import Dict, Iterator, List, Optional, Union
 from warnings import warn
 
 from attrs import define, field
@@ -22,10 +26,11 @@ from numpy import (
     array_equal as np_array_equal,
     float32 as np_float32,
     zeros as np_zeros,
+    ndarray,
 )
 from numpy.typing import NDArray
 
-from cubie._utils import opt_gttype_validator
+from cubie._utils import opt_gttype_validator, getype_validator
 from cubie.cuda_simsafe import DeviceNDArrayBase
 from cubie.memory import default_memmgr
 from cubie.memory.mem_manager import ArrayRequest, ArrayResponse, MemoryManager
@@ -75,11 +80,32 @@ class ManagedArray:
             )
         ),
     )
-    chunked_slice_fn: Optional[Callable] = field(
+    chunk_length: Optional[int] = field(
         default=None,
-        repr=False,
-        eq=False,
+        validator=attrsval_optional(attrsval_instance_of(int)),
     )
+    num_chunks: int = field(
+        default=1,
+        validator=getype_validator(int, 1),
+    )
+    num_runs: int = field(
+        default=1,
+        validator=getype_validator(int, 1),
+    )
+    _chunk_axis_index: Optional[int] = field(
+        default=None,
+        init=False,
+        repr=False,
+    )
+
+    def __attrs_post_init__(self):
+        shape = self.shape
+        stride_order = self.stride_order
+        defaultshape = shape if shape else (1,) * len(stride_order)
+        self._array = np_zeros(defaultshape, dtype=self.dtype)
+
+        if "run" in stride_order:
+            self._chunk_axis_index = stride_order.index("run")
 
     @property
     def shape(self) -> tuple[Optional[int], ...]:
@@ -89,8 +115,6 @@ class ManagedArray:
         else:
             return self.default_shape
 
-    #
-    # @shape
     @property
     def needs_chunked_transfer(self) -> bool:
         """Return True if this array requires chunked transfers.
@@ -103,11 +127,58 @@ class ManagedArray:
             return False
         return self.shape != self.chunked_shape
 
-    def __attrs_post_init__(self):
-        shape = self.shape
-        stride_order = self.stride_order
-        defaultshape = shape if shape else (1,) * len(stride_order)
-        self._array = np_zeros(defaultshape, dtype=self.dtype)
+    def chunk_slice(
+        self, chunk_index: int
+    ) -> Union[ndarray, DeviceNDArrayBase]:
+        """Return a slice of the array for the specified chunk index.
+
+        Parameters
+        ----------
+        chunk_index
+            Zero-based index of the chunk to slice.
+
+        Returns
+        -------
+        Union[ndarray, DeviceNDArrayBase]
+            View or slice of the array for the specified chunk.
+
+        Raises
+        ------
+        TypeError
+            If chunk_index is not an integer.
+
+        Notes
+        -----
+        When chunking is inactive (is_chunked=False or _chunk_axis_index=None),
+        returns the full array. Otherwise computes slice based on stored
+        chunk parameters and _chunk_axis_index.
+        """
+        # Validate chunk_index type
+        if not isinstance(chunk_index, int):
+            raise TypeError(
+                f"chunk_index must be int, got {type(chunk_index).__name__}"
+            )
+
+        # Fast path: no chunking
+        if (
+            self._chunk_axis_index is None
+            or self.is_chunked is False
+            or self.chunk_length is None
+        ):
+            return self.array
+
+        start = chunk_index * self.chunk_length
+
+        if chunk_index == self.num_chunks - 1:
+            end = None
+        else:
+            end = start + self.chunk_length
+
+        # Build slice tuple - slice on chunk axis, full slice on others
+        chunk_slice_list = [slice(None)] * len(self.shape)
+        chunk_slice_list[self._chunk_axis_index] = slice(start, end)
+
+        return self.array[tuple(chunk_slice_list)]
 
     @property
     def array(self) -> Optional[Union[NDArray, DeviceNDArrayBase]]:
@@ -222,10 +293,8 @@ class BaseArrayManager(ABC):
     host
         Container for host-side arrays.
     _chunks
-        Number of chunks for memory management.
-    _chunk_axis
-        Axis along which to perform chunking. Must be one of "run",
-        "variable", or "time".
+        Number of chunks for memory management. Chunking is always
+        performed along the run axis.
     _stream_group
         Stream group identifier for CUDA operations.
     _memory_proportion
@@ -258,9 +327,6 @@ class BaseArrayManager(ABC):
         factory=ArrayContainer, validator=attrsval_instance_of(ArrayContainer)
     )
     _chunks: int = field(default=0, validator=attrsval_instance_of(int))
-    _chunk_axis: str = field(
-        default="run", validator=attrsval_in(["run", "variable", "time"])
-    )
     _stream_group: str = field(
         default="default", validator=attrsval_instance_of(str)
     )
@@ -270,11 +336,7 @@ class BaseArrayManager(ABC):
     _needs_reallocation: list[str] = field(factory=list, init=False)
     _needs_overwrite: list[str] = field(factory=list, init=False)
     _memory_manager: MemoryManager = field(default=default_memmgr)
-
-    @property
-    def is_chunked(self) -> bool:
-        """Return True if arrays are being processed in multiple chunks."""
-        return self._chunks > 1
+    num_runs: int = field(default=1, validator=getype_validator(int, 1))
 
     def __attrs_post_init__(self) -> None:
         """
@@ -292,6 +354,48 @@ class BaseArrayManager(ABC):
         """
         self.register_with_memory_manager()
         self._invalidate_hook()
+
+    @property
+    def is_chunked(self) -> bool:
+        """Return True if arrays are being processed in multiple chunks."""
+        return self._chunks > 1
+
+    def set_array_runs(self, num_runs: int) -> None:
+        """Update num_runs in all ManagedArray instances.
+
+        This method sets the num_runs attribute to specify the total number
+        of runs in the batch. This value is used during allocation to
+        determine chunking behavior.
+
+        Parameters
+        ----------
+        num_runs : int
+            Total number of runs in the batch. Must be >= 1.
+
+        Returns
+        -------
+        None
+            Nothing is returned.
+        """
+        # Update the num_runs attribute
+        self.num_runs = num_runs
+        for _, array in self._iter_managed_arrays:
+            array.num_runs = num_runs
+
+    @property
+    def _iter_managed_arrays(self) -> Iterator[tuple[str, ManagedArray]]:
+        """
+        Yield ``(label, managed)`` pairs for each managed array.
+
+        Returns
+        -------
+        Iterator[tuple[str, ManagedArray]]
+            Iterator over array labels and their metadata wrappers.
+        """
+        for label, managed in self.device.iter_managed_arrays():
+            yield label, managed
+        for label, managed in self.host.iter_managed_arrays():
+            yield label, managed
 
     @abstractmethod
     def update(self, *args: object, **kwargs: object) -> None:
@@ -342,19 +446,27 @@ class BaseArrayManager(ABC):
         -----
         Warnings are only issued if the response contains some arrays but
         not the expected one, indicating a potential allocation mismatch.
+
+        Stores chunk parameters from response in ManagedArray objects for
+        both host and device containers.
         """
         chunked_shapes = response.chunked_shapes
-        chunked_slices = response.chunked_slices
         arrays = response.arr
+
+        # Extract chunk parameters from response
+        chunks = response.chunks
+        chunk_length = response.chunk_length
+
         for array_label in self._needs_reallocation:
             try:
                 self.device.attach(array_label, arrays[array_label])
-                # Store chunked_shape from response in the ManagedArray
+                # Store chunked_shape and chunk parameters in ManagedArray
                 if array_label in response.chunked_shapes:
                     for container in (self.device, self.host):
                         array = container.get_managed_array(array_label)
                         array.chunked_shape = chunked_shapes[array_label]
-                        array.chunked_slice_fn = chunked_slices[array_label]
+                        array.chunk_length = chunk_length
+                        array.num_chunks = chunks
             except KeyError:
                 warn(
                     f"Device array {array_label} not found in allocation "
@@ -365,7 +477,6 @@ class BaseArrayManager(ABC):
                 )
 
         self._chunks = response.chunks
-        self._chunk_axis = response.chunk_axis
         if self.is_chunked:
             self._convert_host_to_numpy()
         else:
@@ -563,59 +674,30 @@ class BaseArrayManager(ABC):
                 f"Invalid location: {location} - must be 'host' or 'device'"
             )
         expected_sizes = self._sizes
-        source_stride_order = getattr(expected_sizes, "_stride_order", None)
         matches = {}
 
         for array_name, array in new_arrays.items():
-            managed = container.get_managed_array(array_name)
             if array_name not in container.array_names():
                 matches[array_name] = False
                 continue
+
+            array_shape = array.shape
+            expected_size_tuple = getattr(expected_sizes, array_name)
+            if expected_size_tuple is None:
+                continue  # No size information for this array
+            expected_shape = list(expected_size_tuple)
+
+            if len(array_shape) != len(expected_shape):
+                matches[array_name] = False
             else:
-                array_shape = array.shape
-                expected_size_tuple = getattr(expected_sizes, array_name)
-                if expected_size_tuple is None:
-                    continue  # No size information for this array
-                expected_shape = list(expected_size_tuple)
-
-                target_stride_order = managed.stride_order
-
-                # Reorder expected_shape to match the container's stride order
-                if (
-                    source_stride_order
-                    and target_stride_order
-                    and source_stride_order != target_stride_order
+                shape_matches = True
+                for actual_dim, expected_dim in zip(
+                    array_shape, expected_shape
                 ):
-                    size_map = {
-                        axis: size
-                        for axis, size in zip(
-                            source_stride_order, expected_shape
-                        )
-                    }
-                    expected_shape = [
-                        size_map[axis]
-                        for axis in target_stride_order
-                        if axis in size_map
-                    ]
-
-                # Use stored chunked_shape from allocation response
-                if location == "device" and managed.chunked_shape is not None:
-                    expected_shape = list(managed.chunked_shape)
-
-                if len(array_shape) != len(expected_shape):
-                    matches[array_name] = False
-                else:
-                    shape_matches = True
-                    for actual_dim, expected_dim in zip(
-                        array_shape, expected_shape
-                    ):
-                        if (
-                            expected_dim is not None
-                            and actual_dim != expected_dim
-                        ):
-                            shape_matches = False
-                            break
-                    matches[array_name] = shape_matches
+                    if expected_dim is not None and actual_dim != expected_dim:
+                        shape_matches = False
+                        break
+                matches[array_name] = shape_matches
         return matches
 
     @abstractmethod
@@ -830,6 +912,9 @@ class BaseArrayManager(ABC):
         Builds :class:`ArrayRequest` objects for arrays marked for
         reallocation and sets the ``unchunkable`` hint based on host metadata.
 
+        Chunking is always performed along the run axis by convention.
+        The specific axis index is determined by each array's chunk_axis_index.
+
         Returns
         -------
         None
@@ -842,12 +927,14 @@ class BaseArrayManager(ABC):
             if host_array is None:
                 continue
             device_array_object = self.device.get_managed_array(array_label)
+            total_runs = self.num_runs
             request = ArrayRequest(
                 shape=host_array.shape,
                 dtype=device_array_object.dtype,
                 memory=device_array_object.memory_type,
-                stride_order=device_array_object.stride_order,
+                chunk_axis_index=host_array_object._chunk_axis_index,
                 unchunkable=not host_array_object.is_chunked,
+                total_runs=total_runs,
             )
             requests[array_label] = request
         if requests:

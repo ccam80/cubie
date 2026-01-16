@@ -1,6 +1,6 @@
 import pytest
 import numpy as np
-from cubie.memory.array_requests import ArrayRequest, ArrayResponse
+from cubie.memory.array_requests import ArrayResponse
 from cubie.memory.mem_manager import MemoryManager
 
 
@@ -35,27 +35,6 @@ class TestArrayRequests:
         assert array_request.shape == (20000,)
         assert array_request.dtype == np.float64
         assert array_request.memory == "device"
-        assert array_request.stride_order == ("time", "variable", "run")
-
-    def test_default_stride_ordering(self):
-        # 3D shape default _stride_order
-        req3 = ArrayRequest(
-            shape=(2, 3, 4),
-            dtype=np.float32,
-            memory="device",
-            stride_order=None,
-        )
-        assert req3.stride_order == ("time", "variable", "run")
-        # 2D shape default _stride_order
-        req2 = ArrayRequest(
-            shape=(5, 6), dtype=np.float32, memory="device", stride_order=None
-        )
-        assert req2.stride_order == ("variable", "run")
-        # 1D shape leaves _stride_order None
-        req1 = ArrayRequest(
-            shape=(10,), dtype=np.float32, memory="device", stride_order=None
-        )
-        assert req1.stride_order is None
 
     @pytest.mark.parametrize(
         "array_request_override",
@@ -87,7 +66,10 @@ class TestArrayRequests:
 
 class TestArrayResponse:
     def test_array_response_has_chunked_shapes_field(self):
-        """Verify ArrayResponse can be instantiated with chunked_shapes dict."""
+        """Verify ArrayResponse can be instantiated with chunked_shapes dict.
+
+        Chunking is always performed along the run axis.
+        """
         chunked_shapes = {
             "output": (100, 3, 50),
             "state": (3, 50),
@@ -95,7 +77,6 @@ class TestArrayResponse:
         response = ArrayResponse(
             arr={},
             chunks=2,
-            chunk_axis="run",
             chunked_shapes=chunked_shapes,
         )
         assert response.chunked_shapes == chunked_shapes
@@ -107,3 +88,102 @@ class TestArrayResponse:
         response = ArrayResponse()
         assert response.chunked_shapes == {}
         assert isinstance(response.chunked_shapes, dict)
+
+
+def test_array_request_chunk_axis_index_validation():
+    """Verify ArrayRequest validates chunk_axis_index correctly.
+
+    The chunk_axis_index field should:
+    - Accept None (no chunking axis)
+    - Accept non-negative integers (valid axis indices)
+    - Reject negative integers (invalid axis indices)
+    - Default to 2 (run axis in standard stride order)
+    """
+    from cubie.memory.array_requests import ArrayRequest
+
+    # Test default value is 2
+    request = ArrayRequest(dtype=np.float64)
+    assert request.chunk_axis_index == 2
+
+    # Test None is accepted (no chunking axis)
+    request_none = ArrayRequest(dtype=np.float64, chunk_axis_index=None)
+    assert request_none.chunk_axis_index is None
+
+    # Test non-negative integers are accepted
+    request_0 = ArrayRequest(dtype=np.float64, chunk_axis_index=0)
+    assert request_0.chunk_axis_index == 0
+
+    request_1 = ArrayRequest(dtype=np.float64, chunk_axis_index=1)
+    assert request_1.chunk_axis_index == 1
+
+    request_5 = ArrayRequest(dtype=np.float64, chunk_axis_index=5)
+    assert request_5.chunk_axis_index == 5
+
+    # Test negative values are rejected
+    with pytest.raises(ValueError, match="must be >= 0"):
+        ArrayRequest(dtype=np.float64, chunk_axis_index=-1)
+
+    with pytest.raises(ValueError, match="must be >= 0"):
+        ArrayRequest(dtype=np.float64, chunk_axis_index=-5)
+
+
+def test_array_request_accepts_total_runs():
+    """Verify ArrayRequest can be created with total_runs=100.
+
+    The total_runs field carries the number of runs for chunking calculations
+    and should accept positive integers.
+    """
+    from cubie.memory.array_requests import ArrayRequest
+
+    # Create ArrayRequest with total_runs=100
+    request = ArrayRequest(dtype=np.float64, total_runs=100)
+    assert request.total_runs == 100
+
+    # Verify other fields still work correctly
+    assert request.dtype == np.float64
+    assert request.chunk_axis_index == 2
+
+
+def test_array_request_validates_total_runs_positive():
+    """Verify ArrayRequest raises ValueError for total_runs=0 or negative.
+
+    The total_runs field must be >= 1 when provided, as it represents a count
+    of runs to process. Zero or negative values should be rejected.
+    """
+    from cubie.memory.array_requests import ArrayRequest
+
+    # Test zero is rejected
+    with pytest.raises(ValueError, match="must be >= 1"):
+        ArrayRequest(dtype=np.float64, total_runs=0)
+
+    # Test negative values are rejected
+    with pytest.raises(ValueError, match="must be >= 1"):
+        ArrayRequest(dtype=np.float64, total_runs=-1)
+
+    with pytest.raises(ValueError, match="must be >= 1"):
+        ArrayRequest(dtype=np.float64, total_runs=-100)
+
+
+def test_array_request_total_runs_is_not_optional():
+    """Verify total_runs is always an int, never None.
+
+    The total_runs field should always be an integer >= 1, defaulting to 1
+    for unchunkable arrays. This ensures consistent behavior in the memory
+    manager without needing to handle None as a special case.
+    """
+    from cubie.memory.array_requests import ArrayRequest
+
+    # Test default value is 1 (not None)
+    request = ArrayRequest(dtype=np.float64)
+    assert request.total_runs == 1
+    assert isinstance(request.total_runs, int)
+
+    # Test that positive integers are accepted
+    request_100 = ArrayRequest(dtype=np.float64, total_runs=100)
+    assert request_100.total_runs == 100
+    assert isinstance(request_100.total_runs, int)
+
+    # Test that None is NOT accepted (should raise TypeError)
+    # Note: attrs validators raise TypeError for wrong type, not ValueError
+    with pytest.raises((TypeError, ValueError)):
+        ArrayRequest(dtype=np.float64, total_runs=None)

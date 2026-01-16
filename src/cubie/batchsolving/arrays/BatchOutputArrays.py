@@ -316,6 +316,7 @@ class OutputArrays(BaseArrayManager):
         """
         self._sizes = BatchOutputSizes.from_solver(solver_instance).nonzero
         self._precision = solver_instance.precision
+        self.set_array_runs(solver_instance.num_runs)
         new_arrays = {}
         for name, slot in self.host.iter_managed_arrays():
             newshape = getattr(self._sizes, name)
@@ -375,8 +376,8 @@ class OutputArrays(BaseArrayManager):
             to_target = host_array
             from_target = device_array
             if slot.needs_chunked_transfer:
-                slice_tuple = slot.chunked_slice_fn(chunk_index)
-                host_slice = host_array[slice_tuple]
+                host_slice = slot.chunk_slice(chunk_index)
+
                 # Chunked mode: use buffer pool and watcher
                 # Buffer must match device array shape for D2H copy
                 buffer = self._buffer_pool.acquire(
@@ -387,8 +388,7 @@ class OutputArrays(BaseArrayManager):
                 self._pending_buffers.append(
                     PendingBuffer(
                         buffer=buffer,
-                        target_array=host_array,
-                        slice_tuple=slice_tuple,
+                        target_array=host_slice,
                         array_name=array_name,
                         data_shape=host_slice.shape,
                         buffer_pool=self._buffer_pool,

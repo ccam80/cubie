@@ -1,4 +1,11 @@
-"""GPU memory management utilities for coordinating cubie allocations."""
+"""GPU memory management utilities for coordinating cubie allocations.
+
+Notes
+-----
+Memory allocation chunking is performed along the run axis to handle batches
+that exceed available GPU memory. The chunking process is automatic and
+coordinated across all instances in a stream group.
+"""
 
 from typing import Any, Optional, Callable, Dict, Tuple
 from warnings import warn
@@ -1163,22 +1170,22 @@ class MemoryManager:
     def allocate_queue(
         self,
         triggering_instance: object,
-        chunk_axis: str = "run",
     ) -> None:
         """
         Process all queued requests for a stream group with coordinated chunking.
+
+        Chunking is always performed along the run axis when memory
+        constraints require splitting the batch.
 
         Parameters
         ----------
         triggering_instance
             The instance that triggered queue processing.
-        chunk_axis
-            Axis along which to chunk arrays if needed. Defaults to "run".
 
         Notes
         -----
         Processes all pending requests in the same stream group, applying
-        coordinated chunking based on the specified limit type. Calls
+        coordinated chunking based on available memory. Calls
         allocation_ready_hook for each instance with their results.
 
         Returns
@@ -1189,33 +1196,24 @@ class MemoryManager:
         stream = self.get_stream(triggering_instance)
         queued_requests = self._queued_allocations.pop(stream_group, {})
 
-        # Get length of axis to chunk
-        axis_length = 0
-        for instance_id, requests_dict in queued_requests.items():
-            axis_length = get_chunk_axis_length(requests_dict, chunk_axis)
-            if axis_length > 0:
+        # Get total_runs from first request
+        num_runs = 1
+        for requests_dict in queued_requests.values():
+            for request in requests_dict.values():
+                num_runs = request.total_runs
+                break
+            if num_runs > 1:
                 break
 
         chunk_length, num_chunks = self.get_chunk_parameters(
-            queued_requests, chunk_axis, axis_length, stream_group
+            queued_requests, num_runs, stream_group
         )
         peers = self.stream_groups.get_instances_in_group(stream_group)
         notaries = set(peers) - set(queued_requests.keys())
         for instance_id, requests_dict in queued_requests.items():
             chunked_shapes = self.compute_chunked_shapes(
                 requests_dict,
-                chunk_axis,
                 chunk_length,
-            )
-            chunked_slices = compute_per_chunk_slice(
-                requests_dict,
-                axis_length,
-                num_chunks,
-                chunk_axis,
-                chunk_length,
-            )
-            dangling_chunk_length = (
-                axis_length - (num_chunks - 1) * chunk_length
             )
 
             chunked_requests = deepcopy(requests_dict)
@@ -1228,12 +1226,8 @@ class MemoryManager:
             response = ArrayResponse(
                 arr=arrays,
                 chunks=num_chunks,
-                axis_length=axis_length,
                 chunk_length=chunk_length,
-                dangling_chunk_length=dangling_chunk_length,
-                chunk_axis=chunk_axis,
                 chunked_shapes=chunked_shapes,
-                chunked_slices=chunked_slices,
             )
 
             self.registry[instance_id].allocation_ready_hook(response)
@@ -1242,12 +1236,8 @@ class MemoryManager:
                     ArrayResponse(
                         arr={},
                         chunks=num_chunks,
-                        axis_length=axis_length,
                         chunk_length=chunk_length,
-                        dangling_chunk_length=dangling_chunk_length,
-                        chunk_axis=chunk_axis,
                         chunked_shapes={},
-                        chunked_slices={},
                     )
                 )
 
@@ -1256,19 +1246,18 @@ class MemoryManager:
     def get_chunk_parameters(
         self,
         requests: Dict[str, Dict],
-        chunk_axis: str,
         axis_length: int,
         stream_group: str,
     ) -> Tuple[int, int]:
         """
         Calculate number of chunks and chunk size for a dict of array requests.
 
+        Chunking is performed along the run axis only.
+
         Parameters
         ----------
         requests
             Dictionary mapping instance IDs to their array requests.
-        chunk_axis
-            Axis label along which to chunk.
         axis_length
             Unchunked length of the chunking axis.
         stream_group
@@ -1289,7 +1278,6 @@ class MemoryManager:
         available_memory = self.get_available_memory(stream_group)
         chunkable_size, unchunkable_size = get_portioned_request_size(
             requests,
-            chunk_axis,
         )
 
         request_size = chunkable_size + unchunkable_size
@@ -1307,9 +1295,8 @@ class MemoryManager:
         # Check for all arrays unchunkable
         if chunkable_size == 0:
             raise ValueError(
-                "All requested arrays are unchunkable along axis "
-                f"'{chunk_axis}', but request size ({request_size}) "
-                "exceeds available memory "
+                f"All requested arrays are unchunkable, but request size "
+                f"({request_size}) exceeds available memory "
                 f"({available_memory}). Cannot proceed."
             )
 
@@ -1342,7 +1329,6 @@ class MemoryManager:
     def compute_chunked_shapes(
         self,
         requests: dict[str, ArrayRequest],
-        chunk_axis: str,
         chunk_size: int,
     ) -> dict[str, Tuple[int, ...]]:
         """
@@ -1352,10 +1338,8 @@ class MemoryManager:
         ----------
         requests
             Dictionary mapping labels to array requests.
-        chunk_axis
-            Axis label along which to chunk.
         chunk_size
-            Length of chunked arrays along chunked axis.
+            Length of chunked arrays along run axis
 
         Returns
         -------
@@ -1368,12 +1352,12 @@ class MemoryManager:
         """
         chunked_shapes = {}
         for key, request in requests.items():
-            if is_request_chunkable(request, chunk_axis):
+            if is_request_chunkable(request):
+                axis_index = request.chunk_axis_index
                 newshape = replace_with_chunked_size(
                     shape=request.shape,
-                    stride_order=request.stride_order,
+                    axis_index=axis_index,
                     chunked_size=chunk_size,
-                    chunk_axis=chunk_axis,
                 )
                 chunked_shapes[key] = newshape
             else:
@@ -1382,116 +1366,31 @@ class MemoryManager:
         return chunked_shapes
 
 
-def compute_per_chunk_slice(
-    requests: dict[str, ArrayRequest],
-    axis_length: int,
-    num_chunks: int,
-    chunk_axis: str,
-    chunk_size: int,
-) -> dict[str, Callable]:
-    """Returns a function which computes a per-chunk slice as a function of
-    the chunk index i.
-
-    Parameters
-    ----------
-    requests
-        Dictionary mapping labels to array requests.
-    axis_length
-        Unchunked length of the chunking axis.
-    num_chunks
-        Total number of chunks.
-    chunk_axis
-        Axis label along which to chunk.
-    chunk_size
-        Length of chunked arrays along chunked axis.
-
-    Returns
-    -------
-    dict[str, tuple[int, ...]]
-        Mapping from array labels to their per-chunk shapes.
-
-    Notes
-    -----
-    Unchunkable arrays return a None slice.
-    """
-    per_chunk_slices = {}
-    for key, request in requests.items():
-        if is_request_chunkable(request, chunk_axis):
-            chunk_index = request.stride_order.index(chunk_axis)
-
-            def get_slice(
-                i: int, *, _request=request, _chunk_index=chunk_index
-            ) -> Tuple[slice, ...]:
-                chunk_slice = [slice(None)] * len(_request.shape)
-                start = i * chunk_size
-                end = start + chunk_size
-                if i == num_chunks - 1:
-                    end = axis_length
-                chunk_slice[_chunk_index] = slice(start, end)
-                return tuple(chunk_slice)
-
-        else:
-            # Unchunkable: return full-slice function (no .index() call)
-            def get_slice(i: int, *, _request=request) -> Tuple[slice, ...]:
-                chunk_slice = [slice(None)] * len(_request.shape)
-                return tuple(chunk_slice)
-
-        per_chunk_slices[key] = get_slice
-
-    return per_chunk_slices
-
-
-def get_chunk_axis_length(
-    request: dict[str, ArrayRequest], chunk_axis: str
-) -> int:
-    """
-    Get the length of the chunking axis from the first chunkable request.
-
-    Parameters
-    ----------
-    request
-        Dictionary of array requests to analyze.
-    chunk_axis
-        Axis along which chunking would occur.
-
-    Returns
-    -------
-    int
-        Length of the chunking axis. Zero if no chunkable axes found.
-    """
-    for req in request.values():
-        if is_request_chunkable(req, chunk_axis):
-            axis_index = req.stride_order.index(chunk_axis)
-            return req.shape[axis_index]
-    return 0
-
-
 def get_portioned_request_size(
     requests: dict[str, dict[str, ArrayRequest]],
-    chunk_axis: str,
 ) -> int:
     """
     Calculate total memory requested for the chunkable and unchunkable
     portions of the request.
 
+    Chunking is performed along the run axis only.
+
     Parameters
     ----------
     requests
         Dictionary of array requests to analyze.
-    chunk_axis
-        Axis along which chunking would occur.
 
     Returns
     -------
     int, int
         chunkable, unchunkable - Total bytes for arrays that can be chunked
-        or not, respectively, along chunk_axis.
+        or not, respectively, along the "run" axis.
 
     Notes
     -----
     Arrays are chunkable if:
     - request.unchunkable is False
-    - chunk_axis is in request.stride_order
+    - The array has a "run" axis
     """
     chunkable = 0
     unchunkable = 0
@@ -1499,79 +1398,74 @@ def get_portioned_request_size(
         chunkable += sum(
             prod(req.shape) * req.dtype().itemsize
             for req in reqs.values()
-            if is_request_chunkable(req, chunk_axis)
+            if is_request_chunkable(req)
         )
         unchunkable += sum(
             prod(req.shape) * req.dtype().itemsize
             for req in reqs.values()
-            if not is_request_chunkable(req, chunk_axis)
+            if not is_request_chunkable(req)
         )
     return chunkable, unchunkable
 
 
-def is_request_chunkable(request, chunk_axis: str) -> bool:
+def is_request_chunkable(request) -> bool:
     """
-    Determine if a single ArrayRequest is chunkable along a specified axis.
+    Determine if a single ArrayRequest is chunkable.
+
+    Chunking is always performed along the run axis.
 
     Parameters
     ----------
     request
         The ArrayRequest to evaluate.
-    chunk_axis
-        Axis along which chunking would occur.
 
     Returns
     -------
     bool
-        True if the request is chunkable along chunk_axis, False otherwise.
+        True if the request is chunkable, False otherwise.
 
     Notes
     -----
     A request is considered chunkable if:
     - request.unchunkable is False
-    - chunk_axis is in request.stride_order
+    - chunk_axis_index is not None and within bounds
+    - run axis has length > 1 (not a degenerate run axis)
     """
     if request.unchunkable:
         return False
-    if request.stride_order is None:
+    if len(request.shape) == 0:
         return False
-    if chunk_axis not in request.stride_order:
+    if request.chunk_axis_index is None:
         return False
-    if all(
-        dim == 1
-        for i, dim in enumerate(request.shape)
-        if request.stride_order[i] == chunk_axis
-    ):
+    if request.chunk_axis_index >= len(request.shape):
+        return False
+    if request.shape[request.chunk_axis_index] == 1:
         return False
     return True
 
 
 def replace_with_chunked_size(
     shape: Tuple[int, ...],
-    stride_order: Tuple[str, ...],
+    axis_index: int,
     chunked_size: int,
-    chunk_axis: str,
 ) -> Tuple[int, ...]:
     """
-    Replace the length of chunk_axis in shape with chunked size.
+    Replace the "run" axis in shape with chunked size.
 
     Parameters
     ----------
     shape
         Original shape of the array.
-    stride_order
-        Order of axes corresponding to shape.
+    axis_index
+        integer index of the run axis in shape
     chunked_size
-        Length of array after chunking
-    chunk_axis
-        Axis label along which to chunk.
+        Length of array after chunking along run axis
 
     Returns
     -------
     tuple[int, ...]
-        New shape with chunked size along chunk_axis.
+        New shape with chunked size along the "run" axis.
     """
-    axis_index = stride_order.index(chunk_axis)
     newshape = tuple(
         dim if i != axis_index else chunked_size for i, dim in enumerate(shape)
     )

@@ -1,5 +1,11 @@
 # -*- coding: utf-8 -*-
-"""CUDA batch solver kernel utilities."""
+"""CUDA batch solver kernel utilities.
+
+Notes
+-----
+Chunking is performed along the run axis when memory constraints require
+splitting the batch. This chunking is automatic and transparent to users.
+"""
 
 from typing import (
     TYPE_CHECKING,
@@ -46,7 +52,7 @@ from cubie.outputhandling.output_sizes import (
 )
 from cubie.outputhandling.output_config import OutputCompileFlags
 from cubie.integrators.SingleIntegratorRun import SingleIntegratorRun
-from cubie._utils import unpack_dict_values
+from cubie._utils import unpack_dict_values, getype_validator
 
 if TYPE_CHECKING:
     from cubie.memory import MemoryManager
@@ -61,145 +67,105 @@ DEFAULT_MEMORY_SETTINGS = {
 
 
 @define(frozen=True)
-class FullRunParams:
-    """Full batch run parameters before chunking.
+class RunParams:
+    """Run parameters with optional chunking metadata.
 
-    Attributes
+    Chunking always occurs along the run axis.
+
+    Parameters
     ----------
-    duration
+    duration : float
         Full duration of the simulation window.
-    warmup
+    warmup : float
         Full warmup time before the main simulation.
-    t0
+    t0 : float
         Initial integration time.
-    runs
+    runs : int
         Total number of runs in the batch.
-    chunk_axis
-        Axis used to partition the workload, either ``"run"`` or ``"time"
+    num_chunks : int, default=1
+        Number of chunks the batch is divided into.
+    chunk_length : int, default=0
+        Number of runs per chunk (except possibly the last).
+
+    Notes
+    -----
+    When num_chunks=1, no chunking has occurred.
+    When num_chunks>1, chunk_length represents the standard chunk size.
     """
 
-    duration: float
-    warmup: float
-    t0: float
-    runs: int
-    chunk_axis: str
+    duration: float = field(validator=getype_validator(float, 0.0))
+    warmup: float = field(validator=getype_validator(float, 0.0))
+    t0: float = field(validator=getype_validator(float, 0.0))
+    runs: int = field(validator=getype_validator(int, 1))
+    num_chunks: int = field(
+        default=1, repr=False, validator=getype_validator(int, 1)
+    )
+    chunk_length: int = field(
+        default=0, repr=False, validator=getype_validator(int, 0)
+    )
 
-
-@define(frozen=True)
-class ChunkParams:
-    """Chunked execution parameters calculated for a batch run.
-
-    Attributes
-    ----------
-    duration
-        Duration assigned to each chunk.
-    warmup
-        Warmup duration applied to the current chunk.
-    t0
-        Start time of the chunk.
-    runs
-        Number of runs scheduled within a chunk.
-    num_chunks
-        Number of chunks the full run has been divided into.
-    _full_params
-        Internal copy of the full run parameters for chunk calculations.
-    _axis_length
-        Length of the chunked axis in the full run.
-    _chunk_length
-        Length of the chunk along the chunked axis.
-    _dangling_chunk_length
-        Length of the final chunk along the chunked axis.
-    _chunk_axis
-        Axis used to partition the workload, either ``"run"`` or ``"time"
-    """
-
-    duration: float
-    warmup: float
-    t0: float
-    runs: int
-    num_chunks: int = field(default=1, repr=False)
-    _full_params: FullRunParams = field(default=None, repr=False)
-    _axis_length: int = field(default=0, repr=False)
-    _chunk_length: int = field(default=0, repr=False)
-    _dangling_chunk_length: int = field(default=0, repr=False)
-    _chunk_axis: str = field(default="run", repr=False)
-
-    @classmethod
-    def from_allocation_response(
-        cls,
-        full_params: FullRunParams,
-        alloc_response: "ArrayResponse",
-    ) -> "ChunkParams":
-        """Construct chunk parameters from full run & chunk settings.
+    def __getitem__(self, index: int) -> "RunParams":
+        """Return RunParams for a specific chunk.
 
         Parameters
         ----------
-        full_params
-            Container with parameters for the full batch run.
-        alloc_response
-            Container with chunk size params from memory manager
+        index : int
+            Chunk index (0-based).
 
         Returns
         -------
-        ChunkParams
-            Container with public parameters for a full (unchunked) run and
-            private chunk calculation parameters from ArrayResponse. Update
-            per-chunk with ChunkParams.update_for_chunk_index().
+        RunParams
+            New RunParams instance with runs set to chunk size.
+
+        Raises
+        ------
+        IndexError
+            If index is out of range [0, num_chunks).
+
+        Notes
+        -----
+        For the last chunk (index == num_chunks - 1), the number of runs
+        is calculated as runs - (num_chunks - 1) * chunk_length to handle
+        the "dangling" chunk case.
         """
-        return cls(
-            duration=full_params.duration,
-            warmup=full_params.warmup,
-            t0=full_params.t0,
-            runs=full_params.runs,
-            full_params=full_params,
-            num_chunks=alloc_response.chunks,
-            chunk_axis=alloc_response.chunk_axis,
-            chunk_length=alloc_response.chunk_length,
-            axis_length=alloc_response.axis_length,
-            dangling_chunk_length=alloc_response.dangling_chunk_length,
-        )
+        # Validation
+        if index < 0 or index >= self.num_chunks:
+            raise IndexError(
+                f"Chunk index {index} out of range "
+                f"(valid range: 0 to {self.num_chunks - 1})"
+            )
 
-    def __getitem__(self, index: int) -> "ChunkParams":
-        """Get chunk parameters for a specific chunk index.
-
-        Parameters
-        ----------
-        index
-            Chunk index (0-based)
-        Returns
-        -------
-        A copy of self with updated duration, warmup, t0, and runs for the
-        selected chunk.
-        """
-        length = self._chunk_length
-        _duration = self._full_params.duration
-        _warmup = self._full_params.warmup
-        _t0 = self._full_params.t0
-        _runs = self._full_params.runs
-
-        # Clip dangling chunk if this is the last chunk
         if index == self.num_chunks - 1:
-            length = self._dangling_chunk_length
+            # Last chunk: calculate remaining runs
+            chunk_runs = self.runs - (self.num_chunks - 1) * self.chunk_length
+        else:
+            chunk_runs = self.chunk_length
 
-        if self._chunk_axis == "run":
-            _runs = length
+        return evolve(self, runs=chunk_runs)
 
-        elif self._chunk_axis == "time":
-            # Calculate per-chunk t0 and duration
-            dt_save = float64(_duration / self._axis_length)
-            fullchunk_duration = float64(dt_save * self._chunk_length)
-            _duration = float64(dt_save * length)
-            if index > 0:
-                _warmup = 0.0
-                _t0 = (
-                    self._full_params.t0 + float64(index) * fullchunk_duration
-                )
+    def update_from_allocation(self, response: "ArrayResponse") -> "RunParams":
+        """Update with chunking metadata from allocation response.
+
+        Parameters
+        ----------
+        response : ArrayResponse
+            Allocation response containing chunking information.
+
+        Returns
+        -------
+        RunParams
+            New RunParams instance with updated chunking metadata.
+
+        Notes
+        -----
+        Extracts num_chunks and chunk_length from the response. When
+        num_chunks=1, chunk_length is set equal to runs (no chunking).
+        """
+
         return evolve(
             self,
-            duration=_duration,
-            warmup=_warmup,
-            t0=_t0,
-            runs=_runs,
+            num_chunks=response.chunks,
+            chunk_length=response.chunk_length,
         )
 
 
@@ -273,15 +239,12 @@ class BatchSolverKernel(CUDAFactory):
 
         precision = system.precision
 
-        self.full_run_params = FullRunParams(
-            duration=0.0, warmup=0.0, t0=0.0, runs=1, chunk_axis="None"
-        )
-
-        self.chunk_params = ChunkParams(
-            duration=0.0,
-            warmup=0.0,
-            t0=0.0,
-            runs=0,
+        # Initialize run parameters with defaults
+        self.run_params = RunParams(
+            duration=precision(0.0),
+            warmup=precision(0.0),
+            t0=precision(0.0),
+            runs=1,
         )
 
         # CUDA event tracking for timing
@@ -503,9 +466,11 @@ class BatchSolverKernel(CUDAFactory):
         stream: Optional[Any] = None,
         warmup: float = 0.0,
         t0: float = 0.0,
-        chunk_axis: str = "run",
     ) -> None:
         """Execute the solver kernel for batch integration.
+
+        Chunking is performed along the run axis when memory constraints
+        require splitting the batch.
 
         Parameters
         ----------
@@ -526,9 +491,6 @@ class BatchSolverKernel(CUDAFactory):
             Warmup time before the main simulation.
         t0
             Initial integration time.
-        chunk_axis
-            Axis used to partition the workload, either ``"run"`` or
-            ``"time"``.
 
         Returns
         -------
@@ -548,13 +510,12 @@ class BatchSolverKernel(CUDAFactory):
         # Time parameters always use float64 for accumulation accuracy
         duration = np_float64(duration)
 
-        # inits is in (variable, run) format - run count is in shape[1]
-        self.full_run_params = FullRunParams(
+        # Update run params with actual values before allocation
+        self.run_params = RunParams(
             duration=duration,
             warmup=np_float64(warmup),
             t0=np_float64(t0),
             runs=inits.shape[1],
-            chunk_axis=chunk_axis,
         )
 
         # Update the single integrator with requested duration if required
@@ -582,27 +543,15 @@ class BatchSolverKernel(CUDAFactory):
         self.output_arrays.update(self)
 
         # Process allocations into chunks
-        self.memory_manager.allocate_queue(self, chunk_axis=chunk_axis)
+        self.memory_manager.allocate_queue(self)
 
         # ------------ from here on dimensions are "chunked" -----------------
-        chunk_params = self.chunk_params[0]
-        duration = chunk_params.duration
-        runs = chunk_params.runs
-        chunks = chunk_params.num_chunks
+        # self.run_params is updated in the on_allocation callback.
+        chunks = self.run_params.num_chunks
 
-        # Update internal time parameters if duration has been chunked
-        if chunks != 1 and chunk_axis == "time":
-            self.single_integrator.set_summary_timing_from_duration(duration)
-            try:
-                self._validate_timing_parameters(duration)
-            except ValueError as e:
-                raise ValueError(
-                    f"Your timing parameters were OK for the full duration, "
-                    f"but the run was divided into multiple time-chunks due "
-                    f"to GPU memory constraints so they're now invalid. "
-                    f"Adjust timing parameters OR set chunk_axis='run' to "
-                    f"avoid this. Time-check exception: {e}"
-                ) from e
+        # Get first chunk runs for initial block size calculation
+        first_chunk_params = self.run_params[0]
+        runs = first_chunk_params.runs
 
         pad = 4 if self.shared_memory_needs_padding else 0
         padded_bytes = self.shared_memory_bytes + pad
@@ -632,11 +581,14 @@ class BatchSolverKernel(CUDAFactory):
         self._gpu_workload_event.record_start(stream)
         precision = self.precision
         for i in range(chunks):
-            chunkparams = self.chunk_params[i]
-            duration = precision(chunkparams.duration)
-            warmup = precision(chunkparams.warmup)
-            t0 = precision(chunkparams.t0)
-            runs = chunkparams.runs
+            # Get parameters for this specific chunk
+            chunk_run_params = self.run_params[i]
+            duration = precision(chunk_run_params.duration)
+            warmup = precision(chunk_run_params.warmup)
+            t0 = precision(chunk_run_params.t0)
+
+            # Use the chunk-local run count
+            runs = chunk_run_params.runs
 
             # Recompute blocks needed for this chunk's actual run count
             chunk_blocks = int(max(1, np_ceil(runs / blocksize)))
@@ -721,10 +673,7 @@ class BatchSolverKernel(CUDAFactory):
                 warn(
                     "Block size has been reduced to less than 32 threads, "
                     "which means your code will suffer a "
-                    "performance hit. This is due to your problem requiring "
-                    "too much shared memory - try changing "
-                    "some parameters to constants, or trying a different "
-                    "solving algorithm."
+                    "performance hit."
                 )
             blocksize = int(blocksize // 2)
             dynamic_sharedmem = int(bytes_per_run * min(numruns, blocksize))
@@ -1025,11 +974,8 @@ class BatchSolverKernel(CUDAFactory):
             return False
 
     def _on_allocation(self, response: "ArrayResponse") -> None:
-        """Record the number of chunks required by the memory manager."""
-        self.chunk_params = ChunkParams.from_allocation_response(
-            full_params=self.full_run_params,
-            alloc_response=response,
-        )
+        """Update run parameters with chunking metadata from allocation."""
+        self.run_params = self.run_params.update_from_allocation(response)
 
     def _invalidate_cache(self) -> None:
         """Mark cached outputs as invalid, flushing cache if cache_handler
@@ -1101,13 +1047,12 @@ class BatchSolverKernel(CUDAFactory):
     @property
     def duration(self) -> float:
         """Requested integration duration."""
-
-        return np_float64(self.full_run_params.duration)
+        return np_float64(self.run_params.duration)
 
     @duration.setter
     def duration(self, value: float) -> None:
-        oldparams = self.full_run_params
-        self.full_run_params = evolve(oldparams, duration=np_float64(value))
+        oldparams = self.run_params
+        self.run_params = evolve(oldparams, duration=np_float64(value))
 
     @property
     def dt(self) -> Optional[float]:
@@ -1117,64 +1062,42 @@ class BatchSolverKernel(CUDAFactory):
     @property
     def warmup(self) -> float:
         """Configured warmup duration."""
-        return np_float64(self.full_run_params.warmup)
+        return np_float64(self.run_params.warmup)
 
     @warmup.setter
     def warmup(self, value: float) -> None:
-        oldparams = self.full_run_params
-        self.full_run_params = evolve(oldparams, warmup=np_float64(value))
+        oldparams = self.run_params
+        self.run_params = evolve(oldparams, warmup=np_float64(value))
 
     @property
     def t0(self) -> float:
         """Configured initial integration time."""
-        return np_float64(self.full_run_params.t0)
+        return np_float64(self.run_params.t0)
 
     @t0.setter
     def t0(self, value: float) -> None:
-        oldparams = self.full_run_params
-        self.full_run_params = evolve(oldparams, t0=np_float64(value))
+        oldparams = self.run_params
+        self.run_params = evolve(oldparams, t0=np_float64(value))
 
     @property
     def num_runs(self) -> int:
         """Number of runs scheduled for the batch integration."""
-        return self.full_run_params.runs
+        return self.run_params.runs
 
     @num_runs.setter
     def num_runs(self, value: int) -> None:
-        oldparams = self.full_run_params
-        self.full_run_params = evolve(oldparams, runs=value)
+        oldparams = self.run_params
+        self.run_params = evolve(oldparams, runs=value)
 
     @property
     def chunks(self):
         """Number of chunks in the most recent run."""
-        return self.chunk_params.num_chunks
+        return self.run_params.num_chunks
 
     @property
-    def chunk_axis(self) -> str:
-        """Current chunking axis.
-
-        Returns the chunk_axis value from the array managers, validating
-        that input and output arrays have consistent values.
-
-        Returns
-        -------
-        str
-            The axis along which arrays are chunked.
-
-        Raises
-        ------
-        ValueError
-            If input_arrays and output_arrays have different chunk_axis
-            values.
-        """
-        input_axis = self.input_arrays._chunk_axis
-        output_axis = self.output_arrays._chunk_axis
-        if input_axis != output_axis:
-            raise ValueError(
-                f"Inconsistent chunk_axis: input_arrays has '{input_axis}', "
-                f"output_arrays has '{output_axis}'"
-            )
-        return input_axis
+    def total_runs(self) -> int:
+        """Total number of runs in the full batch."""
+        return self.run_params.runs
 
     @property
     def output_length(self) -> int:
@@ -1396,12 +1319,6 @@ class BatchSolverKernel(CUDAFactory):
         """Device-resident driver coefficients."""
 
         return self.input_arrays.device_driver_coefficients
-
-    @property
-    def state_stride_order(self) -> Tuple[str, ...]:
-        """Stride order for state arrays on the host."""
-
-        return self.output_arrays.host.state.stride_order
 
     @property
     def save_time(self) -> float:

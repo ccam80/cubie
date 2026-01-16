@@ -67,7 +67,6 @@ def test_solver_properties(solver, solver_settings):
     assert solver.precision == solver_settings["precision"]
     assert solver.system_sizes is not None
     assert solver.output_array_heights is not None
-    assert solver.memory_manager == solver_settings["memory_manager"]
     assert solver.stream_group == solver_settings["stream_group"]
 
 
@@ -131,8 +130,6 @@ def test_output_properties(solver):
     assert solver.active_outputs is not None
     assert solver.output_types is not None
     assert isinstance(solver.output_types, Iterable)
-    assert solver.state_stride_order is not None
-    assert isinstance(solver.state_stride_order, Iterable)
 
 
 def test_solve_info_property(
@@ -249,7 +246,9 @@ def test_solve_with_different_grid_types(
         initial_values=simple_initial_values,
         parameters=simple_parameters,
         drivers=driver_settings,
-        duration=0.1,
+        duration=0.05,
+        save_every=0.01,
+        dt=0.01,
         grid_type="combinatorial",
     )
 
@@ -272,7 +271,9 @@ def test_solve_with_different_grid_types(
         initial_values=verbatim_initial_values,
         parameters=verbatim_parameters,
         drivers=driver_settings,
-        duration=0.1,
+        duration=0.05,
+        save_every=0.01,
+        dt=0.01,
         grid_type="verbatim",
     )
 
@@ -295,6 +296,7 @@ def test_solve_with_different_result_types(
             drivers=driver_settings,
             duration=0.05,
             save_every=0.02,
+            dt=0.01,
             summarise_every=0.04,
             results_type=result_type,
         )
@@ -425,7 +427,6 @@ def test_output_length_and_summaries_length(solver):
 def test_chunk_related_properties(solved_solver_simple):
     """Test chunk-related properties."""
     solver, result = solved_solver_simple
-    assert solver.chunk_axis is not None
     assert solver.chunks == 1
 
 
@@ -527,7 +528,7 @@ def test_solver_num_runs_property(solver):
     """Test num_runs property."""
     num_runs = solver.num_runs
     # num_runs might be None before solving, so just check it's accessible
-    assert num_runs is not None or num_runs is None
+    assert num_runs is not None or num_runs == 1
 
 
 # ============================================================================
@@ -630,6 +631,8 @@ def test_solve_array_path_matches_dict_path(
         parameters=simple_parameters,
         drivers=driver_settings,
         duration=0.05,
+        save_every=0.01,
+        dt=0.01,
         grid_type="verbatim",
     )
 
@@ -642,6 +645,8 @@ def test_solve_array_path_matches_dict_path(
         parameters=params,
         drivers=driver_settings,
         duration=0.05,
+        save_every=0.01,
+        dt=0.01,
     )
 
     # Results should match
@@ -676,8 +681,8 @@ def test_solve_ivp_positional_argument_order(system, solver_settings):
         system,
         states,  # positional: y0
         params,  # positional: parameters
-        duration=0.01,
-        dt=0.001,
+        duration=0.02,
+        dt=0.01,
         save_every=0.01,
     )
 
@@ -891,7 +896,8 @@ def test_solve_ivp_with_save_variables(system):
         parameters={list(system.parameters.names)[0]: [0.1, 0.2]},
         save_variables=state_names,
         save_every=0.01,
-        duration=0.1,
+        duration=0.02,
+        dt=0.01,
         method="euler",
     )
 

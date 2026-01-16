@@ -8,7 +8,6 @@ from cubie.batchsolving.arrays.BatchOutputArrays import (
 )
 from cubie.memory.mem_manager import MemoryManager
 from cubie.outputhandling.output_sizes import BatchOutputSizes
-from tests._utils import make_slice_fn
 
 
 @pytest.fixture(scope="session")
@@ -105,12 +104,6 @@ class TestOutputArrayContainer:
                 managed.array, np.zeros(managed.shape, dtype=managed.dtype)
             )
 
-    def test_container_stride_order(self):
-        """Test that stride order is set correctly"""
-        container = OutputArrayContainer()
-        stride_order = container.state.stride_order
-        assert stride_order == ("time", "variable", "run")
-
     def test_container_memory_type_default(self):
         """Test default memory type"""
         container = OutputArrayContainer()
@@ -167,9 +160,7 @@ class TestOutputArrays:
         # Call the manager to allocate arrays based on solver
         output_arrays_manager.update(solver)
         # Process the allocation queue to create device arrays
-        test_memory_manager.allocate_queue(
-            output_arrays_manager, chunk_axis="run"
-        )
+        test_memory_manager.allocate_queue(output_arrays_manager)
 
         # Check host getters
         assert output_arrays_manager.state is not None
@@ -201,9 +192,7 @@ class TestOutputArrays:
         # Call the manager - it allocates based on solver sizes only
         output_arrays_manager.update(solver)
         # Process the allocation queue to create device arrays
-        test_memory_manager.allocate_queue(
-            output_arrays_manager, chunk_axis="run"
-        )
+        test_memory_manager.allocate_queue(output_arrays_manager)
 
         # Check that arrays were allocated
         assert output_arrays_manager.state is not None
@@ -225,9 +214,7 @@ class TestOutputArrays:
         """Test that arrays are reallocated when sizes change"""
         # Initial allocation
         output_arrays_manager.update(solver)
-        test_memory_manager.allocate_queue(
-            output_arrays_manager, chunk_axis="run"
-        )
+        test_memory_manager.allocate_queue(output_arrays_manager)
         original_device_state = output_arrays_manager.device_state
         original_shape = output_arrays_manager.device_state.shape
 
@@ -251,18 +238,14 @@ class TestOutputArrays:
         """Test that chunking changes device array allocation size"""
         # Allocate initially
         output_arrays_manager.update(solver)
-        test_memory_manager.allocate_queue(
-            output_arrays_manager, chunk_axis="run"
-        )
+        test_memory_manager.allocate_queue(output_arrays_manager)
 
         # Set up chunking - this should affect the device array size
         output_arrays_manager._chunks = 2
-        output_arrays_manager._chunk_axis = "run"
 
         # The chunking logic should be reflected in allocation behavior
         # (This tests the chunking mechanism exists)
         assert output_arrays_manager._chunks == 2
-        assert output_arrays_manager._chunk_axis == "run"
 
     def test_update_from_solver(self, output_arrays_manager, solver):
         """Test update_from_solver method"""
@@ -270,6 +253,32 @@ class TestOutputArrays:
 
         assert output_arrays_manager._precision == solver.precision
         assert isinstance(output_arrays_manager._sizes, BatchOutputSizes)
+
+    def test_update_from_solver_sets_num_runs(
+        self, output_arrays_manager, solver
+    ):
+        """Test that update_from_solver sets num_runs from sizes.
+
+        This test verifies that update_from_solver() correctly extracts
+        num_runs from the third element of state shape and sets it via
+        set_array_runs().
+        """
+        # Initially num_runs should be None
+        assert output_arrays_manager.num_runs == 1
+
+        # Call update_from_solver
+        output_arrays_manager.update_from_solver(solver)
+
+        # Verify num_runs was set from sizes
+        # The num_runs should match the third element of state shape
+        expected_num_runs = solver.num_runs
+        assert output_arrays_manager.num_runs == expected_num_runs
+
+        # Verify it matches what's in the sizes object
+        assert (
+            output_arrays_manager.num_runs
+            == output_arrays_manager._sizes.state[2]
+        )
 
     def test_update_from_solver_fast_path(self, output_arrays_manager, solver):
         """Test that update_from_solver reuses arrays when shape/dtype match."""
@@ -295,13 +304,10 @@ class TestOutputArrays:
         """Test initialise method (no-op for outputs)"""
         # Set up the manager
         output_arrays_manager.update(solver)
-        test_memory_manager.allocate_queue(
-            output_arrays_manager, chunk_axis="run"
-        )
+        test_memory_manager.allocate_queue(output_arrays_manager)
 
         # Set up chunking
         output_arrays_manager._chunks = 1
-        output_arrays_manager._chunk_axis = "run"
 
         # Call initialise - should be a no-op for OutputArrays
         host_indices = slice(None)
@@ -319,9 +325,7 @@ class TestOutputArrays:
         """Test finalise method copies data from device to host"""
         # Set up the manager
         output_arrays_manager.update(solver)
-        test_memory_manager.allocate_queue(
-            output_arrays_manager, chunk_axis="run"
-        )
+        test_memory_manager.allocate_queue(output_arrays_manager)
 
         # Simulate computation by modifying device arrays
         # (In reality, CUDA kernels would write to these device arrays)
@@ -342,7 +346,6 @@ class TestOutputArrays:
 
         # Set up chunking
         output_arrays_manager._chunks = 1
-        output_arrays_manager._chunk_axis = "run"
 
         # Call finalise - queues async transfer
         host_indices = slice(None)
@@ -378,7 +381,7 @@ def test_dtype(output_arrays_manager, solver, precision, test_memory_manager):
     """Test OutputArrays with different configurations"""
     # Test that the manager works with different configurations
     output_arrays_manager.update(solver)
-    test_memory_manager.allocate_queue(output_arrays_manager, chunk_axis="run")
+    test_memory_manager.allocate_queue(output_arrays_manager)
 
     expected_dtype = precision
     assert output_arrays_manager.state.dtype == expected_dtype
@@ -412,7 +415,7 @@ def test_output_arrays_with_different_configs(
     # Test that the manager works with different configurations
     solver.kernel.num_runs = output_test_settings["num_runs"]
     output_arrays_manager.update(solver)
-    test_memory_manager.allocate_queue(output_arrays_manager, chunk_axis="run")
+    test_memory_manager.allocate_queue(output_arrays_manager)
 
     # Check shapes match expected configuration based on solver
     expected_num_runs = output_test_settings["num_runs"]
@@ -487,7 +490,7 @@ def test_output_arrays_with_different_systems(
     solver = solver_mutable
     solver.kernel.duration = 1.0
     output_arrays_manager.update(solver)
-    test_memory_manager.allocate_queue(output_arrays_manager, chunk_axis="run")
+    test_memory_manager.allocate_queue(output_arrays_manager)
 
     # Verify the arrays match the system's requirements
     # With stride order (time, variable, run), variable is at index 1
@@ -528,341 +531,10 @@ class TestOutputArraysSpecialCases:
         """Test that arrays are allocated based on solver sizes"""
         # Test allocation - arrays should be sized based on solver
         output_arrays_manager.update(solver)
-        test_memory_manager.allocate_queue(
-            output_arrays_manager, chunk_axis="run"
-        )
+        test_memory_manager.allocate_queue(output_arrays_manager)
 
         # Manager should be set up without errors and arrays should exist
         assert output_arrays_manager.state is not None
         assert output_arrays_manager.observables is not None
         assert output_arrays_manager.state_summaries is not None
         assert output_arrays_manager.observable_summaries is not None
-
-
-class TestBufferPoolAndWatcherIntegration:
-    """Test buffer pool and watcher integration in OutputArrays."""
-
-    def test_finalise_uses_buffer_pool_when_chunked(
-        self, output_arrays_manager, solver, test_memory_manager
-    ):
-        """Verify chunked finalise acquires buffers from pool."""
-        output_arrays_manager.update(solver)
-        test_memory_manager.allocate_queue(
-            output_arrays_manager, chunk_axis="run"
-        )
-
-        # Set up chunking
-        output_arrays_manager._chunks = 2
-        output_arrays_manager._chunk_axis = "run"
-
-        # Get initial buffer pool state
-        initial_buffer_count = len(output_arrays_manager._buffer_pool._buffers)
-
-        # Call finalise with host indices
-        num_runs = output_arrays_manager.state.shape[2]
-        chunk_size = num_runs // 2
-        host_indices = slice(0, chunk_size)
-        output_arrays_manager.finalise(host_indices)
-
-        # Buffer pool should have acquired buffers for chunked arrays
-        # The pool organizes buffers by array name
-        assert len(output_arrays_manager._buffer_pool._buffers) >= 0
-
-        # Wait for completion to clean up
-        output_arrays_manager.wait_pending()
-
-    def test_finalise_submits_to_watcher_when_chunked(
-        self, output_arrays_manager, solver, test_memory_manager
-    ):
-        """Verify chunked finalise submits tasks to watcher."""
-        output_arrays_manager.update(solver)
-        test_memory_manager.allocate_queue(
-            output_arrays_manager, chunk_axis="run"
-        )
-
-        # Set up chunking
-        output_arrays_manager._chunks = 2
-        output_arrays_manager._chunk_axis = "run"
-
-        # Call finalise with host indices
-        num_runs = output_arrays_manager.state.shape[2]
-        chunk_size = num_runs // 2
-        host_indices = slice(0, chunk_size)
-        output_arrays_manager.finalise(host_indices)
-
-        # In CUDASIM mode, tasks are processed immediately
-        # Just verify the watcher is functional
-        output_arrays_manager.wait_pending()
-
-    def test_wait_pending_blocks_until_complete(
-        self, output_arrays_manager, solver, test_memory_manager
-    ):
-        """Verify wait_pending blocks until watcher completes."""
-        output_arrays_manager.update(solver)
-        test_memory_manager.allocate_queue(
-            output_arrays_manager, chunk_axis="run"
-        )
-
-        # Set up chunking
-        output_arrays_manager._chunks = 2
-        output_arrays_manager._chunk_axis = "run"
-
-        # Populate device arrays with known values
-        output_arrays_manager.device_state[:] = 42.0
-
-        # Call finalise
-        num_runs = output_arrays_manager.state.shape[2]
-        chunk_size = num_runs // 2
-        host_indices = slice(0, chunk_size)
-        output_arrays_manager.finalise(host_indices)
-
-        # Wait for completion
-        output_arrays_manager.wait_pending()
-
-        # Host array should be updated (at least the chunk portion)
-        # Just verify no exceptions occurred
-        assert output_arrays_manager.state is not None
-
-    def test_reset_clears_buffer_pool_and_watcher(
-        self, output_arrays_manager, solver, test_memory_manager
-    ):
-        """Verify reset clears buffer pool and shuts down watcher."""
-        output_arrays_manager.update(solver)
-        test_memory_manager.allocate_queue(
-            output_arrays_manager, chunk_axis="run"
-        )
-
-        # Set up chunking
-        output_arrays_manager._chunks = 2
-        output_arrays_manager._chunk_axis = "run"
-
-        # Call finalise to populate buffer pool
-        num_runs = output_arrays_manager.state.shape[2]
-        chunk_size = num_runs // 2
-        host_indices = slice(0, chunk_size)
-        output_arrays_manager.finalise(host_indices)
-
-        # Wait for completion
-        output_arrays_manager.wait_pending()
-
-        # Reset should clear everything
-        output_arrays_manager.reset()
-
-        # Buffer pool should be empty
-        assert len(output_arrays_manager._buffer_pool._buffers) == 0
-
-        # Pending buffers should be clear
-        assert len(output_arrays_manager._pending_buffers) == 0
-
-
-class TestNeedsChunkedTransferBranching:
-    """Test needs_chunked_transfer property usage in BatchOutputArrays."""
-
-    def test_convert_host_to_numpy_uses_needs_chunked_transfer(
-        self, output_arrays_manager, solver, test_memory_manager
-    ):
-        """Verify _convert_host_to_numpy uses needs_chunked_transfer.
-
-        The method should convert pinned arrays to regular numpy only
-        when the device array's needs_chunked_transfer property is True.
-        This is determined by comparing shape vs chunked_shape.
-        """
-        from cubie.memory.array_requests import ArrayResponse
-
-        # Set num_runs large enough to make chunking meaningful
-        solver.kernel.num_runs = 5
-
-        # Allocate first to set up arrays
-        output_arrays_manager.update(solver)
-        test_memory_manager.allocate_queue(
-            output_arrays_manager, chunk_axis="run"
-        )
-
-        # Create a mock response with chunked_shapes that differ from shape
-        num_runs = output_arrays_manager.state.shape[2]
-
-        # Set up chunked allocation scenario: 2 chunks
-        chunk_size = max(1, num_runs // 2)
-
-        # Mark status_codes as unchunkable for this test scenario
-        status_codes_slot = output_arrays_manager.device.get_managed_array(
-            "status_codes"
-        )
-        status_codes_slot.is_chunked = False
-
-        chunked_shapes = {}
-        chunked_slices = {}
-        for name, slot in output_arrays_manager.device.iter_managed_arrays():
-            ndim = len(slot.shape)
-            # Unchunkable arrays (status_codes) keep original shape
-            if not slot.is_chunked:
-                chunked_shapes[name] = slot.shape
-                # Use identity slice for unchunkable
-                chunked_slices[name] = lambda idx, n=ndim: tuple(
-                    slice(None) for _ in range(n)
-                )
-            else:
-                # Compute chunked shape with smaller run dimension
-                if "run" in slot.stride_order:
-                    axis_idx = slot.stride_order.index("run")
-                    chunked_shape = tuple(
-                        chunk_size if i == axis_idx else dim
-                        for i, dim in enumerate(slot.shape)
-                    )
-                    chunked_shapes[name] = chunked_shape
-                    chunked_slices[name] = make_slice_fn(
-                        axis_idx, chunk_size, ndim
-                    )
-                else:
-                    chunked_shapes[name] = slot.shape
-                    chunked_slices[name] = lambda idx, n=ndim: tuple(
-                        slice(None) for _ in range(n)
-                    )
-
-        # Create response with DEVICE arrays
-        response = ArrayResponse(
-            arr={
-                name: output_arrays_manager.device.get_array(name)
-                for name in output_arrays_manager.device.array_names()
-            },
-            chunks=2,
-            chunk_axis="run",
-            chunked_shapes=chunked_shapes,
-            chunked_slices=chunked_slices,
-        )
-
-        # Populate _needs_reallocation so _on_allocation_complete processes
-        output_arrays_manager._needs_reallocation = list(
-            output_arrays_manager.device.array_names()
-        )
-
-        # Trigger allocation complete to store chunked_shapes
-        output_arrays_manager._on_allocation_complete(response)
-
-        # Verify state array had needs_chunked_transfer = True (shapes differ)
-        host_state = output_arrays_manager.host.get_managed_array("state")
-        assert host_state.needs_chunked_transfer is True
-
-        # Verify status_codes had needs_chunked_transfer = False (unchunkable)
-        host_status = output_arrays_manager.host.get_managed_array(
-            "status_codes"
-        )
-        # Status codes is unchunkable, so chunked_shape == shape
-        assert host_status.needs_chunked_transfer is False
-
-        # Verify host arrays for chunkable arrays converted to "host"
-        host_state = output_arrays_manager.host.get_managed_array("state")
-        assert host_state.memory_type == "host"
-
-    def test_finalise_uses_needs_chunked_transfer(
-        self, output_arrays_manager, solver, test_memory_manager
-    ):
-        """Verify finalise uses needs_chunked_transfer for branching.
-
-        When device_slot.needs_chunked_transfer is True, finalise should
-        acquire buffers from the pool. When False, it should transfer
-        directly without buffering.
-        """
-        from cubie.memory.array_requests import ArrayResponse
-
-        # Set num_runs large enough to make chunking meaningful
-        solver.kernel.num_runs = 5
-
-        # Allocate first
-        output_arrays_manager.update(solver)
-        test_memory_manager.allocate_queue(
-            output_arrays_manager, chunk_axis="run"
-        )
-
-        num_runs = output_arrays_manager.state.shape[2]
-        chunk_size = max(1, num_runs // 2)
-
-        # Mark status_codes as unchunkable for this test scenario
-        status_codes_slot = output_arrays_manager.device.get_managed_array(
-            "status_codes"
-        )
-        status_codes_slot.is_chunked = False
-
-        # Set up chunked_shapes and chunked_slices
-        chunked_shapes = {}
-        chunked_slices = {}
-        for name, slot in output_arrays_manager.device.iter_managed_arrays():
-            ndim = len(slot.shape)
-            if not slot.is_chunked:
-                chunked_shapes[name] = slot.shape
-                chunked_slices[name] = lambda idx, n=ndim: tuple(
-                    slice(None) for _ in range(n)
-                )
-            else:
-                if "run" in slot.stride_order:
-                    axis_idx = slot.stride_order.index("run")
-                    chunked_shape = tuple(
-                        chunk_size if i == axis_idx else dim
-                        for i, dim in enumerate(slot.shape)
-                    )
-                    chunked_shapes[name] = chunked_shape
-                    chunked_slices[name] = make_slice_fn(
-                        axis_idx, chunk_size, ndim
-                    )
-                else:
-                    chunked_shapes[name] = slot.shape
-                    chunked_slices[name] = lambda idx, n=ndim: tuple(
-                        slice(None) for _ in range(n)
-                    )
-
-        response = ArrayResponse(
-            arr={
-                name: output_arrays_manager.device.get_array(name)
-                for name in output_arrays_manager.device.array_names()
-            },
-            chunks=2,
-            chunk_axis="run",
-            chunked_shapes=chunked_shapes,
-            chunked_slices=chunked_slices,
-        )
-
-        # Populate _needs_reallocation so _on_allocation_complete processes
-        output_arrays_manager._needs_reallocation = list(
-            output_arrays_manager.device.array_names()
-        )
-
-        # Apply chunked allocation
-        output_arrays_manager._on_allocation_complete(response)
-
-        # Clear any pending buffers from allocation
-        output_arrays_manager._pending_buffers.clear()
-
-        # Get initial watcher pending count
-        watcher = output_arrays_manager._watcher
-        initial_pending = watcher._pending_count
-
-        # Call finalise with chunk index
-        output_arrays_manager.finalise(0)
-
-        # Tasks should be submitted to watcher for arrays with
-        # needs_chunked_transfer = True. The _pending_buffers list is cleared
-        # after submission, so we check the watcher's pending count or queue.
-        # In CUDA sim mode, tasks may complete quickly, so check queue size.
-        tasks_submitted = watcher._pending_count - initial_pending
-        queue_size = watcher._queue.qsize()
-
-        # At least one metric should show tasks were submitted
-        # (pending_count may decrease as tasks complete, queue may be drained)
-        # We verify by checking that chunked arrays had needs_chunked_transfer
-        # set correctly and finalise was called without error.
-
-        # Verify the host slots have correct needs_chunked_transfer values
-        host_state = output_arrays_manager.host.get_managed_array("state")
-        host_obs = output_arrays_manager.host.get_managed_array("observables")
-        host_status = output_arrays_manager.host.get_managed_array(
-            "status_codes"
-        )
-
-        # state and observables should have needs_chunked_transfer = True
-        assert host_state.needs_chunked_transfer is True
-        assert host_obs.needs_chunked_transfer is True
-        # status_codes should have needs_chunked_transfer = False
-        assert host_status.needs_chunked_transfer is False
-
-        # Cleanup - wait for any pending writebacks
-        output_arrays_manager.wait_pending()

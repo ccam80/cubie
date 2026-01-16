@@ -1,3 +1,4 @@
+import attrs
 import numpy as np
 import pytest
 from numpy.testing import assert_array_equal
@@ -7,9 +8,7 @@ from cubie.batchsolving.arrays.BatchInputArrays import (
     InputArrays,
 )
 from cubie.memory import default_memmgr
-from cubie.memory.chunk_buffer_pool import ChunkBufferPool, PinnedBuffer
 from cubie.outputhandling.output_sizes import BatchInputSizes
-from tests._utils import setup_chunked_arrays
 
 
 @pytest.fixture(scope="session")
@@ -94,12 +93,6 @@ class TestInputArrayContainer:
                 managed.array, np.zeros(managed.shape, dtype=managed.dtype)
             )
 
-    def test_container_stride_order(self):
-        """Test that stride order is set correctly"""
-        container = InputArrayContainer()
-        stride_order = container.parameters.stride_order
-        assert stride_order == ("variable", "run")
-
     def test_host_factory(self):
         """Test host factory method creates pinned memory container"""
         container = InputArrayContainer.host_factory()
@@ -160,7 +153,7 @@ class TestInputArrays:
             sample_input_arrays["driver_coefficients"],
         )
         # Process the allocation queue to create device arrays
-        default_memmgr.allocate_queue(input_arrays_manager, chunk_axis="run")
+        default_memmgr.allocate_queue(input_arrays_manager)
 
         # Check host getters
         assert input_arrays_manager.initial_values is not None
@@ -198,15 +191,15 @@ class TestInputArrays:
         )
 
     def test_call_method_size_change_triggers_reallocation(
-        self, input_arrays_manager, solver, input_test_settings
+        self, input_arrays_manager, solver_mutable, input_test_settings
     ):
         """Test that update method triggers reallocation when size changes"""
         dtype = input_test_settings["dtype"]
         num_runs = input_test_settings["num_runs"]
 
-        variables_count = solver.system_sizes.states
-        parameters_count = solver.system_sizes.parameters
-        forcing_count = solver.system_sizes.drivers
+        variables_count = solver_mutable.system_sizes.states
+        parameters_count = solver_mutable.system_sizes.parameters
+        forcing_count = solver_mutable.system_sizes.drivers
 
         # Initial call with original sizes
         # Native format: (variable, run)
@@ -223,13 +216,13 @@ class TestInputArrays:
         }
 
         input_arrays_manager.update(
-            solver,
+            solver_mutable,
             initial_arrays["initial_values"],
             initial_arrays["parameters"],
             initial_arrays["driver_coefficients"],
         )
         # Process the allocation queue to create device arrays
-        default_memmgr.allocate_queue(input_arrays_manager, chunk_axis="run")
+        default_memmgr.allocate_queue(input_arrays_manager)
 
         original_device_initial_values = (
             input_arrays_manager.device_initial_values
@@ -249,15 +242,17 @@ class TestInputArrays:
                 forcing_count, new_num_runs
             ).astype(dtype),
         }
-
+        solver_mutable.kernel.run_params = attrs.evolve(
+            solver_mutable.kernel.run_params, runs=new_num_runs
+        )
         input_arrays_manager.update(
-            solver,
+            solver_mutable,
             new_arrays["initial_values"],
             new_arrays["parameters"],
             new_arrays["driver_coefficients"],
         )
         # Process the allocation queue after size change
-        default_memmgr.allocate_queue(input_arrays_manager, chunk_axis="run")
+        default_memmgr.allocate_queue(input_arrays_manager)
 
         # Should have triggered reallocation for all arrays
         assert (
@@ -277,11 +272,42 @@ class TestInputArrays:
         assert input_arrays_manager._precision == solver.precision
         assert isinstance(input_arrays_manager._sizes, BatchInputSizes)
 
+    def test_update_from_solver_sets_num_runs(
+        self, input_arrays_manager, solver
+    ):
+        """Test that update_from_solver sets num_runs from sizes.
+
+        This test verifies that update_from_solver() correctly extracts
+        num_runs from the second element of initial_values shape and sets it
+        via set_array_runs().
+        """
+        # Initially num_runs should be None
+        assert input_arrays_manager.num_runs == 1
+
+        # Call update_from_solver
+        input_arrays_manager.update_from_solver(solver)
+
+        # Verify num_runs was set from sizes
+        # The num_runs should match the second element of initial_values shape
+        expected_num_runs = solver.num_runs
+        assert input_arrays_manager.num_runs == expected_num_runs
+
+        # Verify it matches what's in the sizes object
+        assert (
+            input_arrays_manager.num_runs
+            == input_arrays_manager._sizes.initial_values[1]
+        )
+
     def test_initialise_method(
-        self, input_arrays_manager, solver, sample_input_arrays
+        self, input_arrays_manager, solver_mutable, sample_input_arrays
     ):
         """Test initialise method copies data to device"""
         # Set up the manager
+        solver = solver_mutable
+        solver.kernel.run_params = attrs.evolve(
+            solver.kernel.run_params,
+            runs=sample_input_arrays["initial_values"].shape[1],
+        )
         input_arrays_manager.update(
             solver,
             sample_input_arrays["initial_values"],
@@ -289,7 +315,7 @@ class TestInputArrays:
             sample_input_arrays["driver_coefficients"],
         )
         # Process the allocation queue to create device arrays
-        default_memmgr.allocate_queue(input_arrays_manager, chunk_axis="run")
+        default_memmgr.allocate_queue(input_arrays_manager)
 
         # Clear device arrays to test initialise
         input_arrays_manager.device.initial_values.array[:, :] = 0.0
@@ -298,11 +324,8 @@ class TestInputArrays:
 
         # Set up chunking
         input_arrays_manager._chunks = 1
-        input_arrays_manager._chunk_axis = "run"
 
-        # Call initialise with host indices (all data)
-        host_indices = slice(None)
-        input_arrays_manager.initialise(host_indices)
+        input_arrays_manager.initialise(0)
 
         # Check that device arrays now match host arrays
         # Arrays are in native (variable, run) format - no transpose needed
@@ -336,7 +359,7 @@ class TestInputArrays:
             sample_input_arrays["driver_coefficients"],
         )
         # Process the allocation queue to create device arrays
-        default_memmgr.allocate_queue(input_arrays_manager, chunk_axis="run")
+        default_memmgr.allocate_queue(input_arrays_manager)
 
         expected_dtype = precision
         assert input_arrays_manager.initial_values.dtype.type == expected_dtype
@@ -415,7 +438,7 @@ def test_input_arrays_with_different_systems(
         sample_input_arrays["driver_coefficients"],
     )
     # Process the allocation queue to create device arrays
-    default_memmgr.allocate_queue(input_arrays_manager, chunk_axis="run")
+    default_memmgr.allocate_queue(input_arrays_manager)
 
     # Verify the arrays match the system's requirements
     assert (
@@ -434,293 +457,3 @@ def test_input_arrays_with_different_systems(
     assert input_arrays_manager.device_initial_values is not None
     assert input_arrays_manager.device_parameters is not None
     assert input_arrays_manager.device_driver_coefficients is not None
-
-
-class TestBufferPoolIntegration:
-    """Test buffer pool integration for chunked mode."""
-
-    def test_input_arrays_has_buffer_pool(self, input_arrays_manager):
-        """Verify InputArrays has a ChunkBufferPool attribute."""
-        assert hasattr(input_arrays_manager, "_buffer_pool")
-        assert isinstance(input_arrays_manager._buffer_pool, ChunkBufferPool)
-
-    def test_input_arrays_has_active_buffers(self, input_arrays_manager):
-        """Verify InputArrays has an _active_buffers list."""
-        assert hasattr(input_arrays_manager, "_active_buffers")
-        assert isinstance(input_arrays_manager._active_buffers, list)
-
-    def test_initialise_uses_buffer_pool_when_chunked(
-        self, solver, sample_input_arrays, precision
-    ):
-        """Verify chunked initialise acquires buffers from pool."""
-        input_arrays = InputArrays.from_solver(solver)
-        input_arrays.update(
-            solver,
-            sample_input_arrays["initial_values"],
-            sample_input_arrays["parameters"],
-            sample_input_arrays["driver_coefficients"],
-        )
-        # Allocate device arrays via memory manager
-        default_memmgr.allocate_queue(input_arrays, chunk_axis="run")
-
-        # Configure for chunked mode (multiple chunks)
-        input_arrays._chunks = 3
-        input_arrays._chunk_axis = "run"
-
-        # Configure chunked_shape and chunked_slice_fn on both host and device
-        # arrays to trigger needs_chunked_transfer
-        num_runs = sample_input_arrays["initial_values"].shape[1]
-        setup_chunked_arrays(input_arrays, num_runs, num_chunks=3)
-
-        # Clear any existing active buffers
-        input_arrays._active_buffers.clear()
-
-        # Call initialise with a chunk index
-        input_arrays.initialise(0)
-
-        # Verify buffers were acquired and stored in _active_buffers
-        assert len(input_arrays._active_buffers) > 0
-        for buffer in input_arrays._active_buffers:
-            assert isinstance(buffer, PinnedBuffer)
-            assert buffer.in_use is True
-
-    def test_release_buffers_returns_to_pool(
-        self, solver, sample_input_arrays, precision
-    ):
-        """Verify release_buffers returns buffers to pool."""
-        input_arrays = InputArrays.from_solver(solver)
-        input_arrays.update(
-            solver,
-            sample_input_arrays["initial_values"],
-            sample_input_arrays["parameters"],
-            sample_input_arrays["driver_coefficients"],
-        )
-        # Allocate device arrays via memory manager
-        default_memmgr.allocate_queue(input_arrays, chunk_axis="run")
-
-        # Configure for chunked mode
-        input_arrays._chunks = 3
-        input_arrays._chunk_axis = "run"
-
-        # Configure chunked_shape and chunked_slice_fn on both host and device
-        num_runs = sample_input_arrays["initial_values"].shape[1]
-        setup_chunked_arrays(input_arrays, num_runs, num_chunks=3)
-
-        # Call initialise to acquire buffers
-        input_arrays.initialise(0)
-
-        # Store reference to buffers before release
-        buffers_before = list(input_arrays._active_buffers)
-        assert len(buffers_before) > 0
-
-        # Release buffers
-        input_arrays.release_buffers()
-
-        # Verify _active_buffers is cleared
-        assert len(input_arrays._active_buffers) == 0
-
-        # Verify buffers are marked as not in use
-        for buffer in buffers_before:
-            assert buffer.in_use is False
-
-    def test_non_chunked_uses_direct_pinned(
-        self, solver, sample_input_arrays, precision
-    ):
-        """Verify non-chunked mode does not use buffer pool."""
-        input_arrays = InputArrays.from_solver(solver)
-        input_arrays.update(
-            solver,
-            sample_input_arrays["initial_values"],
-            sample_input_arrays["parameters"],
-            sample_input_arrays["driver_coefficients"],
-        )
-
-        # Configure for non-chunked mode (single chunk)
-        input_arrays._chunks = 1
-        input_arrays._chunk_axis = "run"
-
-        # Clear any existing active buffers
-        input_arrays._active_buffers.clear()
-
-        # Call initialise with chunk index 0 (non-chunked mode)
-        input_arrays.initialise(0)
-
-        # Verify no buffers were acquired from pool
-        assert len(input_arrays._active_buffers) == 0
-
-    def test_reset_clears_buffer_pool_and_active_buffers(
-        self, solver, sample_input_arrays, precision
-    ):
-        """Verify reset clears buffer pool and active buffers."""
-        input_arrays = InputArrays.from_solver(solver)
-        input_arrays.update(
-            solver,
-            sample_input_arrays["initial_values"],
-            sample_input_arrays["parameters"],
-            sample_input_arrays["driver_coefficients"],
-        )
-        # Allocate device arrays via memory manager
-        default_memmgr.allocate_queue(input_arrays, chunk_axis="run")
-
-        # Configure for chunked mode and run initialise
-        input_arrays._chunks = 3
-        input_arrays._chunk_axis = "run"
-        num_runs = sample_input_arrays["initial_values"].shape[1]
-
-        # Configure chunked_shape and chunked_slice_fn on both host and device
-        setup_chunked_arrays(input_arrays, num_runs, num_chunks=3)
-
-        input_arrays.initialise(0)
-
-        # Verify there are active buffers
-        assert len(input_arrays._active_buffers) > 0
-
-        # Call reset
-        input_arrays.reset()
-
-        # Verify both active buffers and pool are cleared
-        assert len(input_arrays._active_buffers) == 0
-        # Verify pool has no buffers after clear
-        assert len(input_arrays._buffer_pool._buffers) == 0
-
-    def test_buffers_reused_across_chunks(
-        self, solver, sample_input_arrays, precision
-    ):
-        """Verify buffers are reused when released between chunks."""
-        input_arrays = InputArrays.from_solver(solver)
-        input_arrays.update(
-            solver,
-            sample_input_arrays["initial_values"],
-            sample_input_arrays["parameters"],
-            sample_input_arrays["driver_coefficients"],
-        )
-        solver.memory_manager.allocate_queue(input_arrays, chunk_axis="run")
-
-        # Configure for chunked mode
-        input_arrays._chunks = 3
-        input_arrays._chunk_axis = "run"
-        num_runs = sample_input_arrays["initial_values"].shape[1]
-
-        # Configure chunked_shape and chunked_slice_fn on both host and device
-        setup_chunked_arrays(input_arrays, num_runs, num_chunks=3)
-
-        # First chunk
-        input_arrays.initialise(0)
-        first_buffers = list(input_arrays._active_buffers)
-        first_buffer_ids = [b.buffer_id for b in first_buffers]
-        input_arrays.release_buffers()
-
-        # Second chunk - should reuse buffers from pool
-        input_arrays.initialise(1)
-        second_buffers = list(input_arrays._active_buffers)
-        second_buffer_ids = [b.buffer_id for b in second_buffers]
-
-        # Buffer IDs should match, indicating reuse
-        assert first_buffer_ids == second_buffer_ids
-
-
-class TestNeedsChunkedTransferBranching:
-    """Test that initialise uses needs_chunked_transfer for branching."""
-
-    def test_initialise_uses_needs_chunked_transfer(
-        self, solver, sample_input_arrays, precision
-    ):
-        """Verify initialise uses needs_chunked_transfer for branching.
-
-        When needs_chunked_transfer is False, the array is copied directly.
-        When needs_chunked_transfer is True, buffer pool is used for staging.
-        """
-        input_arrays = InputArrays.from_solver(solver)
-        input_arrays.update(
-            solver,
-            sample_input_arrays["initial_values"],
-            sample_input_arrays["parameters"],
-            sample_input_arrays["driver_coefficients"],
-        )
-
-        # Configure for chunked mode
-        input_arrays._chunks = 3
-        input_arrays._chunk_axis = "run"
-
-        # Set up chunked_shape so needs_chunked_transfer returns True
-        # for arrays with run axis in stride_order
-        num_runs = sample_input_arrays["initial_values"].shape[1]
-        chunk_size = num_runs // 3
-
-        for name, device_slot in input_arrays.device.iter_managed_arrays():
-            # Full shape stored in shape, chunked shape set differently
-            original_shape = device_slot.shape
-            # If array has 'run' in stride_order, set chunked_shape smaller
-            if "run" in device_slot.stride_order:
-                run_idx = device_slot.stride_order.index("run")
-                chunked = list(original_shape)
-                chunked[run_idx] = chunk_size
-                device_slot.chunked_shape = tuple(chunked)
-            else:
-                # Array not chunked - chunked_shape equals shape
-                device_slot.chunked_shape = original_shape
-
-        # Clear any existing active buffers
-        input_arrays._active_buffers.clear()
-
-        # Call initialise with a chunk slice
-        host_indices = slice(0, chunk_size)
-        input_arrays.initialise(host_indices)
-
-        # Arrays with needs_chunked_transfer=True should have used buffers
-        buffer_names = [b.name for b in input_arrays._active_buffers]
-
-        # Check which arrays used buffer pool (needs_chunked_transfer=True)
-        for name, device_slot in input_arrays.device.iter_managed_arrays():
-            if device_slot.needs_chunked_transfer:
-                if input_arrays._chunk_axis in device_slot.stride_order:
-                    # Should have used buffer pool
-                    assert name in buffer_names, (
-                        f"Array {name} with needs_chunked_transfer=True "
-                        "should have used buffer pool"
-                    )
-            else:
-                # Should NOT have used buffer pool
-                assert name not in buffer_names, (
-                    f"Array {name} with needs_chunked_transfer=False "
-                    "should not have used buffer pool"
-                )
-
-    def test_initialise_no_buffers_when_needs_chunked_transfer_false(
-        self, solver, sample_input_arrays, precision
-    ):
-        """Verify no buffers used when all arrays have needs_chunked_transfer=False.
-
-        When chunked_shape equals shape, needs_chunked_transfer returns False
-        and no buffer pool staging is needed.
-        """
-        input_arrays = InputArrays.from_solver(solver)
-        input_arrays.update(
-            solver,
-            sample_input_arrays["initial_values"],
-            sample_input_arrays["parameters"],
-            sample_input_arrays["driver_coefficients"],
-        )
-
-        # Configure for chunked mode but set chunked_shape = shape
-        # so needs_chunked_transfer returns False
-        input_arrays._chunks = 3
-        input_arrays._chunk_axis = "run"
-
-        for name, device_slot in input_arrays.device.iter_managed_arrays():
-            # Set chunked_shape equal to shape
-            device_slot.chunked_shape = device_slot.shape
-
-        # Clear any existing active buffers
-        input_arrays._active_buffers.clear()
-
-        # Call initialise
-        num_runs = sample_input_arrays["initial_values"].shape[1]
-        chunk_size = num_runs // 3
-        host_indices = slice(0, chunk_size)
-        input_arrays.initialise(host_indices)
-
-        # No buffers should be used since needs_chunked_transfer is False
-        assert len(input_arrays._active_buffers) == 0, (
-            "No buffers should be used when needs_chunked_transfer is False"
-        )

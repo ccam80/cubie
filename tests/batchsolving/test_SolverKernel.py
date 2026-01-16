@@ -314,7 +314,8 @@ class TestTimingParameterValidation:
             params,
             drivers=driver_settings,
             save_every=None,
-            duration=0.5,
+            duration=0.05,
+            dt=0.02,
         )
 
     def test_summarise_every_greater_than_duration_raises(
@@ -423,3 +424,18 @@ class TestActiveOutputsFromCompileFlags:
         assert active.observable_summaries is False
         assert active.iteration_counters is False
         assert active.status_codes is True
+
+
+class TestRunParamsIntegration:
+    """Tests for RunParams integration into BatchSolverKernel."""
+
+    def test_runparams_initialized_on_construction(self, solverkernel):
+        """Verify BatchSolverKernel initializes run_params with defaults."""
+        # Check that run_params exists and has default values
+        assert hasattr(solverkernel, "run_params")
+        assert solverkernel.run_params.duration == 0.0
+        assert solverkernel.run_params.warmup == 0.0
+        assert solverkernel.run_params.t0 == 0.0
+        assert solverkernel.run_params.runs == 1
+        assert solverkernel.run_params.num_chunks == 1
+        assert solverkernel.run_params.chunk_length == 0

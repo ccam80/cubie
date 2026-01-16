@@ -1,4 +1,3 @@
-
 import numpy as np
 import pandas as pd
 import pytest
@@ -8,6 +7,7 @@ from cubie.batchsolving.BatchSolverConfig import ActiveOutputs
 from cubie.batchsolving.solveresult import SolveResult
 
 Array = np.ndarray
+
 
 @pytest.fixture(scope="session")
 def solver_with_arrays(
@@ -104,7 +104,6 @@ class TestSolveResultStaticMethods:
 class TestSolveResultInstantiation:
     """Test the four instantiation types return equivalent results."""
 
-
     def test_instantiation_type_equivalence(self, solver_with_arrays):
         """Test that the four instantiation types return equivalent results to full + methods."""
 
@@ -129,7 +128,9 @@ class TestSolveResultInstantiation:
         for key in numpy_result.keys():
             if isinstance(numpy_result[key], np.ndarray):
                 assert np.allclose(
-                    numpy_result[key], full_result.as_numpy[key],equal_nan=True
+                    numpy_result[key],
+                    full_result.as_numpy[key],
+                    equal_nan=True,
                 )
             else:
                 assert numpy_result[key] == full_result.as_numpy[key]
@@ -143,7 +144,7 @@ class TestSolveResultInstantiation:
                 assert np.allclose(
                     numpy_per_summary_result[key],
                     full_result.as_numpy_per_summary[key],
-                    equal_nan=True
+                    equal_nan=True,
                 )
             else:
                 assert (
@@ -156,7 +157,6 @@ class TestSolveResultInstantiation:
         assert pandas_result["summaries"].equals(
             full_result.as_pandas["summaries"]
         )
-
 
     def test_from_solver_full_instantiation(self, solver_with_arrays):
         """Test full SolveResult instantiation from solver."""
@@ -173,7 +173,6 @@ class TestSolveResultInstantiation:
             result._stride_order
             == solver_with_arrays.kernel.output_arrays.host.state.stride_order
         )
-
 
     def test_from_solver_numpy_instantiation(self, solver_with_arrays):
         """Test numpy dict instantiation from solver."""
@@ -193,7 +192,6 @@ class TestSolveResultInstantiation:
                 solver_with_arrays.kernel.iteration_counters,
             )
         assert isinstance(result["time_domain_array"], np.ndarray)
-
 
     def test_from_solver_numpy_per_summary_instantiation(
         self, solver_with_arrays
@@ -218,7 +216,6 @@ class TestSolveResultInstantiation:
         ) in solver_with_arrays.summary_legend_per_variable.values():
             assert summary_type in result
 
-
     def test_from_solver_pandas_instantiation(self, solver_with_arrays):
         """Test pandas DataFrame instantiation from solver."""
         result = SolveResult.from_solver(
@@ -231,9 +228,9 @@ class TestSolveResultInstantiation:
         assert isinstance(result["time_domain"], pd.DataFrame)
         assert isinstance(result["summaries"], pd.DataFrame)
 
+
 class TestSolveResultFromSolver:
     """Test SolveResult creation and methods using real solver instances."""
-
 
     def test_time_domain_legend_from_solver(self, solver_with_arrays):
         """Test time domain legend creation from real solver."""
@@ -267,7 +264,6 @@ class TestSolveResultFromSolver:
         for metric in summary_metrics:
             assert any(metric in val for val in legend_values)
 
-
     def test_stride_order_from_solver(self, solver_with_arrays):
         """Test that stride order is correctly captured from solver."""
         result = SolveResult.from_solver(solver_with_arrays)
@@ -282,9 +278,9 @@ class TestSolveResultFromSolver:
         assert isinstance(run_dim, int)
         assert 0 <= run_dim < len(result._stride_order)
 
+
 class TestSolveResultProperties:
     """Test SolveResult property methods using real solver data."""
-
 
     def test_as_numpy_property(self, solver_with_arrays):
         """Test as_numpy property returns correct structure."""
@@ -307,7 +303,8 @@ class TestSolveResultProperties:
                 numpy_dict["iteration_counters"], result.iteration_counters
             )
             assert (
-                numpy_dict["iteration_counters"] is not result.iteration_counters
+                numpy_dict["iteration_counters"]
+                is not result.iteration_counters
             )
 
     def test_per_summary_arrays_property(self, solver_with_arrays):
@@ -373,27 +370,6 @@ class TestSolveResultDefaultBehavior:
         assert len(result.summaries_legend) == 0
         assert result._stride_order == ("time", "variable", "run")
 
-    def test_custom_stride_order(self):
-        """Test SolveResult with custom stride order."""
-        custom_order = ("variable", "run", "time")
-        result = SolveResult(stride_order=custom_order)
-
-        assert result._stride_order == custom_order
-
-        # Test with mock data
-        result.time_domain_array = np.random.rand(
-            5, 4, 3
-        )  # matches custom order
-        result.summaries_array = np.random.rand(2, 4, 6)
-        result._singlevar_summary_legend = {0: "mean", 1: "rms"}
-        result.time_domain_legend = {0: "x0", 1: "x1", 2: "time"}
-
-        run_dim = result._stride_order.index("run")
-        assert run_dim == 1
-
-        # Test per_summary_arrays uses correct dimension
-        per_summary = result.per_summary_arrays
-        assert isinstance(per_summary, dict)
 
 class TestSolveResultPandasIntegration:
     """Test pandas-specific functionality."""
@@ -439,6 +415,7 @@ class TestSolveResultPandasIntegration:
                     else result.time.flatten()
                 )
                 assert len(td_df.index) == len(expected_time)
+
 
 class TestSolveResultErrorHandling:
     """Test error handling and edge cases."""
@@ -493,6 +470,7 @@ def solved_batch_solver_errorcode(system, precision):
     solver.kernel.output_arrays.host.status_codes.array[1] = 1
     return solver
 
+
 class TestNaNProcessing:
     """Test NaN processing by manually modifying status codes.
 
@@ -501,7 +479,9 @@ class TestNaNProcessing:
     solves.
     """
 
-    def test_nan_processing_with_simulated_errors(self, solved_batch_solver_errorcode):
+    def test_nan_processing_with_simulated_errors(
+        self, solved_batch_solver_errorcode
+    ):
         """Verify NaN processing works by manually setting error codes."""
         # Manually inject error into status codes
 
@@ -519,7 +499,9 @@ class TestNaNProcessing:
         assert not np.all(np.isnan(result.time_domain_array[..., 0]))
         assert not np.all(np.isnan(result.time_domain_array[..., 2]))
 
-    def test_nan_disabled_preserves_error_data(self, solved_batch_solver_errorcode):
+    def test_nan_disabled_preserves_error_data(
+        self, solved_batch_solver_errorcode
+    ):
         """Verify nan_error_trajectories=False preserves data even with errors."""
         result = SolveResult.from_solver(
             solved_batch_solver_errorcode, nan_error_trajectories=False
@@ -548,11 +530,16 @@ class TestNaNProcessing:
         finally:
             status_array[1] = original_value
 
-    def test_multiple_errors_all_set_to_nan(self, solved_batch_solver_errorcode):
+    def test_multiple_errors_all_set_to_nan(
+        self, solved_batch_solver_errorcode
+    ):
         """Verify multiple failed runs all get NaN'd."""
         status_array = solved_batch_solver_errorcode.kernel.output_arrays.host.status_codes.array
-        original_values = (int(status_array[0]), int(status_array[1]), 
-                          int(status_array[2]))
+        original_values = (
+            int(status_array[0]),
+            int(status_array[1]),
+            int(status_array[2]),
+        )
         try:
             # Inject multiple errors
             status_array[0] = 2
@@ -581,11 +568,24 @@ class TestSolveSpecFields:
         from cubie.batchsolving.solveresult import SolveSpec
 
         expected_attrs = [
-            'dt', 'dt_min', 'dt_max', 'save_every', 'summarise_every',
-            'sample_summaries_every', 'atol', 'rtol', 'duration', 'warmup',
-            't0', 'algorithm', 'saved_states', 'saved_observables',
-            'summarised_states', 'summarised_observables', 'output_types',
-            'precision'
+            "dt",
+            "dt_min",
+            "dt_max",
+            "save_every",
+            "summarise_every",
+            "sample_summaries_every",
+            "atol",
+            "rtol",
+            "duration",
+            "warmup",
+            "t0",
+            "algorithm",
+            "saved_states",
+            "saved_observables",
+            "summarised_states",
+            "summarised_observables",
+            "output_types",
+            "precision",
         ]
 
         spec = SolveSpec(

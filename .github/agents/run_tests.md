@@ -56,7 +56,7 @@ Unless explicitly requested, **ALWAYS exclude** these test markers:
 
 Default pytest command:
 ```bash
-NUMBA_ENABLE_CUDASIM=1 pytest -m "not nocudasim and not specific_algos" [test_paths]
+NUMBA_ENABLE_CUDASIM=1 pytest -m "not nocudasim and not specific_algos" [test_paths] -v --tb=short 2>&1 | tee /tmp/test_output.txt && tail -300 /tmp/test_output.txt
 ```
 
 ## Process
@@ -85,7 +85,8 @@ Add options based on needs:
 
 ### 3. Run Tests
 
-Execute the test command using bash with a 4-minute timeout.
+Execute the test command using bash with a 4-minute timeout. Always capture output in a temporary file for analysis. 
+Never run without capturing output. Don't re-run any tests which already have a captured output.
 
 ### 4. Analyze Results
 
