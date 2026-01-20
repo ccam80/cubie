@@ -286,12 +286,6 @@ class BatchSolverKernel(CUDAFactory):
         initial_config = BatchSolverConfig(
             precision=precision,
             loop_fn=None,
-            local_memory_elements=(
-                self.single_integrator.local_memory_elements
-            ),
-            shared_memory_elements=(
-                self.single_integrator.shared_memory_elements
-            ),
             compile_flags=self.single_integrator.output_compile_flags,
         )
         self.setup_compile_settings(initial_config)
@@ -300,17 +294,6 @@ class BatchSolverKernel(CUDAFactory):
         self.output_arrays = OutputArrays.from_solver(self)
 
         self.output_arrays.update(self)
-        self.update_compile_settings(
-            {
-                "local_memory_elements": (
-                    self.single_integrator.local_memory_elements
-                ),
-                "shared_memory_elements": (
-                    self.single_integrator.shared_memory_elements
-                ),
-                "precision": self.single_integrator.precision,
-            }
-        )
 
     def _setup_memory_manager(
         self, settings: Dict[str, Any]
@@ -529,12 +512,6 @@ class BatchSolverKernel(CUDAFactory):
             {
                 "loop_fn": self.single_integrator.compiled_loop_function,
                 "precision": self.single_integrator.precision,
-                "local_memory_elements": (
-                    self.single_integrator.local_memory_elements
-                ),
-                "shared_memory_elements": (
-                    self.single_integrator.shared_memory_elements
-                ),
             }
         )
 
@@ -697,7 +674,7 @@ class BatchSolverKernel(CUDAFactory):
         save_observable_summaries = output_flags.observable_summaries
         needs_padding = self.shared_memory_needs_padding
 
-        shared_elems_per_run = config.shared_memory_elements
+        shared_elems_per_run = self.shared_memory_elements
         f32_per_element = 2 if (precision is float64) else 1
         f32_pad_perrun = 1 if needs_padding else 0
         run_stride_f32 = int(
@@ -874,15 +851,13 @@ class BatchSolverKernel(CUDAFactory):
             updates_dict, silent=True
         )
 
+        all_unrecognized -= buffer_registry.update(
+            self.single_integrator._loop, updates_dict, silent=True
+        )
+
         updates_dict.update(
             {
                 "loop_fn": self.single_integrator.device_function,
-                "local_memory_elements": (
-                    self.single_integrator.local_memory_elements
-                ),
-                "shared_memory_elements": (
-                    self.single_integrator.shared_memory_elements
-                ),
                 "compile_flags": self.single_integrator.output_compile_flags,
             }
         )
@@ -911,14 +886,12 @@ class BatchSolverKernel(CUDAFactory):
     @property
     def local_memory_elements(self) -> int:
         """Number of precision elements required in local memory per run."""
-
-        return self.compile_settings.local_memory_elements
+        return self.single_integrator.local_memory_elements
 
     @property
     def shared_memory_elements(self) -> int:
         """Number of precision elements required in shared memory per run."""
-
-        return self.compile_settings.shared_memory_elements
+        return self.single_integrator.shared_memory_elements
 
     @property
     def compile_flags(self) -> OutputCompileFlags:
@@ -1035,7 +1008,6 @@ class BatchSolverKernel(CUDAFactory):
     @property
     def shared_memory_bytes(self) -> int:
         """Shared-memory footprint per run for the compiled kernel."""
-
         return self.single_integrator.shared_memory_bytes
 
     @property

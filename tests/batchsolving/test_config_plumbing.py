@@ -230,8 +230,6 @@ def assert_solverkernel_config(kernel, settings, tolerance):
 
     # Check ALL compile_settings attributes
     cs = kernel.compile_settings
-    assert cs.local_memory_elements == kernel.local_memory_elements
-    assert cs.shared_memory_elements == kernel.shared_memory_elements
     # loop_fn is the compiled function - not tested as it's not a setting
 
     # Not tested from kernel properties (computed/runtime values):

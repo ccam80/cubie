@@ -240,10 +240,6 @@ def test_all_lower_plumbing(
         duration=0.1,
     )
     assert (
-        freshsolver.compile_settings.local_memory_elements
-        == solverkernel.compile_settings.local_memory_elements
-    ), "Local memory mismatch mismatch"
-    assert (
         freshsolver.single_integrator.compile_settings
         == solverkernel.single_integrator.compile_settings
     ), "IntegratorRunSettings mismatch"
