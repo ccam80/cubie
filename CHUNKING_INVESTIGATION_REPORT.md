@@ -77,43 +77,103 @@ This could be confusing. Adding validation would provide clearer error messages.
 
 ## CUDA-Specific Issues Identified
 
-Based on guidance about CUDA kernel compilation behavior:
+Based on comprehensive analysis of all CUDAFactory classes (see `CUDA_CACHING_ANALYSIS.md` for full details):
 
-### Issue 1: Callable Fields with `eq=False`
+### Issue 1: Systematic Callable Field Tracking Failure ⚠️ CRITICAL
 
-Many CUDAFactory config classes have callable (device function) fields marked with `eq=False`:
-- `BatchSolverConfig.loop_fn`
-- `AlgorithmConfig.evaluate_f`, `evaluate_observables`, `evaluate_driver_at_t`
-- `LoopConfig.save_state_fn`, `update_summaries_fn`, `step_function`, etc.
-- Various solver and algorithm specific functions
+**Root Cause**: Device function fields marked `eq=False` in config classes are excluded from hash calculation. When these are updated via `update()` or `update_compile_settings()`, the config hash doesn't change, causing stale cached kernels to be reused.
 
-These fields are excluded from the config hash calculation. While child factories' hashes are included via `_iter_child_factories()`, any direct changes to these callable fields won't trigger cache invalidation.
+**Critical Chain - SingleIntegratorRun → IVPLoop**:
 
-**Potential Impact**: If a device function changes but the config hash doesn't update, a stale cached kernel could be reused on CUDA hardware, potentially causing incorrect behavior including infinite loops.
+1. `SingleIntegratorRun.build()` (lines 655-664) updates IVPLoop with 7 device functions:
+   ```python
+   compiled_functions = {
+       'save_state_fn': self._output_functions.save_state_func,
+       'update_summaries_fn': self._output_functions.update_summaries_func,
+       'save_summaries_fn': self._output_functions.save_summary_metrics_func,
+       'step_controller_fn': self._step_controller.device_function,
+       'step_function': self._algo_step.step_function,
+       'evaluate_observables': evaluate_observables
+   }
+   self._loop.update(compiled_functions)
+   ```
+
+2. ALL these fields in `ODELoopConfig` have `eq=False`:
+   - `save_state_fn`, `update_summaries_fn`, `save_summaries_fn`
+   - `step_controller_fn`, `step_function`
+   - `evaluate_driver_at_t`, `evaluate_observables`
+
+3. `IVPLoop.build()` (lines 346-352) reads these from config and captures them in kernel closure
+
+**Result**: When output configuration changes (e.g., different arrays to save), functions are updated but kernel is NOT rebuilt. Old kernel with incorrect array indexing continues execution.
+
+**All Affected Classes**:
+- `IVPLoop` (7 callable fields) - **CRITICAL** - center of integration chain
+- `BaseAlgorithmStep` (4 callable fields) - evaluate_f, evaluate_observables, etc.
+- `ImplicitStepConfig` (4+ callable fields) - solver_function, jacobian functions
+- `MatrixFreeSolver` (2-4 callable fields) - operator_apply, preconditioner, residual
+- `BatchSolverConfig.loop_fn` - appears unused (dead code)
 
 ### Issue 2: Variables Captured in `build()` Closure
 
-In `BatchSolverKernel.build_kernel()`, several variables are captured in the kernel closure:
-- Lines 694-697: `save_state`, `save_observables`, `save_state_summaries`, `save_observable_summaries` derived from `active_outputs` property
-- Line 698: `needs_padding` from `shared_memory_needs_padding` property  
-- Lines 708-710: `alloc_shared`, `alloc_persistent` from `buffer_registry.get_toplevel_allocators()`
+Device functions and flags are captured in build() methods and baked into kernels as compile-time constants:
 
-While these are derived from config values, they are computed at build time and baked into the compiled kernel as constants. Any subsequent changes to the underlying config values won't affect already-compiled kernels unless the build() method is called again.
+**BatchSolverKernel.build_kernel()** (lines 694-710):
+- `save_state`, `save_observables`, etc. from `active_outputs` property (derived from `compile_flags` ✓)
+- `needs_padding` from property (derived from `shared_memory_elements` ✓)
+- `alloc_shared`, `alloc_persistent` dynamically created (capture config values ✓)
+- `loopfunction = self.single_integrator.device_function` - child factory ✓
 
-**Potential Impact**: On CUDA hardware with kernel caching, a kernel compiled with one set of output flags could be reused even after output configuration changes, leading to incorrect array indexing and potential infinite loops or memory corruption.
+**IVPLoop.build()** (lines 346-352):
+- `save_state = config.save_state_fn` - **eq=False** ✗
+- `step_controller = config.step_controller_fn` - **eq=False** ✗
+- `step_function = config.step_function` - **eq=False** ✗
+- Plus 4 more callable fields - all **eq=False** ✗
+
+**ImplicitStep.build()** (lines 225-231):
+- `evaluate_f = config.evaluate_f` - **eq=False** ✗
+- `solver_function = config.solver_function` - **eq=False** ✗
+
+**Impact**: Values marked ✓ are properly tracked (changes trigger rebuild). Values marked ✗ are NOT tracked - updates change config but don't invalidate cache, causing stale kernels with wrong function pointers to persist.
 
 ## Recommendations
 
-1. **Verify all child factory relationships** - Ensure all CUDAFactory instances with callable fields are properly registered as child factories so their config hashes propagate to parents
+### Immediate Actions
 
-2. **Audit `eq=False` usage** - Review all fields marked `eq=False` to ensure they don't contain values that should invalidate the cache when changed
+1. **Force cache invalidation on callable updates** - Modify `update_compile_settings()` to explicitly invalidate cache when any callable field with `eq=False` changes
 
-3. **Add validation** - Consider adding runtime validation to detect when stale kernels are being used with incompatible configurations
+2. **Verify child factory chain** - Ensure SingleIntegratorRun, IVPLoop, algorithm steps, and controllers are properly linked as children so hash changes propagate
 
-4. **Test on real CUDA hardware** - The chunking tests should be run on actual CUDA hardware to reproduce the reported infinite loop condition
+3. **Test on CUDA hardware** - Reproduce chunked test infinite loop with fix applied
+
+### Long-term Solutions
+
+1. **Track function hashes** - Implement stable hashing for callable fields instead of using `eq=False`
+
+2. **Explicit rebuild triggers** - Add mechanism to force rebuild when critical functions change
+
+3. **Runtime validation** - Detect when stale kernels used with incompatible configs (defensive programming)
+
+### Code Changes Required
+
+Files needing modification:
+- `src/cubie/CUDAFactory.py` - Add invalidation logic to `update_compile_settings()`
+- `src/cubie/integrators/loops/ode_loop_config.py` - 7 callable fields need tracking
+- `src/cubie/integrators/algorithms/base_algorithm_step.py` - 4 callable fields need tracking
+- `src/cubie/integrators/algorithms/ode_implicitstep.py` - 1+ callable fields need tracking
+- `src/cubie/batchsolving/BatchSolverConfig.py` - Remove unused `loop_fn` or track properly
 
 ## Conclusion
 
-The chunked tests **pass in CUDASIM** and the iteration logic is mathematically correct. However, **potential issues with CUDA kernel caching and compile-time constant tracking** were identified that could cause bugs on real CUDA hardware.
+The chunked tests **pass in CUDASIM** and the iteration logic is mathematically correct. However, **systematic issues with callable field tracking in CUDA kernel caching** were identified.
 
-The infinite loop behavior reported on CUDA hardware is likely caused by stale cached kernels being reused with incompatible runtime configurations, particularly related to chunking parameters or output array flags.
+**Root Cause of Infinite Loops**: The `SingleIntegratorRun → IVPLoop` chain updates device functions via `update()`, but ODELoopConfig has ALL 7 callable fields marked `eq=False`. When output configuration changes:
+1. Device functions are updated in config
+2. Config hash DOESN'T change (eq=False excludes them)
+3. Cache hit on stale hash returns old kernel
+4. Old kernel has incorrect array indexing/logic baked in
+5. On CUDA hardware: memory corruption, infinite loops, crashes
+
+This explains why chunked tests hang on CUDA but pass in CUDASIM - CUDASIM doesn't cache kernels the same way.
+
+**See `CUDA_CACHING_ANALYSIS.md` for comprehensive analysis of all 12 affected CUDAFactory classes and detailed recommendations.**
