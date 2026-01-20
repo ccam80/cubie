@@ -530,8 +530,6 @@ class BatchSolverKernel(CUDAFactory):
         first_chunk_params = self.run_params[0]
         runs = first_chunk_params.runs
 
-        # Add 4-byte padding when required by GPU architecture to ensure
-        # proper alignment of shared memory allocations per thread block
         pad = 4 if self.shared_memory_needs_padding else 0
         padded_bytes = self.shared_memory_bytes + pad
         dynamic_sharedmem = int(padded_bytes * min(runs, blocksize))
@@ -676,9 +674,6 @@ class BatchSolverKernel(CUDAFactory):
         save_observable_summaries = output_flags.observable_summaries
         needs_padding = self.shared_memory_needs_padding
 
-        # Query buffer_registry for current shared memory size
-        # This ensures build_kernel uses the actual registered buffer size,
-        # which may have been updated via buffer_registry.update()
         shared_elems_per_run = self.shared_memory_elements
         f32_per_element = 2 if (precision is float64) else 1
         f32_pad_perrun = 1 if needs_padding else 0
@@ -856,10 +851,6 @@ class BatchSolverKernel(CUDAFactory):
             updates_dict, silent=True
         )
 
-        # Allow buffer_registry to recognize and update buffer location parameters
-        # (e.g., 'state_location', 'proposed_state_location'). This delegates
-        # location management to buffer_registry, following the same pattern as
-        # IVPLoop.update().
         all_unrecognized -= buffer_registry.update(
             self.single_integrator._loop, updates_dict, silent=True
         )
