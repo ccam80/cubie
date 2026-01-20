@@ -239,10 +239,8 @@ def test_all_lower_plumbing(
         driver_coefficients=driver_coefficients,
         duration=0.1,
     )
-    assert (
-        freshsolver.compile_settings.local_memory_elements
-        == solverkernel.compile_settings.local_memory_elements
-    ), "Local memory mismatch mismatch"
+    # Note: compile_settings.local_memory_elements was removed in refactoring
+    # Memory elements are now accessed via properties that query buffer_registry
     assert (
         freshsolver.single_integrator.compile_settings
         == solverkernel.single_integrator.compile_settings
@@ -441,3 +439,390 @@ class TestRunParamsIntegration:
         assert solverkernel.run_params.runs == 1
         assert solverkernel.run_params.num_chunks == 1
         assert solverkernel.run_params.chunk_length == 0
+
+
+def test_batch_solver_kernel_init_without_memory_elements(solverkernel):
+    """Verify BatchSolverKernel initializes without memory elements in config.
+    
+    After the refactoring in Task Group 2, BatchSolverKernel.__init__ should
+    no longer pass local_memory_elements or shared_memory_elements to
+    BatchSolverConfig during initialization. This test verifies that the
+    kernel initializes successfully without these parameters.
+    """
+    # Verify that the solverkernel was initialized successfully
+    assert solverkernel is not None
+    
+    # Verify that compile_settings exists and has the expected fields
+    assert hasattr(solverkernel, 'compile_settings')
+    assert solverkernel.compile_settings is not None
+    
+    # BatchSolverConfig should have precision, loop_fn, and compile_flags,
+    # but NOT local_memory_elements or shared_memory_elements
+    config = solverkernel.compile_settings
+    assert hasattr(config, 'precision')
+    assert hasattr(config, 'loop_fn')
+    assert hasattr(config, 'compile_flags')
+    
+    # These fields should NOT exist in the config anymore
+    assert not hasattr(config, 'local_memory_elements'), (
+        "local_memory_elements should not exist in BatchSolverConfig"
+    )
+    assert not hasattr(config, 'shared_memory_elements'), (
+        "shared_memory_elements should not exist in BatchSolverConfig"
+    )
+    
+    # Verify that the kernel still has access to memory element counts
+    # through its properties (which will query buffer_registry in Task Group 3)
+    assert hasattr(solverkernel, 'local_memory_elements')
+    assert hasattr(solverkernel, 'shared_memory_elements')
+    assert hasattr(solverkernel, 'shared_memory_bytes')
+    
+    # Properties should return integer values (even if 0)
+    local_elems = solverkernel.local_memory_elements
+    shared_elems = solverkernel.shared_memory_elements
+    shared_bytes = solverkernel.shared_memory_bytes
+    
+    assert isinstance(local_elems, int), (
+        "local_memory_elements property should return int"
+    )
+    assert isinstance(shared_elems, int), (
+        "shared_memory_elements property should return int"
+    )
+    assert isinstance(shared_bytes, int), (
+        "shared_memory_bytes property should return int"
+    )
+    assert local_elems >= 0
+    assert shared_elems >= 0
+    assert shared_bytes >= 0
+
+
+def test_batch_solver_kernel_properties_query_buffer_registry(solverkernel):
+    """Verify kernel properties query buffer_registry correctly.
+    
+    After Task Group 3 refactoring, the memory element properties should
+    query buffer_registry instead of reading from compile_settings. This
+    test verifies:
+    1. local_memory_elements returns buffer_registry.persistent_local_buffer_size()
+    2. shared_memory_elements returns buffer_registry.shared_buffer_size()
+    3. shared_memory_bytes is computed from shared_memory_elements * itemsize
+    """
+    from cubie.buffer_registry import buffer_registry
+    
+    # Get the loop object that owns the buffer registrations
+    loop = solverkernel.single_integrator._loop
+    
+    # Verify local_memory_elements queries buffer_registry
+    local_from_property = solverkernel.local_memory_elements
+    local_from_registry = buffer_registry.persistent_local_buffer_size(loop)
+    assert local_from_property == local_from_registry, (
+        f"local_memory_elements property returned {local_from_property}, "
+        f"but buffer_registry reports {local_from_registry}"
+    )
+    
+    # Verify shared_memory_elements queries buffer_registry
+    shared_from_property = solverkernel.shared_memory_elements
+    shared_from_registry = buffer_registry.shared_buffer_size(loop)
+    assert shared_from_property == shared_from_registry, (
+        f"shared_memory_elements property returned {shared_from_property}, "
+        f"but buffer_registry reports {shared_from_registry}"
+    )
+    
+    # Verify shared_memory_bytes is computed correctly from shared_memory_elements
+    shared_bytes = solverkernel.shared_memory_bytes
+    precision = solverkernel.precision
+    itemsize = np.dtype(precision).itemsize
+    expected_bytes = shared_from_property * itemsize
+    assert shared_bytes == expected_bytes, (
+        f"shared_memory_bytes returned {shared_bytes}, "
+        f"but expected {shared_from_property} * {itemsize} = {expected_bytes}"
+    )
+    
+    # Verify all values are non-negative integers
+    assert isinstance(local_from_property, int)
+    assert isinstance(shared_from_property, int)
+    assert isinstance(shared_bytes, int)
+    assert local_from_property >= 0
+    assert shared_from_property >= 0
+    assert shared_bytes >= 0
+    
+    # Verify bytes computation makes sense (if shared elements > 0, bytes > 0)
+    if shared_from_property > 0:
+        assert shared_bytes > 0, (
+            "shared_memory_bytes should be > 0 when shared_memory_elements > 0"
+        )
+    else:
+        assert shared_bytes == 0, (
+            "shared_memory_bytes should be 0 when shared_memory_elements is 0"
+        )
+
+
+def test_batch_solver_kernel_run_updates_without_memory_elements(
+    solverkernel_mutable, system, precision, driver_array
+):
+    """Verify run method updates compile settings without memory elements.
+    
+    After Task Group 4 refactoring, the BatchSolverKernel.run() method should
+    no longer attempt to update local_memory_elements or shared_memory_elements
+    in compile_settings. This test verifies that:
+    1. run() can be called without errors
+    2. compile_settings are updated with loop_fn and precision only
+    3. Memory element properties remain accessible via buffer_registry queries
+    """
+    solverkernel = solverkernel_mutable
+    
+    # Prepare test inputs
+    n_states = system.sizes.states
+    n_params = system.sizes.parameters
+    inits = np.ones((n_states, 1), dtype=precision)
+    params = np.ones((n_params, 1), dtype=precision)
+    driver_coefficients = driver_array.coefficients
+    
+    # Capture initial config state
+    initial_loop_fn = solverkernel.compile_settings.loop_fn
+    initial_precision = solverkernel.compile_settings.precision
+    
+    # Run the kernel - this should update compile_settings without errors
+    solverkernel.run(
+        inits=inits,
+        params=params,
+        driver_coefficients=driver_coefficients,
+        duration=0.1,
+        warmup=0.0,
+        t0=0.0,
+    )
+    
+    # Verify compile_settings were updated
+    updated_config = solverkernel.compile_settings
+    assert updated_config is not None
+    
+    # Verify loop_fn and precision are updated/present
+    assert hasattr(updated_config, 'loop_fn')
+    assert hasattr(updated_config, 'precision')
+    assert updated_config.precision == solverkernel.single_integrator.precision
+    
+    # Verify that memory elements are NOT in compile_settings
+    assert not hasattr(updated_config, 'local_memory_elements'), (
+        "local_memory_elements should not be in compile_settings after run()"
+    )
+    assert not hasattr(updated_config, 'shared_memory_elements'), (
+        "shared_memory_elements should not be in compile_settings after run()"
+    )
+    
+    # Verify memory element properties still work (querying buffer_registry)
+    local_elems = solverkernel.local_memory_elements
+    shared_elems = solverkernel.shared_memory_elements
+    shared_bytes = solverkernel.shared_memory_bytes
+    
+    assert isinstance(local_elems, int), (
+        "local_memory_elements property should return int"
+    )
+    assert isinstance(shared_elems, int), (
+        "shared_memory_elements property should return int"
+    )
+    assert isinstance(shared_bytes, int), (
+        "shared_memory_bytes property should return int"
+    )
+    assert local_elems >= 0
+    assert shared_elems >= 0
+    assert shared_bytes >= 0
+    
+    # Verify kernel execution was successful by checking outputs exist
+    assert solverkernel.status_codes is not None
+    assert solverkernel.state is not None
+
+
+def test_batch_solver_kernel_build_uses_current_buffer_sizes(
+    solverkernel_mutable, system, precision, driver_array
+):
+    """Verify build_kernel uses current buffer_registry state via properties.
+    
+    After Task Group 5 refactoring, build_kernel should query the
+    shared_memory_elements property (which queries buffer_registry) instead
+    of reading from config.shared_memory_elements. This test verifies that:
+    1. build_kernel can be called successfully
+    2. The kernel uses the current buffer_registry state for shared memory size
+    3. Kernel compilation succeeds with buffer_registry-derived sizes
+    """
+    from cubie.buffer_registry import buffer_registry
+    
+    solverkernel = solverkernel_mutable
+    
+    # Prepare test inputs for run (which triggers build if needed)
+    n_states = system.sizes.states
+    n_params = system.sizes.parameters
+    inits = np.ones((n_states, 1), dtype=precision)
+    params = np.ones((n_params, 1), dtype=precision)
+    driver_coefficients = driver_array.coefficients
+    
+    # Get shared memory size from buffer_registry before building
+    loop = solverkernel.single_integrator._loop
+    shared_size_from_registry = buffer_registry.shared_buffer_size(loop)
+    shared_size_from_property = solverkernel.shared_memory_elements
+    
+    # These should match since the property queries buffer_registry
+    assert shared_size_from_property == shared_size_from_registry, (
+        f"Property returned {shared_size_from_property}, "
+        f"but buffer_registry reports {shared_size_from_registry}"
+    )
+    
+    # Trigger build_kernel by calling run
+    # build_kernel should use self.shared_memory_elements (querying registry)
+    # rather than config.shared_memory_elements (which no longer exists)
+    solverkernel.run(
+        inits=inits,
+        params=params,
+        driver_coefficients=driver_coefficients,
+        duration=0.05,
+        warmup=0.0,
+        t0=0.0,
+    )
+    
+    # Verify the kernel was built successfully
+    assert solverkernel.kernel is not None, (
+        "Kernel should be built after run() call"
+    )
+    
+    # Verify the kernel executed successfully
+    assert solverkernel.status_codes is not None
+    assert solverkernel.state is not None
+    
+    # Verify shared memory bytes calculation is consistent
+    # The kernel should have used shared_memory_elements from property/registry
+    shared_bytes = solverkernel.shared_memory_bytes
+    itemsize = np.dtype(precision).itemsize
+    expected_bytes = shared_size_from_property * itemsize
+    
+    assert shared_bytes == expected_bytes, (
+        f"shared_memory_bytes is {shared_bytes}, "
+        f"but expected {shared_size_from_property} * {itemsize} = "
+        f"{expected_bytes}"
+    )
+    
+    # Verify that buffer_registry is the source of truth for memory sizes
+    # by checking the property still matches registry after build
+    post_build_property = solverkernel.shared_memory_elements
+    post_build_registry = buffer_registry.shared_buffer_size(loop)
+    
+    assert post_build_property == post_build_registry, (
+        f"After build, property returned {post_build_property}, "
+        f"but buffer_registry reports {post_build_registry}"
+    )
+    
+    # Both should match the pre-build value (registry state unchanged)
+    assert post_build_property == shared_size_from_property, (
+        "shared_memory_elements should be consistent before and after build"
+    )
+
+
+def test_batch_solver_kernel_update_recognizes_buffer_locations(
+    solverkernel_mutable, system
+):
+    """Verify update method recognizes buffer location parameters.
+    
+    After Task Group 6 refactoring, BatchSolverKernel.update() should
+    delegate buffer location parameter recognition to buffer_registry.update().
+    This test verifies that:
+    1. update() recognizes buffer location parameters (e.g., 'state_location')
+    2. buffer_registry.update() is called and returns recognized parameters
+    3. Unrecognized parameters still raise KeyError when silent=False
+    4. Memory element parameters are NOT in compile_settings updates
+    """
+    from cubie.buffer_registry import buffer_registry
+    
+    solverkernel = solverkernel_mutable
+    loop = solverkernel.single_integrator._loop
+    
+    # Get the list of registered buffers for this loop
+    # This allows us to construct valid location parameter names
+    registered_buffers = set()
+    if loop in buffer_registry._groups:
+        # BufferGroup.entries is a Dict[str, CUDABuffer]
+        for buffer_name in buffer_registry._groups[loop].entries.keys():
+            registered_buffers.add(buffer_name)
+    
+    # Test 1: Verify that valid buffer location parameters are recognized
+    if registered_buffers:
+        # Pick the first registered buffer to test with
+        test_buffer = list(registered_buffers)[0]
+        location_param = f"{test_buffer}_location"
+        
+        # Update with a valid location parameter - should be recognized
+        recognized = solverkernel.update(
+            {location_param: 'shared'}, silent=True
+        )
+        
+        # The location parameter should be recognized (in the returned set)
+        assert location_param in recognized, (
+            f"Location parameter '{location_param}' should be recognized "
+            f"by buffer_registry.update()"
+        )
+    
+    # Test 2: Verify that invalid buffer location values raise ValueError
+    if registered_buffers:
+        test_buffer = list(registered_buffers)[0]
+        location_param = f"{test_buffer}_location"
+        
+        # Invalid location value should raise ValueError from buffer_registry
+        with pytest.raises(ValueError, match="Invalid location"):
+            solverkernel.update({location_param: 'invalid_location'})
+    
+    # Test 3: Verify that completely bogus parameters are not recognized
+    bogus_update = {'completely_bogus_parameter': 42}
+    recognized = solverkernel.update(bogus_update, silent=True)
+    
+    assert 'completely_bogus_parameter' not in recognized, (
+        "Bogus parameter should not be recognized"
+    )
+    
+    # With silent=False, bogus parameter should raise KeyError
+    with pytest.raises(KeyError, match="Unrecognized parameters"):
+        solverkernel.update({'another_bogus_param': 'value'}, silent=False)
+    
+    # Test 4: Verify that compile_settings no longer tracks memory elements
+    # (they were removed in Task Group 1)
+    config = solverkernel.compile_settings
+    assert not hasattr(config, 'local_memory_elements'), (
+        "local_memory_elements should not exist in BatchSolverConfig"
+    )
+    assert not hasattr(config, 'shared_memory_elements'), (
+        "shared_memory_elements should not exist in BatchSolverConfig"
+    )
+    
+    # Test 5: Verify that update() still updates loop_fn and compile_flags
+    # even when location parameters are present
+    if registered_buffers:
+        test_buffer = list(registered_buffers)[0]
+        location_param = f"{test_buffer}_location"
+        
+        # Capture initial state
+        initial_loop_fn = solverkernel.compile_settings.loop_fn
+        
+        # Update with both location parameter and other valid parameters
+        # dt0 should be recognized by single_integrator.update()
+        recognized = solverkernel.update(
+            {location_param: 'local', 'dt0': 0.002}, silent=True
+        )
+        
+        # Both parameters should be recognized
+        assert location_param in recognized, (
+            "Location parameter should be recognized"
+        )
+        assert 'dt0' in recognized, (
+            "dt0 should be recognized by single_integrator.update()"
+        )
+        
+        # compile_settings should still have loop_fn and compile_flags
+        assert hasattr(solverkernel.compile_settings, 'loop_fn')
+        assert hasattr(solverkernel.compile_settings, 'compile_flags')
+    
+    # Test 6: Verify memory element properties still work (via buffer_registry)
+    local_elems = solverkernel.local_memory_elements
+    shared_elems = solverkernel.shared_memory_elements
+    shared_bytes = solverkernel.shared_memory_bytes
+    
+    assert isinstance(local_elems, int)
+    assert isinstance(shared_elems, int)
+    assert isinstance(shared_bytes, int)
+    assert local_elems >= 0
+    assert shared_elems >= 0
+    assert shared_bytes >= 0

@@ -4,6 +4,7 @@ This module tests that every compile-sensitive setting is correctly propagated
 through the solver hierarchy when update() is called.
 """
 
+import attrs
 import pytest
 
 from cubie.batchsolving.BatchSolverConfig import ActiveOutputs
@@ -230,8 +231,6 @@ def assert_solverkernel_config(kernel, settings, tolerance):
 
     # Check ALL compile_settings attributes
     cs = kernel.compile_settings
-    assert cs.local_memory_elements == kernel.local_memory_elements
-    assert cs.shared_memory_elements == kernel.shared_memory_elements
     # loop_fn is the compiled function - not tested as it's not a setting
 
     # Not tested from kernel properties (computed/runtime values):
@@ -797,3 +796,32 @@ def test_comprehensive_config_plumbing(
     )
 
     print("\n=== All assertions passed! ===")
+
+
+def test_batch_solver_config_no_memory_fields(precision):
+    """Verify BatchSolverConfig can be instantiated without memory fields.
+    
+    Tests that local_memory_elements and shared_memory_elements fields
+    have been removed from BatchSolverConfig and that the class can be
+    instantiated without them.
+    """
+    from cubie.batchsolving.BatchSolverConfig import BatchSolverConfig
+    from cubie.outputhandling.output_config import OutputCompileFlags
+    
+    # Instantiate BatchSolverConfig without memory fields
+    config = BatchSolverConfig(
+        precision=precision,
+        loop_fn=None,
+        compile_flags=OutputCompileFlags(),
+    )
+    
+    # Verify the config was created successfully
+    assert config.precision == precision
+    assert config.loop_fn is None
+    assert config.compile_flags is not None
+    
+    # Verify that local_memory_elements and shared_memory_elements
+    # do not exist as fields in the attrs class
+    field_names = {field.name for field in attrs.fields(BatchSolverConfig)}
+    assert 'local_memory_elements' not in field_names
+    assert 'shared_memory_elements' not in field_names

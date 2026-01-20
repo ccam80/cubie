@@ -21,6 +21,7 @@ from warnings import warn
 from pathlib import Path
 
 from numpy import ceil as np_ceil, float64 as np_float64, floating
+from numpy import dtype as np_dtype
 from numba import cuda, float64
 from numba import int32
 
@@ -286,12 +287,6 @@ class BatchSolverKernel(CUDAFactory):
         initial_config = BatchSolverConfig(
             precision=precision,
             loop_fn=None,
-            local_memory_elements=(
-                self.single_integrator.local_memory_elements
-            ),
-            shared_memory_elements=(
-                self.single_integrator.shared_memory_elements
-            ),
             compile_flags=self.single_integrator.output_compile_flags,
         )
         self.setup_compile_settings(initial_config)
@@ -300,17 +295,6 @@ class BatchSolverKernel(CUDAFactory):
         self.output_arrays = OutputArrays.from_solver(self)
 
         self.output_arrays.update(self)
-        self.update_compile_settings(
-            {
-                "local_memory_elements": (
-                    self.single_integrator.local_memory_elements
-                ),
-                "shared_memory_elements": (
-                    self.single_integrator.shared_memory_elements
-                ),
-                "precision": self.single_integrator.precision,
-            }
-        )
 
     def _setup_memory_manager(
         self, settings: Dict[str, Any]
@@ -529,12 +513,6 @@ class BatchSolverKernel(CUDAFactory):
             {
                 "loop_fn": self.single_integrator.compiled_loop_function,
                 "precision": self.single_integrator.precision,
-                "local_memory_elements": (
-                    self.single_integrator.local_memory_elements
-                ),
-                "shared_memory_elements": (
-                    self.single_integrator.shared_memory_elements
-                ),
             }
         )
 
@@ -697,7 +675,10 @@ class BatchSolverKernel(CUDAFactory):
         save_observable_summaries = output_flags.observable_summaries
         needs_padding = self.shared_memory_needs_padding
 
-        shared_elems_per_run = config.shared_memory_elements
+        # Query buffer_registry for current shared memory size
+        # This ensures build_kernel uses the actual registered buffer size,
+        # which may have been updated via buffer_registry.update()
+        shared_elems_per_run = self.shared_memory_elements
         f32_per_element = 2 if (precision is float64) else 1
         f32_pad_perrun = 1 if needs_padding else 0
         run_stride_f32 = int(
@@ -874,15 +855,17 @@ class BatchSolverKernel(CUDAFactory):
             updates_dict, silent=True
         )
 
+        # Allow buffer_registry to recognize and update buffer location parameters
+        # (e.g., 'state_location', 'proposed_state_location'). This delegates
+        # location management to buffer_registry, following the same pattern as
+        # IVPLoop.update().
+        all_unrecognized -= buffer_registry.update(
+            self.single_integrator._loop, updates_dict, silent=True
+        )
+
         updates_dict.update(
             {
                 "loop_fn": self.single_integrator.device_function,
-                "local_memory_elements": (
-                    self.single_integrator.local_memory_elements
-                ),
-                "shared_memory_elements": (
-                    self.single_integrator.shared_memory_elements
-                ),
                 "compile_flags": self.single_integrator.output_compile_flags,
             }
         )
@@ -912,13 +895,21 @@ class BatchSolverKernel(CUDAFactory):
     def local_memory_elements(self) -> int:
         """Number of precision elements required in local memory per run."""
 
-        return self.compile_settings.local_memory_elements
+        # Query buffer_registry for persistent local buffer requirements
+        # registered by the underlying loop integrator
+        return buffer_registry.persistent_local_buffer_size(
+            self.single_integrator._loop
+        )
 
     @property
     def shared_memory_elements(self) -> int:
         """Number of precision elements required in shared memory per run."""
 
-        return self.compile_settings.shared_memory_elements
+        # Query buffer_registry for shared buffer requirements
+        # registered by the underlying loop integrator
+        return buffer_registry.shared_buffer_size(
+            self.single_integrator._loop
+        )
 
     @property
     def compile_flags(self) -> OutputCompileFlags:
@@ -1036,7 +1027,11 @@ class BatchSolverKernel(CUDAFactory):
     def shared_memory_bytes(self) -> int:
         """Shared-memory footprint per run for the compiled kernel."""
 
-        return self.single_integrator.shared_memory_bytes
+        # Compute bytes from element count queried from buffer_registry
+        # Matches pattern in SingleIntegratorRun for consistency
+        element_count = self.shared_memory_elements
+        itemsize = np_dtype(self.precision).itemsize
+        return element_count * itemsize
 
     @property
     def threads_per_loop(self) -> int:
