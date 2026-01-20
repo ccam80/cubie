@@ -97,7 +97,7 @@ class WritebackWatcher:
         Thread-safe access to pending count.
     """
 
-    def __init__(self, poll_interval: float = 0.0001) -> None:
+    def __init__(self, poll_interval: float = 0.001) -> None:
         """Initialize the watcher.
 
         Parameters

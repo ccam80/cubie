@@ -405,6 +405,8 @@ class OutputArrays(BaseArrayManager):
             if not CUDA_SIMULATION:
                 event = cuda.event()
                 event.record(stream)
+                event.handle = event.handle.value  # BUG: This is workig
+                # around a number issue - will patch upstream
             else:
                 event = None
 
