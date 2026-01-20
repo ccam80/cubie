@@ -1,5 +1,57 @@
 # Changelog
 
+## [0.0.7](https://github.com/ccam80/cubie/compare/v0.0.6...v0.0.7) (2026-01-20)
+
+
+### Features
+
+* add runtime logging infrastructure for GPU kernels and memory transfers ([#289](https://github.com/ccam80/cubie/issues/289)) ([431425d](https://github.com/ccam80/cubie/commit/431425d5026e90beaf7367bce1863c7f61c2b34b))
+* add unified save_variables and summarise_variables parameters to solver interface ([#342](https://github.com/ccam80/cubie/issues/342)) ([c7d7531](https://github.com/ccam80/cubie/commit/c7d75317f9525da4f4e2f1f876676bc6fbd54669))
+* cellml-generated systems now cached ([#510](https://github.com/ccam80/cubie/issues/510)) ([92b21e0](https://github.com/ccam80/cubie/commit/92b21e01facfa4a5a23b73f8a777efaefae4cdd7))
+* enable driver interpolator profiling in all_in_one.py ([#419](https://github.com/ccam80/cubie/issues/419)) ([1574ec9](https://github.com/ccam80/cubie/commit/1574ec9b548c8f4690f9ac92e927d69bee2ae571))
+* File-based caching implemented  ([#491](https://github.com/ccam80/cubie/issues/491)) ([1bfe68b](https://github.com/ccam80/cubie/commit/1bfe68b2323ddd7dd48b1d3c51dc969b988f5832))
+* MultipleInstanceCUDAFactory subclass (and matching config) now handle cases like newton_atol and krylov_atol when instantiating multiple of the same base class ([d674bcd](https://github.com/ccam80/cubie/commit/d674bcd95d9e1757038b50cb386151591bf74787))
+* scaled norm function now available as a CUDAFactory for repeated use ([d674bcd](https://github.com/ccam80/cubie/commit/d674bcd95d9e1757038b50cb386151591bf74787))
+* Scaled tolerance in Newton-Krylov solver ([#473](https://github.com/ccam80/cubie/issues/473)) ([d674bcd](https://github.com/ccam80/cubie/commit/d674bcd95d9e1757038b50cb386151591bf74787))
+* Solve functions now save the final value on loop exit when no timing parameters are given. ([d9fb64b](https://github.com/ccam80/cubie/commit/d9fb64bd19d573c32b26d95323392d33f5c62d39))
+* Time-domain save settings now decoupled from summary metric settings ([d9fb64b](https://github.com/ccam80/cubie/commit/d9fb64bd19d573c32b26d95323392d33f5c62d39))
+
+
+### Bug Fixes
+
+* build_grid now takes None parameters/initial conditions in solver.py ([be4bab9](https://github.com/ccam80/cubie/commit/be4bab9729341ca980be1321f4d850a2020b9dea))
+* chunking fails when VRAM is limited due to stride incompatibility ([#487](https://github.com/ccam80/cubie/issues/487)) ([b8a486e](https://github.com/ccam80/cubie/commit/b8a486e36a88f82ba8ee089282f7c84c09d7a498)), closes [#438](https://github.com/ccam80/cubie/issues/438)
+* codegen hashing now session-independent (and so working... this time) ([59bb488](https://github.com/ccam80/cubie/commit/59bb488617ec00388d85017fd76221a04019dc76))
+* correct false circular dependency error in topological_sort ([#422](https://github.com/ccam80/cubie/issues/422)) ([97c13be](https://github.com/ccam80/cubie/commit/97c13bec7dd31c9cfedba6503783c19ee9a9c59a))
+* default neumann preconditioner order set to 2 ([2434358](https://github.com/ccam80/cubie/commit/24343589fa30f28da630517bee26b691bbf48c2a))
+* DIRK codegen pipeline now decoupled from rosenbrock cache planning. ([80171b5](https://github.com/ccam80/cubie/commit/80171b52a33290c2f0f1ae10be8eed5e95f8308b))
+* dummy-kernel based compile time logging removed (it doubled compile time) ([431425d](https://github.com/ccam80/cubie/commit/431425d5026e90beaf7367bce1863c7f61c2b34b))
+* Internal code generation variables prefixed to avoid name clashes ([#466](https://github.com/ccam80/cubie/issues/466)) ([90e8ca3](https://github.com/ccam80/cubie/commit/90e8ca31070193a1db24c584af424d5ab11c0b20)), closes [#373](https://github.com/ccam80/cubie/issues/373)
+* load_cellml_model surfaced to toplevel import ([54b05e0](https://github.com/ccam80/cubie/commit/54b05e09b7e0bd961cf76e931c98470b3f3aa33f))
+* loop now exits on irrecoverable-error status codes ([ba800a0](https://github.com/ccam80/cubie/commit/ba800a0df6142ae082f39d01fb57864fc0c5990b))
+* map CellML time variable to standard 't' symbol ([#425](https://github.com/ccam80/cubie/issues/425)) ([261c109](https://github.com/ccam80/cubie/commit/261c1092ba9a50b703a1bc949957217462bafd6f))
+* Newton-krylov solver no longer propagates krylov non-convergence or max_backtrack errors if it recovers ([1411135](https://github.com/ccam80/cubie/commit/1411135b70268377f23df251e7b13de518803499))
+* Parsed system definition now hashed properly so generated code is properly cached ([655e54a](https://github.com/ccam80/cubie/commit/655e54af6b7e9ad86559c36e447fcf3c04acfd74))
+* patch event.query() bug in numba by swapping handle ([d43ae8f](https://github.com/ccam80/cubie/commit/d43ae8f8d441353aa56815ff31db9ea06bf9094e))
+* Refactor BatchGridBuilder -&gt; BatchInputHandler ([#437](https://github.com/ccam80/cubie/issues/437)) ([ffb8478](https://github.com/ccam80/cubie/commit/ffb8478a4bfc01bdba1d3cc146016b0cd2bf723e))
+* repeated CSE calls no longer raise warning about an already-used CSE symbol. ([16785f3](https://github.com/ccam80/cubie/commit/16785f3a4641b719c2a70b11becda5533f6e4e2e))
+* Rosenbrock step config's hash now deterministic for caching ([105befb](https://github.com/ccam80/cubie/commit/105befbbef2419e11e92fe781b3f2853b7267081))
+* Runs with impossible time settings now raise sensible errors ([#465](https://github.com/ccam80/cubie/issues/465)) ([d46a7b2](https://github.com/ccam80/cubie/commit/d46a7b2fea3eb4d63753e1679f0a95114fc12022)), closes [#440](https://github.com/ccam80/cubie/issues/440)
+* skip codegen on cache hit in get_solver_helper ([#512](https://github.com/ccam80/cubie/issues/512)) ([cfc6b0b](https://github.com/ccam80/cubie/commit/cfc6b0b826659b1e5a132a017f5d1236fcf87cbc))
+* state-aware derivative detection to avoid misinterpreting d-prefixed auxiliaries ([#468](https://github.com/ccam80/cubie/issues/468)) ([fee6d70](https://github.com/ccam80/cubie/commit/fee6d70f4612ef6a8cb0d52da1a0ef6627516066))
+* Stride incompatibility fixed when array is sliced to fit in VRAM ([b8a486e](https://github.com/ccam80/cubie/commit/b8a486e36a88f82ba8ee089282f7c84c09d7a498))
+* timelogger printouts now include cache hit/miss messaging ([#497](https://github.com/ccam80/cubie/issues/497)) ([6323746](https://github.com/ccam80/cubie/commit/6323746cad81a530514f02f9c30ed43fcc147597))
+
+
+### Performance Improvements
+
+* Convert whole-module imports to explicit imports in CUDAFactory files ([#443](https://github.com/ccam80/cubie/issues/443)) ([9cebe45](https://github.com/ccam80/cubie/commit/9cebe45b93a9b5d5f189dee971edf36ecbb9431c))
+
+
+### Miscellaneous Chores
+
+* release 0.0.7 ([40a0d75](https://github.com/ccam80/cubie/commit/40a0d750599fd7e58c1dd7cb905d01e1264b273b))
+
 ## [0.0.6](https://github.com/ccam80/cubie/compare/v0.0.5...v0.0.6) (2025-12-27)
 
 
