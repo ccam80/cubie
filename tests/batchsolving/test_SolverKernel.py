@@ -762,8 +762,13 @@ def test_batch_solver_kernel_update_recognizes_buffer_locations(
         test_buffer = list(registered_buffers)[0]
         location_param = f"{test_buffer}_location"
         
-        # Invalid location value should raise ValueError from buffer_registry
-        with pytest.raises(ValueError, match="Invalid location"):
+        # Invalid location value should raise ValueError from attrs validator
+        # The attrs in_() validator raises ValueError with message like:
+        # "'location' must be in ['shared', 'local'] (got 'invalid_location')"
+        with pytest.raises(
+            ValueError, 
+            match=r"must be in.*\['shared', 'local'\].*got 'invalid_location'"
+        ):
             solverkernel.update({location_param: 'invalid_location'})
     
     # Test 3: Verify that completely bogus parameters are not recognized

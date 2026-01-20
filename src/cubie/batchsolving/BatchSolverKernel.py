@@ -21,7 +21,6 @@ from warnings import warn
 from pathlib import Path
 
 from numpy import ceil as np_ceil, float64 as np_float64, floating
-from numpy import dtype as np_dtype
 from numba import cuda, float64
 from numba import int32
 
@@ -531,6 +530,8 @@ class BatchSolverKernel(CUDAFactory):
         first_chunk_params = self.run_params[0]
         runs = first_chunk_params.runs
 
+        # Add 4-byte padding when required by GPU architecture to ensure
+        # proper alignment of shared memory allocations per thread block
         pad = 4 if self.shared_memory_needs_padding else 0
         padded_bytes = self.shared_memory_bytes + pad
         dynamic_sharedmem = int(padded_bytes * min(runs, blocksize))
@@ -894,22 +895,12 @@ class BatchSolverKernel(CUDAFactory):
     @property
     def local_memory_elements(self) -> int:
         """Number of precision elements required in local memory per run."""
-
-        # Query buffer_registry for persistent local buffer requirements
-        # registered by the underlying loop integrator
-        return buffer_registry.persistent_local_buffer_size(
-            self.single_integrator._loop
-        )
+        return self.single_integrator.local_memory_elements
 
     @property
     def shared_memory_elements(self) -> int:
         """Number of precision elements required in shared memory per run."""
-
-        # Query buffer_registry for shared buffer requirements
-        # registered by the underlying loop integrator
-        return buffer_registry.shared_buffer_size(
-            self.single_integrator._loop
-        )
+        return self.single_integrator.shared_memory_elements
 
     @property
     def compile_flags(self) -> OutputCompileFlags:
@@ -1026,12 +1017,7 @@ class BatchSolverKernel(CUDAFactory):
     @property
     def shared_memory_bytes(self) -> int:
         """Shared-memory footprint per run for the compiled kernel."""
-
-        # Compute bytes from element count queried from buffer_registry
-        # Matches pattern in SingleIntegratorRun for consistency
-        element_count = self.shared_memory_elements
-        itemsize = np_dtype(self.precision).itemsize
-        return element_count * itemsize
+        return self.single_integrator.shared_memory_bytes
 
     @property
     def threads_per_loop(self) -> int:

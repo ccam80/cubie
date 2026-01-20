@@ -42,9 +42,21 @@ def test_memory_allocation_via_buffer_registry(three_state_linear):
     # These should match buffer_registry queries directly
     # The single_integrator._loop is the object that registers buffers
     loop = solver.kernel.single_integrator._loop
-    assert shared_elements == buffer_registry.shared_buffer_size(loop)
-    assert local_elements == buffer_registry.persistent_local_buffer_size(
-        loop
+    
+    # Get sizes directly from buffer_registry
+    shared_from_registry = buffer_registry.shared_buffer_size(loop)
+    local_from_registry = buffer_registry.persistent_local_buffer_size(loop)
+    
+    # Properties should delegate to buffer_registry methods
+    assert shared_elements == shared_from_registry, (
+        f"shared_memory_elements property returned {shared_elements}, "
+        f"but buffer_registry.shared_buffer_size() returned "
+        f"{shared_from_registry}"
+    )
+    assert local_elements == local_from_registry, (
+        f"local_memory_elements property returned {local_elements}, "
+        f"but buffer_registry.persistent_local_buffer_size() returned "
+        f"{local_from_registry}"
     )
     
     # shared_bytes should be elements * itemsize
@@ -97,11 +109,25 @@ def test_solver_run_with_refactored_allocation(three_state_linear):
         dt=0.001,
     )
     
+    # Prepare initial values and parameters for the solve
+    # The three_state_linear system has 3 states and 3 parameters
+    initial_values = {
+        'x0': [1.0] * 10,
+        'x1': [1.0] * 10,
+        'x2': [1.0] * 10,
+    }
+    parameters = {
+        'p0': [1.0] * 10,
+        'p1': [2.0] * 10,
+        'p2': [3.0] * 10,
+    }
+    
     # Run a solve to verify everything works end-to-end
     # This exercises the full pipeline: kernel build → memory allocation → run
     result = solver.solve(
+        initial_values=initial_values,
+        parameters=parameters,
         duration=1.0,
-        runs=10,
     )
     
     # Verify result is valid
