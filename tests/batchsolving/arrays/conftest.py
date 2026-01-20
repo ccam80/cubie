@@ -91,9 +91,10 @@ def chunked_solved_solver(system, precision, low_mem_solver, driver_settings):
     
     yield solver, result
     
-    # Cleanup: Ensure watcher thread is properly shut down to prevent
-    # resource contention and deadlocks in parallel test execution (xdist)
+    # Cleanup: Ensure all writebacks complete and watcher properly shut down
+    # Wait without timeout to prevent abandoning pending tasks
     if hasattr(solver.kernel.output_arrays, '_watcher'):
+        solver.kernel.output_arrays.wait_pending(timeout=None)
         solver.kernel.output_arrays._watcher.shutdown()
     solver.kernel.output_arrays.reset()
 
