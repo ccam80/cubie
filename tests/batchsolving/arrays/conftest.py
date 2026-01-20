@@ -88,15 +88,7 @@ def chunked_solved_solver(system, precision, low_mem_solver, driver_settings):
         save_every=0.01,
         dt=0.01,
     )
-    
-    yield solver, result
-    
-    # Cleanup: Ensure all writebacks complete and watcher properly shut down
-    # Wait without timeout to prevent abandoning pending tasks
-    if hasattr(solver.kernel.output_arrays, '_watcher'):
-        solver.kernel.output_arrays.wait_pending(timeout=None)
-        solver.kernel.output_arrays._watcher.shutdown()
-    solver.kernel.output_arrays.reset()
+    return solver, result
 
 
 @pytest.fixture(scope="session")

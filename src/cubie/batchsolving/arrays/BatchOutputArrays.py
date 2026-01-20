@@ -401,15 +401,14 @@ class OutputArrays(BaseArrayManager):
         self.from_device(from_, to_)
 
         # Record events and submit to watcher for chunked mode
-        # Create one event per buffer to avoid shared event issues
         if self._pending_buffers:
+            if not CUDA_SIMULATION:
+                event = cuda.event()
+                event.record(stream)
+            else:
+                event = None
+
             for buffer in self._pending_buffers:
-                if not CUDA_SIMULATION:
-                    event = cuda.event()
-                    event.record(stream)
-                else:
-                    event = None
-                
                 self._watcher.submit_from_pending_buffer(
                     event=event,
                     pending_buffer=buffer,

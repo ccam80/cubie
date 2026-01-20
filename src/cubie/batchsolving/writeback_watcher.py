@@ -220,7 +220,7 @@ class WritebackWatcher:
         """Stop the polling thread gracefully."""
         self._stop_event.set()
         if self._thread is not None:
-            self._thread.join(timeout=30.0)  # Increased timeout for xdist
+            self._thread.join(timeout=1.0)
             self._thread = None
 
     def _poll_loop(self) -> None:
