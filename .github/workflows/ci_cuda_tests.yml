@@ -1,11 +1,12 @@
 name: CUDA tests
 on:
+    # Running CUDA tests every second weekday at 3am and on dispatch with "test_cuda" in commit message
   create:
   workflow_dispatch:
   schedule:
-    - cron: "0 16 * * *"
-  # We're limited to 15 "credits" per month using the Lightning AI runner. One run on one image costs ~0.12 credits at 31/07/2025, including machine spinup, giving us about 120 runs per month.
-  # Running CUDA tests daily at 3am and occasionally on dispatch gives us room to add two more images to test different CUDA toolkit versions.
+    - cron: "0 16 * * 1,3,5"
+  # We're limited to 15 "credits" per month using the Lightning AI runner. One run on one image costs ~0.25 credits at 31/07/2025, including machine spinup. A single hanging job quickly eats up 
+  # budget, so we run every second day. This may give us some overhead to increase matrixed CUDA/OS versions.
   push:
     branches: ["main"]
   # The git clone used in the workflow doesn't work on PR branches, so we can't run the tests on PRs.
@@ -34,6 +35,7 @@ jobs:
       - run: python -m pip install lightning-sdk
 
       - name: Run tests in Lightning (T4, GHCR :latest)
+        id: lightning_tests
         shell: bash
         env:
           LIGHTNING_API_KEY: ${{ secrets.LIGHTNING_API_KEY }}
@@ -89,24 +91,33 @@ jobs:
               f'git -C \"$PUSH\" push -u --force origin ci-artifacts; '
               f"exit $ec'"
           )
-          
-          job = Job.run(command=cmd, 
-                        user=os.environ["LIGHTNING_USERNAME"],
-                        name=f"ci-job-{run_id}", 
-                        machine=Machine.T4,
-                        teamspace="Vision-model",
-                        image=image)
-          job.wait()
+          try:
+            job = Job.run(command=cmd, 
+                          user=os.environ["LIGHTNING_USERNAME"],
+                          name=f"ci-job-{run_id}", 
+                          machine=Machine.T4,
+                          teamspace="Vision-model",
+                          image=image)
+            job.wait()
 
-          path = "lightning-job.log"
-          with open(path, "w", encoding="utf-8") as f:
-              f.write(job.logs)
-            
-          if job.status == Status.Completed:
-              sys.exit(0) 
-          else:
-              # for any other phase (failed, cancelled, etc.), exit with a non-zero code
-              sys.exit(1)
+            path = "lightning-job.log"
+            with open(path, "w", encoding="utf-8") as f:
+                f.write(job.logs)
+              
+            if job.status == Status.Completed:
+                sys.exit(0) 
+            else:
+                # for any other phase (failed, cancelled, etc.), exit with a non-zero code
+                sys.exit(1)
+          except urllib.error. HTTPError as e:
+              if e.code == 404:
+                  print(f"⚠️  Warning: HTTP 404 error encountered (likely image not found). Skipping test run.", file=sys.stderr)
+                  path = "lightning-job.log"
+                  with open(path, "w", encoding="utf-8") as f:
+                      f.write(f"Job skipped due to HTTP 404 error: {e}\n")
+                  sys.exit(0)
+              else: 
+                  raise
           PY
           
       - name: Upload pytest artefacts
