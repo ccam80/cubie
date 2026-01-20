@@ -88,7 +88,14 @@ def chunked_solved_solver(system, precision, low_mem_solver, driver_settings):
         save_every=0.01,
         dt=0.01,
     )
-    return solver, result
+    
+    yield solver, result
+    
+    # Cleanup: Ensure watcher thread is properly shut down to prevent
+    # resource contention and deadlocks in parallel test execution (xdist)
+    if hasattr(solver.kernel.output_arrays, '_watcher'):
+        solver.kernel.output_arrays._watcher.shutdown()
+    solver.kernel.output_arrays.reset()
 
 
 @pytest.fixture(scope="session")
