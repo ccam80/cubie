@@ -46,7 +46,7 @@ jobs:
           GH_PAT: ${{ secrets.CUDA_PAT }}
         run: |
           python - <<'PY'
-          import os, sys
+          import os, sys, urllib
           from lightning_sdk import Studio, Machine, Job, Status
 
           owner  = os.environ["GITHUB_REPOSITORY_OWNER"]
