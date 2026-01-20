@@ -2,7 +2,9 @@
 
 ## Summary
 
-After thorough investigation of the chunked tests and chunking logic, **no infinite loop bugs were found in the current codebase**. All tests using the `chunked_solved_solver` fixture pass successfully with CUDASIM enabled, both with and without xdist parallel execution.
+After thorough investigation of the chunked tests and chunking logic, **no infinite loop bugs were found in CUDASIM**. All tests using the `chunked_solved_solver` fixture pass successfully with CUDASIM enabled, both with and without xdist parallel execution.
+
+However, upon closer examination of the CUDA compilation and caching infrastructure, **potential issues were identified that could cause bugs on real CUDA hardware** related to compile-time constants not being properly tracked in the configuration hash.
 
 ## Investigation Scope
 
@@ -73,12 +75,45 @@ This could be confusing. Adding validation would provide clearer error messages.
 3. **Monitor for environment-specific issues** - The reported issue may be specific to certain hardware/driver configurations
 4. **Verify CI/CD environment** - Ensure tests are running with appropriate timeouts if they occasionally slow down
 
+## CUDA-Specific Issues Identified
+
+Based on guidance about CUDA kernel compilation behavior:
+
+### Issue 1: Callable Fields with `eq=False`
+
+Many CUDAFactory config classes have callable (device function) fields marked with `eq=False`:
+- `BatchSolverConfig.loop_fn`
+- `AlgorithmConfig.evaluate_f`, `evaluate_observables`, `evaluate_driver_at_t`
+- `LoopConfig.save_state_fn`, `update_summaries_fn`, `step_function`, etc.
+- Various solver and algorithm specific functions
+
+These fields are excluded from the config hash calculation. While child factories' hashes are included via `_iter_child_factories()`, any direct changes to these callable fields won't trigger cache invalidation.
+
+**Potential Impact**: If a device function changes but the config hash doesn't update, a stale cached kernel could be reused on CUDA hardware, potentially causing incorrect behavior including infinite loops.
+
+### Issue 2: Variables Captured in `build()` Closure
+
+In `BatchSolverKernel.build_kernel()`, several variables are captured in the kernel closure:
+- Lines 694-697: `save_state`, `save_observables`, `save_state_summaries`, `save_observable_summaries` derived from `active_outputs` property
+- Line 698: `needs_padding` from `shared_memory_needs_padding` property  
+- Lines 708-710: `alloc_shared`, `alloc_persistent` from `buffer_registry.get_toplevel_allocators()`
+
+While these are derived from config values, they are computed at build time and baked into the compiled kernel as constants. Any subsequent changes to the underlying config values won't affect already-compiled kernels unless the build() method is called again.
+
+**Potential Impact**: On CUDA hardware with kernel caching, a kernel compiled with one set of output flags could be reused even after output configuration changes, leading to incorrect array indexing and potential infinite loops or memory corruption.
+
+## Recommendations
+
+1. **Verify all child factory relationships** - Ensure all CUDAFactory instances with callable fields are properly registered as child factories so their config hashes propagate to parents
+
+2. **Audit `eq=False` usage** - Review all fields marked `eq=False` to ensure they don't contain values that should invalidate the cache when changed
+
+3. **Add validation** - Consider adding runtime validation to detect when stale kernels are being used with incompatible configurations
+
+4. **Test on real CUDA hardware** - The chunking tests should be run on actual CUDA hardware to reproduce the reported infinite loop condition
+
 ## Conclusion
 
-The chunked tests are **not running infinitely** in the current codebase. All chunk indexing and iteration logic has been verified to be correct through:
-- Code analysis
-- Mathematical verification  
-- Test execution (serial and parallel)
-- Edge case testing
+The chunked tests **pass in CUDASIM** and the iteration logic is mathematically correct. However, **potential issues with CUDA kernel caching and compile-time constant tracking** were identified that could cause bugs on real CUDA hardware.
 
-If infinite loops were previously observed, they have either been fixed in recent changes or occur only under specific environmental conditions not reproduced in this investigation.
+The infinite loop behavior reported on CUDA hardware is likely caused by stale cached kernels being reused with incompatible runtime configurations, particularly related to chunking parameters or output array flags.
