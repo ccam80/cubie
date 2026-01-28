@@ -64,3 +64,7 @@ nvprof/
 # Cache
 *.nbi
 *.nbc
+
+# AI
+.claude/
+Claude.md

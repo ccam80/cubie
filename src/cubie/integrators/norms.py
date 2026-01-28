@@ -162,6 +162,8 @@ class ScaledNorm(MultipleInstanceCUDAFactory):
             Numerical precision for computations.
         n : int
             Size of vectors to compute norm over.
+        instance_label : str, optional
+            Prefix label for parameter names when used as a nested factory.
         **kwargs
             Optional parameters passed to ScaledNormConfig including
             atol and rtol. None values are ignored.
