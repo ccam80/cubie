@@ -109,6 +109,7 @@ def load_cellml_model(
     name: Optional[str] = None,
     parameters: Optional[List[str]] = None,
     observables: Optional[List[str]] = None,
+    show_gui: bool = False,
 ):
     """Load a CellML model and return an initialized SymbolicODE system.
 
@@ -133,6 +134,9 @@ def load_cellml_model(
     observables : list of str, optional
         List of symbol names to assign as observables. Otherwise,
         these symbols become anonymous auxiliaries.
+    show_gui : bool, optional
+        If True, launch the constants/parameters editor GUI after
+        loading. Default is False.
 
     Returns
     -------
@@ -445,5 +449,8 @@ def load_cellml_model(
         user_functions=functions,
         precision=precision,
     )
-    
+
+    if show_gui:
+        symbolic_ode.constants_gui()
+
     return symbolic_ode

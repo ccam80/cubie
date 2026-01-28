@@ -1,0 +1,200 @@
+"""Qt GUI for editing initial state values in a SymbolicODE.
+
+This module provides a table-based editor that allows users to:
+- View all state variables with their initial values and units
+- Edit initial values with forgiving float validation
+"""
+
+from typing import TYPE_CHECKING, Optional
+
+from qtpy.QtWidgets import (
+    QApplication, QDialog, QVBoxLayout, QHBoxLayout, QTableWidget,
+    QTableWidgetItem, QPushButton, QLabel, QHeaderView, QMessageBox,
+    QWidget,
+)
+from qtpy.QtCore import Qt
+
+from cubie.gui.constants_editor import FloatLineEdit
+
+if TYPE_CHECKING:
+    from cubie.odesystems.symbolic import SymbolicODE
+
+
+class StatesEditor(QDialog):
+    """Dialog for editing initial state values in a SymbolicODE.
+
+    Parameters
+    ----------
+    ode
+        The SymbolicODE instance to edit.
+    parent
+        Optional parent widget.
+
+    Example
+    -------
+    >>> from cubie.odesystems.symbolic import load_cellml_model
+    >>> ode = load_cellml_model("model.cellml")
+    >>> editor = StatesEditor(ode)
+    >>> editor.exec()  # Modal dialog
+    """
+
+    def __init__(
+        self,
+        ode: "SymbolicODE",
+        parent: Optional[QWidget] = None,
+    ):
+        super().__init__(parent)
+        self._ode = ode
+        self._pending_changes: dict[str, float] = {}
+        self._value_edits: dict[str, FloatLineEdit] = {}
+
+        self._setup_ui()
+        self._populate_table()
+
+    def _setup_ui(self) -> None:
+        """Set up the dialog UI."""
+        self.setWindowTitle("Initial States Editor")
+        self.setMinimumSize(500, 400)
+
+        layout = QVBoxLayout(self)
+
+        info_label = QLabel(
+            "Edit initial values for state variables.\n"
+            "These values are used as the starting point for simulations."
+        )
+        layout.addWidget(info_label)
+
+        self._table = QTableWidget()
+        self._table.setColumnCount(3)
+        self._table.setHorizontalHeaderLabels(["Name", "Initial Value", "Unit"])
+
+        header = self._table.horizontalHeader()
+        header.setSectionResizeMode(0, QHeaderView.Stretch)
+        header.setSectionResizeMode(1, QHeaderView.Fixed)
+        header.setSectionResizeMode(2, QHeaderView.Fixed)
+        self._table.setColumnWidth(1, 150)
+        self._table.setColumnWidth(2, 100)
+
+        layout.addWidget(self._table)
+
+        button_layout = QHBoxLayout()
+        button_layout.addStretch()
+
+        apply_btn = QPushButton("Apply")
+        apply_btn.clicked.connect(self._on_apply)
+        button_layout.addWidget(apply_btn)
+
+        close_btn = QPushButton("Close")
+        close_btn.clicked.connect(self.close)
+        button_layout.addWidget(close_btn)
+
+        layout.addLayout(button_layout)
+
+    def _populate_table(self) -> None:
+        """Populate the table with state variables."""
+        states = self._ode.get_states_info()
+
+        states.sort(key=lambda x: x['name'])
+
+        self._table.setRowCount(len(states))
+
+        for row, state in enumerate(states):
+            name = state['name']
+            value = state['value']
+            unit = state['unit']
+
+            name_item = QTableWidgetItem(name)
+            name_item.setFlags(name_item.flags() & ~Qt.ItemIsEditable)
+            self._table.setItem(row, 0, name_item)
+
+            value_edit = FloatLineEdit(value)
+            value_edit.editingFinished.connect(
+                lambda n=name: self._on_value_changed(n)
+            )
+            self._value_edits[name] = value_edit
+            self._table.setCellWidget(row, 1, value_edit)
+
+            unit_item = QTableWidgetItem(unit)
+            unit_item.setFlags(unit_item.flags() & ~Qt.ItemIsEditable)
+            self._table.setItem(row, 2, unit_item)
+
+    def _on_value_changed(self, name: str) -> None:
+        """Handle value edit change."""
+        edit = self._value_edits[name]
+        if edit.isValid():
+            self._pending_changes[name] = edit.value()
+
+    def _on_apply(self) -> None:
+        """Apply all pending changes to the ODE."""
+        invalid_edits = [
+            name for name, edit in self._value_edits.items()
+            if not edit.isValid()
+        ]
+        if invalid_edits:
+            QMessageBox.warning(
+                self,
+                "Invalid Values",
+                f"The following entries have invalid values: "
+                f"{', '.join(invalid_edits)}"
+            )
+            return
+
+        errors = []
+
+        for name, value in self._pending_changes.items():
+            try:
+                self._ode.set_initial_value(name, value)
+            except Exception as e:
+                errors.append(f"{name}: {e}")
+
+        self._pending_changes.clear()
+
+        if errors:
+            QMessageBox.warning(
+                self,
+                "Errors Applying Changes",
+                "Some changes could not be applied:\n" + "\n".join(errors)
+            )
+        else:
+            QMessageBox.information(
+                self,
+                "Changes Applied",
+                "All initial values have been updated."
+            )
+
+
+def show_states_editor(
+    ode: "SymbolicODE",
+    blocking: bool = True,
+) -> Optional[StatesEditor]:
+    """Show the initial states editor dialog.
+
+    Parameters
+    ----------
+    ode
+        The SymbolicODE instance to edit.
+    blocking
+        If True, block until the dialog is closed. If False, return
+        the dialog instance immediately.
+
+    Returns
+    -------
+    StatesEditor or None
+        The dialog instance if non-blocking, None if blocking.
+    """
+    app = QApplication.instance()
+    created_app = False
+    if app is None:
+        app = QApplication([])
+        created_app = True
+
+    editor = StatesEditor(ode)
+
+    if blocking:
+        editor.exec() if hasattr(editor, 'exec') else editor.exec_()
+        if created_app:
+            app.quit()
+        return None
+    else:
+        editor.show()
+        return editor
