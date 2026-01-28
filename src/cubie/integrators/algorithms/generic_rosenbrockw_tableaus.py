@@ -46,6 +46,18 @@ class RosenbrockTableau(ButcherTableau):
         return self.typed_vector(self.gamma_stages, numba_precision)
 
     def C_flat(self, precision):
+        """Return the C matrix coefficients as a flattened tuple.
+
+        Parameters
+        ----------
+        precision
+            Numerical precision type for output values.
+
+        Returns
+        -------
+        tuple
+            Flattened tuple of C matrix coefficients typed to precision.
+        """
         typed_rows = self.typed_rows(self.C, precision)
         flat_list: list = []
         for row in typed_rows:

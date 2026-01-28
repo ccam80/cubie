@@ -50,6 +50,31 @@ ALL_CACHE_PARAMETERS: Set[str] = {
     "max_cache_entries",
     "cache_dir",
 }
+"""All keyword arguments accepted by :class:`CubieCacheHandler`.
+
+These parameters can be passed to :class:`CubieCacheHandler` or to
+:meth:`CubieCacheHandler.update`. Parent components use this set to
+filter kwargs before forwarding.
+
+.. list-table:: Parameter Summary
+   :header-rows: 1
+
+   * - Parameter
+     - Accepted By
+     - Description
+   * - ``cache_enabled``
+     - :class:`CacheConfig`
+     - Whether file-based caching is enabled.
+   * - ``cache_mode``
+     - :class:`CacheConfig`
+     - ``'hash'`` or ``'flush_on_change'``.
+   * - ``max_cache_entries``
+     - :class:`CacheConfig`
+     - Maximum entries before LRU eviction (0 disables).
+   * - ``cache_dir``
+     - :class:`CacheConfig`
+     - Custom cache directory path or ``None``.
+"""
 
 
 class CUBIECacheLocator(_CacheLocator):
@@ -653,7 +678,29 @@ class CacheConfig(_CubieConfigBase):
 
 
 class CubieCacheHandler:
-    """Handler for managing CuBIE kernel cache."""
+    """Handler for managing CuBIE kernel cache.
+
+    Parameters
+    ----------
+    system_name
+        Name of the ODE system for directory organization.
+    system_hash
+        Hash representing the ODE system definition.
+    cache_arg
+        Cache configuration shorthand: ``True`` enables caching with
+        default path, ``False``/``None`` disables, a string or
+        ``Path`` enables at that directory.
+    **kwargs
+        Additional overrides forwarded to :class:`CacheConfig`.
+        See :data:`ALL_CACHE_PARAMETERS` for accepted keywords.
+
+    See Also
+    --------
+    :class:`CacheConfig`
+        Configuration container for cache settings.
+    :data:`ALL_CACHE_PARAMETERS`
+        Complete set of accepted keyword arguments.
+    """
 
     def __init__(
         self,
@@ -763,6 +810,8 @@ class CubieCacheHandler:
 
         Parameters
         ----------
+        system_hash
+            Hash representing the ODE system definition.
         compile_settings_hash
             Hash of compile settings for cache disambiguation.
 

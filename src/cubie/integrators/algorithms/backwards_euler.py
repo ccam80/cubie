@@ -324,4 +324,5 @@ class BackwardsEulerStep(ODEImplicitStep):
 
     @property
     def identifier(self) -> str:
+        """Return the string identifier for this algorithm."""
         return "backwards_euler"

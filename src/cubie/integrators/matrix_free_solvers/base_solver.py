@@ -87,6 +87,8 @@ class MatrixFreeSolver(MultipleInstanceCUDAFactory):
         ----------
         precision : PrecisionDType
             Numerical precision for computations.
+        solver_type : str
+            Prefix for tolerance parameters (e.g., "krylov" or "newton").
         n : int
             Size of state vectors.
         atol : array-like, optional

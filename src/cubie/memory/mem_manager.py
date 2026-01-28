@@ -575,14 +575,9 @@ class MemoryManager:
         proportion
             Memory proportion to assign (0.0 to 1.0).
 
-        Raises
-        ------
-        ValueError
-            If instance is already in manual allocation pool.
-
-        Returns
-        -------
-        None
+        Notes
+        -----
+        If the instance is already in the manual pool, this is a no-op.
         """
         instance_id = id(instance)
         settings = self.registry[instance_id]
@@ -601,14 +596,9 @@ class MemoryManager:
         instance
             Instance to convert to auto mode.
 
-        Raises
-        ------
-        ValueError
-            If instance is already in auto allocation pool.
-
-        Returns
-        -------
-        None
+        Notes
+        -----
+        If the instance is already in the auto pool, this is a no-op.
         """
         instance_id = id(instance)
         settings = self.registry[instance_id]
@@ -875,6 +865,11 @@ class MemoryManager:
         -------
         numpy.ndarray
             C-contiguous host array.
+
+        Raises
+        ------
+        ValueError
+            If ``memory_type`` is not ``"pinned"`` or ``"host"``.
         """
         _ensure_cuda_context()
         if memory_type not in ("pinned", "host"):
@@ -1368,7 +1363,7 @@ class MemoryManager:
 
 def get_portioned_request_size(
     requests: dict[str, dict[str, ArrayRequest]],
-) -> int:
+) -> tuple[int, int]:
     """
     Calculate total memory requested for the chunkable and unchunkable
     portions of the request.

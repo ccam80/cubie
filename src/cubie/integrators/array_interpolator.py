@@ -134,6 +134,16 @@ class ArrayInterpolator(CUDAFactory):
         precision: PrecisionDType,
         input_dict: Dict[str, FloatArray],
     ) -> None:
+        """Initialize the array interpolator factory.
+
+        Parameters
+        ----------
+        precision : PrecisionDType
+            Numerical precision for coefficients and evaluation.
+        input_dict : dict
+            Dictionary containing input arrays and configuration. See
+            :meth:`update_from_dict` for required and optional fields.
+        """
         super().__init__()
         config = ArrayInterpolatorConfig(
             precision=precision,
@@ -262,11 +272,12 @@ class ArrayInterpolator(CUDAFactory):
         -------
         np.ndarray of floats
             Input vectors stacked into a single array.
+
         Raises
         ------
         ValueError
             Raised when the input array is the wrong shape, type,
-            or multiple arrys have different lengths.
+            or multiple arrays have different lengths.
         """
 
         for key, array in input_dict.items():
@@ -719,7 +730,22 @@ class ArrayInterpolator(CUDAFactory):
     def check_against_system_drivers(
         inputs_dict: Dict[str, Union[float, bool, FloatArray]],
         system: "SymbolicODE",
-    ):
+    ) -> None:
+        """Validate that input dictionary keys match system driver symbols.
+
+        Parameters
+        ----------
+        inputs_dict
+            Dictionary of input arrays to validate against the system.
+        system
+            SymbolicODE instance defining the expected driver symbols.
+
+        Raises
+        ------
+        ValueError
+            Raised when the number of inputs does not match the number of
+            drivers, or when input symbols do not match driver symbols.
+        """
         input_keys = [
             key
             for key in inputs_dict

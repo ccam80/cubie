@@ -1,4 +1,37 @@
-"""Base classes for constructing cached CUDA device functions with Numba."""
+"""Base classes for constructing cached CUDA device functions with Numba.
+
+Published Classes
+-----------------
+:class:`CUDAFactoryConfig`
+    Base attrs config with ``precision`` field and Numba type
+    conversions.
+
+    >>> from numpy import float64
+    >>> cfg = CUDAFactoryConfig(precision=float64)
+    >>> cfg.numba_precision  # doctest: +SKIP
+    float64
+
+:class:`CUDADispatcherCache`
+    Base class for cache containers holding compiled device functions.
+
+:class:`CUDAFactory`
+    Abstract factory base; manages compile settings and cache
+    invalidation.
+
+:class:`MultipleInstanceCUDAFactoryConfig`
+    Config subclass for components with prefixed parameters (e.g.,
+    ``krylov_atol``).
+
+:class:`MultipleInstanceCUDAFactory`
+    Factory subclass that maps prefixed configuration keys.
+
+See Also
+--------
+:mod:`cubie.buffer_registry`
+    Buffer registry used by factories for memory management.
+:mod:`cubie._utils`
+    Validator and converter helpers used by config classes.
+"""
 
 from hashlib import sha256
 from abc import ABC, abstractmethod
@@ -23,21 +56,21 @@ from cubie.cuda_simsafe import from_dtype as simsafe_dtype
 from cubie.buffer_registry import buffer_registry
 
 
-def hash_tuple(input: Tuple) -> str:
-    """Serialize a value to a string for hashing.
+def hash_tuple(values: Tuple) -> str:
+    """Serialize a tuple of values to a SHA256 hex digest.
 
     Parameters
     ----------
-    input
-        Tuple to serialize.
+    values
+        Tuple of values to serialize and hash.
 
     Returns
     -------
     str
-        String representation suitable for hashing.
+        64-character SHA256 hex digest.
     """
     parts = []
-    for value in input:
+    for value in values:
         if value is None:
             parts.append("None")
         elif isinstance(value, ndarray):
@@ -613,7 +646,7 @@ class MultipleInstanceCUDAFactoryConfig(CUDAFactoryConfig):
     or `krylov_atol`. Performs the substitution internally on update,
     however requires non-prefixed keys for init. See `build_config` for a
     utility function that initialises this class from prefixed keys.
-    ."""
+    """
 
     instance_label: str = field(default="", repr=False, eq=False)
     prefixed_attributes: Set[str] = field(

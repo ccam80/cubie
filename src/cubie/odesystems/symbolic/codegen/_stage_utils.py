@@ -9,7 +9,20 @@ def prepare_stage_data(
     stage_coefficients: Sequence[Sequence[Union[float, sp.Expr]]],
     stage_nodes: Sequence[Union[float, sp.Expr]],
 ) -> Tuple[sp.Matrix, Tuple[sp.Expr, ...], int]:
-    """Normalise FIRK tableau metadata for code generation."""
+    """Normalise FIRK tableau metadata for code generation.
+
+    Parameters
+    ----------
+    stage_coefficients
+        Butcher tableau A matrix as nested sequences.
+    stage_nodes
+        Butcher tableau c vector (quadrature nodes).
+
+    Returns
+    -------
+    tuple[sp.Matrix, tuple[sp.Expr, ...], int]
+        Sympified coefficient matrix, node expressions, and stage count.
+    """
 
     coeff_matrix = sp.Matrix(stage_coefficients).applyfunc(sp.S)
     node_exprs = tuple(sp.S(node) for node in stage_nodes)
@@ -24,7 +37,21 @@ def build_stage_metadata(
     List[List[sp.Symbol]],
     List[sp.Symbol],
 ]:
-    """Create symbol assignments for FIRK coefficients and nodes."""
+    """Create symbol assignments for FIRK coefficients and nodes.
+
+    Parameters
+    ----------
+    stage_coefficients
+        Sympified Butcher tableau A matrix.
+    stage_nodes
+        Sympified Butcher tableau c vector.
+
+    Returns
+    -------
+    tuple[list, list[list], list]
+        Tuple of (metadata assignments, coefficient symbols by stage,
+        node symbols) for use in generated CUDA code.
+    """
 
     stage_count = stage_coefficients.rows
     coeff_symbols: List[List[sp.Symbol]] = []

@@ -266,50 +266,15 @@ class JVPEquations:
         """Return cumulative operation counts for auxiliaries and JVP outputs."""
 
         return self._total_ops_cost
-    def partition_assignments(
-        self,
-        cached_symbols: Iterable[sp.Symbol],
-        runtime_symbols: Iterable[sp.Symbol],
-    ) -> Tuple[
-        List[Tuple[sp.Symbol, sp.Expr]],
-        List[Tuple[sp.Symbol, sp.Expr]],
-        List[Tuple[sp.Symbol, sp.Expr]],
-    ]:
-        """Return cached, runtime, and preparation assignments in order.
+
+    def update_cache_selection(self, selection: "CacheSelection") -> None:
+        """Persist the cache selection for reuse by solver helpers.
 
         Parameters
         ----------
-        cached_symbols
-            Symbols whose values will be stored in the auxiliary cache.
-        runtime_symbols
-            Symbols evaluated on demand without caching.
-
-        Returns
-        -------
-        tuple of list, list, list
-            Cached assignments, runtime assignments, and preparation assignments
-            that populate cached intermediates.
+        selection
+            Computed cache selection to store.
         """
-
-        cached_set = set(cached_symbols)
-        runtime_set = set(runtime_symbols)
-        prepare_nodes = set(self._non_jvp_order) - runtime_set
-        cached_assigns = []
-        runtime_assigns = []
-        prepare_assigns = []
-        for lhs in self._non_jvp_order:
-            rhs = self._non_jvp_exprs[lhs]
-            if lhs in prepare_nodes:
-                prepare_assigns.append((lhs, rhs))
-            if lhs in cached_set:
-                cached_assigns.append((lhs, rhs))
-            elif lhs in runtime_set:
-                runtime_assigns.append((lhs, rhs))
-        return cached_assigns, runtime_assigns, prepare_assigns
-
-    def update_cache_selection(self, selection: "CacheSelection") -> None:
-        """Persist the cache selection for reuse by solver helpers."""
-
         self._cache_selection = selection
 
     def ensure_cache_selection(self) -> None:
@@ -337,7 +302,14 @@ class JVPEquations:
         List[Tuple[sp.Symbol, sp.Expr]],
         List[Tuple[sp.Symbol, sp.Expr]],
     ]:
-        """Return cached, runtime, and preparation assignments from selection."""
+        """Return cached, runtime, and preparation assignments from selection.
+
+        Returns
+        -------
+        tuple of list, list, list
+            Cached assignments, runtime assignments, and preparation assignments
+            derived from the stored cache selection.
+        """
 
         selection = self.cache_selection
         cached_symbols = set(selection.cached_leaf_order)

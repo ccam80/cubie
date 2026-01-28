@@ -373,3 +373,188 @@ class TestCacheSkipsCodegen:
         # Second call should skip codegen (uses file cache)
         helper2 = ode_cached.get_solver_helper("linear_operator")
         assert callable(helper2)
+
+
+class TestConstantParameterConversion:
+    """Tests for converting constants to parameters and vice versa."""
+
+    def test_make_parameter_converts_constant(self, precision):
+        """Verify make_parameter moves a constant to parameters."""
+        ode = SymbolicODE.create(
+            dxdt=["dx = -k * x + c"],
+            precision=precision,
+            states={"x": 1.0},
+            parameters={"k": 0.1},
+            constants={"c": 0.5},
+            name="test_make_param",
+        )
+
+        assert "c" in ode.indices.constant_names
+        assert "c" not in ode.indices.parameter_names
+
+        ode.make_parameter("c")
+
+        assert "c" not in ode.indices.constant_names
+        assert "c" in ode.indices.parameter_names
+        assert ode.parameters["c"] == 0.5
+
+    def test_make_constant_converts_parameter(self, precision):
+        """Verify make_constant moves a parameter to constants."""
+        ode = SymbolicODE.create(
+            dxdt=["dx = -k * x + c"],
+            precision=precision,
+            states={"x": 1.0},
+            parameters={"k": 0.1, "c": 0.5},
+            name="test_make_const",
+        )
+
+        assert "c" in ode.indices.parameter_names
+        assert "c" not in ode.indices.constant_names
+
+        ode.make_constant("c")
+
+        assert "c" not in ode.indices.parameter_names
+        assert "c" in ode.indices.constant_names
+        assert ode.constants["c"] == 0.5
+
+    def test_make_parameter_raises_for_unknown(self, precision):
+        """Verify make_parameter raises KeyError for unknown name."""
+        ode = SymbolicODE.create(
+            dxdt=["dx = -k * x"],
+            precision=precision,
+            states={"x": 1.0},
+            parameters={"k": 0.1},
+            name="test_make_param_error",
+        )
+
+        with pytest.raises(KeyError):
+            ode.make_parameter("nonexistent")
+
+    def test_make_constant_raises_for_unknown(self, precision):
+        """Verify make_constant raises KeyError for unknown name."""
+        ode = SymbolicODE.create(
+            dxdt=["dx = -k * x"],
+            precision=precision,
+            states={"x": 1.0},
+            parameters={"k": 0.1},
+            name="test_make_const_error",
+        )
+
+        with pytest.raises(KeyError):
+            ode.make_constant("nonexistent")
+
+    def test_roundtrip_conversion(self, precision):
+        """Verify constant->parameter->constant preserves value."""
+        ode = SymbolicODE.create(
+            dxdt=["dx = -k * x + c"],
+            precision=precision,
+            states={"x": 1.0},
+            parameters={"k": 0.1},
+            constants={"c": 0.5},
+            name="test_roundtrip",
+        )
+
+        # Convert to parameter
+        ode.make_parameter("c")
+        assert ode.parameters["c"] == 0.5
+
+        # Convert back to constant
+        ode.make_constant("c")
+        assert ode.constants["c"] == 0.5
+
+
+class TestValueSetters:
+    """Tests for value setting methods."""
+
+    def test_set_parameter_value(self, precision):
+        """Verify set_parameter_value updates parameter correctly."""
+        ode = SymbolicODE.create(
+            dxdt=["dx = -k * x"],
+            precision=precision,
+            states={"x": 1.0},
+            parameters={"k": 0.1},
+            name="test_set_param",
+        )
+
+        ode.set_parameter_value("k", 0.5)
+        assert ode.parameters["k"] == 0.5
+
+    def test_set_constant_value(self, precision):
+        """Verify set_constant_value updates constant correctly."""
+        ode = SymbolicODE.create(
+            dxdt=["dx = -k * x + c"],
+            precision=precision,
+            states={"x": 1.0},
+            parameters={"k": 0.1},
+            constants={"c": 0.5},
+            name="test_set_const",
+        )
+
+        ode.set_constant_value("c", 1.0)
+        assert ode.constants["c"] == 1.0
+
+    def test_set_initial_value(self, precision):
+        """Verify set_initial_value updates state correctly."""
+        ode = SymbolicODE.create(
+            dxdt=["dx = -k * x"],
+            precision=precision,
+            states={"x": 1.0},
+            parameters={"k": 0.1},
+            name="test_set_init",
+        )
+
+        ode.set_initial_value("x", 2.0)
+        assert ode.initial_values["x"] == 2.0
+
+
+class TestInfoGetters:
+    """Tests for information getter methods."""
+
+    def test_get_constants_info(self, precision):
+        """Verify get_constants_info returns correct structure."""
+        ode = SymbolicODE.create(
+            dxdt=["dx = -k * x + c"],
+            precision=precision,
+            states={"x": 1.0},
+            parameters={"k": 0.1},
+            constants={"c": 0.5},
+            name="test_info_const",
+        )
+
+        info = ode.get_constants_info()
+        assert len(info) == 1
+        assert info[0]["name"] == "c"
+        assert info[0]["value"] == 0.5
+        assert "unit" in info[0]
+
+    def test_get_parameters_info(self, precision):
+        """Verify get_parameters_info returns correct structure."""
+        ode = SymbolicODE.create(
+            dxdt=["dx = -k * x"],
+            precision=precision,
+            states={"x": 1.0},
+            parameters={"k": 0.1},
+            name="test_info_param",
+        )
+
+        info = ode.get_parameters_info()
+        assert len(info) == 1
+        assert info[0]["name"] == "k"
+        assert info[0]["value"] == 0.1
+        assert "unit" in info[0]
+
+    def test_get_states_info(self, precision):
+        """Verify get_states_info returns correct structure."""
+        ode = SymbolicODE.create(
+            dxdt=["dx = -k * x", "dy = k * x"],
+            precision=precision,
+            states={"x": 1.0, "y": 0.0},
+            parameters={"k": 0.1},
+            name="test_info_states",
+        )
+
+        info = ode.get_states_info()
+        assert len(info) == 2
+        names = [i["name"] for i in info]
+        assert "x" in names
+        assert "y" in names

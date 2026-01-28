@@ -55,7 +55,22 @@ def _build_time_derivative_assignments(
     equations: ParsedEquations,
     index_map: IndexedBases,
 ) -> Tuple[List[Tuple[sp.Symbol, sp.Expr]], Dict[sp.Symbol, sp.Expr]]:
-    """Return assignments required for time-derivative evaluation."""
+    """Build symbolic assignments for time-derivative evaluation.
+
+    Parameters
+    ----------
+    equations
+        Parsed equations describing the ODE system.
+    index_map
+        Indexed bases mapping symbols to CUDA array references.
+
+    Returns
+    -------
+    tuple[list, dict]
+        Tuple of (ordered assignments, final symbol map) where assignments
+        include both original equations and their time derivatives, and the
+        symbol map provides output array references.
+    """
 
     sorted_equations = topological_sort(
         equations.non_observable_equations()
@@ -120,7 +135,22 @@ def generate_time_derivative_lines(
     index_map: IndexedBases,
     cse: bool = True,
 ) -> List[str]:
-    """Return CUDA assignments computing the explicit time derivative."""
+    """Generate CUDA source lines for time-derivative computation.
+
+    Parameters
+    ----------
+    equations
+        Parsed equations describing the ODE system.
+    index_map
+        Indexed bases mapping symbols to CUDA array references.
+    cse
+        Whether to apply common subexpression elimination.
+
+    Returns
+    -------
+    list[str]
+        CUDA source lines computing the explicit time derivative.
+    """
 
     assignments, final_symbol_map = _build_time_derivative_assignments(
         equations, index_map
@@ -149,7 +179,24 @@ def generate_time_derivative_fac_code(
     func_name: str = "time_derivative_rhs_factory",
     cse: bool = True,
 ) -> str:
-    """Return source for the time-derivative CUDA factory."""
+    """Emit Python source for a time-derivative CUDA factory.
+
+    Parameters
+    ----------
+    equations
+        Parsed equations describing the ODE system.
+    index_map
+        Indexed bases providing symbol references and constants.
+    func_name
+        Name of the generated factory function.
+    cse
+        Whether to apply common subexpression elimination.
+
+    Returns
+    -------
+    str
+        Python source code implementing the factory function.
+    """
     default_timelogger.start_event("codegen_generate_time_derivative_fac_code")
 
     body_lines = generate_time_derivative_lines(

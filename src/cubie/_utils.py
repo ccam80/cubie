@@ -1,45 +1,81 @@
 """Utility helpers used throughout :mod:`cubie`.
 
-This module provides general-purpose helpers for array slicing, dictionary
-updates and CUDA utilities that are shared across the code base.
+This module provides general-purpose helpers for array slicing,
+dictionary updates, attrs validators/converters, and CUDA utilities
+shared across the code base.
+
+Published Types
+---------------
+:data:`PrecisionDType`
+    Union type alias for supported floating-point precision dtypes.
+
+Published Functions
+-------------------
+:func:`build_config`
+    Construct an attrs config instance from required and optional kwargs.
+
+    >>> import numpy as np
+    >>> from cubie.CUDAFactory import CUDAFactoryConfig
+    >>> cfg = build_config(CUDAFactoryConfig, {"precision": np.float64})
+    >>> cfg.precision
+    <class 'numpy.float64'>
+
+:func:`merge_kwargs_into_settings`
+    Filter kwargs against an allowlist and merge with user settings.
+
+    >>> merged, unused = merge_kwargs_into_settings(
+    ...     {"a": 1, "b": 2}, valid_keys={"a"}
+    ... )
+    >>> merged
+    {'a': 1}
+
+:func:`ensure_nonzero_size`
+    Replace zero-size shapes with minimal placeholders for safe CUDA
+    allocation.
+
+    >>> ensure_nonzero_size((0, 5))
+    (1, 1)
+
+:func:`unpack_dict_values`
+    Flatten nested dicts for update pipelines.
+
+    >>> result, keys = unpack_dict_values({"g": {"x": 1}, "y": 2})
+    >>> result
+    {'x': 1, 'y': 2}
+
+See Also
+--------
+:class:`~cubie.CUDAFactory.CUDAFactoryConfig`
+    Base config class that uses validators and converters from this
+    module.
+:mod:`cubie.buffer_registry`
+    Buffer registry that uses ``getype_validator`` and
+    ``buffer_dtype_validator``.
 """
 
-import inspect
-from functools import wraps
-from time import time
-from typing import Any, Mapping, Tuple, Union, Optional, Iterable, Set
+from typing import Any, Tuple, Union, Optional, Iterable, Set
 from warnings import warn
 
 from numpy import (
     all as np_all,
     asarray,
     dtype as np_dtype,
-    empty as np_empty,
     float16 as np_float16,
     float32 as np_float32,
     float64 as np_float64,
     floating as np_floating,
-    floor as np_floor,
     full,
     int32 as np_int32,
     int64 as np_int64,
     integer as np_integer,
     isfinite as np_isfinite,
     isscalar,
-    log10 as np_log10,
     ndarray,
 )
 from numpy.typing import ArrayLike
-from numba import cuda, from_dtype
-from numba.cuda.random import (
-    xoroshiro128p_dtype,
-    xoroshiro128p_normal_float32,
-    xoroshiro128p_normal_float64,
-)
+from numba import cuda
 from attrs import fields, has, validators, Attribute
 from cubie.cuda_simsafe import compile_kwargs, is_devfunc
-
-xoro_type = from_dtype(xoroshiro128p_dtype)
 
 PrecisionDType = Union[
     type[np_float16],
@@ -162,82 +198,6 @@ def in_attr(name, attrs_class_instance):
     return name in field_names or ("_" + name) in field_names
 
 
-def is_attrs_class(putative_class_instance):
-    """Return ``True`` if the object is an attrs class instance.
-
-    Parameters
-    ----------
-    putative_class_instance : Any
-        Object to check.
-
-    Returns
-    -------
-    bool
-        Whether the object is an attrs class instance.
-    """
-    return has(putative_class_instance)
-
-
-def split_applicable_settings(
-    target: Any,
-    settings: Mapping[str, Any],
-    warn_on_unused: bool = True,
-) -> Tuple[dict[str, Any], set[str], set[str]]:
-    """Partition ``settings`` into accepted, missing, and unused entries.
-
-    Uses the signature of ``target`` to determine which settings are
-    applicable, then divides a mapping of arguments into three sets:
-
-    - accepted: settings that are accepted by ``target``
-    - missing: settings that are required by ``target`` but not provided
-    - unused: settings that were provided but are not applicable to ``target``
-
-    Parameters
-    ----------
-    target : Any
-        Callable or class whose signature defines accepted keywords.
-    settings : Mapping[str, Any]
-        Mapping containing candidate configuration entries.
-    warn_for_unused : bool, default=True
-        If true, issue a warning for unused settings.
-    Returns
-    -------
-    tuple
-        Three-element tuple containing the filtered settings dictionary,
-        the set of missing required keys, and the set of unused keys.
-    """
-
-    if inspect.isclass(target):
-        signature = inspect.signature(target.__init__)
-    else:
-        signature = inspect.signature(target)
-
-    accepted: set[str] = set()
-    required: set[str] = set()
-    for name, parameter in signature.parameters.items():
-        if name == "self":
-            continue
-        if parameter.kind in {
-            inspect.Parameter.VAR_POSITIONAL,
-            inspect.Parameter.VAR_KEYWORD,
-        }:
-            continue
-        accepted.add(name)
-        if parameter.default is inspect._empty:
-            required.add(name)
-
-    filtered = {
-        key: value
-        for key, value in settings.items()
-        if key in accepted and value is not None
-    }
-    missing = required - filtered.keys()
-    unused = set(settings.keys()) - accepted
-    if warn_on_unused and unused:
-        warn(f"The following settings were ignored: {unused}", stacklevel=3)
-    return filtered, missing, unused
-
-
 def merge_kwargs_into_settings(
     kwargs: dict[str, object],
     valid_keys: Iterable[str],
@@ -249,12 +209,12 @@ def merge_kwargs_into_settings(
     ----------
     kwargs
         Keyword arguments supplied directly to a component.
-    user_settings
-        Explicit settings dictionary supplied by the caller. When provided,
-        these values supply defaults that keyword arguments may override.
     valid_keys
         Iterable of keys recognised by the component. Only these keys are
         extracted from ``kwargs``.
+    user_settings
+        Explicit settings dictionary supplied by the caller. When provided,
+        these values supply defaults that keyword arguments may override.
 
     Returns
     -------
@@ -286,49 +246,20 @@ def merge_kwargs_into_settings(
     return user_settings, recognized
 
 
-def timing(_func=None, *, nruns=1):
-    """Decorator for printing execution time statistics.
+def clamp_factory(precision):
+    """Compile a CUDA device function that clamps a value to a range.
 
     Parameters
     ----------
-    _func : callable, optional
-        Function to decorate. Used when the decorator is applied without
-        arguments.
-    nruns : int, default=1
-        Number of executions used to compute timing statistics.
+    precision
+        NumPy dtype used for the clamp operation.
 
     Returns
     -------
-    callable
-        Wrapped function or decorator.
+    Callable
+        CUDA device function ``clamp(value, minimum, maximum)``.
     """
-
-    def decorator(func):
-        @wraps(func)
-        def wrap(*args, **kw):
-            durations = np_empty(nruns)
-            for i in range(nruns):
-                t0 = time()
-                result = func(*args, **kw)
-                durations[i] = time() - t0
-            print(
-                "func:%r took:\n %2.6e sec avg\n %2.6e max\n %2.6e min\n over %d runs"
-                % (
-                    func.__name__,
-                    durations.mean(),
-                    durations.max(),
-                    durations.min(),
-                    nruns,
-                )
-            )
-            return result
-
-        return wrap
-
-    return decorator if _func is None else decorator(_func)
-
-
-def clamp_factory(precision):
+    from numba import from_dtype
     precision = from_dtype(precision)
 
     @cuda.jit(
@@ -341,127 +272,6 @@ def clamp_factory(precision):
         return max(minimum, min(value, maximum))
 
     return clamp
-
-
-@cuda.jit(
-    # (float64[:], float64[:], int32, xoro_type[:]),
-    device=True,
-    inline=True,
-    **compile_kwargs,
-)
-def get_noise_64(
-    noise_array,
-    sigmas,
-    idx,
-    RNG,
-):
-    """Fill ``noise_array`` with Gaussian noise (np_float64).
-
-    Parameters
-    ----------
-    noise_array : float64[:]
-        Output array to populate.
-    sigmas : float64[:]
-        Standard deviations for each element.
-    idx : int32
-        Thread index used for RNG.
-    RNG : xoro_type[:]
-        RNG state array.
-    """
-    # no cover: start
-    for i in range(len(noise_array)):
-        if sigmas[i] != 0.0:
-            noise_array[i] = xoroshiro128p_normal_float64(RNG, idx) * sigmas[i]
-    # no cover: end
-
-
-@cuda.jit(
-    # (float32[:], float32[:], int32, xoro_type[:]),
-    device=True,
-    inline=True,
-    **compile_kwargs,
-)
-def get_noise_32(
-    noise_array,
-    sigmas,
-    idx,
-    RNG,
-):
-    """Fill ``noise_array`` with Gaussian noise (np_float32).
-
-    Parameters
-    ----------
-    noise_array : float32[:]
-        Output array to populate.
-    sigmas : float32[:]
-        Standard deviations for each element.
-    idx : int32
-        Thread index used for RNG.
-    RNG : xoro_type[:]
-        RNG state array.
-    """
-    # no cover: start
-    for i in range(len(noise_array)):
-        if sigmas[i] != 0.0:
-            noise_array[i] = xoroshiro128p_normal_float32(RNG, idx) * sigmas[i]
-    # no cover: end
-
-
-def round_sf(num, sf):
-    """Round a number to a given number of significant figures.
-
-    Parameters
-    ----------
-    num : float
-        Number to round.
-    sf : int
-        Desired significant figures.
-
-    Returns
-    -------
-    float
-        ``num`` rounded to ``sf`` significant figures.
-    """
-    if num == 0.0:
-        return 0.0
-    else:
-        return round(num, sf - 1 - int(np_floor(np_log10(abs(num)))))
-
-
-def round_list_sf(list, sf):
-    """Round each number in a list to significant figures.
-
-    Parameters
-    ----------
-    list : Sequence[float]
-        Numbers to round.
-    sf : int
-        Desired significant figures.
-
-    Returns
-    -------
-    list[float]
-        Rounded numbers.
-    """
-    return [round_sf(num, sf) for num in list]
-
-
-def get_readonly_view(array):
-    """Return a read-only view of ``array``.
-
-    Parameters
-    ----------
-    array : numpy.ndarray
-        Array to make read-only.
-
-    Returns
-    -------
-    numpy.ndarray
-        Read-only view of ``array``.
-    """
-    view = array.view()
-    view.flags.writeable = False
-    return view
 
 
 def is_device_validator(instance, attribute, value):
@@ -492,6 +302,23 @@ def float_array_validator(instance, attribute, value):
 
 
 def inrangetype_validator(dtype, min_, max_):
+    """Return a composite attrs validator for type and range checks.
+
+    Parameters
+    ----------
+    dtype
+        Expected Python or NumPy type (``float`` and ``int`` are
+        expanded to accept their NumPy equivalents).
+    min_
+        Minimum allowed value (inclusive).
+    max_
+        Maximum allowed value (inclusive).
+
+    Returns
+    -------
+    attrs validator
+        Composed validator checking ``instance_of``, ``ge``, and ``le``.
+    """
     return validators.and_(
         validators.instance_of(_expand_dtype(dtype)),
         validators.ge(min_),
@@ -512,26 +339,41 @@ def _expand_dtype(data_type):
     return data_type
 
 
-def lttype_validator(dtype, max_):
-    return validators.and_(
-        validators.instance_of(_expand_dtype(dtype)), validators.lt(max_)
-    )
-
-
 def gttype_validator(dtype, min_):
-    # Accept both built-in and NumPy scalar types
+    """Return a composite attrs validator for type and lower-bound check.
+
+    Parameters
+    ----------
+    dtype
+        Expected type (``float``/``int`` expanded for NumPy scalars).
+    min_
+        Exclusive lower bound.
+
+    Returns
+    -------
+    attrs validator
+        Composed validator checking ``instance_of`` and ``gt``.
+    """
     return validators.and_(
         validators.instance_of(_expand_dtype(dtype)), validators.gt(min_)
     )
 
 
-def letype_validator(dtype, max_):
-    return validators.and_(
-        validators.instance_of(_expand_dtype(dtype)), validators.le(max_)
-    )
-
-
 def getype_validator(dtype, min_):
+    """Return a composite attrs validator for type and lower-bound check.
+
+    Parameters
+    ----------
+    dtype
+        Expected type (``float``/``int`` expanded for NumPy scalars).
+    min_
+        Inclusive lower bound.
+
+    Returns
+    -------
+    attrs validator
+        Composed validator checking ``instance_of`` and ``ge``.
+    """
     return validators.and_(
         validators.instance_of(_expand_dtype(dtype)), validators.ge(min_)
     )
@@ -579,24 +421,9 @@ def tol_converter(
     return tol
 
 
-def opt_inrangetype_validator(dtype, min_, max_):
-    """Optional validator that accepts None or values in specified range."""
-    return validators.optional(inrangetype_validator(dtype, min_, max_))
-
-
-def opt_lttype_validator(dtype, max_):
-    """Optional validator that accepts None or values less than max."""
-    return validators.optional(lttype_validator(dtype, max_))
-
-
 def opt_gttype_validator(dtype, min_):
     """Optional validator that accepts None or values greater than min."""
     return validators.optional(gttype_validator(dtype, min_))
-
-
-def opt_letype_validator(dtype, max_):
-    """Optional validator that accepts None or values less than or equal to max."""
-    return validators.optional(letype_validator(dtype, max_))
 
 
 def opt_getype_validator(dtype, min_):

@@ -1,4 +1,31 @@
-"""Time logging infrastructure for tracking CuBIE compilation performance."""
+"""Time logging infrastructure for tracking CuBIE compilation and
+runtime performance.
+
+Published Classes
+-----------------
+:class:`TimeLogger`
+    Callback-based timing system with configurable verbosity levels.
+
+    >>> logger = TimeLogger(verbosity="default")
+    >>> logger.register_event("build", "compile", "Build step")
+    >>> logger.start_event("build")
+    >>> logger.stop_event("build")  # doctest: +SKIP
+
+:class:`CUDAEvent`
+    CUDA event pair for GPU timeline timing with CUDASIM fallback.
+
+Module-Level Instances
+----------------------
+:data:`default_timelogger`
+    Global singleton ``TimeLogger`` (default verbosity ``None``).
+
+See Also
+--------
+:mod:`cubie.cubie_cache`
+    Uses ``default_timelogger`` for compile timing.
+:class:`~cubie.batchsolving.BatchSolverKernel.BatchSolverKernel`
+    Creates ``CUDAEvent`` instances for kernel timing.
+"""
 
 import time
 from time import perf_counter

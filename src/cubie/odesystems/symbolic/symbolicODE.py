@@ -451,6 +451,207 @@ class SymbolicODE(BaseODE):
         recognized = super().set_constants(updates_dict, silent=silent)
         return recognized
 
+    def make_parameter(self, name: str) -> None:
+        """Convert a constant to a swept parameter.
+
+        The constant becomes a parameter that can be varied at runtime without
+        recompilation. The current value becomes the parameter's default value.
+
+        Parameters
+        ----------
+        name
+            Name of the constant to convert.
+
+        Raises
+        ------
+        KeyError
+            If the name is not found in constants.
+        """
+        value = self.constants.values_dict.get(name, 0.0)
+        self.indices.constant_to_parameter(name)
+
+        self.compile_settings.constants.remove_entry(name)
+        self.compile_settings.parameters.add_entry(name, value)
+
+        self._invalidate_cache()
+
+    def make_constant(self, name: str) -> None:
+        """Convert a parameter to a compile-time constant.
+
+        The parameter becomes a constant that is embedded into compiled kernels.
+        The current value becomes the constant's value.
+
+        Parameters
+        ----------
+        name
+            Name of the parameter to convert.
+
+        Raises
+        ------
+        KeyError
+            If the name is not found in parameters.
+        """
+        value = self.parameters.values_dict.get(name, 0.0)
+        self.indices.parameter_to_constant(name)
+
+        self.compile_settings.parameters.remove_entry(name)
+        self.compile_settings.constants.add_entry(name, value)
+
+        self._invalidate_cache()
+
+    def set_constant_value(self, name: str, value: float) -> None:
+        """Set the value of a constant.
+
+        Parameters
+        ----------
+        name
+            Name of the constant.
+        value
+            New value for the constant.
+
+        Raises
+        ------
+        KeyError
+            If the name is not found in constants.
+        """
+        self.set_constants({name: value})
+
+    def set_parameter_value(self, name: str, value: float) -> None:
+        """Set the default value of a parameter.
+
+        Parameters
+        ----------
+        name
+            Name of the parameter.
+        value
+            New default value for the parameter.
+
+        Raises
+        ------
+        KeyError
+            If the name is not found in parameters.
+        """
+        self.parameters[name] = value
+        self.indices.parameters.update_values({name: value})
+
+    def set_initial_value(self, name: str, value: float) -> None:
+        """Set the initial value of a state variable.
+
+        Parameters
+        ----------
+        name
+            Name of the state variable.
+        value
+            New initial value.
+
+        Raises
+        ------
+        KeyError
+            If the name is not found in states.
+        """
+        self.initial_values[name] = value
+        self.indices.states.update_values({name: value})
+
+    def get_constants_info(self) -> list[dict]:
+        """Return information about all constants.
+
+        Returns
+        -------
+        list of dict
+            Each dict contains 'name', 'value', and 'unit' keys.
+        """
+        result = []
+        for name in self.indices.constant_names:
+            result.append({
+                'name': name,
+                'value': self.constants.values_dict.get(name, 0.0),
+                'unit': self.constant_units.get(name, 'dimensionless'),
+            })
+        return result
+
+    def get_parameters_info(self) -> list[dict]:
+        """Return information about all parameters.
+
+        Returns
+        -------
+        list of dict
+            Each dict contains 'name', 'value', and 'unit' keys.
+        """
+        result = []
+        for name in self.indices.parameter_names:
+            result.append({
+                'name': name,
+                'value': self.parameters.values_dict.get(name, 0.0),
+                'unit': self.parameter_units.get(name, 'dimensionless'),
+            })
+        return result
+
+    def get_states_info(self) -> list[dict]:
+        """Return information about all state variables.
+
+        Returns
+        -------
+        list of dict
+            Each dict contains 'name', 'value', and 'unit' keys.
+        """
+        result = []
+        for name in self.indices.state_names:
+            result.append({
+                'name': name,
+                'value': self.initial_values.values_dict.get(name, 0.0),
+                'unit': self.state_units.get(name, 'dimensionless'),
+            })
+        return result
+
+    def constants_gui(self, blocking: bool = True) -> None:
+        """Launch a Qt GUI for editing constants and parameters.
+
+        The GUI displays all constants and parameters with their values and
+        units. Users can convert between constants and parameters using a
+        checkbox, and edit values directly.
+
+        Parameters
+        ----------
+        blocking
+            If True (default), block until the dialog is closed.
+            If False, return immediately with the dialog still open.
+
+        Notes
+        -----
+        Requires a Qt binding (PyQt6, PyQt5, PySide6, or PySide2).
+
+        Example
+        -------
+        >>> ode = load_cellml_model("model.cellml")
+        >>> ode.constants_gui()  # Opens editor dialog
+        """
+        from cubie.gui.constants_editor import show_constants_editor
+        show_constants_editor(self, blocking=blocking)
+
+    def states_gui(self, blocking: bool = True) -> None:
+        """Launch a Qt GUI for editing initial state values.
+
+        The GUI displays all state variables with their initial values and
+        units. Users can edit the initial values directly.
+
+        Parameters
+        ----------
+        blocking
+            If True (default), block until the dialog is closed.
+            If False, return immediately with the dialog still open.
+
+        Notes
+        -----
+        Requires a Qt binding (PyQt6, PyQt5, PySide6, or PySide2).
+
+        Example
+        -------
+        >>> ode = load_cellml_model("model.cellml")
+        >>> ode.states_gui()  # Opens editor dialog
+        """
+        from cubie.gui.states_editor import show_states_editor
+        show_states_editor(self, blocking=blocking)
+
     def get_solver_helper(
         self,
         func_type: str,

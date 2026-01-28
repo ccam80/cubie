@@ -1,8 +1,40 @@
 """Simulation-safe CUDA helpers and stand-ins.
 
-This module centralises compatibility utilities for environments running with
-``NUMBA_ENABLE_CUDASIM=1``.  It exposes a consistent surface so callers can
-import CUDA-facing helpers without branching on simulator state.
+This module centralises compatibility utilities for environments
+running with ``NUMBA_ENABLE_CUDASIM=1``. It exposes a consistent
+surface so callers can import CUDA-facing helpers without branching
+on simulator state.
+
+Published Functions
+-------------------
+:func:`from_dtype`
+    Return a CUDA-ready or simulator-safe dtype.
+:func:`is_devfunc`
+    Test whether a callable is a Numba CUDA device function.
+:func:`is_cuda_array`
+    Check whether a value should be treated as a CUDA array.
+:func:`is_cudasim_enabled`
+    Return whether the CUDA simulator is active.
+
+Published Device Functions
+--------------------------
+``selp``, ``activemask``, ``all_sync``, ``any_sync``,
+``syncwarp``, ``stwt``
+    Wrappers around CUDA intrinsics with CUDASIM fallbacks.
+
+Published Constants
+-------------------
+:data:`CUDA_SIMULATION`
+    ``True`` when ``NUMBA_ENABLE_CUDASIM=1``.
+:data:`compile_kwargs`
+    Default keyword arguments for ``@cuda.jit`` decorators.
+
+See Also
+--------
+:mod:`cubie._utils`
+    Imports ``compile_kwargs`` and ``is_devfunc`` from this module.
+:mod:`cubie.memory.mem_manager`
+    Uses memory manager classes exported here.
 """
 
 from __future__ import annotations
@@ -229,6 +261,22 @@ if CUDA_SIMULATION:  # pragma: no cover - simulated
         inline=True,
     )
     def selp(pred, true_value, false_value):
+        """Select ``true_value`` or ``false_value`` based on predicate.
+
+        Parameters
+        ----------
+        pred : bool
+            Condition to evaluate.
+        true_value : numba scalar
+            Value returned when ``pred`` is true.
+        false_value : numba scalar
+            Value returned when ``pred`` is false.
+
+        Returns
+        -------
+        numba scalar
+            Selected value.
+        """
         return true_value if pred else false_value
 
     @cuda.jit(
@@ -236,6 +284,13 @@ if CUDA_SIMULATION:  # pragma: no cover - simulated
         inline=True,
     )
     def activemask():
+        """Return the active thread mask for the current warp.
+
+        Returns
+        -------
+        int32
+            Bitmask of active threads (all-ones in CUDASIM).
+        """
         return 0xFFFFFFFF
 
     @cuda.jit(
@@ -243,6 +298,20 @@ if CUDA_SIMULATION:  # pragma: no cover - simulated
         inline=True,
     )
     def all_sync(mask, predicate):
+        """Return whether all threads in ``mask`` satisfy ``predicate``.
+
+        Parameters
+        ----------
+        mask : int32
+            Active thread mask.
+        predicate : bool
+            Per-thread condition.
+
+        Returns
+        -------
+        bool
+            ``True`` if all masked threads satisfy ``predicate``.
+        """
         return predicate
 
     @cuda.jit(
@@ -250,6 +319,20 @@ if CUDA_SIMULATION:  # pragma: no cover - simulated
         inline=True,
     )
     def any_sync(mask, predicate):
+        """Return whether any thread in ``mask`` satisfies ``predicate``.
+
+        Parameters
+        ----------
+        mask : int32
+            Active thread mask.
+        predicate : bool
+            Per-thread condition.
+
+        Returns
+        -------
+        bool
+            ``True`` if any masked thread satisfies ``predicate``.
+        """
         return predicate
 
     @cuda.jit(
@@ -257,6 +340,13 @@ if CUDA_SIMULATION:  # pragma: no cover - simulated
         inline=True,
     )
     def syncwarp(mask):
+        """Synchronise threads within a warp.
+
+        Parameters
+        ----------
+        mask : int32
+            Active thread mask.
+        """
         pass
 
     @cuda.jit(
@@ -264,6 +354,17 @@ if CUDA_SIMULATION:  # pragma: no cover - simulated
         inline=True,
     )
     def stwt(array, index, value):
+        """Store-through write: write ``value`` to ``array[index]``.
+
+        Parameters
+        ----------
+        array : device array
+            Target array.
+        index : int32
+            Element index.
+        value : numba scalar
+            Value to write.
+        """
         array[index] = value
 
 else:  # pragma: no cover - relies on GPU runtime

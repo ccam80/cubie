@@ -564,3 +564,51 @@ class SystemValues:
         Both indexing methods update ``values_dict`` and ``values_array``.
         """
         self.set_values(key, value)
+
+    def add_entry(self, name: str, value: float = 0.0) -> None:
+        """Add a new entry to the values collection.
+
+        Parameters
+        ----------
+        name
+            Name of the new entry.
+        value
+            Initial value for the entry.
+
+        Raises
+        ------
+        ValueError
+            If the name already exists.
+        """
+        if name in self.values_dict:
+            raise ValueError(f"Entry '{name}' already exists")
+
+        self.values_dict[name] = self.precision(value)
+        self.update_param_array_and_indices()
+        self.n = len(self.values_array)
+
+    def remove_entry(self, name: str) -> float:
+        """Remove an entry from the values collection.
+
+        Parameters
+        ----------
+        name
+            Name of the entry to remove.
+
+        Returns
+        -------
+        float
+            The value that was removed.
+
+        Raises
+        ------
+        KeyError
+            If the name does not exist.
+        """
+        if name not in self.values_dict:
+            raise KeyError(f"Entry '{name}' not found")
+
+        value = self.values_dict.pop(name)
+        self.update_param_array_and_indices()
+        self.n = len(self.values_array)
+        return value

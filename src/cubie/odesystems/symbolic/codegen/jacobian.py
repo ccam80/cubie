@@ -33,6 +33,10 @@ def get_cache_counts() -> Dict[str, int]:
     -------
     Dict[str, int]
         Numbers of cached ``"jac"`` and ``"jvp"`` entries.
+
+    Notes
+    -----
+    Utility helper used in caching tests.
     """
     counts: Dict[str, int] = {"jac": 0, "jvp": 0}
     for value in _cache.values():
@@ -98,7 +102,12 @@ def get_cache_key(
 
 
 def clear_cache() -> None:
-    """Clear the unified symbolic cache."""
+    """Clear the unified symbolic cache.
+
+    Notes
+    -----
+    Utility helper used in caching tests.
+    """
     _cache.clear()
 
 
