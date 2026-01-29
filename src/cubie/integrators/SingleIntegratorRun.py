@@ -1,16 +1,25 @@
-"""High-level property aggregation for single integrator runs.
+"""Read-only property aggregation for single integrator runs.
 
-This module exposes :class:`SingleIntegratorRun`, a thin wrapper around
+Published Classes
+-----------------
+:class:`SingleIntegratorRun`
+    Subclass of
+    :class:`~cubie.integrators.SingleIntegratorRunCore.SingleIntegratorRunCore`
+    that exposes compiled loop artifacts, controller settings, and
+    algorithm step metadata as read-only properties.
+
+See Also
+--------
 :class:`~cubie.integrators.SingleIntegratorRunCore.SingleIntegratorRunCore`
-that presents compiled loop artifacts, controllers, and algorithm steps as
-read-only properties for downstream consumers.
+    Parent class providing initialisation, update, and compilation.
+:class:`~cubie.batchsolving.BatchSolverKernel.BatchSolverKernel`
+    Primary consumer of these properties.
 """
 
-from typing import TYPE_CHECKING, Any, Callable, Dict, Optional
+from typing import TYPE_CHECKING, Any, Callable, Optional
 
 from numpy import dtype as np_dtype, floor as np_floor
 
-from cubie._utils import PrecisionDType
 from cubie.integrators.SingleIntegratorRunCore import (
     SingleIntegratorRunCore,
 )
@@ -235,51 +244,9 @@ class SingleIntegratorRun(SingleIntegratorRunCore):
 
         return self._loop.save_summaries_fn
 
-    @property
-    def control_device_function(self) -> Callable:
-        """Return the compiled controller device function."""
-
-        return self._loop.step_controller_fn
-
-    @property
-    def compiled_loop_step_function(self) -> Callable:
-        """Return the compiled algorithm step function."""
-
-        return self._loop.step_function
-
     # ------------------------------------------------------------------
     # Step controller properties
     # ------------------------------------------------------------------
-    @property
-    def min_gain(self) -> Optional[float]:
-        """Return the minimum step size gain."""
-
-        controller = self._step_controller
-        return controller.min_gain if hasattr(controller, "min_gain") else None
-
-    @property
-    def max_gain(self) -> Optional[float]:
-        """Return the maximum step size gain."""
-
-        controller = self._step_controller
-        return controller.max_gain if hasattr(controller, "max_gain") else None
-
-    @property
-    def safety(self) -> Optional[float]:
-        """Return the controller safety factor."""
-
-        controller = self._step_controller
-        return controller.safety if hasattr(controller, "safety") else None
-
-    @property
-    def algorithm_order(self) -> Optional[int]:
-        """Return the algorithm order assumed by the controller."""
-
-        controller = self._step_controller
-        if hasattr(controller, "algorithm_order"):
-            return controller.algorithm_order
-        return None
-
     @property
     def atol(self) -> Optional[Any]:
         """Return the absolute tolerance array."""
@@ -295,53 +262,10 @@ class SingleIntegratorRun(SingleIntegratorRunCore):
         return controller.rtol if hasattr(controller, "rtol") else None
 
     @property
-    def kp(self) -> Optional[float]:
-        """Return the proportional gain."""
-
-        controller = self._step_controller
-        return controller.kp if hasattr(controller, "kp") else None
-
-    @property
-    def ki(self) -> Optional[float]:
-        """Return the integral gain."""
-
-        controller = self._step_controller
-        return controller.ki if hasattr(controller, "ki") else None
-
-    @property
-    def kd(self) -> Optional[float]:
-        """Return the derivative gain."""
-
-        controller = self._step_controller
-        return controller.kd if hasattr(controller, "kd") else None
-
-    @property
-    def gamma(self) -> Optional[float]:
-        """Return the Gustafsson damping factor."""
-
-        controller = self._step_controller
-        return controller.gamma if hasattr(controller, "gamma") else None
-
-    @property
-    def newton_max_iters(self) -> Optional[int]:
-        """Return the maximum Newton iterations used by the controller."""
-
-        controller = self._step_controller
-        if hasattr(controller, "newton_max_iters"):
-            return controller.newton_max_iters
-        return None
-
-    @property
     def dt(self) -> Optional[float]:
         """Return the fixed step size for fixed controllers."""
         controller = self._step_controller
         return controller.dt if hasattr(controller, "dt") else None
-
-    @property
-    def control_settings(self) -> Dict[str, Any]:
-        """Return the controller settings dictionary."""
-
-        return dict(self._step_controller.settings_dict)
 
     # ------------------------------------------------------------------
     # Algorithm step properties
@@ -351,154 +275,6 @@ class SingleIntegratorRun(SingleIntegratorRunCore):
         """Return the number of threads required by the step function."""
 
         return self._algo_step.threads_per_step
-
-    @property
-    def uses_multiple_stages(self) -> bool:
-        """Return whether the algorithm uses multiple stages."""
-
-        return self._algo_step.is_multistage
-
-    @property
-    def order(self) -> int:
-        """Return the algorithm order."""
-
-        return self._algo_step.order
-
-    @property
-    def integration_step_function(self) -> Callable:
-        """Return the compiled step function."""
-
-        return self._algo_step.step_function
-
-    @property
-    def state_count(self) -> int:
-        """Return the algorithm state count."""
-
-        return self._algo_step.n
-
-    @property
-    def solver_helper(self) -> Callable:
-        """Return the solver helper factory used by the algorithm."""
-
-        return self._algo_step.get_solver_helper_fn
-
-    @property
-    def beta_coefficient(self) -> Optional[Any]:
-        """Return the implicit beta coefficient."""
-
-        step = self._algo_step
-        return step.beta if hasattr(step, "beta") else None
-
-    @property
-    def gamma_coefficient(self) -> Optional[Any]:
-        """Return the implicit gamma coefficient."""
-
-        step = self._algo_step
-        return step.gamma if hasattr(step, "gamma") else None
-
-    @property
-    def mass_matrix(self) -> Optional[Any]:
-        """Return the implicit mass matrix."""
-
-        step = self._algo_step
-        return step.mass_matrix if hasattr(step, "mass_matrix") else None
-
-    @property
-    def preconditioner_order(self) -> Optional[int]:
-        """Return the implicit preconditioner order."""
-
-        step = self._algo_step
-        return (
-            step.preconditioner_order
-            if hasattr(step, "preconditioner_order")
-            else None
-        )
-
-    @property
-    def krylov_atol(self) -> Optional[Any]:
-        """Return the linear solve absolute tolerance array."""
-
-        step = self._algo_step
-        return step.krylov_atol if hasattr(step, "krylov_atol") else None
-
-    @property
-    def krylov_rtol(self) -> Optional[Any]:
-        """Return the linear solve relative tolerance array."""
-
-        step = self._algo_step
-        return step.krylov_rtol if hasattr(step, "krylov_rtol") else None
-
-    @property
-    def max_linear_iterations(self) -> Optional[int]:
-        """Return the maximum linear iterations."""
-
-        step = self._algo_step
-        return (
-            step.krylov_max_iters
-            if hasattr(step, "krylov_max_iters")
-            else None
-        )
-
-    @property
-    def linear_correction_type(self) -> Optional[Any]:
-        """Return the linear correction strategy."""
-
-        step = self._algo_step
-        return (
-            step.linear_correction_type
-            if hasattr(step, "linear_correction_type")
-            else None
-        )
-
-    @property
-    def newton_atol(self) -> Optional[Any]:
-        """Return the nonlinear solve absolute tolerance array."""
-
-        step = self._algo_step
-        return step.newton_atol if hasattr(step, "newton_atol") else None
-
-    @property
-    def newton_rtol(self) -> Optional[Any]:
-        """Return the nonlinear solve relative tolerance array."""
-
-        step = self._algo_step
-        return step.newton_rtol if hasattr(step, "newton_rtol") else None
-
-    @property
-    def newton_iterations_limit(self) -> Optional[int]:
-        """Return the maximum Newton iterations for the step."""
-
-        step = self._algo_step
-        return (
-            step.newton_max_iters
-            if hasattr(step, "newton_max_iters")
-            else None
-        )
-
-    @property
-    def newton_damping(self) -> Optional[float]:
-        """Return the Newton damping factor."""
-
-        step = self._algo_step
-        return step.newton_damping if hasattr(step, "newton_damping") else None
-
-    @property
-    def newton_max_backtracks(self) -> Optional[int]:
-        """Return the maximum Newton backtracking steps."""
-
-        step = self._algo_step
-        return (
-            step.newton_max_backtracks
-            if hasattr(step, "newton_max_backtracks")
-            else None
-        )
-
-    @property
-    def integration_step_size(self) -> Optional[float]:
-        """Return the fixed step size for explicit steps."""
-
-        step = self._algo_step
-        return step.dt if hasattr(step, "dt") else None
 
     # ------------------------------------------------------------------
     # Output function properties
@@ -562,72 +338,6 @@ class SingleIntegratorRun(SingleIntegratorRunCore):
         """Return the summarised observable indices."""
 
         return self._output_functions.summarised_observable_indices
-
-    @property
-    def n_saved_states(self) -> int:
-        """Return the number of saved states."""
-
-        return self._output_functions.n_saved_states
-
-    @property
-    def n_saved_observables(self) -> int:
-        """Return the number of saved observables."""
-
-        return self._output_functions.n_saved_observables
-
-    @property
-    def state_summaries_output_height(self) -> int:
-        """Return the state summary output height."""
-
-        return self._output_functions.state_summaries_output_height
-
-    @property
-    def observable_summaries_output_height(self) -> int:
-        """Return the observable summary output height."""
-
-        return self._output_functions.observable_summaries_output_height
-
-    @property
-    def summary_buffer_height_per_variable(self) -> int:
-        """Return the summary buffer height per variable."""
-
-        return self._output_functions.summaries_buffer_height_per_var
-
-    @property
-    def state_summaries_buffer_height(self) -> int:
-        """Return the total state summary buffer height."""
-
-        return self._output_functions.state_summaries_buffer_height
-
-    @property
-    def observable_summaries_buffer_height(self) -> int:
-        """Return the total observable summary buffer height."""
-
-        return self._output_functions.observable_summaries_buffer_height
-
-    @property
-    def total_summary_buffer_size(self) -> int:
-        """Return the total summary buffer size."""
-
-        return self._output_functions.total_summary_buffer_size
-
-    @property
-    def summary_output_height_per_variable(self) -> int:
-        """Return the summary output height per variable."""
-
-        return self._output_functions.summaries_output_height_per_var
-
-    @property
-    def n_summarised_states(self) -> int:
-        """Return the number of summarised states."""
-
-        return self._output_functions.n_summarised_states
-
-    @property
-    def n_summarised_observables(self) -> int:
-        """Return the number of summarised observables."""
-
-        return self._output_functions.n_summarised_observables
 
     @property
     def output_array_heights(self) -> Any:

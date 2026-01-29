@@ -1,4 +1,30 @@
-"""Adaptive proportional–integral controller implementations."""
+"""Adaptive proportional--integral step-size controller.
+
+Published Classes
+-----------------
+:class:`PIStepControlConfig`
+    Configuration for proportional--integral controllers.
+
+    >>> from numpy import float64
+    >>> config = PIStepControlConfig(precision=float64)
+    >>> config.kp  # doctest: +ELLIPSIS
+    0.055...
+
+:class:`AdaptivePIController`
+    Proportional--integral step-size controller.
+
+    >>> from numpy import float64
+    >>> ctrl = AdaptivePIController(precision=float64, n=4)
+    >>> ctrl.is_adaptive
+    True
+
+See Also
+--------
+:class:`~cubie.integrators.step_control.adaptive_step_controller.BaseAdaptiveStepController`
+    Abstract base class for adaptive controllers.
+:class:`~cubie.integrators.step_control.adaptive_step_controller.AdaptiveStepControlConfig`
+    Parent configuration class.
+"""
 
 from typing import Callable
 

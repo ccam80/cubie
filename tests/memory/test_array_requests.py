@@ -13,21 +13,6 @@ class DummyClass:
 class TestArrayRequests:
     @pytest.mark.parametrize(
         "array_request_override",
-        [
-            {"shape": (20000,), "dtype": np.float64},
-            {"memory": "pinned"},
-            {"shape": (10, 10, 10, 10, 10), "dtype": np.float32},
-        ],
-        indirect=True,
-    )
-    def test_size(self, array_request):
-        assert (
-            array_request.size
-            == np.prod(array_request.shape) * array_request.dtype().itemsize
-        ), "Incorrect size calculated"
-
-    @pytest.mark.parametrize(
-        "array_request_override",
         [{"shape": (20000,), "dtype": np.float64}],
         indirect=True,
     )

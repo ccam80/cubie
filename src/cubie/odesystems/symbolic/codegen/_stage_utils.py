@@ -1,4 +1,23 @@
-"""Shared helpers for FIRK stage metadata preparation."""
+"""Shared helpers for FIRK stage metadata preparation.
+
+Published Functions
+-------------------
+:func:`prepare_stage_data`
+    Sympify Butcher tableau coefficients and nodes into SymPy objects.
+
+:func:`build_stage_metadata`
+    Create symbol assignments for FIRK coefficients and nodes for use
+    in generated CUDA code.
+
+See Also
+--------
+:mod:`cubie.odesystems.symbolic.codegen.linear_operators`
+    Uses these helpers when generating multi-stage operators.
+:mod:`cubie.odesystems.symbolic.codegen.nonlinear_residuals`
+    Uses these helpers when generating multi-stage residuals.
+:mod:`cubie.odesystems.symbolic.codegen.preconditioners`
+    Uses these helpers when generating multi-stage preconditioners.
+"""
 
 from typing import List, Sequence, Tuple, Union
 

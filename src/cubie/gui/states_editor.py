@@ -45,7 +45,6 @@ class StatesEditor(QDialog):
     ):
         super().__init__(parent)
         self._ode = ode
-        self._pending_changes: dict[str, float] = {}
         self._value_edits: dict[str, FloatLineEdit] = {}
 
         self._setup_ui()
@@ -80,13 +79,9 @@ class StatesEditor(QDialog):
         button_layout = QHBoxLayout()
         button_layout.addStretch()
 
-        apply_btn = QPushButton("Apply")
-        apply_btn.clicked.connect(self._on_apply)
-        button_layout.addWidget(apply_btn)
-
-        close_btn = QPushButton("Close")
-        close_btn.clicked.connect(self.close)
-        button_layout.addWidget(close_btn)
+        ok_btn = QPushButton("OK")
+        ok_btn.clicked.connect(self._on_ok)
+        button_layout.addWidget(ok_btn)
 
         layout.addLayout(button_layout)
 
@@ -108,9 +103,6 @@ class StatesEditor(QDialog):
             self._table.setItem(row, 0, name_item)
 
             value_edit = FloatLineEdit(value)
-            value_edit.editingFinished.connect(
-                lambda n=name: self._on_value_changed(n)
-            )
             self._value_edits[name] = value_edit
             self._table.setCellWidget(row, 1, value_edit)
 
@@ -118,14 +110,8 @@ class StatesEditor(QDialog):
             unit_item.setFlags(unit_item.flags() & ~Qt.ItemIsEditable)
             self._table.setItem(row, 2, unit_item)
 
-    def _on_value_changed(self, name: str) -> None:
-        """Handle value edit change."""
-        edit = self._value_edits[name]
-        if edit.isValid():
-            self._pending_changes[name] = edit.value()
-
-    def _on_apply(self) -> None:
-        """Apply all pending changes to the ODE."""
+    def _on_ok(self) -> None:
+        """Apply all changes and close the dialog."""
         invalid_edits = [
             name for name, edit in self._value_edits.items()
             if not edit.isValid()
@@ -141,26 +127,21 @@ class StatesEditor(QDialog):
 
         errors = []
 
-        for name, value in self._pending_changes.items():
+        for name, ve in self._value_edits.items():
             try:
-                self._ode.set_initial_value(name, value)
+                self._ode.set_initial_value(name, ve.value())
             except Exception as e:
                 errors.append(f"{name}: {e}")
-
-        self._pending_changes.clear()
 
         if errors:
             QMessageBox.warning(
                 self,
                 "Errors Applying Changes",
-                "Some changes could not be applied:\n" + "\n".join(errors)
+                "Some changes could not be applied:\n"
+                + "\n".join(errors)
             )
         else:
-            QMessageBox.information(
-                self,
-                "Changes Applied",
-                "All initial values have been updated."
-            )
+            self.accept()
 
 
 def show_states_editor(

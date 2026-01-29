@@ -1,12 +1,28 @@
 import sympy as sp
 
 from cubie.odesystems.symbolic.codegen.jacobian import (
-    clear_cache,
+    _cache,
     generate_analytical_jvp,
     generate_jacobian,
-    get_cache_counts,
 )
 from cubie.odesystems.symbolic.parsing import IndexedBases, ParsedEquations
+
+
+def _clear_cache():
+    """Clear the Jacobian/JVP module cache between tests."""
+    _cache.clear()
+
+
+def _get_cache_counts():
+    """Count cached Jacobian and JVP artifacts."""
+    counts = {"jac": 0, "jvp": 0}
+    for value in _cache.values():
+        if isinstance(value, dict):
+            if "jac" in value:
+                counts["jac"] += 1
+            if "jvp" in value:
+                counts["jvp"] += 1
+    return counts
 
 
 def test_generate_jacobian_with_auxiliary():
@@ -84,16 +100,16 @@ def test_jacobian_caching():
     dx = next(iter(index_map.dxdt.ref_map.keys()))
     equations = [(dx, x + y)]
     parsed = ParsedEquations.from_equations(equations, index_map)
-    clear_cache()
+    _clear_cache()
     generate_jacobian(parsed, index_map.states.index_map, index_map.dxdt.index_map)
     generate_analytical_jvp(
         parsed, index_map.states.index_map, index_map.dxdt.index_map
     )
-    counts = get_cache_counts()
+    counts = _get_cache_counts()
     assert counts == {"jac": 1, "jvp": 1}
     generate_jacobian(parsed, index_map.states.index_map, index_map.dxdt.index_map)
     generate_analytical_jvp(
         parsed, index_map.states.index_map, index_map.dxdt.index_map
     )
-    counts2 = get_cache_counts()
+    counts2 = _get_cache_counts()
     assert counts2 == counts

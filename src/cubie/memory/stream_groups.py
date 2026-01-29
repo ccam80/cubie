@@ -1,9 +1,25 @@
 """Stream group management for coordinating CUDA work queues.
 
-This module groups host-side objects and identifiers under shared CUDA streams
-so that related kernels, transfers, and memory operations execute together. The
-default group always exists and receives a fresh stream after CUDA context
-resets.
+This module groups host-side objects and identifiers under shared CUDA
+streams so that related kernels, transfers, and memory operations
+execute together. The default group always exists and receives a fresh
+stream after CUDA context resets.
+
+Published Classes
+-----------------
+:class:`StreamGroups`
+    Container for organising instances into groups with shared streams.
+
+    >>> groups = StreamGroups()
+    >>> groups.add_instance(42, "default")
+    >>> groups.get_group(42)
+    'default'
+
+See Also
+--------
+:class:`~cubie.memory.mem_manager.MemoryManager`
+    Owns a :class:`StreamGroups` instance and delegates stream
+    operations to it.
 """
 
 from typing import Any, Optional, Union
@@ -52,34 +68,22 @@ class StreamGroups:
     )
 
     def __attrs_post_init__(self) -> None:
-        """
-        Initialize default group and stream if not provided.
-
-        Returns
-        -------
-        None
-            ``None``.
-        """
+        """Initialize default group and stream if not provided."""
         if self.groups is None:
             self.groups = {"default": []}
         if self.streams is None:
             self.streams = {"default": cuda.default_stream()}
 
     def add_instance(self, instance: Any, group: str) -> None:
-        """
-        Add an instance to a stream group.
+        """Add an instance to a stream group.
 
         Parameters
         ----------
         instance
-            Host object or integer identifier to register with a stream group.
+            Host object or integer identifier to register with a
+            stream group.
         group
             Name of the destination group.
-
-        Returns
-        -------
-        None
-            ``None``.
 
         Raises
         ------
@@ -88,7 +92,8 @@ class StreamGroups:
 
         Notes
         -----
-        If the group does not exist, it is created with a new CUDA stream.
+        If the group does not exist, it is created with a new CUDA
+        stream.
         """
         if isinstance(instance, int):
             instance_id = instance
@@ -172,8 +177,7 @@ class StreamGroups:
         return self.groups[group]
 
     def change_group(self, instance: Any, new_group: str) -> None:
-        """
-        Move an instance to another stream group.
+        """Move an instance to another stream group.
 
         Parameters
         ----------
@@ -182,14 +186,10 @@ class StreamGroups:
         new_group
             Name of the destination group.
 
-        Returns
-        -------
-        None
-            ``None``.
-
         Notes
         -----
-        If the new group does not exist, it is created with a new CUDA stream.
+        If the new group does not exist, it is created with a new
+        CUDA stream.
         """
         if isinstance(instance, int):
             instance_id = instance
@@ -207,17 +207,12 @@ class StreamGroups:
         self.groups[new_group].append(instance_id)
 
     def reinit_streams(self) -> None:
-        """
-        Reinitialize all streams after a context reset.
-
-        Returns
-        -------
-        None
-            ``None``.
+        """Reinitialize all streams after a context reset.
 
         Notes
         -----
-        Called after CUDA context reset to create fresh streams for all groups.
+        Called after CUDA context reset to create fresh streams for
+        all groups.
         """
         for group in self.streams:
             self.streams[group] = cuda.stream()

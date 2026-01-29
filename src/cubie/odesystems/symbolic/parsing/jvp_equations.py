@@ -1,4 +1,22 @@
-"""Structured representation for Jacobian-vector product assignments."""
+"""Structured representation for Jacobian-vector product assignments.
+
+Published Classes
+-----------------
+:class:`JVPEquations`
+    Attrs container holding ordered auxiliary and JVP assignments with
+    dependency graphs, operation costs, and auxiliary caching metadata.
+    Created by :func:`~cubie.odesystems.symbolic.codegen.jacobian.generate_analytical_jvp`
+    and consumed by the linear operator and preconditioner code generators.
+
+See Also
+--------
+:mod:`cubie.odesystems.symbolic.codegen.jacobian`
+    Produces ``JVPEquations`` from parsed system equations.
+:mod:`cubie.odesystems.symbolic.parsing.auxiliary_caching`
+    Computes and stores cache plans inside ``JVPEquations``.
+:mod:`cubie.odesystems.symbolic.codegen.linear_operators`
+    Consumes ``JVPEquations`` to generate CUDA linear operator code.
+"""
 from typing import (
     Dict,
     Iterable,

@@ -1,4 +1,61 @@
-"""Parse symbolic ODE descriptions into structured SymPy objects."""
+"""Parse symbolic ODE descriptions into structured SymPy objects.
+
+Published Classes
+-----------------
+:class:`ParsedEquations`
+    Frozen attrs container holding topologically ordered equations
+    partitioned into state derivatives, observables, and auxiliaries.
+
+    >>> import sympy as sp
+    >>> from cubie.odesystems.symbolic.parsing.parser import (
+    ...     parse_input,
+    ... )
+    >>> _, _, _, eqs, _ = parse_input(
+    ...     dxdt="dx = -k * x",
+    ...     states={"x": 1.0},
+    ...     parameters={"k": 0.5},
+    ... )
+    >>> len(eqs.state_derivatives)
+    1
+
+:class:`EquationWarning`
+    Warning category for recoverable issues during equation parsing.
+
+Published Functions
+-------------------
+:func:`parse_input`
+    Entry point that accepts string or SymPy equations plus symbol
+    metadata and returns structured components for
+    :class:`~cubie.odesystems.symbolic.symbolicODE.SymbolicODE`.
+
+    >>> index_map, syms, fns, eqs, h = parse_input(
+    ...     dxdt="dx = -x",
+    ...     states={"x": 1.0},
+    ... )
+    >>> list(index_map.state_names)
+    ['x']
+
+Constants
+---------
+:data:`PARSE_TRANSFORMS`
+    SymPy parser transformation tuple applied during string parsing.
+
+:data:`KNOWN_FUNCTIONS`
+    Mapping of function names recognised in equation strings to their
+    SymPy equivalents.
+
+:data:`TIME_SYMBOL`
+    Canonical ``t`` symbol shared across the parsing pipeline.
+
+See Also
+--------
+:class:`~cubie.odesystems.symbolic.indexedbasemaps.IndexedBases`
+    Symbol index collections returned by :func:`parse_input`.
+:mod:`cubie.odesystems.symbolic.sym_utils`
+    Topological sorting and CSE utilities used during parsing.
+:class:`~cubie.odesystems.symbolic.symbolicODE.SymbolicODE`
+    Consumer of the parsed output.
+"""
 
 import re
 from typing import (
@@ -24,7 +81,7 @@ from ..sym_utils import hash_system_definition
 from cubie._utils import is_devfunc
 
 # Lambda notation, Auto-number, factorial notation, implicit multiplication
-PARSE_TRANSORMS = (T[0][0], T[3][0], T[4][0], T[8][0])
+PARSE_TRANSFORMS = (T[0][0], T[3][0], T[4][0], T[8][0])
 
 _INDEXED_NAME_PATTERN = re.compile(r"(?P<name>[A-Za-z_]\w*)\[(?P<index>\d+)\]")
 
@@ -1321,7 +1378,7 @@ def _rhs_pass(
             try:
                 rhs_expr = parse_expr(
                     rhs_expr,
-                    transformations=PARSE_TRANSORMS,
+                    transformations=PARSE_TRANSFORMS,
                     local_dict=local_dict,
                 )
             except (NameError, TypeError) as e:

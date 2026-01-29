@@ -1,4 +1,44 @@
-"""Tableaus for diagonally implicit Runge--Kutta (DIRK) methods."""
+"""Tableaus for diagonally implicit Runge–Kutta (DIRK) methods.
+
+Published Classes
+-----------------
+:class:`DIRKTableau`
+    Extends :class:`~base_algorithm_step.ButcherTableau` with a
+    ``diagonal()`` accessor for the :math:`A` matrix diagonal.
+
+Constants
+---------
+:data:`IMPLICIT_MIDPOINT_TABLEAU`
+    Single-stage, second-order symplectic method.
+
+:data:`TRAPEZOIDAL_DIRK_TABLEAU`
+    Two-stage ESDIRK Crank–Nicolson (trapezoidal) rule.
+
+:data:`LOBATTO_IIIC_3_TABLEAU`
+    Three-stage, fourth-order Lobatto IIIC scheme.
+
+:data:`SDIRK_2_2_TABLEAU`
+    Two-stage, second-order L-stable SDIRK by Alexander.
+
+:data:`L_STABLE_DIRK3_TABLEAU`
+    Three-stage, third-order L-stable stiffly-accurate DIRK.
+
+:data:`L_STABLE_SDIRK4_TABLEAU`
+    Five-stage, fourth-order Hairer–Wanner L-stable SDIRK.
+
+:data:`DIRK_TABLEAU_REGISTRY`
+    Name → tableau mapping for alias-based lookup.
+
+:data:`DEFAULT_DIRK_TABLEAU`
+    Default tableau (Lobatto IIIC 3-stage).
+
+See Also
+--------
+:class:`~cubie.integrators.algorithms.generic_dirk.DIRKStep`
+    Step factory consuming these tableaus.
+:class:`~cubie.integrators.algorithms.base_algorithm_step.ButcherTableau`
+    Parent tableau class.
+"""
 
 from typing import Dict, Tuple
 

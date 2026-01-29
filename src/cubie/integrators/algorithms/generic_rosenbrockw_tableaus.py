@@ -1,4 +1,35 @@
-"""Rosenbrock-W method tableaus and registry utilities."""
+"""Rosenbrock-W method tableaus and registry utilities.
+
+Published Classes
+-----------------
+:class:`RosenbrockTableau`
+    Extends :class:`~base_algorithm_step.ButcherTableau` with ``C``,
+    ``gamma``, and ``gamma_stages`` fields and typed accessors.
+
+Constants
+---------
+:data:`ROS3P_TABLEAU`
+    Three-stage, third-order ROS3P tableau (Rang & Angermann 2005).
+
+:data:`RODAS3P_TABLEAU`
+    Five-stage, third-order RODAS3P tableau (Kaps–Rentrop).
+
+:data:`ROSENBROCK_23_SCIML_TABLEAU`
+    Three-stage, third-order SciML Rosenbrock-23 variant.
+
+:data:`ROSENBROCK_TABLEAUS`
+    Name → tableau mapping for alias-based lookup.
+
+:data:`DEFAULT_ROSENBROCK_TABLEAU`
+    Default tableau (ROS3P).
+
+See Also
+--------
+:class:`~cubie.integrators.algorithms.generic_rosenbrock_w.GenericRosenbrockWStep`
+    Step factory consuming these tableaus.
+:class:`~cubie.integrators.algorithms.base_algorithm_step.ButcherTableau`
+    Parent tableau class.
+"""
 
 from math import sqrt
 from typing import Dict, Tuple
@@ -44,25 +75,6 @@ class RosenbrockTableau(ButcherTableau):
         """Return stage-specific gamma shifts typed to ``numba_precision``."""
 
         return self.typed_vector(self.gamma_stages, numba_precision)
-
-    def C_flat(self, precision):
-        """Return the C matrix coefficients as a flattened tuple.
-
-        Parameters
-        ----------
-        precision
-            Numerical precision type for output values.
-
-        Returns
-        -------
-        tuple
-            Flattened tuple of C matrix coefficients typed to precision.
-        """
-        typed_rows = self.typed_rows(self.C, precision)
-        flat_list: list = []
-        for row in typed_rows:
-            flat_list.extend(row)
-        return tuple(precision(value) for value in flat_list)
 
 
 # --------------------------------------------------------------------------

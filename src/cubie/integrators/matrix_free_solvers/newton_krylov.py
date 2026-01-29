@@ -1,8 +1,31 @@
 """Newton--Krylov solver factories for matrix-free integrators.
 
-The helpers in this module wrap the linear solver provided by
-:mod:`cubie.integrators.matrix_free_solvers.linear_solver` to build damped
-Newton iterations suitable for CUDA device execution.
+This module wraps the linear solver provided by
+:mod:`cubie.integrators.matrix_free_solvers.linear_solver` to build
+damped Newton iterations suitable for CUDA device execution.
+
+Published Classes
+-----------------
+:class:`NewtonKrylovConfig`
+    Attrs configuration for the Newton--Krylov solver factory.
+
+:class:`NewtonKrylovCache`
+    Cache container holding the compiled Newton--Krylov device
+    function.
+
+:class:`NewtonKrylov`
+    CUDAFactory subclass that compiles a damped Newton--Krylov
+    solver wrapping a :class:`~cubie.integrators.matrix_free_solvers.linear_solver.LinearSolver`.
+
+See Also
+--------
+:class:`~cubie.integrators.matrix_free_solvers.base_solver.MatrixFreeSolver`
+    Parent factory providing norm and tolerance management.
+:class:`~cubie.integrators.matrix_free_solvers.linear_solver.LinearSolver`
+    Inner linear solver used for the Newton correction equation.
+:mod:`cubie.integrators.algorithms.ode_implicitstep`
+    Implicit step base class that creates :class:`NewtonKrylov`
+    instances.
 """
 
 from typing import Callable, Optional, Set, Dict, Any
@@ -65,6 +88,9 @@ class NewtonKrylovConfig(MatrixFreeSolverConfig):
         Memory location for residual_temp buffer.
     stage_base_bt_location : str
         Memory location for stage_base_bt buffer.
+    krylov_iters_local_location : str
+        Memory location for the single-element Krylov iteration
+        counter buffer.
 
     Notes
     -----
@@ -151,10 +177,33 @@ class NewtonKrylovCache(CUDADispatcherCache):
 
 
 class NewtonKrylov(MatrixFreeSolver):
-    """Factory for Newton-Krylov solver device functions.
+    """Factory for Newton--Krylov solver device functions.
 
-    Implements damped Newton iteration using a matrix-free
-    linear solver for the correction equation.
+    Implements damped Newton iteration using a matrix-free linear
+    solver for the correction equation.
+
+    Parameters
+    ----------
+    precision : PrecisionDType
+        Numerical precision for computations.
+    n : int
+        Size of state vectors.
+    linear_solver : LinearSolver
+        :class:`~cubie.integrators.matrix_free_solvers.linear_solver.LinearSolver`
+        instance for solving linear systems.
+    **kwargs
+        Forwarded to :class:`NewtonKrylovConfig` and the norm
+        factory. Includes prefixed tolerance parameters
+        (``newton_atol``, ``newton_rtol``).
+
+    See Also
+    --------
+    :class:`NewtonKrylovConfig`
+        Configuration container for this factory.
+    :class:`~cubie.integrators.matrix_free_solvers.base_solver.MatrixFreeSolver`
+        Parent class providing norm and tolerance management.
+    :class:`~cubie.integrators.matrix_free_solvers.linear_solver.LinearSolver`
+        Inner linear solver used for the Newton correction equation.
     """
 
     def __init__(

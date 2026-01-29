@@ -1,4 +1,26 @@
-"""Containers for the numerical values used to parameterise ODE systems."""
+"""Containers for the numerical values used to parameterise ODE systems.
+
+Published Classes
+-----------------
+:class:`SystemValues`
+    Keyed parameter container pairing a name-value dictionary with a
+    packed NumPy array.
+
+    >>> from numpy import float64
+    >>> sv = SystemValues({"x": 1.0, "y": 2.0}, float64)
+    >>> sv["x"]
+    1.0
+    >>> sv.names
+    ['x', 'y']
+
+See Also
+--------
+:class:`~cubie.odesystems.ODEData.ODEData`
+    Data container that stores ``SystemValues`` instances for each
+    component category (states, parameters, constants, observables).
+:class:`~cubie.odesystems.baseODE.BaseODE`
+    Abstract ODE factory exposing ``SystemValues`` via properties.
+"""
 
 from collections.abc import Mapping, Sequence, Sized
 from typing import Any, Union

@@ -1,4 +1,39 @@
-"""Fully implicit Runge--Kutta tableau definitions."""
+"""Fully implicit Runge–Kutta tableau definitions.
+
+Published Classes
+-----------------
+:class:`FIRKTableau`
+    Extends :class:`~base_algorithm_step.ButcherTableau` (no
+    additional methods; serves as a type tag for dispatch).
+
+Module-Level Functions
+----------------------
+:func:`compute_embedded_weights_radauIIA`
+    Compute embedded weights for Radau IIA collocation nodes via
+    moment conditions.
+
+Constants
+---------
+:data:`GAUSS_LEGENDRE_2_TABLEAU`
+    Two-stage, fourth-order Gauss–Legendre tableau.
+
+:data:`RADAU_IIA_5_TABLEAU`
+    Three-stage, fifth-order Radau IIA tableau with second-order
+    embedded error estimate.
+
+:data:`FIRK_TABLEAU_REGISTRY`
+    Name → tableau mapping for alias-based lookup.
+
+:data:`DEFAULT_FIRK_TABLEAU`
+    Default tableau (Gauss–Legendre 2-stage).
+
+See Also
+--------
+:class:`~cubie.integrators.algorithms.generic_firk.FIRKStep`
+    Step factory consuming these tableaus.
+:class:`~cubie.integrators.algorithms.base_algorithm_step.ButcherTableau`
+    Parent tableau class.
+"""
 
 from typing import Dict
 
@@ -33,22 +68,29 @@ GAUSS_LEGENDRE_2_TABLEAU = FIRKTableau(
 
 
 def compute_embedded_weights_radauIIA(c, order=None):
-    """
-    Compute embedded weights b* for Radau IIA given collocation nodes c.
+    """Compute embedded weights for Radau IIA collocation nodes.
 
-    Uses moment conditions: sum(b*_i * c_i^(k-1)) = 1/k for k=1..order
+    Solves the moment conditions
+    :math:`\\sum_i b^*_i \\, c_i^{k-1} = 1/k` for
+    :math:`k = 1, \\ldots, \\text{order}`.
 
-    Parameters:
-    -----------
+    Parameters
+    ----------
     c : array_like, shape (s,)
-        Collocation nodes
+        Collocation nodes.
     order : int, optional
-        Order of embedded method (must be <= s). If None, uses s.
+        Order of the embedded method (must be ``<= s``). When
+        ``None``, defaults to ``s``.
 
-    Returns:
-    --------
-    b_star : ndarray, shape (s,)
-        Embedded weights
+    Returns
+    -------
+    ndarray, shape (s,)
+        Embedded weights satisfying the moment conditions.
+
+    Raises
+    ------
+    ValueError
+        If ``order`` exceeds the number of stages.
     """
     c = np_asarray(c)
     s = len(c)
@@ -73,24 +115,11 @@ def compute_embedded_weights_radauIIA(c, order=None):
     return b_star
 
 
-# Hairer's RadauIIA5 collocation nodes
-c = np_array([(4 - np_sqrt(6)) / 10, (4 + np_sqrt(6)) / 10, 1.0])
-
-# Main weights (order 5)
-b = np_array([(16 - np_sqrt(6)) / 36, (16 + np_sqrt(6)) / 36, 1.0 / 9])
-
-# Compute embedded weights (choose order 2 or 3)
-b_star = compute_embedded_weights_radauIIA(c, order=2)
-
-
-# Radau IIA 5th-order method (3 stages)
 SQRT6 = np_sqrt(6)
-RADAU_IIA_5_c = ((4 - SQRT6) / 10.0, (4 + SQRT6) / 10.0, 1.0)
-RADAU_IIA_5_b_hat = compute_embedded_weights_radauIIA(
-    RADAU_IIA_5_c, order=2
-).tolist()
-
-# print("b_hat =", RADAU_IIA_5_b_hat)
+_RADAU_IIA_5_c = ((4 - SQRT6) / 10.0, (4 + SQRT6) / 10.0, 1.0)
+_RADAU_IIA_5_b_hat = tuple(
+    compute_embedded_weights_radauIIA(_RADAU_IIA_5_c, order=2).tolist()
+)
 
 RADAU_IIA_5_TABLEAU = FIRKTableau(
     a=(
@@ -107,8 +136,8 @@ RADAU_IIA_5_TABLEAU = FIRKTableau(
         ((16 - SQRT6) / 36.0, (16 + SQRT6) / 36.0, 1.0 / 9.0),
     ),
     b=((16 - SQRT6) / 36.0, (16 + SQRT6) / 36.0, 1.0 / 9.0),
-    b_hat=tuple(RADAU_IIA_5_b_hat),
-    c=((4 - SQRT6) / 10.0, (4 + SQRT6) / 10.0, 1.0),
+    b_hat=_RADAU_IIA_5_b_hat,
+    c=_RADAU_IIA_5_c,
     order=5,
 )
 

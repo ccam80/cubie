@@ -1,4 +1,30 @@
-"""Backward Euler step implementation using Newton–Krylov."""
+"""Backward Euler step implementation using Newton–Krylov.
+
+Published Classes
+-----------------
+:class:`BackwardsEulerStepConfig`
+    Configuration container for the backward Euler step.
+
+:class:`BackwardsEulerStep`
+    Single-stage, first-order implicit step with persistent increment
+    cache for warm-starting Newton iterations.
+
+Constants
+---------
+:data:`ALGO_CONSTANTS`
+    Beta, gamma, and mass matrix values for backward Euler
+    (all identity/unity).
+
+:data:`BE_DEFAULTS`
+    Default step controller settings (fixed-step, dt=1e-3).
+
+See Also
+--------
+:class:`~cubie.integrators.algorithms.ode_implicitstep.ODEImplicitStep`
+    Abstract parent managing the Newton–Krylov solver lifecycle.
+:class:`BackwardsEulerStepConfig`
+    Configuration for this step.
+"""
 
 from typing import Callable, Optional
 
@@ -235,8 +261,14 @@ class BackwardsEulerStep(ODEImplicitStep):
                 Scalar containing the current simulation time.
             shared
                 Device array providing shared scratch buffers.
+            first_step_flag
+                Non-zero on the first integration step.
+            accepted_flag
+                Non-zero when the previous step was accepted.
             persistent_local
                 Device array for persistent local storage (unused here).
+            counters
+                Integer array for Newton iteration counters.
 
             Returns
             -------
@@ -306,23 +338,7 @@ class BackwardsEulerStep(ODEImplicitStep):
         return 1
 
     @property
-    def settings_dict(self) -> dict:
-        """Return the configuration dictionary for the step."""
-
-        return self.compile_settings.settings_dict
-
-    @property
     def order(self) -> int:
         """Return the classical order of the backward Euler method."""
         return 1
 
-    @property
-    def evaluate_f(self) -> Optional[Callable]:
-        """Return the device function for evaluating f(t, y)."""
-
-        return self.compile_settings.evaluate_f
-
-    @property
-    def identifier(self) -> str:
-        """Return the string identifier for this algorithm."""
-        return "backwards_euler"

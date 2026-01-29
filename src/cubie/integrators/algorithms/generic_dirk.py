@@ -1,29 +1,37 @@
 """Diagonally implicit Runge–Kutta integration step implementation.
 
-This module provides the :class:`DIRKStep` class, which implements
-diagonally implicit Runge--Kutta (DIRK) methods using configurable Butcher
-tableaus. DIRK methods are linearly implicit with a diagonal structure in
-the coefficient matrix, allowing each implicit stage to be solved
-independently.
+Published Classes
+-----------------
+:class:`DIRKStepConfig`
+    Configuration container for the DIRK step.
 
-Key Features
-------------
-- Configurable tableaus via :class:`DIRKTableau`
-- Automatic controller defaults selection based on error estimate capability
-- Matrix-free Newton-Krylov solvers for implicit stages
-- Efficient diagonal structure reduces computational cost vs fully implicit
+:class:`DIRKStep`
+    Multi-stage implicit step supporting configurable DIRK Butcher
+    tableaus with FSAL and stage-skipping compile-time optimisations.
+
+Constants
+---------
+:data:`DIRK_ADAPTIVE_DEFAULTS`
+    Default PID controller settings for adaptive tableaus.
+
+:data:`DIRK_FIXED_DEFAULTS`
+    Default fixed-step settings for errorless tableaus.
 
 Notes
 -----
-The module defines two sets of default step controller settings:
+The step controller defaults are selected dynamically based on whether
+the tableau has an embedded error estimate. Tableaus with error
+estimates default to adaptive stepping (PID controller), while
+errorless tableaus default to fixed stepping.
 
-- :data:`DIRK_ADAPTIVE_DEFAULTS`: Used when the tableau has an embedded
-  error estimate. Defaults to PI controller with adaptive stepping.
-- :data:`DIRK_FIXED_DEFAULTS`: Used when the tableau lacks an error
-  estimate. Defaults to fixed-step controller.
-
-This dynamic selection ensures that users cannot accidentally pair an
-errorless tableau with an adaptive controller, which would fail at runtime.
+See Also
+--------
+:class:`~cubie.integrators.algorithms.ode_implicitstep.ODEImplicitStep`
+    Abstract parent managing the Newton–Krylov solver lifecycle.
+:class:`~cubie.integrators.algorithms.generic_dirk_tableaus.DIRKTableau`
+    Tableau class describing DIRK coefficients.
+:class:`DIRKStepConfig`
+    Configuration for this step.
 """
 
 from typing import Callable, Optional

@@ -1,16 +1,35 @@
-"""Configuration helpers for CUDA-based integration loops.
+"""Configuration container for CUDA-based integration loops.
 
-The objects defined here capture shared and local buffer layouts alongside
-compile-critical metadata such as precision, save cadence, and device
-callbacks. They centralise validation so that loop factories receive
-consistent, ready-to-compile settings.
+Published Classes
+-----------------
+:class:`ODELoopConfig`
+    Attrs container holding system sizes, buffer locations, output compile
+    flags, timing intervals, and device function references required to
+    compile an :class:`~cubie.integrators.loops.ode_loop.IVPLoop`.
+
+    >>> from numpy import float32
+    >>> from cubie.outputhandling.output_config import OutputCompileFlags
+    >>> config = ODELoopConfig(
+    ...     precision=float32, n_states=4,
+    ...     compile_flags=OutputCompileFlags(),
+    ... )
+    >>> config.n_states
+    4
+
+See Also
+--------
+:class:`~cubie.integrators.loops.ode_loop.IVPLoop`
+    Loop factory that consumes this configuration.
+:class:`~cubie.CUDAFactory.CUDAFactoryConfig`
+    Parent configuration class providing precision and hashing.
+:class:`~cubie.outputhandling.output_config.OutputCompileFlags`
+    Compile flags governing save and summary cadence.
 """
 
 from typing import Callable, Optional
 
 from attrs import define, field, validators
 from cubie.CUDAFactory import CUDAFactoryConfig
-from numba import from_dtype as numba_from_dtype
 from warnings import warn
 
 from cubie._utils import (
@@ -20,14 +39,12 @@ from cubie._utils import (
 )
 from cubie.outputhandling.output_config import OutputCompileFlags
 
-valid_opt_slice = validators.optional(validators.instance_of(slice))
-
 
 @define
 class ODELoopConfig(CUDAFactoryConfig):
     """Compile-critical settings for an integrator loop.
 
-    Attributes
+    Parameters
     ----------
     n_states
         Number of state variables.
@@ -38,23 +55,32 @@ class ODELoopConfig(CUDAFactoryConfig):
     n_observables
         Number of observable variables.
     n_error
-        Number of error elements (typically equals n_states for adaptive).
+        Number of error elements (typically equals ``n_states`` for
+        adaptive methods).
     n_counters
         Number of counter elements.
     state_summaries_buffer_height
         Height of state summary buffer.
     observable_summaries_buffer_height
         Height of observable summary buffer.
-    precision
-        Precision used for all loop-managed computations.
     compile_flags
         Output configuration governing save and summary cadence.
-    _save_every
-        Interval between accepted saves.
-    _summarise_every
-        Interval between summary accumulations.
-    _sample_summaries_every
-        Interval between summary metric updates.
+    save_every
+        Interval between accepted saves, or ``None`` when auto-derived.
+    summarise_every
+        Interval between summary accumulations, or ``None`` when
+        auto-derived.
+    sample_summaries_every
+        Interval between summary metric updates, or ``None`` when
+        auto-derived.
+    save_last
+        When ``True``, the loop saves the final state regardless of
+        ``save_every`` alignment.
+    save_regularly
+        When ``True``, state saves occur at ``save_every`` intervals.
+    summarise_regularly
+        When ``True``, summary accumulations occur at
+        ``summarise_every`` intervals.
     save_state_fn
         Device function that records state and observable snapshots.
     update_summaries_fn
@@ -69,10 +95,17 @@ class ODELoopConfig(CUDAFactoryConfig):
         Device function that evaluates driver signals for a given time.
     evaluate_observables
         Device function that evaluates observables for the current state.
-    _dt0
+    dt0
         Initial timestep prior to controller feedback.
     is_adaptive
         Whether the loop operates with an adaptive controller.
+    state_location, proposed_state_location, parameters_location, \
+    drivers_location, proposed_drivers_location, observables_location, \
+    proposed_observables_location, error_location, counters_location, \
+    state_summary_location, observable_summary_location, dt_location, \
+    accept_step_location, proposed_counters_location
+        Memory location for the corresponding buffer (``'local'`` or
+        ``'shared'``).
     """
 
     # System size parameters
@@ -211,8 +244,25 @@ class ODELoopConfig(CUDAFactoryConfig):
 
     @property
     def samples_per_summary(self):
-        """If summarise_every and sample_summaries_every are both set, calculate
-        samples_per_summary and warn/raise if it's not a clean integer."""
+        """Return the number of update samples per summary interval.
+
+        When both ``summarise_every`` and ``sample_summaries_every`` are
+        set, the ratio must be close to an integer.  A small deviation
+        (≤ 0.01) is accepted with a warning; larger deviations raise
+        ``ValueError``.
+
+        Returns
+        -------
+        int
+            Number of samples per summary, or ``0`` when either timing
+            parameter is ``None``.
+
+        Raises
+        ------
+        ValueError
+            If ``summarise_every`` is not an integer multiple of
+            ``sample_summaries_every``.
+        """
         summarise_every = self.summarise_every
         sample_summaries_every = self.sample_summaries_every
 

@@ -1,4 +1,36 @@
-"""Reusable pinned buffer pool for chunked array transfers."""
+"""Reusable pinned buffer pool for chunked array transfers.
+
+This module manages allocation and lifecycle of pinned memory buffers
+used for staging data during chunked host-device transfers. Buffers
+are sized for one chunk and reused across chunks to avoid repeated
+allocation overhead.
+
+Published Classes
+-----------------
+:class:`PinnedBuffer`
+    Wrapper for a reusable pinned memory buffer.
+
+    >>> from numpy import zeros, float64
+    >>> buf = PinnedBuffer(buffer_id=0, array=zeros((10,), float64))
+    >>> buf.in_use
+    False
+
+:class:`ChunkBufferPool`
+    Pool of reusable pinned buffers for chunked transfers.
+
+    >>> pool = ChunkBufferPool()
+    >>> buf = pool.acquire("state", (100, 4), float64)
+    >>> pool.release(buf)
+
+See Also
+--------
+:class:`~cubie.memory.mem_manager.MemoryManager`
+    Coordinates chunked allocations that consume these buffers.
+:class:`~cubie.batchsolving.arrays.BatchInputArrays.InputArrays`
+    Primary consumer for host-to-device staging.
+:class:`~cubie.batchsolving.arrays.BatchOutputArrays.OutputArrays`
+    Primary consumer for device-to-host staging.
+"""
 
 from typing import Dict, List, Tuple
 from threading import Lock

@@ -1,9 +1,26 @@
-"""Adaptive integral step controller."""
-from typing import Callable, Optional, Union
+"""Adaptive integral step-size controller.
+
+Published Classes
+-----------------
+:class:`AdaptiveIController`
+    Integral-only adaptive step-size controller.
+
+    >>> from numpy import float64
+    >>> ctrl = AdaptiveIController(precision=float64, n=4)
+    >>> ctrl.is_adaptive
+    True
+
+See Also
+--------
+:class:`~cubie.integrators.step_control.adaptive_step_controller.BaseAdaptiveStepController`
+    Abstract base class for adaptive controllers.
+:class:`~cubie.integrators.step_control.adaptive_step_controller.AdaptiveStepControlConfig`
+    Configuration used by this controller.
+"""
+from typing import Callable
 
 from numba import cuda, int32
 from numpy import ndarray
-from numpy._typing import ArrayLike
 
 from cubie._utils import PrecisionDType, build_config
 from cubie.integrators.step_control.adaptive_step_controller import (

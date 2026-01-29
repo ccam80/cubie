@@ -1,4 +1,20 @@
-"""Backward Euler step with an explicit predictor and implicit corrector."""
+"""Backward Euler step with an explicit predictor and implicit corrector.
+
+Published Classes
+-----------------
+:class:`BackwardsEulerPCStep`
+    Subclass of :class:`~backwards_euler.BackwardsEulerStep` that
+    evaluates an explicit forward-Euler predictor before running the
+    implicit Newton–Krylov corrector.
+
+See Also
+--------
+:class:`~cubie.integrators.algorithms.backwards_euler.BackwardsEulerStep`
+    Parent class providing configuration, buffer registration, and
+    default controller settings.
+:class:`~cubie.integrators.algorithms.ode_implicitstep.ODEImplicitStep`
+    Abstract base managing the Newton–Krylov solver lifecycle.
+"""
 
 from typing import Callable, Optional
 
@@ -128,8 +144,14 @@ class BackwardsEulerPCStep(BackwardsEulerStep):
                 Scalar containing the current simulation time.
             shared
                 Device array providing shared scratch buffers.
+            first_step_flag
+                Non-zero on the first integration step.
+            accepted_flag
+                Non-zero when the previous step was accepted.
             persistent_local
                 Device array for persistent local storage (unused here).
+            counters
+                Integer array for Newton iteration counters.
 
             Returns
             -------

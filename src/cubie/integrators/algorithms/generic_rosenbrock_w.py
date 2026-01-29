@@ -1,34 +1,43 @@
-"""Rosenbrock-W integration step as described in (5.2) in Lang & Verwer (2001).
+"""Rosenbrock-W integration step as described in Lang & Verwer (2001).
 
-This module provides the :class:`GenericRosenbrockWStep` class, which
-implements Rosenbrock-W methods for stiff ODEs. Rosenbrock methods are
-linearly implicit methods that avoid the need for iterative nonlinear
-solvers by linearizing the problem around the current state.
+Published Classes
+-----------------
+:class:`RosenbrockWStepConfig`
+    Configuration container for the Rosenbrock-W step.
 
-Key Features
-------------
-- Configurable tableaus via :class:`RosenbrockTableau`
-- Automatic controller defaults selection based on error estimate capability
-- Matrix-free linear solvers with cached Jacobian approximation
-- Efficient for moderately stiff systems without Newton iteration overhead
+:class:`GenericRosenbrockWStep`
+    Multi-stage linearly implicit step using a cached Jacobian
+    approximation and linear (not Newton) solvers.
+
+Constants
+---------
+:data:`ROSENBROCK_ADAPTIVE_DEFAULTS`
+    Default PID controller settings for adaptive tableaus.
+
+:data:`ROSENBROCK_FIXED_DEFAULTS`
+    Default fixed-step settings for errorless tableaus.
 
 Notes
 -----
-The module defines two sets of default step controller settings:
+The step controller defaults are selected dynamically based on whether
+the tableau has an embedded error estimate. Rosenbrock methods
+linearise the ODE around the current state, avoiding iterative Newton
+solves.
 
-- :data:`ROSENBROCK_ADAPTIVE_DEFAULTS`: Used when the tableau has an
-  embedded error estimate. Defaults to PI controller with adaptive stepping.
-- :data:`ROSENBROCK_FIXED_DEFAULTS`: Used when the tableau lacks an error
-  estimate. Defaults to fixed-step controller.
-
-This dynamic selection ensures that users cannot accidentally pair an
-errorless tableau with an adaptive controller, which would fail at runtime.
+See Also
+--------
+:class:`~cubie.integrators.algorithms.ode_implicitstep.ODEImplicitStep`
+    Abstract parent managing the solver lifecycle.
+:class:`~cubie.integrators.algorithms.generic_rosenbrockw_tableaus.RosenbrockTableau`
+    Tableau class describing Rosenbrock-W coefficients.
+:class:`RosenbrockWStepConfig`
+    Configuration for this step.
 
 References
 ----------
-Lang, J., Verwer, J. ROS3P—An Accurate Third-Order Rosenbrock Solver Designed
-for Parabolic Problems. BIT Numerical Mathematics 41, 731–738 (2001).
-https://doi.org/10.1023/A:1021900219772
+Lang, J., Verwer, J. ROS3P—An Accurate Third-Order Rosenbrock Solver
+Designed for Parabolic Problems. *BIT Numerical Mathematics* 41,
+731–738 (2001).
 """
 
 from typing import Callable, Optional
@@ -304,14 +313,8 @@ class GenericRosenbrockWStep(ODEImplicitStep):
 
     def build_implicit_helpers(
         self,
-    ) -> Callable:
-        """Construct the linear solver used by Rosenbrock methods.
-
-        Returns
-        -------
-        Callable
-            Linear solver function compiled for the configured scheme.
-        """
+    ) -> None:
+        """Construct the linear solver used by Rosenbrock methods."""
         config = self.compile_settings
         beta = config.beta
         gamma = config.gamma

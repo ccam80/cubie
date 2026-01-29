@@ -1,6 +1,32 @@
-"""Utilities for symbolic Jacobian and JVP construction.
+"""Symbolic Jacobian computation and JVP expression generation.
+
+Derives analytic Jacobian-vector product expressions from parsed ODE
+equations using SymPy differentiation. Results are cached in a module-level
+dictionary keyed by the equation tuple.
 
 Adapted from :mod:`chaste_codegen._jacobian` under the MIT licence.
+
+Published Functions
+-------------------
+:func:`generate_analytical_jvp`
+    Differentiate the parsed equations to produce a
+    :class:`~cubie.odesystems.symbolic.parsing.jvp_equations.JVPEquations`
+    instance containing ordered JVP assignments.
+
+:func:`generate_jacobian`
+    Compute the full symbolic Jacobian matrix from parsed equations.
+
+:func:`get_cache_key`
+    Build a hashable key for the module-level Jacobian cache.
+
+See Also
+--------
+:class:`~cubie.odesystems.symbolic.parsing.jvp_equations.JVPEquations`
+    Container returned by :func:`generate_analytical_jvp`.
+:mod:`cubie.odesystems.symbolic.codegen.linear_operators`
+    Consumes JVP expressions to generate linear operator code.
+:mod:`cubie.odesystems.symbolic.parsing.auxiliary_caching`
+    Analyses JVP expressions for caching opportunities.
 """
 
 from typing import Dict, Iterable, List, Optional, Tuple, Union
@@ -24,38 +50,6 @@ CacheKey = Tuple[
 ]
 
 _cache: Dict[CacheKey, CacheValue] = {}
-
-
-def get_cache_counts() -> Dict[str, int]:
-    """Return counts of cached Jacobian and JVP artifacts.
-
-    Returns
-    -------
-    Dict[str, int]
-        Numbers of cached ``"jac"`` and ``"jvp"`` entries.
-
-    Notes
-    -----
-    Utility helper used in caching tests.
-    """
-    counts: Dict[str, int] = {"jac": 0, "jvp": 0}
-    for value in _cache.values():
-        # New scheme: value is a dict possibly containing both kinds
-        if isinstance(value, dict):
-            if "jac" in value:
-                counts["jac"] += 1
-            if "jvp" in value:
-                counts["jvp"] += 1
-        else:
-            # Backward compatibility: count best-effort by type/shape
-            try:
-                if isinstance(value, sp.Matrix):
-                    counts["jac"] += 1
-                elif isinstance(value, list):
-                    counts["jvp"] += 1
-            except Exception:
-                pass
-    return counts
 
 
 def get_cache_key(
@@ -99,16 +93,6 @@ def get_cache_key(
     output_tuple = tuple(output_order.items())
 
     return (eq_tuple, input_tuple, output_tuple, bool(cse))
-
-
-def clear_cache() -> None:
-    """Clear the unified symbolic cache.
-
-    Notes
-    -----
-    Utility helper used in caching tests.
-    """
-    _cache.clear()
 
 
 def generate_jacobian(

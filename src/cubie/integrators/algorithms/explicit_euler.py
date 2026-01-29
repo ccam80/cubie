@@ -1,4 +1,28 @@
-"""Explicit Euler step implementation."""
+"""Explicit Euler step implementation.
+
+This module provides :class:`ExplicitEulerStep`, a single-stage,
+non-adaptive forward Euler integrator compiled as a CUDA device
+function through the :class:`CUDAFactory` pattern.
+
+Published Classes
+-----------------
+:class:`ExplicitEulerStep`
+    Forward Euler integration step.
+
+    >>> from numpy import float32
+    >>> step = ExplicitEulerStep(precision=float32, n=4)
+    >>> step.order
+    1
+    >>> step.is_adaptive
+    False
+
+See Also
+--------
+:class:`~cubie.integrators.algorithms.ode_explicitstep.ODEExplicitStep`
+    Abstract base class for explicit integration steps.
+:class:`~cubie.integrators.algorithms.base_algorithm_step.BaseAlgorithmStep`
+    Factory base managing compilation and caching.
+"""
 
 from typing import Callable, Optional
 
@@ -165,16 +189,22 @@ class ExplicitEulerStep(ODEExplicitStep):
                 Device array receiving proposed observable outputs.
             error
                 Device array reserved for error estimates. Non-adaptive
-                algorithms receive a zero-length slice that can be reused as
-                scratch.
+                algorithms receive a zero-length slice that can be reused
+                as scratch.
             dt_scalar
                 Scalar containing the proposed step size.
             time_scalar
                 Scalar containing the current simulation time.
+            first_step_flag : int32
+                Non-zero on the first step of the integration.
+            accepted_flag : int32
+                Non-zero when the previous step was accepted.
             shared
                 Device array providing shared scratch buffers.
             persistent_local
                 Device array for persistent local storage (unused here).
+            counters : int32 array
+                Diagnostic counter array (unused here).
 
             Returns
             -------

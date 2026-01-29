@@ -1,4 +1,27 @@
-"""Crank–Nicolson step with embedded backward Euler error estimation."""
+"""Crank–Nicolson step with embedded backward Euler error estimation.
+
+Published Classes
+-----------------
+:class:`CrankNicolsonStepConfig`
+    Configuration container for the Crank–Nicolson step.
+
+:class:`CrankNicolsonStep`
+    Second-order adaptive implicit step. The error estimate is the
+    difference between the Crank–Nicolson and backward Euler solutions,
+    computed by solving two implicit systems per step.
+
+Constants
+---------
+:data:`CN_DEFAULTS`
+    Default PID adaptive controller settings.
+
+See Also
+--------
+:class:`~cubie.integrators.algorithms.ode_implicitstep.ODEImplicitStep`
+    Abstract parent managing the Newton–Krylov solver lifecycle.
+:class:`CrankNicolsonStepConfig`
+    Configuration for this step.
+"""
 
 from typing import Callable, Optional
 
@@ -232,8 +255,14 @@ class CrankNicolsonStep(ODEImplicitStep):
                 Scalar containing the current simulation time.
             shared
                 Device array providing shared scratch buffers.
+            first_step_flag
+                Non-zero on the first integration step.
+            accepted_flag
+                Non-zero when the previous step was accepted.
             persistent_local
                 Device array for persistent local storage (unused here).
+            counters
+                Integer array for Newton iteration counters.
 
             Returns
             -------

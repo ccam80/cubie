@@ -107,7 +107,6 @@ class ConstantsEditor(QDialog):
     ):
         super().__init__(parent)
         self._ode = ode
-        self._pending_changes: dict = {}
         self._checkboxes: dict[str, QCheckBox] = {}
         self._value_edits: dict[str, FloatLineEdit] = {}
 
@@ -147,13 +146,9 @@ class ConstantsEditor(QDialog):
         button_layout = QHBoxLayout()
         button_layout.addStretch()
 
-        apply_btn = QPushButton("Apply")
-        apply_btn.clicked.connect(self._on_apply)
-        button_layout.addWidget(apply_btn)
-
-        close_btn = QPushButton("Close")
-        close_btn.clicked.connect(self.close)
-        button_layout.addWidget(close_btn)
+        ok_btn = QPushButton("OK")
+        ok_btn.clicked.connect(self._on_ok)
+        button_layout.addWidget(ok_btn)
 
         layout.addLayout(button_layout)
 
@@ -184,9 +179,6 @@ class ConstantsEditor(QDialog):
 
             checkbox = QCheckBox()
             checkbox.setChecked(is_param)
-            checkbox.stateChanged.connect(
-                lambda state, n=name: self._on_swept_changed(n, state)
-            )
             self._checkboxes[name] = checkbox
 
             checkbox_widget = QWidget()
@@ -197,9 +189,6 @@ class ConstantsEditor(QDialog):
             self._table.setCellWidget(row, 1, checkbox_widget)
 
             value_edit = FloatLineEdit(value)
-            value_edit.editingFinished.connect(
-                lambda n=name: self._on_value_changed(n)
-            )
             self._value_edits[name] = value_edit
             self._table.setCellWidget(row, 2, value_edit)
 
@@ -207,19 +196,8 @@ class ConstantsEditor(QDialog):
             unit_item.setFlags(unit_item.flags() & ~Qt.ItemIsEditable)
             self._table.setItem(row, 3, unit_item)
 
-    def _on_swept_changed(self, name: str, state: int) -> None:
-        """Handle swept checkbox state change."""
-        is_checked = state != 0
-        self._pending_changes.setdefault(name, {})['swept'] = is_checked
-
-    def _on_value_changed(self, name: str) -> None:
-        """Handle value edit change."""
-        edit = self._value_edits[name]
-        if edit.isValid():
-            self._pending_changes.setdefault(name, {})['value'] = edit.value()
-
-    def _on_apply(self) -> None:
-        """Apply all pending changes to the ODE."""
+    def _on_ok(self) -> None:
+        """Apply all changes and close the dialog."""
         invalid_edits = [
             name for name, edit in self._value_edits.items()
             if not edit.isValid()
@@ -238,54 +216,311 @@ class ConstantsEditor(QDialog):
 
         errors = []
 
-        for name, changes in self._pending_changes.items():
+        for name, cb in self._checkboxes.items():
+            is_swept = cb.isChecked()
+            ve = self._value_edits[name]
+            val = ve.value()
             try:
-                if 'swept' in changes:
-                    if changes['swept'] and name in current_constants:
-                        if 'value' in changes:
-                            self._ode.set_constant_value(name, changes['value'])
-                        self._ode.make_parameter(name)
-                        current_constants.discard(name)
-                        current_params.add(name)
-                    elif not changes['swept'] and name in current_params:
-                        if 'value' in changes:
-                            self._ode.set_parameter_value(
-                                name, changes['value']
-                            )
-                        self._ode.make_constant(name)
-                        current_params.discard(name)
-                        current_constants.add(name)
-                    elif 'value' in changes:
-                        if name in current_constants:
-                            self._ode.set_constant_value(
-                                name, changes['value']
-                            )
-                        else:
-                            self._ode.set_parameter_value(
-                                name, changes['value']
-                            )
-                elif 'value' in changes:
-                    if name in current_constants:
-                        self._ode.set_constant_value(name, changes['value'])
-                    else:
-                        self._ode.set_parameter_value(name, changes['value'])
+                if is_swept and name in current_constants:
+                    self._ode.set_constant_value(name, val)
+                    self._ode.make_parameter(name)
+                    current_constants.discard(name)
+                    current_params.add(name)
+                elif not is_swept and name in current_params:
+                    self._ode.set_parameter_value(name, val)
+                    self._ode.make_constant(name)
+                    current_params.discard(name)
+                    current_constants.add(name)
+                elif name in current_constants:
+                    self._ode.set_constant_value(name, val)
+                else:
+                    self._ode.set_parameter_value(name, val)
             except Exception as e:
                 errors.append(f"{name}: {e}")
-
-        self._pending_changes.clear()
 
         if errors:
             QMessageBox.warning(
                 self,
                 "Errors Applying Changes",
-                "Some changes could not be applied:\n" + "\n".join(errors)
+                "Some changes could not be applied:\n"
+                + "\n".join(errors)
             )
         else:
-            QMessageBox.information(
-                self,
-                "Changes Applied",
-                "All changes have been applied."
+            self.accept()
+
+
+class PreParseEditor(QDialog):
+    """Dialog for categorising constants and parameters before parsing.
+
+    Operates on raw dictionaries rather than a constructed SymbolicODE,
+    allowing the user's choices to feed into ``parse_input()`` and the
+    codegen cache key.
+
+    Parameters
+    ----------
+    constants_dict
+        ``{name: value}`` for symbols currently categorised as
+        constants.
+    parameters_dict
+        ``{name: value}`` for symbols currently categorised as
+        parameters.
+    initial_values
+        ``{name: value}`` for state initial values.
+    constant_units
+        ``{name: unit_str}`` for constant units.
+    parameter_units
+        ``{name: unit_str}`` for parameter units.
+    state_units
+        ``{name: unit_str}`` for state units.
+    parent
+        Optional parent widget.
+    """
+
+    def __init__(
+        self,
+        constants_dict: dict[str, float],
+        parameters_dict: dict[str, float],
+        initial_values: dict[str, float],
+        constant_units: Optional[dict[str, str]] = None,
+        parameter_units: Optional[dict[str, str]] = None,
+        state_units: Optional[dict[str, str]] = None,
+        parent: Optional[QWidget] = None,
+    ):
+        super().__init__(parent)
+        self._constants = dict(constants_dict)
+        self._parameters = dict(parameters_dict)
+        self._initial_values = dict(initial_values)
+        self._constant_units = constant_units or {}
+        self._parameter_units = parameter_units or {}
+        self._state_units = state_units or {}
+        self._checkboxes: dict[str, QCheckBox] = {}
+        self._value_edits: dict[str, FloatLineEdit] = {}
+        self._state_edits: dict[str, FloatLineEdit] = {}
+        self._accepted = False
+
+        self._setup_ui()
+        self._populate_constants_table()
+        self._populate_states_table()
+
+    @property
+    def accepted(self) -> bool:
+        """Whether the user clicked OK."""
+        return self._accepted
+
+    @property
+    def result_constants(self) -> dict[str, float]:
+        """Constants dict after user edits."""
+        return dict(self._constants)
+
+    @property
+    def result_parameters(self) -> dict[str, float]:
+        """Parameters dict after user edits."""
+        return dict(self._parameters)
+
+    @property
+    def result_initial_values(self) -> dict[str, float]:
+        """Initial values dict after user edits."""
+        return dict(self._initial_values)
+
+    def _setup_ui(self) -> None:
+        """Set up the dialog UI."""
+        self.setWindowTitle("CellML Model Setup")
+        self.setMinimumSize(650, 500)
+
+        layout = QVBoxLayout(self)
+
+        # --- Constants / Parameters section ---
+        cp_label = QLabel(
+            "Constants && Parameters\n"
+            "Check 'Swept' to make a constant into a runtime "
+            "parameter."
+        )
+        layout.addWidget(cp_label)
+
+        self._cp_table = QTableWidget()
+        self._cp_table.setColumnCount(4)
+        self._cp_table.setHorizontalHeaderLabels(
+            ["Name", "Swept", "Value", "Unit"]
+        )
+        header = self._cp_table.horizontalHeader()
+        header.setSectionResizeMode(0, QHeaderView.Stretch)
+        header.setSectionResizeMode(1, QHeaderView.Fixed)
+        header.setSectionResizeMode(2, QHeaderView.Fixed)
+        header.setSectionResizeMode(3, QHeaderView.Fixed)
+        self._cp_table.setColumnWidth(1, 60)
+        self._cp_table.setColumnWidth(2, 150)
+        self._cp_table.setColumnWidth(3, 100)
+        layout.addWidget(self._cp_table)
+
+        # --- Initial states section ---
+        st_label = QLabel("Initial State Values")
+        layout.addWidget(st_label)
+
+        self._st_table = QTableWidget()
+        self._st_table.setColumnCount(3)
+        self._st_table.setHorizontalHeaderLabels(
+            ["Name", "Initial Value", "Unit"]
+        )
+        st_header = self._st_table.horizontalHeader()
+        st_header.setSectionResizeMode(0, QHeaderView.Stretch)
+        st_header.setSectionResizeMode(1, QHeaderView.Fixed)
+        st_header.setSectionResizeMode(2, QHeaderView.Fixed)
+        self._st_table.setColumnWidth(1, 150)
+        self._st_table.setColumnWidth(2, 100)
+        layout.addWidget(self._st_table)
+
+        # --- Buttons ---
+        button_layout = QHBoxLayout()
+        button_layout.addStretch()
+
+        ok_btn = QPushButton("OK")
+        ok_btn.clicked.connect(self._on_ok)
+        button_layout.addWidget(ok_btn)
+
+        cancel_btn = QPushButton("Cancel")
+        cancel_btn.clicked.connect(self.reject)
+        button_layout.addWidget(cancel_btn)
+
+        layout.addLayout(button_layout)
+
+    def _populate_constants_table(self) -> None:
+        """Populate the constants/parameters table from dicts."""
+        all_items = []
+        for name, value in self._constants.items():
+            unit = self._constant_units.get(name, "")
+            all_items.append((name, value, unit, False))
+        for name, value in self._parameters.items():
+            unit = self._parameter_units.get(name, "")
+            all_items.append((name, value, unit, True))
+
+        all_items.sort(key=lambda x: x[0])
+        self._cp_table.setRowCount(len(all_items))
+
+        for row, (name, value, unit, is_param) in enumerate(all_items):
+            name_item = QTableWidgetItem(name)
+            name_item.setFlags(name_item.flags() & ~Qt.ItemIsEditable)
+            self._cp_table.setItem(row, 0, name_item)
+
+            checkbox = QCheckBox()
+            checkbox.setChecked(is_param)
+            self._checkboxes[name] = checkbox
+            cw = QWidget()
+            cl = QHBoxLayout(cw)
+            cl.addWidget(checkbox)
+            cl.setAlignment(Qt.AlignCenter)
+            cl.setContentsMargins(0, 0, 0, 0)
+            self._cp_table.setCellWidget(row, 1, cw)
+
+            ve = FloatLineEdit(value)
+            self._value_edits[name] = ve
+            self._cp_table.setCellWidget(row, 2, ve)
+
+            unit_item = QTableWidgetItem(unit)
+            unit_item.setFlags(unit_item.flags() & ~Qt.ItemIsEditable)
+            self._cp_table.setItem(row, 3, unit_item)
+
+    def _populate_states_table(self) -> None:
+        """Populate the initial-states table from dict."""
+        items = sorted(self._initial_values.items())
+        self._st_table.setRowCount(len(items))
+
+        for row, (name, value) in enumerate(items):
+            name_item = QTableWidgetItem(name)
+            name_item.setFlags(name_item.flags() & ~Qt.ItemIsEditable)
+            self._st_table.setItem(row, 0, name_item)
+
+            ve = FloatLineEdit(value)
+            self._state_edits[name] = ve
+            self._st_table.setCellWidget(row, 1, ve)
+
+            unit = self._state_units.get(name, "")
+            unit_item = QTableWidgetItem(unit)
+            unit_item.setFlags(unit_item.flags() & ~Qt.ItemIsEditable)
+            self._st_table.setItem(row, 2, unit_item)
+
+    def _on_ok(self) -> None:
+        """Collect edits into result dicts and accept."""
+        invalid = [n for n, e in self._value_edits.items()
+                   if not e.isValid()]
+        invalid += [n for n, e in self._state_edits.items()
+                    if not e.isValid()]
+        if invalid:
+            QMessageBox.warning(
+                self, "Invalid Values",
+                "Invalid entries: " + ", ".join(invalid),
             )
+            return
+
+        self._constants.clear()
+        self._parameters.clear()
+        for name, cb in self._checkboxes.items():
+            val = self._value_edits[name].value()
+            if cb.isChecked():
+                self._parameters[name] = val
+            else:
+                self._constants[name] = val
+
+        for name, ve in self._state_edits.items():
+            self._initial_values[name] = ve.value()
+
+        self._accepted = True
+        self.accept()
+
+
+def edit_pre_parse_dicts(
+    constants_dict: dict[str, float],
+    parameters_dict: dict[str, float],
+    initial_values: dict[str, float],
+    constant_units: Optional[dict[str, str]] = None,
+    parameter_units: Optional[dict[str, str]] = None,
+    state_units: Optional[dict[str, str]] = None,
+) -> tuple[dict[str, float], dict[str, float], dict[str, float]]:
+    """Show the pre-parse editor and return modified dicts.
+
+    Parameters
+    ----------
+    constants_dict
+        ``{name: value}`` constants.
+    parameters_dict
+        ``{name: value}`` parameters.
+    initial_values
+        ``{name: value}`` state initial values.
+    constant_units
+        Optional ``{name: unit}`` for constants.
+    parameter_units
+        Optional ``{name: unit}`` for parameters.
+    state_units
+        Optional ``{name: unit}`` for states.
+
+    Returns
+    -------
+    tuple
+        ``(constants_dict, parameters_dict, initial_values)`` after
+        user edits. If the user cancels, the original dicts are
+        returned unchanged.
+    """
+    app = QApplication.instance()
+    created_app = False
+    if app is None:
+        app = QApplication([])
+        created_app = True
+
+    editor = PreParseEditor(
+        constants_dict, parameters_dict, initial_values,
+        constant_units, parameter_units, state_units,
+    )
+    editor.exec() if hasattr(editor, 'exec') else editor.exec_()
+
+    if created_app:
+        app.quit()
+
+    if editor.accepted:
+        return (
+            editor.result_constants,
+            editor.result_parameters,
+            editor.result_initial_values,
+        )
+    return (constants_dict, parameters_dict, initial_values)
 
 
 def show_constants_editor(

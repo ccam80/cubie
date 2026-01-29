@@ -1,7 +1,28 @@
-"""Shared infrastructure for adaptive step-size controllers."""
+"""Shared infrastructure for adaptive step-size controllers.
+
+Published Classes
+-----------------
+:class:`AdaptiveStepControlConfig`
+    Attrs configuration shared by all adaptive controllers.
+
+    >>> from numpy import float64
+    >>> config = AdaptiveStepControlConfig(precision=float64)
+    >>> config.is_adaptive
+    True
+
+:class:`BaseAdaptiveStepController`
+    Abstract factory base for adaptive controllers.
+
+See Also
+--------
+:class:`~cubie.integrators.step_control.base_step_controller.BaseStepController`
+    Abstract base class for all controllers.
+:class:`~cubie.integrators.step_control.base_step_controller.BaseStepControllerConfig`
+    Base configuration class.
+"""
 
 from abc import abstractmethod
-from typing import Callable, Optional, Union
+from typing import Callable, Optional
 from warnings import warn
 
 from numpy import asarray, ndarray, sqrt
@@ -184,8 +205,9 @@ class BaseAdaptiveStepController(BaseStepController):
 
         Returns
         -------
-        Callable
-            Compiled CUDA device function for adaptive control.
+        ControllerCache
+            Cache containing the compiled adaptive controller device
+            function.
         """
         return self.build_controller(
             precision=self.precision,
@@ -245,20 +267,10 @@ class BaseAdaptiveStepController(BaseStepController):
 
         Returns
         -------
-        Callable
-            CUDA device function implementing the controller policy.
+        ControllerCache
+            Cache containing the compiled controller device function.
         """
         raise NotImplementedError
-
-    # @property
-    # def kp(self) -> float:
-    #     """Returns proportional gain."""
-    #     return self.compile_settings.kp
-    #
-    # @property
-    # def ki(self) -> float:
-    #     """Returns integral gain."""
-    #     return self.compile_settings.ki
 
     @property
     def min_gain(self) -> float:

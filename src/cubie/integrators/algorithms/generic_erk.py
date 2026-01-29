@@ -1,30 +1,55 @@
 """Generic explicit Runge--Kutta integration step with streamed accumulators.
 
-This module provides the :class:`ERKStep` class, which implements generic
-explicit Runge--Kutta methods using configurable Butcher tableaus. The
-implementation supports both adaptive and fixed-step variants, automatically
-selecting appropriate default step controller settings based on whether the
-tableau includes an embedded error estimate.
+This module provides :class:`ERKStep`, a configurable explicit
+Runge--Kutta integrator compiled as a CUDA device function through
+the :class:`CUDAFactory` pattern. The tableau is supplied at
+construction time; adaptive or fixed-step controller defaults are
+selected automatically based on whether the tableau includes an
+embedded error estimate.
 
-Key Features
-------------
-- Configurable tableaus via :class:`ERKTableau`
-- Automatic controller defaults selection based on error estimate capability
-- Efficient CUDA kernel generation with streamed accumulation
-- Support for FSAL (First Same As Last) optimization
+Published Classes
+-----------------
+:class:`ERKStepConfig`
+    Configuration container for the ERK step.
 
-Notes
------
-The module defines two sets of default step controller settings:
+    >>> from numpy import float32
+    >>> from cubie.integrators.algorithms.generic_erk_tableaus import (
+    ...     CLASSICAL_RK4_TABLEAU,
+    ... )
+    >>> config = ERKStepConfig(
+    ...     precision=float32, n=3, tableau=CLASSICAL_RK4_TABLEAU,
+    ... )
+    >>> config.stage_count
+    4
 
-- :data:`ERK_ADAPTIVE_DEFAULTS`: Used when the tableau has an embedded error
-  estimate (e.g., Dormand-Prince). Defaults to PI controller with adaptive
-  stepping.
-- :data:`ERK_FIXED_DEFAULTS`: Used when the tableau lacks an error estimate
-  (e.g., Classical RK4). Defaults to fixed-step controller.
+:class:`ERKStep`
+    Concrete explicit Runge--Kutta step factory.
 
-This dynamic selection ensures that users cannot accidentally pair an
-errorless tableau with an adaptive controller, which would fail at runtime.
+    >>> from numpy import float32
+    >>> step = ERKStep(precision=float32, n=3)
+    >>> step.order
+    5
+    >>> step.is_adaptive
+    True
+
+Module-Level Constants
+----------------------
+:data:`ERK_ADAPTIVE_DEFAULTS`
+    Default PID controller settings applied when the tableau has an
+    embedded error estimate.
+
+:data:`ERK_FIXED_DEFAULTS`
+    Default fixed-step settings applied when the tableau lacks an
+    error estimate.
+
+See Also
+--------
+:class:`~cubie.integrators.algorithms.ode_explicitstep.ODEExplicitStep`
+    Abstract base class for explicit integration steps.
+:class:`~cubie.integrators.algorithms.generic_erk_tableaus.ERKTableau`
+    Butcher tableau subclass accepted by this step.
+:data:`~cubie.integrators.algorithms.generic_erk_tableaus.ERK_TABLEAU_REGISTRY`
+    Name-based lookup of available ERK tableaus.
 """
 
 from typing import Callable, Optional
@@ -64,19 +89,9 @@ ERK_ADAPTIVE_DEFAULTS = StepControlDefaults(
 )
 """Default step controller settings for adaptive ERK tableaus.
 
-This configuration is used when the ERK tableau has an embedded error
-estimate (``tableau.has_error_estimate == True``), such as Dormand-Prince
-or other embedded RK methods.
-
-The PI controller provides robust adaptive stepping with proportional and
-derivative terms to smooth step size adjustments. The deadband prevents
-unnecessary step size changes for small variations in the error estimate.
-
-Notes
------
-These defaults are applied automatically when creating an :class:`ERKStep`
-with an adaptive tableau. Users can override any of these settings by
-explicitly specifying step controller parameters.
+Applied when ``tableau.has_error_estimate`` is ``True``. Users can
+override individual settings by passing step controller parameters
+explicitly.
 """
 
 ERK_FIXED_DEFAULTS = StepControlDefaults(
@@ -87,25 +102,26 @@ ERK_FIXED_DEFAULTS = StepControlDefaults(
 )
 """Default step controller settings for errorless ERK tableaus.
 
-This configuration is used when the ERK tableau lacks an embedded error
-estimate (``tableau.has_error_estimate == False``), such as Classical RK4
-or Heun's method.
-
-Fixed-step controllers maintain a constant step size throughout the
-integration. This is the only valid choice for errorless tableaus since
-adaptive stepping requires an error estimate to adjust the step size.
-
-Notes
------
-These defaults are applied automatically when creating an :class:`ERKStep`
-with an errorless tableau. Users can override the step size ``dt`` by
-explicitly specifying it in the step controller settings.
+Applied when ``tableau.has_error_estimate`` is ``False``. Users can
+override the step size ``dt`` explicitly.
 """
 
 
 @define
 class ERKStepConfig(ExplicitStepConfig):
-    """Configuration describing an explicit Runge--Kutta integrator."""
+    """Configuration describing an explicit Runge--Kutta integrator.
+
+    Parameters
+    ----------
+    tableau
+        Butcher tableau coefficients for the ERK method.
+    stage_rhs_location
+        Memory location for the stage RHS buffer (``'local'`` or
+        ``'shared'``).
+    stage_accumulator_location
+        Memory location for the stage accumulator buffer (``'local'``
+        or ``'shared'``).
+    """
 
     tableau: ERKTableau = field(default=DEFAULT_ERK_TABLEAU)
     stage_rhs_location: str = field(
@@ -198,7 +214,7 @@ class ERKStep(ODEExplicitStep):
         >>> import numpy as np
         >>> step = ERKStep(precision=np.float32,n=3)
         >>> step.controller_defaults.step_controller["step_controller"]
-        'pi'
+        'pid'
 
         Create an ERK step with Classical RK4 (errorless):
 
@@ -352,6 +368,49 @@ class ERKStep(ODEExplicitStep):
             persistent_local,
             counters,
         ):
+            """Advance the state with an explicit Runge--Kutta update.
+
+            Parameters
+            ----------
+            state : array of numba_precision
+                Current state vector, length ``n``.
+            proposed_state : array of numba_precision
+                Output buffer for the proposed state, length ``n``.
+            parameters : array of numba_precision
+                Static model parameters.
+            driver_coeffs : array of numba_precision
+                Spline driver coefficients.
+            drivers_buffer : array of numba_precision
+                Time-dependent driver values at current time.
+            proposed_drivers : array of numba_precision
+                Output buffer for driver values at proposed time.
+            observables : array of numba_precision
+                Accepted observable outputs.
+            proposed_observables : array of numba_precision
+                Output buffer for proposed observable outputs.
+            error : array of numba_precision
+                Output buffer for the embedded error estimate.
+                Non-adaptive tableaus receive a zero-length slice.
+            dt_scalar : numba_precision
+                Proposed step size.
+            time_scalar : numba_precision
+                Current simulation time.
+            first_step_flag : int32
+                Non-zero on the first step of the integration.
+            accepted_flag : int32
+                Non-zero when the previous step was accepted.
+            shared : array
+                Shared memory pool.
+            persistent_local : array
+                Persistent local memory pool.
+            counters : int32 array
+                Diagnostic counter array (unused here).
+
+            Returns
+            -------
+            status_code : int32
+                Always ``0`` (success).
+            """
 
             stage_rhs = alloc_stage_rhs(shared, persistent_local)
             stage_accumulator = alloc_stage_accumulator(shared, persistent_local)

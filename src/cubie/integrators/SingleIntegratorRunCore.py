@@ -1,14 +1,24 @@
-"""Single integrator run coordination for CUDA-based ODE solving.
+"""Coordination layer for a single CUDA-based ODE integration.
 
-This module provides the :class:`SingleIntegratorRunCore` class which
-coordinates the modular integrator loop
-(:class:`~cubie.integrators.loops.ode_loop.IVPLoop`) and its dependencies.
+Published Classes
+-----------------
+:class:`SingleIntegratorRunCache`
+    Attrs cache container for the compiled integrator device function.
 
-Notes
------
-Dependency injection of the algorithm step, controller, and output
-handlers occurs during initialisation so that the compiled CUDA loop can
-be rebuilt when any component is reconfigured.
+:class:`SingleIntegratorRunCore`
+    CUDAFactory that owns and wires the algorithm step, step controller,
+    output functions, and IVP loop into a single compilable unit.
+
+See Also
+--------
+:class:`~cubie.integrators.SingleIntegratorRun.SingleIntegratorRun`
+    Property-aggregation subclass exposing read-only access.
+:class:`~cubie.integrators.loops.ode_loop.IVPLoop`
+    Loop factory owned by this class.
+:class:`~cubie.outputhandling.output_functions.OutputFunctions`
+    Output function factory owned by this class.
+:class:`~cubie.integrators.IntegratorRunSettings.IntegratorRunSettings`
+    Compile settings container used by this class.
 """
 
 from typing import TYPE_CHECKING, Any, Callable, Dict, Optional
@@ -50,37 +60,36 @@ class SingleIntegratorRunCore(CUDAFactory):
         ODE system whose device functions drive the integration.
     loop_settings
         Mapping of compile-critical loop configuration forwarded to the
-        :class:`cubie.integrators.loops.ode_loop.IVPLoop`. Recognised keys
-        include ``"save_every"`` and ``"summarise_every"``. When ``None`` the loop
-        falls back to built-in defaults.
+        :class:`cubie.integrators.loops.ode_loop.IVPLoop`.  Recognised
+        keys include ``"save_every"`` and ``"summarise_every"``.  When
+        ``None`` the loop falls back to built-in defaults.
     output_settings
         Mapping forwarded to :class:`cubie.outputhandling.output_functions.
-        OutputFunctions`. Recognised keys include ``"output_types"`` and
+        OutputFunctions`.  Recognised keys include ``"output_types"`` and
         the saved or summarised selector fields:
         ``"saved_state_indices"``, ``"saved_observable_indices"``,
         ``"summarised_state_indices"``, and
         ``"summarised_observable_indices"``.
     evaluate_driver_at_t
-        Optional device function which interpolates arbitrary driver inputs
-        for use by step algorithms.
+        Optional device function that interpolates driver inputs for use
+        by step algorithms.
+    driver_del_t
+        Optional device function providing the time derivative of the
+        driver signal, used by Rosenbrock-W methods.
     algorithm_settings
-        Mapping forwarded to :func:`cubie.integrators.algorithms.get_algorithm_step`
-        containing ``"algorithm"`` and any additional parameters required by
-        the selected step factory. When ``None`` the algorithm defaults are
-        used.
+        Mapping forwarded to
+        :func:`cubie.integrators.algorithms.get_algorithm_step`
+        containing ``"algorithm"`` and any additional parameters required
+        by the selected step factory.  When ``None`` the algorithm
+        defaults are used.
     step_control_settings
         Mapping merged with the algorithm defaults before calling
-        :func:`cubie.integrators.step_control.get_controller`. Include
-        ``"step_controller"`` to select a controller family and provide bounds
-        such as ``"dt_min"`` and ``"dt_max"`` when configuring adaptive
-        controllers. Supported identifiers include ``"fixed"``, ``"i"``,
-        ``"pi"``, ``"pid"``, and ``"gustafsson"``. When ``None`` the
-        algorithm defaults are used.
-
-    Returns
-    -------
-    None
-        Initialises the integration loop and associated components.
+        :func:`cubie.integrators.step_control.get_controller`.  Include
+        ``"step_controller"`` to select a controller family and provide
+        bounds such as ``"dt_min"`` and ``"dt_max"`` when configuring
+        adaptive controllers.  Supported identifiers include ``"fixed"``,
+        ``"i"``, ``"pi"``, ``"pid"``, and ``"gustafsson"``.  When
+        ``None`` the algorithm defaults are used.
     """
 
     def __init__(
@@ -194,21 +203,19 @@ class SingleIntegratorRunCore(CUDAFactory):
         )
 
     def _process_loop_timing(self, settings_dict: Dict[str, Any]):
-        """Derives timing parameters from a provided update dictionary.
+        """Derive and apply timing parameters from *settings_dict*.
 
-        Updates loop with parameters `save_every`, `summarise_every`
-        `sample_summaries_every`, `save_last`, `save_regularly`,
-        `summarise_regularly`. Updates output functions with summarise_every.
+        Resolves ``save_every``, ``summarise_every``, and
+        ``sample_summaries_every`` from user intent and output
+        configuration, then forwards the derived values to the loop
+        and output functions.
 
         Parameters
         ----------
         settings_dict
-            Mapping of keys to configuration parameters, usually a
-            loop_settings init argument or a dict of updates.
-
-        Returns
-        -------
-            None, updates loop in-place.
+            Mapping containing timing overrides.  Recognised keys are
+            ``save_every``, ``summarise_every``, and
+            ``sample_summaries_every``.
         """
         timing_params = (
             "save_every",
@@ -281,8 +288,15 @@ class SingleIntegratorRunCore(CUDAFactory):
 
     def set_summary_timing_from_duration(self,
                                          duration: float):
-        """If loop compile is dependent on `duration`, calculate summary
-        timing and update loop and metrics with it."""
+        """Set summary timing from *duration* when no explicit timing
+        was provided.
+
+        Parameters
+        ----------
+        duration
+            Total integration duration used to derive
+            ``sample_summaries_every`` and ``summarise_every``.
+        """
 
         if self.is_duration_dependent:
             samples_per_summary = 100
@@ -575,6 +589,20 @@ class SingleIntegratorRunCore(CUDAFactory):
         return recognized | unpacked_keys
 
     def _switch_algos(self, updates_dict):
+        """Replace the algorithm step when ``updates_dict`` contains a
+        new ``"algorithm"`` key and propagate defaults.
+
+        Parameters
+        ----------
+        updates_dict
+            Mutable mapping of pending updates.  Modified in-place to
+            include algorithm defaults for the new step.
+
+        Returns
+        -------
+        set of str
+            ``{"algorithm"}`` if a swap occurred, otherwise empty.
+        """
         if "algorithm" not in updates_dict:
             return set()
         precision = updates_dict.get('precision', self.precision)
@@ -601,6 +629,20 @@ class SingleIntegratorRunCore(CUDAFactory):
         return set("algorithm")
 
     def _switch_controllers(self, updates_dict):
+        """Replace the step controller when ``updates_dict`` contains a
+        new ``"step_controller"`` key.
+
+        Parameters
+        ----------
+        updates_dict
+            Mutable mapping of pending updates.  Modified in-place to
+            normalise the controller name.
+
+        Returns
+        -------
+        set of str
+            ``{"step_controller"}`` if a swap occurred, otherwise empty.
+        """
         if "step_controller" not in updates_dict:
             return set()
         precision = updates_dict.get('precision', self.precision)
@@ -622,12 +664,12 @@ class SingleIntegratorRunCore(CUDAFactory):
         return set("step_controller")
 
     def build(self) -> SingleIntegratorRunCache:
-        """Instantiate the step controller, algorithm step, and loop.
+        """Compile the integration loop and its dependencies.
 
         Returns
         -------
-        Callable
-            Compiled CUDA loop callable ready for execution on device.
+        SingleIntegratorRunCache
+            Cache containing the compiled loop device function.
         """
 
         # Lowest level - check for changes in evaluate_f, get_solver_helper_fn

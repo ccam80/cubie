@@ -1,4 +1,38 @@
-"""Public entry points for step-size controllers."""
+"""Step-size controller package.
+
+Published Classes
+-----------------
+:class:`FixedStepController`
+    Controller that enforces a constant time step.
+:class:`AdaptiveIController`
+    Integral-only adaptive step-size controller.
+:class:`AdaptivePIController`
+    Proportional--integral step-size controller.
+:class:`AdaptivePIDController`
+    Proportional--integral--derivative step-size controller.
+:class:`GustafssonController`
+    Gustafsson predictive controller for implicit integrators.
+
+Module-Level Functions
+----------------------
+:func:`get_controller`
+    Resolve a controller class from a settings mapping.
+
+    >>> from numpy import float64
+    >>> ctrl = get_controller(
+    ...     precision=float64,
+    ...     settings={"step_controller": "fixed", "dt": 0.01},
+    ... )
+    >>> ctrl.is_adaptive
+    False
+
+See Also
+--------
+:class:`~cubie.integrators.step_control.base_step_controller.BaseStepController`
+    Abstract base class for all controllers.
+:data:`~cubie.integrators.step_control.base_step_controller.ALL_STEP_CONTROLLER_PARAMETERS`
+    Union of all accepted keyword arguments.
+"""
 
 import warnings
 from typing import Any, Dict, Mapping, Optional, Type

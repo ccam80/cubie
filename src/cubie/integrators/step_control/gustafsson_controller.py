@@ -1,4 +1,33 @@
-"""Gustafsson predictive step controller."""
+"""Gustafsson predictive step-size controller.
+
+Published Classes
+-----------------
+:class:`GustafssonStepControlConfig`
+    Configuration for the Gustafsson controller, extending
+    :class:`~cubie.integrators.step_control.adaptive_step_controller.AdaptiveStepControlConfig`
+    with damping and Newton iteration parameters.
+
+    >>> from numpy import float64
+    >>> config = GustafssonStepControlConfig(precision=float64)
+    >>> config.gamma
+    0.9
+
+:class:`GustafssonController`
+    Adaptive controller using Gustafsson acceleration for implicit
+    integrators.
+
+    >>> from numpy import float64
+    >>> ctrl = GustafssonController(precision=float64, n=4)
+    >>> ctrl.is_adaptive
+    True
+
+See Also
+--------
+:class:`~cubie.integrators.step_control.adaptive_step_controller.BaseAdaptiveStepController`
+    Abstract base class for adaptive controllers.
+:class:`~cubie.integrators.step_control.adaptive_step_controller.AdaptiveStepControlConfig`
+    Parent configuration class.
+"""
 
 from typing import Callable
 

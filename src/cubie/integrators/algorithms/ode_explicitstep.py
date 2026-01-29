@@ -1,4 +1,24 @@
-"""Infrastructure for explicit integration step implementations."""
+"""Infrastructure for explicit integration step implementations.
+
+Published Classes
+-----------------
+:class:`ExplicitStepConfig`
+    Configuration container for explicit ODE integration algorithms.
+    Inherits all fields from :class:`BaseStepConfig` without additions.
+
+:class:`ODEExplicitStep`
+    Abstract base for explicit algorithms. Provides :meth:`build` which
+    unpacks configuration and delegates to :meth:`build_step`.
+
+See Also
+--------
+:class:`~cubie.integrators.algorithms.base_algorithm_step.BaseAlgorithmStep`
+    Parent factory class.
+:class:`~cubie.integrators.algorithms.base_algorithm_step.BaseStepConfig`
+    Parent configuration class.
+:class:`~cubie.integrators.algorithms.ode_implicitstep.ODEImplicitStep`
+    Implicit counterpart.
+"""
 
 from abc import abstractmethod
 from typing import Callable, Optional

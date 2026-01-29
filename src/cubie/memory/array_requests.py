@@ -1,9 +1,34 @@
 """Structured array allocation requests and responses for GPU memory.
 
-This module defines lightweight data containers that describe array allocation
-requirements and report allocation outcomes. Requests capture shape, precision,
-and memory placement details, while responses track allocated buffers and any
-chunking performed by the memory manager.
+This module defines lightweight data containers that describe array
+allocation requirements and report allocation outcomes. Requests
+capture shape, precision, and memory placement details, while
+responses track allocated buffers and any chunking performed by the
+memory manager.
+
+Published Classes
+-----------------
+:class:`ArrayRequest`
+    Specification for requesting array allocation.
+
+    >>> from numpy import float64
+    >>> req = ArrayRequest(dtype=float64, shape=(100, 4, 1))
+    >>> req.memory
+    'device'
+
+:class:`ArrayResponse`
+    Result of an array allocation containing buffers and chunking
+    data.
+
+    >>> resp = ArrayResponse(chunks=2, chunk_length=50)
+    >>> resp.chunks
+    2
+
+See Also
+--------
+:class:`~cubie.memory.mem_manager.MemoryManager`
+    Processes :class:`ArrayRequest` objects and produces
+    :class:`ArrayResponse` instances.
 """
 
 from typing import Optional
@@ -79,10 +104,6 @@ class ArrayRequest:
         validator=getype_validator(int, 1),
     )
 
-    @property
-    def size(self) -> int:
-        """Total size of the array in bytes."""
-        return np.prod(self.shape, dtype=np.int64) * self.dtype().itemsize
 
 
 @attrs.define

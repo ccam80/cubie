@@ -1,8 +1,28 @@
-"""Manage cached SymPy-generated Python functions.
+"""Disk-backed cache for SymPy-generated CUDA factory functions.
 
-The module writes generated functions to a cache directory and loads them on
-subsequent runs, avoiding recompilation when the source equations are
-unchanged.
+Published Classes
+-----------------
+:class:`ODEFile`
+    Write generated factory functions to a per-system Python module and
+    reload them on subsequent runs when the source equations are unchanged.
+
+    >>> ode_file = ODEFile("my_system", fn_hash=123456)
+    >>> ode_file.file_path.name
+    'my_system.py'
+    >>> ode_file.cached_file_valid(123456)
+    True
+
+Constants
+---------
+:data:`GENERATED_DIR`
+    Root directory for generated modules (``./generated/``).
+
+See Also
+--------
+:class:`~cubie.odesystems.symbolic.symbolicODE.SymbolicODE`
+    Creates and owns an ``ODEFile`` instance for codegen caching.
+:mod:`cubie.cubie_cache`
+    Separate Numba compilation cache layer.
 """
 
 from importlib import util
@@ -191,20 +211,17 @@ class ODEFile:
                 raise ValueError(
                     f"{func_name} not found in cache and no code provided."
                 )
-            self.add_function(code_lines, func_name)
+            self.add_function(code_lines)
         
         return self._import_function(func_name), was_cached
 
-    def add_function(self, printed_code: str, func_name: str) -> None:
+    def add_function(self, printed_code: str) -> None:
         """Append generated code to the cache file.
 
         Parameters
         ----------
         printed_code
             Generated source code for the function.
-        func_name
-            Name of the function being stored. Included for parity with the
-            import pathway but unused by this method.
         """
         with open(self.file_path, "a", encoding="utf-8") as f:
             f.write(printed_code)

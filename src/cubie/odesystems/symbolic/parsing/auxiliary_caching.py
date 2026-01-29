@@ -1,23 +1,39 @@
-"""Auxiliary caching heuristics for symbolic solver helpers.
+"""Auxiliary caching heuristics for JVP solver helpers.
 
-This module identifies intermediate auxiliary expressions in JVP (Jacobian-
-vector product) computations that can be cached to reduce redundant
-operations. Instead of storing the full Jacobian matrix, it selectively
-caches high-value intermediate results that are reused across multiple
-JVP evaluations.
+Identifies intermediate auxiliary expressions in Jacobian-vector product
+computations that can be precomputed and reused, reducing redundant
+arithmetic across JVP evaluations without storing the full Jacobian.
 
-Key Features
-------------
-- Dependency graph analysis to identify cacheable subexpressions
-- Cost-based heuristics to select optimal caching candidates
-- Combinatorial search for best cache group combinations
-- Configurable slot limits and operation thresholds
+Published Classes
+-----------------
+:class:`CacheGroup`
+    Frozen attrs container describing a group of cached leaves derived
+    from a single seed symbol.
 
-Notes
------
-The caching optimization is opportunistic: when beneficial cache targets
-exist, it reduces runtime operations; otherwise it has no effect. The
-module integrates with JVPEquations to store and retrieve cache plans.
+:class:`CacheSelection`
+    Frozen attrs container capturing the final cache plan: which leaves
+    to cache, which nodes to remove from runtime, and the estimated
+    savings.
+
+Published Functions
+-------------------
+:func:`plan_auxiliary_cache`
+    Analyse a :class:`~cubie.odesystems.symbolic.parsing.jvp_equations.JVPEquations`
+    instance and persist the computed cache plan.
+
+    >>> from cubie.odesystems.symbolic.parsing.auxiliary_caching import (
+    ...     plan_auxiliary_cache,
+    ... )
+    >>> selection = plan_auxiliary_cache(jvp_equations)
+    >>> selection.saved  # operations removed at runtime
+    42
+
+See Also
+--------
+:class:`~cubie.odesystems.symbolic.parsing.jvp_equations.JVPEquations`
+    Owns the dependency metadata consumed by this module.
+:mod:`cubie.odesystems.symbolic.codegen.linear_operators`
+    Generates cached linear operator code using the cache plan.
 """
 
 from itertools import combinations
@@ -546,21 +562,3 @@ def plan_auxiliary_cache(equations: JVPEquations) -> CacheSelection:
     return selection
 
 
-def select_cached_nodes(
-    equations: JVPEquations,
-) -> Tuple[List[sp.Symbol], Set[sp.Symbol]]:
-    """Return cached leaves and runtime nodes for ``equations``.
-
-    Parameters
-    ----------
-    equations
-        JVP equations with a computed cache plan.
-
-    Returns
-    -------
-    tuple[list[sp.Symbol], set[sp.Symbol]]
-        Tuple of (cached leaves in order, runtime nodes set).
-    """
-
-    selection = equations.cache_selection
-    return list(selection.cached_leaf_order), set(selection.runtime_nodes)

@@ -1,28 +1,38 @@
-"""Fully implicit Runge--Kutta integration step implementation.
+"""Fully implicit Runge–Kutta integration step implementation.
 
-This module provides the :class:`FIRKStep` class, which implements fully
-implicit Runge--Kutta (FIRK) methods using configurable Butcher tableaus.
-Unlike DIRK methods, FIRK methods have a fully dense coefficient matrix,
-requiring all stages to be solved simultaneously as a coupled system.
+Published Classes
+-----------------
+:class:`FIRKStepConfig`
+    Configuration container for the FIRK step.
 
-Key Features
-------------
-- Configurable tableaus via :class:`FIRKTableau`
-- Automatic controller defaults selection based on error estimate capability
-- Matrix-free Newton-Krylov solvers for coupled implicit stages
-- Support for high-order implicit methods (e.g., Gauss-Legendre)
+:class:`FIRKStep`
+    Multi-stage fully implicit step solving all stages as a coupled
+    nonlinear system. Uses Kahan summation for output accumulation.
+
+Constants
+---------
+:data:`FIRK_ADAPTIVE_DEFAULTS`
+    Default PID controller settings for adaptive tableaus.
+
+:data:`FIRK_FIXED_DEFAULTS`
+    Default fixed-step settings for errorless tableaus.
 
 Notes
 -----
-The module defines two sets of default step controller settings:
+The step controller defaults are selected dynamically based on whether
+the tableau has an embedded error estimate. FIRK methods require
+solving a coupled system of all stages simultaneously, which is more
+expensive than DIRK methods but can achieve higher orders for stiff
+systems.
 
-- :data:`FIRK_ADAPTIVE_DEFAULTS`: Used when the tableau has an embedded
-  error estimate. Defaults to PI controller with adaptive stepping.
-- :data:`FIRK_FIXED_DEFAULTS`: Used when the tableau lacks an error
-  estimate. Defaults to fixed-step controller.
-
-This dynamic selection ensures that users cannot accidentally pair an
-errorless tableau with an adaptive controller, which would fail at runtime.
+See Also
+--------
+:class:`~cubie.integrators.algorithms.ode_implicitstep.ODEImplicitStep`
+    Abstract parent managing the Newton–Krylov solver lifecycle.
+:class:`~cubie.integrators.algorithms.generic_firk_tableaus.FIRKTableau`
+    Tableau class describing FIRK coefficients.
+:class:`FIRKStepConfig`
+    Configuration for this step.
 """
 
 from typing import Callable, Optional
@@ -262,7 +272,7 @@ class FIRKStep(ODEImplicitStep):
 
     def build_implicit_helpers(
         self,
-    ) -> Callable:
+    ) -> None:
         """Construct the nonlinear solver chain used by implicit methods."""
 
         config = self.compile_settings

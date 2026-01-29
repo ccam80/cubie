@@ -1,4 +1,32 @@
-"""Adaptive proportional–integral–derivative controller implementations."""
+"""Adaptive proportional--integral--derivative step-size controller.
+
+Published Classes
+-----------------
+:class:`PIDStepControlConfig`
+    Configuration for PID controllers, extending
+    :class:`~cubie.integrators.step_control.adaptive_PI_controller.PIStepControlConfig`
+    with a derivative gain.
+
+    >>> from numpy import float64
+    >>> config = PIDStepControlConfig(precision=float64, kd=0.05)
+    >>> config.kd
+    0.05
+
+:class:`AdaptivePIDController`
+    Proportional--integral--derivative step-size controller.
+
+    >>> from numpy import float64
+    >>> ctrl = AdaptivePIDController(precision=float64, n=4, kd=0.05)
+    >>> ctrl.is_adaptive
+    True
+
+See Also
+--------
+:class:`~cubie.integrators.step_control.adaptive_PI_controller.AdaptivePIController`
+    PI controller without derivative term.
+:class:`~cubie.integrators.step_control.adaptive_PI_controller.PIStepControlConfig`
+    Parent configuration class.
+"""
 
 from typing import Callable
 
@@ -83,18 +111,6 @@ class AdaptivePIDController(BaseAdaptiveStepController):
         return self.compile_settings.kd
 
     @property
-    def deadband_min(self) -> float:
-        """Return the lower gain threshold for the unity deadband."""
-
-        return self.compile_settings.deadband_min
-
-    @property
-    def deadband_max(self) -> float:
-        """Return the upper gain threshold for the unity deadband."""
-
-        return self.compile_settings.deadband_max
-
-    @property
     def local_memory_elements(self) -> int:
         """Return the number of local memory slots required."""
 
@@ -109,8 +125,6 @@ class AdaptivePIDController(BaseAdaptiveStepController):
                 "kp": self.kp,
                 "ki": self.ki,
                 "kd": self.kd,
-                "deadband_min": self.deadband_min,
-                "deadband_max": self.deadband_max,
             }
         )
         return settings_dict

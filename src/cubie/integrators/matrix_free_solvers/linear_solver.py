@@ -1,9 +1,32 @@
 """Matrix-free preconditioned linear solver.
 
-This module builds CUDA device functions that implement steepest-descent or
-minimal-residual iterations without forming Jacobian matrices explicitly.
-The helpers interact with the nonlinear solvers in :mod:`cubie.integrators`
-and expect caller-supplied operator and preconditioner callbacks.
+This module builds CUDA device functions that implement
+steepest-descent or minimal-residual iterations without forming
+Jacobian matrices explicitly. The solver expects caller-supplied
+operator and preconditioner callbacks.
+
+Published Classes
+-----------------
+:class:`LinearSolverConfig`
+    Attrs configuration for the linear solver factory.
+
+:class:`LinearSolverCache`
+    Cache container holding the compiled linear solver device function.
+
+:class:`LinearSolver`
+    CUDAFactory subclass that compiles a preconditioned iterative
+    linear solver for use inside Newton--Krylov iterations or
+    Rosenbrock-W methods.
+
+See Also
+--------
+:class:`~cubie.integrators.matrix_free_solvers.base_solver.MatrixFreeSolver`
+    Parent factory providing norm and tolerance management.
+:class:`~cubie.integrators.matrix_free_solvers.newton_krylov.NewtonKrylov`
+    Newton--Krylov solver that wraps a :class:`LinearSolver`.
+:mod:`cubie.integrators.algorithms.ode_implicitstep`
+    Implicit step base class that creates :class:`LinearSolver`
+    instances.
 """
 
 from typing import Callable, Optional, Set, Dict, Any
@@ -123,6 +146,26 @@ class LinearSolver(MatrixFreeSolver):
 
     Implements steepest-descent or minimal-residual iterations
     for solving linear systems without forming Jacobian matrices.
+
+    Parameters
+    ----------
+    precision : PrecisionDType
+        Numerical precision for computations.
+    n : int
+        Length of residual and search-direction vectors.
+    **kwargs
+        Forwarded to :class:`LinearSolverConfig` and the norm
+        factory. Includes prefixed tolerance parameters
+        (``krylov_atol``, ``krylov_rtol``).
+
+    See Also
+    --------
+    :class:`LinearSolverConfig`
+        Configuration container for this factory.
+    :class:`~cubie.integrators.matrix_free_solvers.base_solver.MatrixFreeSolver`
+        Parent class providing norm and tolerance management.
+    :class:`~cubie.integrators.matrix_free_solvers.newton_krylov.NewtonKrylov`
+        Newton--Krylov solver that owns a :class:`LinearSolver`.
     """
 
     def __init__(
@@ -251,7 +294,43 @@ class LinearSolver(MatrixFreeSolver):
                 persistent_local,
                 krylov_iters_out,
             ):
-                """Run one cached preconditioned steepest-descent or MR solve."""
+                """Run one cached preconditioned steepest-descent or MR solve.
+
+                Parameters
+                ----------
+                state : array of numba_precision
+                    State vector forwarded to operator and preconditioner.
+                parameters : array of numba_precision
+                    Model parameters forwarded to operator and preconditioner.
+                drivers : array of numba_precision
+                    External drivers forwarded to operator and preconditioner.
+                base_state : array of numba_precision
+                    Base state for n-stage operators (unused for single-stage).
+                cached_aux : array of numba_precision
+                    Cached auxiliary values for the operator and preconditioner.
+                t : numba_precision
+                    Stage time forwarded to operator and preconditioner.
+                h : numba_precision
+                    Step size used by the operator evaluation.
+                a_ij : numba_precision
+                    Stage coefficient forwarded to operator and preconditioner.
+                rhs : array of numba_precision
+                    Right-hand side; overwritten with the running residual.
+                x : array of numba_precision
+                    Initial guess; overwritten with the final solution.
+                shared : array
+                    Shared memory pool.
+                persistent_local : array
+                    Persistent local memory pool.
+                krylov_iters_out : array of int32
+                    Single-element array receiving the iteration count.
+
+                Returns
+                -------
+                int32
+                    ``0`` on convergence, ``4`` when the iteration limit
+                    is reached.
+                """
 
                 # Allocate buffers from registry
                 preconditioned_vec = alloc_precond(shared, persistent_local)

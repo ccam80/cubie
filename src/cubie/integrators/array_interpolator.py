@@ -1,4 +1,31 @@
-"""Utilities for transforming array input samples into CUDA interpolants."""
+"""Piecewise polynomial interpolation of array-driven forcing terms.
+
+Published Classes
+-----------------
+:class:`ArrayInterpolatorConfig`
+    Configuration container describing an input-array interpolation
+    problem (order, wrap, boundary condition, timing).
+
+:class:`ArrayInterpolator`
+    CUDAFactory that computes spline coefficients from sampled driver
+    arrays and compiles CUDA device functions for on-device evaluation.
+
+    >>> from numpy import float64, linspace, sin
+    >>> times = linspace(0, 1, 11)
+    >>> inputs = {"driver_0": sin(times)}
+    >>> inputs["dt"] = times[1] - times[0]
+    >>> interp = ArrayInterpolator(precision=float64, input_dict=inputs)
+    >>> interp.num_inputs
+    1
+
+See Also
+--------
+:class:`~cubie.CUDAFactory.CUDAFactory`
+    Parent factory class.
+:class:`~cubie.batchsolving.solver.Solver`
+    Primary consumer that owns an ArrayInterpolator as
+    ``driver_interpolator``.
+"""
 
 import math
 from typing import (

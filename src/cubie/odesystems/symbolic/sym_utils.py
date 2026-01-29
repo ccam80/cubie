@@ -1,4 +1,58 @@
-"""Utility helpers for symbolic ODE construction."""
+"""Utility helpers for symbolic ODE construction.
+
+Published Functions
+-------------------
+:func:`topological_sort`
+    Return assignments sorted by dependency order using Kahn's algorithm.
+
+    >>> import sympy as sp
+    >>> x, y = sp.symbols("x y")
+    >>> topological_sort([(y, x + 1), (x, sp.Integer(2))])
+    [(x, 2), (y, x + 1)]
+
+:func:`cse_and_stack`
+    Apply common subexpression elimination and topologically sort the
+    combined result.
+
+    >>> import sympy as sp
+    >>> a, b = sp.symbols("a b")
+    >>> result = cse_and_stack([(a, sp.sin(b)), (b, sp.Integer(1))])
+
+:func:`hash_system_definition`
+    Deterministic SHA-256 hash for a set of symbolic ODE equations.
+
+    >>> import sympy as sp
+    >>> x = sp.Symbol("x")
+    >>> h = hash_system_definition([(x, -x)])
+    >>> len(h)
+    64
+
+:func:`render_constant_assignments`
+    Emit Python assignment lines that load constants into local scope.
+
+    >>> render_constant_assignments(["g", "k"])
+    "    g = precision(constants['g'])\\n    k = precision(constants['k'])\\n"
+
+:func:`prune_unused_assignments`
+    Remove assignments that do not contribute to output symbols.
+
+    >>> import sympy as sp
+    >>> a, b, c = sp.symbols("a b c")
+    >>> out = sp.Symbol("out[0]")
+    >>> pruned = prune_unused_assignments(
+    ...     [(a, sp.Integer(1)), (b, a), (out, b), (c, sp.Integer(9))],
+    ...     output_symbols=[out],
+    ... )
+    >>> [str(lhs) for lhs, _ in pruned]
+    ['a', 'b', 'out[0]']
+
+See Also
+--------
+:mod:`cubie.odesystems.symbolic.codegen`
+    Code generation modules that consume these helpers.
+:class:`~cubie.odesystems.symbolic.indexedbasemaps.IndexedBases`
+    Symbol-to-array mapping used alongside these utilities.
+"""
 
 from hashlib import sha256
 
@@ -226,7 +280,21 @@ def hash_system_definition(
 def render_constant_assignments(
     constant_names: Iterable[str], indent: int = 4
 ) -> str:
-    """Return assignment statements that load constants into locals."""
+    """Return assignment statements that load constants into locals.
+
+    Parameters
+    ----------
+    constant_names
+        Iterable of constant names to generate assignments for.
+    indent
+        Number of leading spaces per line. Defaults to ``4``.
+
+    Returns
+    -------
+    str
+        Newline-joined assignment block, or empty string when
+        ``constant_names`` is empty.
+    """
 
     prefix = " " * indent
     lines = [
@@ -241,30 +309,31 @@ def prune_unused_assignments(
     outputsym_str: str = "jvp",
     output_symbols: Optional[Iterable[sp.Symbol]] = None,
 ) -> List[Tuple[sp.Symbol, sp.Expr]]:
-    """Remove assignments that do not contribute to the final JVP outputs.
+    """Remove assignments that do not contribute to output symbols.
 
     Parameters
     ----------
     expressions
         Topologically sorted assignments ``(lhs, rhs)``.
     outputsym_str
-        Prefix identifying JVP output symbols. Ignored when
-        ``output_symbols`` is provided.
+        Prefix identifying output symbols by name convention
+        (matched as ``f"{outputsym_str}["``). Ignored when
+        ``output_symbols`` is provided. Defaults to ``"jvp"``.
     output_symbols
-        Optional collection of output symbols to retain when pruning.
-        When supplied, only assignments contributing to these symbols are
-        kept.
+        Explicit collection of output symbols to retain. When
+        supplied, ``outputsym_str`` is ignored.
 
     Returns
     -------
-    List[Tuple[sp.Symbol, sp.Expr]]
-        Pruned assignments that are required to compute the JVP outputs.
+    list[tuple[sympy.Symbol, sympy.Expr]]
+        Pruned assignments required to compute the output symbols.
 
     Notes
     -----
-    The function assumes that the list is topologically sorted and that output
-    assignments have left-hand-side symbols whose names start with
-    ``"jvp["``. It preserves the relative order of kept assignments.
+    Assumes topologically sorted input. Output symbols are detected by
+    name convention (``"prefix["`` pattern) or via the explicit
+    ``output_symbols`` set. Relative order of kept assignments is
+    preserved.
     """
     exprs = list(expressions)
     if not exprs:

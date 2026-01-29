@@ -1,12 +1,45 @@
-"""Base classes for defining and compiling CUDA-backed ODE systems."""
+"""Base classes for defining and compiling CUDA-backed ODE systems.
+
+Published Classes
+-----------------
+:class:`ODECache`
+    Attrs container caching compiled CUDA device functions for an ODE
+    system (``dxdt``, linear operator, preconditioner, etc.).
+
+:class:`BaseODE`
+    Abstract factory base for CUDA-backed ODE systems. Manages value
+    containers, precision selection, and cache invalidation.
+
+    >>> from numpy import float32
+    >>> # Subclass and override build() to use:
+    >>> class MyODE(BaseODE):
+    ...     def build(self):
+    ...         pass  # compile dxdt here
+    >>> ode = MyODE(
+    ...     precision=float32,
+    ...     default_initial_values={"x": 0.0},
+    ...     default_parameters={"k": 1.0},
+    ... )
+    >>> ode.num_states
+    1
+
+See Also
+--------
+:class:`~cubie.CUDAFactory.CUDAFactory`
+    Parent factory class providing compilation and caching.
+:class:`~cubie.odesystems.ODEData.ODEData`
+    Compile settings container owned by ``BaseODE``.
+:class:`~cubie.odesystems.symbolic.symbolicODE.SymbolicODE`
+    Concrete subclass that generates device functions from SymPy
+    expressions.
+"""
 
 from abc import abstractmethod
-from typing import Any, Callable, Dict, Optional, Set, Tuple, Union
+from typing import Any, Callable, Dict, Optional, Set, Union
 from hashlib import sha256
 
 from attrs import define, field
-from numpy import asarray, float32, floating
-from numpy.typing import NDArray
+from numpy import float32
 
 from cubie.CUDAFactory import CUDAFactory, CUDADispatcherCache, hash_tuple
 from cubie._utils import PrecisionDType
@@ -92,16 +125,11 @@ class BaseODE(CUDAFactory):
             Default observable names if ``observables`` omits entries.
         precision
             Precision factory used for calculations. Defaults to
-            :class:`numpy.float64`.
+            :class:`numpy.float32`.
         num_drivers
             Number of driver or forcing functions. Defaults to ``1``.
         name
             Printable identifier for the system. Defaults to ``None``.
-
-        Notes
-        -----
-        'Precision' is the root for all other precisions in the package. If
-        left unset, it will make everything float32.
         """
         super().__init__()
         system_data = ODEData.from_BaseODE_initargs(
@@ -125,7 +153,7 @@ class BaseODE(CUDAFactory):
         else:
             name = self.name
         return (
-            f"{self.name}"
+            f"{name}"
             "--"
             f"\n{self.states},"
             f"\n{self.parameters},"
@@ -150,30 +178,6 @@ class BaseODE(CUDAFactory):
         because CUDA device functions cannot reference ``self``.
         """
         # return ODECache(dxdt=dxdt)
-
-    def correct_answer_python(
-        self,
-        states: NDArray[floating[Any]],
-        parameters: NDArray[floating[Any]],
-        drivers: NDArray[floating[Any]],
-    ) -> Tuple[NDArray[floating[Any]], NDArray[floating[Any]]]:
-        """Python reference ``dxdt`` for testing.
-
-        Parameters
-        ----------
-        states
-            Current state values.
-        parameters
-            Parameter values.
-        drivers
-            Driver or forcing values.
-
-        Returns
-        -------
-        tuple of numpy.ndarray
-            Tuple containing the state derivatives and observable outputs.
-        """
-        return asarray([0]), asarray([0])
 
     def update(
         self,
@@ -288,27 +292,27 @@ class BaseODE(CUDAFactory):
         return recognised
 
     @property
-    def parameters(self):
+    def parameters(self) -> "SystemValues":
         """Parameter values configured for the system."""
         return self.compile_settings.parameters
 
     @property
-    def states(self):
+    def states(self) -> "SystemValues":
         """Initial state values configured for the system."""
         return self.compile_settings.initial_states
 
     @property
-    def initial_values(self):
+    def initial_values(self) -> "SystemValues":
         """Alias for :attr:`states`."""
         return self.compile_settings.initial_states
 
     @property
-    def observables(self):
+    def observables(self) -> "SystemValues":
         """Observable definitions configured for the system."""
         return self.compile_settings.observables
 
     @property
-    def constants(self):
+    def constants(self) -> "SystemValues":
         """Constant values configured for the system."""
         return self.compile_settings.constants
 
@@ -344,26 +348,17 @@ class BaseODE(CUDAFactory):
 
     @property
     def evaluate_f(self):
-        """Compiled CUDA device function for evaluating f(t, y)."""
+        """Compiled ``dxdt(state, parameters, drivers, observables, out, t)`` device function."""
         return self.get_cached_output("dxdt")
 
     @property
     def evaluate_observables(self) -> Callable:
-        """Return the compiled observables device function.
-
-        Returns
-        -------
-        Callable
-            CUDA device function that computes observables without
-            updating the derivative buffer.
-        """
+        """Compiled ``get_observables(state, parameters, drivers, observables, t)`` device function."""
         return self.get_cached_output("observables")
 
     @property
     def config_hash(self):
-        """Override the config hash fetcher to add and hash the current
-        constant values. When labels change, we need to re-codegen, but when
-        values change, we need to rebuild."""
+        """Configuration hash incorporating constant values."""
         own_hash = super().config_hash
         const_values = tuple()
         if self.constants is not None:

@@ -1,4 +1,21 @@
-"""Generate CUDA helpers evaluating time derivatives of symbolic systems."""
+"""Emit CUDA factory code for explicit time derivatives of the RHS.
+
+Published Functions
+-------------------
+:func:`generate_time_derivative_fac_code`
+    Return a string containing the ``time_derivative_rhs`` factory
+    function definition, which computes the partial derivative of the
+    RHS with respect to time.
+
+See Also
+--------
+:class:`~cubie.odesystems.symbolic.symbolicODE.SymbolicODE`
+    Requests this helper via ``get_solver_helper("time_derivative_rhs")``.
+:mod:`cubie.odesystems.symbolic.codegen.dxdt`
+    Companion module generating the primary ``dxdt`` factory.
+:mod:`cubie.odesystems.symbolic.codegen.numba_cuda_printer`
+    Printer used to render SymPy assignments as CUDA code.
+"""
 
 from typing import Dict, List, Optional, Tuple
 

@@ -1,4 +1,38 @@
-"""Base classes and shared configuration for integration step factories."""
+"""Base classes and shared configuration for integration step factories.
+
+Published Classes
+-----------------
+:class:`ButcherTableau`
+    Attrs container for Butcher tableau coefficients with typed
+    accessors and FSAL detection.
+
+:class:`StepControlDefaults`
+    Per-algorithm default settings for step controllers.
+
+:class:`BaseStepConfig`
+    Abstract attrs configuration shared by explicit and implicit steps.
+
+:class:`StepCache`
+    Cache container for compiled step and optional nonlinear solver
+    device functions.
+
+:class:`BaseAlgorithmStep`
+    Abstract CUDAFactory base for all integration step implementations.
+
+Constants
+---------
+:data:`ALL_ALGORITHM_STEP_PARAMETERS`
+    Set of all keyword arguments accepted across all algorithm types.
+
+See Also
+--------
+:class:`~cubie.CUDAFactory.CUDAFactory`
+    Parent factory class.
+:class:`~cubie.integrators.algorithms.ode_explicitstep.ODEExplicitStep`
+    Explicit step intermediate base.
+:class:`~cubie.integrators.algorithms.ode_implicitstep.ODEImplicitStep`
+    Implicit step intermediate base.
+"""
 
 from abc import ABC, abstractmethod
 from typing import Callable, Dict, Optional, Set, Any, Tuple, Sequence
@@ -19,7 +53,6 @@ from cubie.CUDAFactory import (
     _CubieConfigBase,
 )
 
-# Define all possible algorithm step parameters across all algorithm types
 ALL_ALGORITHM_STEP_PARAMETERS = {
     "algorithm",
     "precision",
@@ -73,11 +106,96 @@ ALL_ALGORITHM_STEP_PARAMETERS = {
     "base_state_placeholder_location",
     "krylov_iters_out_location",
 }
+"""All keyword arguments accepted by integration step constructors.
+
+These parameters can be passed as keyword arguments to any
+:class:`BaseAlgorithmStep` subclass or via
+:func:`~cubie.integrators.algorithms.get_algorithm_step`. Parent
+components use this set to filter kwargs before forwarding.
+
+.. list-table:: Parameter Summary
+   :header-rows: 1
+
+   * - Parameter
+     - Accepted By
+     - Description
+   * - ``algorithm``
+     - :func:`get_algorithm_step`
+     - Algorithm name or :class:`ButcherTableau` instance.
+   * - ``precision``
+     - :class:`BaseStepConfig`
+     - Floating-point dtype for CUDA computations.
+   * - ``n``
+     - :class:`BaseStepConfig`
+     - Number of state variables.
+   * - ``n_drivers``
+     - :class:`BaseStepConfig`
+     - Number of external driver signals.
+   * - ``evaluate_f``
+     - :class:`BaseStepConfig`
+     - Device function evaluating the ODE RHS.
+   * - ``evaluate_observables``
+     - :class:`BaseStepConfig`
+     - Device function evaluating observables.
+   * - ``evaluate_driver_at_t``
+     - :class:`BaseStepConfig`
+     - Device function evaluating drivers at a given time.
+   * - ``get_solver_helper_fn``
+     - :class:`BaseStepConfig`
+     - Callable returning device helpers for solver construction.
+   * - ``driver_del_t``
+     - Rosenbrock algorithms
+     - Device function for driver time derivative.
+   * - ``beta``
+     - :class:`ImplicitStepConfig`
+     - Implicit integration coefficient on stage derivative.
+   * - ``gamma``
+     - :class:`ImplicitStepConfig`
+     - Implicit integration coefficient on mass matrix product.
+   * - ``M``
+     - :class:`ImplicitStepConfig`
+     - Mass matrix for residual and Jacobian actions.
+   * - ``preconditioner_order``
+     - :class:`ImplicitStepConfig`
+     - Order of the truncated Neumann preconditioner.
+   * - ``krylov_atol``
+     - :class:`LinearSolverConfig`
+     - Absolute tolerance for the linear solver.
+   * - ``krylov_rtol``
+     - :class:`LinearSolverConfig`
+     - Relative tolerance for the linear solver.
+   * - ``krylov_max_iters``
+     - :class:`LinearSolverConfig`
+     - Maximum linear solver iterations.
+   * - ``linear_correction_type``
+     - :class:`LinearSolverConfig`
+     - Correction strategy identifier.
+   * - ``newton_atol``
+     - :class:`NewtonKrylovConfig`
+     - Absolute tolerance for Newton iteration.
+   * - ``newton_rtol``
+     - :class:`NewtonKrylovConfig`
+     - Relative tolerance for Newton iteration.
+   * - ``newton_max_iters``
+     - :class:`NewtonKrylovConfig`
+     - Maximum Newton iterations.
+   * - ``newton_damping``
+     - :class:`NewtonKrylovConfig`
+     - Newton damping factor.
+   * - ``newton_max_backtracks``
+     - :class:`NewtonKrylovConfig`
+     - Maximum Newton backtracking steps.
+   * - Buffer location parameters
+     - Various algorithm configs
+     - Memory location (``'local'`` or ``'shared'``) for
+       working buffers. Names follow the pattern
+       ``<buffer>_location``.
+"""
 
 
 @define
 class ButcherTableau(_CubieConfigBase):
-    """Generic ``Butcher Tableau``` object.
+    """Generic Butcher tableau object.
 
     Attributes
     ----------
@@ -232,16 +350,6 @@ class ButcherTableau(_CubieConfigBase):
             return None
         error_coeffs = self.d
         return self.typed_vector(error_coeffs, numba_precision)
-
-    def embedded_weights(
-        self,
-        numba_precision: type,
-    ) -> Optional[Tuple[float, ...]]:
-        """Return the embedded solution weights typed to ``numba_precision``."""
-
-        if not self.has_error_estimate:
-            return None
-        return self.typed_vector(self.b_hat, numba_precision)
 
     @property
     def first_same_as_last(self) -> bool:
@@ -498,10 +606,6 @@ class BaseAlgorithmStep(CUDAFactory):
             Configuration describing the algorithm step.
         _controller_defaults
             Per-algorithm default step controller settings.
-        Returns
-        -------
-        None
-            This constructor updates internal configuration state.
         """
 
         super().__init__()

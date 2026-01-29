@@ -1,4 +1,33 @@
-"""Helpers that build indexed SymPy arrays for symbolic ODE metadata."""
+"""Helpers that build indexed SymPy arrays for symbolic ODE metadata.
+
+Published Classes
+-----------------
+:class:`IndexedBaseMap`
+    Map named scalar symbols onto a fixed-size SymPy indexed base.
+
+    >>> ibm = IndexedBaseMap("state", ["x", "y"])
+    >>> ibm.length
+    2
+
+:class:`IndexedBases`
+    Bundle of :class:`IndexedBaseMap` instances describing a full ODE
+    system (states, parameters, constants, observables, drivers, dxdt).
+
+    >>> ib = IndexedBases.from_user_inputs(
+    ...     states=["x"], parameters=["k"], constants=["g"],
+    ...     observables=["v"], drivers=["u"],
+    ... )
+    >>> ib.state_names
+    ['x']
+
+See Also
+--------
+:mod:`cubie.odesystems.symbolic.codegen`
+    Code generation modules that consume ``IndexedBases`` for CUDA
+    array references.
+:class:`~cubie.odesystems.symbolic.symbolicODE.SymbolicODE`
+    Stores an ``IndexedBases`` instance as ``self.indices``.
+"""
 
 from typing import Any, Dict, Iterable, Optional, Union
 
@@ -37,10 +66,6 @@ class IndexedBaseMap:
             Can be a dictionary mapping symbol names to unit strings,
             or an iterable of unit strings. If None, defaults to
             "dimensionless" for all symbols.
-
-        Returns
-        -------
-        None
         """
         labels = list(symbol_labels)
         if length == 0:
@@ -100,7 +125,13 @@ class IndexedBaseMap:
             self.units = dict(zip(labels, units_list))
 
     def pop(self, sym: sp.Symbol) -> None:
-        """Remove a symbol from the indexed base."""
+        """Remove a symbol from the indexed base.
+
+        Parameters
+        ----------
+        sym
+            Symbol to remove from the map.
+        """
         self.ref_map.pop(sym)
         self.index_map.pop(sym)
         sym_str = str(sym)
@@ -115,7 +146,17 @@ class IndexedBaseMap:
         self.length = len(self.ref_map)
 
     def push(self, sym: sp.Symbol, default_value: float = 0.0, unit: str = "dimensionless") -> None:
-        """Append a new symbol to the indexed base."""
+        """Append a new symbol to the indexed base.
+
+        Parameters
+        ----------
+        sym
+            Symbol to append.
+        default_value
+            Default numeric value for the new entry.
+        unit
+            Unit string for the new entry.
+        """
         index = self.length
         self.base = sp.IndexedBase(
             self.base_name, shape=(index + 1,), real=self.real
@@ -144,10 +185,6 @@ class IndexedBaseMap:
         **kwargs
             Additional symbol updates provided as keyword arguments. Entries
             take precedence over those in ``updates_dict``.
-
-        Returns
-        -------
-        None
 
         Notes
         -----
@@ -183,7 +220,14 @@ class IndexedBaseMap:
         return
 
     def set_passthrough_defaults(self, defaults: dict[str, Any]) -> None:
-        """Replace defaults with a direct dictionary mapping."""
+        """Replace defaults with a direct dictionary mapping.
+
+        Parameters
+        ----------
+        defaults
+            Dictionary used directly as both ``default_values`` and
+            ``defaults``.
+        """
 
         self._passthrough_defaults = True
         self.default_values = defaults
@@ -218,10 +262,6 @@ class IndexedBases:
             Indexed base describing driver signals.
         dxdt
             Indexed base describing the ``dx/dt`` outputs.
-
-        Returns
-        -------
-        None
         """
         self.states = states
         self.parameters = parameters
@@ -343,10 +383,6 @@ class IndexedBases:
         **kwargs
             Additional constant updates provided as keyword arguments.
 
-        Returns
-        -------
-        None
-
         Notes
         -----
         Silently ignores keys that are not found in the constants symbol table.
@@ -357,11 +393,6 @@ class IndexedBases:
     def state_names(self) -> list[str]:
         """List of state symbol names."""
         return list(self.states.symbol_map.keys())
-
-    @property
-    def state_symbols(self) -> list[sp.Symbol]:
-        """List of state symbols."""
-        return list(self.states.ref_map.keys())
 
     @property
     def state_values(self) -> Dict[sp.Symbol, float]:
@@ -389,11 +420,6 @@ class IndexedBases:
         return list(self.constants.symbol_map.keys())
 
     @property
-    def constant_symbols(self) -> list[sp.Symbol]:
-        """List of constant symbols."""
-        return list(self.constants.ref_map.keys())
-
-    @property
     def constant_values(self) -> Dict[sp.Symbol, float]:
         """Mapping of constant symbols to default values."""
         return self.constants.default_values
@@ -414,19 +440,9 @@ class IndexedBases:
         return list(self.drivers.symbol_map.keys())
 
     @property
-    def driver_symbols(self) -> list[sp.Symbol]:
-        """List of driver symbols."""
-        return list(self.drivers.ref_map.keys())
-
-    @property
     def dxdt_names(self) -> Iterable[str]:
         """List of ``dx/dt`` output symbol names."""
         return list(self.dxdt.symbol_map.keys())
-
-    @property
-    def dxdt_symbols(self) -> list[sp.Symbol]:
-        """List of ``dx/dt`` output symbols."""
-        return list(self.dxdt.ref_map.keys())
 
     @property
     def all_arrayrefs(self) -> dict[str, sp.Symbol]:

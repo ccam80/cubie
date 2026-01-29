@@ -1,7 +1,29 @@
 """Base configuration for matrix-free solver factories.
 
 This module provides shared configuration infrastructure for the
-Newton and Krylov solvers in :mod:`cubie.integrators.matrix_free_solvers`.
+Newton and Krylov solvers in
+:mod:`cubie.integrators.matrix_free_solvers`.
+
+Published Classes
+-----------------
+:class:`MatrixFreeSolverConfig`
+    Attrs configuration base for solver factories, extending
+    :class:`~cubie.CUDAFactory.MultipleInstanceCUDAFactoryConfig`
+    with vector size, iteration limit, and norm device function
+    fields.
+
+:class:`MatrixFreeSolver`
+    Factory base class managing a :class:`~cubie.integrators.norms.ScaledNorm`
+    instance and prefixed tolerance parameter extraction.
+
+See Also
+--------
+:class:`~cubie.integrators.matrix_free_solvers.linear_solver.LinearSolver`
+    Concrete linear solver subclass.
+:class:`~cubie.integrators.matrix_free_solvers.newton_krylov.NewtonKrylov`
+    Concrete Newton--Krylov solver subclass.
+:class:`~cubie.CUDAFactory.MultipleInstanceCUDAFactory`
+    Parent factory providing prefixed parameter support.
 """
 
 from typing import Any, Callable, Dict, Optional, Set
@@ -91,10 +113,11 @@ class MatrixFreeSolver(MultipleInstanceCUDAFactory):
             Prefix for tolerance parameters (e.g., "krylov" or "newton").
         n : int
             Size of state vectors.
-        atol : array-like, optional
-            Absolute tolerance for scaled norm.
-        rtol : array-like, optional
-            Relative tolerance for scaled norm.
+        **kwargs
+            Forwarded to
+            :class:`~cubie.integrators.norms.ScaledNorm`. Includes
+            prefixed tolerance parameters (e.g. ``krylov_atol``,
+            ``newton_rtol``).
         """
         self.solver_type = solver_type
         super().__init__(instance_label=solver_type)

@@ -1,10 +1,51 @@
-"""GPU memory management utilities for coordinating cubie allocations.
+"""GPU memory management utilities for coordinating CuBIE allocations.
+
+This module provides the :class:`MemoryManager` singleton that
+coordinates GPU memory allocation, stream usage, and automatic
+chunking across registered instances.
+
+Published Classes
+-----------------
+:class:`MemoryManager`
+    Singleton interface coordinating GPU memory allocation and stream
+    usage.
+
+    >>> mgr = MemoryManager()
+
+:class:`InstanceMemorySettings`
+    Per-instance registry entry tracking allocations and hooks.
+
+Published Constants
+-------------------
+:data:`ALL_MEMORY_MANAGER_PARAMETERS`
+    Parameter set accepted by the memory manager configuration.
+
+Module-Level Functions
+----------------------
+:func:`get_portioned_request_size`
+    Calculate chunkable and unchunkable byte totals for a request
+    dictionary.
+
+:func:`is_request_chunkable`
+    Determine whether a single :class:`ArrayRequest` can be chunked.
+
+:func:`replace_with_chunked_size`
+    Replace the run axis in a shape tuple with a chunked size.
 
 Notes
 -----
-Memory allocation chunking is performed along the run axis to handle batches
-that exceed available GPU memory. The chunking process is automatic and
+Chunking is performed along the run axis to handle batches that
+exceed available GPU memory. The chunking process is automatic and
 coordinated across all instances in a stream group.
+
+See Also
+--------
+:class:`~cubie.memory.array_requests.ArrayRequest`
+    Describes a single allocation request.
+:class:`~cubie.memory.array_requests.ArrayResponse`
+    Reports allocation outcomes including chunking metadata.
+:class:`~cubie.memory.stream_groups.StreamGroups`
+    Manages CUDA stream groups used by the memory manager.
 """
 
 from typing import Any, Optional, Callable, Dict, Tuple
@@ -49,6 +90,29 @@ ALL_MEMORY_MANAGER_PARAMETERS = {
     "mem_proportion",
     "allocator",
 }
+"""All keyword arguments accepted by :class:`MemoryManager` registration
+and solver-level memory configuration.
+
+.. list-table:: Parameter Summary
+   :header-rows: 1
+
+   * - Parameter
+     - Accepted By
+     - Description
+   * - ``memory_manager``
+     - :class:`MemoryManager`
+     - Memory manager instance to use.
+   * - ``stream_group``
+     - :meth:`MemoryManager.register`
+     - Name of the CUDA stream group.
+   * - ``mem_proportion``
+     - :meth:`MemoryManager.register`
+     - Proportion of VRAM to assign (0.0--1.0).
+   * - ``allocator``
+     - :meth:`MemoryManager.set_allocator`
+     - Memory allocator type (``"default"``, ``"cupy"``,
+       ``"cupy_async"``).
+"""
 
 
 MIN_AUTOPOOL_SIZE = 0.05
@@ -58,9 +122,6 @@ def placeholder_invalidate() -> None:
     """
     Default invalidate hook placeholder that performs no operations.
 
-    Returns
-    -------
-    None
     """
     pass
 
@@ -74,9 +135,6 @@ def placeholder_dataready(response: ArrayResponse) -> None:
     response
         Array response object (unused).
 
-    Returns
-    -------
-    None
     """
     pass
 
@@ -93,9 +151,6 @@ def _ensure_cuda_context() -> None:
     This is particularly important after cuda.close() calls which can
     leave the context in a state requiring reinitialization.
 
-    Returns
-    -------
-    None
 
     Raises
     ------
@@ -187,8 +242,7 @@ class InstanceMemorySettings:
     )
 
     def add_allocation(self, key: str, arr: Any) -> None:
-        """
-        Add an allocation to the instance's allocations list.
+        """Add an allocation to the instance's allocations list.
 
         Parameters
         ----------
@@ -199,12 +253,8 @@ class InstanceMemorySettings:
 
         Notes
         -----
-        If a previous allocation exists with the same key, it is freed
-        before adding the new allocation.
-
-        Returns
-        -------
-        None
+        If a previous allocation exists with the same key, it is
+        freed before adding the new allocation.
         """
 
         if key in self.allocations:
@@ -213,8 +263,7 @@ class InstanceMemorySettings:
         self.allocations[key] = arr
 
     def free(self, key: str) -> None:
-        """
-        Free an allocation by key.
+        """Free an allocation by key.
 
         Parameters
         ----------
@@ -224,10 +273,6 @@ class InstanceMemorySettings:
         Notes
         -----
         Emits a warning if the key is not found in allocations.
-
-        Returns
-        -------
-        None
         """
         if key in self.allocations:
             del self.allocations[key]
@@ -238,13 +283,7 @@ class InstanceMemorySettings:
             )
 
     def free_all(self) -> None:
-        """
-        Drop all references to allocated arrays.
-
-        Returns
-        -------
-        None
-        """
+        """Drop all references to allocated arrays."""
         to_free = self.allocations.copy()
         for key in to_free:
             self.free(key)
@@ -260,35 +299,36 @@ class InstanceMemorySettings:
 
 @define
 class MemoryManager:
-    """
-    Singleton interface coordinating GPU memory allocation and stream usage.
+    """Singleton interface coordinating GPU memory allocation and
+    stream usage.
 
     Parameters
     ----------
     totalmem
-        Total GPU memory in bytes. Determined automatically when omitted.
+        Total GPU memory in bytes. Determined automatically when
+        omitted.
     registry
-        Registry mapping instance identifiers to their memory settings.
+        Registry mapping instance identifiers to their memory
+        settings.
     stream_groups
-        Manager for organizing instances into stream groups.
-    _mode
-        Memory management mode, either ``"passive"`` or ``"active"``.
-    _allocator
-        Memory allocator class registered with Numba.
-    _auto_pool
-        List of instance identifiers using automatic memory allocation.
-    _manual_pool
-        List of instance identifiers using manual memory allocation.
-    _queued_allocations
-        Queued allocation requests organized by stream group.
+        Manager for organising instances into stream groups.
 
     Notes
     -----
     The manager accepts :class:`ArrayRequest` objects and returns
-    :class:`ArrayResponse` instances that reference allocated arrays and
-    chunking information. Active mode enforces per-instance VRAM proportions
-    while passive mode mirrors standard allocation behaviour using chunking
-    only when necessary.
+    :class:`ArrayResponse` instances that reference allocated arrays
+    and chunking information. Active mode enforces per-instance VRAM
+    proportions while passive mode mirrors standard allocation
+    behaviour using chunking only when necessary.
+
+    See Also
+    --------
+    :class:`~cubie.memory.array_requests.ArrayRequest`
+        Describes a single allocation request.
+    :class:`~cubie.memory.array_requests.ArrayResponse`
+        Reports allocation outcomes.
+    :class:`~cubie.memory.stream_groups.StreamGroups`
+        Manages CUDA stream groups.
     """
 
     totalmem: int = field(
@@ -368,9 +408,6 @@ class MemoryManager:
             If instance is already registered or proportion is not between 0
             and 1.
 
-        Returns
-        -------
-        None
         """
         instance_id = id(instance)
         if instance_id in self.registry:
@@ -416,9 +453,6 @@ class MemoryManager:
             closed and reopened. This invalidates all previously compiled
             kernels and allocated arrays, requiring a full rebuild.
 
-        Returns
-        -------
-        None
         """
         # Ensure there's a valid context before change - only relevant if user
         # switches in rapid succession with no interceding operations.
@@ -464,9 +498,6 @@ class MemoryManager:
         ValueError
             If mode is not "passive" or "active".
 
-        Returns
-        -------
-        None
         """
         if mode not in ["passive", "active"]:
             raise ValueError(f"Unknown mode: {mode}")
@@ -499,9 +530,6 @@ class MemoryManager:
         new_group
             Name of the new stream group.
 
-        Returns
-        -------
-        None
         """
         self.stream_groups.change_group(instance, new_group)
 
@@ -509,9 +537,6 @@ class MemoryManager:
         """
         Reinitialise all streams after a CUDA context reset.
 
-        Returns
-        -------
-        None
         """
         self.stream_groups.reinit_streams()
 
@@ -519,9 +544,6 @@ class MemoryManager:
         """
         Call each invalidate hook and release all allocations.
 
-        Returns
-        -------
-        None
         """
         self.free_all()
         for registered_instance in self.registry.values():
@@ -548,9 +570,6 @@ class MemoryManager:
         ValueError
             If proportion is not between 0 and 1.
 
-        Returns
-        -------
-        None
         """
         instance_id = id(instance)
         if proportion < 0 or proportion > 1:
@@ -693,9 +712,6 @@ class MemoryManager:
         Updates the instance's proportion and cap, then rebalances the auto pool.
         Enforces minimum auto pool size constraints.
 
-        Returns
-        -------
-        None
         """
         instance_id = id(instance)
         new_manual_pool_size = self.manual_pool_proportion + proportion
@@ -769,9 +785,6 @@ class MemoryManager:
         divides it equally among all instances in the auto pool. Updates
         both proportion and cap for each auto-allocated instance.
 
-        Returns
-        -------
-        None
         """
         available_proportion = 1.0 - self.manual_pool_proportion
         if len(self._auto_pool) == 0:
@@ -791,9 +804,6 @@ class MemoryManager:
         array_label
             Label of the allocation to free.
 
-        Returns
-        -------
-        None
         """
         for settings in self.registry.values():
             if array_label in settings.allocations:
@@ -803,9 +813,6 @@ class MemoryManager:
         """
         Free all allocations across all registered instances.
 
-        Returns
-        -------
-        None
         """
         for settings in self.registry.values():
             settings.free_all()
@@ -824,9 +831,6 @@ class MemoryManager:
         TypeError
             If requests is not a dict or contains invalid ArrayRequest objects.
 
-        Returns
-        -------
-        None
         """
         if not isinstance(requests, dict):
             raise TypeError(
@@ -1076,9 +1080,6 @@ class MemoryManager:
         to contribute to a single coordinated allocation that can be
         optimally chunked together.
 
-        Returns
-        -------
-        None
         """
         self._check_requests(requests)
         stream_group = self.get_stream_group(instance)
@@ -1105,9 +1106,6 @@ class MemoryManager:
         to_arrays
             Destination device arrays to copy to.
 
-        Returns
-        -------
-        None
         """
         _ensure_cuda_context()
         stream = self.get_stream(instance)
@@ -1134,9 +1132,6 @@ class MemoryManager:
         to_arrays
             Destination arrays to copy to.
 
-        Returns
-        -------
-        None
         """
         _ensure_cuda_context()
         stream = self.get_stream(instance)
@@ -1154,9 +1149,6 @@ class MemoryManager:
         instance
             Instance whose stream to synchronize.
 
-        Returns
-        -------
-        None
         """
         _ensure_cuda_context()
         stream = self.get_stream(instance)
@@ -1183,9 +1175,6 @@ class MemoryManager:
         coordinated chunking based on available memory. Calls
         allocation_ready_hook for each instance with their results.
 
-        Returns
-        -------
-        None
         """
         stream_group = self.get_stream_group(triggering_instance)
         stream = self.get_stream(triggering_instance)

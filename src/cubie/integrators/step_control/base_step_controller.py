@@ -1,11 +1,35 @@
-"""Interfaces for step-size controller configuration and factories.
+"""Abstract interfaces for step-size controller configuration and
+factories.
+
+Published Classes
+-----------------
+:class:`ControllerCache`
+    Cache container for compiled controller device functions.
+
+:class:`BaseStepControllerConfig`
+    Abstract attrs configuration shared by all controllers.
+
+:class:`BaseStepController`
+    Abstract factory base compiling CUDA step-size controllers.
+
+Constants
+---------
+:data:`ALL_STEP_CONTROLLER_PARAMETERS`
+    Union of all keyword arguments accepted across controller types.
 
 Notes
 -----
-The abstract configuration and factory interfaces defined here encapsulate
-shared behaviour for fixed and adaptive step controllers. Concrete
-controllers extend these classes to compile CUDA device functions that
-implement specific control strategies.
+Concrete controllers extend these classes to compile CUDA device
+functions that implement specific control strategies. Fixed and
+adaptive controllers share the configuration and buffer registration
+interfaces defined here.
+
+See Also
+--------
+:class:`~cubie.CUDAFactory.CUDAFactory`
+    Parent factory providing compilation and cache management.
+:mod:`cubie.integrators.step_control`
+    Package-level entry point and controller registry.
 """
 
 from abc import ABC, abstractmethod
@@ -22,7 +46,6 @@ from cubie.CUDAFactory import (
 from cubie._utils import getype_validator
 from cubie.buffer_registry import buffer_registry
 
-# Define all possible step controller parameters across all controller types
 ALL_STEP_CONTROLLER_PARAMETERS = {
     "precision",
     "n",
@@ -45,10 +68,93 @@ ALL_STEP_CONTROLLER_PARAMETERS = {
     "newton_max_iters",
     "timestep_memory_location",
 }
+"""All keyword arguments accepted by step controllers.
+
+These parameters can be passed as keyword arguments to any step
+controller constructor or to :func:`get_controller`. The set is used
+by parent components to filter kwargs before forwarding them.
+
+.. list-table:: Parameter Summary
+   :header-rows: 1
+
+   * - Parameter
+     - Accepted By
+     - Description
+   * - ``precision``
+     - :class:`BaseStepControllerConfig`
+     - Floating-point dtype for controller computations.
+   * - ``n``
+     - :class:`BaseStepControllerConfig`
+     - Number of state variables controlled per step.
+   * - ``step_controller``
+     - :func:`~cubie.integrators.step_control.get_controller`
+     - Controller type string (``'fixed'``, ``'i'``, ``'pi'``,
+       ``'pid'``, ``'gustafsson'``).
+   * - ``dt``
+     - :class:`~cubie.integrators.step_control.fixed_step_controller.FixedStepControlConfig`
+     - Fixed step size.
+   * - ``dt_min``
+     - :class:`~cubie.integrators.step_control.adaptive_step_controller.AdaptiveStepControlConfig`
+     - Minimum permissible step size.
+   * - ``dt_max``
+     - :class:`~cubie.integrators.step_control.adaptive_step_controller.AdaptiveStepControlConfig`
+     - Maximum permissible step size.
+   * - ``atol``
+     - :class:`~cubie.integrators.step_control.adaptive_step_controller.AdaptiveStepControlConfig`
+     - Absolute tolerance vector.
+   * - ``rtol``
+     - :class:`~cubie.integrators.step_control.adaptive_step_controller.AdaptiveStepControlConfig`
+     - Relative tolerance vector.
+   * - ``algorithm_order``
+     - :class:`~cubie.integrators.step_control.adaptive_step_controller.AdaptiveStepControlConfig`
+     - Order of the integration algorithm.
+   * - ``min_gain``
+     - :class:`~cubie.integrators.step_control.adaptive_step_controller.AdaptiveStepControlConfig`
+     - Minimum allowed gain factor.
+   * - ``max_gain``
+     - :class:`~cubie.integrators.step_control.adaptive_step_controller.AdaptiveStepControlConfig`
+     - Maximum allowed gain factor.
+   * - ``safety``
+     - :class:`~cubie.integrators.step_control.adaptive_step_controller.AdaptiveStepControlConfig`
+     - Safety scaling factor for step-size proposals.
+   * - ``kp``
+     - :class:`~cubie.integrators.step_control.adaptive_PI_controller.PIStepControlConfig`
+     - Proportional gain.
+   * - ``ki``
+     - :class:`~cubie.integrators.step_control.adaptive_PI_controller.PIStepControlConfig`
+     - Integral gain.
+   * - ``kd``
+     - :class:`~cubie.integrators.step_control.adaptive_PID_controller.PIDStepControlConfig`
+     - Derivative gain.
+   * - ``deadband_min``
+     - :class:`~cubie.integrators.step_control.adaptive_step_controller.AdaptiveStepControlConfig`
+     - Lower gain threshold for the unity deadband.
+   * - ``deadband_max``
+     - :class:`~cubie.integrators.step_control.adaptive_step_controller.AdaptiveStepControlConfig`
+     - Upper gain threshold for the unity deadband.
+   * - ``gamma``
+     - :class:`~cubie.integrators.step_control.gustafsson_controller.GustafssonStepControlConfig`
+     - Damping factor for the Gustafsson predictor.
+   * - ``newton_max_iters``
+     - :class:`~cubie.integrators.step_control.gustafsson_controller.GustafssonStepControlConfig`
+     - Maximum Newton iterations considered by the predictor.
+   * - ``timestep_memory_location``
+     - :class:`BaseStepControllerConfig`
+     - Memory location for the timestep buffer (``'local'`` or
+       ``'shared'``).
+"""
 
 
 @define
 class ControllerCache(CUDADispatcherCache):
+    """Cache container for compiled step-controller device functions.
+
+    Attributes
+    ----------
+    device_function
+        Compiled CUDA device function, or ``-1`` before compilation.
+    """
+
     device_function: Union[Callable, int] = field(default=-1)
 
 
@@ -113,10 +219,9 @@ class BaseStepController(CUDAFactory):
     def register_buffers(self) -> None:
         """Register controller buffers with the central buffer registry.
 
-        Registers the timestep_buffer using size from local_memory_elements
-        and location from compile_settings.timestep_memory. Controllers
-        with zero buffer requirements still register to maintain consistent
-        interface.
+        Registers the timestep_buffer using size from
+        ``local_memory_elements`` and location from
+        ``compile_settings.timestep_memory_location``.
         """
         config = self.compile_settings
         precision = config.precision
@@ -133,13 +238,13 @@ class BaseStepController(CUDAFactory):
         )
 
     @abstractmethod
-    def build(self) -> Callable:
+    def build(self) -> ControllerCache:
         """Compile and return the CUDA device controller.
 
         Returns
         -------
-        Callable
-            Device function implementing the controller policy.
+        ControllerCache
+            Cache containing the compiled controller device function.
         """
 
     @property

@@ -1,8 +1,25 @@
 """Norm computation factories for tolerance-scaled convergence checks.
 
-This module provides CUDAFactory subclasses that compile device functions
-for computing scaled norms used in convergence testing across integrators
-and matrix-free solvers.
+Published Classes
+-----------------
+:class:`ScaledNormConfig`
+    Configuration container for the scaled norm factory.
+
+:class:`ScaledNorm`
+    Factory compiling a CUDA device function that computes the mean
+    squared scaled error norm.
+
+    >>> from numpy import float64
+    >>> norm = ScaledNorm(precision=float64, n=4)
+    >>> norm.n
+    4
+
+See Also
+--------
+:class:`~cubie.CUDAFactory.MultipleInstanceCUDAFactory`
+    Parent factory class supporting prefixed parameter names.
+:class:`~cubie.integrators.matrix_free_solvers.base_solver.BaseSolver`
+    Consumer that owns a ScaledNorm instance for convergence testing.
 """
 
 from typing import Callable
@@ -33,16 +50,11 @@ def resize_tolerances(instance, attribute, value):
     Parameters
     ----------
     instance : ScaledNormConfig
-        Instance of ScaledNormConfig being created.
+        Instance of ScaledNormConfig being modified.
     attribute : attrs.Attribute
-        Attribute being converted (atol or rtol).
-    value : ndarray
-        Input tolerance array.
-
-    Returns
-    -------
-    ndarray
-        Resized tolerance array of shape (n,).
+        Attribute being set (``n``).
+    value : int
+        New vector size.
 
     Notes
     -----

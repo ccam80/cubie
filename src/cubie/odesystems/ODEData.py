@@ -1,4 +1,39 @@
-"""Containers describing ODE system metadata used by factories."""
+"""Containers describing ODE system metadata used by factories.
+
+Published Classes
+-----------------
+:class:`SystemSizes`
+    Frozen counts for each component category in an ODE system.
+
+    >>> sizes = SystemSizes(states=4, observables=2, parameters=3,
+    ...                     constants=5, drivers=1)
+    >>> sizes.states
+    4
+
+:class:`ODEData`
+    Bundle of :class:`SystemValues` instances and derived sizes for CUDA
+    compilation.
+
+    >>> from numpy import float32
+    >>> data = ODEData.from_BaseODE_initargs(
+    ...     precision=float32,
+    ...     default_initial_values={"x": 0.0, "y": 1.0},
+    ...     default_parameters={"a": 0.5},
+    ...     default_constants={"g": 9.81},
+    ...     default_observable_names={"v": 0.0},
+    ... )
+    >>> data.num_states
+    2
+
+See Also
+--------
+:class:`~cubie.odesystems.SystemValues.SystemValues`
+    Keyed parameter container stored inside ``ODEData``.
+:class:`~cubie.CUDAFactory.CUDAFactoryConfig`
+    Parent class providing precision and hashing.
+:class:`~cubie.odesystems.baseODE.BaseODE`
+    Abstract ODE factory that owns an ``ODEData`` as compile settings.
+"""
 
 from typing import Optional, Dict, Any
 
@@ -65,12 +100,6 @@ class ODEData(CUDAFactoryConfig):
         :class:`numpy.float32`.
     num_drivers
         Number of driver or forcing functions. Defaults to ``1``.
-
-    Returns
-    -------
-    ODEData
-        Instance containing all values and derived sizes needed for CUDA
-        compilation.
     """
 
     constants: Optional[SystemValues] = field(
@@ -197,15 +226,14 @@ class ODEData(CUDAFactoryConfig):
         default_observable_names
             Default observable names if ``observables`` omits entries.
         precision
-            Precision factory used for calculations. Defaults to
-            :class:`numpy.float64`.
+            Precision factory used for calculations.
         num_drivers
             Number of driver or forcing functions. Defaults to ``1``.
 
         Returns
         -------
         ODEData
-            Initialized data container suitable for CUDA compilation.
+            Initialised data container for CUDA compilation.
         """
         init_values = SystemValues(
             initial_values, precision, default_initial_values, name="States"

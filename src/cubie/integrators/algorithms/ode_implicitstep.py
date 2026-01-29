@@ -1,4 +1,28 @@
-"""Infrastructure for implicit integration step implementations."""
+"""Infrastructure for implicit integration step implementations.
+
+Published Classes
+-----------------
+:class:`ImplicitStepConfig`
+    Configuration container extending :class:`BaseStepConfig` with
+    implicit-specific fields (beta, gamma, mass matrix,
+    preconditioner order).
+
+:class:`ODEImplicitStep`
+    Abstract base for implicit algorithms. Owns a
+    :class:`~cubie.integrators.matrix_free_solvers.newton_krylov.NewtonKrylov`
+    or
+    :class:`~cubie.integrators.matrix_free_solvers.linear_solver.LinearSolver`
+    instance and delegates solver parameter updates.
+
+See Also
+--------
+:class:`~cubie.integrators.algorithms.base_algorithm_step.BaseAlgorithmStep`
+    Parent factory class.
+:class:`~cubie.integrators.algorithms.ode_explicitstep.ODEExplicitStep`
+    Explicit counterpart.
+:class:`~cubie.integrators.matrix_free_solvers.newton_krylov.NewtonKrylov`
+    Nonlinear solver consumed by implicit steps.
+"""
 
 from abc import abstractmethod
 from typing import Callable, Optional, Union, Set
@@ -277,14 +301,12 @@ class ODEImplicitStep(BaseAlgorithmStep):
         """
         raise NotImplementedError
 
-    def build_implicit_helpers(self) -> Callable:
+    def build_implicit_helpers(self) -> None:
         """Construct the nonlinear solver chain used by implicit methods.
 
-        Returns
-        -------
-        Callable
-            Nonlinear solver function compiled for the configured implicit
-            scheme.
+        Populates the owned solver with operator, preconditioner, and
+        residual device functions, then stores the compiled solver
+        function in compile settings.
         """
 
         config = self.compile_settings

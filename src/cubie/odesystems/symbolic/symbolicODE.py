@@ -1,4 +1,44 @@
-"""Symbolic ODE system built from :mod:`sympy` expressions."""
+"""Symbolic ODE system built from :mod:`sympy` expressions.
+
+Published Classes
+-----------------
+:class:`SymbolicODE`
+    Concrete :class:`~cubie.odesystems.baseODE.BaseODE` subclass that
+    generates CUDA device functions from SymPy equations. Handles
+    codegen caching, solver helper generation, and constant/parameter
+    conversion.
+
+    >>> from cubie.odesystems.symbolic.symbolicODE import (
+    ...     create_ODE_system,
+    ... )
+    >>> ode = create_ODE_system(
+    ...     dxdt="dx = -k * x",
+    ...     states={"x": 1.0},
+    ...     parameters={"k": 0.5},
+    ... )
+    >>> ode.num_states
+    1
+
+Published Functions
+-------------------
+:func:`create_ODE_system`
+    Convenience wrapper around :meth:`SymbolicODE.create`.
+
+    >>> ode = create_ODE_system("dx = -x", states={"x": 1.0})
+    >>> ode.num_states
+    1
+
+See Also
+--------
+:class:`~cubie.odesystems.baseODE.BaseODE`
+    Abstract parent providing cache management and value containers.
+:class:`~cubie.odesystems.symbolic.odefile.ODEFile`
+    Disk-backed cache for generated factory functions.
+:mod:`cubie.odesystems.symbolic.parsing.parser`
+    Parses string or SymPy equations into structured components.
+:mod:`cubie.odesystems.symbolic.codegen`
+    Code generation modules invoked by :meth:`SymbolicODE.get_solver_helper`.
+"""
 
 from typing import (
     Any,
@@ -181,11 +221,6 @@ class SymbolicODE(BaseODE):
             Runtime callables referenced within the symbolic expressions.
         name
             Identifier used for generated modules.
-
-        Returns
-        -------
-        None
-            ``None``.
         """
         if all_symbols is None:
             all_symbols = all_indexed_bases.all_symbols
@@ -399,19 +434,24 @@ class SymbolicODE(BaseODE):
             self.gen_file = ODEFile(self.name, new_hash)
             self.fn_hash = new_hash
 
-        dxdt_code = generate_dxdt_fac_code(
-            self.equations, self.indices, "dxdt_factory"
-        )
+        dxdt_code = None
+        if not self.gen_file.function_is_cached("dxdt_factory"):
+            dxdt_code = generate_dxdt_fac_code(
+                self.equations, self.indices, "dxdt_factory"
+            )
         dxdt_factory, _ = self.gen_file.import_function(
             "dxdt_factory", dxdt_code
         )
         dxdt_func = dxdt_factory(constants, numba_precision)
 
-        observables_code = generate_observables_fac_code(
-            self.equations, self.indices, func_name="observables_factory"
-        )
+        obs_code = None
+        if not self.gen_file.function_is_cached("observables_factory"):
+            obs_code = generate_observables_fac_code(
+                self.equations, self.indices,
+                func_name="observables_factory",
+            )
         observables_factory, _ = self.gen_file.import_function(
-            "observables_factory", observables_code
+            "observables_factory", obs_code
         )
         evaluate_observables = observables_factory(constants, numba_precision)
 

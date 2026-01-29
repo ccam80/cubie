@@ -108,19 +108,6 @@ class TestCUDAPrinter:
         result = printer.doprint(expr)
         assert "arr[0]*arr[0]" in result
 
-    def test_ifelse_to_selp(self):
-        """Test if-else to select conversion."""
-        printer = CUDAPrinter()
-        expr_str = "  a if x > 0 else b"
-        result = printer._ifelse_to_selp(expr_str)
-        assert result == "selp(x > 0, a, b)"
-
-    def test_ifelse_to_selp_complex(self):
-        """Test complex if-else to select conversion."""
-        printer = CUDAPrinter()
-        expr_str = "  x + 1 if y < z else x - 1"
-        result = printer._ifelse_to_selp(expr_str)
-        assert result == "selp(y < z, x + 1, x - 1)"
 
 
 class TestPrintCudaFunction:

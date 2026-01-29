@@ -823,7 +823,7 @@ class CubieCacheHandler:
         if self._cache is None:
             return None
         if system_hash != self.config.system_hash:
-            self.config._system_hash = system_hash
+            self.config.system_hash = system_hash
 
         self._cache.set_hashes(
             system_hash=system_hash,

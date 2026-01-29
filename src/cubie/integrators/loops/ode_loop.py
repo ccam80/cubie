@@ -1,9 +1,37 @@
-"""Outer integration loops for running CUDA-based ODE solvers.
+"""Outer integration loop factory for CUDA-based ODE solvers.
 
-The :class:`IVPLoop` orchestrates an integration by coordinating device step
-functions, output collectors, and adaptive controllers. The loop uses the
-central buffer registry for memory allocation and provides slices into each
-device call so that compiled kernels only focus on algorithmic updates.
+Published Classes
+-----------------
+:class:`IVPLoopCache`
+    Attrs cache container for the compiled loop device function.
+
+:class:`IVPLoop`
+    CUDAFactory that registers loop buffers and compiles a CUDA device
+    function coordinating step, controller, save, and summary callbacks.
+
+    >>> from numpy import float32
+    >>> from cubie.outputhandling.output_config import OutputCompileFlags
+    >>> loop = IVPLoop(
+    ...     precision=float32, n_states=4,
+    ...     compile_flags=OutputCompileFlags(),
+    ... )
+    >>> loop.save_every is None
+    True
+
+Constants
+---------
+:data:`ALL_LOOP_SETTINGS`
+    Set of recognised loop configuration parameter names accepted by
+    :class:`IVPLoop` and forwarded through ``**kwargs``.
+
+See Also
+--------
+:class:`~cubie.integrators.loops.ode_loop_config.ODELoopConfig`
+    Configuration container consumed by this factory.
+:class:`~cubie.integrators.SingleIntegratorRunCore.SingleIntegratorRunCore`
+    Parent coordinator that owns and configures the loop.
+:class:`~cubie.CUDAFactory.CUDAFactory`
+    Base factory class providing compilation and caching.
 """
 
 from typing import Callable, Optional, Set
@@ -33,7 +61,6 @@ class IVPLoopCache(CUDADispatcherCache):
     loop_function: Callable = field()
 
 
-# Recognised compile-critical loop configuration parameters.
 ALL_LOOP_SETTINGS = {
     "save_every",
     "summarise_every",
@@ -43,7 +70,6 @@ ALL_LOOP_SETTINGS = {
     "save_last",
     "save_regularly",
     "summarise_regularly",
-    # Loop buffer location parameters
     "state_location",
     "proposed_state_location",
     "parameters_location",
@@ -59,6 +85,47 @@ ALL_LOOP_SETTINGS = {
     "accept_step_location",
     "proposed_counters_location",
 }
+"""Compile-critical loop configuration parameters accepted by
+:class:`IVPLoop`.
+
+These parameters can be passed as keyword arguments to :class:`IVPLoop`
+or to :meth:`IVPLoop.update`.  Parent components use this set to filter
+``**kwargs`` before forwarding.
+
+.. list-table:: Parameter Summary
+   :header-rows: 1
+
+   * - Parameter
+     - Accepted By
+     - Description
+   * - ``save_every``
+     - :class:`~cubie.integrators.loops.ode_loop_config.ODELoopConfig`
+     - Interval between accepted state saves.
+   * - ``summarise_every``
+     - :class:`~cubie.integrators.loops.ode_loop_config.ODELoopConfig`
+     - Interval between summary accumulations.
+   * - ``sample_summaries_every``
+     - :class:`~cubie.integrators.loops.ode_loop_config.ODELoopConfig`
+     - Interval between summary metric updates.
+   * - ``dt0``
+     - :class:`~cubie.integrators.loops.ode_loop_config.ODELoopConfig`
+     - Initial timestep.
+   * - ``is_adaptive``
+     - :class:`~cubie.integrators.loops.ode_loop_config.ODELoopConfig`
+     - Whether the loop uses adaptive stepping.
+   * - ``save_last``
+     - :class:`~cubie.integrators.loops.ode_loop_config.ODELoopConfig`
+     - Save the final state regardless of interval alignment.
+   * - ``save_regularly``
+     - :class:`~cubie.integrators.loops.ode_loop_config.ODELoopConfig`
+     - Enable periodic state saving.
+   * - ``summarise_regularly``
+     - :class:`~cubie.integrators.loops.ode_loop_config.ODELoopConfig`
+     - Enable periodic summary accumulation.
+   * - ``state_location`` … ``proposed_counters_location``
+     - :class:`~cubie.integrators.loops.ode_loop_config.ODELoopConfig`
+     - Memory location (``'local'`` or ``'shared'``) for each buffer.
+"""
 
 
 class IVPLoop(CUDAFactory):
@@ -163,9 +230,9 @@ class IVPLoop(CUDAFactory):
             Number of error elements (typically equals n_states for adaptive).
         n_counters
             Number of counter elements.
-        state_summary_buffer_height
+        state_summaries_buffer_height
             Height of state summary buffer.
-        observable_summary_buffer_height
+        observable_summaries_buffer_height
             Height of observable summary buffer.
         save_every
             Interval between accepted saves. Defaults to None (auto-configured).
@@ -331,13 +398,13 @@ class IVPLoop(CUDAFactory):
         )
 
 
-    def build(self) -> Callable:
+    def build(self) -> IVPLoopCache:
         """Compile the CUDA device loop.
 
         Returns
         -------
-        Callable
-            Compiled device function that executes the integration loop.
+        IVPLoopCache
+            Cache containing the compiled loop device function.
         """
         config = self.compile_settings
 

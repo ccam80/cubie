@@ -1,4 +1,26 @@
-"""Code generation helpers for nonlinear residual functions."""
+"""Emit CUDA factory code for nonlinear stage residual functions.
+
+Published Functions
+-------------------
+:func:`generate_residual_code`
+    Emit a factory computing the nonlinear residual
+    ``F(Y) = Y - y_n - h * sum(a_ij * f(Y_j))``.
+
+:func:`generate_stage_residual_code`
+    Emit a single-stage residual factory for SDIRK/ESDIRK methods.
+
+:func:`generate_n_stage_residual_code`
+    Emit a flattened multi-stage residual factory for FIRK methods.
+
+See Also
+--------
+:mod:`cubie.odesystems.symbolic.codegen.linear_operators`
+    Companion linear operator code generators.
+:mod:`cubie.odesystems.symbolic.codegen.preconditioners`
+    Companion preconditioner code generators.
+:mod:`cubie.odesystems.symbolic.codegen._stage_utils`
+    Shared FIRK stage metadata helpers.
+"""
 
 from typing import Iterable, List, Optional, Sequence, Tuple, Union
 

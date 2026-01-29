@@ -1,4 +1,35 @@
-"""SymPy printer utilities that emit CUDA-friendly Python code snippets."""
+"""SymPy printer that emits CUDA-compatible Python code snippets.
+
+Published Classes
+-----------------
+:class:`CUDAPrinter`
+    :class:`~sympy.printing.pycode.PythonCodePrinter` subclass that
+    renders SymPy expressions as Numba CUDA device code, mapping
+    function calls to their ``math`` equivalents and wrapping numeric
+    literals with precision casts.
+
+Published Functions
+-------------------
+:func:`print_cuda`
+    Render a single SymPy expression as a CUDA-compatible string.
+
+:func:`print_cuda_multiple`
+    Render a sequence of ``(lhs, rhs)`` assignments as indented CUDA
+    code lines.
+
+Constants
+---------
+:data:`CUDA_FUNCTIONS`
+    Mapping from SymPy function names to ``math.*`` equivalents used
+    by the printer.
+
+See Also
+--------
+:mod:`cubie.odesystems.symbolic.codegen.dxdt`
+    Uses :func:`print_cuda_multiple` to emit ``dxdt`` factory code.
+:mod:`cubie.odesystems.symbolic.codegen.linear_operators`
+    Uses :func:`print_cuda_multiple` to emit linear operator code.
+"""
 
 import re
 from typing import Any, Dict, Iterable, List, Optional, Tuple
@@ -127,7 +158,6 @@ class CUDAPrinter(PythonCodePrinter):
         else:
             result = super().doprint(expr, **kwargs)
         result = self._replace_powers_with_multiplication(result)
-        # result = self._ifelse_to_selp(result)
         return result
 
     def _print_Symbol(self, expr: sp.Symbol) -> str:
@@ -341,25 +371,6 @@ class CUDAPrinter(PythonCodePrinter):
         
         return expr_str
 
-    def _ifelse_to_selp(self, expr_str: str) -> str:
-        """Replace conditional expressions with ``selp`` calls.
-
-        Parameters
-        ----------
-        expr_str
-            Source string to rewrite.
-
-        Returns
-        -------
-        str
-            Source string with ternaries replaced by ``selp`` calls.
-        """
-        return re.sub(
-            r"\s+(.+?)\sif\s+(.+?)\s+else\s+(.+)",
-            r"selp(\2, \1, \3)",
-            expr_str,
-        )
-
     def _print_Function(self, expr: sp.Function) -> str:
         """Print a function call with CUDA-specific substitutions.
 
@@ -474,6 +485,7 @@ def print_cuda(
     """
     printer = CUDAPrinter(symbol_map=symbol_map, **kwargs)
     return printer.doprint(expr)
+
 
 def print_cuda_multiple(
     exprs: Iterable[Tuple[sp.Symbol, sp.Expr]],

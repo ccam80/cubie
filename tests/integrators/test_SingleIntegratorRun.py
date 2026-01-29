@@ -175,43 +175,13 @@ class TestSingleIntegratorRun:
             "save_state_fn": "save_state_fn",
             "update_summaries_fn": "update_summaries_fn",
             "save_summaries_fn": "save_summaries_fn",
-            "control_device_function": "step_controller_fn",
-            "compiled_loop_step_function": "step_function",
         }
         controller_props: Dict[str, str] = {
-            "min_gain": "min_gain",
-            "max_gain": "max_gain",
-            "safety": "safety",
-            "algorithm_order": "algorithm_order",
             "atol": "atol",
             "rtol": "rtol",
-            "kp": "kp",
-            "ki": "ki",
-            "kd": "kd",
-            "gamma": "gamma",
-            "newton_max_iters": "newton_max_iters",
         }
         algo_props: Dict[str, str] = {
             "threads_per_step": "threads_per_step",
-            "uses_multiple_stages": "is_multistage",
-            "order": "order",
-            "integration_step_function": "step_function",
-            "state_count": "n",
-            "solver_helper": "get_solver_helper_fn",
-            "beta_coefficient": "beta",
-            "gamma_coefficient": "gamma",
-            "mass_matrix": "mass_matrix",
-            "preconditioner_order": "preconditioner_order",
-            "krylov_atol": "krylov_atol",
-            "krylov_rtol": "krylov_rtol",
-            "max_linear_iterations": "krylov_max_iters",
-            "linear_correction_type": "linear_correction_type",
-            "newton_atol": "newton_atol",
-            "newton_rtol": "newton_rtol",
-            "newton_iterations_limit": "newton_max_iters",
-            "newton_damping": "newton_damping",
-            "newton_max_backtracks": "newton_max_backtracks",
-            "integration_step_size": "dt",
         }
         output_props: Dict[str, str] = {
             "save_state_func": "save_state_func",
@@ -224,17 +194,6 @@ class TestSingleIntegratorRun:
             "saved_observable_indices": "saved_observable_indices",
             "summarised_state_indices": "summarised_state_indices",
             "summarised_observable_indices": "summarised_observable_indices",
-            "n_saved_states": "n_saved_states",
-            "n_saved_observables": "n_saved_observables",
-            "state_summaries_output_height": "state_summaries_output_height",
-            "observable_summaries_output_height": "observable_summaries_output_height",
-            "summary_buffer_height_per_variable": "summaries_buffer_height_per_var",
-            "state_summaries_buffer_height": "state_summaries_buffer_height",
-            "observable_summaries_buffer_height": "observable_summaries_buffer_height",
-            "total_summary_buffer_size": "total_summary_buffer_size",
-            "summary_output_height_per_variable": "summaries_output_height_per_var",
-            "n_summarised_states": "n_summarised_states",
-            "n_summarised_observables": "n_summarised_observables",
             "output_array_heights": "output_array_heights",
             "summary_legend_per_variable": "summary_legend_per_variable",
         }
@@ -359,16 +318,17 @@ def test_update_routes_to_children(
         np.asarray(new_saved_observables),
     )
 
-    assert run.n_saved_states == int(expected_saved_states.size)
-    assert run.n_saved_observables == int(expected_saved_obs.size)
+    of = run._output_functions
+    assert of.n_saved_states == int(expected_saved_states.size)
+    assert of.n_saved_observables == int(expected_saved_obs.size)
     expected_summary_count = (
         len(new_saved_states) if flags.summarise_state else 0
     )
     expected_summary_obs = (
         len(new_saved_observables) if flags.summarise_observables else 0
     )
-    assert run.n_summarised_states == expected_summary_count
-    assert run.n_summarised_observables == expected_summary_obs
+    assert of.n_summarised_states == expected_summary_count
+    assert of.n_summarised_observables == expected_summary_obs
 
     controller_settings = _settings_to_dict(run._step_controller.settings_dict)
     algo_settings = _settings_to_dict(run._algo_step.settings_dict)
@@ -419,8 +379,8 @@ def test_default_step_controller_settings_applied(
         else:
             assert actual == expected
     assert run._step_controller.n == system.sizes.states
-    if run.algorithm_order is not None:
-        assert run.algorithm_order == run._algo_step.order
+    if hasattr(run._step_controller, "algorithm_order"):
+        assert run._step_controller.algorithm_order == run._algo_step.order
 
 
 @pytest.mark.parametrize(

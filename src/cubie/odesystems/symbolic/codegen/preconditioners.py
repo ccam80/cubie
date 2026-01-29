@@ -1,4 +1,26 @@
-"""Code generation helpers for implicit solver preconditioners."""
+"""Emit CUDA factory code for Neumann-series preconditioners.
+
+Published Functions
+-------------------
+:func:`generate_neumann_preconditioner_code`
+    Emit a factory computing a truncated Neumann series approximation
+    to ``(I - gamma * h * J)^{-1} * v``.
+
+:func:`generate_neumann_preconditioner_cached_code`
+    Variant that reads precomputed auxiliary values from a cache buffer.
+
+:func:`generate_n_stage_neumann_preconditioner_code`
+    Emit a flattened multi-stage preconditioner for FIRK methods.
+
+See Also
+--------
+:mod:`cubie.odesystems.symbolic.codegen.linear_operators`
+    Companion linear operator code generators.
+:mod:`cubie.odesystems.symbolic.codegen.jacobian`
+    Produces the JVP expressions consumed by this module.
+:mod:`cubie.odesystems.symbolic.codegen._stage_utils`
+    Shared FIRK stage metadata helpers.
+"""
 
 from typing import List, Optional, Tuple, Dict, Sequence, Union
 

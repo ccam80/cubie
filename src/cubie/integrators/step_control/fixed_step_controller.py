@@ -1,4 +1,30 @@
-"""Fixed step-size controller implementations."""
+"""Fixed step-size controller.
+
+Published Classes
+-----------------
+:class:`FixedStepControlConfig`
+    Configuration container for fixed-step controllers.
+
+    >>> from numpy import float32
+    >>> config = FixedStepControlConfig(precision=float32, dt=1e-3)
+    >>> config.dt
+    0.001
+
+:class:`FixedStepController`
+    Controller that enforces a constant time step.
+
+    >>> from numpy import float64
+    >>> ctrl = FixedStepController(precision=float64, dt=0.01)
+    >>> ctrl.is_adaptive
+    False
+
+See Also
+--------
+:class:`~cubie.integrators.step_control.base_step_controller.BaseStepController`
+    Abstract base class for all controllers.
+:class:`~cubie.integrators.step_control.base_step_controller.BaseStepControllerConfig`
+    Base configuration class.
+"""
 
 from attrs import define, field
 from numba import cuda, int32
@@ -33,8 +59,6 @@ class FixedStepControlConfig(BaseStepControllerConfig):
 
     def _validate_config(self) -> None:
         """Confirm that the configuration is internally consistent."""
-
-        return True
 
     @property
     def dt(self) -> float:
@@ -108,8 +132,8 @@ class FixedStepController(BaseStepController):
 
         Returns
         -------
-        Callable
-            CUDA device function that keeps the step size constant.
+        ControllerCache
+            Cache containing the compiled fixed-step device function.
         """
 
         @cuda.jit(

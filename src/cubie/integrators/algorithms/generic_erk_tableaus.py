@@ -1,9 +1,35 @@
 """Explicit Runge--Kutta tableau definitions used by generic ERK steps.
 
-The tableaus collected here provide reusable coefficients for explicit
-Runge--Kutta methods with classical order of at least two. Each tableau lists
-the literature source describing the coefficients so integrators can reference
-the original derivations when validating implementations.
+Each tableau lists the literature source describing the coefficients
+so integrators can reference the original derivations.
+
+Published Classes
+-----------------
+:class:`ERKTableau`
+    Butcher tableau subclass for explicit Runge--Kutta methods.
+
+    >>> tab = ERKTableau(
+    ...     a=((0.0, 0.0), (1.0, 0.0)),
+    ...     b=(0.5, 0.5), c=(0.0, 1.0), order=2,
+    ... )
+    >>> tab.stage_count
+    2
+
+Module-Level Constants
+----------------------
+:data:`DEFAULT_ERK_TABLEAU`
+    Alias for :data:`DORMAND_PRINCE_54_TABLEAU`.
+
+:data:`ERK_TABLEAU_REGISTRY`
+    Mapping from human-readable identifiers (e.g. ``'rk45'``,
+    ``'tsit5'``) to :class:`ERKTableau` instances.
+
+See Also
+--------
+:class:`~cubie.integrators.algorithms.base_algorithm_step.ButcherTableau`
+    Parent class providing typed accessors and FSAL detection.
+:class:`~cubie.integrators.algorithms.generic_erk.ERKStep`
+    Step factory that consumes these tableaus.
 """
 
 from typing import Dict
@@ -15,7 +41,14 @@ from cubie.integrators.algorithms.base_algorithm_step import ButcherTableau
 
 @attrs.define
 class ERKTableau(ButcherTableau):
-    """Coefficient tableau describing an explicit Runge--Kutta scheme."""
+    """Coefficient tableau describing an explicit Runge--Kutta scheme.
+
+    See Also
+    --------
+    :class:`~cubie.integrators.algorithms.base_algorithm_step.ButcherTableau`
+        Parent class defining ``a``, ``b``, ``b_hat``, ``c``, and
+        ``order`` fields.
+    """
 
 
 #: Heun's improved Euler method offering second-order accuracy.

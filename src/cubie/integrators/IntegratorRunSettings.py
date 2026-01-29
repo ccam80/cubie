@@ -1,8 +1,25 @@
 """Runtime configuration settings for numerical integration algorithms.
 
-This module provides :class:`IntegratorRunSettings`, an attrs-based
-container that centralises precision, algorithm, and controller
-configuration for the CUDA IVP loop orchestrators.
+Published Classes
+-----------------
+:class:`IntegratorRunSettings`
+    Attrs container holding algorithm name and step controller name
+    alongside the inherited precision field.
+
+    >>> from numpy import float32
+    >>> settings = IntegratorRunSettings(
+    ...     precision=float32, algorithm="erk", step_controller="pid"
+    ... )
+    >>> settings.algorithm
+    'erk'
+
+See Also
+--------
+:class:`~cubie.CUDAFactory.CUDAFactoryConfig`
+    Parent class providing precision and numba type conversion.
+:class:`~cubie.integrators.SingleIntegratorRunCore.SingleIntegratorRunCore`
+    Consumer that uses these settings to select algorithm and
+    controller factories.
 """
 
 import attrs

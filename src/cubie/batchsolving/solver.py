@@ -637,7 +637,7 @@ class Solver:
             recognised.add("mem_proportion")
         if "allocator" in updates_dict:
             self.memory_manager.set_allocator(
-                self.kernel, updates_dict["allocator"]
+                updates_dict["allocator"]
             )
             recognised.add("allocator")
 

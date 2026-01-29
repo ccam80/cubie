@@ -1,4 +1,33 @@
-"""Code generation helpers for linear operators and Jacobian products."""
+"""Emit CUDA factory code for linear operators and cached JVP helpers.
+
+Published Functions
+-------------------
+:func:`generate_operator_apply_code`
+    Emit a factory that applies ``(I - gamma * h * J) * v`` using
+    analytic JVP expressions.
+
+:func:`generate_cached_operator_apply_code`
+    Variant that reads precomputed auxiliary values from a cache buffer.
+
+:func:`generate_prepare_jac_code`
+    Emit a factory that populates the auxiliary cache buffer used by
+    ``generate_cached_operator_apply_code``.
+
+:func:`generate_cached_jvp_code`
+    Emit a factory that evaluates the JVP from cached auxiliaries.
+
+:func:`generate_n_stage_linear_operator_code`
+    Emit a flattened multi-stage linear operator for FIRK methods.
+
+See Also
+--------
+:mod:`cubie.odesystems.symbolic.codegen.jacobian`
+    Produces the JVP expressions consumed by this module.
+:mod:`cubie.odesystems.symbolic.codegen.preconditioners`
+    Companion preconditioner code generators.
+:mod:`cubie.odesystems.symbolic.codegen._stage_utils`
+    Shared FIRK stage metadata helpers.
+"""
 
 from typing import Dict, Iterable, List, Optional, Sequence, Tuple, Union
 
@@ -818,9 +847,5 @@ __all__ = [
     "generate_cached_operator_apply_code",
     "generate_prepare_jac_code",
     "generate_cached_jvp_code",
-    "generate_operator_apply_code_from_jvp",
-    "generate_cached_operator_apply_code_from_jvp",
-    "generate_prepare_jac_code_from_jvp",
-    "generate_cached_jvp_code_from_jvp",
     "generate_n_stage_linear_operator_code",
 ]
