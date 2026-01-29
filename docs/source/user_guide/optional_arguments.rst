@@ -1,5 +1,5 @@
 Optional Arguments Reference
-===========================
+============================
 
 CuBIE uses a cascading configuration system where optional parameters flow
 through to underlying components. When you call ``solver.solve()`` or create
@@ -585,13 +585,14 @@ memory. These options affect performance but not correctness.
 
 **Buffer location parameters** (e.g., ``state_location``,
 ``preconditioned_vec_location``, etc.)
-    Control whether a buffer is allocated in local memory (``"local"``) or
-    shared memory (``"shared"``). Local memory is private to each thread and
-    larger; shared memory is faster but limited and shared across a thread
-    block. The defaults are tuned for typical use cases.
 
-    - Default: ``"local"`` for most buffers
-    - Type: ``str`` (``"local"`` or ``"shared"``)
+Control whether a buffer is allocated in local memory (``"local"``) or
+shared memory (``"shared"``). Local memory is private to each thread and
+larger; shared memory is faster but limited and shared across a thread
+block. The defaults are tuned for typical use cases.
+
+- Default: ``"local"`` for most buffers
+- Type: ``str`` (``"local"`` or ``"shared"``)
 
 These parameters are primarily useful for performance tuning on specific GPU
 architectures and can generally be left at their defaults.

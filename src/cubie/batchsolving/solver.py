@@ -4,11 +4,31 @@ This module exposes the user-facing :class:`Solver` class and a convenience
 wrapper :func:`solve_ivp` for solving batches of initial value problems on the
 GPU.
 
+Published Classes
+-----------------
+:class:`Solver`
+    User-facing class for configuring and executing batch ODE solves.
+
+Module-Level Functions
+----------------------
+:func:`solve_ivp`
+    Convenience wrapper that creates a :class:`Solver` and executes a single
+    batch solve in one call.
+
 Notes
 -----
 When GPU memory is insufficient for the full batch, arrays are automatically
 chunked along the run axis. Chunking is transparent to the user and requires
 no configuration.
+
+See Also
+--------
+:class:`~cubie.batchsolving.solveresult.SolveResult`
+    Result container returned by :meth:`Solver.solve`.
+:class:`~cubie.batchsolving.BatchSolverKernel.BatchSolverKernel`
+    Kernel factory used internally by the solver.
+:class:`~cubie.batchsolving.BatchInputHandler.BatchInputHandler`
+    Grid builder used for dict-based inputs.
 """
 
 from pathlib import Path
@@ -332,11 +352,6 @@ class Solver:
             ``saved_observable_indices``, ``summarised_state_indices``,
             and ``summarised_observable_indices``.
 
-        Returns
-        -------
-        None
-            Modifies ``output_settings`` in-place.
-
         Raises
         ------
         ValueError
@@ -649,25 +664,13 @@ class Solver:
         return recognised
 
     def enable_profiling(self) -> None:
-        """Enable CUDA profiling for the solver.
-
-        Returns
-        -------
-        None
-            This method alters kernel profiling configuration in-place.
-        """
+        """Enable CUDA profiling for the solver."""
         # Consider disabling optimisation and enabling debug and line info
         # for profiling
         self.kernel.enable_profiling()
 
     def disable_profiling(self) -> None:
-        """Disable CUDA profiling for the solver.
-
-        Returns
-        -------
-        None
-            This method alters kernel profiling configuration in-place.
-        """
+        """Disable CUDA profiling for the solver."""
         self.kernel.disable_profiling()
 
     def get_state_indices(
@@ -729,11 +732,6 @@ class Solver:
     def output_array_heights(self):
         """Expose output array heights from the kernel."""
         return self.kernel.output_array_heights
-
-    @property
-    def summaries_buffer_sizes(self):
-        """Expose summary buffer sizes."""
-        return self.kernel.summaries_buffer_sizes
 
     @property
     def num_runs(self):
@@ -805,11 +803,6 @@ class Solver:
         return self.system_interface.observable_labels(
             self.summarised_observable_indices
         )
-
-    @property
-    def active_outputs(self) -> ActiveOutputs:
-        """Expose active output array containers."""
-        return self.kernel.active_outputs
 
     @property
     def state(self):

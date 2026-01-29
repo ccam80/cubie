@@ -24,6 +24,10 @@ Algorithms
    algorithms/generic_erk_tableaus
    algorithms/generic_dirk_step
    algorithms/generic_dirk_tableaus
+   algorithms/generic_firk_step
+   algorithms/generic_firk_tableaus
+   algorithms/generic_rosenbrock_step
+   algorithms/generic_rosenbrock_tableaus
    algorithms/get_algorithm_step
 
 Factories in :mod:`cubie.integrators.algorithms` assemble explicit and implicit
@@ -58,6 +62,10 @@ Implicit steps
 * :doc:`CrankNicolsonStep <algorithms/crank_nicolson_step>` – Crank–Nicolson implicit algorithm.
 * :doc:`DIRKStep <algorithms/generic_dirk_step>` – diagonally implicit Runge–Kutta family with embedded error estimates.
 * :doc:`DIRK tableau registry <algorithms/generic_dirk_tableaus>` – named diagonally implicit Runge–Kutta tableaus and references.
+* :doc:`FIRKStep <algorithms/generic_firk_step>` – fully implicit Runge–Kutta family (Gauss–Legendre, Radau IIA).
+* :doc:`FIRK tableau registry <algorithms/generic_firk_tableaus>` – named fully implicit Runge–Kutta tableaus and references.
+* :doc:`GenericRosenbrockWStep <algorithms/generic_rosenbrock_step>` – linearly implicit Rosenbrock-W methods.
+* :doc:`Rosenbrock tableau registry <algorithms/generic_rosenbrock_tableaus>` – named Rosenbrock-W tableaus and references.
 
 Factory helpers
 ---------------

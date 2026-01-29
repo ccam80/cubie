@@ -1,20 +1,27 @@
-"""Factories that build CUDA device functions for persisting summary metrics.
+"""Factory for CUDA device functions that persist summary metrics.
 
-This module chains registered summary metric save functions and specialises a
-CUDA device function for the requested set of metrics and tracked variables.
+Published Functions
+-------------------
+:func:`save_summary_factory`
+    Build a CUDA device function that exports accumulated summary
+    metrics from working buffers to output arrays.
+
+:func:`chain_metrics`
+    Recursively compose metric save functions into a single callable
+    (internal).
+
+See Also
+--------
+:func:`~cubie.outputhandling.update_summaries.update_summary_factory`
+    Companion factory that accumulates metrics during integration.
+:class:`~cubie.outputhandling.output_functions.OutputFunctions`
+    Caller that invokes this factory during compilation.
 
 Notes
 -----
-This implementation is based on the "chain" approach by sklam from
-https://github.com/numba/numba/issues/3405. The approach allows iterating
-through JIT-compiled functions without passing them as an iterable, which is
-not supported by Numba.
-
-The process consists of:
-1. A recursive ``chain_metrics`` function that builds a chain of summary
-   functions.
-2. A ``save_summary_factory`` that applies the chained functions to each
-   variable.
+Based on the recursive chain approach by sklam
+(https://github.com/numba/numba/issues/3405) for composing
+JIT-compiled functions without passing them as an iterable.
 """
 
 from typing import Callable, Sequence, Union
@@ -47,15 +54,10 @@ def do_nothing(
     summarise_every
         Integer interval between summary exports (unused).
 
-    Returns
-    -------
-    None
-        The device function intentionally performs no operations.
-
     Notes
     -----
-    This function serves as the base case for the recursive chain when no
-    summary metrics are configured or as the initial ``inner_chain`` function.
+    Base case for the recursive chain when no summary metrics are
+    configured.
     """
     pass
 

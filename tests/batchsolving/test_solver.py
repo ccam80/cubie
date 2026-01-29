@@ -9,8 +9,6 @@ from cubie.batchsolving.solveresult import SolveResult, SolveSpec
 from cubie.batchsolving.BatchInputHandler import BatchInputHandler
 from cubie.batchsolving.SystemInterface import SystemInterface
 
-from cubie.cuda_simsafe import DeviceNDArray
-
 
 @pytest.fixture(scope="session")
 def simple_initial_values(system):
@@ -401,14 +399,6 @@ def test_data_properties_after_solve(solved_solver_simple):
     """Test that data properties are accessible after solving."""
     # These should be accessible after solving
     solver, result = solved_solver_simple
-    assert isinstance(solver.kernel.device_state_array, DeviceNDArray)
-    assert isinstance(solver.kernel.device_observables_array, DeviceNDArray)
-    assert isinstance(
-        solver.kernel.device_state_summaries_array, DeviceNDArray
-    )
-    assert isinstance(
-        solver.kernel.device_observable_summaries_array, DeviceNDArray
-    )
 
     assert isinstance(result.time_domain_array, np.ndarray)
     assert isinstance(result.summaries_array, np.ndarray)

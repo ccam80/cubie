@@ -8,7 +8,6 @@ from cubie.batchsolving.BatchInputHandler import (
     combinatorial_grid,
     combine_grids,
     extend_grid_to_array,
-    generate_array,
     generate_grid,
     unique_cartesian_product,
     verbatim_grid,
@@ -238,25 +237,6 @@ def test_extend_grid_to_array(system):
     assert arr.shape[1] == 3  # 3 runs
     assert_array_equal(arr[indices, :], grid)
     assert np.all(arr[2, :] == param.values_array[2])
-
-
-def test_generate_array(system, batch_settings, batch_request):
-    # Test the generate_array utility function
-    param = system.parameters
-    numvals = batch_settings["num_param_vals"]
-    a = np.arange(numvals)
-    request = {
-        param.names[0]: a,
-    }
-    arr = generate_array(request, param)
-    # Result is (variable, run) format
-    assert arr.ndim == 2
-    assert arr.shape[0] == param.values_array.shape[0]  # all variables
-    assert arr.shape[1] == numvals  # numvals runs
-    assert_array_equal(arr[0, :], a)  # swept variable values
-    assert np.all(
-        arr[1:, :] == param.values_array[1:, np.newaxis]
-    )  # Check other parameters are unchanged
 
 
 @pytest.fixture(scope="session")

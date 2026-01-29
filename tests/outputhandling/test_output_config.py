@@ -329,14 +329,6 @@ class TestSummaryMetrics:
         assert len(config.summary_types) == 0
         assert config.save_summaries is False
 
-    def test_summary_parameters(self, config_with_summaries):
-        """Test summary_parameters property."""
-        params = config_with_summaries.summary_parameters
-        assert len(params) == 2  # One for each summary type
-        assert all(
-            param == 0 for param in params
-        )  # Default is 0 for these metrics
-
     def test_summary_memory_requirements(self, config_with_summaries):
         """Test memory calculation properties."""
         config = config_with_summaries

@@ -13,6 +13,8 @@ you need specific details about a function or class, the :doc:`Reference Manual 
 
    getting_started
    user_guide/index
+   theory/index
+   developer_guide/index
    API_reference/index
 
 Indices and tables

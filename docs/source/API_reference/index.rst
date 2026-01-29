@@ -15,3 +15,4 @@ pages describe each top-level module inside :mod:`cubie`.
    integrators/index
    outputhandling/index
    memory
+   gui/index

@@ -1,4 +1,22 @@
-"""Compile-time configuration for batch solver kernels."""
+"""Compile-time configuration for batch solver kernels.
+
+Published Classes
+-----------------
+:class:`ActiveOutputs`
+    Boolean flags indicating which output types are enabled.
+
+:class:`BatchSolverConfig`
+    Compile-critical settings that trigger kernel recompilation when changed.
+
+See Also
+--------
+:class:`~cubie.CUDAFactory.CUDAFactoryConfig`
+    Parent class for compile-critical configuration.
+:class:`~cubie.outputhandling.output_config.OutputCompileFlags`
+    Source flags from which ``ActiveOutputs`` is derived.
+:class:`~cubie.batchsolving.BatchSolverKernel.BatchSolverKernel`
+    Consumer of this configuration.
+"""
 
 from typing import Callable, Optional
 

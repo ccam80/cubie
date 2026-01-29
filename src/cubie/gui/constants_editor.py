@@ -1,9 +1,49 @@
 """Qt GUI for editing constants and parameters in a SymbolicODE.
 
-This module provides a table-based editor that allows users to:
-- View all constants and parameters with their values and units
-- Convert constants to parameters (swept) and vice versa via checkbox
-- Edit values with forgiving float validation
+Table-based editors for viewing and modifying constants, parameters,
+and their swept/compile-time categorisation in a
+:class:`~cubie.odesystems.symbolic.SymbolicODE`.
+
+Published Classes
+-----------------
+:class:`FloatLineEdit`
+    Line edit widget with forgiving float validation.
+
+    >>> edit = FloatLineEdit(1.5e-3)
+    >>> edit.value()
+    0.0015
+
+:class:`ConstantsEditor`
+    Modal dialog for editing constants and parameters on a live
+    ``SymbolicODE``.
+
+    >>> editor = ConstantsEditor(ode)
+    >>> editor.exec()
+
+:class:`PreParseEditor`
+    Modal dialog for categorising constants and parameters before
+    parsing (operates on raw dictionaries).
+
+Module-Level Functions
+----------------------
+:func:`edit_pre_parse_dicts`
+    Show a :class:`PreParseEditor` and return the modified dicts.
+
+    >>> c, p, iv = edit_pre_parse_dicts(
+    ...     {"g": 9.81}, {"k": 1.0}, {"x": 0.0},
+    ... )
+
+:func:`show_constants_editor`
+    Convenience wrapper to display a :class:`ConstantsEditor`.
+
+    >>> show_constants_editor(ode)
+
+See Also
+--------
+:mod:`cubie.gui.states_editor`
+    Companion editor for initial state values.
+:class:`~cubie.odesystems.symbolic.SymbolicODE`
+    ODE system class consumed by the editors.
 """
 
 from typing import TYPE_CHECKING, Optional
@@ -22,7 +62,16 @@ if TYPE_CHECKING:
 class FloatLineEdit(QLineEdit):
     """Line edit with forgiving float validation.
 
-    Accepts various numeric formats and provides visual feedback.
+    Accepts standard floats, scientific notation (``1e-5``), and
+    Fortran-style ``d`` exponents (``1.5d3``).  Invalid input is
+    highlighted with a red background.
+
+    Parameters
+    ----------
+    value
+        Initial numeric value.
+    parent
+        Optional parent widget.
     """
 
     def __init__(self, value: float = 0.0, parent: Optional[QWidget] = None):
@@ -494,10 +543,16 @@ def edit_pre_parse_dicts(
 
     Returns
     -------
-    tuple
+    tuple of (dict, dict, dict)
         ``(constants_dict, parameters_dict, initial_values)`` after
         user edits. If the user cancels, the original dicts are
         returned unchanged.
+
+    Examples
+    --------
+    >>> constants, params, inits = edit_pre_parse_dicts(
+    ...     {"g": 9.81}, {"k": 1.0}, {"x": 0.0},
+    ... )
     """
     app = QApplication.instance()
     created_app = False
@@ -541,6 +596,11 @@ def show_constants_editor(
     -------
     ConstantsEditor or None
         The dialog instance if non-blocking, None if blocking.
+
+    Examples
+    --------
+    >>> show_constants_editor(ode)          # blocking
+    >>> editor = show_constants_editor(ode, blocking=False)
     """
     app = QApplication.instance()
     created_app = False

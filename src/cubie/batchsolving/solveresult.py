@@ -3,6 +3,23 @@
 This module exposes :class:`SolveSpec` to describe solver configuration and
 :class:`SolveResult` to aggregate output arrays, legends, and metadata once a
 batch integration completes.
+
+Published Classes
+-----------------
+:class:`SolveSpec`
+    Frozen attrs dataclass describing the configuration used for a solver run.
+
+:class:`SolveResult`
+    Aggregates output arrays, legends, and metadata from a completed batch
+    integration.
+
+See Also
+--------
+:class:`~cubie.batchsolving.solver.Solver`
+    User-facing solver whose :meth:`~Solver.solve` returns a
+    :class:`SolveResult`.
+:func:`~cubie.batchsolving.solver.solve_ivp`
+    Convenience wrapper returning a :class:`SolveResult`.
 """
 
 from typing import Optional, TYPE_CHECKING, Union, List, Any, Tuple
@@ -73,6 +90,8 @@ class SolveSpec:
 
     Attributes
     ----------
+    dt
+        Fixed step size, or ``None`` for adaptive controllers.
     dt_min
         Minimum time step size.
     dt_max

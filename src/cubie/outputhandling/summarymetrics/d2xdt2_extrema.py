@@ -1,10 +1,16 @@
-"""
-Extrema (both max and min) second derivative summary metric for CUDA-accelerated
-batch integration.
+"""Combined maximum and minimum second derivative via central finite differences.
 
-This module implements a summary metric that tracks both maximum and minimum
-second derivative values encountered during integration for each variable using
-central finite differences.
+Published Classes
+-----------------
+:class:`D2xdt2Extrema`
+    Combined maximum and minimum second derivative via central finite differences.
+
+See Also
+--------
+:class:`~cubie.outputhandling.summarymetrics.metrics.SummaryMetric`
+    Abstract base class for summary metrics.
+:data:`~cubie.outputhandling.summarymetrics.summary_metrics`
+    Global registry where this metric is registered.
 """
 
 from numba import cuda

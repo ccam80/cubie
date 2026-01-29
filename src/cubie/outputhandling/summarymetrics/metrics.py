@@ -1,9 +1,38 @@
 """Infrastructure for registering CUDA summary metrics.
 
-The module exposes the registry used by output handling to collate integration
-summaries. It compiles CUDA device callbacks through ``CUDAFactory`` and keeps
-per-metric metadata such as buffer sizes, parameterisation, and device
-function dispatch tables.
+Published Classes
+-----------------
+:class:`MetricFuncCache`
+    Cache container for compiled metric update and save functions.
+
+:class:`MetricConfig`
+    Configuration for summary metric compilation.
+
+:class:`SummaryMetric`
+    Abstract base class for summary metrics. Subclasses implement
+    :meth:`build` to provide CUDA device callbacks.
+
+:class:`SummaryMetrics`
+    Registry and dispatcher coordinating buffer sizing, function
+    dispatch, and combined metric substitution.
+
+    >>> from numpy import float32
+    >>> registry = SummaryMetrics(precision=float32)
+    >>> registry.implemented_metrics
+    []
+
+Module-Level Functions
+----------------------
+:func:`register_metric`
+    Decorator that instantiates and registers a metric class.
+
+See Also
+--------
+:class:`~cubie.CUDAFactory.CUDAFactory`
+    Base factory providing compilation and cache management.
+:mod:`~cubie.outputhandling.summarymetrics`
+    Package that creates the global registry and imports built-in
+    metrics.
 """
 
 from typing import Any, Callable, Optional, Union
@@ -549,32 +578,6 @@ class SummaryMetrics:
             size = self._get_size(metric, self._output_sizes)
             offset += size
         return tuple(offsets_dict[metric] for metric in parsed_request)
-
-    def output_offsets_dict(
-        self,
-        output_types_requested: list[str],
-    ) -> dict[str, int]:
-        """Get output array offsets as a dictionary for requested metrics.
-
-        Parameters
-        ----------
-        output_types_requested
-            Metric names to generate offsets for.
-
-        Returns
-        -------
-        dict[str, int]
-            Mapping of metric names to output offsets.
-        """
-        parsed_request = self.preprocess_request(output_types_requested)
-
-        offset = 0
-        offsets_dict = {}
-        for metric in parsed_request:
-            offsets_dict[metric] = offset
-            size = self._get_size(metric, self._output_sizes)
-            offset += size
-        return offsets_dict
 
     def summaries_output_height(
         self,

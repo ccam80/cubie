@@ -5,11 +5,31 @@ This module provides :class:`SystemInterface`, which wraps
 observables. It exposes helper methods for converting between user-facing
 labels or indices and internal representations.
 
+Published Classes
+-----------------
+:class:`SystemInterface`
+    Wrapper providing label-to-index resolution and value updates for
+    parameters, states, and observables.
+
+    >>> from cubie.batchsolving.SystemInterface import SystemInterface
+    >>> interface = SystemInterface.from_system(system)
+    >>> interface.state_indices(["x", "y"])
+    array([0, 1], dtype=int32)
+
 Notes
 -----
 The interface allows updating default state or parameter values without
 navigating the full system hierarchy, providing a simplified entry point for
 common operations.
+
+See Also
+--------
+:class:`~cubie.odesystems.SystemValues.SystemValues`
+    Underlying keyed parameter container.
+:class:`~cubie.odesystems.baseODE.BaseODE`
+    ODE system base class from which interfaces are created.
+:class:`~cubie.batchsolving.solver.Solver`
+    Primary consumer of this interface.
 """
 
 from typing import Any, Dict, List, Optional, Set, Tuple, Union
@@ -171,7 +191,7 @@ class SystemInterface:
 
     def observable_indices(
         self,
-        keys_or_indices: Union[List[Union[str, int]], str, int],
+        keys_or_indices: Optional[Union[List[Union[str, int]], str, int]] = None,
         silent: bool = False,
     ) -> ndarray:
         """Convert observable labels or indices to a numeric array.
@@ -428,11 +448,6 @@ class SystemInterface:
             Settings dict containing ``save_variables``,
             ``summarise_variables``, and their index counterparts.
             Modified in-place.
-
-        Returns
-        -------
-        None
-            Modifies output_settings in-place.
 
         Raises
         ------

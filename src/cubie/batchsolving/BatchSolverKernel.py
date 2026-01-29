@@ -1,10 +1,31 @@
 # -*- coding: utf-8 -*-
 """CUDA batch solver kernel utilities.
 
+Published Classes
+-----------------
+:class:`RunParams`
+    Frozen attrs dataclass holding run duration, warmup, t0, and chunking
+    metadata.
+
+:class:`BatchSolverKernel`
+    :class:`CUDAFactory` subclass that compiles and launches the integration
+    kernel for batched GPU solves.
+
 Notes
 -----
 Chunking is performed along the run axis when memory constraints require
 splitting the batch. This chunking is automatic and transparent to users.
+
+See Also
+--------
+:class:`~cubie.batchsolving.solver.Solver`
+    User-facing API that delegates to this kernel.
+:class:`~cubie.integrators.SingleIntegratorRun.SingleIntegratorRun`
+    Generates the compiled loop function consumed by the kernel.
+:class:`~cubie.batchsolving.arrays.BatchInputArrays.InputArrays`
+    Input array manager owned by the kernel.
+:class:`~cubie.batchsolving.arrays.BatchOutputArrays.OutputArrays`
+    Output array manager owned by the kernel.
 """
 
 from typing import (
@@ -46,10 +67,6 @@ from cubie.batchsolving.arrays.BatchOutputArrays import (
 from cubie.batchsolving.BatchSolverConfig import ActiveOutputs
 from cubie.batchsolving.BatchSolverConfig import BatchSolverConfig
 from cubie.odesystems.baseODE import BaseODE
-from cubie.outputhandling.output_sizes import (
-    BatchOutputSizes,
-    SingleRunOutputSizes,
-)
 from cubie.outputhandling.output_config import OutputCompileFlags
 from cubie.integrators.SingleIntegratorRun import SingleIntegratorRun
 from cubie._utils import unpack_dict_values, getype_validator
@@ -203,6 +220,13 @@ class BatchSolverKernel(CUDAFactory):
     memory_settings
         Mapping of memory configuration forwarded to the memory manager,
         typically via :mod:`cubie.memory`.
+    cache_settings
+        Mapping of cache configuration forwarded to
+        :class:`cubie.cubie_cache.CubieCacheHandler`.
+    cache
+        Cache mode control. ``True`` enables default caching, ``False``
+        disables caching, or a string/``Path`` sets a custom cache
+        directory.
 
     Notes
     -----
@@ -458,9 +482,9 @@ class BatchSolverKernel(CUDAFactory):
         Parameters
         ----------
         inits
-            Initial conditions with shape ``(n_runs, n_states)``.
+            Initial conditions with shape ``(n_states, n_runs)``.
         params
-            Parameter table with shape ``(n_runs, n_params)``.
+            Parameter table with shape ``(n_params, n_runs)``.
         driver_coefficients
             Optional Horner-ordered driver interpolation coefficients with
             shape ``(num_segments, num_drivers, order + 1)``.
@@ -474,11 +498,6 @@ class BatchSolverKernel(CUDAFactory):
             Warmup time before the main simulation.
         t0
             Initial integration time.
-
-        Returns
-        -------
-        None
-            This method performs the integration for its side effects.
 
         Notes
         -----
@@ -1067,11 +1086,6 @@ class BatchSolverKernel(CUDAFactory):
         return self.run_params.num_chunks
 
     @property
-    def total_runs(self) -> int:
-        """Total number of runs in the full batch."""
-        return self.run_params.runs
-
-    @property
     def output_length(self) -> int:
         """Number of saved trajectory samples in the main run.
 
@@ -1155,18 +1169,6 @@ class BatchSolverKernel(CUDAFactory):
         return self.single_integrator.output_array_heights
 
     @property
-    def ouput_array_sizes_2d(self) -> SingleRunOutputSizes:
-        """Two-dimensional output sizes for individual runs."""
-
-        return SingleRunOutputSizes.from_solver(self)
-
-    @property
-    def output_array_sizes_3d(self) -> BatchOutputSizes:
-        """Three-dimensional output sizes for batched runs."""
-
-        return BatchOutputSizes.from_solver(self)
-
-    @property
     def summary_legend_per_variable(self) -> Any:
         """Legend entries describing each summarised variable."""
 
@@ -1201,36 +1203,6 @@ class BatchSolverKernel(CUDAFactory):
         """Indices of summarised observable variables."""
 
         return self.single_integrator.summarised_observable_indices
-
-    @property
-    def device_state_array(self) -> Any:
-        """Device buffer storing saved state trajectories."""
-
-        return self.output_arrays.device_state
-
-    @property
-    def device_observables_array(self) -> Any:
-        """Device buffer storing saved observable trajectories."""
-
-        return self.output_arrays.device_observables
-
-    @property
-    def device_state_summaries_array(self) -> Any:
-        """Device buffer storing state summary reductions."""
-
-        return self.output_arrays.device_state_summaries
-
-    @property
-    def device_observable_summaries_array(self) -> Any:
-        """Device buffer storing observable summary reductions."""
-
-        return self.output_arrays.device_observable_summaries
-
-    @property
-    def d_statuscodes(self) -> Any:
-        """Device buffer storing integration status codes."""
-
-        return self.output_arrays.device_status_codes
 
     @property
     def state(self) -> Any:

@@ -1,19 +1,36 @@
 """Qt-based GUI utilities for CuBIE ODE systems.
 
-This module provides graphical editors for managing constants, parameters,
-and initial state values in SymbolicODE systems. The GUIs are designed to
-be loosely coupled and simply use the public API of SymbolicODE.
+Graphical editors for managing constants, parameters, and initial
+state values in :class:`~cubie.odesystems.symbolic.SymbolicODE`
+systems.  The editors use the public API of ``SymbolicODE`` and are
+loosely coupled from the rest of the library.
 
-Requires one of: PyQt6, PyQt5, PySide6, or PySide2.
+Requires one of: PyQt6, PyQt5, PySide6, or PySide2 (via ``qtpy``).
 
-Example
--------
->>> from cubie.odesystems.symbolic import load_cellml_model
->>> from cubie.gui import ConstantsEditor, StatesEditor
->>>
->>> ode = load_cellml_model("model.cellml")
->>> editor = ConstantsEditor(ode)
->>> editor.show()
+Published Classes
+-----------------
+:class:`ConstantsEditor`
+    Dialog for viewing and editing constants and parameters.
+
+    >>> from cubie.gui import ConstantsEditor
+    >>> editor = ConstantsEditor(ode)
+    >>> editor.exec()
+
+:class:`StatesEditor`
+    Dialog for viewing and editing initial state values.
+
+    >>> from cubie.gui import StatesEditor
+    >>> editor = StatesEditor(ode)
+    >>> editor.exec()
+
+See Also
+--------
+:mod:`cubie.gui.constants_editor`
+    Constants/parameters editor and pre-parse editor.
+:mod:`cubie.gui.states_editor`
+    Initial-states editor.
+:class:`~cubie.odesystems.symbolic.SymbolicODE`
+    ODE system class consumed by the editors.
 """
 
 from cubie.gui.constants_editor import ConstantsEditor

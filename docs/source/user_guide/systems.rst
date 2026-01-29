@@ -138,15 +138,7 @@ Cubie ODE System Glossary
 Jacobians
 ---------
 
-Implicit algorithms, such as the RadauIIA5 method that Cubie uses, require the
-system's Jacobian. For why, see :ref:`Implicit Methods <implicit-methods>`.
-Some widely-available solvers obtain this numerically by finite differences,
-which is prone to error and instability, especially for stiff systems. Some
-solvers use auto-differentiation, a clever way to get exact derivatives
-efficiently. Cubie does not currently support auto-differentiation, but instead
-generates the required Jacobian functions symbolically, with some manual
-chain-rule steps that bring it closer to auto-differentiation and make it
-faster. The process isn't quick for big systems, but once it's been done once,
-it's cached in a generated file in your working directory. You've only got to
-pay the Jacobian tax once, unless you change some equations or constants, in
-which case the system needs to generate everything again.
+Implicit algorithms require the system's Jacobian for their internal
+solvers.  CuBIE generates Jacobian helper functions symbolically and
+caches them to disk.  For a full explanation of how this works and why,
+see :doc:`/theory/jacobians`.

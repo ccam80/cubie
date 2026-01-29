@@ -1,4 +1,25 @@
-"""Watcher thread for async writeback completion."""
+"""Watcher thread for async writeback completion.
+
+Published Classes
+-----------------
+:class:`PendingBuffer`
+    Data structure pairing a pinned buffer with its writeback target.
+
+:class:`WritebackTask`
+    Container associating a CUDA event with a pinned buffer, host target,
+    and pool for release after completion.
+
+:class:`WritebackWatcher`
+    Background daemon thread that polls CUDA events and copies completed
+    pinned-buffer data to host arrays.
+
+See Also
+--------
+:class:`~cubie.batchsolving.arrays.BatchOutputArrays.OutputArrays`
+    Consumer that submits writeback tasks during chunked transfers.
+:class:`~cubie.memory.chunk_buffer_pool.ChunkBufferPool`
+    Pool managing pinned buffer allocation and reuse.
+"""
 
 from queue import Queue, Empty
 from threading import Thread, Event, Lock

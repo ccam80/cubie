@@ -1,9 +1,27 @@
 """Summary metric registry and built-in CUDA reductions.
 
-The module instantiates the registry that coordinates summary metric device
-functions and imports the included implementations so they self-register.
-Third-party metrics should use :func:`register_metric` to add themselves when
-their module is imported.
+Published Objects
+-----------------
+:data:`summary_metrics`
+    Module-level :class:`SummaryMetrics` singleton that coordinates
+    buffer sizing, function dispatch, and combined metric substitution.
+
+:func:`register_metric`
+    Decorator that instantiates and registers a metric class with the
+    global registry.
+
+See Also
+--------
+:class:`~cubie.outputhandling.summarymetrics.metrics.SummaryMetrics`
+    Registry class backing the :data:`summary_metrics` singleton.
+:class:`~cubie.outputhandling.summarymetrics.metrics.SummaryMetric`
+    Abstract base class for metric implementations.
+
+Notes
+-----
+All built-in metrics self-register on import. Third-party metrics
+should use :func:`register_metric` to add themselves when their
+module is imported.
 """
 
 from cubie.outputhandling.summarymetrics.metrics import (

@@ -1,8 +1,17 @@
-"""Factories that build CUDA device functions for saving solver state.
+"""Factory for CUDA device functions that save solver state.
 
-This module exposes a single factory that specialises a CUDA device function
-for writing selected state, observable, and time values into output buffers
-during integration.
+Published Functions
+-------------------
+:func:`save_state_factory`
+    Build a CUDA device function that copies selected state, observable,
+    time, and counter values into output buffers during integration.
+
+See Also
+--------
+:class:`~cubie.outputhandling.output_functions.OutputFunctions`
+    Caller that invokes this factory during compilation.
+:func:`~cubie.outputhandling.update_summaries.update_summary_factory`
+    Companion factory for accumulating summary metrics.
 """
 
 from typing import Callable, Sequence, Union
@@ -96,8 +105,6 @@ def save_state_factory(
             place.
         output_counters_slice
             device array window that receives iteration counter values in place.
-
-
 
         Returns
         -------

@@ -96,8 +96,8 @@ _DERIVATIVE_FUNC_PATTERN = re.compile(
 )
 
 
-def _detect_input_type(dxdt: Union[str, Iterable]) -> str:
-    """Detect whether dxdt contains strings or SymPy expressions.
+def _detect_input_type(dxdt: Union[str, Iterable, Callable]) -> str:
+    """Detect whether dxdt contains strings, SymPy expressions, or a callable.
 
     Determines input format by inspecting the type of dxdt itself and,
     for iterables, examining the first element to categorize as either
@@ -106,12 +106,12 @@ def _detect_input_type(dxdt: Union[str, Iterable]) -> str:
     Parameters
     ----------
     dxdt
-        System equations as string or iterable.
+        System equations as string, iterable, or callable.
 
     Returns
     -------
     str
-        Either 'string' or 'sympy' indicating input format.
+        Either 'string', 'sympy', or 'function' indicating input format.
 
     Raises
     ------
@@ -122,6 +122,9 @@ def _detect_input_type(dxdt: Union[str, Iterable]) -> str:
     """
     if dxdt is None:
         raise TypeError("dxdt cannot be None")
+
+    if callable(dxdt) and not isinstance(dxdt, (str, list, tuple)):
+        return "function"
 
     if isinstance(dxdt, str):
         return "string"
@@ -1437,7 +1440,7 @@ def _rhs_pass(
 
 
 def parse_input(
-    dxdt: Union[str, Iterable[str]],
+    dxdt: Union[str, Iterable[str], Callable],
     states: Optional[Union[Dict[str, float], Iterable[str]]] = None,
     observables: Optional[Iterable[str]] = None,
     parameters: Optional[Union[Dict[str, float], Iterable[str]]] = None,
@@ -1640,6 +1643,17 @@ def parse_input(
             user_function_derivatives=user_function_derivatives,
             strict=strict,
         )
+
+    elif input_type == "function":
+        from .function_parser import parse_function_input
+
+        equation_map, funcs, new_params = parse_function_input(
+            func=dxdt,
+            index_map=index_map,
+            observables=list(observables),
+        )
+        all_symbols = index_map.all_symbols.copy()
+        all_symbols.setdefault("t", TIME_SYMBOL)
 
     else:
         raise RuntimeError(

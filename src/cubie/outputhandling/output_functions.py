@@ -1,10 +1,38 @@
 """Factories that compile and cache CUDA output management routines.
 
-The module provides a single entry point, :class:`OutputFunctions`, that uses
-:class:`cubie.CUDAFactory` to build CUDA callables for saving state values,
-updating summary metrics, and writing summary data back to host memory. All
-helper factories consume an :class:`~cubie.outputhandling.output_config.OutputConfig`
-instance so the compiled functions always reflect the active configuration.
+Published Classes
+-----------------
+:class:`OutputFunctionCache`
+    Cache container for compiled output functions.
+
+:class:`OutputFunctions`
+    Factory that compiles and caches save-state, update-summary, and
+    save-summary CUDA device functions.
+
+    >>> from numpy import float32
+    >>> of = OutputFunctions(
+    ...     max_states=3, max_observables=2, precision=float32,
+    ... )
+    >>> of.n_saved_states
+    3
+
+Module-Level Constants
+----------------------
+:data:`ALL_OUTPUT_FUNCTION_PARAMETERS`
+    Keyword arguments accepted by :class:`OutputFunctions`.
+
+See Also
+--------
+:class:`~cubie.outputhandling.output_config.OutputConfig`
+    Validated configuration consumed by this factory.
+:class:`~cubie.CUDAFactory.CUDAFactory`
+    Base factory providing compilation and cache management.
+:mod:`~cubie.outputhandling.save_state`
+    State-saving device function factory.
+:mod:`~cubie.outputhandling.save_summaries`
+    Summary-saving device function factory.
+:mod:`~cubie.outputhandling.update_summaries`
+    Summary-update device function factory.
 """
 
 from typing import Callable, Sequence, Union, Optional
@@ -23,17 +51,50 @@ from cubie.outputhandling.update_summaries import update_summary_factory
 from cubie._utils import PrecisionDType
 
 
-# Define the complete set of recognised configuration keys so callers can
-# filter keyword arguments consistently before instantiating the factory.
 ALL_OUTPUT_FUNCTION_PARAMETERS = {
     "output_types",
     "saved_state_indices",
     "saved_observable_indices",
     "summarised_state_indices",
     "summarised_observable_indices",
-    "sample_summaries_every",  # Sample interval for summary metrics
-    "precision",  # Numerical precision for output calculations
+    "sample_summaries_every",
+    "precision",
 }
+"""Keyword arguments accepted by :class:`OutputFunctions`.
+
+These parameters can be passed to :class:`OutputFunctions` or to
+:meth:`OutputFunctions.update`. Parent components use this set to
+filter ``**kwargs`` before forwarding them.
+
+.. list-table:: Parameter Summary
+   :header-rows: 1
+
+   * - Parameter
+     - Accepted By
+     - Description
+   * - ``output_types``
+     - :class:`~cubie.outputhandling.output_config.OutputConfig`
+     - List of output type names (``"state"``, ``"observables"``,
+       ``"time"``, metric names).
+   * - ``saved_state_indices``
+     - :class:`~cubie.outputhandling.output_config.OutputConfig`
+     - Indices of state variables to save.
+   * - ``saved_observable_indices``
+     - :class:`~cubie.outputhandling.output_config.OutputConfig`
+     - Indices of observable variables to save.
+   * - ``summarised_state_indices``
+     - :class:`~cubie.outputhandling.output_config.OutputConfig`
+     - Indices of state variables for summary calculations.
+   * - ``summarised_observable_indices``
+     - :class:`~cubie.outputhandling.output_config.OutputConfig`
+     - Indices of observable variables for summary calculations.
+   * - ``sample_summaries_every``
+     - :class:`~cubie.outputhandling.output_config.OutputConfig`
+     - Time interval between summary metric samples.
+   * - ``precision``
+     - :class:`~cubie.outputhandling.output_config.OutputConfig`
+     - Floating-point dtype for output calculations.
+"""
 
 
 @define
@@ -334,24 +395,9 @@ class OutputFunctions(CUDAFactory):
         return self.compile_settings.observable_summaries_buffer_height
 
     @property
-    def total_summary_buffer_size(self) -> int:
-        """Total size required for all summary buffers combined."""
-        return self.compile_settings.total_summary_buffer_size
-
-    @property
     def summaries_output_height_per_var(self) -> int:
         """Height of the summary output array per variable."""
         return self.compile_settings.summaries_output_height_per_var
-
-    @property
-    def n_summarised_states(self) -> int:
-        """Number of states included in summary calculations."""
-        return self.compile_settings.n_summarised_states
-
-    @property
-    def n_summarised_observables(self) -> int:
-        """Number of observables included in summary calculations."""
-        return self.compile_settings.n_summarised_observables
 
     @property
     def output_array_heights(self) -> OutputArrayHeights:

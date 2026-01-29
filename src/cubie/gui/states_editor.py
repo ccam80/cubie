@@ -1,8 +1,30 @@
 """Qt GUI for editing initial state values in a SymbolicODE.
 
-This module provides a table-based editor that allows users to:
-- View all state variables with their initial values and units
-- Edit initial values with forgiving float validation
+Table-based editor for viewing and modifying initial state values
+in a :class:`~cubie.odesystems.symbolic.SymbolicODE`.
+
+Published Classes
+-----------------
+:class:`StatesEditor`
+    Modal dialog for editing initial state values on a live
+    ``SymbolicODE``.
+
+    >>> editor = StatesEditor(ode)
+    >>> editor.exec()
+
+Module-Level Functions
+----------------------
+:func:`show_states_editor`
+    Convenience wrapper to display a :class:`StatesEditor`.
+
+    >>> show_states_editor(ode)
+
+See Also
+--------
+:mod:`cubie.gui.constants_editor`
+    Companion editor for constants and parameters.
+:class:`~cubie.odesystems.symbolic.SymbolicODE`
+    ODE system class consumed by the editor.
 """
 
 from typing import TYPE_CHECKING, Optional
@@ -162,6 +184,11 @@ def show_states_editor(
     -------
     StatesEditor or None
         The dialog instance if non-blocking, None if blocking.
+
+    Examples
+    --------
+    >>> show_states_editor(ode)          # blocking
+    >>> editor = show_states_editor(ode, blocking=False)
     """
     app = QApplication.instance()
     created_app = False

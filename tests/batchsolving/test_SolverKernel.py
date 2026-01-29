@@ -119,12 +119,6 @@ def test_getters_get(solverkernel):
     assert solverkernel.system_sizes is not None, (
         "BatchSolverKernel.system_sizes returning None"
     )
-    assert solverkernel.ouput_array_sizes_2d is not None, (
-        "BatchSolverKernel.ouput_array_sizes_2d returning None"
-    )
-    assert solverkernel.output_array_sizes_3d is not None, (
-        "BatchSolverKernel.output_array_sizes_3d returning None"
-    )
     assert solverkernel.summary_legend_per_variable is not None, (
         "BatchSolverKernel.summary_legend_per_variable returning None"
     )

@@ -1,4 +1,24 @@
-"""Manage host and device input arrays for batch integrations."""
+"""Manage host and device input arrays for batch integrations.
+
+Published Classes
+-----------------
+:class:`InputArrayContainer`
+    Attrs container holding :class:`ManagedArray` fields for initial
+    values, parameters, and driver coefficients.
+
+:class:`InputArrays`
+    Concrete :class:`BaseArrayManager` subclass coordinating host-to-device
+    transfers for batch input data.
+
+See Also
+--------
+:class:`~cubie.batchsolving.arrays.BaseArrayManager.BaseArrayManager`
+    Abstract base providing allocation and transfer infrastructure.
+:class:`~cubie.batchsolving.arrays.BatchOutputArrays.OutputArrays`
+    Counterpart managing output arrays.
+:class:`~cubie.batchsolving.BatchSolverKernel.BatchSolverKernel`
+    Primary consumer that owns input array instances.
+"""
 
 from attrs import define, field
 from attrs.validators import (
@@ -137,11 +157,6 @@ class InputArrays(BaseArrayManager):
     def __attrs_post_init__(self) -> None:
         """Ensure host and device containers use explicit memory types.
 
-        Returns
-        -------
-        None
-            This method mutates container configuration in place.
-
         Notes
         -----
         Host containers use pinned memory to enable asynchronous
@@ -171,10 +186,6 @@ class InputArrays(BaseArrayManager):
         driver_coefficients
             Horner-ordered driver interpolation coefficients.
 
-        Returns
-        -------
-        None
-            This method updates internal references and enqueues allocations.
         """
         updates_dict = {
             "initial_values": initial_values,
@@ -255,9 +266,6 @@ class InputArrays(BaseArrayManager):
         solver_instance
             The solver instance to update from.
 
-        Returns
-        -------
-        None
         """
         self._sizes = BatchInputSizes.from_solver(solver_instance).nonzero
         self._precision = solver_instance.precision
@@ -278,11 +286,6 @@ class InputArrays(BaseArrayManager):
         ----------
         chunk_index
             Indices for the chunk being initialized.
-
-        Returns
-        -------
-        None
-            Host slices are staged into device arrays in place.
 
         Notes
         -----

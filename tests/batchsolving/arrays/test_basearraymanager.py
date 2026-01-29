@@ -377,25 +377,6 @@ class TestArrayContainer:
         ):
             container.attach("nonexistent", test_array)
 
-    def test_delete_existing_label(self):
-        """Test deleting an existing array label"""
-        test_array = np.array([1, 2, 3])
-        container = TestArraysSimple()
-        container.arr1.array = test_array
-
-        container.delete("arr1")
-        assert container.arr1.array is None
-
-    def test_delete_nonexistent_label(self):
-        """Test deleting a non-existent label raises warning"""
-        container = TestArraysSimple()
-
-        with pytest.warns(
-            UserWarning,
-            match="Host array with label 'nonexistent' does not exist",
-        ):
-            container.delete("nonexistent")
-
     def test_delete_all(self):
         """Test deleting all arrays"""
         test_array1 = np.array([1, 2, 3])
@@ -609,47 +590,6 @@ class TestBaseArrayManager:
         # This is a placeholder method, so just ensure it exists and is callable
         assert test_arrmgr.initialise("test1") == ("test1")
         assert test_arrmgr.finalise("test1") == ("test1")
-
-    def test_initialize_device_zeros(
-        self,
-        test_manager_with_sizing,
-        array_requests_sized,
-        arraytest_settings,
-    ):
-        """Test initialize_device with zeros"""
-        test_arrmgr = test_manager_with_sizing
-        array_requests = array_requests_sized
-        # This method should initialize device arrays to zeros
-        test_arrmgr.request_allocation(array_requests)
-        # Must allocate device arrays before using them
-        test_arrmgr._memory_manager.allocate_queue(test_arrmgr)
-        test_arrmgr.update_host_arrays(
-            {
-                "state": np.ones(
-                    arraytest_settings["hostshape1"],
-                    dtype=arraytest_settings["dtype"],
-                ),
-                "observables": np.ones(
-                    arraytest_settings["hostshape2"],
-                    dtype=arraytest_settings["dtype"],
-                ),
-            }
-        )
-
-        # Set device arrays to non-zero values directly
-        test_arrmgr.device.state.array[:] = 1.0
-        test_arrmgr.device.observables.array[:] = 1.0
-
-        test1 = test_arrmgr.device.state.array.copy_to_host()
-        test2 = test_arrmgr.device.observables.array.copy_to_host()
-        assert not np.any(test1 == 0)
-        assert not np.any(test2 == 0)
-
-        test_arrmgr.initialize_device_zeros()
-        test1 = test_arrmgr.device.state.array.copy_to_host()
-        test2 = test_arrmgr.device.observables.array.copy_to_host()
-        assert np.all(test1 == 0)
-        assert np.all(test2 == 0)
 
 
 @pytest.fixture(scope="function")
@@ -931,64 +871,6 @@ class TestCheckIncomingArrays:
 
         assert result["state"] is False  # Should fail due to type
         assert result["observables"] is True
-
-
-class TestAttachExternalArrays:
-    """Test the attach_external_arrays method"""
-
-    def test_attach_external_arrays_success(
-        self, test_manager_with_sizing, arraytest_settings
-    ):
-        """Test successfully attaching external arrays"""
-        arrays = {
-            "state": np.zeros(
-                arraytest_settings["hostshape1"], dtype=np.float32
-            ),
-            "observables": np.zeros(
-                arraytest_settings["hostshape2"], dtype=np.float32
-            ),
-        }
-
-        result = test_manager_with_sizing.attach_external_arrays(
-            arrays, location="host"
-        )
-
-        assert result is True
-        assert test_manager_with_sizing.host.state.array is arrays["state"]
-        assert (
-            test_manager_with_sizing.host.observables.array
-            is arrays["observables"]
-        )
-
-    def test_attach_external_arrays_with_failures(
-        self, test_manager_with_sizing, arraytest_settings
-    ):
-        """Test attaching external arrays when some fail validation"""
-        # Create wrong shapes by adding 1 to each dimension
-        wrong_shape1 = tuple(
-            dim + 1 for dim in arraytest_settings["hostshape1"]
-        )
-
-        arrays = {
-            "state": np.zeros(wrong_shape1, dtype=np.float32),  # Wrong shape
-            "observables": np.zeros(
-                arraytest_settings["hostshape2"], dtype=np.float32
-            ),  # Correct
-        }
-
-        with pytest.warns(
-            UserWarning, match="The following arrays did not match"
-        ):
-            result = test_manager_with_sizing.attach_external_arrays(
-                arrays, location="host"
-            )
-
-        assert result is True
-        # Only the valid array should be attached
-        assert (
-            test_manager_with_sizing.host.observables.array
-            is arrays["observables"]
-        )
 
 
 class TestUpdateHostArrays:

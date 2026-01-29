@@ -1,10 +1,16 @@
-"""
-Extrema (both max and min) first derivative summary metric for CUDA-accelerated
-batch integration.
+"""Combined maximum and minimum first derivative via finite differences.
 
-This module implements a summary metric that tracks both maximum and minimum
-first derivative values encountered during integration for each variable using
-finite differences.
+Published Classes
+-----------------
+:class:`DxdtExtrema`
+    Combined maximum and minimum first derivative via finite differences.
+
+See Also
+--------
+:class:`~cubie.outputhandling.summarymetrics.metrics.SummaryMetric`
+    Abstract base class for summary metrics.
+:data:`~cubie.outputhandling.summarymetrics.summary_metrics`
+    Global registry where this metric is registered.
 """
 
 from numba import cuda

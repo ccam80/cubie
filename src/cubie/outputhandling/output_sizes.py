@@ -5,8 +5,35 @@ batch solving host-visible output layouts. Each class inherits from
 :class:`ArraySizingClass`, which offers a utility for coercing zero-sized
 buffers to a minimum of one element for safe allocation.
 
-Internal loop buffer sizing is handled by
-:class:`cubie.integrators.loops.ode_loop.LoopBufferSettings`.
+Published Classes
+-----------------
+:class:`ArraySizingClass`
+    Abstract base providing a :pyattr:`nonzero` property for safe
+    allocation.
+
+:class:`OutputArrayHeights`
+    Heights of time-series and summary outputs.
+
+    >>> heights = OutputArrayHeights(state=10, observables=5)
+    >>> heights.state
+    10
+
+:class:`SingleRunOutputSizes`
+    Output array sizes for a single integration run.
+
+:class:`BatchInputSizes`
+    Input array sizes for batch integration runs.
+
+:class:`BatchOutputSizes`
+    Output array sizes for batch integration runs.
+
+See Also
+--------
+:class:`~cubie.outputhandling.output_functions.OutputFunctions`
+    Factory that produces :class:`OutputArrayHeights` from its
+    configuration.
+:class:`~cubie.integrators.loops.ode_loop.IVPLoop`
+    Internal loop buffer sizing.
 """
 
 from typing import TYPE_CHECKING, Optional, Tuple
@@ -277,6 +304,11 @@ class BatchOutputSizes(ArraySizingClass):
         n_runs).
     status_codes : tuple[int], default (1,)
         Shape of the status code output array indexed by run.
+    iteration_counters : tuple[int, int, int], default (1, 4, 1)
+        Shape of the iteration counter array as
+        (time_samples, counter_channels, n_runs). The four channels
+        are Newton iterations, Krylov iterations, accepted steps,
+        and rejected steps.
     """
 
     state: Tuple[int, int, int] = attrs.field(

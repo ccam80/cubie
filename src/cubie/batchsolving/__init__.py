@@ -5,6 +5,17 @@ convenience wrapper for configuring batch integrations. Supporting modules
 provide grid construction, kernel compilation, system interfaces, and result
 containers. The :mod:`cubie.batchsolving.arrays` subpackage hosts array
 managers for host and device buffers used throughout the workflow.
+
+See Also
+--------
+:class:`Solver`
+    User-facing entry point for batch integrations.
+:func:`solve_ivp`
+    Convenience wrapper combining solver creation and execution.
+:class:`SolveResult`
+    Result container returned by solver runs.
+:class:`BatchSolverKernel`
+    Kernel factory compiling and launching the integration kernel.
 """
 
 from typing import Optional, Union
@@ -18,14 +29,6 @@ from cubie.batchsolving.BatchSolverConfig import BatchSolverConfig, \
     ActiveOutputs  # noqa: E402
 from cubie.batchsolving.BatchSolverKernel import BatchSolverKernel  # noqa: E402
 from cubie.batchsolving.SystemInterface import SystemInterface  # noqa: E402
-from cubie.batchsolving._utils import (  # noqa: E402
-    cuda_array_validator,
-    cuda_array_validator_2d,
-    cuda_array_validator_3d,
-    optional_cuda_array_validator,
-    optional_cuda_array_validator_2d,
-    optional_cuda_array_validator_3d,
-)
 from cubie.batchsolving.arrays.BaseArrayManager import (  # noqa: E402
     ArrayContainer,
     BaseArrayManager,
@@ -61,12 +64,6 @@ __all__ = [
     "SolveResult",
     "SolveSpec",
     "SystemInterface",
-    "cuda_array_validator",
-    "cuda_array_validator_2d",
-    "cuda_array_validator_3d",
-    "optional_cuda_array_validator",
-    "optional_cuda_array_validator_2d",
-    "optional_cuda_array_validator_3d",
     "solve_ivp",
     "summary_metrics",
 ]

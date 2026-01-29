@@ -1,4 +1,26 @@
-"""Manage output array lifecycles for batch solver executions."""
+"""Manage output array lifecycles for batch solver executions.
+
+Published Classes
+-----------------
+:class:`OutputArrayContainer`
+    Attrs container holding :class:`ManagedArray` fields for state,
+    observables, summaries, status codes, and iteration counters.
+
+:class:`OutputArrays`
+    Concrete :class:`BaseArrayManager` subclass coordinating device-to-host
+    transfers and async writeback for batch output data.
+
+See Also
+--------
+:class:`~cubie.batchsolving.arrays.BaseArrayManager.BaseArrayManager`
+    Abstract base providing allocation and transfer infrastructure.
+:class:`~cubie.batchsolving.arrays.BatchInputArrays.InputArrays`
+    Counterpart managing input arrays.
+:class:`~cubie.batchsolving.writeback_watcher.WritebackWatcher`
+    Background thread handling async writeback for chunked transfers.
+:class:`~cubie.batchsolving.BatchSolverKernel.BatchSolverKernel`
+    Primary consumer that owns output array instances.
+"""
 
 from typing import TYPE_CHECKING, Dict, List, Optional, Union
 
@@ -174,11 +196,6 @@ class OutputArrays(BaseArrayManager):
         """
         Configure default memory types after initialization.
 
-        Returns
-        -------
-        None
-            This method updates the host and device container metadata.
-
         Notes
         -----
         Host containers use pinned memory to enable asynchronous
@@ -197,10 +214,6 @@ class OutputArrays(BaseArrayManager):
         solver_instance
             The solver instance providing configuration and sizing information.
 
-        Returns
-        -------
-        None
-            This method updates cached arrays in place.
         """
         new_arrays = self.update_from_solver(solver_instance)
         self.update_host_arrays(new_arrays, shape_only=True)
@@ -350,12 +363,6 @@ class OutputArrays(BaseArrayManager):
         chunk_index
             Indices for the chunk being finalized.
 
-        Returns
-        -------
-        None
-            Queues async transfers. For chunked mode, submits writeback
-            tasks to the watcher thread for non-blocking completion.
-
         Notes
         -----
         Host slices are made contiguous before transfer to ensure
@@ -425,11 +432,6 @@ class OutputArrays(BaseArrayManager):
         timeout
             Maximum seconds to wait. None waits indefinitely.
 
-        Returns
-        -------
-        None
-            Blocks until all pending operations complete.
-
         Notes
         -----
         Only applies to chunked mode with watcher-based writebacks.
@@ -445,11 +447,6 @@ class OutputArrays(BaseArrayManager):
         chunk_index
             Indices for the chunk being initialized.
 
-        Returns
-        -------
-        None
-            This method performs no operations by default.
-
         Notes
         -----
         No initialization to zeros is needed unless chunk calculations in time
@@ -463,10 +460,6 @@ class OutputArrays(BaseArrayManager):
         Extends the base reset to also clear the buffer pool, shut down
         the watcher thread, and clear any pending buffers.
 
-        Returns
-        -------
-        None
-            Nothing is returned.
         """
         super().reset()
         self._buffer_pool.clear()

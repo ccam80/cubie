@@ -108,6 +108,38 @@ Example 3: single parameter sweep (unspecified filled with defaults)
 >>> print(params)
 [[0.1 0.2]
  [2.  2. ]]
+
+Published Classes
+-----------------
+:class:`BatchInputHandler`
+    Process user-supplied dicts or arrays into solver-ready 2D arrays.
+
+Module-Level Functions
+----------------------
+:func:`unique_cartesian_product`
+    Deduplicated Cartesian product of input arrays.
+
+:func:`combinatorial_grid`
+    Build a grid of all unique parameter combinations.
+
+:func:`verbatim_grid`
+    Build a row-aligned grid without combinatorial expansion.
+
+:func:`generate_grid`
+    Dispatch to combinatorial or verbatim grid builders.
+
+:func:`combine_grids`
+    Combine two grids using combinatorial or verbatim strategy.
+
+:func:`extend_grid_to_array`
+    Join a partial grid with default values into a complete array.
+
+See Also
+--------
+:class:`~cubie.batchsolving.SystemInterface.SystemInterface`
+    Label-to-index resolution used by the handler.
+:class:`~cubie.batchsolving.solver.Solver`
+    Primary consumer that delegates input processing here.
 """
 from itertools import product
 from typing import Dict, List, Optional, Tuple, Union
@@ -427,35 +459,6 @@ def extend_grid_to_array(
             array[indices, :] = grid
 
     return array
-
-
-def generate_array(
-    request: Dict[Union[str, int], Union[float, ArrayLike, ndarray]],
-    values_instance: SystemValues,
-    kind: str = "combinatorial",
-) -> ndarray:
-    """Create a complete two-dimensional array from a request dictionary.
-
-    Parameters
-    ----------
-    request
-        Dictionary keyed by parameter names or indices whose values are
-        scalars or iterables describing sweep values.
-    values_instance
-        :class:`SystemValues` instance used to resolve indices for the
-        provided keys.
-    kind
-        Strategy used to assemble the grid. ``"combinatorial"`` expands all
-        combinations while ``"verbatim"`` preserves row groupings.
-
-    Returns
-    -------
-    ndarray
-        Two-dimensional array in (variable, run) format with complete
-        parameter values for each run.
-    """
-    indices, grid = generate_grid(request, values_instance, kind=kind)
-    return extend_grid_to_array(grid, indices, values_instance.values_array)
 
 
 class BatchInputHandler:

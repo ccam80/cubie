@@ -99,7 +99,7 @@ _HELPERS_NEEDING_PRECONDITIONER_KWARGS = frozenset((
 
 
 def create_ODE_system(
-    dxdt: Union[str, Iterable[str]],
+    dxdt: Union[str, Iterable[str], Callable],
     precision: PrecisionDType = float32,
     states: Optional[Union[dict[str, float], Iterable[str]]] = None,
     observables: Optional[Iterable[str]] = None,
@@ -115,8 +115,14 @@ def create_ODE_system(
     Parameters
     ----------
     dxdt
-        System equations defined as either a single string or an iterable of
-        equation strings in ``lhs = rhs`` form.
+        System equations defined as a single string, an iterable of equation
+        strings in ``lhs = rhs`` form, or a Python callable. When a callable
+        is provided its signature must be ``f(t, y, ...)`` where ``t`` is
+        time, ``y`` is the state vector, and additional arguments map to
+        parameters or constants. State access patterns supported:
+        ``y[0]`` (positional), ``y["name"]`` (string), ``y.name``
+        (attribute). The return value must be a list, tuple, or dict of
+        derivative expressions.
     states
         State labels either as an iterable or as a mapping to default initial
         values.

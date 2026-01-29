@@ -1,14 +1,32 @@
 """Base utilities for managing batch arrays on host and device.
 
+Published Classes
+-----------------
+:class:`ManagedArray`
+    Metadata wrapper for a single managed array with shape, dtype,
+    stride order, and chunking information.
+
+:class:`ArrayContainer`
+    Abstract attrs container storing per-array metadata and references.
+
+:class:`BaseArrayManager`
+    Abstract coordinator for host and device array allocation,
+    transfer, and chunking.
+
 Notes
 -----
-Defines :class:`ArrayContainer` and :class:`BaseArrayManager`, which surface
-stride metadata, register with :mod:`cubie.memory`, and orchestrate queued CUDA
-allocations for batch solver workflows.
-
 Array chunking for memory management is performed along the run axis when
 batches exceed available GPU memory. The chunking process coordinates transfers
 and synchronization across chunks automatically.
+
+See Also
+--------
+:class:`~cubie.batchsolving.arrays.BatchInputArrays.InputArrays`
+    Concrete input array manager.
+:class:`~cubie.batchsolving.arrays.BatchOutputArrays.OutputArrays`
+    Concrete output array manager.
+:mod:`cubie.memory`
+    Memory management infrastructure used for allocation.
 """
 
 from abc import ABC, abstractmethod
@@ -267,15 +285,6 @@ class ArrayContainer(ABC):
                 UserWarning,
             )
 
-    def delete(self, label: str) -> None:
-        """Delete reference to an array."""
-
-        try:
-            self.set_array(label, None)
-        except AttributeError:
-            warn(
-                f"Host array with label '{label}' does not exist.", UserWarning
-            )
 
 
 @define
@@ -347,10 +356,6 @@ class BaseArrayManager(ABC):
         This method registers with the memory manager and sets up
         invalidation hooks.
 
-        Returns
-        -------
-        None
-            Nothing is returned.
         """
         self.register_with_memory_manager()
         self._invalidate_hook()
@@ -372,10 +377,6 @@ class BaseArrayManager(ABC):
         num_runs : int
             Total number of runs in the batch. Must be >= 1.
 
-        Returns
-        -------
-        None
-            Nothing is returned.
         """
         # Update the num_runs attribute
         self.num_runs = num_runs
@@ -417,10 +418,6 @@ class BaseArrayManager(ABC):
         This is an abstract method that must be implemented by subclasses
         with the desired behavior for updating arrays from external data.
 
-        Returns
-        -------
-        None
-            Nothing is returned.
         """
 
     def _on_allocation_complete(self, response: ArrayResponse) -> None:
@@ -437,10 +434,6 @@ class BaseArrayManager(ABC):
         UserWarning
             If a device array is not found in the allocation response.
 
-        Returns
-        -------
-        None
-            Nothing is returned.
 
         Notes
         -----
@@ -492,10 +485,6 @@ class BaseArrayManager(ABC):
         This method sets up the necessary hooks and callbacks for memory
         management integration.
 
-        Returns
-        -------
-        None
-            Nothing is returned.
         """
         self._memory_manager.register(
             self,
@@ -527,10 +516,6 @@ class BaseArrayManager(ABC):
         instances calls "process_queue" to process the queue. This behaviour
         can be overridden by setting force_type to "single" or "group".
 
-        Returns
-        -------
-        None
-            Nothing is returned.
         """
         self._memory_manager.queue_request(self, request)
 
@@ -543,10 +528,6 @@ class BaseArrayManager(ABC):
         This method is called when the memory cache needs to be invalidated.
         It clears all device array references and marks them for reallocation.
 
-        Returns
-        -------
-        None
-            Nothing is returned.
         """
         self._needs_reallocation.clear()
         self._needs_overwrite.clear()
@@ -606,10 +587,6 @@ class BaseArrayManager(ABC):
         TypeError
             If the new sizes object is not the same size as the existing one.
 
-        Returns
-        -------
-        None
-            Nothing is returned.
         """
         if not isinstance(sizes, type(self._sizes)):
             raise TypeError(
@@ -710,10 +687,6 @@ class BaseArrayManager(ABC):
         chunk_index
             Chunk index about to run on the device
 
-        Returns
-        -------
-        None
-            Nothing is returned.
         """
 
     @abstractmethod
@@ -726,10 +699,6 @@ class BaseArrayManager(ABC):
         chunk_index
             Chunk index about to run on the device.
 
-        Returns
-        -------
-        None
-            Nothing is returned.
         """
 
     def check_incoming_arrays(
@@ -756,41 +725,6 @@ class BaseArrayManager(ABC):
         for array_name in arrays:
             all_ok[array_name] = dims_ok[array_name] and types_ok[array_name]
         return all_ok
-
-    def attach_external_arrays(
-        self, arrays: Dict[str, NDArray], location: str = "host"
-    ) -> bool:
-        """
-        Attach existing arrays to a host or device container.
-
-        Parameters
-        ----------
-        arrays
-            Dictionary mapping array names to arrays.
-        location
-            ``"host"`` or ``"device"`` indicating the target container.
-
-        Returns
-        -------
-        bool
-            ``True`` if arrays pass validation, ``False`` otherwise.
-        """
-        matches = self.check_incoming_arrays(arrays, location=location)
-        container = getattr(self, location)
-        not_attached = []
-        for array_name, array in arrays.items():
-            if matches[array_name]:
-                container.attach(array_name, array)
-            else:
-                not_attached.append(array_name)
-        if not_attached:
-            warn(
-                f"The following arrays did not match the expected precision "
-                f"and size, and so were not used"
-                f" {', '.join(not_attached)}",
-                UserWarning,
-            )
-        return True
 
     def _update_host_array(
         self,
@@ -819,10 +753,6 @@ class BaseArrayManager(ABC):
         ValueError
             If ``new_array`` is ``None``.
 
-        Returns
-        -------
-        None
-            Nothing is returned.
         """
         if new_array is None:
             raise ValueError("New array is None")
@@ -870,10 +800,6 @@ class BaseArrayManager(ABC):
             Only check shape equality when comparing arrays. Faster for
             output arrays that will be overwritten. Defaults to ``False``.
 
-        Returns
-        -------
-        None
-            Nothing is returned.
         """
         host_names = set(self.host.array_names())
         badnames = [
@@ -915,10 +841,6 @@ class BaseArrayManager(ABC):
         Chunking is always performed along the run axis by convention.
         The specific axis index is determined by each array's chunk_axis_index.
 
-        Returns
-        -------
-        None
-            Nothing is returned.
         """
         requests = {}
         for array_label in list(set(self._needs_reallocation)):
@@ -940,33 +862,10 @@ class BaseArrayManager(ABC):
         if requests:
             self.request_allocation(requests)
 
-    def initialize_device_zeros(self) -> None:
-        """
-        Initialize device arrays to zero values.
-
-        Returns
-        -------
-        None
-            Nothing is returned.
-        """
-        for _, slot in self.device.iter_managed_arrays():
-            array = slot.array
-            if array is not None:
-                if len(array.shape) >= 3:
-                    array[:, :, :] = slot.dtype(0.0)
-                elif len(array.shape) >= 2:
-                    array[:, :] = slot.dtype(0.0)
-                elif len(array.shape) >= 1:
-                    array[:] = slot.dtype(0.0)
-
     def reset(self) -> None:
         """
         Clear all cached arrays and reset allocation tracking.
 
-        Returns
-        -------
-        None
-            Nothing is returned.
         """
         self.host.delete_all()
         self.device.delete_all()
@@ -986,10 +885,6 @@ class BaseArrayManager(ABC):
         to_arrays
             Destination device arrays.
 
-        Returns
-        -------
-        None
-            Nothing is returned.
         """
         self._memory_manager.to_device(self, from_arrays, to_arrays)
 
@@ -1006,10 +901,6 @@ class BaseArrayManager(ABC):
         to_arrays
             Destination host arrays.
 
-        Returns
-        -------
-        None
-            Nothing is returned.
         """
         self._memory_manager.from_device(self, from_arrays, to_arrays)
 
