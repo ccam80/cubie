@@ -153,8 +153,8 @@ def empty_output_arrays(output_test_settings, output_functions):
 
     n_saved_states = output_functions.n_saved_states
     n_saved_observables = output_functions.n_saved_observables
-    n_summarised_states = output_functions.n_summarised_states
-    n_summarised_observables = output_functions.n_summarised_observables
+    n_summarised_states = len(output_functions.summarised_state_indices)
+    n_summarised_observables = len(output_functions.summarised_observable_indices)
     num_samples = output_test_settings["num_samples"]
     num_summaries = output_test_settings["num_summaries"]
     summary_height_per_variable = (
@@ -260,8 +260,8 @@ def output_functions_test_kernel(
 
     num_observables = output_test_settings["num_observables"]
 
-    n_summarised_states = output_functions.n_summarised_states
-    n_summarised_observables = output_functions.n_summarised_observables
+    n_summarised_states = len(output_functions.summarised_state_indices)
+    n_summarised_observables = len(output_functions.summarised_observable_indices)
 
     shared_memory_requirements = (
         output_functions.summaries_buffer_height_per_var
@@ -438,8 +438,8 @@ def compare_input_output(
         counters_output,
     ) = empty_output_arrays
 
-    n_summarised_states = output_functions.n_summarised_states
-    n_summarised_observables = output_functions.n_summarised_observables
+    n_summarised_states = len(output_functions.summarised_state_indices)
+    n_summarised_observables = len(output_functions.summarised_observable_indices)
 
     n_states = output_test_settings["num_states"]
     n_observables = output_test_settings["num_observables"]

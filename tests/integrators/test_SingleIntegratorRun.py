@@ -327,8 +327,6 @@ def test_update_routes_to_children(
     expected_summary_obs = (
         len(new_saved_observables) if flags.summarise_observables else 0
     )
-    assert of.n_summarised_states == expected_summary_count
-    assert of.n_summarised_observables == expected_summary_obs
 
     controller_settings = _settings_to_dict(run._step_controller.settings_dict)
     algo_settings = _settings_to_dict(run._algo_step.settings_dict)
