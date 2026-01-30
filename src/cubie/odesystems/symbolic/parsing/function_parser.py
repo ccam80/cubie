@@ -58,9 +58,14 @@ def parse_function_input(
     symbol_map = _build_symbol_map(inspection, index_map)
     converter = AstToSympyConverter(symbol_map)
 
-    # Convert return expressions to derivative equations
+    # Convert return expressions to derivative equations.
+    # Local assignments whose names collide with dxdt symbols (e.g.
+    # ``dx = expr``) are inlined so the return resolves to the RHS
+    # expression rather than the dxdt output symbol.
     ret_value = inspection.return_node.value
-    ret_exprs = _unpack_return(ret_value, converter)
+    ret_exprs = _unpack_return(
+        ret_value, converter, inspection.assignments
+    )
 
     state_names = index_map.state_names
     dxdt_names = list(index_map.dxdt_names)
@@ -225,9 +230,10 @@ def _build_symbol_map(
         if sym is not None:
             smap[name] = sym
 
-    # dxdt symbols
-    for dx_name, dx_sym in index_map.dxdt.symbol_map.items():
-        smap[dx_name] = dx_sym
+    # NOTE: dxdt symbols (dx, dv, ...) are intentionally NOT added to
+    # the symbol map.  Users commonly write ``dx = expr; return [dx]``
+    # and those Names must resolve to their assigned expression, not to
+    # the dxdt output symbol (which would create a circular reference).
 
     # Observable symbols
     for obs_name, obs_sym in index_map.observables.symbol_map.items():
@@ -282,7 +288,9 @@ def _is_access_alias(
 
 
 def _unpack_return(
-    node: ast.expr, converter: AstToSympyConverter
+    node: ast.expr,
+    converter: AstToSympyConverter,
+    assignments: Optional[Dict[str, ast.expr]] = None,
 ) -> List[sp.Expr]:
     """Unpack a return value into a list of SymPy expressions.
 
@@ -292,16 +300,30 @@ def _unpack_return(
         The return value AST node.
     converter
         AST-to-SymPy converter with populated symbol map.
+    assignments
+        Local assignments from the function body.  When a return
+        element is a bare ``ast.Name`` that matches an assignment,
+        the assignment expression is converted instead (inlining).
 
     Returns
     -------
     list
         One SymPy expression per state derivative.
     """
+    if assignments is None:
+        assignments = {}
+
+    def _convert_element(elt: ast.expr) -> sp.Expr:
+        # Inline local assignments so that ``dx = expr; return [dx]``
+        # resolves to *expr*, not to the dxdt output symbol.
+        if isinstance(elt, ast.Name) and elt.id in assignments:
+            return converter.convert(assignments[elt.id])
+        return converter.convert(elt)
+
     if isinstance(node, (ast.List, ast.Tuple)):
-        return [converter.convert(elt) for elt in node.elts]
+        return [_convert_element(elt) for elt in node.elts]
     elif isinstance(node, ast.Dict):
-        return [converter.convert(v) for v in node.values]
+        return [_convert_element(v) for v in node.values]
     else:
         # Single expression — single-state system
-        return [converter.convert(node)]
+        return [_convert_element(node)]
