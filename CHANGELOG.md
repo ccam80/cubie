@@ -1,5 +1,17 @@
 # Changelog
 
+## [0.1.0](https://github.com/ccam80/cubie/compare/v0.0.7...v0.1.0) (2026-01-30)
+
+
+### Features
+
+* constants/params/inits setting gui added (for large models) ([e6af22b](https://github.com/ccam80/cubie/commit/e6af22b380786297a6ae3cd6f1836e620f16fd00))
+
+
+### Bug Fixes
+
+* pyfunc now doesn't relabel output states ([45b94c6](https://github.com/ccam80/cubie/commit/45b94c6ad9b4ad992233321bedfe39df46be944c))
+
 ## [0.0.7](https://github.com/ccam80/cubie/compare/v0.0.6...v0.0.7) (2026-01-20)
 
 
