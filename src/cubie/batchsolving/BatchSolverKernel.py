@@ -529,7 +529,7 @@ class BatchSolverKernel(CUDAFactory):
         # Refresh compile-critical settings before array updates
         self.update_compile_settings(
             {
-                "loop_fn": self.single_integrator.compiled_loop_function,
+                "loop_fn": self.single_integrator.device_function,
                 "precision": self.single_integrator.precision,
             }
         )
@@ -564,8 +564,8 @@ class BatchSolverKernel(CUDAFactory):
         # memory. If zero, then the cuda.shared.array(0) call fails as we
         # can't declare a size-0 static shared memory array.
         dynamic_sharedmem = max(4, dynamic_sharedmem)
-        threads_per_loop = self.single_integrator.threads_per_loop
-        runsperblock = int(blocksize / self.single_integrator.threads_per_loop)
+        threads_per_loop = self.single_integrator.threads_per_step
+        runsperblock = int(blocksize / self.single_integrator.threads_per_step)
 
         if self.profileCUDA:  # pragma: no cover
             cuda.profile_start()
@@ -1033,7 +1033,7 @@ class BatchSolverKernel(CUDAFactory):
     def threads_per_loop(self) -> int:
         """CUDA threads consumed by each run in the loop."""
 
-        return self.single_integrator.threads_per_loop
+        return self.single_integrator.threads_per_step
 
     @property
     def duration(self) -> float:
@@ -1113,7 +1113,7 @@ class BatchSolverKernel(CUDAFactory):
     def algorithm(self) -> str:
         """Identifier of the selected integration algorithm."""
 
-        return self.single_integrator.algorithm_key
+        return self.single_integrator.algorithm
 
     @property
     def dt_min(self) -> float:

@@ -626,7 +626,7 @@ class SingleIntegratorRunCore(CUDAFactory):
             if key not in updates_dict:
                 updates_dict[key] = value
         updates_dict["algorithm_order"] = self._algo_step.order
-        return set("algorithm")
+        return {"algorithm"}
 
     def _switch_controllers(self, updates_dict):
         """Replace the step controller when ``updates_dict`` contains a
@@ -661,7 +661,7 @@ class SingleIntegratorRunCore(CUDAFactory):
             )
             self.compile_settings.step_controller = new_controller
         updates_dict["step_controller"] = new_controller
-        return set("step_controller")
+        return {"step_controller"}
 
     def build(self) -> SingleIntegratorRunCache:
         """Compile the integration loop and its dependencies.

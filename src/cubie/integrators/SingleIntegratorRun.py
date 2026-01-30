@@ -51,12 +51,6 @@ class SingleIntegratorRun(SingleIntegratorRunCore):
         return self.compile_settings.algorithm
 
     @property
-    def algorithm_key(self) -> str:
-        """Return the canonical algorithm identifier."""
-
-        return self.compile_settings.algorithm
-
-    @property
     def step_controller(self) -> str:
         """Return the configured step-controller identifier."""
 
@@ -87,18 +81,6 @@ class SingleIntegratorRun(SingleIntegratorRunCore):
     def persistent_local_elements(self) -> int:
         """Return total persistent local-memory elements required by the loop."""
         return self._loop.persistent_local_buffer_size
-
-    @property
-    def compiled_loop_function(self) -> Callable:
-        """Return the compiled loop function."""
-
-        return self.device_function
-
-    @property
-    def threads_per_loop(self) -> int:
-        """Return the number of CUDA threads required per system."""
-
-        return self.threads_per_step
 
     @property
     def dt0(self) -> float:
