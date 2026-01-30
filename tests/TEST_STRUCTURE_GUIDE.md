@@ -1,0 +1,460 @@
+# Cubie Test Structure Guide
+
+This document defines the canonical structure for all test files in the Cubie
+test suite. It serves as both a reference for human developers and an
+instruction set for AI agents performing test refactoring.
+
+---
+
+## Core Principles
+
+### 1. Session-scoped fixtures, minimal setup/teardown
+
+Cubie's architecture makes object construction expensive (each device function
+call triggers a CUDA compilation/build, ~2 minutes per build in real CUDA).
+Execution after build is fast. Therefore:
+
+- **All reusable fixtures are session-scoped.**
+- Session-scoped fixtures are torn down and rebuilt for each unique parameter
+  set. Tests that need similar settings MUST share the same parameter set.
+- The only exception is **mutable fixtures** (see §5).
+
+### 2. Single source of truth: `solver_settings`
+
+The `solver_settings` dictionary in `tests/conftest.py` is the central
+configuration object. Every fixture in the hierarchy derives its configuration
+from `solver_settings`. This means:
+
+- Changing a parameter set tears down and rebuilds the **entire fixture tree**
+  for that session.
+- Tests parametrize by overriding keys in `solver_settings` via
+  `solver_settings_override` (indirect parametrization).
+- There is **one** override fixture: `solver_settings_override`. The legacy
+  two-tier system (`solver_settings_override` / `solver_settings_override2`)
+  should be consolidated into a single override.
+
+### 3. No mocks, no dummies
+
+Unless a convincing argument is made that using a real object would
+significantly increase test duration, all tests use full-complexity, real
+library objects. Mocks and dummy objects are not permitted by default.
+
+**The burden of proof is on the person proposing a mock.** They must
+demonstrate that the real object adds meaningful build/setup time that cannot
+be avoided by sharing a session-scoped fixture.
+
+### 4. No inline object construction
+
+Tests must not construct solver components (Solver, SingleIntegratorRun,
+BatchSolverKernel, SymbolicODE systems, etc.) inline within test functions.
+All object creation happens through fixtures. If a test needs an object that
+doesn't exist as a fixture, add it to `conftest.py`.
+
+### 5. Mutable fixtures are rare and deliberate
+
+Some tests must modify fixture state. For these:
+
+- Create a **function-scoped** copy of the session fixture, named
+  `<fixture>_mutable` (e.g., `solver_mutable`, `loop_mutable`).
+- The mutable fixture rebuilds the object each invocation — use sparingly.
+- **Combine multiple mutation tests into single test functions** to minimise
+  the number of rebuilds.
+- Mutable fixtures live in `conftest.py` alongside their session-scoped
+  counterparts.
+
+---
+
+## Fixture Architecture
+
+### Fixture location rules
+
+| Scope | Location |
+|-------|----------|
+| Used by multiple modules or part of the fixture hierarchy | `tests/conftest.py` (root) |
+| Used only within one subdirectory AND not part of hierarchy | Subdirectory `conftest.py` (rare, requires justification) |
+| Inside a test file | **Never.** Move to conftest. |
+
+**Default assumption:** fixtures belong in the root `tests/conftest.py`.
+Module-level conftest files and test-file-local fixtures are almost certainly
+mistakes left by previous refactoring. Consolidate them upward.
+
+### Fixture hierarchy
+
+The fixture tree flows from settings → objects → computed outputs:
+
+```
+solver_settings_override (parametrize this)
+        │
+        ▼
+  solver_settings ──────────────────────────────┐
+        │                                       │
+        ├── precision                           │
+        ├── tolerance                           │
+        ├── system (SymbolicODE)                │
+        │                                       │
+        ├── algorithm_settings ─┐               │
+        ├── loop_settings ──────┤               │
+        ├── step_controller_settings ───┤       │
+        ├── output_settings ────┤               │
+        ├── memory_settings ────┘               │
+        │                                       │
+        ├── driver_settings → driver_array      │
+        │                                       │
+        ├── single_integrator_run ──────────────┤
+        │       ├── loop (._loop)               │
+        │       └── step_object (._algo_step)   │
+        │                                       │
+        ├── solverkernel                        │
+        ├── solver                              │
+        │                                       │
+        ├── output_functions                    │
+        ├── initial_state                       │
+        │                                       │
+        ├── cpu_system ─────────────────────────┤
+        ├── cpu_driver_evaluator                │
+        ├── cpu_step_controller                 │
+        │                                       │
+        ▼                                       ▼
+  cpu_loop_outputs              device_loop_outputs
+```
+
+**Key rule:** Lower-level fixtures (e.g., `loop`, `step_object`) are
+extracted as attributes from higher-level fixtures (e.g.,
+`single_integrator_run`), not constructed independently. This avoids
+duplicate builds.
+
+### What triggers a build (~2 min each in real CUDA)
+
+Any of the following triggers CUDA compilation:
+
+- Calling `solver.solve()` or `solver.run()`
+- Calling any `.device_function()` on a compiled object
+- Calling `.update()` on a compile setting followed by the next solve
+- Constructing `SingleIntegratorRun`, `BatchSolverKernel`, or `Solver`
+  (these build internally)
+
+In CUDASIM mode (remote CI), builds are instant. But fixture design must
+optimise for real CUDA, where each unique parameter set costs ~2 min.
+
+---
+
+## Standard Parameter Sets
+
+Three tiers of run configuration are defined in `tests/_utils.py`:
+
+| Name | Definition | Use case |
+|------|-----------|----------|
+| **SHORT_RUN** | Default `solver_settings` (no override) — duration=0.2, dt=0.01 | Quick smoke tests, attribute checks |
+| **MID_RUN** | `MID_RUN_PARAMS` — dt=0.001, finer save intervals | Algorithm correctness, output validation |
+| **LONG_RUN** | `LONG_RUN_PARAMS` — duration=0.3, dt=0.0005, more output types | Convergence tests, full integration checks |
+
+Tests that can share a parameter set **must** share it. Each unique parameter
+set causes a full teardown/rebuild cycle of the entire fixture tree.
+
+To combine a parameter set with algorithm or system overrides, use
+`merge_dicts` or `merge_param`:
+
+```python
+from tests._utils import MID_RUN_PARAMS, merge_dicts, merge_param
+
+# Class-level parametrization
+@pytest.mark.parametrize(
+    "solver_settings_override",
+    [merge_dicts(MID_RUN_PARAMS, {"algorithm": "rk4", "step_controller": "pid"})],
+    indirect=True,
+)
+class TestMyFeature:
+    ...
+```
+
+---
+
+## Parametrization Pattern
+
+### The canonical pattern
+
+```python
+import pytest
+from tests._utils import MID_RUN_PARAMS, merge_dicts
+
+# Override solver_settings for an entire class
+@pytest.mark.parametrize(
+    "solver_settings_override",
+    [merge_dicts(MID_RUN_PARAMS, {"algorithm": "rk4"})],
+    indirect=True,
+)
+class TestSomething:
+    def test_attribute(self, single_integrator_run):
+        assert single_integrator_run._algo_step is not None
+
+    def test_output_shape(self, device_loop_outputs, solver_settings):
+        # Uses the same built fixture — no rebuild
+        assert device_loop_outputs["state"].shape[0] > 0
+```
+
+### Multiple parameter sets (triggers rebuild per set)
+
+```python
+@pytest.mark.parametrize(
+    "solver_settings_override",
+    [
+        pytest.param(
+            merge_dicts(MID_RUN_PARAMS, {"algorithm": "euler"}),
+            id="euler",
+        ),
+        pytest.param(
+            merge_dicts(MID_RUN_PARAMS, {"algorithm": "rk4"}),
+            id="rk4",
+        ),
+    ],
+    indirect=True,
+)
+class TestAlgorithmComparison:
+    def test_convergence(self, device_loop_outputs, cpu_loop_outputs, tolerance):
+        ...
+```
+
+### Tests that don't need solver infrastructure
+
+Lightweight config/utility classes (e.g., `OutputConfig`, `ScaledNormConfig`)
+that can be instantiated without triggering a build may be tested with
+simpler fixtures. However:
+
+- They **still parametrize through `solver_settings`** so their settings
+  remain consistent with the rest of the hierarchy.
+- Their fixtures still live in `tests/conftest.py`.
+- Integration-level tests of these components (testing interactions with
+  built objects) must use the standard fixture hierarchy.
+
+---
+
+## Test File Organisation
+
+### One file per component, strictly
+
+Each source module gets exactly one test file. If related tests are split
+across multiple files, consolidate them. If a test file covers multiple
+unrelated components, split it.
+
+```
+cubie/batchsolving/solver.py       → tests/batchsolving/test_solver.py
+cubie/integrators/loops/ode_loop.py → tests/integrators/loops/test_ode_loop.py
+cubie/memory/mem_manager.py        → tests/memory/test_memmgmt.py
+```
+
+### File structure template
+
+```python
+"""Tests for cubie.<module>.<Component>."""
+
+import numpy as np
+import pytest
+from numpy.testing import assert_allclose
+
+from tests._utils import MID_RUN_PARAMS, merge_dicts  # as needed
+
+
+# ── Parametrize at class level ──────────────────────────────────────────── #
+
+@pytest.mark.parametrize(
+    "solver_settings_override",
+    [MID_RUN_PARAMS],              # or merge_dicts(...) for custom settings
+    indirect=True,
+)
+class TestComponentBehaviour:
+    """Tests for <Component> using session-scoped fixtures."""
+
+    def test_attribute_exists(self, <fixture>):
+        assert <fixture>.some_attr is not None
+
+    def test_computed_value(self, <fixture>, tolerance):
+        result = <fixture>.compute()
+        assert_allclose(result, expected, atol=tolerance.abs_loose)
+
+    def test_numerical_output(self, device_loop_outputs, cpu_loop_outputs, tolerance):
+        """Compare device results against CPU reference."""
+        assert_allclose(
+            device_loop_outputs["state"],
+            cpu_loop_outputs["state"],
+            atol=tolerance.abs_loose,
+            rtol=tolerance.rel_loose,
+        )
+
+
+# ── Mutation tests (use sparingly) ──────────────────────────────────────── #
+
+class TestComponentMutation:
+    """Tests that modify fixture state. Each test gets a fresh object."""
+
+    def test_multiple_mutations(self, <fixture>_mutable):
+        """Combine mutation operations to minimise rebuilds."""
+        <fixture>_mutable.setting = new_value_1
+        assert <fixture>_mutable.derived_property == expected_1
+
+        <fixture>_mutable.setting = new_value_2
+        assert <fixture>_mutable.derived_property == expected_2
+
+
+# ── Edge cases (default settings / SHORT_RUN) ──────────────────────────── #
+
+class TestComponentEdgeCases:
+    """Tests that use default solver_settings (SHORT_RUN, no override)."""
+
+    def test_default_behaviour(self, <fixture>):
+        assert <fixture>.is_valid()
+```
+
+---
+
+## Anti-Patterns to Eliminate
+
+These are patterns left by previous AI agents and must be refactored:
+
+### 1. Inline object construction
+```python
+# BAD — constructs a Solver inside the test
+def test_something():
+    system = build_three_state_nonlinear_system(np.float32)
+    solver = Solver(system, ...)
+    solver.solve()
+    assert solver.result is not None
+
+# GOOD — uses fixture hierarchy
+def test_something(solver, ...):
+    assert solver.result is not None
+```
+
+### 2. Fixtures in test files
+```python
+# BAD — fixture defined in test_solver.py
+@pytest.fixture(scope="session")
+def solved_solver_simple(solver, ...):
+    ...
+
+# GOOD — fixture lives in tests/conftest.py
+```
+
+### 3. Module conftest files duplicating root fixtures
+```python
+# BAD — tests/memory/conftest.py redefines memory-related fixtures
+# that should be in root conftest
+
+# GOOD — root conftest.py contains the fixture, module conftest is
+# empty or deleted
+```
+
+### 4. Standalone test files ignoring the fixture hierarchy
+```python
+# BAD — test_norms.py constructs everything from scratch
+def test_norm_computation():
+    config = ScaledNormConfig(n=3, ...)
+    norm = ScaledNorm(config)
+    ...
+
+# GOOD — uses a norm fixture derived from solver_settings
+def test_norm_computation(scaled_norm, ...):
+    ...
+```
+
+### 5. Independent parametrization bypassing solver_settings
+```python
+# BAD — parametrizes precision independently
+@pytest.mark.parametrize("prec", [np.float32, np.float64])
+def test_something(prec):
+    ...
+
+# GOOD — parametrizes through solver_settings_override
+@pytest.mark.parametrize(
+    "solver_settings_override",
+    [{"precision": np.float32}, {"precision": np.float64}],
+    indirect=True,
+)
+def test_something(precision, ...):
+    ...
+```
+
+---
+
+## Agent Instructions for Test Refactoring
+
+When refactoring a test file, follow this checklist:
+
+1. **Read the existing file and its module conftest** (if any).
+2. **Identify all locally defined fixtures.** Move them to
+   `tests/conftest.py`. If they duplicate existing fixtures, delete them.
+3. **Identify all inline object construction.** Replace with fixture
+   requests. Add new fixtures to `tests/conftest.py` if needed.
+4. **Identify all independent parametrization.** Convert to
+   `solver_settings_override` indirect parametrization.
+5. **Identify all mocks/dummies.** Replace with real objects from fixtures.
+   Only keep a mock if you can demonstrate it saves significant build time
+   AND the real object cannot be shared via session-scoped fixtures.
+6. **Group tests by parameter set.** Tests sharing settings go in the same
+   class with a single `@pytest.mark.parametrize` on the class.
+7. **Consolidate mutation tests.** Multiple small mutation tests become
+   fewer, larger test functions using `<fixture>_mutable`.
+8. **Verify the file maps 1:1 to a source module.** Merge or split as
+   needed.
+9. **Remove module conftest files** if all their fixtures have been moved to
+   the root conftest. Keep a module conftest only if it contains fixtures
+   genuinely scoped to that subdirectory alone (this is rare).
+10. **Run the tests** to verify nothing is broken. In the remote environment,
+    tests run under CUDASIM (no real CUDA), so builds are instant.
+
+### Skepticism protocol
+
+Regard any of the following with extreme skepticism — they are almost
+certainly mistakes from a previous AI agent:
+
+- Custom per-module conftest fixtures
+- Test-file-local fixtures
+- Mock objects or dummy classes
+- Tests that construct solver/system/kernel objects inline
+- Standalone test files that don't participate in the fixture hierarchy
+- Multiple test files for a single source module
+- Function-scoped fixtures that aren't named `*_mutable`
+
+**Default assumption:** these are wrong and must be brought into conformance
+with this guide. The previous agent took shortcuts as its context window
+filled. Do not preserve these patterns out of deference to existing code.
+
+---
+
+## Fixture Composition: Adding New Fixtures
+
+When a component needs testing and no fixture exists:
+
+1. **Check if it's already accessible** as an attribute of an existing
+   fixture (e.g., `single_integrator_run._loop`).
+2. If yes, add a thin fixture that extracts it:
+   ```python
+   @pytest.fixture(scope="session")
+   def loop(single_integrator_run):
+       return single_integrator_run._loop
+   ```
+3. If no, determine where in the hierarchy it belongs and construct it from
+   `solver_settings` sub-dicts:
+   ```python
+   @pytest.fixture(scope="session")
+   def new_component(algorithm_settings, system, ...):
+       return NewComponent(system=system, **algorithm_settings)
+   ```
+4. Add a `*_mutable` variant only if mutation tests are required.
+5. Place the fixture in `tests/conftest.py`.
+
+---
+
+## Quick Reference
+
+| Rule | Summary |
+|------|---------|
+| Fixture scope | Session by default, function only for `*_mutable` |
+| Fixture location | `tests/conftest.py` (root) unless strong justification |
+| Parametrization | Always via `solver_settings_override`, indirect |
+| Parameter sets | SHORT_RUN (defaults), MID_RUN_PARAMS, LONG_RUN_PARAMS |
+| Object construction | Fixtures only, never inline |
+| Mocks | Not permitted unless proven necessary |
+| File mapping | 1:1 with source modules |
+| Mutation tests | Combine into single functions, use `*_mutable` fixtures |
+| Build cost | ~2 min per unique parameter set (real CUDA) |
+| Module conftest | Almost always a mistake — consolidate to root |
