@@ -689,6 +689,7 @@ class IVPLoop(CUDAFactory):
                 # Compile-time branching: save_regularly and summarise_regularly
                 # are constants, allowing Numba to eliminate dead branches
                 end_of_step = t_prec + dt_raw
+                end_of_step_f64 = t + float64(dt_raw)
                 if save_regularly or summarise_regularly:
                     # Loop continues until all scheduled outputs are complete
                     finished = True
@@ -699,8 +700,10 @@ class IVPLoop(CUDAFactory):
                         summary_finished = bool_(next_update_summary > t_end)
                         finished &= summary_finished
                 else:
-                    # No scheduled outputs; finish when time exceeds t_end
-                    finished = bool_(end_of_step > t_end)
+                    # No scheduled outputs; finish when time exceeds t_end.
+                    # Use float64 to avoid stagnation when dt is small
+                    # relative to t (float32 addition loses the increment).
+                    finished = bool_(end_of_step_f64 > float64(t_end))
 
                 if save_last:
                     # Save final state even if not aligned with save_every

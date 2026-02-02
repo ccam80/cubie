@@ -12,61 +12,6 @@ def test_kernel_builds(solverkernel):
     kernelfunc = solverkernel.kernel
 
 
-# @pytest.mark.parametrize(
-#     "solver_settings_override",
-#     (
-#         {"system_type": "three_chamber",
-#          **LONG_RUN_PARAMS},
-#     ),
-#     ids=["smoke_test"],
-#     indirect=True,
-# )
-# def test_run(
-#     solverkernel,
-#     batch_input_arrays,
-#     solver_settings,
-#     batch_settings,
-#     cpu_batch_results,
-#     precision,
-#     system,
-#     driver_array,
-#     output_functions,
-#     driver_settings,
-#         tolerance
-# ):
-#     """Big integration test. Runs a batch integration and checks outputs
-#     match expected. Expensive."""
-#     inits, params = batch_input_arrays
-#
-#     solverkernel.run(
-#         duration=solver_settings["duration"],
-#         params=params,
-#         inits=inits,
-#         driver_coefficients=driver_array.coefficients,
-#         blocksize=solver_settings["blocksize"],
-#         stream=solver_settings["stream"],
-#         warmup=solver_settings["warmup"],
-#     )
-#     cuda.synchronize()
-#     state = solverkernel.state
-#     observables = solverkernel.observables
-#     state_summaries = solverkernel.state_summaries
-#     observable_summaries = solverkernel.observable_summaries
-#     iteration_counters = solverkernel.iteration_counters
-#     device = LoopRunResult(state=state,
-#                            observables=observables,
-#                            state_summaries=state_summaries,
-#                            observable_summaries=observable_summaries,
-#                            counters=iteration_counters,
-#                            status=0)
-#
-#     assert_integration_outputs(device=device,
-#                                reference=cpu_batch_results,
-#                                output_functions=output_functions,
-#                                atol=tolerance.abs_loose,
-#                                rtol=tolerance.rel_loose)
-
-
 def test_algorithm_change(solverkernel_mutable):
     solverkernel = solverkernel_mutable
     solverkernel.update(

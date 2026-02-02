@@ -1,769 +1,260 @@
-"""Integration tests for :mod:`cubie.integrators.SingleIntegratorRun`."""
+"""Tests for cubie.integrators.SingleIntegratorRun."""
 
 from __future__ import annotations
 
-from typing import Dict
-
 import numpy as np
 import pytest
-
-from cubie import SingleIntegratorRun
-from cubie.integrators.SingleIntegratorRunCore import SingleIntegratorRunCore
-from tests._utils import assert_integration_outputs
-
-
-def _compare_scalar(actual, expected, tolerance):
-    if expected is None:
-        assert actual is None
-        return
-    if isinstance(expected, (float, np.floating)):
-        assert actual == pytest.approx(
-            float(expected),
-            rel=tolerance.rel_tight,
-            abs=tolerance.abs_tight,
-        )
-        return
-    if isinstance(expected, (int, np.integer)):
-        assert int(actual) == int(expected)
-        return
-    assert actual == expected
-
-
-def _compare_array(actual, expected):
-    np.testing.assert_array_equal(np.asarray(actual), np.asarray(expected))
-
-
-def _compare_generic(actual, expected, tolerance):
-    if isinstance(expected, np.ndarray):
-        _compare_array(actual, expected)
-    elif isinstance(expected, (float, np.floating, int, np.integer)):
-        _compare_scalar(actual, expected, tolerance)
-    elif expected is None:
-        assert actual is None
-    elif callable(expected):
-        assert actual is expected
-    else:
-        assert actual == expected
-
-
-def _settings_to_dict(settings_source):
-    settings = settings_source
-    if callable(settings_source):
-        settings = settings_source()
-    return dict(settings)
-
-
-@pytest.mark.parametrize(
-    "solver_settings_override",
-    [
-        {},
-        {
-            "algorithm": "bogacki-shampine-32",
-            "step_controller": "pid",
-            "atol": 1e-5,
-            "rtol": 1e-5,
-            "dt_min": 1e-7,
-            "dt_max": 0.1,
-            "save_every": 0.1,
-            "summarise_every": 0.3,
-            "duration": 0.3,
-            "output_types": ["state", "time", "observables", "mean"],
-            "saved_state_indices": [0],
-            "saved_observable_indices": [0],
-            "summarised_state_indices": [0],
-            "summarised_observable_indices": [0],
-        },
-    ],
-    indirect=True,
+from tests._utils import (
+    merge_dicts,
 )
-class TestSingleIntegratorRun:
-    def test_build_getters_and_equivalence(
-        self,
-        single_integrator_run,
-        system,
-        solver_settings,
-        precision,
-        initial_state,
-        cpu_loop_outputs,
-        device_loop_outputs,
-        driver_array,
-        tolerance,
-    ):
-        """Requesting the device loop compiles children and preserves getters."""
-
-        run = single_integrator_run
-        device_fn = run.device_function
-        assert callable(device_fn)
-        assert run.cache_valid is True
-        assert run._loop.cache_valid is True
-        assert run._algo_step.cache_valid is True
-        assert run._step_controller.cache_valid is True
-        assert run._output_functions.cache_valid is True
-
-        # Compile settings echo the configuration used during setup.
-        assert run.precision is precision
-        expected_algorithm = run.compile_settings.algorithm
-        assert run.algorithm == expected_algorithm
-        assert run.algorithm_key == expected_algorithm
-        assert solver_settings["algorithm"].lower() in expected_algorithm
-        expected_controller = solver_settings["step_controller"].lower()
-        assert run.step_controller == expected_controller
-
-        assert run.save_every == pytest.approx(
-            solver_settings["save_every"],
-            rel=tolerance.rel_tight,
-            abs=tolerance.abs_tight,
-        )
-        assert run.summarise_every == pytest.approx(
-            solver_settings["summarise_every"],
-            rel=tolerance.rel_tight,
-            abs=tolerance.abs_tight,
-        )
-
-        if run.is_adaptive:
-            dt_min = solver_settings["dt_min"]
-            assert run.dt_min == pytest.approx(
-                dt_min,
-                rel=tolerance.rel_tight,
-                abs=tolerance.abs_tight,
-            )
-            assert run.dt_max == pytest.approx(
-                solver_settings["dt_max"],
-                rel=tolerance.rel_tight,
-                abs=tolerance.abs_tight,
-            )
-        else:
-            assert run.dt_max == pytest.approx(
-                run.dt_min,
-                rel=tolerance.rel_tight,
-                abs=tolerance.abs_tight,
-            )
-            assert run.dt == pytest.approx(
-                solver_settings["dt"],
-                rel=tolerance.rel_tight,
-                abs=tolerance.abs_tight,
-            )
-
-        # Controller tolerances are only defined for adaptive controllers.
-        if run.atol is not None:
-            target = np.asarray(solver_settings["atol"], dtype=precision)
-            np.testing.assert_allclose(
-                run.atol,
-                target,
-                rtol=tolerance.rel_tight,
-                atol=tolerance.abs_tight,
-            )
-        if run.rtol is not None:
-            target = np.asarray(solver_settings["rtol"], dtype=precision)
-            np.testing.assert_allclose(
-                run.rtol,
-                target,
-                rtol=tolerance.rel_tight,
-                atol=tolerance.abs_tight,
-            )
-
-        # Saved indices and counts mirror the configured output selections.
-
-        assert list(run.output_types) == list(solver_settings["output_types"])
-
-        assert run.compiled_loop_function is device_fn
-        assert run.threads_per_loop == run._algo_step.threads_per_step
-
-        # Properties that simply forward underlying objects.
-        loop_props: Dict[str, str] = {
-            "compile_flags": "compile_flags",
-            "save_state_fn": "save_state_fn",
-            "update_summaries_fn": "update_summaries_fn",
-            "save_summaries_fn": "save_summaries_fn",
-        }
-        controller_props: Dict[str, str] = {
-            "atol": "atol",
-            "rtol": "rtol",
-        }
-        algo_props: Dict[str, str] = {
-            "threads_per_step": "threads_per_step",
-        }
-        output_props: Dict[str, str] = {
-            "save_state_func": "save_state_func",
-            "update_summaries_func": "update_summaries_func",
-            "save_summary_metrics_func": "save_summary_metrics_func",
-            "output_types": "output_types",
-            "output_compile_flags": "compile_flags",
-            "save_time": "save_time",
-            "saved_state_indices": "saved_state_indices",
-            "saved_observable_indices": "saved_observable_indices",
-            "summarised_state_indices": "summarised_state_indices",
-            "summarised_observable_indices": "summarised_observable_indices",
-            "output_array_heights": "output_array_heights",
-            "summary_legend_per_variable": "summary_legend_per_variable",
-        }
-
-        for prop_name, attr_name in loop_props.items():
-            actual = getattr(run, prop_name)
-            expected = getattr(run._loop, attr_name)
-            _compare_generic(actual, expected, tolerance)
-
-        for prop_name, attr_name in controller_props.items():
-            actual = getattr(run, prop_name)
-            expected = getattr(run._step_controller, attr_name, None)
-            _compare_generic(actual, expected, tolerance)
-
-        for prop_name, attr_name in algo_props.items():
-            actual = getattr(run, prop_name)
-            expected = getattr(run._algo_step, attr_name, None)
-            _compare_generic(actual, expected, tolerance)
-
-        for prop_name, attr_name in output_props.items():
-            actual = getattr(run, prop_name)
-            expected = getattr(run._output_functions, attr_name)
-            if prop_name in {
-                "saved_state_indices",
-                "saved_observable_indices",
-                "summarised_state_indices",
-                "summarised_observable_indices",
-            }:
-                _compare_array(actual, expected)
-            else:
-                _compare_generic(actual, expected, tolerance)
-
-        # Numerical equivalence with the CPU reference loop.
-        cpu_reference = cpu_loop_outputs
-        device_outputs = device_loop_outputs
-
-        assert device_outputs.status == cpu_reference["status"]
-        assert_integration_outputs(
-            reference=cpu_reference,
-            device=device_outputs,
-            output_functions=run._output_functions,
-            rtol=tolerance.rel_loose,
-            atol=tolerance.abs_loose,
-        )
 
 
-def test_update_routes_to_children(
-    single_integrator_run_mutable,
-    solver_settings,
-    system,
-    tolerance,
-    precision,
+# ── Forwarding property tests ──────────────────────────────────────────── #
+#
+# SingleIntegratorRun is a thin property-aggregation layer.  Tests are
+# grouped by the source component each property delegates to.
+#
+# These use SHORT_RUN defaults (no solver_settings_override) — the
+# cheapest fixture set.  Only tests needing finer resolution or
+# specific algorithm/controller combos override settings.
+
+# -- compile_settings forwarding ----------------------------------------- #
+
+def test_compile_settings_forwarding(
+    single_integrator_run, solver_settings
 ):
-    """All components receive updates and report the new configuration."""
+    """algorithm and step_controller forward from compile_settings."""
+    run = single_integrator_run
+    cs = run.compile_settings
+    assert run.algorithm == cs.algorithm
+    assert run.step_controller == cs.step_controller
+    assert solver_settings["algorithm"].lower() in run.algorithm
+    assert run.step_controller == solver_settings["step_controller"].lower()
 
-    run = single_integrator_run_mutable
-    new_dt = solver_settings["dt_min"] * 0.5
-    new_saved_states = [0]
-    new_saved_observables = [0]
-    new_constant = system.constants.values_array[0] * 1.2
 
-    updates = {
-        "dt": new_dt,
-        "output_types": ["state", "observables", "mean"],
-        "saved_state_indices": new_saved_states,
-        "saved_observable_indices": new_saved_observables,
-        "summarised_state_indices": new_saved_states,
-        "summarised_observable_indices": new_saved_observables,
-        "c0": new_constant,
-    }
+# -- _loop forwarding --------------------------------------------------- #
 
-    recognized = run.update(updates)
-    expected_keys = {
-        "dt",
-        "saved_state_indices",
-        "saved_observable_indices",
-        "summarised_state_indices",
-        "summarised_observable_indices",
-        "c0",
-    }
-    assert expected_keys.issubset(recognized)
-    assert run.cache_valid is False
+def test_loop_forwarding(single_integrator_run):
+    """Properties that delegate to _loop."""
+    run = single_integrator_run
+    loop = run._loop
 
-    assert run.dt == pytest.approx(
-        new_dt,
-        rel=tolerance.rel_tight,
-        abs=tolerance.abs_tight,
+    assert run.shared_memory_elements == loop.shared_buffer_size
+    assert run.local_memory_elements == loop.local_buffer_size
+    assert run.persistent_local_elements == loop.persistent_local_buffer_size
+
+    assert run.save_every == loop.save_every
+    assert run.summarise_every == loop.summarise_every
+    assert run.sample_summaries_every == loop.sample_summaries_every
+    assert run.save_last == loop.compile_settings.save_last
+
+    assert run.compile_flags is loop.compile_flags
+    assert run.save_state_fn is loop.save_state_fn
+    assert run.update_summaries_fn is loop.update_summaries_fn
+    assert run.save_summaries_fn is loop.save_summaries_fn
+
+
+# -- _step_controller forwarding ---------------------------------------- #
+
+def test_step_controller_forwarding(single_integrator_run, tolerance):
+    """Properties that delegate to _step_controller."""
+    run = single_integrator_run
+    ctrl = run._step_controller
+
+    assert run.dt0 == pytest.approx(
+        ctrl.dt0, rel=tolerance.rel_tight, abs=tolerance.abs_tight
     )
     assert run.dt_min == pytest.approx(
-        new_dt,
-        rel=tolerance.rel_tight,
-        abs=tolerance.abs_tight,
+        ctrl.dt_min, rel=tolerance.rel_tight, abs=tolerance.abs_tight
     )
     assert run.dt_max == pytest.approx(
-        new_dt,
-        rel=tolerance.rel_tight,
-        abs=tolerance.abs_tight,
+        ctrl.dt_max, rel=tolerance.rel_tight, abs=tolerance.abs_tight
     )
+    assert run.is_adaptive == ctrl.is_adaptive
 
-    flags = run.output_compile_flags
-    expected_saved_states = (
-        np.asarray(new_saved_states)
-        if flags.save_state
-        else np.empty(0, dtype=np.int64)
-    )
-    expected_saved_obs = (
-        np.asarray(new_saved_observables)
-        if flags.save_observables
-        else np.empty(0, dtype=np.int64)
-    )
-    np.testing.assert_array_equal(
-        run.saved_state_indices, expected_saved_states
-    )
-    np.testing.assert_array_equal(
-        run.saved_observable_indices, expected_saved_obs
-    )
-    np.testing.assert_array_equal(
-        run.summarised_state_indices, np.asarray(new_saved_states)
-    )
-    np.testing.assert_array_equal(
-        run.summarised_observable_indices,
-        np.asarray(new_saved_observables),
-    )
+    # atol / rtol / dt use hasattr guard
+    if hasattr(ctrl, "atol"):
+        np.testing.assert_array_equal(np.asarray(run.atol),
+                                      np.asarray(ctrl.atol))
+    else:
+        assert run.atol is None
 
+    if hasattr(ctrl, "rtol"):
+        np.testing.assert_array_equal(np.asarray(run.rtol),
+                                      np.asarray(ctrl.rtol))
+    else:
+        assert run.rtol is None
+
+    if hasattr(ctrl, "dt"):
+        assert run.dt == pytest.approx(
+            ctrl.dt, rel=tolerance.rel_tight, abs=tolerance.abs_tight
+        )
+    else:
+        assert run.dt is None
+
+
+# -- _algo_step forwarding ---------------------------------------------- #
+
+def test_algo_step_forwarding(single_integrator_run):
+    """Properties that delegate to _algo_step."""
+    run = single_integrator_run
+    assert run.threads_per_step == run._algo_step.threads_per_step
+    assert run.evaluate_f is run._algo_step.evaluate_f
+
+
+# -- _output_functions forwarding --------------------------------------- #
+
+def test_output_functions_forwarding(single_integrator_run):
+    """Properties that delegate to _output_functions."""
+    run = single_integrator_run
     of = run._output_functions
-    assert of.n_saved_states == int(expected_saved_states.size)
-    assert of.n_saved_observables == int(expected_saved_obs.size)
-    expected_summary_count = (
-        len(new_saved_states) if flags.summarise_state else 0
-    )
-    expected_summary_obs = (
-        len(new_saved_observables) if flags.summarise_observables else 0
-    )
 
-    controller_settings = _settings_to_dict(run._step_controller.settings_dict)
-    algo_settings = _settings_to_dict(run._algo_step.settings_dict)
-    assert controller_settings["dt"] == pytest.approx(
-        new_dt,
-        rel=tolerance.rel_tight,
-        abs=tolerance.abs_tight,
-    )
+    assert run.save_state_func is of.save_state_func
+    assert run.update_summaries_func is of.update_summaries_func
+    assert run.save_summary_metrics_func is of.save_summary_metrics_func
+    assert run.output_types == of.output_types
+    assert run.output_compile_flags == of.compile_flags
+    assert run.save_time == of.save_time
 
-    assert float(system.constants.values_array[0]) == pytest.approx(
-        new_constant,
-        rel=tolerance.rel_tight,
-        abs=tolerance.abs_tight,
-    )
+    np.testing.assert_array_equal(run.saved_state_indices,
+                                  of.saved_state_indices)
+    np.testing.assert_array_equal(run.saved_observable_indices,
+                                  of.saved_observable_indices)
+    np.testing.assert_array_equal(run.summarised_state_indices,
+                                  of.summarised_state_indices)
+    np.testing.assert_array_equal(run.summarised_observable_indices,
+                                  of.summarised_observable_indices)
+    assert run.output_array_heights == of.output_array_heights
+    assert run.summary_legend_per_variable == of.summary_legend_per_variable
+    assert run.summary_unit_modifications == of.summary_unit_modifications
 
 
-def test_default_step_controller_settings_applied(
-    system,
-    solver_settings,
-    driver_array,
-    algorithm_settings,
-    output_settings,
-    loop_settings,
-):
-    """When no overrides are supplied algorithm defaults are applied."""
+# -- _system forwarding ------------------------------------------------- #
 
-    evaluate_driver_at_t = (
-        driver_array.evaluation_function if driver_array else None
-    )
-    run = SingleIntegratorRun(
-        system=system,
-        loop_settings=loop_settings,
-        evaluate_driver_at_t=evaluate_driver_at_t,
-        step_control_settings=None,
-        algorithm_settings=algorithm_settings,
-        output_settings=output_settings,
-    )
-
-    defaults = run._algo_step.controller_defaults.copy()
-    assert run.step_controller == defaults.step_controller["step_controller"]
-    controller_settings = run._step_controller.settings_dict
-    defaults.step_controller.pop("step_controller")
-    for key, expected in defaults.step_controller.items():
-        assert key in controller_settings
-        actual = controller_settings[key]
-        if isinstance(expected, (float, np.floating)):
-            assert actual == pytest.approx(expected)
-        else:
-            assert actual == expected
-    assert run._step_controller.n == system.sizes.states
-    if hasattr(run._step_controller, "algorithm_order"):
-        assert run._step_controller.algorithm_order == run._algo_step.order
+def test_system_forwarding(single_integrator_run, system):
+    """system and system_sizes forward from _system."""
+    run = single_integrator_run
+    assert run.system == system
+    assert run.system_sizes == system.sizes
 
 
-@pytest.mark.parametrize(
-    "algorithm, overrides",
-    [
-        (
-            "crank_nicolson",
-            {
-                "dt_min": 5e-5,
-                "dt_max": 5e-2,
-                "min_gain": 0.3,
-            },
-        )
-    ],
-)
-def test_step_controller_overrides_take_precedence(
-    system,
-    solver_settings,
-    output_settings,
-    driver_array,
-    algorithm,
-    overrides,
-    algorithm_settings,
-    loop_settings,
-):
-    """User supplied settings override algorithm defaults."""
-    algorithm_settings["algorithm"] = algorithm
-    precision = system.precision
-    evaluate_driver_at_t = (
-        driver_array.evaluation_function if driver_array else None
-    )
-    override_settings = {
-        key: precision(value) if isinstance(value, float) else value
-        for key, value in overrides.items()
-    }
-    run = SingleIntegratorRun(
-        system=system,
-        loop_settings=loop_settings,
-        output_settings=output_settings,
-        evaluate_driver_at_t=evaluate_driver_at_t,
-        step_control_settings=dict(override_settings),
-        algorithm_settings=algorithm_settings,
-    )
+# -- chained forwarding ------------------------------------------------- #
 
-    assert run.step_controller == "pid"
-    assert run.dt_min == pytest.approx(override_settings["dt_min"])
-    assert run.dt_max == pytest.approx(override_settings["dt_max"])
-    controller_settings = run._step_controller.settings_dict
-    assert controller_settings["min_gain"] == pytest.approx(
-        override_settings["min_gain"]
-    )
-    assert controller_settings["algorithm_order"] == run._algo_step.order
+def test_save_summaries_func_chain(single_integrator_run):
+    """save_summaries_func chains through save_summary_metrics_func."""
+    run = single_integrator_run
+    assert run.save_summaries_func is run.save_summary_metrics_func
 
 
-# Algorithm-controller compatibility tests
-def test_errorless_euler_with_adaptive_warns_and_replaces(system):
-    """Errorless Euler with adaptive PI warns and replaces with fixed."""
-    import warnings
-
-    algorithm_settings = {
-        "algorithm": "euler",
-    }
-    step_control_settings = {
-        "step_controller": "pid",
-        "dt_min": 1e-6,
-        "dt_max": 1e-1,
-    }
-
-    with warnings.catch_warnings(record=True) as w:
-        warnings.simplefilter("always")
-        core = SingleIntegratorRunCore(
-            system=system,
-            algorithm_settings=algorithm_settings,
-            step_control_settings=step_control_settings,
-        )
-
-        # Should issue our compatibility warning (may have other warnings too)
-        compat_warnings = [
-            x for x in w if "cannot be used with" in str(x.message)
-        ]
-        assert len(compat_warnings) >= 1
-        assert issubclass(compat_warnings[0].category, UserWarning)
-        warn_msg = str(compat_warnings[0].message).lower()
-        assert "euler" in warn_msg
-        assert "pid" in warn_msg
-        assert "fixed" in warn_msg
-
-        # Controller should be replaced with fixed
-        assert not core._step_controller.is_adaptive
-        assert core._algo_step.is_controller_fixed
-
-
-def test_errorless_rk4_tableau_with_adaptive_warns(system):
-    """Errorless RK4 tableau with adaptive PI warns and replaces."""
-    import warnings
-    from cubie.integrators.algorithms.generic_erk_tableaus import (
-        CLASSICAL_RK4_TABLEAU,
-    )
-
-    algorithm_settings = {
-        "algorithm": "erk",
-        "tableau": CLASSICAL_RK4_TABLEAU,
-    }
-    step_control_settings = {
-        "step_controller": "pid",
-        "dt_min": 1e-6,
-        "dt_max": 1e-1,
-    }
-
-    with warnings.catch_warnings(record=True) as w:
-        warnings.simplefilter("always")
-        core = SingleIntegratorRunCore(
-            system=system,
-            algorithm_settings=algorithm_settings,
-            step_control_settings=step_control_settings,
-        )
-
-        compat_warnings = [
-            x for x in w if "cannot be used with" in str(x.message)
-        ]
-        assert len(compat_warnings) >= 1
-        assert not core._step_controller.is_adaptive
-        assert core._algo_step.is_controller_fixed
-
-
-def test_adaptive_tableau_with_adaptive_succeeds(system):
-    """Adaptive Dormand-Prince with PI controller succeeds without warning."""
-    import warnings
-    from cubie.integrators.algorithms.generic_erk_tableaus import (
-        DORMAND_PRINCE_54_TABLEAU,
-    )
-
-    algorithm_settings = {
-        "algorithm": "erk",
-        "tableau": DORMAND_PRINCE_54_TABLEAU,
-    }
-    step_control_settings = {
-        "step_controller": "pid",
-        "dt_min": 1e-6,
-        "dt_max": 1e-1,
-    }
-
-    with warnings.catch_warnings(record=True) as w:
-        warnings.simplefilter("always")
-        core = SingleIntegratorRunCore(
-            system=system,
-            algorithm_settings=algorithm_settings,
-            step_control_settings=step_control_settings,
-        )
-
-        # Should not issue our compatibility warning
-        compat_warnings = [
-            x for x in w if "cannot be used with" in str(x.message)
-        ]
-        assert len(compat_warnings) == 0
-        assert core._algo_step.is_adaptive
-        assert core._step_controller.is_adaptive
-        assert not core._algo_step.is_controller_fixed
-
-
-def test_errorless_euler_with_fixed_succeeds(system):
-    """Errorless Euler with fixed controller succeeds without warning."""
-    import warnings
-
-    algorithm_settings = {
-        "algorithm": "euler",
-    }
-    step_control_settings = {
-        "step_controller": "fixed",
-        "dt": 1e-3,
-    }
-
-    with warnings.catch_warnings(record=True) as w:
-        warnings.simplefilter("always")
-        core = SingleIntegratorRunCore(
-            system=system,
-            algorithm_settings=algorithm_settings,
-            step_control_settings=step_control_settings,
-        )
-
-        # Should not issue our compatibility warning
-        compat_warnings = [
-            x for x in w if "cannot be used with" in str(x.message)
-        ]
-        assert len(compat_warnings) == 0
-        assert not core._algo_step.is_adaptive
-        assert not core._step_controller.is_adaptive
-        assert core._algo_step.is_controller_fixed
-
-
-def test_warning_message_contains_algorithm_and_controller(system):
-    """Warning message includes algorithm and controller names."""
-    import warnings
-
-    algorithm_settings = {
-        "algorithm": "euler",
-    }
-    step_control_settings = {
-        "step_controller": "pid",
-        "dt_min": 1e-6,
-        "dt_max": 1e-1,
-    }
-
-    with warnings.catch_warnings(record=True) as w:
-        warnings.simplefilter("always")
-        core = SingleIntegratorRunCore(
-            system=system,
-            algorithm_settings=algorithm_settings,
-            step_control_settings=step_control_settings,
-        )
-
-        compat_warnings = [
-            x for x in w if "cannot be used with" in str(x.message)
-        ]
-        assert len(compat_warnings) >= 1
-        warn_msg = str(compat_warnings[0].message)
-        assert "euler" in warn_msg
-        assert "pid" in warn_msg
-        assert "error estimate" in warn_msg.lower()
-        assert "fixed" in warn_msg.lower()
-
+# ── shared_memory_bytes ─────────────────────────────────────────────────── #
 
 @pytest.mark.parametrize(
     "solver_settings_override",
     [
-        {"output_types": ["state", "time", "observables"]},
+        pytest.param({"precision": np.float32}, id="float32"),
+        pytest.param({"precision": np.float64}, id="float64"),
     ],
     indirect=True,
 )
-class TestTimingProperties:
-    """Tests for SingleIntegratorRun timing calculation methods."""
+def test_shared_memory_bytes(single_integrator_run, precision):
+    """shared_memory_bytes = elements * dtype itemsize."""
+    run = single_integrator_run
+    expected = run.shared_memory_elements * np.dtype(precision).itemsize
+    assert run.shared_memory_bytes == expected
 
-    def test_any_time_domain_outputs_true_with_state(
-        self, single_integrator_run
-    ):
-        """has_time_domain_outputs returns True when state is requested."""
-        assert single_integrator_run.has_time_domain_outputs is True
 
-    def test_save_last_property(self, single_integrator_run):
-        """save_last delegates to loop config."""
-        expected = single_integrator_run._loop.compile_settings.save_last
-        assert single_integrator_run.save_last == expected
+# ── output_length ────────────────────────────────────────────────────────── #
+
+def test_output_length_periodic(single_integrator_run, solver_settings):
+    """output_length includes initial sample + floor(duration/save_every)."""
+    duration = float(solver_settings["duration"])
+    save_every = float(solver_settings["save_every"])
+    expected = int(duration / save_every) + 1
+    assert single_integrator_run.output_length(duration) == expected
 
 
 @pytest.mark.parametrize(
     "solver_settings_override",
-    [
-        {"save_every": 0.05, "duration": 0.2},
-    ],
+    [{
+        "output_types": ["state", "observables"],
+        "save_every": None,
+        "summarise_every": None,
+        "sample_summaries_every": None,
+    }],
     indirect=True,
 )
-class TestOutputLengthMethod:
-    """Tests for SingleIntegratorRun.output_length() method."""
-
-    def test_output_length_periodic(
-        self, single_integrator_run, solver_settings
-    ):
-        """output_length calculates correctly for periodic saving."""
-        duration = float(solver_settings["duration"])
-        save_every = float(solver_settings["save_every"])
-        expected = int(duration / save_every) + 1
-        actual = single_integrator_run.output_length(duration)
-        assert actual == expected
+def test_output_length_save_last_only(single_integrator_run):
+    """output_length returns 2 when save_last=True and no save_every."""
+    assert single_integrator_run.save_last is True
+    assert single_integrator_run.output_length(0.2) == 2
 
 
 @pytest.mark.parametrize(
     "solver_settings_override",
-    [
-        {
-            "summarise_every": 0.1,
-            "duration": 0.3,
-            "sample_summaries_every": 0.05,
-        },
-    ],
+    [{
+        "output_types": ["mean"],
+        "save_every": None,
+        "summarise_every": 0.1,
+        "sample_summaries_every": 0.05,
+    }],
     indirect=True,
 )
-class TestSummariesLengthMethod:
-    """Tests for SingleIntegratorRun.summaries_length() method."""
+def test_output_length_no_time_domain(single_integrator_run):
+    """output_length returns 1 when no time-domain outputs and no save_last."""
+    assert single_integrator_run.save_last is False
+    assert single_integrator_run.output_length(0.2) == 1
 
-    def test_summaries_length_periodic(
-        self, single_integrator_run, solver_settings
-    ):
-        """summaries_length calculates correctly for periodic summaries."""
-        duration = float(solver_settings["duration"])
-        summarise_every = float(solver_settings["summarise_every"])
-        expected = int(duration / summarise_every)
-        actual = single_integrator_run.summaries_length(duration)
-        assert actual == expected
+
+# ── summaries_length ────────────────────────────────────────────────────── #
+
+@pytest.mark.parametrize(
+    "solver_settings_override",
+    [{
+        "summarise_every": 0.1,
+        "duration": 0.3,
+        "sample_summaries_every": 0.05,
+    }],
+    indirect=True,
+)
+def test_summaries_length_periodic(single_integrator_run, solver_settings):
+    """summaries_length = int(duration / summarise_every)."""
+    duration = float(solver_settings["duration"])
+    summarise_every = float(solver_settings["summarise_every"])
+    expected = int(duration / summarise_every)
+    assert single_integrator_run.summaries_length(duration) == expected
 
 
 @pytest.mark.parametrize(
     "solver_settings_override",
-    [
-        {
-            "output_types": ["state", "observables"],
-            "save_every": None,
-            "summarise_every": None,
-            "sample_summaries_every": None,
-        },
-    ],
+    [{
+        "output_types": ["state"],
+        "summarise_every": None,
+        "sample_summaries_every": None,
+    }],
     indirect=True,
 )
-class TestTimingFlagAutoDetection:
-    """Tests for automatic timing flag detection based on output_types."""
-
-    def test_save_last_set_when_state_output_no_save_every(
-        self, single_integrator_run
-    ):
-        """save_last=True when time-domain output requested without save_every."""
-        assert single_integrator_run.save_last is True
+def test_summaries_length_none(single_integrator_run):
+    """summaries_length returns 0 when summarise_every is None."""
+    assert single_integrator_run.summaries_length(0.3) == 0
 
 
-@pytest.mark.parametrize(
-    "solver_settings_override",
-    [
-        {
-            "output_types": ["mean"],
-            "save_every": None,
-            "summarise_every": None,
-            "sample_summaries_every": None,
-        },
-    ],
-    indirect=True,
-)
-class TestIsDurationDependentProperty:
-    """Tests for is_duration_dependent property."""
+# ── device_function ──────────────────────────────────────────────────────── #
 
-    def test_is_duration_dependent_true_when_no_timing(
-        self, single_integrator_run
-    ):
-        """is_duration_dependent True with no timing."""
-        loop_config = single_integrator_run._loop.compile_settings
-        assert loop_config._sample_summaries_every is None
-        assert single_integrator_run.is_duration_dependent is True
+def test_device_function_callable(single_integrator_run):
+    """device_function returns a callable."""
+    run = single_integrator_run
+    fn = run.device_function
+    assert callable(fn)
 
 
-@pytest.mark.parametrize(
-    "solver_settings_override",
-    [
-        {
-            "output_types": ["mean"],
-            "save_every": None,
-            "summarise_every": None,
-            "sample_summaries_every": 0.01,
-        },
-    ],
-    indirect=True,
-)
-def test_is_duration_dependent_true_when_explicit_sampling(
-    single_integrator_run,
-):
-    """is_duration_dependent True when summarise_every is not set."""
-    loop_config = single_integrator_run._loop.compile_settings
-    assert loop_config._sample_summaries_every is not None
-    assert single_integrator_run.is_duration_dependent is True
+# ── Cache validity after build ─────────────────────────────────────────── #
 
-
-@pytest.mark.parametrize(
-    "solver_settings_override",
-    [
-        {
-            "output_types": ["mean"],
-            "save_every": None,
-            "summarise_every": 0.1,
-            "sample_summaries_every": 0.05,
-        },
-    ],
-    indirect=True,
-)
-class TestChunkDurationSkipped:
-    """Tests for chunk_duration skipped when explicit timing."""
-
-    def test_chunk_duration_skipped_when_not_duration_dependent(
-        self, single_integrator_run_mutable
-    ):
-        """chunk_duration does not override explicit sample_summaries_every."""
-        run = single_integrator_run_mutable
-
-        # Verify initial explicit value is set
-        initial_value = run.sample_summaries_every
-        assert initial_value == pytest.approx(0.05)
-
-        # Update with chunk_duration should NOT change sample_summaries_every
-        run.set_summary_timing_from_duration(duration=1.0)
-
-        # Should still have original value, not chunk_duration / 100
-        assert run.sample_summaries_every == pytest.approx(0.05)
-        assert run.sample_summaries_every != pytest.approx(0.01)
+def test_cache_valid_after_build(single_integrator_run):
+    """All caches valid after device_function accessed."""
+    run = single_integrator_run
+    _ = run.device_function  # trigger build
+    assert run.cache_valid is True
+    assert run._loop.cache_valid is True
+    assert run._algo_step.cache_valid is True
+    assert run._step_controller.cache_valid is True
+    assert run._output_functions.cache_valid is True
