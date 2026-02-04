@@ -14,6 +14,7 @@ value problems. The source code is available on `Github
    batching
    results
    drivers
+   timing
    choosing_algorithms
    optional_arguments
    userfunctions
