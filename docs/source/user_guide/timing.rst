@@ -287,6 +287,22 @@ for allowing transients to decay before collecting data.
 The total integration time is ``settling_time + duration``. The
 integration starts at ``t0`` and runs until ``t0 + settling_time + duration``.
 
+.. code-block:: text
+
+   Example: t0=5, settling_time=20, duration=50
+
+   t=5                 t=25                                    t=75
+   |                    |                                       |
+   |<-- settling_time ->|<------------ duration --------------->|
+   |       (20)         |                 (50)                  |
+   |                    |                                       |
+   +--------------------+---------------------------------------+
+   ^                    ^                                       ^
+   |                    |                                       |
+   Integration      Recording                            Integration
+   starts           starts                               ends
+   (no output)      (output saved)
+
 Complete Example
 ----------------
 
