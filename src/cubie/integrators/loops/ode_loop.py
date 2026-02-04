@@ -65,7 +65,7 @@ ALL_LOOP_SETTINGS = {
     "save_every",
     "summarise_every",
     "sample_summaries_every",
-    "dt0",
+    "dt",
     "is_adaptive",
     "save_last",
     "save_regularly",
@@ -107,7 +107,7 @@ or to :meth:`IVPLoop.update`.  Parent components use this set to filter
    * - ``sample_summaries_every``
      - :class:`~cubie.integrators.loops.ode_loop_config.ODELoopConfig`
      - Interval between summary metric updates.
-   * - ``dt0``
+   * - ``dt``
      - :class:`~cubie.integrators.loops.ode_loop_config.ODELoopConfig`
      - Initial timestep.
    * - ``is_adaptive``
@@ -177,7 +177,7 @@ class IVPLoop(CUDAFactory):
         Device function that computes observables for proposed states.
     **kwargs
         Optional parameters passed to ODELoopConfig. Available parameters
-        include dt0, is_adaptive, and buffer location
+        include dt, is_adaptive, and buffer location
         parameters (state_location, proposed_state_location,
         parameters_location, drivers_location, proposed_drivers_location,
         observables_location, proposed_observables_location, error_location,
@@ -258,7 +258,7 @@ class IVPLoop(CUDAFactory):
             Device function that computes observables for proposed states.
         **kwargs
             Optional parameters passed to ODELoopConfig. See ODELoopConfig
-            for available parameters including dt0, is_adaptive, and buffer
+            for available parameters including dt, is_adaptive, and buffer
             location parameters (state_location, proposed_state_location,
             etc.). None values are ignored.
         """
@@ -458,7 +458,7 @@ class IVPLoop(CUDAFactory):
         alloc_proposed_counters = getalloc("proposed_counters", self)
 
         # Timing values
-        dt0 = precision(config.dt0)
+        initial_dt = precision(config.dt)
         save_every = config.save_every
         sample_summaries_every = config.sample_summaries_every
         samples_per_summary = int32(config.samples_per_summary)
@@ -541,6 +541,7 @@ class IVPLoop(CUDAFactory):
             t = float64(t0)
             t_prec = precision(t)
             t_end = precision(settling_time + t0 + duration)
+            t_end_f64 = float64(settling_time + t0 + duration)
 
             # Clear inherited arrays on entry
             persistent_local[:] = precision(0.0)
@@ -602,7 +603,9 @@ class IVPLoop(CUDAFactory):
             summary_idx = int32(0)
             update_idx = int32(0)
             next_save = precision(settling_time + t0)
+            next_save_f64 = float64(settling_time + t0)
             next_update_summary = precision(settling_time + t0)
+            next_update_summary_f64 = float64(settling_time + t0)
             # --------------------------------------------------------------- #
             #                       Seed t=0 values                           #
             # --------------------------------------------------------------- #
@@ -632,10 +635,15 @@ class IVPLoop(CUDAFactory):
             if settling_time == 0.0:
                 # Save initial state at t0, then advance to first interval save
                 if save_regularly:
-                    next_save = precision(next_save + save_every)
+                    next_save_f64 = next_save_f64 + float64(save_every)
+                    next_save = precision(next_save_f64)
                 if summarise_regularly:
+                    next_update_summary_f64 = (
+                        next_update_summary_f64
+                        + float64(sample_summaries_every)
+                    )
                     next_update_summary = precision(
-                        sample_summaries_every + next_update_summary
+                        next_update_summary_f64
                     )
 
                 save_state(
@@ -664,8 +672,8 @@ class IVPLoop(CUDAFactory):
                     )
 
             status = int32(0)
-            dt[0] = dt0
-            dt_raw = dt0
+            dt[0] = initial_dt
+            dt_raw = initial_dt
             accept_step[0] = int32(0)
 
             # Initialize iteration counters
@@ -689,21 +697,20 @@ class IVPLoop(CUDAFactory):
                 # Compile-time branching: save_regularly and summarise_regularly
                 # are constants, allowing Numba to eliminate dead branches
                 end_of_step = t_prec + dt_raw
-                end_of_step_f64 = t + float64(dt_raw)
                 if save_regularly or summarise_regularly:
                     # Loop continues until all scheduled outputs are complete
                     finished = True
                     if save_regularly:
-                        save_finished = bool_(next_save > t_end)
+                        save_finished = bool_(next_save_f64 > t_end_f64)
                         finished &= save_finished
                     if summarise_regularly:
-                        summary_finished = bool_(next_update_summary > t_end)
+                        summary_finished = bool_(
+                            next_update_summary_f64 > t_end_f64
+                        )
                         finished &= summary_finished
                 else:
-                    # No scheduled outputs; finish when time exceeds t_end.
-                    # Use float64 to avoid stagnation when dt is small
-                    # relative to t (float32 addition loses the increment).
-                    finished = bool_(end_of_step_f64 > float64(t_end))
+                    # No scheduled outputs; finish when time exceeds t_end
+                    finished = bool_(end_of_step > t_end)
 
                 if save_last:
                     # Save final state even if not aligned with save_every
@@ -875,7 +882,8 @@ class IVPLoop(CUDAFactory):
                     if do_save:
                         # Increment next_save if it's in use
                         if save_regularly:
-                            next_save += save_every
+                            next_save_f64 += float64(save_every)
+                            next_save = precision(next_save_f64)
 
                         save_state(
                             state_buffer,
@@ -897,7 +905,12 @@ class IVPLoop(CUDAFactory):
 
                     if do_update_summary:
                         if summarise_regularly:
-                            next_update_summary += sample_summaries_every
+                            next_update_summary_f64 += float64(
+                                sample_summaries_every
+                            )
+                            next_update_summary = precision(
+                                next_update_summary_f64
+                            )
 
                         if summarise:
                             statesumm_idx = summary_idx * summarise_state_bool
@@ -1001,10 +1014,10 @@ class IVPLoop(CUDAFactory):
         return self.compile_settings.evaluate_observables
 
     @property
-    def dt0(self) -> Optional[float]:
+    def dt(self) -> Optional[float]:
         """Return the initial step size provided to the loop."""
 
-        return self.compile_settings.dt0
+        return self.compile_settings.dt
 
     @property
     def is_adaptive(self) -> Optional[bool]:

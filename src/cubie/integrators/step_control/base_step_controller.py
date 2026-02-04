@@ -43,7 +43,12 @@ from cubie.CUDAFactory import (
     CUDAFactoryConfig,
     CUDADispatcherCache,
 )
-from cubie._utils import getype_validator
+from cubie._utils import (
+    getype_validator,
+    opt_getype_validator,
+    build_config,
+    PrecisionDType,
+)
 from cubie.buffer_registry import buffer_registry
 
 ALL_STEP_CONTROLLER_PARAMETERS = {
@@ -171,6 +176,9 @@ class BaseStepControllerConfig(CUDAFactoryConfig, ABC):
     """
 
     n: int = field(default=1, validator=getype_validator(int, 0))
+    _dt: Optional[float] = field(
+        default=None, validator=opt_getype_validator(float, 0)
+    )
     timestep_memory_location: str = field(
         default="local", validator=validators.in_(["local", "shared"])
     )
@@ -190,7 +198,7 @@ class BaseStepControllerConfig(CUDAFactoryConfig, ABC):
 
     @property
     @abstractmethod
-    def dt0(self) -> float:
+    def dt(self) -> float:
         """Return the initial step size used when integration starts."""
 
     @property
@@ -211,10 +219,62 @@ class BaseStepControllerConfig(CUDAFactoryConfig, ABC):
 class BaseStepController(CUDAFactory):
     """Factory interface for compiling CUDA step-size controllers."""
 
-    def __init__(self) -> None:
-        """Initialise the base controller factory."""
+    _config_class = None  # Subclasses must override
 
+    def __init__(
+        self,
+        precision: PrecisionDType,
+        dt: float = None,
+        n: int = 1,
+        **kwargs,
+    ) -> None:
+        """Initialise the step controller.
+
+        Parameters
+        ----------
+        precision
+            Precision used for controller calculations.
+        dt
+            Step size or initial step size.
+        n
+            Number of state variables.
+        **kwargs
+            Additional parameters passed to the config class.
+        """
         super().__init__()
+        self._user_step_params = {}
+        self._resolve_step_params(dt, kwargs)
+        config = build_config(
+            self._config_class,
+            required={"precision": precision, "n": n},
+            **kwargs,
+        )
+        self.setup_compile_settings(config)
+        self.register_buffers()
+
+    def _resolve_step_params(self, dt: float, kwargs: dict) -> None:
+        """Resolve step parameters and track user-provided values.
+
+        Subclasses override to implement controller-specific translation
+        and set entries in ``self._user_step_params`` for user-provided
+        values.
+
+        Parameters
+        ----------
+        dt
+            Step size, or None if not provided.
+        kwargs
+            Mutable dict of keyword arguments. Modified in place.
+        """
+        pass
+
+    def _ensure_sane_bounds(self) -> None:
+        """Ensure step bounds satisfy constraints.
+
+        Called after update(). Subclasses override to fix constraint
+        violations on non-user-provided parameters.
+        """
+        pass
 
     def register_buffers(self) -> None:
         """Register controller buffers with the central buffer registry.
@@ -266,10 +326,10 @@ class BaseStepController(CUDAFactory):
         return self.compile_settings.dt_max
 
     @property
-    def dt0(self) -> float:
+    def dt(self) -> float:
         """Return the initial step size."""
 
-        return self.compile_settings.dt0
+        return self.compile_settings.dt
 
     @property
     def is_adaptive(self) -> bool:
@@ -325,6 +385,11 @@ class BaseStepController(CUDAFactory):
         if updates_dict == {}:
             return set()
 
+        # Track newly user-set step params
+        for key in ("dt", "dt_min", "dt_max"):
+            if key in updates_dict:
+                self._user_step_params[key] = updates_dict[key]
+
         recognised = self.update_compile_settings(updates_dict, silent=True)
         unrecognised = set(updates_dict.keys()) - recognised
 
@@ -355,4 +420,5 @@ class BaseStepController(CUDAFactory):
                 "These parameters were not updated.",
             )
 
+        self._ensure_sane_bounds()
         return recognised

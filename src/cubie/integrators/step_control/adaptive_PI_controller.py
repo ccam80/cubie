@@ -32,7 +32,6 @@ from numba import cuda, int32
 from numpy import ndarray
 from attrs import field, define, validators
 
-from cubie._utils import build_config
 from cubie._utils import PrecisionDType, _expand_dtype
 from cubie.buffer_registry import buffer_registry
 from cubie.integrators.step_control.adaptive_step_controller import (
@@ -77,33 +76,7 @@ class PIStepControlConfig(AdaptiveStepControlConfig):
 class AdaptivePIController(BaseAdaptiveStepController):
     """Proportional–integral step-size controller."""
 
-    def __init__(
-        self,
-        precision: PrecisionDType,
-        n: int = 1,
-        **kwargs,
-    ) -> None:
-        """Initialise a proportional–integral step controller.
-
-        Parameters
-        ----------
-        precision
-            Precision used for controller calculations.
-        n
-            Number of state variables.
-        **kwargs
-            Optional parameters passed to PIStepControlConfig. See
-            PIStepControlConfig for available parameters including dt_min,
-            dt_max, atol, rtol, algorithm_order, kp, ki, min_gain, max_gain,
-            deadband_min, deadband_max. None values are ignored.
-        """
-        config = build_config(
-            PIStepControlConfig,
-            required={"precision": precision, "n": n},
-            **kwargs,
-        )
-
-        super().__init__(config)
+    _config_class = PIStepControlConfig
 
     @property
     def kp(self) -> float:

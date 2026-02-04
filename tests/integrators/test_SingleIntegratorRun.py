@@ -61,8 +61,8 @@ def test_step_controller_forwarding(single_integrator_run, tolerance):
     run = single_integrator_run
     ctrl = run._step_controller
 
-    assert run.dt0 == pytest.approx(
-        ctrl.dt0, rel=tolerance.rel_tight, abs=tolerance.abs_tight
+    assert run.dt == pytest.approx(
+        ctrl.dt, rel=tolerance.rel_tight, abs=tolerance.abs_tight
     )
     assert run.dt_min == pytest.approx(
         ctrl.dt_min, rel=tolerance.rel_tight, abs=tolerance.abs_tight

@@ -158,7 +158,7 @@ class SingleIntegratorRunCore(CUDAFactory):
             precision,
         )
 
-        loop_settings["dt0"] = self._step_controller.dt0
+        loop_settings["dt"] = self._step_controller.dt
         loop_settings["dt_min"] = self._step_controller.dt_min
         loop_settings["dt_max"] = self._step_controller.dt_max
         loop_settings["is_adaptive"] = self._step_controller.is_adaptive
@@ -362,7 +362,7 @@ class SingleIntegratorRunCore(CUDAFactory):
         -----
         When an incompatible configuration is detected (adaptive controller
         with errorless algorithm), the controller is automatically replaced
-        with a fixed-step controller using dt0 from the original controller.
+        with a fixed-step controller using dt from the original controller.
         A warning is issued to inform the user of this automatic correction.
 
         Valid combinations:
@@ -374,7 +374,7 @@ class SingleIntegratorRunCore(CUDAFactory):
 
         if (not self._algo_step.is_adaptive and
                 self._step_controller.is_adaptive):
-            dt = self._step_controller.dt0
+            dt = self._step_controller.dt
             
             # Get names from arguments or compile_settings
             if algorithm_name is None:
@@ -558,7 +558,7 @@ class SingleIntegratorRunCore(CUDAFactory):
                     "is_adaptive": self._step_controller.is_adaptive,
                     "dt_min": self._step_controller.dt_min,
                     "dt_max": self._step_controller.dt_max,
-                    "dt0": self._step_controller.dt0,
+                    "dt": self._step_controller.dt,
                 }
             )
 

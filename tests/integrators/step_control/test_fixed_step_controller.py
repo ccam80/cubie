@@ -49,12 +49,6 @@ def test_config_dt_max_equals_dt():
     assert cfg.dt_max == cfg.dt
 
 
-def test_config_dt0_equals_dt():
-    """dt0 returns the same value as dt."""
-    cfg = FixedStepControlConfig(precision=np.float64, dt=0.007)
-    assert cfg.dt0 == cfg.dt
-
-
 def test_config_is_adaptive_false():
     """is_adaptive always returns False for fixed controller."""
     cfg = FixedStepControlConfig(precision=np.float32)
@@ -89,7 +83,6 @@ def test_controller_init_creates_config(step_controller):
         ("dt", "dt"),
         ("dt_min", "dt_min"),
         ("dt_max", "dt_max"),
-        ("dt0", "dt0"),
         ("is_adaptive", "is_adaptive"),
         ("n", "n"),
     ],
@@ -125,3 +118,62 @@ def test_dt_matches_solver_settings(step_controller, solver_settings):
     """Controller dt matches the dt from solver_settings."""
     expected = solver_settings["precision"](solver_settings["dt"])
     assert step_controller.dt == pytest.approx(expected)
+
+
+# ── resolve_step_params translation ────────────────────────── #
+
+
+def test_resolve_fixed_dt_only():
+    """dt alone passes through unchanged."""
+    ctrl = FixedStepController(precision=np.float64, dt=0.01)
+    assert ctrl.dt == pytest.approx(np.float64(0.01))
+
+
+def test_resolve_fixed_dt_min_only():
+    """dt_min alone is translated to dt."""
+    ctrl = FixedStepController(precision=np.float64, dt_min=0.001)
+    assert ctrl.dt == pytest.approx(np.float64(0.001))
+
+
+def test_resolve_fixed_dt_max_only():
+    """dt_max alone is translated to dt."""
+    ctrl = FixedStepController(precision=np.float64, dt_max=0.5)
+    assert ctrl.dt == pytest.approx(np.float64(0.5))
+
+
+def test_resolve_fixed_both_bounds():
+    """dt_min + dt_max translates to dt = dt_min (first available)."""
+    ctrl = FixedStepController(
+        precision=np.float64, dt_min=0.001, dt_max=0.5,
+    )
+    assert ctrl.dt == pytest.approx(np.float64(0.001))
+
+
+def test_resolve_fixed_dt_plus_bounds():
+    """dt + dt_min keeps dt (first available)."""
+    ctrl = FixedStepController(
+        precision=np.float64, dt=0.01, dt_min=0.001,
+    )
+    assert ctrl.dt == pytest.approx(np.float64(0.01))
+
+
+def test_resolve_fixed_default():
+    """No step params gives the default dt."""
+    ctrl = FixedStepController(precision=np.float64)
+    assert ctrl.dt == pytest.approx(np.float64(1e-3))
+
+
+def test_update_dt_directly():
+    """Fixed controller update accepts dt directly."""
+    ctrl = FixedStepController(precision=np.float64, dt=0.01)
+    ctrl.update({"dt": 0.005})
+    assert ctrl.dt == pytest.approx(np.float64(0.005))
+
+
+def test_update_dt_min_warns():
+    """Fixed controller warns when dt_min passed to update."""
+    ctrl = FixedStepController(precision=np.float64, dt=0.01)
+    with pytest.warns(UserWarning, match="dt_min.*not recognized"):
+        ctrl.update({"dt_min": 0.005})
+    # dt unchanged
+    assert ctrl.dt == pytest.approx(np.float64(0.01))

@@ -133,10 +133,10 @@ def test_device_function_defaults_none():
         assert getattr(cfg, attr) is None
 
 
-def test_dt0_default():
-    """_dt0 defaults to 0.01."""
+def test_dt_default():
+    """_dt defaults to 0.01."""
     cfg = ODELoopConfig(precision=np.float32)
-    assert cfg._dt0 == pytest.approx(0.01)
+    assert cfg._dt == pytest.approx(0.01)
 
 
 def test_is_adaptive_default():
@@ -276,8 +276,8 @@ def test_sample_summaries_every_returns_precision_cast(prec):
         pytest.param(np.float64, id="float64"),
     ],
 )
-def test_dt0_returns_precision_cast(prec):
-    """dt0 returns precision-cast value."""
-    cfg = ODELoopConfig(precision=prec, dt0=0.005)
-    assert cfg.dt0 == prec(0.005)
-    assert type(cfg.dt0) == prec
+def test_dt_returns_precision_cast(prec):
+    """dt returns precision-cast value."""
+    cfg = ODELoopConfig(precision=prec, dt=0.005)
+    assert cfg.dt == prec(0.005)
+    assert type(cfg.dt) == prec

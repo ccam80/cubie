@@ -44,7 +44,6 @@ from cubie._utils import (
     PrecisionDType,
     getype_validator,
     inrangetype_validator,
-    build_config,
 )
 from cubie.cuda_simsafe import compile_kwargs, selp
 from cubie.integrators.step_control.base_step_controller import ControllerCache
@@ -96,34 +95,7 @@ class GustafssonStepControlConfig(AdaptiveStepControlConfig):
 class GustafssonController(BaseAdaptiveStepController):
     """Adaptive controller using Gustafsson acceleration."""
 
-    def __init__(
-        self,
-        precision: PrecisionDType,
-        n: int = 1,
-        **kwargs,
-    ) -> None:
-        """Initialise a Gustafsson predictive controller.
-
-        Parameters
-        ----------
-        precision
-            Precision used for controller calculations.
-        n
-            Number of state variables.
-        **kwargs
-            Optional parameters passed to GustafssonStepControlConfig. See
-            GustafssonStepControlConfig for available parameters including
-            dt_min, dt_max, atol, rtol, algorithm_order, min_gain, max_gain,
-            gamma, newton_max_iters, deadband_min, deadband_max. None values
-            are ignored.
-        """
-        config = build_config(
-            GustafssonStepControlConfig,
-            required={"precision": precision, "n": n},
-            **kwargs,
-        )
-
-        super().__init__(config)
+    _config_class = GustafssonStepControlConfig
 
     @property
     def gamma(self) -> float:

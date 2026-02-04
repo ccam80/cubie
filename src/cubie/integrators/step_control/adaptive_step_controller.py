@@ -35,6 +35,7 @@ from cubie._utils import (
     float_array_validator,
     getype_validator,
     inrangetype_validator,
+    opt_getype_validator,
     tol_converter,
 )
 from cubie.integrators.step_control.base_step_controller import (
@@ -124,8 +125,10 @@ class AdaptiveStepControlConfig(BaseStepControllerConfig):
         return self.precision(value)
 
     @property
-    def dt0(self) -> float:
+    def dt(self) -> float:
         """Return the initial step size."""
+        if self._dt is not None:
+            return self.precision(self._dt)
         return self.precision(sqrt(self.dt_min * self.dt_max))
 
     @property
@@ -176,7 +179,7 @@ class AdaptiveStepControlConfig(BaseStepControllerConfig):
                 "safety": self.safety,
                 "deadband_min": self.deadband_min,
                 "deadband_max": self.deadband_max,
-                "dt": self.dt0,
+                "dt": self.dt,
             }
         )
         return settings_dict
@@ -185,20 +188,48 @@ class AdaptiveStepControlConfig(BaseStepControllerConfig):
 class BaseAdaptiveStepController(BaseStepController):
     """Base class for adaptive step-size controllers."""
 
-    def __init__(
-        self,
-        config: AdaptiveStepControlConfig,
-    ) -> None:
-        """Initialise the adaptive controller.
+    _config_class = AdaptiveStepControlConfig
+
+    def _resolve_step_params(self, dt: float, kwargs: dict) -> None:
+        """Derive bounds from dt and track user-provided values.
 
         Parameters
         ----------
-        config
-            Configuration for the controller.
+        dt
+            Initial step size, or None if not provided.
+        kwargs
+            Mutable dict of keyword arguments. Modified in place.
         """
-        super().__init__()
-        self.setup_compile_settings(config)
-        self.register_buffers()
+        # Track user-provided values BEFORE derivation
+        if dt is not None:
+            self._user_step_params["dt"] = dt
+        if "dt_min" in kwargs:
+            self._user_step_params["dt_min"] = kwargs["dt_min"]
+        if "dt_max" in kwargs:
+            self._user_step_params["dt_max"] = kwargs["dt_max"]
+
+        # Derive missing bounds from dt
+        if dt is not None:
+            kwargs.setdefault("dt_min", dt / 100)
+            kwargs.setdefault("dt_max", dt * 100)
+            kwargs["dt"] = dt
+
+    def _ensure_sane_bounds(self) -> None:
+        """Fix bounds if constraints violated on non-user-provided params."""
+        dt = self.dt
+        dt_min = self.dt_min
+        dt_max = self.dt_max
+        fixes = {}
+
+        if dt_max < dt_min and self._user_step_params.get("dt_max") is None:
+            fixes["dt_max"] = dt * 100
+        if dt < dt_min and self._user_step_params.get("dt_min") is None:
+            fixes["dt_min"] = dt / 100
+        if dt > dt_max and self._user_step_params.get("dt_max") is None:
+            fixes["dt_max"] = dt * 100
+
+        if fixes:
+            self.update_compile_settings(fixes, silent=True)
 
     def build(self) -> ControllerCache:
         """Construct the device function implementing the controller.

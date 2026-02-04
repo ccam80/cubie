@@ -22,10 +22,9 @@ from typing import Callable
 from numba import cuda, int32
 from numpy import ndarray
 
-from cubie._utils import PrecisionDType, build_config
+from cubie._utils import PrecisionDType
 from cubie.integrators.step_control.adaptive_step_controller import (
     BaseAdaptiveStepController,
-    AdaptiveStepControlConfig,
 )
 from cubie.cuda_simsafe import compile_kwargs, selp
 
@@ -34,34 +33,6 @@ from cubie.integrators.step_control.base_step_controller import ControllerCache
 
 class AdaptiveIController(BaseAdaptiveStepController):
     """Integral step-size controller using only previous error."""
-
-    def __init__(
-        self,
-        precision: PrecisionDType,
-        n: int = 1,
-        **kwargs,
-    ) -> None:
-        """Initialise an integral step controller.
-
-        Parameters
-        ----------
-        precision
-            Precision used for controller calculations.
-        n
-            Number of state variables.
-        **kwargs
-            Optional parameters passed to AdaptiveStepControlConfig. See
-            AdaptiveStepControlConfig for available parameters including
-            dt_min, dt_max, atol, rtol, algorithm_order, min_gain, max_gain,
-            deadband_min, deadband_max. None values are ignored.
-        """
-        config = build_config(
-            AdaptiveStepControlConfig,
-            required={'precision': precision, 'n': n},
-            **kwargs
-        )
-
-        super().__init__(config)
 
     @property
     def local_memory_elements(self) -> int:
