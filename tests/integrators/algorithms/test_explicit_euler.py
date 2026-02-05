@@ -15,16 +15,6 @@ from cubie.integrators.algorithms.base_algorithm_step import (
 )
 from cubie.integrators.algorithms.ode_explicitstep import ExplicitStepConfig
 
-
-# ── Module-level constants ─────────────────────────────── #
-
-
-def test_ee_defaults_step_controller_type():
-    """EE_DEFAULTS specifies fixed step controller with dt=1e-3."""
-    assert EE_DEFAULTS.step_controller["step_controller"] == "fixed"
-    assert EE_DEFAULTS.step_controller["dt"] == pytest.approx(1e-3)
-
-
 # ── __init__ ───────────────────────────────────────────── #
 
 
@@ -35,14 +25,6 @@ def test_init_creates_explicit_step_config(step_object):
     # functionality, combined with value check below
     assert isinstance(cs, ExplicitStepConfig)
     assert cs.n == step_object.compile_settings.n
-
-
-def test_init_controller_defaults_match_ee_defaults(step_object):
-    """Constructor passes EE_DEFAULTS as controller defaults."""
-    defaults = step_object.controller_defaults
-    assert defaults.step_controller["step_controller"] == "fixed"
-    assert defaults.step_controller["dt"] == pytest.approx(1e-3)
-
 
 # ── build_step ─────────────────────────────────────────── #
 

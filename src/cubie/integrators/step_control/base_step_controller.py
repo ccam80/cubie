@@ -250,6 +250,7 @@ class BaseStepController(CUDAFactory):
             **kwargs,
         )
         self.setup_compile_settings(config)
+        self._ensure_sane_bounds()
         self.register_buffers()
 
     def _resolve_step_params(self, dt: float, kwargs: dict) -> None:
@@ -271,8 +272,9 @@ class BaseStepController(CUDAFactory):
     def _ensure_sane_bounds(self) -> None:
         """Ensure step bounds satisfy constraints.
 
-        Called after update(). Subclasses override to fix constraint
-        violations on non-user-provided parameters.
+        Called during __init__ and after update(). Subclasses override
+        to validate bounds and fix constraint violations on
+        non-user-provided parameters.
         """
         pass
 

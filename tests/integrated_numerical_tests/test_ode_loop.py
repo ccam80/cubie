@@ -207,7 +207,8 @@ def test_large_t0_with_small_steps(device_loop_outputs, precision):
                              'algorithm': 'crank_nicolson',
                              'step_controller': 'PI',
                              'output_types': ['state', 'time'],
-                             'dt_min': 1e-7,
+                             'dt_min': 1e-9,
+                             'dt': 5e-7,
                              'dt_max': 1e-6,
                          }],
                          indirect=True,
@@ -217,8 +218,6 @@ def test_adaptive_controller_with_float32(
 ):
     """Verify adaptive controllers work with float32 and small
     dt_min."""
-    # This test in its current form masks a bug - the calculated output size
-    # includes a sample after 1.0001, but the loop never gets there.
     assert device_loop_outputs.state[-2, -1] == pytest.approx(
         precision(1.00008)
     )

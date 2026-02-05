@@ -94,17 +94,6 @@ class AdaptiveStepControlConfig(BaseStepControllerConfig):
     def __attrs_post_init__(self) -> None:
         """Ensure step limits are coherent after initialisation."""
         super().__attrs_post_init__()
-        if self._dt_max is None:
-            self._dt_max = self._dt_min * 100
-        elif self._dt_max < self._dt_min:
-            warn(
-                (
-                    f"dt_max ({self._dt_max}) < dt_min ({self._dt_min}). "
-                    "Setting dt_max = dt_min * 100"
-                )
-            )
-            self._dt_max = self._dt_min * 100
-
         if self._deadband_min > self._deadband_max:
             self._deadband_min, self._deadband_max = (
                 self._deadband_max,
@@ -119,17 +108,12 @@ class AdaptiveStepControlConfig(BaseStepControllerConfig):
     @property
     def dt_max(self) -> float:
         """Return the maximum permissible step size."""
-        value = self._dt_max
-        if value is None:
-            value = self._dt_min * 100
-        return self.precision(value)
+        return self.precision(self._dt_max)
 
     @property
     def dt(self) -> float:
         """Return the initial step size."""
-        if self._dt is not None:
-            return self.precision(self._dt)
-        return self.precision(sqrt(self.dt_min * self.dt_max))
+        return self.precision(self._dt)
 
     @property
     def is_adaptive(self) -> bool:
@@ -208,24 +192,64 @@ class BaseAdaptiveStepController(BaseStepController):
         if "dt_max" in kwargs:
             self._user_step_params["dt_max"] = kwargs["dt_max"]
 
-        # Derive missing bounds from dt
+        # Derive missing values
         if dt is not None:
             kwargs.setdefault("dt_min", dt / 100)
             kwargs.setdefault("dt_max", dt * 100)
             kwargs["dt"] = dt
+        else:
+            # dt not provided; derive from bounds if both present
+            dt_min = kwargs.get("dt_min")
+            dt_max = kwargs.get("dt_max")
+            if dt_min is not None and dt_max is not None:
+                kwargs["dt"] = sqrt(dt_min * dt_max)
 
     def _ensure_sane_bounds(self) -> None:
-        """Fix bounds if constraints violated on non-user-provided params."""
+        """Validate step bounds; fix only non-user-provided parameters.
+
+        Raises
+        ------
+        ValueError
+            If user-provided bounds are inverted (dt_max < dt_min) or if
+            dt falls outside a user-provided bound.
+        """
         dt = self.dt
         dt_min = self.dt_min
         dt_max = self.dt_max
-        fixes = {}
 
-        if dt_max < dt_min and self._user_step_params.get("dt_max") is None:
-            fixes["dt_max"] = dt * 100
-        if dt < dt_min and self._user_step_params.get("dt_min") is None:
+        dt_min_user = self._user_step_params.get("dt_min") is not None
+        dt_max_user = self._user_step_params.get("dt_max") is not None
+
+        # Inverted bounds: error only if both user-provided
+        if dt_max < dt_min and dt_min_user and dt_max_user:
+            raise ValueError(
+                f"dt_max ({dt_max}) < dt_min ({dt_min}). "
+                f"Provide compatible bounds."
+            )
+
+        # dt outside user-provided bounds is an error
+        if dt < dt_min and dt_min_user:
+            raise ValueError(
+                f"dt ({dt}) < dt_min ({dt_min}). "
+                f"Provide a compatible dt or adjust dt_min."
+            )
+        if dt > dt_max and dt_max_user:
+            raise ValueError(
+                f"dt ({dt}) > dt_max ({dt_max}). "
+                f"Provide a compatible dt or adjust dt_max."
+            )
+
+        # Auto-fix non-user-provided parameters
+        fixes = {}
+        if dt_max < dt_min and not dt_max_user:
+            # Inverted bounds with auto-derived dt_max: fix dt_max
+            fixes["dt_max"] = dt_min * 100
+        if dt_max < dt_min and not dt_min_user:
+            # Inverted bounds with auto-derived dt_min: fix dt_min
+            fixes["dt_min"] = dt_max / 100
+        if dt < dt_min and not dt_min_user:
             fixes["dt_min"] = dt / 100
-        if dt > dt_max and self._user_step_params.get("dt_max") is None:
+        if dt > dt_max and not dt_max_user:
             fixes["dt_max"] = dt * 100
 
         if fixes:

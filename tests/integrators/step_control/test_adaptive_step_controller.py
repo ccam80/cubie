@@ -61,15 +61,19 @@ def test_post_init_dt_max_none_rejected_by_validator():
         )
 
 
-def test_post_init_dt_max_lt_dt_min_warns_and_corrects():
-    """When dt_max < dt_min, a warning is emitted and dt_max corrected."""
-    with warnings.catch_warnings(record=True) as w:
-        warnings.simplefilter("always")
-        cfg = AdaptiveStepControlConfig(
-            precision=np.float64, dt_min=1.0, dt_max=0.5
-        )
-    assert any("dt_max" in str(warning.message) for warning in w)
-    assert cfg._dt_max == pytest.approx(1.0 * 100)
+def test_post_init_dt_max_lt_dt_min_allowed_in_config():
+    """Config allows dt_max < dt_min; validation deferred to controller.
+
+    The config attrs class stores raw values. Validation that raises
+    ValueError for user-provided inverted bounds happens in the
+    controller's _ensure_sane_bounds() method, not in the config.
+    """
+    cfg = AdaptiveStepControlConfig(
+        precision=np.float64, dt_min=1.0, dt_max=0.5
+    )
+    # Config stores raw values; controller validates on construction
+    assert cfg._dt_min == pytest.approx(1.0)
+    assert cfg._dt_max == pytest.approx(0.5)
 
 
 def test_post_init_dt_max_ge_dt_min_no_change():
@@ -156,13 +160,13 @@ def test_config_dt_max_property_normal_path():
     assert cfg.dt_max == pytest.approx(np.float64(2.0))
 
 
-def test_config_dt():
-    """dt returns precision(sqrt(dt_min * dt_max)) when not explicitly set."""
-    cfg = AdaptiveStepControlConfig(
-        precision=np.float64, dt_min=1e-4, dt_max=1.0
+def test_controller_derives_dt_from_bounds():
+    """Controller derives dt as sqrt(dt_min * dt_max) when not provided."""
+    ctrl = AdaptiveIController(
+        precision=np.float64, n=3, dt_min=1e-4, dt_max=1.0
     )
-    expected = np.float64(sqrt(cfg.dt_min * cfg.dt_max))
-    assert cfg.dt == pytest.approx(expected)
+    expected = np.float64(sqrt(1e-4 * 1.0))
+    assert ctrl.dt == pytest.approx(expected)
 
 
 def test_config_is_adaptive():
@@ -177,7 +181,7 @@ def test_config_is_adaptive():
 def test_config_settings_dict_keys():
     """settings_dict contains all expected adaptive controller keys."""
     cfg = AdaptiveStepControlConfig(
-        precision=np.float64, dt_min=1e-5, dt_max=0.5,
+        precision=np.float64, dt=1e-3, dt_min=1e-5, dt_max=0.5,
         algorithm_order=2,
     )
     d = cfg.settings_dict
@@ -372,15 +376,13 @@ def test_update_fixes_violated_bounds():
 
 
 def test_update_tracks_newly_set_bounds():
-    """Bounds set via update become sticky."""
+    """Bounds set via update become sticky and raise on violation."""
     ctrl = AdaptiveIController(precision=np.float64, dt=1e-4)
     # dt_min and dt_max were derived at construction
 
     # Explicitly set dt_min via update
     ctrl.update({"dt_min": 1e-6})
 
-    # Now update dt to something that would violate dt_min
-    ctrl.update({"dt": 1e-8})
-    # dt_min was user-set in previous update, so NOT re-derived
-    assert ctrl.dt_min == pytest.approx(np.float64(1e-6))
-    # dt_max was never user-set, so can be re-derived if violated
+    # Updating dt to violate user-set dt_min raises ValueError
+    with pytest.raises(ValueError, match="dt.*<.*dt_min"):
+        ctrl.update({"dt": 1e-8})
