@@ -881,11 +881,21 @@ def simulate_adaptive_near_boundary():
             break
 
 
-def simulate_oscillation_with_controller():
-    """Simulate what happens when controller rejects steps at a boundary."""
+def simulate_repeated_rejection_hang():
+    """Simulate the ACTUAL hang: repeated step rejection with non-zero dt_eff.
+
+    KEY INSIGHT: The stagnation check resets when t_proposal != t.
+    If steps are repeatedly REJECTED but t_proposal != t, stagnant_counts
+    keeps resetting to 0 and NEVER triggers the stagnation exit!
+    """
     print("\n" + "=" * 80)
-    print("STEP REJECTION AT SAVE BOUNDARY")
+    print("REPEATED REJECTION HANG SCENARIO")
     print("=" * 80)
+    print("""
+The bug: stagnation check uses (t_proposal == t), which resets to 0
+when t_proposal differs from t. But if steps are REJECTED, t never
+changes even though t_proposal != t. The counter keeps resetting!
+""")
 
     precision = float32
 
@@ -897,19 +907,30 @@ def simulate_oscillation_with_controller():
 
     t_end = precision(8.05)
     ns_val = float(next_save)
-    next_f32 = float(np.nextafter(precision(ns_val), precision(np.inf)))
-    boundary = (ns_val + next_f32) / 2
 
-    # Start t slightly below the boundary
-    t = float64(boundary - 1e-9)
+    # Start t at a position where dt_eff will be small but non-zero
+    # t_prec should be just below next_save
+    ns_prev = float(np.nextafter(precision(ns_val), precision(-np.inf)))
+    boundary = (ns_prev + ns_val) / 2
 
-    print(f"\nSetup: simulating step rejection pattern")
-    print(f"  Starting t = {float(t):.20g}")
+    # Start just below the boundary so t_prec = ns_prev
+    t = float64(boundary - 1e-10)
 
     dt_raw = precision(0.01)
     stagnant_counts = int32(0)
 
-    for step in range(50):
+    print(f"Setup:")
+    print(f"  next_save = {ns_val:.15g}")
+    print(f"  ns_prev (one ULP below) = {ns_prev:.15g}")
+    print(f"  Starting t = {float(t):.15g}")
+    print(f"  Starting t_prec = {float(precision(t)):.15g}")
+
+    # Track t to detect if it ever changes
+    initial_t = t
+
+    print(f"\n--- Simulating ALL steps rejected ---")
+
+    for step in range(20):
         t_prec = precision(t)
         end_of_step = t_prec + dt_raw
 
@@ -924,47 +945,72 @@ def simulate_oscillation_with_controller():
 
         t_proposal = t + float64(dt_eff)
 
-        # Simulate rejection every other step
-        accept = (step % 2 == 0)
-
-        # Stagnation check (only if accepted in actual code - but let's check both)
+        # CURRENT stagnation check (the bug)
         if t_proposal == t:
             stagnant_counts += int32(1)
         else:
-            stagnant_counts = int32(0)
+            stagnant_counts = int32(0)  # RESETS even though t won't change!
 
-        is_interesting = (
-            float(dt_eff) < 1e-5 or
-            t_proposal < t or
-            t_proposal == t or
-            stagnant_counts > 0
-        )
+        stagnant = bool(stagnant_counts >= int32(2))
 
-        if is_interesting or step < 5:
-            print(f"\n  Step {step}, accept={accept}:")
-            print(f"    t (f64):     {float(t):.15g}")
-            print(f"    t_prec:      {float(t_prec):.15g}")
-            print(f"    next_save:   {float(next_save):.15g}")
-            print(f"    dt_eff:      {float(dt_eff):.6e}")
-            print(f"    t_proposal:  {float(t_proposal):.15g}")
-            print(f"    backward:    {t_proposal < t}")
-            print(f"    stagnant_counts: {stagnant_counts}")
+        print(f"\n  Step {step}:")
+        print(f"    t (f64):         {float(t):.15g}")
+        print(f"    t_prec (f32):    {float(t_prec):.15g}")
+        print(f"    dt_eff:          {float(dt_eff):.6e}")
+        print(f"    t_proposal:      {float(t_proposal):.15g}")
+        print(f"    t_proposal != t: {t_proposal != t}")
+        print(f"    stagnant_counts: {stagnant_counts} (RESETS because t_proposal != t!)")
 
-        if stagnant_counts >= 2:
-            print(f"\n*** STAGNATION ***")
+        if stagnant:
+            print(f"\n*** STAGNATION TRIGGERED (won't happen with current bug!) ***")
             break
 
+        # SIMULATE: ALL steps rejected (e.g., solver convergence failure)
+        accept = False
+
+        # do_save &= accept (line 869)
+        do_save_actual = do_save and accept
+
+        # t = selp(accept, t_proposal, t) - t stays the same!
         if accept:
             t = t_proposal
-            t_prec = precision(t)
+        # else: t unchanged!
 
-            if do_save:
-                next_save = precision(next_save + save_every)
-                print(f"    >>> SAVE")
+        if do_save_actual:
+            next_save = precision(next_save + save_every)
+            print(f"    >>> SAVE (won't happen - rejected)")
 
-        if next_save > t_end:
-            print(f"\n*** Finished normally ***")
+        # Check if t changed
+        if t == initial_t:
+            print(f"    >>> t UNCHANGED (accept=False), but stagnant_counts reset!")
+
+        if step >= 10:
+            print(f"\n*** INFINITE LOOP: t never changes, stagnant never triggers ***")
+            print(f"    t has been {float(t):.15g} for {step+1} iterations")
+            print(f"    stagnant_counts keeps resetting because t_proposal != t")
             break
+
+    print(f"\n" + "=" * 80)
+    print("ROOT CAUSE IDENTIFIED:")
+    print("=" * 80)
+    print("""
+The stagnation check compares t_proposal to t, but when a step is REJECTED:
+  - t stays the same (not updated)
+  - t_proposal is recalculated and differs from t
+  - stagnant_counts resets to 0
+  - Loop never exits via stagnation!
+
+FIX: Track consecutive iterations where t doesn't ACTUALLY advance:
+
+  # Before the step:
+  t_before = t
+
+  # After accept/reject logic:
+  if t == t_before:  # t didn't actually advance
+      stagnant_counts += 1
+  else:
+      stagnant_counts = 0
+""")
 
 
 def trace_backward_step_scenario():
@@ -1126,9 +1172,5 @@ ANALYSIS RESULTS:
 
 
 if __name__ == "__main__":
-    # Run targeted analyses
-    analyze_boundary_accumulation()
-    find_negative_dt_eff_scenario()
-    trace_ulp_scale_increments()
-    trace_backward_step_scenario()
-    summary_of_findings()
+    # Run the critical test that replicates the hang
+    simulate_repeated_rejection_hang()
