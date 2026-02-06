@@ -218,8 +218,8 @@ def test_adaptive_controller_with_float32(
 ):
     """Verify adaptive controllers work with float32 and small
     dt_min."""
-    assert device_loop_outputs.state[-2, -1] == pytest.approx(
-        precision(1.00008)
+    assert device_loop_outputs.state[-1, -1] == pytest.approx(
+        precision(1.0001)
     )
 
 

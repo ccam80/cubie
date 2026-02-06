@@ -541,7 +541,6 @@ class IVPLoop(CUDAFactory):
             t = float64(t0)
             t_prec = precision(t)
             t_end = precision(settling_time + t0 + duration)
-            t_end_f64 = float64(settling_time + t0 + duration)
 
             # Clear inherited arrays on entry
             persistent_local[:] = precision(0.0)
@@ -603,9 +602,7 @@ class IVPLoop(CUDAFactory):
             summary_idx = int32(0)
             update_idx = int32(0)
             next_save = precision(settling_time + t0)
-            next_save_f64 = float64(settling_time + t0)
             next_update_summary = precision(settling_time + t0)
-            next_update_summary_f64 = float64(settling_time + t0)
             # --------------------------------------------------------------- #
             #                       Seed t=0 values                           #
             # --------------------------------------------------------------- #
@@ -635,15 +632,10 @@ class IVPLoop(CUDAFactory):
             if settling_time == 0.0:
                 # Save initial state at t0, then advance to first interval save
                 if save_regularly:
-                    next_save_f64 = next_save_f64 + float64(save_every)
-                    next_save = precision(next_save_f64)
+                    next_save = precision(next_save + save_every)
                 if summarise_regularly:
-                    next_update_summary_f64 = (
-                        next_update_summary_f64
-                        + float64(sample_summaries_every)
-                    )
                     next_update_summary = precision(
-                        next_update_summary_f64
+                        sample_summaries_every + next_update_summary
                     )
 
                 save_state(
@@ -701,12 +693,10 @@ class IVPLoop(CUDAFactory):
                     # Loop continues until all scheduled outputs are complete
                     finished = True
                     if save_regularly:
-                        save_finished = bool_(next_save_f64 > t_end_f64)
+                        save_finished = bool_(next_save > t_end)
                         finished &= save_finished
                     if summarise_regularly:
-                        summary_finished = bool_(
-                            next_update_summary_f64 > t_end_f64
-                        )
+                        summary_finished = bool_(next_update_summary > t_end)
                         finished &= summary_finished
                 else:
                     # No scheduled outputs; finish when time exceeds t_end
@@ -850,6 +840,11 @@ class IVPLoop(CUDAFactory):
                     )
                     irrecoverable = bool_(irrecoverable or stagnant)
 
+                    if fixed_mode:
+                        # In fixed mode, a failed step is irrecoverable
+                        # since we can't try again witha a smaller dt
+                        irrecoverable = bool_(irrecoverable or step_failed)
+
                     t = selp(accept, t_proposal, t)
                     t_prec = precision(t)
 
@@ -882,8 +877,7 @@ class IVPLoop(CUDAFactory):
                     if do_save:
                         # Increment next_save if it's in use
                         if save_regularly:
-                            next_save_f64 += float64(save_every)
-                            next_save = precision(next_save_f64)
+                            next_save += save_every
 
                         save_state(
                             state_buffer,
@@ -905,12 +899,7 @@ class IVPLoop(CUDAFactory):
 
                     if do_update_summary:
                         if summarise_regularly:
-                            next_update_summary_f64 += float64(
-                                sample_summaries_every
-                            )
-                            next_update_summary = precision(
-                                next_update_summary_f64
-                            )
+                            next_update_summary += sample_summaries_every
 
                         if summarise:
                             statesumm_idx = summary_idx * summarise_state_bool

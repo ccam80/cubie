@@ -171,6 +171,7 @@ class SingleIntegratorRun(SingleIntegratorRunCore):
         """
         save_every = self.save_every
         precision = self.precision
+        duration = precision(duration)
 
         regular_samples = 0
         final_samples = 1 if self.save_last else 0

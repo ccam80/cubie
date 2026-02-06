@@ -34,6 +34,7 @@ from typing import Callable
 from numpy import ndarray
 from numba import cuda, int32
 from attrs import define, field
+from math import isnan, isinf
 
 from cubie.buffer_registry import buffer_registry
 from cubie.integrators.step_control.adaptive_step_controller import (
@@ -181,6 +182,7 @@ class GustafssonController(BaseAdaptiveStepController):
         numba_precision = self.compile_settings.numba_precision
         n = int32(n)
         inv_n = precision(1.0 / n)
+        typed_large = precision(1e16)
 
         # step sizes and norms can be approximate - fastmath is fine
         @cuda.jit(
@@ -242,6 +244,8 @@ class GustafssonController(BaseAdaptiveStepController):
                 nrm2 += ratio * ratio
 
             nrm2 = nrm2 * inv_n
+            nrm2 = typed_large if (isnan(nrm2) or isinf(nrm2)) else nrm2
+
             accept = nrm2 <= typed_one
             accept_out[0] = int32(1) if accept else int32(0)
 
