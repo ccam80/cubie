@@ -44,6 +44,7 @@ from numpy import float32
 from cubie.CUDAFactory import CUDAFactory, CUDADispatcherCache, hash_tuple
 from cubie._utils import PrecisionDType
 from cubie.odesystems.ODEData import ODEData
+from cubie.odesystems.SystemValues import SystemValues
 
 
 @define

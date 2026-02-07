@@ -13,7 +13,6 @@ from cubie.odesystems.symbolic.parsing.function_inspector import (
     inspect_ode_function,
 )
 
-
 class TestInspectOdeFunction:
     """Tests for inspect_ode_function."""
 
@@ -330,7 +329,7 @@ class TestInspectOdeFunction:
         x = 1.0  # noqa: F841
 
         def f(t, y):
-            nonlocal x
+            nonlocal x # noqa
             return [-y[0]]
 
         with pytest.raises(NotImplementedError, match="nonlocal"):
