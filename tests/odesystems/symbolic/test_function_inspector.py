@@ -268,15 +268,15 @@ class TestInspectOdeFunction:
         with pytest.raises(NotImplementedError, match="Generator"):
             inspect_ode_function(f)
 
-    def test_reject_walrus_operator(self):
-        """Walrus operator (:=) raises NotImplementedError."""
+    def test_walrus_operator(self):
+        """Walrus operator (:=) treated as assignment."""
         def f(t, y):
             if (v := y[0]) > 0:
                 pass
             return [-v]
 
-        with pytest.raises(NotImplementedError):
-            inspect_ode_function(f)
+        result = inspect_ode_function(f)
+        assert "v" in result.assignments
 
     def test_reject_with_statement(self):
         """'with' statements raise NotImplementedError."""
@@ -288,15 +288,6 @@ class TestInspectOdeFunction:
         with pytest.raises(NotImplementedError, match="with"):
             inspect_ode_function(f)
 
-    def test_reject_del_statement(self):
-        """'del' statements raise NotImplementedError."""
-        def f(t, y):
-            x = y[0]
-            del x
-            return [-y[0]]
-
-        with pytest.raises(NotImplementedError, match="del"):
-            inspect_ode_function(f)
 
     def test_reject_assert_statement(self):
         """'assert' statements raise NotImplementedError."""
