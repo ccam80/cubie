@@ -112,8 +112,14 @@ class AdaptiveStepControlConfig(BaseStepControllerConfig):
 
     @property
     def dt(self) -> float:
-        """Return the initial step size."""
-        return self.precision(self._dt)
+        """Return the initial step size.
+
+        When the user has not provided an explicit dt, returns the
+        geometric mean of dt_min and dt_max.
+        """
+        if self._dt is not None:
+            return self.precision(self._dt)
+        return self.precision(sqrt(self._dt_min * self._dt_max))
 
     @property
     def is_adaptive(self) -> bool:
