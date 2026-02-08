@@ -414,6 +414,14 @@ class SolveResult:
         time_headings = list(self.time_domain_legend.values())
         summary_headings = list(self.summaries_legend.values())
 
+        # Resolve time index once (use first run's time for multi-run)
+        time_index = None
+        if self.time is not None and self.time.size > 0:
+            if self.time.ndim > 1:
+                time_index = self.time[:, 0]
+            else:
+                time_index = self.time
+
         for run in range(n_runs):
             run_slice = slice_variable_dimension(
                 slice(run, run + 1, None), run_index, ndim
@@ -423,18 +431,6 @@ class SolveResult:
                 self.time_domain_array[run_slice], axis=run_index
             )
             df = pd.DataFrame(singlerun_array, columns=time_headings)
-
-            # Use time as index if extant
-            if self.time is not None:
-                if self.time.ndim > 1:
-                    time_for_run = (
-                        self.time[:, run]
-                        if self.time.shape[1] > run
-                        else self.time[:, 0]
-                    )
-                else:
-                    time_for_run = self.time
-                df.index = time_for_run
 
             # Create MultiIndex columns with run number as first level
             df.columns = pd.MultiIndex.from_product(
@@ -456,6 +452,11 @@ class SolveResult:
 
         time_domain_df = pd.concat(time_dfs, axis=1)
         summaries_df = pd.concat(summaries_dfs, axis=1)
+
+        # Set time index after concat to avoid reindexing errors from
+        # float32 duplicate values during alignment
+        if time_index is not None:
+            time_domain_df.index = time_index
 
         return {"time_domain": time_domain_df, "summaries": summaries_df}
 

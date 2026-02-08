@@ -19,6 +19,7 @@ Published Classes
 """
 
 import ast
+import copy
 import inspect
 import textwrap
 import warnings
@@ -30,6 +31,17 @@ from .parser import KNOWN_FUNCTIONS, TIME_SYMBOL
 
 # Map of module-qualified names to their bare equivalents
 _MODULE_PREFIXES = {"math", "np", "numpy", "cmath"}
+
+# Augmented-assignment operators → BinOp operator constructors
+_AUGOP_TO_BINOP = {
+    ast.Add: ast.Add,
+    ast.Sub: ast.Sub,
+    ast.Mult: ast.Mult,
+    ast.Div: ast.Div,
+    ast.FloorDiv: ast.FloorDiv,
+    ast.Pow: ast.Pow,
+    ast.Mod: ast.Mod,
+}
 
 
 class FunctionInspection:
@@ -144,10 +156,48 @@ class _OdeAstVisitor(ast.NodeVisitor):
         for target in node.targets:
             if isinstance(target, ast.Name):
                 self.assignments[target.id] = node.value
-            elif isinstance(target, ast.Tuple):
-                for elt in target.elts:
-                    if isinstance(elt, ast.Name):
-                        self.assignments[elt.id] = node.value
+            elif isinstance(target, (ast.Tuple, ast.List)):
+                if isinstance(node.value, (ast.Tuple, ast.List)):
+                    # Positional unpacking: a, b = expr1, expr2
+                    if len(target.elts) == len(node.value.elts):
+                        for tgt, val in zip(
+                            target.elts, node.value.elts
+                        ):
+                            if isinstance(tgt, ast.Name):
+                                self.assignments[tgt.id] = val
+                    else:
+                        raise ValueError(
+                            f"Tuple unpacking length mismatch: "
+                            f"{len(target.elts)} targets, "
+                            f"{len(node.value.elts)} values"
+                        )
+                else:
+                    # RHS is not a tuple/list (e.g. function call)
+                    for elt in target.elts:
+                        if isinstance(elt, ast.Name):
+                            self.assignments[elt.id] = node.value
+        self.generic_visit(node)
+
+    def visit_AugAssign(self, node: ast.AugAssign) -> None:
+        if isinstance(node.target, ast.Name):
+            name = node.target.id
+            binop_cls = _AUGOP_TO_BINOP.get(type(node.op))
+            if binop_cls is None:
+                raise NotImplementedError(
+                    f"Unsupported augmented assignment operator: "
+                    f"{type(node.op).__name__}"
+                )
+            prior = self.assignments.get(name)
+            if prior is None:
+                raise ValueError(
+                    f"Augmented assignment to '{name}' with no "
+                    f"prior assignment"
+                )
+            combined = ast.BinOp(
+                left=prior, op=binop_cls(), right=node.value
+            )
+            ast.copy_location(combined, node)
+            self.assignments[name] = combined
         self.generic_visit(node)
 
     def visit_Return(self, node: ast.Return) -> None:
@@ -159,6 +209,335 @@ class _OdeAstVisitor(ast.NodeVisitor):
         if name:
             self.function_calls.add(name)
         self.generic_visit(node)
+
+    # -- If/elif/else → IfExp synthesis --------------------------------
+
+    def visit_If(self, node: ast.If) -> None:
+        """Convert if/elif/else assignment blocks to ``ast.IfExp`` nodes.
+
+        Intercepts the ``If`` node so that ``generic_visit`` does not
+        recurse into both branches and silently overwrite assignments.
+        Instead, assignments from each branch are collected and merged
+        into ``IfExp`` (ternary) nodes that the downstream converter
+        maps to ``sp.Piecewise``.
+        """
+        if_assigns = self._collect_branch_assignments(node.body)
+        else_assigns = self._collect_branch_assignments(node.orelse)
+
+        all_names = set(if_assigns.keys()) | set(else_assigns.keys())
+
+        for name in all_names:
+            if_val = if_assigns.get(name)
+            else_val = else_assigns.get(name)
+
+            if if_val is not None and else_val is not None:
+                ifexp = ast.IfExp(
+                    test=node.test, body=if_val, orelse=else_val
+                )
+            elif if_val is not None:
+                fallback = self.assignments.get(name)
+                if fallback is None:
+                    raise ValueError(
+                        f"Variable '{name}' assigned in if-branch "
+                        f"but has no prior value and no else-branch. "
+                        f"Add an else clause or a default assignment "
+                        f"before the if statement."
+                    )
+                ifexp = ast.IfExp(
+                    test=node.test, body=if_val, orelse=fallback
+                )
+            else:
+                fallback = self.assignments.get(name)
+                if fallback is None:
+                    raise ValueError(
+                        f"Variable '{name}' assigned in else-branch "
+                        f"but has no prior value and no if-branch."
+                    )
+                ifexp = ast.IfExp(
+                    test=node.test, body=fallback, orelse=else_val
+                )
+
+            ast.copy_location(ifexp, node)
+            self.assignments[name] = ifexp
+
+        # Visit expressions for state/constant accesses and calls.
+        self._visit_exprs_in_stmts([node] + node.body + node.orelse)
+
+    def _visit_exprs_in_stmts(self, stmts: list) -> None:
+        """Visit expression sub-trees for accesses and calls only."""
+        for stmt in stmts:
+            if isinstance(stmt, ast.If):
+                self._visit_expr(stmt.test)
+            elif isinstance(stmt, ast.Assign):
+                self._visit_expr(stmt.value)
+            elif isinstance(stmt, ast.AugAssign):
+                self._visit_expr(stmt.value)
+            elif isinstance(stmt, ast.Expr):
+                self._visit_expr(stmt.value)
+
+    def _visit_expr(self, node: ast.expr) -> None:
+        """Visit an expression sub-tree to capture accesses and calls."""
+        for child in ast.walk(node):
+            if isinstance(child, ast.Subscript):
+                # Call the access-recording logic but not generic_visit
+                # (walk already handles recursion).
+                if isinstance(child.value, ast.Name):
+                    base = child.value.id
+                    slc = child.slice
+                    if isinstance(slc, ast.Constant):
+                        key = slc.value
+                        ptype = (
+                            "int"
+                            if isinstance(key, int)
+                            else "string"
+                        )
+                    elif isinstance(slc, ast.Name):
+                        key = slc.id
+                        ptype = "name"
+                    else:
+                        key = ast.dump(slc)
+                        ptype = "expr"
+                    entry = {
+                        "base": base,
+                        "key": key,
+                        "pattern_type": ptype,
+                    }
+                    if base == self.state_param:
+                        self.state_accesses.append(entry)
+                    elif base in self.constant_params:
+                        self.constant_accesses.append(entry)
+            elif isinstance(child, ast.Attribute):
+                if isinstance(child.value, ast.Name):
+                    base = child.value.id
+                    entry = {
+                        "base": base,
+                        "key": child.attr,
+                        "pattern_type": "attribute",
+                    }
+                    if base == self.state_param:
+                        self.state_accesses.append(entry)
+                    elif base in self.constant_params:
+                        self.constant_accesses.append(entry)
+            elif isinstance(child, ast.Call):
+                cname = _call_name(child)
+                if cname:
+                    self.function_calls.add(cname)
+            elif isinstance(child, ast.NamedExpr):
+                if isinstance(child.target, ast.Name):
+                    self.assignments[child.target.id] = child.value
+
+    def _collect_branch_assignments(
+        self, stmts: List[ast.stmt]
+    ) -> Dict[str, ast.expr]:
+        """Extract assignments from a branch body without side effects.
+
+        Handles ``Assign``, ``AugAssign``, and nested ``If`` (for elif
+        chains).  Returns ``{name: ast_expression_node}``.
+        """
+        branch: Dict[str, ast.expr] = {}
+        for stmt in stmts:
+            if isinstance(stmt, ast.Assign):
+                for target in stmt.targets:
+                    if isinstance(target, ast.Name):
+                        branch[target.id] = stmt.value
+                    elif isinstance(target, (ast.Tuple, ast.List)):
+                        if isinstance(
+                            stmt.value, (ast.Tuple, ast.List)
+                        ) and len(target.elts) == len(
+                            stmt.value.elts
+                        ):
+                            for tgt, val in zip(
+                                target.elts, stmt.value.elts
+                            ):
+                                if isinstance(tgt, ast.Name):
+                                    branch[tgt.id] = val
+                        else:
+                            for elt in target.elts:
+                                if isinstance(elt, ast.Name):
+                                    branch[elt.id] = stmt.value
+
+            elif isinstance(stmt, ast.AugAssign):
+                if isinstance(stmt.target, ast.Name):
+                    name = stmt.target.id
+                    binop_cls = _AUGOP_TO_BINOP.get(type(stmt.op))
+                    if binop_cls is None:
+                        raise NotImplementedError(
+                            f"Unsupported augmented assignment "
+                            f"operator: {type(stmt.op).__name__}"
+                        )
+                    prior = branch.get(
+                        name, self.assignments.get(name)
+                    )
+                    if prior is None:
+                        raise ValueError(
+                            f"Augmented assignment to '{name}' "
+                            f"with no prior assignment"
+                        )
+                    combined = ast.BinOp(
+                        left=prior,
+                        op=binop_cls(),
+                        right=stmt.value,
+                    )
+                    ast.copy_location(combined, stmt)
+                    branch[name] = combined
+
+            elif isinstance(stmt, ast.If):
+                # Nested if (elif chain) — recurse
+                nested_if = self._collect_branch_assignments(
+                    stmt.body
+                )
+                nested_else = self._collect_branch_assignments(
+                    stmt.orelse
+                )
+                nested_names = (
+                    set(nested_if.keys()) | set(nested_else.keys())
+                )
+                for name in nested_names:
+                    nif = nested_if.get(name)
+                    nelse = nested_else.get(name)
+                    if nif is not None and nelse is not None:
+                        ifexp = ast.IfExp(
+                            test=stmt.test, body=nif, orelse=nelse
+                        )
+                    elif nif is not None:
+                        fallback = branch.get(
+                            name, self.assignments.get(name)
+                        )
+                        if fallback is None:
+                            raise ValueError(
+                                f"Variable '{name}' in nested if "
+                                f"has no fallback value"
+                            )
+                        ifexp = ast.IfExp(
+                            test=stmt.test,
+                            body=nif,
+                            orelse=fallback,
+                        )
+                    else:
+                        fallback = branch.get(
+                            name, self.assignments.get(name)
+                        )
+                        if fallback is None:
+                            raise ValueError(
+                                f"Variable '{name}' in nested "
+                                f"else has no fallback value"
+                            )
+                        ifexp = ast.IfExp(
+                            test=stmt.test,
+                            body=fallback,
+                            orelse=nelse,
+                        )
+                    ast.copy_location(ifexp, stmt)
+                    branch[name] = ifexp
+
+        return branch
+
+    # -- For-loop unrolling --------------------------------------------
+
+    def visit_For(self, node: ast.For) -> None:
+        """Unroll for-loops with constant iterables.
+
+        Substitutes the loop variable with each concrete value and
+        visits the body repeatedly, so that ``y[i]`` becomes ``y[0]``,
+        ``y[1]``, etc.
+        """
+        if not isinstance(node.target, ast.Name):
+            raise NotImplementedError(
+                "Only simple loop variables are supported "
+                "(e.g. 'for i in ...'). Tuple unpacking in "
+                "for-loops is not supported."
+            )
+        loop_var = node.target.id
+        values = _extract_for_iterable(node.iter)
+
+        for val in values:
+            for stmt in node.body:
+                substituted = _substitute_name(stmt, loop_var, val)
+                self.visit(substituted)
+
+    # -- NamedExpr (:=) support ----------------------------------------
+
+    def visit_NamedExpr(self, node: ast.NamedExpr) -> None:
+        """Treat walrus operator as a regular assignment."""
+        if isinstance(node.target, ast.Name):
+            self.assignments[node.target.id] = node.value
+        self.generic_visit(node)
+
+    # -- Explicit rejections -------------------------------------------
+
+    def visit_While(self, node: ast.While) -> None:
+        raise NotImplementedError(
+            "While-loops are not supported in ODE functions. "
+            "Use a for-loop with a constant iterable instead."
+        )
+
+    def visit_ListComp(self, node: ast.ListComp) -> None:
+        raise NotImplementedError(
+            "List comprehensions are not supported in ODE "
+            "functions. Use a for-loop with a constant iterable "
+            "instead."
+        )
+
+    def visit_SetComp(self, node: ast.SetComp) -> None:
+        raise NotImplementedError(
+            "Set comprehensions are not supported in ODE functions."
+        )
+
+    def visit_DictComp(self, node: ast.DictComp) -> None:
+        raise NotImplementedError(
+            "Dict comprehensions are not supported in ODE "
+            "functions."
+        )
+
+    def visit_GeneratorExp(self, node: ast.GeneratorExp) -> None:
+        raise NotImplementedError(
+            "Generator expressions are not supported in ODE "
+            "functions. Use a for-loop with a constant iterable "
+            "instead."
+        )
+
+    def visit_With(self, node: ast.With) -> None:
+        raise NotImplementedError(
+            "The 'with' statement is not supported in ODE "
+            "functions."
+        )
+
+    def visit_Delete(self, node: ast.Delete) -> None:
+        raise NotImplementedError(
+            "The 'del' statement is not supported in ODE "
+            "functions."
+        )
+
+    def visit_Assert(self, node: ast.Assert) -> None:
+        raise NotImplementedError(
+            "The 'assert' statement is not supported in ODE "
+            "functions."
+        )
+
+    def visit_Raise(self, node: ast.Raise) -> None:
+        raise NotImplementedError(
+            "The 'raise' statement is not supported in ODE "
+            "functions."
+        )
+
+    def visit_Global(self, node: ast.Global) -> None:
+        raise NotImplementedError(
+            "The 'global' statement is not supported in ODE "
+            "functions. Pass values as constants via the third "
+            "argument instead."
+        )
+
+    def visit_Nonlocal(self, node: ast.Nonlocal) -> None:
+        raise NotImplementedError(
+            "The 'nonlocal' statement is not supported in ODE "
+            "functions."
+        )
+
+    def visit_Import(self, node: ast.Import) -> None:
+        pass  # Allow — used for math.sin etc.
+
+    def visit_ImportFrom(self, node: ast.ImportFrom) -> None:
+        pass  # Allow — e.g. from math import sin
 
 
 def _call_name(node: ast.Call) -> Optional[str]:
@@ -178,6 +557,82 @@ def _resolve_func_name(name: str) -> Optional[str]:
         if parts[0] in _MODULE_PREFIXES:
             return parts[1]
     return name
+
+
+def _substitute_name(node: ast.AST, name: str, value: Any) -> ast.AST:
+    """Deep-copy *node*, replacing ``Name(id=name, ctx=Load)`` with
+    ``Constant(value=value)``."""
+
+    class _Substitutor(ast.NodeTransformer):
+        def visit_Name(self, n: ast.Name) -> ast.AST:
+            if n.id == name and isinstance(n.ctx, ast.Load):
+                replacement = ast.Constant(value=value)
+                ast.copy_location(replacement, n)
+                return replacement
+            return n
+
+    return _Substitutor().visit(copy.deepcopy(node))
+
+
+def _extract_for_iterable(node: ast.expr) -> list:
+    """Extract concrete values from a for-loop iterable.
+
+    Supports ``range(stop)``, ``range(start, stop)``,
+    ``range(start, stop, step)``, literal lists, and literal tuples.
+    """
+    if isinstance(node, ast.Call):
+        if isinstance(node.func, ast.Name) and node.func.id == "range":
+            args: List[int] = []
+            for a in node.args:
+                if isinstance(a, ast.Constant) and isinstance(
+                    a.value, int
+                ):
+                    args.append(a.value)
+                elif (
+                    isinstance(a, ast.UnaryOp)
+                    and isinstance(a.op, ast.USub)
+                    and isinstance(a.operand, ast.Constant)
+                ):
+                    args.append(-a.operand.value)
+                else:
+                    raise NotImplementedError(
+                        "for-loop range() arguments must be integer "
+                        "literals. Use a literal list or tuple, or "
+                        "pass iteration bounds as constants."
+                    )
+            return list(range(*args))
+        raise NotImplementedError(
+            f"for-loop iterable must be range(), a literal list, "
+            f"or a literal tuple — got function call "
+            f"'{_call_name(node) or '?'}'"
+        )
+    elif isinstance(node, (ast.List, ast.Tuple)):
+        values: list = []
+        for elt in node.elts:
+            if isinstance(elt, ast.Constant):
+                values.append(elt.value)
+            elif (
+                isinstance(elt, ast.UnaryOp)
+                and isinstance(elt.op, ast.USub)
+                and isinstance(elt.operand, ast.Constant)
+            ):
+                values.append(-elt.operand.value)
+            else:
+                raise NotImplementedError(
+                    "for-loop literal list/tuple elements must be "
+                    "constants (int, float, string)"
+                )
+        return values
+    elif isinstance(node, ast.Name):
+        raise NotImplementedError(
+            f"for-loop over variable '{node.id}' is not supported. "
+            f"Use a literal iterable: range(), list, or tuple."
+        )
+    else:
+        raise NotImplementedError(
+            "for-loop iterable must be range(), a literal list, "
+            "or a literal tuple."
+        )
 
 
 class AstToSympyConverter:

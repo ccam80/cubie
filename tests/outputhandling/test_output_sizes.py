@@ -1,490 +1,219 @@
-"""
-Test suite for output_sizes.py module.
-Tests the nonzero functionality and size calculation classes using fixtures.
-"""
+"""Tests for cubie.outputhandling.output_sizes."""
+
+from __future__ import annotations
 
 import pytest
-import attrs
 
 from cubie.outputhandling.output_sizes import (
+    BatchInputSizes,
+    BatchOutputSizes,
     OutputArrayHeights,
     SingleRunOutputSizes,
-    BatchOutputSizes,
-    BatchInputSizes,
 )
 
 
-class TestNonzeroProperty:
-    """Test the nonzero property functionality"""
+# ── ArraySizingClass.nonzero ─────────────────────────── #
 
-    def test_nonzero_property_int_values(self):
-        """Test that nonzero property converts zero int values to 1"""
-        sizes = OutputArrayHeights(
-            state=0,
-            observables=0,
-            state_summaries=0,
-            observable_summaries=0,
-            per_variable=5,
-        )
-        nonzero_sizes = sizes.nonzero
-
-        assert nonzero_sizes.state == 1
-        assert nonzero_sizes.observables == 1
-        assert nonzero_sizes.per_variable == 5  # unchanged
-
-    def test_nonzero_property_tuple_values(self):
-        """Test that nonzero property converts zero tuple values to 1"""
-        sizes = SingleRunOutputSizes(
-            state=(0, 5),
-            observables=(3, 0),
-            state_summaries=(0, 0),
-            observable_summaries=(2, 4),
-        )
-        nonzero_sizes = sizes.nonzero
-
-        assert nonzero_sizes.state == (1, 1)
-        assert nonzero_sizes.observables == (1, 1)
-        assert nonzero_sizes.state_summaries == (1, 1)
-        assert nonzero_sizes.observable_summaries == (2, 4)
-
-    def test_nonzero_property_preserves_original(self):
-        """Test that nonzero property doesn't modify the original object"""
-        original = OutputArrayHeights(
-            state=0,
-            observables=3,
-            state_summaries=0,
-            observable_summaries=0,
-            per_variable=0,
-        )
-        nonzero_copy = original.nonzero
-
-        # Original should be unchanged
-        assert original.state == 0
-        assert original.observables == 3
-        assert original.per_variable == 0
-
-        # Copy should have zeros converted to ones
-        assert nonzero_copy.state == 1
-        assert nonzero_copy.observables == 3
-        assert nonzero_copy.per_variable == 1
-
-
-@attrs.define
-class IntegratorRunSettings:
-    output_samples: int = attrs.field(
-        default=1000, metadata={"description": "Number of output samples"}
+def test_nonzero_coerces_zero_ints_to_one():
+    """Zero int fields become 1; non-zero fields unchanged."""
+    heights = OutputArrayHeights(
+        state=0, observables=3, state_summaries=0,
+        observable_summaries=7, per_variable=0,
     )
-    summarise_samples: int = attrs.field(
-        default=100, metadata={"description": "Number of samples to summarise"}
+    nz = heights.nonzero
+    assert nz.state == 1
+    assert nz.observables == 3
+    assert nz.state_summaries == 1
+    assert nz.observable_summaries == 7
+    assert nz.per_variable == 1
+
+
+def test_nonzero_coerces_zero_tuples_to_ones():
+    """Zero elements within tuples become 1; non-zero preserved."""
+    sizes = SingleRunOutputSizes(
+        state=(0, 5), observables=(3, 0),
+        state_summaries=(0, 0), observable_summaries=(2, 4),
     )
-    duration: float = attrs.field(
-        default=10.0, metadata={"description": "Total simulation duration"}
+    nz = sizes.nonzero
+    # ensure_nonzero_size converts entire tuple to 1s if any zero
+    assert nz.state == (1, 1)
+    assert nz.observables == (1, 1)
+    assert nz.state_summaries == (1, 1)
+    assert nz.observable_summaries == (2, 4)
+
+
+def test_nonzero_does_not_mutate_original():
+    """The original object retains its zero values after .nonzero."""
+    original = OutputArrayHeights(
+        state=0, observables=3, state_summaries=0,
+        observable_summaries=0, per_variable=0,
+    )
+    nz = original.nonzero
+    assert original.state == 0
+    assert original.per_variable == 0
+    assert nz.state == 1
+    assert nz.per_variable == 1
+
+
+# ── OutputArrayHeights defaults ──────────────────────── #
+
+def test_output_array_heights_defaults():
+    """Default construction yields all-1 heights."""
+    h = OutputArrayHeights()
+    assert h.state == 1
+    assert h.observables == 1
+    assert h.state_summaries == 1
+    assert h.observable_summaries == 1
+    assert h.per_variable == 1
+
+
+# ── OutputArrayHeights.from_output_fns ───────────────── #
+
+def test_from_output_fns_state_height_with_time(output_functions):
+    """state height = n_saved_states + 1 when save_time is True."""
+    # Default solver_settings has output_types containing "time"
+    # so save_time should be True
+    heights = OutputArrayHeights.from_output_fns(output_functions)
+    expected = output_functions.n_saved_states + int(
+        output_functions.save_time
+    )
+    assert heights.state == expected
+
+
+@pytest.mark.parametrize(
+    "solver_settings_override",
+    [pytest.param(
+        {"output_types": ["state", "observables", "mean"]},
+        id="no-time",
+    )],
+    indirect=True,
+)
+def test_from_output_fns_state_height_without_time(output_functions):
+    """state height = n_saved_states when save_time is False."""
+    assert output_functions.save_time is False
+    heights = OutputArrayHeights.from_output_fns(output_functions)
+    assert heights.state == output_functions.n_saved_states
+
+
+def test_from_output_fns_observables(output_functions):
+    """observables height equals n_saved_observables."""
+    heights = OutputArrayHeights.from_output_fns(output_functions)
+    assert heights.observables == output_functions.n_saved_observables
+
+
+def test_from_output_fns_state_summaries(output_functions):
+    """state_summaries equals state_summaries_output_height."""
+    heights = OutputArrayHeights.from_output_fns(output_functions)
+    assert heights.state_summaries == (
+        output_functions.state_summaries_output_height
     )
 
 
-# Fixtures for run settings
-@pytest.fixture(scope="session")
-def run_settings_override(request):
-    """Override for run settings, if provided."""
-    return request.param if hasattr(request, "param") else {}
-
-
-@pytest.fixture(scope="session")
-def run_settings(run_settings_override):
-    """Create a dictionary of run settings for testing"""
-    default_settings = IntegratorRunSettings()
-    for key, value in run_settings_override.items():
-        if hasattr(default_settings, key):
-            setattr(default_settings, key, value)
-    return default_settings
-
-
-class TestOutputArrayHeights:
-    """Test OutputArrayHeights class"""
-
-    @pytest.mark.parametrize(
-        "test_data",
-        [
-            pytest.param(
-                {
-                    "state": 5,
-                    "observables": 6,
-                    "state_summaries": 5,
-                    "observable_summaries": 3,
-                },
-                id="normal_values",
-            ),
-            pytest.param(
-                {
-                    "state": 0,
-                    "observables": 0,
-                    "state_summaries": 0,
-                    "observable_summaries": 0,
-                },
-                id="zeros",
-            ),
-        ],
+def test_from_output_fns_observable_summaries(output_functions):
+    """observable_summaries equals observable_summaries_output_height."""
+    heights = OutputArrayHeights.from_output_fns(output_functions)
+    assert heights.observable_summaries == (
+        output_functions.observable_summaries_output_height
     )
-    def test_explicit_initialization(self, test_data):
-        """Test explicit initialization of OutputArrayHeights"""
-        heights = OutputArrayHeights(**test_data)
-
-        assert heights.state == test_data["state"]
-        assert heights.observables == test_data["observables"]
-        assert heights.state_summaries == test_data["state_summaries"]
-        assert (
-            heights.observable_summaries == test_data["observable_summaries"]
-        )
-
-    def test_nonzero_functionality(self):
-        """Test that nonzero property works correctly"""
-        heights = OutputArrayHeights(
-            state=0,
-            observables=0,
-            state_summaries=0,
-            observable_summaries=0,
-            per_variable=0,
-        )
-        nonzero_heights = heights.nonzero
-
-        # All values should be at least 1
-        assert nonzero_heights.state == 1
-        assert nonzero_heights.observables == 1
-        assert nonzero_heights.state_summaries == 1
-        assert nonzero_heights.observable_summaries == 1
-        assert nonzero_heights.per_variable == 1
-
-    def test_from_output_fns_default(self, output_functions):
-        """Test creating OutputArrayHeights from output_functions"""
-        heights = OutputArrayHeights.from_output_fns(output_functions)
-
-        expected_state = output_functions.n_saved_states + (
-            1 if output_functions.save_time else 0
-        )
-        assert heights.state == expected_state
-        assert heights.observables == output_functions.n_saved_observables
-        assert (
-            heights.state_summaries
-            == output_functions.state_summaries_output_height
-        )
-        assert (
-            heights.observable_summaries
-            == output_functions.observable_summaries_output_height
-        )
-
-    def test_explicit_vs_from_output_fns(self, output_functions):
-        """Test that explicit initialization matches from_output_fns result"""
-        from_fns = OutputArrayHeights.from_output_fns(output_functions)
-
-        expected_state = output_functions.n_saved_states + (
-            1 if output_functions.save_time else 0
-        )
-        explicit = OutputArrayHeights(
-            state=expected_state,
-            observables=output_functions.n_saved_observables,
-            state_summaries=output_functions.state_summaries_output_height,
-            observable_summaries=output_functions.observable_summaries_output_height,
-        )
-
-        assert from_fns.state == explicit.state
-        assert from_fns.observables == explicit.observables
-        assert from_fns.state_summaries == explicit.state_summaries
-        assert from_fns.observable_summaries == explicit.observable_summaries
 
 
-class TestSingleRunOutputSizes:
-    """Test SingleRunOutputSizes class"""
-
-    @pytest.mark.parametrize(
-        "test_data",
-        [
-            pytest.param(
-                {
-                    "state": (5, 10),
-                    "observables": (6, 10),
-                    "state_summaries": (5, 5),
-                    "observable_summaries": (3, 5),
-                },
-                id="normal_values",
-            ),
-            pytest.param(
-                {
-                    "state": (0, 0),
-                    "observables": (0, 0),
-                    "state_summaries": (0, 0),
-                    "observable_summaries": (0, 0),
-                },
-                id="zeros",
-            ),
-        ],
+def test_from_output_fns_per_variable(output_functions):
+    """per_variable equals summaries_output_height_per_var."""
+    heights = OutputArrayHeights.from_output_fns(output_functions)
+    assert heights.per_variable == (
+        output_functions.summaries_output_height_per_var
     )
-    def test_explicit_initialization(self, test_data):
-        """Test explicit initialization of SingleRunOutputSizes"""
-        sizes = SingleRunOutputSizes(**test_data)
 
-        assert sizes.state == test_data["state"]
-        assert sizes.observables == test_data["observables"]
-        assert sizes.state_summaries == test_data["state_summaries"]
-        assert sizes.observable_summaries == test_data["observable_summaries"]
 
-    def test_nonzero_functionality(self):
-        """Test that nonzero property works correctly"""
-        sizes = SingleRunOutputSizes(
-            state=(0, 0),
-            observables=(0, 0),
-            state_summaries=(0, 0),
-            observable_summaries=(0, 0),
-        )
-        nonzero_sizes = sizes.nonzero
+# ── SingleRunOutputSizes.from_solver ─────────────────── #
 
-        # All tuple values should have elements >= 1
-        assert all(v >= 1 for v in nonzero_sizes.state)
-        assert all(v >= 1 for v in nonzero_sizes.observables)
-        assert all(v >= 1 for v in nonzero_sizes.state_summaries)
-        assert all(v >= 1 for v in nonzero_sizes.observable_summaries)
+def test_single_run_state_shape(solverkernel):
+    """state shape = (output_samples, heights.state)."""
+    sizes = SingleRunOutputSizes.from_solver(solverkernel)
+    heights = solverkernel.output_array_heights
+    assert sizes.state == (solverkernel.output_length, heights.state)
 
-    def test_from_output_fns_and_run_settings_default(
-        self, output_functions, run_settings, solverkernel
-    ):
-        """Test creating SingleRunOutputSizes from output_functions and run_settings"""
-        sizes = SingleRunOutputSizes.from_solver(solverkernel)
 
-        expected_state_height = output_functions.n_saved_states + (
-            1 if output_functions.save_time else 0
-        )
-
-        assert sizes.state == (
-            solverkernel.output_length,
-            expected_state_height,
-        )
-        assert sizes.observables == (
-            solverkernel.output_length,
-            output_functions.n_saved_observables,
-        )
-        assert sizes.state_summaries == (
-            solverkernel.summaries_length,
-            output_functions.state_summaries_output_height,
-        )
-        assert sizes.observable_summaries == (
-            solverkernel.summaries_length,
-            output_functions.observable_summaries_output_height,
-        )
-
-    @pytest.mark.parametrize(
-        "solver_settings_override",
-        [
-            {
-                "duration": 0.0,
-            }
-        ],
-        indirect=True,
+def test_single_run_observables_shape(solverkernel):
+    """observables shape = (output_samples, heights.observables)."""
+    sizes = SingleRunOutputSizes.from_solver(solverkernel)
+    heights = solverkernel.output_array_heights
+    assert sizes.observables == (
+        solverkernel.output_length, heights.observables,
     )
-    def test_from_solver_with_nonzero(self, solverkernel):
-        """Test creating SingleRunOutputSizes and using nonzero property"""
-        sizes = SingleRunOutputSizes.from_solver(solverkernel)
-        nonzero_sizes = sizes.nonzero
-
-        # All tuple values should have elements >= 1
-        assert all(v >= 1 for v in nonzero_sizes.state)
-        assert all(v >= 1 for v in nonzero_sizes.observables)
-        assert all(v >= 1 for v in nonzero_sizes.state_summaries)
-        assert all(v >= 1 for v in nonzero_sizes.observable_summaries)
-
-    def test_explicit_vs_from_solver(
-        self, output_functions, run_settings, solverkernel
-    ):
-        """Test that explicit initialization matches from_output_fns_and_run_settings result"""
-        from_fns = SingleRunOutputSizes.from_solver(solverkernel)
-
-        expected_state_height = output_functions.n_saved_states + (
-            1 if output_functions.save_time else 0
-        )
-        explicit = SingleRunOutputSizes(
-            state=(solverkernel.output_length, expected_state_height),
-            observables=(
-                solverkernel.output_length,
-                output_functions.n_saved_observables,
-            ),
-            state_summaries=(
-                solverkernel.summaries_length,
-                output_functions.state_summaries_output_height,
-            ),
-            observable_summaries=(
-                solverkernel.summaries_length,
-                output_functions.observable_summaries_output_height,
-            ),
-        )
-
-        assert from_fns.state == explicit.state
-        assert from_fns.observables == explicit.observables
-        assert from_fns.state_summaries == explicit.state_summaries
-        assert from_fns.observable_summaries == explicit.observable_summaries
 
 
-class TestBatchInputSizes:
-    """Test BatchInputSizes class"""
-
-    @pytest.mark.parametrize(
-        "test_data",
-        [
-            pytest.param(
-                {
-                    "initial_values": (5, 3),
-                    "parameters": (5, 2),
-                    "driver_coefficients": (2, None),
-                },
-                id="normal_values",
-            ),
-            pytest.param(
-                {
-                    "initial_values": (0, 0),
-                    "parameters": (0, 0),
-                    "driver_coefficients": (0, None),
-                },
-                id="zeros",
-            ),
-        ],
+def test_single_run_state_summaries_shape(solverkernel):
+    """state_summaries shape = (summarise_samples, heights.state_summaries)."""
+    sizes = SingleRunOutputSizes.from_solver(solverkernel)
+    heights = solverkernel.output_array_heights
+    assert sizes.state_summaries == (
+        solverkernel.summaries_length, heights.state_summaries,
     )
-    def test_explicit_initialization(self, test_data):
-        """Test explicit initialization of BatchInputSizes"""
-        sizes = BatchInputSizes(**test_data)
-
-        assert sizes.initial_values == test_data["initial_values"]
-        assert sizes.parameters == test_data["parameters"]
-        assert sizes.driver_coefficients == test_data["driver_coefficients"]
-
-    def test_nonzero_functionality(self):
-        """Test that nonzero property works correctly"""
-        sizes = BatchInputSizes(
-            initial_values=(0, 0),
-            parameters=(0, 0),
-            driver_coefficients=(0, None),
-        )
-        nonzero_sizes = sizes.nonzero
-
-        # All tuple values should have elements >= 1
-        assert all(v >= 1 for v in nonzero_sizes.initial_values)
-        assert all(v >= 1 for v in nonzero_sizes.parameters)
-        assert nonzero_sizes.driver_coefficients[0] == 1
-        assert nonzero_sizes.driver_coefficients[1] == 1
 
 
-class TestBatchOutputSizes:
-    """Test BatchOutputSizes class"""
-
-    @pytest.mark.parametrize(
-        "test_data",
-        [
-            pytest.param(
-                {
-                    "state": (5, 3, 10),
-                    "observables": (6, 3, 10),
-                    "state_summaries": (5, 3, 5),
-                    "observable_summaries": (3, 3, 5),
-                },
-                id="normal_values",
-            ),
-            pytest.param(
-                {
-                    "state": (0, 0, 0),
-                    "observables": (0, 0, 0),
-                    "state_summaries": (0, 0, 0),
-                    "observable_summaries": (0, 0, 0),
-                },
-                id="zeros",
-            ),
-        ],
+def test_single_run_observable_summaries_shape(solverkernel):
+    """observable_summaries = (summarise_samples, heights.observable_summaries)."""
+    sizes = SingleRunOutputSizes.from_solver(solverkernel)
+    heights = solverkernel.output_array_heights
+    assert sizes.observable_summaries == (
+        solverkernel.summaries_length, heights.observable_summaries,
     )
-    def test_explicit_initialization(self, test_data):
-        """Test explicit initialization of BatchOutputSizes"""
-        sizes = BatchOutputSizes(**test_data)
-
-        assert sizes.state == test_data["state"]
-        assert sizes.observables == test_data["observables"]
-        assert sizes.state_summaries == test_data["state_summaries"]
-        assert sizes.observable_summaries == test_data["observable_summaries"]
-
-    def test_nonzero_functionality(self):
-        """Test that nonzero property works correctly"""
-        sizes = BatchOutputSizes(
-            state=(0, 0, 0),
-            observables=(0, 0, 0),
-            state_summaries=(0, 0, 0),
-            observable_summaries=(0, 0, 0),
-        )
-        nonzero_sizes = sizes.nonzero
-
-        # All tuple values should have elements >= 1
-        assert all(v >= 1 for v in nonzero_sizes.state)
-        assert all(v >= 1 for v in nonzero_sizes.observables)
-        assert all(v >= 1 for v in nonzero_sizes.state_summaries)
-        assert all(v >= 1 for v in nonzero_sizes.observable_summaries)
 
 
-class TestIntegrationScenarios:
-    """Test realistic integration scenarios"""
+# ── BatchInputSizes.from_solver ──────────────────────── #
 
-    def test_realistic_scenario_no_zeros(
-        self, output_functions, run_settings, solverkernel
-    ):
-        """Test a realistic scenario with typical non-zero values"""
-        numruns = 1
+def test_batch_input_initial_values(solverkernel):
+    """initial_values = (states, num_runs)."""
+    sizes = BatchInputSizes.from_solver(solverkernel)
+    ss = solverkernel.system_sizes
+    assert sizes.initial_values == (ss.states, solverkernel.num_runs)
 
-        # Test the full chain
-        single_run = SingleRunOutputSizes.from_solver(solverkernel)
-        batch = BatchOutputSizes.from_solver(solverkernel)
 
-        expected_state_height = output_functions.n_saved_states + (
-            1 if output_functions.save_time else 0
-        )
+def test_batch_input_parameters(solverkernel):
+    """parameters = (parameters, num_runs)."""
+    sizes = BatchInputSizes.from_solver(solverkernel)
+    ss = solverkernel.system_sizes
+    assert sizes.parameters == (ss.parameters, solverkernel.num_runs)
 
-        assert single_run.state == (
-            solverkernel.output_length,
-            expected_state_height,
-        )
-        assert single_run.observables == (
-            solverkernel.output_length,
-            output_functions.n_saved_observables,
-        )
 
-        assert batch.state == (
-            solverkernel.output_length,
-            expected_state_height,
-            numruns,
-        )
-        assert batch.observables == (
-            solverkernel.output_length,
-            output_functions.n_saved_observables,
-            numruns,
-        )
+def test_batch_input_driver_coefficients(solverkernel):
+    """driver_coefficients = (None, drivers, None)."""
+    sizes = BatchInputSizes.from_solver(solverkernel)
+    ss = solverkernel.system_sizes
+    assert sizes.driver_coefficients == (None, ss.drivers, None)
 
-    @pytest.mark.parametrize(
-        "solver_settings_override",
-        [
-            {
-                "output_types": ["time", "state", "observables", "mean"],
-                "saved_state_indices": [],
-                "saved_observable_indices": [],
-                "duration": 0.0,
-            }
-        ],
-        indirect=True,
+
+# ── BatchOutputSizes.from_solver ─────────────────────── #
+
+def test_batch_output_adds_num_runs_dimension(solverkernel):
+    """All single-run shapes gain num_runs as third dimension."""
+    single = SingleRunOutputSizes.from_solver(solverkernel)
+    batch = BatchOutputSizes.from_solver(solverkernel)
+    nr = solverkernel.num_runs
+    assert batch.state == (single.state[0], single.state[1], nr)
+    assert batch.observables == (
+        single.observables[0], single.observables[1], nr,
     )
-    def test_edge_case_all_zeros_with_nonzero(
-        self, system, solverkernel, output_functions
-    ):
-        """Test edge case where everything is zero but using nonzero property"""
+    assert batch.state_summaries == (
+        single.state_summaries[0], single.state_summaries[1], nr,
+    )
+    assert batch.observable_summaries == (
+        single.observable_summaries[0],
+        single.observable_summaries[1],
+        nr,
+    )
 
-        # Test with nonzero property - everything should become at least 1
-        single_run = SingleRunOutputSizes.from_solver(solverkernel)
-        batch = BatchOutputSizes.from_solver(solverkernel)
 
-        # Use nonzero property to get nonzero versions
-        nonzero_single_run = single_run.nonzero
-        nonzero_batch = batch.nonzero
+def test_batch_output_status_codes(solverkernel):
+    """status_codes = (num_runs,)."""
+    batch = BatchOutputSizes.from_solver(solverkernel)
+    assert batch.status_codes == (solverkernel.num_runs,)
 
-        assert all(v >= 1 for v in nonzero_single_run.state)
-        assert all(v >= 1 for v in nonzero_single_run.observables)
 
-        assert all(v >= 1 for v in nonzero_batch.state)
-        assert all(v >= 1 for v in nonzero_batch.observables)
+def test_batch_output_iteration_counters(solverkernel):
+    """iteration_counters = (n_saves, 4, num_runs)."""
+    single = SingleRunOutputSizes.from_solver(solverkernel)
+    batch = BatchOutputSizes.from_solver(solverkernel)
+    nr = solverkernel.num_runs
+    assert batch.iteration_counters == (single.state[0], 4, nr)

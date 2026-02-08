@@ -95,7 +95,7 @@ class ODELoopConfig(CUDAFactoryConfig):
         Device function that evaluates driver signals for a given time.
     evaluate_observables
         Device function that evaluates observables for the current state.
-    dt0
+    dt
         Initial timestep prior to controller feedback.
     is_adaptive
         Whether the loop operates with an adaptive controller.
@@ -230,7 +230,7 @@ class ODELoopConfig(CUDAFactoryConfig):
         validator=validators.optional(is_device_validator),
         eq=False,
     )
-    _dt0: Optional[float] = field(
+    _dt: Optional[float] = field(
         default=0.01,
         validator=opt_gttype_validator(float, 0),
     )
@@ -317,9 +317,9 @@ class ODELoopConfig(CUDAFactoryConfig):
         return self.precision(self._sample_summaries_every)
 
     @property
-    def dt0(self) -> float:
+    def dt(self) -> float:
         """Return the initial timestep."""
-        return self.precision(self._dt0)
+        return self.precision(self._dt)
 
 
 

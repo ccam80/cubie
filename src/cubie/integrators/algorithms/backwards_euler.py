@@ -58,7 +58,6 @@ ALGO_CONSTANTS = {'beta': 1.0,
 BE_DEFAULTS = StepControlDefaults(
     step_controller={
         "step_controller": "fixed",
-        "dt": 1e-3,
     }
 )
 

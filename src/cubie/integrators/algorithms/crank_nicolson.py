@@ -43,8 +43,6 @@ ALGO_CONSTANTS = {'beta': 1.0,
 CN_DEFAULTS = StepControlDefaults(
     step_controller={
         "step_controller": "pid",
-        "dt_min": 1e-6,
-        "dt_max": 1e-1,
         "kp": 0.7,
         "ki": -0.4,
         "deadband_min": 1.0,

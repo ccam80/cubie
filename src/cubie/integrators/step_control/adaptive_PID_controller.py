@@ -33,8 +33,8 @@ from typing import Callable
 from numpy import ndarray
 from numba import cuda, int32
 from attrs import define, field, validators
-
-from cubie._utils import PrecisionDType, _expand_dtype, build_config
+from math import isnan, isinf
+from cubie._utils import PrecisionDType, _expand_dtype
 from cubie.buffer_registry import buffer_registry
 from cubie.integrators.step_control.adaptive_step_controller import (
     BaseAdaptiveStepController,
@@ -67,33 +67,7 @@ class PIDStepControlConfig(PIStepControlConfig):
 class AdaptivePIDController(BaseAdaptiveStepController):
     """Adaptive PID step size controller."""
 
-    def __init__(
-        self,
-        precision: PrecisionDType,
-        n: int = 1,
-        **kwargs,
-    ) -> None:
-        """Initialise a proportional–integral–derivative controller.
-
-        Parameters
-        ----------
-        precision
-            Precision used for controller calculations.
-        n
-            Number of state variables.
-        **kwargs
-            Optional parameters passed to PIDStepControlConfig. See
-            PIDStepControlConfig for available parameters including dt_min,
-            dt_max, atol, rtol, algorithm_order, kp, ki, kd, min_gain,
-            max_gain, deadband_min, deadband_max. None values are ignored.
-        """
-        config = build_config(
-            PIDStepControlConfig,
-            required={"precision": precision, "n": n},
-            **kwargs,
-        )
-
-        super().__init__(config)
+    _config_class = PIDStepControlConfig
 
     @property
     def kp(self) -> float:
@@ -200,7 +174,7 @@ class AdaptivePIDController(BaseAdaptiveStepController):
         precision = self.compile_settings.numba_precision
         n = int32(n)
         inv_n = precision(1.0 / n)
-
+        typed_large = precision(1e16)
         # step sizes and norms can be approximate - fastmath is fine
         @cuda.jit(
             device=True,
@@ -260,6 +234,8 @@ class AdaptivePIDController(BaseAdaptiveStepController):
                 nrm2 += ratio * ratio
 
             nrm2 = nrm2 * inv_n
+            nrm2 = typed_large if (isnan(nrm2) or isinf(nrm2)) else nrm2
+
             accept = nrm2 <= typed_one
             accept_out[0] = int32(1) if accept else int32(0)
             err_prev_safe = err_prev if err_prev > typed_zero else nrm2

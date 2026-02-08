@@ -261,9 +261,9 @@ def assert_singleintegratorrun_config(single_integrator, settings, tolerance):
     """
     is_adaptive = settings["is_adaptive"]
 
-    # For adaptive, dt0 is computed from atol/rtol, not from settings["dt"]
+    # For adaptive, dt is computed from atol/rtol, not from settings["dt"]
     if not is_adaptive:
-        assert single_integrator.dt0 == pytest.approx(
+        assert single_integrator.dt == pytest.approx(
             settings["dt"], rel=tolerance.rel_tight, abs=tolerance.abs_tight
         )
 
@@ -330,9 +330,9 @@ def assert_ivploop_config(loop, settings, tolerance):
 
     is_adaptive = settings["is_adaptive"]
 
-    # For adaptive, dt0 is computed from atol/rtol
+    # For adaptive, dt is computed from atol/rtol
     if not is_adaptive:
-        assert cs.dt0 == pytest.approx(
+        assert cs.dt == pytest.approx(
             settings["dt"], rel=tolerance.rel_tight, abs=tolerance.abs_tight
         )
     assert cs.save_every == pytest.approx(
@@ -497,12 +497,9 @@ def assert_step_controller_config(
     # Check compile_settings
     cs = step_controller.compile_settings
 
-    # Adaptive controllers don't have dt/dt0 in compile_settings
+    # Adaptive controllers don't have dt in compile_settings
     if not is_adaptive:
         assert cs.dt == pytest.approx(
-            settings["dt"], rel=tolerance.rel_tight, abs=tolerance.abs_tight
-        )
-        assert cs.dt0 == pytest.approx(
             settings["dt"], rel=tolerance.rel_tight, abs=tolerance.abs_tight
         )
 

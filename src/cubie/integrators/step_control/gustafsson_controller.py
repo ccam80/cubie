@@ -34,6 +34,7 @@ from typing import Callable
 from numpy import ndarray
 from numba import cuda, int32
 from attrs import define, field
+from math import isnan, isinf
 
 from cubie.buffer_registry import buffer_registry
 from cubie.integrators.step_control.adaptive_step_controller import (
@@ -44,7 +45,6 @@ from cubie._utils import (
     PrecisionDType,
     getype_validator,
     inrangetype_validator,
-    build_config,
 )
 from cubie.cuda_simsafe import compile_kwargs, selp
 from cubie.integrators.step_control.base_step_controller import ControllerCache
@@ -96,34 +96,7 @@ class GustafssonStepControlConfig(AdaptiveStepControlConfig):
 class GustafssonController(BaseAdaptiveStepController):
     """Adaptive controller using Gustafsson acceleration."""
 
-    def __init__(
-        self,
-        precision: PrecisionDType,
-        n: int = 1,
-        **kwargs,
-    ) -> None:
-        """Initialise a Gustafsson predictive controller.
-
-        Parameters
-        ----------
-        precision
-            Precision used for controller calculations.
-        n
-            Number of state variables.
-        **kwargs
-            Optional parameters passed to GustafssonStepControlConfig. See
-            GustafssonStepControlConfig for available parameters including
-            dt_min, dt_max, atol, rtol, algorithm_order, min_gain, max_gain,
-            gamma, newton_max_iters, deadband_min, deadband_max. None values
-            are ignored.
-        """
-        config = build_config(
-            GustafssonStepControlConfig,
-            required={"precision": precision, "n": n},
-            **kwargs,
-        )
-
-        super().__init__(config)
+    _config_class = GustafssonStepControlConfig
 
     @property
     def gamma(self) -> float:
@@ -209,6 +182,7 @@ class GustafssonController(BaseAdaptiveStepController):
         numba_precision = self.compile_settings.numba_precision
         n = int32(n)
         inv_n = precision(1.0 / n)
+        typed_large = precision(1e16)
 
         # step sizes and norms can be approximate - fastmath is fine
         @cuda.jit(
@@ -270,6 +244,8 @@ class GustafssonController(BaseAdaptiveStepController):
                 nrm2 += ratio * ratio
 
             nrm2 = nrm2 * inv_n
+            nrm2 = typed_large if (isnan(nrm2) or isinf(nrm2)) else nrm2
+
             accept = nrm2 <= typed_one
             accept_out[0] = int32(1) if accept else int32(0)
 

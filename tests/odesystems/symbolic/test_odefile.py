@@ -1,4 +1,6 @@
-"""Tests for :mod:`cubie.odesystems.symbolic.odefile`."""
+"""Tests for cubie.odesystems.symbolic.odefile."""
+
+from __future__ import annotations
 
 import uuid
 from pathlib import Path
@@ -8,24 +10,8 @@ import pytest
 from cubie.odesystems.symbolic.odefile import HEADER, ODEFile
 
 
-@pytest.fixture()
-def unique_odefile():
-    name = f"test_{uuid.uuid4().hex}"
-    odefile = ODEFile(name, "hash1")
-    yield odefile, name
-    generated_dir = Path("generated") / name
-    if generated_dir.exists():
-        try:
-            import shutil
-
-            shutil.rmtree(generated_dir)
-        except OSError:
-            # Race condition guard; another thread already removed it or is
-            # using it
-            pass
-
-
 def _simple_code(func_name: str) -> str:
+    """Return minimal valid factory function source code."""
     base = func_name.replace("_factory", "")
     return (
         f"def {func_name}():\n"
@@ -35,109 +21,210 @@ def _simple_code(func_name: str) -> str:
     )
 
 
-def test_header_contains_notice():
+# ── __init__ ──────────────────────────────────────────────────── #
+
+def test_init_creates_system_directory(codegen_dir):
+    """__init__ creates the system subdirectory under GENERATED_DIR."""
+    name = f"test_{uuid.uuid4().hex}"
+    odf = ODEFile(name, 12345)
+    assert odf.file_path.parent.exists()
+    assert odf.file_path.parent.name == name
+
+
+def test_init_sets_file_path(codegen_dir):
+    """file_path is set to system_dir / {name}.py."""
+    name = f"test_{uuid.uuid4().hex}"
+    odf = ODEFile(name, 99)
+    assert odf.file_path.name == f"{name}.py"
+
+
+def test_init_calls_init_file(codegen_dir):
+    """__init__ writes the file with hash and header."""
+    name = f"test_{uuid.uuid4().hex}"
+    odf = ODEFile(name, 42)
+    text = odf.file_path.read_text(encoding="utf-8")
+    assert text.startswith("#42")
+    assert "# This file was generated automatically" in text
+
+
+# ── _init_file ────────────────────────────────────────────────── #
+
+def test_init_file_returns_true_when_created(codegen_dir):
+    """_init_file returns True when file was (re)created."""
+    name = f"test_{uuid.uuid4().hex}"
+    odf = ODEFile(name, 1)
+    # Change hash so next _init_file considers cache invalid
+    result = odf._init_file(999)
+    assert result is True
+
+
+def test_init_file_returns_false_when_valid(codegen_dir):
+    """_init_file returns False when cache is already valid."""
+    name = f"test_{uuid.uuid4().hex}"
+    odf = ODEFile(name, 1)
+    result = odf._init_file(1)
+    assert result is False
+
+
+# ── cached_file_valid ─────────────────────────────────────────── #
+
+def test_cached_file_valid_false_when_missing(codegen_dir, tmp_path):
+    """Returns False when file does not exist."""
+    name = f"test_{uuid.uuid4().hex}"
+    odf = ODEFile(name, 1)
+    odf.file_path.unlink()
+    assert odf.cached_file_valid(1) is False
+
+
+def test_cached_file_valid_true_on_match(codegen_dir):
+    """Returns True when stored hash matches."""
+    name = f"test_{uuid.uuid4().hex}"
+    odf = ODEFile(name, 777)
+    assert odf.cached_file_valid(777) is True
+
+
+def test_cached_file_valid_false_on_mismatch(codegen_dir):
+    """Returns False when stored hash differs."""
+    name = f"test_{uuid.uuid4().hex}"
+    odf = ODEFile(name, 777)
+    assert odf.cached_file_valid(888) is False
+
+
+# ── function_is_cached ────────────────────────────────────────── #
+
+def test_function_is_cached_false_no_file(codegen_dir):
+    """Returns False when file doesn't exist."""
+    name = f"test_{uuid.uuid4().hex}"
+    odf = ODEFile(name, 1)
+    odf.file_path.unlink()
+    assert odf.function_is_cached("foo_factory") is False
+
+
+def test_function_is_cached_false_no_def(codegen_dir):
+    """Returns False when function def not found."""
+    name = f"test_{uuid.uuid4().hex}"
+    odf = ODEFile(name, 1)
+    assert odf.function_is_cached("nonexistent_factory") is False
+
+
+def test_function_is_cached_true_with_return(codegen_dir):
+    """Returns True when function def found with return at correct indent."""
+    name = f"test_{uuid.uuid4().hex}"
+    odf = ODEFile(name, 1)
+    odf.add_function(_simple_code("foo_factory"))
+    assert odf.function_is_cached("foo_factory") is True
+
+
+def test_function_is_cached_false_no_return(codegen_dir):
+    """Returns False when function def found but no return statement."""
+    name = f"test_{uuid.uuid4().hex}"
+    odf = ODEFile(name, 1)
+    odf.add_function("def broken_factory():\n    pass\n")
+    assert odf.function_is_cached("broken_factory") is False
+
+
+# ── import_function ───────────────────────────────────────────── #
+
+def test_import_function_generates_and_returns(codegen_dir):
+    """import_function generates code and returns (function, False)."""
+    name = f"test_{uuid.uuid4().hex}"
+    odf = ODEFile(name, 1)
+    fn, was_cached = odf.import_function("foo_factory", _simple_code("foo_factory"))
+    assert fn()() == 1
+    assert was_cached is False
+
+
+def test_import_function_returns_cached(codegen_dir):
+    """import_function returns (function, True) on second call."""
+    name = f"test_{uuid.uuid4().hex}"
+    odf = ODEFile(name, 1)
+    odf.import_function("foo_factory", _simple_code("foo_factory"))
+    fn, was_cached = odf.import_function("foo_factory")
+    assert fn()() == 1
+    assert was_cached is True
+
+
+def test_import_function_raises_without_code(codegen_dir):
+    """import_function raises ValueError when not cached and no code."""
+    name = f"test_{uuid.uuid4().hex}"
+    odf = ODEFile(name, 1)
+    with pytest.raises(ValueError, match="not found in cache"):
+        odf.import_function("missing_factory")
+
+
+def test_import_function_reinits_on_hash_change(codegen_dir):
+    """import_function reinitializes file when cache invalid."""
+    name = f"test_{uuid.uuid4().hex}"
+    odf1 = ODEFile(name, "hash1")
+    odf1.import_function("foo_factory", _simple_code("foo_factory"))
+    # New instance with different hash
+    odf2 = ODEFile(name, "hash2")
+    with pytest.raises(ValueError):
+        odf2.import_function("foo_factory")
+    fn, was_cached = odf2.import_function("foo_factory", _simple_code("foo_factory"))
+    assert fn()() == 1
+    assert was_cached is False
+
+
+def test_import_function_cache_notification_printed_once(codegen_dir):
+    """One-time cache notification flag set on first cached hit."""
+    name = f"test_{uuid.uuid4().hex}"
+    odf = ODEFile(name, 1)
+    odf.import_function("foo_factory", _simple_code("foo_factory"))
+    assert odf._cache_notification_printed is False
+    odf.import_function("foo_factory")
+    assert odf._cache_notification_printed is True
+    # Second call doesn't reset
+    odf.import_function("foo_factory")
+    assert odf._cache_notification_printed is True
+
+
+# ── add_function ──────────────────────────────────────────────── #
+
+def test_add_function_appends_code(codegen_dir):
+    """add_function appends code to the cache file."""
+    name = f"test_{uuid.uuid4().hex}"
+    odf = ODEFile(name, 1)
+    code = _simple_code("bar_factory")
+    odf.add_function(code)
+    text = odf.file_path.read_text(encoding="utf-8")
+    assert "def bar_factory()" in text
+
+
+# ── _import_function ──────────────────────────────────────────── #
+
+def test_import_function_loads_from_module(codegen_dir):
+    """_import_function imports a callable from the generated module."""
+    name = f"test_{uuid.uuid4().hex}"
+    odf = ODEFile(name, 1)
+    odf.add_function(_simple_code("baz_factory"))
+    fn = odf._import_function("baz_factory")
+    assert fn()() == 1
+
+
+# ── HEADER constant ───────────────────────────────────────────── #
+
+def test_header_contains_required_imports():
+    """HEADER includes numba, math, and cuda_simsafe imports."""
+    assert "from numba import cuda" in HEADER
+    assert "import math" in HEADER
+    assert "from cubie.cuda_simsafe import *" in HEADER
+
+
+def test_header_contains_autogen_notice():
+    """HEADER includes auto-generation notice."""
     assert "# This file was generated automatically" in HEADER
 
 
-def test_import_generates_and_returns(unique_odefile):
-    odefile, _ = unique_odefile
-    code = _simple_code("foo_factory")
-    factory, was_cached = odefile.import_function("foo_factory", code)
-    assert factory()() == 1
+# ── Multiple functions in same file ───────────────────────────── #
 
-
-def test_import_uses_cache(unique_odefile):
-    odefile, _ = unique_odefile
-    code = _simple_code("foo_factory")
-    odefile.import_function("foo_factory", code)
-    factory, was_cached = odefile.import_function("foo_factory")
-    assert factory()() == 1
-
-
-def test_import_missing_without_code_raises(unique_odefile):
-    odefile, _ = unique_odefile
-    with pytest.raises(ValueError):
-        odefile.import_function("missing_factory")
-
-
-def test_import_reinitialises_on_hash_change(unique_odefile):
-    _, name = unique_odefile
-    odefile1 = ODEFile(name, "hash1")
-    code = _simple_code("foo_factory")
-    odefile1.import_function("foo_factory", code)
-    odefile2 = ODEFile(name, "hash2")
-    with pytest.raises(ValueError):
-        odefile2.import_function("foo_factory")
-    factory, was_cached = odefile2.import_function("foo_factory", code)
-    assert factory()() == 1
-
-
-# New tests covering additional caching and generation behavior
-
-
-def test_creates_generated_dir_when_missing(tmp_path, monkeypatch):
-    # Point GENERATED_DIR to a temp path and ensure it doesn't exist
-    from cubie.odesystems import symbolic as symbolic_pkg
-
-    odefile_mod = symbolic_pkg.odefile
-    temp_gen = tmp_path / "generated_temp"
-    if temp_gen.exists():
-        # Ensure clean slate
-        for p in temp_gen.glob("*"):
-            p.unlink()
-        temp_gen.rmdir()
-    monkeypatch.setattr(odefile_mod, "GENERATED_DIR", temp_gen, raising=True)
-
+def test_multiple_factories_coexist(codegen_dir):
+    """Multiple functions can be appended and imported from same file."""
     name = f"test_{uuid.uuid4().hex}"
-    odef = ODEFile(name, "hashX")
-    # Directory should have been created
-    assert temp_gen.exists() and temp_gen.is_dir()
-    # File should be within the system-specific subdirectory
-    assert odef.file_path.parent.parent == temp_gen
-    assert odef.file_path.parent.name == name
-
-
-def test_cache_persists_across_instances_same_hash(unique_odefile):
-    _, name = unique_odefile
-    code = _simple_code("foo_factory")
-    o1 = ODEFile(name, "hash1")
-    o1.import_function("foo_factory", code)
-    # New instance with same name and same hash should reuse cache without code
-    o2 = ODEFile(name, "hash1")
-    factory, was_cached = o2.import_function("foo_factory")
-    assert factory()() == 1
-
-
-def test_multiple_factories_appended_and_importable(unique_odefile):
-    odefile, _ = unique_odefile
-    code1 = _simple_code("foo_factory")
-    code2 = _simple_code("bar_factory")
-    f1, was_cached = odefile.import_function("foo_factory", code1)
-    assert f1()() == 1
-    # Append second factory and ensure both coexist
-    f2, was_cached = odefile.import_function("bar_factory", code2)
-    assert f2()() == 1
-    # Re-import first factory without code; should still work
-    f1_cached, was_cached = odefile.import_function("foo_factory")
-    assert f1_cached()() == 1
-
-
-def test_malformed_cached_function_triggers_regeneration(unique_odefile):
-    odefile, _ = unique_odefile
-    # Manually append a malformed function (missing `return base_name`)
-    with open(odefile.file_path, "a", encoding="utf-8") as f:
-        f.write("def foo_factory():\n")
-        f.write("    pass\n")
-    # Without code_lines this should raise
-    with pytest.raises(ValueError):
-        odefile.import_function("foo_factory")
-    # Providing code should append a correct definition that is importable
-    factory, was_cached = odefile.import_function(
-        "foo_factory", _simple_code("foo_factory")
-    )
-    assert factory()() == 1
-
-
-def test_header_contains_required_imports():
-    assert "from numba import cuda" in HEADER
-    assert "import math" in HEADER
+    odf = ODEFile(name, 1)
+    odf.import_function("foo_factory", _simple_code("foo_factory"))
+    odf.import_function("bar_factory", _simple_code("bar_factory"))
+    fn1, _ = odf.import_function("foo_factory")
+    fn2, _ = odf.import_function("bar_factory")
+    assert fn1()() == 1
+    assert fn2()() == 1

@@ -76,8 +76,6 @@ from cubie.integrators.algorithms.generic_erk_tableaus import (
 ERK_ADAPTIVE_DEFAULTS = StepControlDefaults(
     step_controller={
         "step_controller": "pid",
-        "dt_min": 1e-6,
-        "dt_max": 1e-1,
         "kp": 0.7,
         "ki": -0.4,
         "deadband_min": 1.0,
@@ -97,13 +95,11 @@ explicitly.
 ERK_FIXED_DEFAULTS = StepControlDefaults(
     step_controller={
         "step_controller": "fixed",
-        "dt": 1e-3,
     }
 )
 """Default step controller settings for errorless ERK tableaus.
 
-Applied when ``tableau.has_error_estimate`` is ``False``. Users can
-override the step size ``dt`` explicitly.
+Applied when ``tableau.has_error_estimate`` is ``False``.
 """
 
 

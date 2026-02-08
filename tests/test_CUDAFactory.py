@@ -1,883 +1,821 @@
-from typing import Callable, Union
+"""Tests for cubie.CUDAFactory."""
 
-import attrs
-import pytest
 import numpy as np
+import pytest
+import attrs
 
 from cubie.CUDAFactory import (
     CUDAFactory,
     CUDADispatcherCache,
-    _CubieConfigBase,
     CUDAFactoryConfig,
     MultipleInstanceCUDAFactory,
+    MultipleInstanceCUDAFactoryConfig,
+    _CubieConfigBase,
+    hash_tuple,
+    attribute_is_hashable,
 )
+from cubie.buffer_registry import buffer_registry
+from cubie.cuda_simsafe import from_dtype as simsafe_dtype
+from numba import from_dtype
+from numpy import dtype as np_dtype
 
 
-@attrs.define()
-class testCache(CUDADispatcherCache):
-    """Test cache class."""
-
-    device_function: Union[Callable, int] = attrs.field(default=-1)
+# ── Test helper classes (abstract base requires concrete subclass) ── #
 
 
-def dict_to_attrs_class(dictionary):
-    """Convert a dictionary to an attrs class instance."""
-    # Create the class with the dictionary keys as field names
-    CompileSettings = attrs.make_class(
-        "CompileSettings", list(dictionary.keys()), bases=(_CubieConfigBase,)
-    )
-    # Create an instance with the values from the dictionary
-    return CompileSettings(**dictionary)
+@attrs.define
+class _TestCache(CUDADispatcherCache):
+    """Minimal cache for testing CUDAFactory build/cache mechanics."""
+
+    device_function: object = attrs.field(default=-1, eq=False)
 
 
-@pytest.fixture(scope="function")
-def factory():
-    """Fixture to provide a factory for creating system instances."""
+def _make_factory(build_fn=None):
+    """Return a concrete CUDAFactory subclass instance.
 
-    class ConcreteFactory(CUDAFactory):
+    Inline construction justified: CUDAFactory is abstract; no fixture
+    hierarchy can produce it. These tests verify the base class itself.
+    """
+    class _ConcreteFactory(CUDAFactory):
         def __init__(self):
             super().__init__()
 
         def build(self):
-            return testCache(device_function=lambda: 20.0)
+            if build_fn is not None:
+                return build_fn()
+            return _TestCache(device_function=lambda: 20.0)
 
-    factory = ConcreteFactory()
+    return _ConcreteFactory()
+
+
+def _make_config(**overrides):
+    """Return a minimal _CubieConfigBase subclass instance."""
+    defaults = {"value1": 10, "value2": "test"}
+    defaults.update(overrides)
+    keys = list(defaults.keys())
+    cls = attrs.make_class(
+        "_TestConfig", keys, bases=(_CubieConfigBase,)
+    )
+    return cls(**defaults)
+
+
+def _make_factory_with_settings(precision=np.float32):
+    """Return a factory with compile settings already attached."""
+    factory = _make_factory()
+    cfg = _make_config(precision=precision, flag=False)
+    factory.setup_compile_settings(cfg)
     return factory
 
 
-def test_setup_compile_settings(factory):
-    settings_dict = {
-        "manually_overwritten_1": False,
-        "manually_overwritten_2": False,
-    }
-    factory.setup_compile_settings(dict_to_attrs_class(settings_dict))
-    assert factory.compile_settings.manually_overwritten_1 is False, (
-        "setup_compile_settings did not overwrite compile settings"
-    )
+# ── hash_tuple ─────────────────────────────────────────────── #
 
 
-@pytest.fixture(scope="function")
-def factory_with_settings(factory, precision):
-    """Fixture to provide a factory with specific compile settings."""
-    settings_dict = {
-        "precision": precision,
-        "manually_overwritten_1": False,
-        "manually_overwritten_2": False,
-    }
-    factory.setup_compile_settings(dict_to_attrs_class(settings_dict))
-    return factory
+def test_hash_tuple_none_serialized():
+    """None values serialize as the string 'None'."""
+    h = hash_tuple((None,))
+    assert len(h) == 64
+    # Deterministic: same input -> same output
+    assert h == hash_tuple((None,))
+    # Different from a tuple with an int
+    assert h != hash_tuple((0,))
 
 
-def test_update_compile_settings(factory_with_settings):
-    factory_with_settings.update_compile_settings(manually_overwritten_1=True)
-    assert (
-        factory_with_settings.compile_settings.manually_overwritten_1 is True
-    ), "compile settings were not updated correctly"
-    with pytest.raises(KeyError):
-        (
-            factory_with_settings.update_compile_settings(
-                non_existent_key=True
-            ),
-            "factory did not emit a warning for non-existent key",
+def test_hash_tuple_ndarray_hashed_by_bytes():
+    """ndarray values incorporate bytes, shape, and dtype."""
+    a = np.array([1.0, 2.0], dtype=np.float32)
+    b = np.array([1.0, 2.0], dtype=np.float64)
+    # Same values, different dtype -> different hash
+    assert hash_tuple((a,)) != hash_tuple((b,))
+    # Same array -> same hash
+    assert hash_tuple((a,)) == hash_tuple((a.copy(),))
+
+
+def test_hash_tuple_str_serialization():
+    """Other values serialize via str()."""
+    h = hash_tuple((42, "hello"))
+    assert len(h) == 64
+    # Deterministic
+    assert h == hash_tuple((42, "hello"))
+    # Different values -> different hash
+    assert h != hash_tuple((43, "hello"))
+
+
+def test_hash_tuple_returns_64_char_hex():
+    """Returns a 64-character SHA256 hex digest."""
+    h = hash_tuple(("a", 1, 2.0))
+    assert len(h) == 64
+    assert all(c in "0123456789abcdef" for c in h)
+
+
+# ── attribute_is_hashable ──────────────────────────────────── #
+
+
+def test_attribute_is_hashable_eq_false():
+    """Returns False when attribute.eq is False."""
+    @attrs.define
+    class _C:
+        x: int = attrs.field(default=1, eq=False)
+
+    fld = attrs.fields(_C).x
+    assert attribute_is_hashable(fld, 1) is False
+
+
+def test_attribute_is_hashable_eq_true():
+    """Returns True for normal attributes."""
+    @attrs.define
+    class _C:
+        x: int = 1
+
+    fld = attrs.fields(_C).x
+    assert attribute_is_hashable(fld, 1) is True
+
+
+# ── _CubieConfigBase __attrs_post_init__ ───────────────────── #
+
+
+def test_post_init_builds_field_map_from_name_and_alias():
+    """field_map contains both field names and aliases."""
+    @attrs.define
+    class _C(_CubieConfigBase):
+        _val: int = attrs.field(default=1, alias="val")
+
+    c = _C()
+    assert "_val" in c._field_map
+    assert "val" in c._field_map
+    # Both map to the same field object
+    assert c._field_map["_val"] is c._field_map["val"]
+
+
+def test_post_init_identifies_nested_attrs():
+    """_nested_attrs includes fields whose type is an attrs class."""
+    @attrs.define
+    class _Inner(_CubieConfigBase):
+        x: int = 1
+
+    @attrs.define
+    class _Outer(_CubieConfigBase):
+        inner: _Inner = attrs.Factory(_Inner)
+        plain: int = 2
+
+    c = _Outer()
+    assert "inner" in c._nested_attrs
+    assert "plain" not in c._nested_attrs
+
+
+def test_post_init_identifies_unhashable_fields():
+    """_unhashable_fields includes eq=False fields."""
+    @attrs.define
+    class _C(_CubieConfigBase):
+        a: int = 1
+        b: object = attrs.field(default=None, eq=False)
+
+    c = _C()
+    unhashable_names = {f.name for f in c._unhashable_fields}
+    assert "b" in unhashable_names
+    assert "a" not in unhashable_names
+
+
+def test_post_init_generates_initial_hash():
+    """values_hash is a 64-char hex string after construction."""
+    c = _make_config()
+    assert len(c.values_hash) == 64
+    assert all(ch in "0123456789abcdef" for ch in c.values_hash)
+
+
+def test_post_init_raises_for_dict_field():
+    """TypeError raised for dict-type fields not marked eq=False."""
+    @attrs.define
+    class _Bad(_CubieConfigBase):
+        d: dict = attrs.Factory(dict)
+
+    with pytest.raises(TypeError, match="dict"):
+        _Bad()
+
+
+# ── _CubieConfigBase.update ───────────────────────────────── #
+
+
+def test_update_empty_returns_empty_sets():
+    """Returns (empty, empty) for empty updates."""
+    c = _make_config()
+    recognized, changed = c.update({})
+    assert recognized == set()
+    assert changed == set()
+
+
+def test_update_recognizes_by_name_and_alias():
+    """Recognizes fields by name or alias."""
+    @attrs.define
+    class _C(_CubieConfigBase):
+        _val: int = attrs.field(default=1, alias="val")
+
+    c = _C()
+    recognized, changed = c.update({"val": 2})
+    assert "val" in recognized
+    assert c._val == 2
+
+
+def test_update_ndarray_comparison():
+    """Handles ndarray comparison via array_equal."""
+    @attrs.define
+    class _C(_CubieConfigBase):
+        arr: object = attrs.field(
+            factory=lambda: np.array([1.0, 2.0]),
+            eq=False,
         )
 
-
-def test_update_compile_settings_reports_correct_key(factory_with_settings):
-    with pytest.raises(KeyError) as exc:
-        factory_with_settings.update_compile_settings(
-            {"non_existent_key": True, "manually_overwritten_1": True}
-        )
-    assert "non_existent_key" in str(exc.value)
-    assert "manually_overwritten_1" not in str(exc.value)
-
-
-def test_cache_invalidation(factory_with_settings):
-    assert factory_with_settings.cache_valid is False, (
-        "Cache should be invalid initially"
-    )
-    _ = factory_with_settings.device_function
-    assert factory_with_settings.cache_valid is True, (
-        "Cache should be valid after first access to device_function"
-    )
-
-    factory_with_settings.update_compile_settings(manually_overwritten_1=True)
-    assert factory_with_settings.cache_valid is False, (
-        "Cache should be invalidated after updating compile settings"
-    )
-
-    _ = factory_with_settings.device_function
-    assert factory_with_settings.cache_valid is True, (
-        "Cache should be valid after first access to device_function"
-    )
-
-
-def test_build(factory_with_settings, monkeypatch):
-    test_func = factory_with_settings.device_function
-    assert test_func() == 20.0, "device_function not as defined"
-    # cache validated
-
-    monkeypatch.setattr(
-        factory_with_settings,
-        "build",
-        lambda: testCache(device_function=lambda: 10.0),
-    )
-    test_func = factory_with_settings.device_function
-    assert test_func() == 20.0, (
-        "device_function rebuilt even though cache was valid"
-    )
-    factory_with_settings.update_compile_settings(manually_overwritten_1=True)
-    test_func = factory_with_settings.device_function
-    assert test_func() == 10.0, (
-        "device_function was not rebuilt after cache invalidation"
-    )
-
-
-def test_build_with_dict_output(factory_with_settings, monkeypatch):
-    """Test that when build returns a dictionary, the values are available via get_cached_output."""
-    factory_with_settings._cache_valid = False
-
-    @attrs.define
-    class TestOutputs(testCache):
-        test_output1: str = "value1"
-        test_output2: str = "value2"
-
-    monkeypatch.setattr(
-        factory_with_settings, "build", lambda: (TestOutputs())
-    )
-
-    # Test that dictionary outputs are available
-    assert (
-        factory_with_settings.get_cached_output("test_output1") == "value1"
-    ), "Output not accessible"
-    assert (
-        factory_with_settings.get_cached_output("test_output2") == "value2"
-    ), "Output not accessible"
-
-    # Test cache invalidation with dict output
-    factory_with_settings.update_compile_settings(manually_overwritten_1=True)
-    assert factory_with_settings.cache_valid is False, (
-        "Cache should be invalidated after updating compile settings"
-    )
-
-    # Test that dict values are rebuilt after invalidation
-    @attrs.define
-    class NewTestOutputs(testCache):
-        test_output1: str = "new_value1"
-        test_output2: str = "new_value2"
-
-    monkeypatch.setattr(
-        factory_with_settings, "build", lambda: (NewTestOutputs())
-    )
-    output = factory_with_settings.get_cached_output("test_output1")
-    assert output == "new_value1", "Cache not rebuilt after invalidation"
-
-
-def test_device_function_from_dict(factory_with_settings, monkeypatch):
-    """Test that when build returns a dict with 'device_function',
-    it's accessible via the device_function property."""
-    factory_with_settings._cache_valid = False
-
-    def test_func(x):
-        return x * 2
-
-    @attrs.define
-    class TestOutputsWithFunc(testCache):
-        device_function: callable = test_func
-        other_output: str = "value"
-
-    monkeypatch.setattr(
-        factory_with_settings, "build", lambda: TestOutputsWithFunc()
-    )
-
-    # Check if device_function is correctly set from the dict
-    assert factory_with_settings.device_function is test_func, (
-        "device_function not correctly set from attrs class"
-    )
-
-    # Check that other values are still accessible
-    assert (
-        factory_with_settings.get_cached_output("other_output") == "value"
-    ), "Other attrs values not accessible"
-
-
-def test_get_cached_output_not_implemented_error(
-    factory_with_settings, monkeypatch
-):
-    """Test that get_cached_output raises NotImplementedError for -1 values."""
-    factory_with_settings._cache_valid = False
-
-    @attrs.define
-    class TestOutputsWithNotImplemented(testCache):
-        implemented_output: str = "value"
-        not_implemented_output: int = -1
-
-    monkeypatch.setattr(
-        factory_with_settings, "build", lambda: TestOutputsWithNotImplemented()
-    )
-
-    # Test that implemented output works normally
-    assert (
-        factory_with_settings.get_cached_output("implemented_output")
-        == "value"
-    )
-
-    # Test that -1 value raises NotImplementedError
-    with pytest.raises(NotImplementedError) as exc:
-        factory_with_settings.get_cached_output("not_implemented_output")
-
-    assert "not_implemented_output" in str(exc.value)
-    assert "not implemented" in str(exc.value)
-
-
-def test_get_cached_output_not_implemented_error_multiple(
-    factory_with_settings, monkeypatch
-):
-    """Test NotImplementedError with multiple -1 values in cache."""
-    factory_with_settings._cache_valid = False
-
-    @attrs.define
-    class TestOutputsMultipleNotImplemented(testCache):
-        working_output: str = "works"
-        not_implemented_1: int = -1
-        not_implemented_2: int = -1
-
-    monkeypatch.setattr(
-        factory_with_settings,
-        "build",
-        lambda: TestOutputsMultipleNotImplemented(),
-    )
-    # Test that working output still works
-    assert factory_with_settings.get_cached_output("working_output") == "works"
-
-    # Test that both -1 values raise NotImplementedError
-    with pytest.raises(NotImplementedError) as exc1:
-        factory_with_settings.get_cached_output("not_implemented_1")
-    assert "not_implemented_1" in str(exc1.value)
-
-    with pytest.raises(NotImplementedError) as exc2:
-        factory_with_settings.get_cached_output("not_implemented_2")
-    assert "not_implemented_2" in str(exc2.value)
-
-
-def test_update_compile_settings_nested_attrs(factory):
-    """Test that update_compile_settings finds keys in nested attrs classes."""
-
-    @attrs.define
-    class NestedSettings(_CubieConfigBase):
-        nested_value: int = 10
-        _underscore_value: int = 20
-
-    @attrs.define
-    class TopSettings(_CubieConfigBase):
-        precision: type = np.float32
-        nested: NestedSettings = attrs.Factory(NestedSettings)
-
-    factory.setup_compile_settings(TopSettings())
-
-    # Test updating nested attribute (no underscore)
-    recognized = factory.update_compile_settings(nested_value=42)
-    assert "nested_value" in recognized
-    assert factory.compile_settings.nested.nested_value == 42
-
-    # Test updating nested attribute with underscore
-    recognized = factory.update_compile_settings(underscore_value=100)
-    assert "underscore_value" in recognized
-    assert factory.compile_settings.nested._underscore_value == 100
-
-    # Verify cache was invalidated
-    assert factory.cache_valid is False
-
-
-def test_update_compile_settings_nested_not_found(factory):
-    """Test that unrecognized nested keys raise KeyError."""
-
-    @attrs.define
-    class NestedSettings(_CubieConfigBase):
-        nested_value: int = 10
-
-    @attrs.define
-    class TopSettings(_CubieConfigBase):
-        precision: type = np.float32
-        nested: NestedSettings = attrs.Factory(NestedSettings)
-
-    factory.setup_compile_settings(TopSettings())
-
-    with pytest.raises(KeyError):
-        factory.update_compile_settings(nonexistent_key=42)
-
-
-# --- _CubieConfigBase tests ---
-
-
-def test_cuda_factory_config_values_hash():
-    """Test that _CubieConfigBase produces consistent hashes."""
-    from cubie.CUDAFactory import _CubieConfigBase
-
-    @attrs.define
-    class TestConfig(_CubieConfigBase):
-        value1: int = 10
-        value2: str = "test"
-
-    config1 = TestConfig()
-    config2 = TestConfig()
-
-    # Same values should produce same hash
-    assert config1.values_hash == config2.values_hash
-    assert len(config1.values_hash) == 64  # SHA256 hex digest
-
-
-def test_cuda_factory_config_values_tuple():
-    """Test that values_tuple returns tuple of serialized field values."""
-    from cubie.CUDAFactory import _CubieConfigBase
-
-    @attrs.define
-    class TestConfig(_CubieConfigBase):
-        value1: int = 42
-        value2: str = "hello"
-
-    config = TestConfig()
-    vt = config.values_tuple
-
-    assert isinstance(vt, tuple)
-    assert 42 in vt
-    assert "hello" in vt
-
-
-def test_cuda_factory_config_update():
-    """Test the update() method on _CubieConfigBase."""
-    from cubie.CUDAFactory import _CubieConfigBase
-
-    @attrs.define
-    class TestConfig(_CubieConfigBase):
-        value1: int = 10
-        value2: str = "test"
-
-    config = TestConfig()
-    old_hash = config.values_hash
-
-    recognized, changed = config.update({"value1": 20})
-    assert "value1" in recognized
+    # eq=False means it won't participate in hash, but update still
+    # uses array_equal for change detection
+    c = _C()
+    old_arr = c.arr.copy()
+    recognized, changed = c.update({"arr": np.array([3.0, 4.0])})
+    assert "arr" in recognized
+    assert "arr" in changed
+
+
+def test_update_scalar_comparison():
+    """Handles scalar comparison via !=."""
+    c = _make_config(value1=10)
+    old_hash = c.values_hash
+    recognized, changed = c.update({"value1": 99})
     assert "value1" in changed
-    assert config.value1 == 20
-    assert config.values_hash != old_hash
+    assert c.value1 == 99
 
 
-def test_cuda_factory_config_update_unchanged():
-    """Test that update() reports no change when value is same."""
-    from cubie.CUDAFactory import _CubieConfigBase
-
-    @attrs.define
-    class TestConfig(_CubieConfigBase):
-        value1: int = 10
-
-    config = TestConfig()
-    old_hash = config.values_hash
-
-    recognized, changed = config.update({"value1": 10})
+def test_update_no_change_when_same_value():
+    """Only updates when value actually changed."""
+    c = _make_config(value1=10)
+    old_hash = c.values_hash
+    recognized, changed = c.update({"value1": 10})
     assert "value1" in recognized
     assert "value1" not in changed
-    assert config.values_hash == old_hash
+    assert c.values_hash == old_hash
 
 
-def test_cuda_factory_config_nested_hash(precision):
-    """Test that nested _CubieConfigBase objects are included in hash."""
-    from cubie.CUDAFactory import _CubieConfigBase
+def test_update_delegates_to_nested():
+    """Delegates to nested attrs objects."""
+    @attrs.define
+    class _Inner(_CubieConfigBase):
+        x: int = 1
 
     @attrs.define
-    class InnerConfig(_CubieConfigBase):
-        inner_value: int = 5
+    class _Outer(_CubieConfigBase):
+        inner: _Inner = attrs.Factory(_Inner)
 
+    c = _Outer()
+    recognized, changed = c.update({"x": 42})
+    assert "x" in recognized
+    assert c.inner.x == 42
+
+
+def test_update_regenerates_hash():
+    """Regenerates hash after changes."""
+    c = _make_config(value1=10)
+    old_hash = c.values_hash
+    c.update({"value1": 99})
+    assert c.values_hash != old_hash
+
+
+def test_update_returns_recognized_and_changed():
+    """Returns correct recognized and changed sets."""
+    c = _make_config(value1=10, value2="test")
+    recognized, changed = c.update({"value1": 99, "value2": "test"})
+    assert recognized == {"value1", "value2"}
+    assert changed == {"value1"}
+
+
+# ── _CubieConfigBase properties ───────────────────────────── #
+
+
+def test_cache_dict_excludes_eq_false():
+    """cache_dict returns dict without eq=False fields."""
     @attrs.define
-    class OuterConfig(_CubieConfigBase):
-        outer_value: int = 10
-        nested: InnerConfig = attrs.Factory(InnerConfig)
+    class _C(_CubieConfigBase):
+        a: int = 1
+        b: object = attrs.field(default=None, eq=False)
 
-    # Two configs with identical nested settings should have same hash
-    config1 = OuterConfig()
-    config2 = OuterConfig()
-    assert config1.values_hash == config2.values_hash
-
-    # A config with a different nested value should have a different hash
-    config3 = OuterConfig(nested=InnerConfig(inner_value=999))
-    assert config1.values_hash != config3.values_hash
+    c = _C()
+    d = c.cache_dict
+    assert "a" in d
+    assert "b" not in d
 
 
-def test_cuda_factory_config_hash_property():
-    """Test that CUDAFactory.config_hash uses compile_settings.values_hash."""
-    from cubie.CUDAFactory import _CubieConfigBase
-
+def test_values_tuple_excludes_eq_false():
+    """values_tuple returns tuple without eq=False fields."""
     @attrs.define
-    class TestConfig(_CubieConfigBase):
-        value1: int = 10
+    class _C(_CubieConfigBase):
+        a: int = 42
+        b: object = attrs.field(default="hidden", eq=False)
 
-    class TestFactory(CUDAFactory):
-        def __init__(self):
-            super().__init__()
-
-        def build(self):
-            return testCache(device_function=lambda: 1.0)
-
-    factory = TestFactory()
-    factory.setup_compile_settings(TestConfig())
-
-    # config_hash should return the compile_settings.values_hash
-    assert factory.config_hash == factory.compile_settings.values_hash
-    assert len(factory.config_hash) == 64
+    c = _C()
+    vt = c.values_tuple
+    assert 42 in vt
+    assert "hidden" not in vt
 
 
-def test_cuda_factory_config_eq_false_excluded():
-    """Test that fields with eq=False are excluded from hash."""
-    from cubie.CUDAFactory import _CubieConfigBase
+def test_values_hash_returns_stored_hash():
+    """values_hash returns the stored _values_hash."""
+    c = _make_config()
+    assert c.values_hash == c._values_hash
 
+
+# ── CUDAFactoryConfig ─────────────────────────────────────── #
+
+
+@pytest.mark.parametrize("prec_in,prec_out", [
+    (np.float32, np.float32),
+    (np.float64, np.float64),
+])
+def test_config_precision_validation_and_conversion(prec_in, prec_out):
+    """Construction validates and converts precision."""
     @attrs.define
-    class TestConfig(_CubieConfigBase):
-        value1: int = 10
-        callback: object = attrs.field(default=None, eq=False)
-
-    config1 = TestConfig(callback=lambda: 1)
-    config2 = TestConfig(callback=lambda: 2)
-
-    # Hash should be same despite different callbacks
-    assert config1.values_hash == config2.values_hash
-
-
-def test_cuda_factory_config_update_applies_converter():
-    from numpy import float32, float64
-
-    @attrs.define
-    class TestConfig(CUDAFactoryConfig):
+    class _C(CUDAFactoryConfig):
         pass
 
-    config = TestConfig(precision=float32)
-    # Update with a dtype that needs conversion
-    config.update({"precision": "float64"})
-    # Verify converter was applied
-    assert config.precision == float64
+    c = _C(precision=prec_in)
+    assert c.precision == prec_out
 
 
-def test_cuda_factory_config_update_nested_applies_converter():
-    def x2_converter(value):
-        return value * 2
-
+def test_config_numba_precision():
+    """numba_precision returns from_dtype(np_dtype(precision))."""
     @attrs.define
-    class InnerConfig(_CubieConfigBase):
-        a = attrs.field(
-            default=1,
-            converter=x2_converter,
-        )
+    class _C(CUDAFactoryConfig):
+        pass
 
+    c = _C(precision=np.float32)
+    expected = from_dtype(np_dtype(np.float32))
+    assert c.numba_precision == expected
+
+
+def test_config_simsafe_precision():
+    """simsafe_precision returns simsafe_dtype(np_dtype(precision))."""
     @attrs.define
-    class OuterConfig(_CubieConfigBase):
-        nested: InnerConfig = attrs.field(factory=InnerConfig)
-        b = attrs.field(
-            default=2,
-            converter=x2_converter,
-        )
+    class _C(CUDAFactoryConfig):
+        pass
 
-    config = OuterConfig()
-
-    # converters fire on init
-    assert config.nested.a == 2
-    assert config.b == 4
-
-    config.update({"a": 3, "b": 5})
-    # Verify converter was applied in nested config
-    assert config.nested.a == 6
-    assert config.b == 10
+    c = _C(precision=np.float64)
+    expected = simsafe_dtype(np_dtype(np.float64))
+    assert c.simsafe_precision == expected
 
 
-def test_multiple_instance_factory_prefix_mapping(precision):
-    """Test that prefixed keys are mapped to unprefixed equivalents."""
-    from cubie.integrators.matrix_free_solvers.linear_solver import (
-        LinearSolver,
-    )
-
-    solver = LinearSolver(precision=precision, n=3)
-
-    # Update with prefixed key
-    solver.update({"krylov_max_iters": 50})
-
-    # Verify the unprefixed setting was updated
-    assert solver.compile_settings.max_iters == 50
+# ── CUDAFactory __init__ / setup / properties ──────────────── #
 
 
-def test_multiple_instance_factory_instance_label_stored(precision):
-    """Test that instance_label attribute is correctly stored."""
-    from cubie.integrators.matrix_free_solvers.linear_solver import (
-        LinearSolver,
-    )
-
-    solver = LinearSolver(precision=precision, n=3)
-
-    # Verify instance_label is set correctly
-    assert solver.instance_label == "krylov"
+def test_factory_init_defaults():
+    """__init__ sets settings=None, cache_valid=True, cache=None."""
+    f = _make_factory()
+    assert f._compile_settings is None
+    assert f._cache_valid is True
+    assert f._cache is None
 
 
-def test_multiple_instance_factory_empty_label_allowed():
-    """Test that empty instance_label is permitted for standalone use."""
-
-    class TestFactory(MultipleInstanceCUDAFactory):
-        def build(self):
-            return testCache(device_function=lambda: 1.0)
-
-    # Empty instance_label should be allowed
-    factory = TestFactory(instance_label="")
-    assert factory.instance_label == ""
+def test_setup_raises_for_non_attrs():
+    """setup_compile_settings raises TypeError for non-attrs."""
+    f = _make_factory()
+    with pytest.raises(TypeError, match="attrs class"):
+        f.setup_compile_settings({"not": "attrs"})
 
 
-def test_multiple_instance_factory_mixed_keys():
-    """Test that prefixed keys take precedence over unprefixed."""
-    from cubie.CUDAFactory import MultipleInstanceCUDAFactoryConfig
+def test_setup_stores_settings_and_invalidates():
+    """setup_compile_settings stores settings and invalidates cache."""
+    f = _make_factory()
+    cfg = _make_config()
+    f.setup_compile_settings(cfg)
+    assert f._compile_settings is cfg
+    assert f._cache_valid is False
 
+
+def test_cache_valid_property():
+    """cache_valid returns _cache_valid."""
+    f = _make_factory()
+    assert f.cache_valid is True
+    f._cache_valid = False
+    assert f.cache_valid is False
+
+
+def test_device_function_calls_get_cached_output():
+    """device_function delegates to get_cached_output('device_function')."""
+    f = _make_factory_with_settings()
+    fn = f.device_function
+    # The build returns a lambda returning 20.0
+    assert fn() == 20.0
+
+
+def test_compile_settings_returns_stored():
+    """compile_settings returns _compile_settings."""
+    f = _make_factory()
+    cfg = _make_config()
+    f.setup_compile_settings(cfg)
+    assert f.compile_settings is cfg
+
+
+# ── CUDAFactory.update_compile_settings ────────────────────── #
+
+
+def test_update_settings_empty_returns_empty():
+    """Returns empty set for empty updates."""
+    f = _make_factory_with_settings()
+    result = f.update_compile_settings({})
+    assert result == set()
+
+
+def test_update_settings_raises_when_not_set():
+    """Raises ValueError when settings not set up."""
+    f = _make_factory()
+    with pytest.raises(ValueError, match="set up"):
+        f.update_compile_settings({"x": 1})
+
+
+def test_update_settings_delegates_to_config():
+    """Delegates to compile_settings.update()."""
+    f = _make_factory_with_settings()
+    f.update_compile_settings(flag=True)
+    assert f.compile_settings.flag is True
+
+
+def test_update_settings_raises_for_unrecognized():
+    """Raises KeyError for unrecognized params when silent=False."""
+    f = _make_factory_with_settings()
+    with pytest.raises(KeyError, match="bogus"):
+        f.update_compile_settings(bogus=42)
+
+
+def test_update_settings_silent_suppresses_error():
+    """Suppresses errors when silent=True."""
+    f = _make_factory_with_settings()
+    # Should not raise
+    result = f.update_compile_settings({"bogus": 42}, silent=True)
+    assert "bogus" not in result
+
+
+def test_update_settings_invalidates_cache():
+    """Invalidates cache when any field changed."""
+    f = _make_factory_with_settings()
+    _ = f.device_function  # build cache
+    assert f.cache_valid is True
+    f.update_compile_settings(flag=True)
+    assert f.cache_valid is False
+
+
+def test_update_settings_returns_recognized():
+    """Returns recognized set."""
+    f = _make_factory_with_settings()
+    result = f.update_compile_settings(flag=True)
+    assert "flag" in result
+
+
+# ── CUDAFactory._build / _invalidate_cache ─────────────────── #
+
+
+def test_invalidate_cache_sets_false():
+    """_invalidate_cache sets _cache_valid to False."""
+    f = _make_factory()
+    f._cache_valid = True
+    f._invalidate_cache()
+    assert f._cache_valid is False
+
+
+def test_build_raises_for_non_cache_return():
+    """_build raises TypeError if build() doesn't return CUDADispatcherCache."""
+    def bad_build():
+        return {"not": "a cache"}
+
+    f = _make_factory(build_fn=bad_build)
+    cfg = _make_config()
+    f.setup_compile_settings(cfg)
+    with pytest.raises(TypeError, match="CUDADispatcherCache"):
+        f._build()
+
+
+def test_build_stores_result_and_validates():
+    """_build stores result and sets cache_valid=True."""
+    f = _make_factory_with_settings()
+    f._build()
+    assert f._cache is not None
+    assert f._cache_valid is True
+
+
+# ── CUDAFactory.get_cached_output ──────────────────────────── #
+
+
+def test_get_cached_triggers_build_when_invalid():
+    """Triggers _build when cache invalid."""
+    f = _make_factory_with_settings()
+    assert f._cache_valid is False
+    result = f.get_cached_output("device_function")
+    assert f._cache_valid is True
+    assert result() == 20.0
+
+
+def test_get_cached_raises_runtime_when_cache_none():
+    """Raises RuntimeError when cache is None after build."""
+    def null_build():
+        # Return valid cache but we'll set it to None after
+        return _TestCache()
+
+    f = _make_factory(build_fn=null_build)
+    cfg = _make_config()
+    f.setup_compile_settings(cfg)
+    f._cache_valid = True  # pretend valid
+    f._cache = None  # but no cache
+    with pytest.raises(RuntimeError, match="not been initialized"):
+        f.get_cached_output("device_function")
+
+
+def test_get_cached_raises_key_for_missing_output():
+    """Raises KeyError when output_name not in cache."""
+    f = _make_factory_with_settings()
+    with pytest.raises(KeyError, match="nonexistent"):
+        f.get_cached_output("nonexistent")
+
+
+def test_get_cached_raises_not_implemented_for_minus_one():
+    """Raises NotImplementedError when cached value is int(-1)."""
+    f = _make_factory_with_settings()
+    # Default _TestCache has device_function=-1 when no build_fn given,
+    # but our factory returns lambda. Make a new one.
     @attrs.define
-    class TestConfig(MultipleInstanceCUDAFactoryConfig):
-        value: int = attrs.field(default=10, metadata={"prefixed": True})
+    class _CacheWithStub(CUDADispatcherCache):
+        device_function: object = attrs.field(default=-1, eq=False)
+        stub: int = -1
 
-    class TestFactory(MultipleInstanceCUDAFactory):
-        def __init__(self):
-            super().__init__(instance_label="test")
-            self.setup_compile_settings(
-                TestConfig(precision=np.float32, instance_label="test")
-            )
+    def build_stub():
+        return _CacheWithStub()
 
-        def build(self):
-            return testCache(device_function=lambda: 1.0)
-
-    factory = TestFactory()
-
-    # Update with both prefixed and unprefixed - prefixed should win
-    factory.update_compile_settings(
-        {"value": 5, "test_value": 20}, silent=True
-    )
-
-    assert factory.compile_settings.value == 20
+    f2 = _make_factory(build_fn=build_stub)
+    cfg = _make_config()
+    f2.setup_compile_settings(cfg)
+    with pytest.raises(NotImplementedError, match="stub"):
+        f2.get_cached_output("stub")
 
 
-def test_multiple_instance_factory_no_prefix_match():
-    """Test that non-matching keys pass through unchanged."""
-
-    @attrs.define
-    class TestConfig(CUDAFactoryConfig):
-        value: int = 10
-
-    class TestFactory(MultipleInstanceCUDAFactory):
-        def __init__(self):
-            super().__init__(instance_label="test")
-            self.setup_compile_settings(TestConfig(precision=np.float32))
-
-        def build(self):
-            return testCache(device_function=lambda: 1.0)
-
-    factory = TestFactory()
-
-    # Update with non-prefixed key
-    factory.update_compile_settings({"value": 42})
-
-    assert factory.compile_settings.value == 42
+def test_get_cached_returns_valid_output():
+    """Returns cached value for valid output."""
+    f = _make_factory_with_settings()
+    fn = f.get_cached_output("device_function")
+    assert fn() == 20.0
 
 
-# --- build_config instance_label tests ---
-
-
-def test_build_config_with_instance_label(precision):
-    """Verify prefix transformation works with instance_label parameter."""
-    from cubie._utils import build_config
-    from cubie.CUDAFactory import MultipleInstanceCUDAFactoryConfig
-
-    @attrs.define
-    class TestConfig(MultipleInstanceCUDAFactoryConfig):
-        _atol: float = attrs.field(default=1e-6, metadata={"prefixed": True})
-        _rtol: float = attrs.field(default=1e-3, metadata={"prefixed": True})
-
-        @property
-        def atol(self) -> float:
-            return self._atol
-
-        @property
-        def rtol(self) -> float:
-            return self._rtol
-
-    config = build_config(
-        TestConfig,
-        required={"precision": precision},
-        instance_label="krylov",
-        krylov_atol=1e-10,
-        krylov_rtol=1e-5,
-    )
-
-    # Verify prefixed keys were transformed to unprefixed
-    assert config.atol == 1e-10
-    assert config.rtol == 1e-5
-    # Verify instance_label was set
-    assert config.instance_label == "krylov"
-
-
-def test_build_config_instance_label_prefixed_takes_precedence(precision):
-    """Verify prefixed key wins when both prefixed and unprefixed provided."""
-    from cubie._utils import build_config
-    from cubie.CUDAFactory import MultipleInstanceCUDAFactoryConfig
-
-    @attrs.define
-    class TestConfig(MultipleInstanceCUDAFactoryConfig):
-        _atol: float = attrs.field(
-            default=1e-6, alias="atol", metadata={"prefixed": True}
-        )
-
-        @property
-        def atol(self) -> float:
-            return self._atol
-
-    config = build_config(
-        TestConfig,
-        required={"precision": precision},
-        instance_label="krylov",
-        atol=1e-8,  # Unprefixed
-        krylov_atol=1e-12,  # Prefixed - should take precedence
-    )
-
-    # Prefixed value should win
-    assert config.atol == 1e-12
-
-
-def test_multiple_instance_config_prefix_property(precision):
-    """Verify prefix property returns instance_label."""
-    from cubie.CUDAFactory import MultipleInstanceCUDAFactoryConfig
-
-    @attrs.define
-    class TestConfig(MultipleInstanceCUDAFactoryConfig):
-        _atol: float = attrs.field(
-            default=1e-6, alias="atol", metadata={"prefixed": True}
-        )
-
-    config = TestConfig(precision=precision, instance_label="krylov")
-
-    # prefix property should return instance_label
-    assert config.prefix == "krylov"
-    assert config.prefix == config.instance_label
-
-    # With empty instance_label
-    config_empty = TestConfig(precision=precision, instance_label="")
-    assert config_empty.prefix == ""
-
-
-def test_multiple_instance_config_post_init_populates_prefixed_attrs(
-    precision,
-):
-    """Verify __attrs_post_init__ correctly populates prefixed_attributes."""
-    from cubie.CUDAFactory import MultipleInstanceCUDAFactoryConfig
-
-    @attrs.define
-    class TestConfig(MultipleInstanceCUDAFactoryConfig):
-        _atol: float = attrs.field(default=1e-6, metadata={"prefixed": True})
-        _rtol: float = attrs.field(default=1e-3, metadata={"prefixed": True})
-        non_prefixed: int = attrs.field(
-            default=10,
-        )
-
-    # With instance_label set, prefixed_attributes should be populated
-    config = TestConfig(precision=precision, instance_label="krylov")
-
-    # prefixed_attributes should include atol and rtol but not non_prefixed
-    assert "_atol" in config.prefixed_attributes
-    assert "_rtol" in config.prefixed_attributes
-    assert "non_prefixed" not in config.prefixed_attributes
-    # precision and instance_label are not prefixed (structural parameters)
-    assert "precision" not in config.prefixed_attributes
-    assert "instance_label" not in config.prefixed_attributes
-    assert "prefixed_attributes" not in config.prefixed_attributes
-
-    # With empty instance_label, prefixed_attributes should remain empty
-    config_empty = TestConfig(precision=precision, instance_label="")
-    assert config_empty.prefixed_attributes == set()
-
-
-def test_no_manual_key_filtering(precision):
-    """Verify factory classes don't manually filter keys.
-
-    All kwargs should pass through to nested objects; each level
-    extracts its own via build_config/update and ignores the rest.
-    """
-    from cubie.integrators.matrix_free_solvers.linear_solver import (
-        LinearSolver,
-    )
-
-    # Pass unrelated kwargs - they should be silently ignored
-    solver = LinearSolver(
-        precision=precision,
-        n=3,
-        unrelated_param=42,
-        another_unknown="value",
-    )
-
-    # Verify solver was created successfully
-    assert solver.n == 3
+# ── CUDAFactory.config_hash ───────────────────────────────── #
 
 
 def test_config_hash_no_children():
-    """Test config_hash returns own values_hash when no child factories."""
-    from cubie.CUDAFactory import _CubieConfigBase
-
-    @attrs.define
-    class SimpleConfig(_CubieConfigBase):
-        value1: int = 10
-        value2: str = "test"
-
-    class SimpleFactory(CUDAFactory):
-        def __init__(self):
-            super().__init__()
-
-        def build(self):
-            return testCache(device_function=lambda: 1.0)
-
-    factory = SimpleFactory()
-    factory.setup_compile_settings(SimpleConfig())
-
-    # With no children, config_hash should equal compile_settings.values_hash
-    assert factory.config_hash == factory.compile_settings.values_hash
-    assert len(factory.config_hash) == 64
+    """Returns own hash when no child factories."""
+    f = _make_factory_with_settings()
+    assert f.config_hash == f.compile_settings.values_hash
+    assert len(f.config_hash) == 64
 
 
 def test_config_hash_with_children():
-    """Test config_hash combines hashes from child factories."""
-    from cubie.CUDAFactory import _CubieConfigBase
-
-    @attrs.define
-    class SimpleConfig(_CubieConfigBase):
-        value1: int = 10
-
-    class ChildFactory(CUDAFactory):
+    """Combines own hash with child hashes when children exist."""
+    class _Parent(CUDAFactory):
         def __init__(self):
             super().__init__()
+            self._child = _make_factory_with_settings()
 
         def build(self):
-            return testCache(device_function=lambda: 2.0)
+            return _TestCache()
 
-    class ParentFactory(CUDAFactory):
+    p = _Parent()
+    p.setup_compile_settings(_make_config(x=1))
+    # Combined hash differs from own hash
+    assert p.config_hash != p.compile_settings.values_hash
+    assert len(p.config_hash) == 64
+
+
+# ── CUDAFactory._iter_child_factories ──────────────────────── #
+
+
+def test_iter_child_yields_factory_instances():
+    """Yields CUDAFactory instances from direct attributes."""
+    child = _make_factory()
+
+    class _Parent(CUDAFactory):
         def __init__(self):
             super().__init__()
-            self._child = ChildFactory()
-            self._child.setup_compile_settings(SimpleConfig(value1=20))
+            self._child = child
+            self._plain = 42
 
         def build(self):
-            return testCache(device_function=lambda: 1.0)
+            return _TestCache()
 
-    parent = ParentFactory()
-    parent.setup_compile_settings(SimpleConfig(value1=10))
-
-    # Hash should differ from own settings hash when children exist
-    own_hash = parent.compile_settings.values_hash
-    combined_hash = parent.config_hash
-
-    assert combined_hash != own_hash
-    assert len(combined_hash) == 64
-
-    # Hash should be deterministic
-    assert parent.config_hash == combined_hash
-
-
-def test_iter_child_factories_no_children():
-    """Test _iter_child_factories yields nothing when no children."""
-    from cubie.CUDAFactory import _CubieConfigBase
-
-    @attrs.define
-    class SimpleConfig(_CubieConfigBase):
-        value1: int = 10
-
-    class SimpleFactory(CUDAFactory):
-        def __init__(self):
-            super().__init__()
-            self._non_factory_attr = "not a factory"
-            self._numeric_attr = 42
-
-        def build(self):
-            return testCache(device_function=lambda: 1.0)
-
-    factory = SimpleFactory()
-    factory.setup_compile_settings(SimpleConfig())
-
-    children = list(factory._iter_child_factories())
-    assert children == []
-
-
-def test_iter_child_factories_with_children():
-    """Test _iter_child_factories yields children in alphabetical order."""
-    from cubie.CUDAFactory import _CubieConfigBase
-
-    @attrs.define
-    class SimpleConfig(_CubieConfigBase):
-        value1: int = 10
-
-    class ChildFactory(CUDAFactory):
-        def __init__(self, name):
-            super().__init__()
-            self.name = name
-
-        def build(self):
-            return testCache(device_function=lambda: 1.0)
-
-    class ParentFactory(CUDAFactory):
-        def __init__(self):
-            super().__init__()
-            # Attributes in non-alphabetical order
-            self._zebra_child = ChildFactory("zebra")
-            self._alpha_child = ChildFactory("alpha")
-            self._middle_child = ChildFactory("middle")
-            # Set up settings for children
-            for child in [
-                self._zebra_child,
-                self._alpha_child,
-                self._middle_child,
-            ]:
-                child.setup_compile_settings(SimpleConfig())
-
-        def build(self):
-            return testCache(device_function=lambda: 1.0)
-
-    parent = ParentFactory()
-    parent.setup_compile_settings(SimpleConfig())
-
-    children = list(parent._iter_child_factories())
-
-    # Should yield 3 children
-    assert len(children) == 3
-
-    # Should be in alphabetical order by attribute name
-    names = [c.name for c in children]
-    assert names == ["alpha", "middle", "zebra"]
-
-
-def test_iter_child_factories_uniqueness():
-    """Test _iter_child_factories yields each child only once."""
-    from cubie.CUDAFactory import _CubieConfigBase
-
-    @attrs.define
-    class SimpleConfig(_CubieConfigBase):
-        value1: int = 10
-
-    class ChildFactory(CUDAFactory):
-        def __init__(self):
-            super().__init__()
-
-        def build(self):
-            return testCache(device_function=lambda: 1.0)
-
-    class ParentFactory(CUDAFactory):
-        def __init__(self):
-            super().__init__()
-            # Same child referenced by multiple attributes
-            shared_child = ChildFactory()
-            shared_child.setup_compile_settings(SimpleConfig())
-            self._child_a = shared_child
-            self._child_b = shared_child
-            self._child_c = shared_child
-
-        def build(self):
-            return testCache(device_function=lambda: 1.0)
-
-    parent = ParentFactory()
-    parent.setup_compile_settings(SimpleConfig())
-
-    children = list(parent._iter_child_factories())
-
-    # Same child referenced 3 times should yield only once
+    p = _Parent()
+    children = list(p._iter_child_factories())
     assert len(children) == 1
+    assert children[0] is child
+
+
+def test_iter_child_alphabetical_order():
+    """Alphabetical ordering by attribute name."""
+    child_z = _make_factory()
+    child_a = _make_factory()
+
+    class _Parent(CUDAFactory):
+        def __init__(self):
+            super().__init__()
+            self._z_child = child_z
+            self._a_child = child_a
+
+        def build(self):
+            return _TestCache()
+
+    p = _Parent()
+    children = list(p._iter_child_factories())
+    assert children[0] is child_a
+    assert children[1] is child_z
+
+
+def test_iter_child_deduplicates_by_id():
+    """Deduplicates by id."""
+    shared = _make_factory()
+
+    class _Parent(CUDAFactory):
+        def __init__(self):
+            super().__init__()
+            self._ref1 = shared
+            self._ref2 = shared
+
+        def build(self):
+            return _TestCache()
+
+    p = _Parent()
+    children = list(p._iter_child_factories())
+    assert len(children) == 1
+
+
+# ── Forwarding properties (table-driven) ───────────────────── #
+
+
+def test_factory_precision_forwarding():
+    """precision forwards to compile_settings.precision."""
+    f = _make_factory()
+    cfg = CUDAFactoryConfig(precision=np.float32)
+    f.setup_compile_settings(cfg)
+    assert f.precision == f.compile_settings.precision
+    assert f.precision == np.float32
+
+
+def test_factory_numba_precision_forwarding():
+    """numba_precision forwards to compile_settings.numba_precision."""
+    f = _make_factory()
+    cfg = CUDAFactoryConfig(precision=np.float64)
+    f.setup_compile_settings(cfg)
+    assert f.numba_precision == f.compile_settings.numba_precision
+
+
+def test_factory_simsafe_precision_forwarding():
+    """simsafe_precision forwards to compile_settings.simsafe_precision."""
+    f = _make_factory()
+    cfg = CUDAFactoryConfig(precision=np.float32)
+    f.setup_compile_settings(cfg)
+    assert f.simsafe_precision == f.compile_settings.simsafe_precision
+
+
+def test_factory_shared_buffer_size(single_integrator_run):
+    """shared_buffer_size delegates to buffer_registry."""
+    expected = buffer_registry.shared_buffer_size(single_integrator_run)
+    assert single_integrator_run.shared_buffer_size == expected
+
+
+def test_factory_local_buffer_size(single_integrator_run):
+    """local_buffer_size delegates to buffer_registry."""
+    expected = buffer_registry.local_buffer_size(single_integrator_run)
+    assert single_integrator_run.local_buffer_size == expected
+
+
+def test_factory_persistent_local_buffer_size(single_integrator_run):
+    """persistent_local_buffer_size delegates to buffer_registry."""
+    expected = buffer_registry.persistent_local_buffer_size(
+        single_integrator_run
+    )
+    assert single_integrator_run.persistent_local_buffer_size == expected
+
+
+# ── MultipleInstanceCUDAFactoryConfig ──────────────────────── #
+
+
+def test_get_prefixed_attributes_names():
+    """get_prefixed_attributes(aliases=False) returns field names."""
+    @attrs.define
+    class _C(MultipleInstanceCUDAFactoryConfig):
+        _atol: float = attrs.field(
+            default=1e-6, metadata={"prefixed": True}
+        )
+        plain: int = 10
+
+    names = _C.get_prefixed_attributes(aliases=False)
+    assert "_atol" in names
+    assert "plain" not in names
+
+
+def test_get_prefixed_attributes_aliases():
+    """get_prefixed_attributes(aliases=True) returns aliases."""
+    @attrs.define
+    class _C(MultipleInstanceCUDAFactoryConfig):
+        _atol: float = attrs.field(
+            default=1e-6, alias="atol", metadata={"prefixed": True}
+        )
+
+    aliases = _C.get_prefixed_attributes(aliases=True)
+    assert "atol" in aliases
+    assert "_atol" not in aliases
+
+
+def test_prefix_property():
+    """prefix property returns instance_label."""
+    @attrs.define
+    class _C(MultipleInstanceCUDAFactoryConfig):
+        pass
+
+    c = _C(precision=np.float32, instance_label="krylov")
+    assert c.prefix == "krylov"
+    assert c.prefix == c.instance_label
+
+
+def test_post_init_sets_prefixed_attributes_when_label_nonempty():
+    """__attrs_post_init__ sets prefixed_attributes when label non-empty."""
+    @attrs.define
+    class _C(MultipleInstanceCUDAFactoryConfig):
+        _atol: float = attrs.field(
+            default=1e-6, metadata={"prefixed": True}
+        )
+        plain: int = 10
+
+    c = _C(precision=np.float32, instance_label="krylov")
+    assert "_atol" in c.prefixed_attributes
+    assert "plain" not in c.prefixed_attributes
+
+    # Empty label -> empty set
+    c_empty = _C(precision=np.float32, instance_label="")
+    assert c_empty.prefixed_attributes == set()
+
+
+# ── MultipleInstanceCUDAFactoryConfig.update ───────────────── #
+
+
+def test_mi_update_removes_non_prefixed_for_prefixed_attrs():
+    """Removes non-prefixed keys for prefixed attributes."""
+    @attrs.define
+    class _C(MultipleInstanceCUDAFactoryConfig):
+        _atol: float = attrs.field(
+            default=1e-6, alias="atol", metadata={"prefixed": True}
+        )
+
+    c = _C(precision=np.float32, instance_label="krylov")
+    # Passing unprefixed key for a prefixed attribute: should be removed
+    recognized, changed = c.update({"_atol": 1e-8})
+    # _atol is stripped, krylov__atol not present -> no change
+    assert "_atol" not in changed
+
+
+def test_mi_update_maps_prefixed_to_unprefixed():
+    """Maps prefixed keys (e.g. krylov_atol) to unprefixed (atol)."""
+    @attrs.define
+    class _C(MultipleInstanceCUDAFactoryConfig):
+        _atol: float = attrs.field(
+            default=1e-6, alias="atol", metadata={"prefixed": True}
+        )
+
+    c = _C(precision=np.float32, instance_label="krylov")
+    recognized, changed = c.update({"krylov__atol": 1e-10})
+    assert "krylov__atol" in recognized
+    assert c._atol == 1e-10
+
+
+def test_mi_update_returns_prefixed_key_names():
+    """Returns recognized/changed with prefixed key names restored."""
+    @attrs.define
+    class _C(MultipleInstanceCUDAFactoryConfig):
+        _atol: float = attrs.field(
+            default=1e-6, alias="atol", metadata={"prefixed": True}
+        )
+
+    c = _C(precision=np.float32, instance_label="test")
+    recognized, changed = c.update({"test__atol": 1e-10})
+    assert "test__atol" in recognized
+    assert "test__atol" in changed
+
+
+# ── MultipleInstanceCUDAFactory ────────────────────────────── #
+
+
+def test_mi_factory_init_stores_label():
+    """__init__ stores _instance_label and calls super().__init__."""
+    class _F(MultipleInstanceCUDAFactory):
+        def build(self):
+            return _TestCache()
+
+    f = _F(instance_label="newton")
+    assert f._instance_label == "newton"
+    assert f._compile_settings is None
+    assert f._cache_valid is True
+
+
+def test_mi_factory_instance_label_property():
+    """instance_label property returns _instance_label."""
+    class _F(MultipleInstanceCUDAFactory):
+        def build(self):
+            return _TestCache()
+
+    f = _F(instance_label="krylov")
+    assert f.instance_label == "krylov"

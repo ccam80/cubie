@@ -321,17 +321,17 @@ def test_update_basic(solver_mutable, tolerance, precision):
 def test_update_with_kwargs(solver_mutable, tolerance):
     """Test update with keyword arguments."""
     solver = solver_mutable
-    original_dt = solver.kernel.single_integrator.dt0
+    original_dt = solver.kernel.single_integrator.dt
 
     updated_keys = solver.update({}, dt=1e-8)
 
     assert "dt" in updated_keys
-    assert solver.kernel.single_integrator.dt0 == pytest.approx(
+    assert solver.kernel.single_integrator.dt == pytest.approx(
         1e-8,
         rel=tolerance.rel_tight,
         abs=tolerance.abs_tight,
     )
-    assert solver.kernel.single_integrator.dt0 != pytest.approx(
+    assert solver.kernel.single_integrator.dt != pytest.approx(
         original_dt,
         rel=tolerance.rel_tight,
         abs=tolerance.abs_tight,

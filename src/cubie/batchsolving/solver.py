@@ -571,7 +571,7 @@ class Solver:
         driver_recognised = self.driver_interpolator.update(
             updates_dict, silent=True
         )
-        if driver_recognised:
+        if driver_recognised and self.kernel.n_drivers > 0:
             updates_dict["evaluate_driver_at_t"] = (
                 self.driver_interpolator.evaluation_function
             )

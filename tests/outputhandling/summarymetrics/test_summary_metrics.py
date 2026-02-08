@@ -1,923 +1,805 @@
-"""
-Tests for the summarymetrics class in the cubie integrator system.
-Tests tuple return values, parameter parsing, error handling, and tuple ordering.
-"""
+"""Tests for cubie.outputhandling.summarymetrics.metrics."""
 
-import pytest
+from __future__ import annotations
+
 import warnings
+
+import numpy as np
+import pytest
+
 from cubie.outputhandling.summarymetrics.metrics import (
-    SummaryMetrics,
-    SummaryMetric,
+    MetricConfig,
     MetricFuncCache,
+    SummaryMetric,
+    SummaryMetrics,
+    register_metric,
 )
-from cubie.outputhandling import summary_metrics
+from cubie.outputhandling import summary_metrics as global_registry
+from cubie.CUDAFactory import CUDAFactoryConfig, CUDADispatcherCache
 
 
-@pytest.fixture(scope="function")
-def empty_metrics(precision):
-    """Create an empty summarymetrics instance for testing."""
-    return SummaryMetrics(precision=precision)
+# ── Concrete subclass for testing abstract SummaryMetric ───────────── #
 
 
-@pytest.fixture(scope="function")
-def real_metrics():
-    """Return the module-level summary_metrics instance with metrics implemented."""
-    return summary_metrics
+class _ConcreteMetric(SummaryMetric):
+    """Minimal concrete SummaryMetric for testing."""
 
-
-@pytest.fixture(scope="function")
-def mock_functions():
-    """Create mock functions for update and save."""
-
-    def mock_update(value, buffer, current_index, customisable_variable):
-        """Mock update function that does nothing."""
-        pass
-
-    def mock_save(
-        buffer, output_array, summarise_every, customisable_variable
-    ):
-        """Mock save function that does nothing."""
-        pass
-
-    return mock_update, mock_save
-
-
-@pytest.fixture(scope="function")
-def mock_metric_settings(request, precision):
-    """Create mock settings for testing."""
-    defaults = {"buffer_size": 5, "output_size": 3, "name": "mock_metric",
-                "precision": precision}
-    if hasattr(request, "param"):
-        defaults.update(request.param)
-
-    return defaults
-
-
-class ConcreteMetric(SummaryMetric):
-    def __init__(self,
-                 buffer_size,
-                 output_size,
-                 update_device_func,
-                 save_device_func,
-                 precision,
-                 name):
-        super().__init__(buffer_size=buffer_size,
-                         output_size=output_size,
-                         name=name,
-                         precision=precision)
-        self.update_func = update_device_func
-        self.save_func = save_device_func
+    def __init__(self, precision, **kwargs):
+        defaults = dict(
+            buffer_size=1,
+            output_size=1,
+            name="test_concrete",
+            unit_modification="[unit]",
+            sample_summaries_every=0.01,
+        )
+        defaults.update(kwargs)
+        super().__init__(precision=precision, **defaults)
+        self._update_fn = lambda: "update"
+        self._save_fn = lambda: "save"
 
     def build(self):
-        return MetricFuncCache(update=self.update_func, save=self.save_func)
-
-
-@pytest.fixture(scope="function")
-def mock_metric(mock_functions, mock_metric_settings, precision):
-    """Create a mock SummaryMetric instance."""
-    update_func, save_func = mock_functions
-    name = mock_metric_settings["name"]
-    buffer_size = mock_metric_settings["buffer_size"]
-    output_size = mock_metric_settings["output_size"]
-
-    return ConcreteMetric(
-        name=name,
-        precision=precision,
-        buffer_size=buffer_size,
-        output_size=output_size,
-        update_device_func=update_func,
-        save_device_func=save_func,
-    )
-
-
-@pytest.fixture(scope="function")
-def mock_parametrized_metric(mock_functions, mock_metric_settings, precision):
-    """Create a mock SummaryMetric instance."""
-    update_func, save_func = mock_functions
-    name = "parameterised"
-
-    def buffer_size(param):
-        return 2 * param
-
-    def output_size(param):
-        return 2 * param
-
-    return ConcreteMetric(
-        name=name,
-        precision=precision,
-        buffer_size=buffer_size,
-        output_size=output_size,
-        update_device_func=update_func,
-        save_device_func=save_func,
-    )
-
-
-@pytest.fixture(scope="function")
-def mock_metrics(empty_metrics, mock_metric, mock_parametrized_metric):
-    """Create a summarymetrics instance with mock metrics registered."""
-    empty_metrics.register_metric(mock_metric)
-    empty_metrics.register_metric(mock_parametrized_metric)
-    return empty_metrics
-
-
-def test_register_metrics_success(
-    empty_metrics, mock_metric, mock_parametrized_metric
-):
-    """Create a summarymetrics instance with sample metrics registered."""
-    empty_metrics.register_metric(mock_metric)
-    empty_metrics.register_metric(mock_parametrized_metric)
-
-    assert "mock_metric" in empty_metrics.implemented_metrics
-    assert "parameterised" in empty_metrics.implemented_metrics
-    assert empty_metrics._buffer_sizes["mock_metric"] == 5
-    assert empty_metrics._output_sizes["mock_metric"] == 3
-
-
-def test_register_metric_duplicate_name_raises_error(
-    empty_metrics, mock_functions, precision
-):
-    """Test that registering a metric with duplicate name raises ValueError."""
-    update, save = mock_functions
-    metric1 = ConcreteMetric(
-        name="duplicate",
-        precision=precision,
-        buffer_size=5,
-        output_size=3,
-        save_device_func=save,
-        update_device_func=update,
-    )
-    metric2 = ConcreteMetric(
-        name="duplicate",
-        precision=precision,
-        buffer_size=10,
-        output_size=6,
-        save_device_func=save,
-        update_device_func=update,
-    )
-
-    empty_metrics.register_metric(metric1)
-
-    with pytest.raises(
-        ValueError, match="Metric 'duplicate' is already registered"
-    ):
-        empty_metrics.register_metric(metric2)
-
-
-def test_buffer_offsets_returns_correct_tuple(mock_metrics):
-    """Test that buffer_offsets returns tuple with correct offset values."""
-    requested = ["mock_metric", "parameterised[5]"]
-    offsets_tuple = mock_metrics.buffer_offsets(requested)
-
-    # mock_metric starts at 0, parameterised[5] starts at 5 (mock_metric's size)
-    expected_offsets = (0, 5)
-
-    assert offsets_tuple == expected_offsets
-
-
-def test_output_offsets_returns_correct_tuple(mock_metrics):
-    """Test that output_offsets returns tuple with correct offset values."""
-    requested = ["mock_metric", "parameterised[5]"]
-    offsets_tuple = mock_metrics.output_offsets(requested)
-    total_size = mock_metrics.summaries_output_height(requested)
-
-    # mock_metric starts at 0, parameterised[5] starts at 3 (mock_metric's output size)
-    expected_offsets = (0, 3)
-    expected_total_size = 13  # mock_metric=3 + parameterised[5]=10
-
-    assert offsets_tuple == expected_offsets
-    assert total_size == expected_total_size
-
-
-def test_buffer_sizes_returns_correct_tuple(mock_metrics):
-    """Test that buffer_sizes returns tuple with correct size values."""
-    requested = ["mock_metric", "parameterised[5]"]
-    sizes_tuple = mock_metrics.buffer_sizes(requested)
-
-    expected_sizes = (5, 10)  # mock_metric=5, parameterised[5]=2*5=10
-    assert sizes_tuple == expected_sizes
-
-
-def test_output_sizes_returns_correct_tuple(mock_metrics):
-    """Test that output_sizes returns tuple with correct size values."""
-    requested = ["mock_metric", "parameterised[5]"]
-    sizes_tuple = mock_metrics.output_sizes(requested)
-
-    expected_sizes = (3, 10)  # mock_metric=3, parameterised[5]=2*5=10
-    assert sizes_tuple == expected_sizes
-
-
-def test_tuple_ordering_alignment(mock_metrics):
-    """Test that all tuple methods return values in the same order."""
-    requested = [
-        "parameterised[3]",
-        "mock_metric",
-    ]  # Intentionally different order
-
-    buffer_offsets_tuple = mock_metrics.buffer_offsets(requested)
-    output_offsets_tuple = mock_metrics.output_offsets(requested)
-    output_total_size = mock_metrics.summaries_output_height(requested)
-    buffer_sizes_tuple = mock_metrics.buffer_sizes(requested)
-    output_sizes_tuple = mock_metrics.output_sizes(requested)
-
-    # All tuples should have the same length
-    assert (
-        len(buffer_offsets_tuple)
-        == len(output_offsets_tuple)
-        == len(buffer_sizes_tuple)
-        == len(output_sizes_tuple)
-    )
-
-    # Check that the ordering is consistent by verifying specific values
-    # Since we requested ["parameterised[3]", "mock_metric"], we should get values in that order
-    assert buffer_sizes_tuple == (
-        6,
-        5,
-    )  # parameterised[3]=2*3=6, mock_metric=5
-    assert output_sizes_tuple == (
-        6,
-        3,
-    )  # parameterised[3]=2*3=6, mock_metric=3
-    assert buffer_offsets_tuple == (0, 6)  # parameterised[3]=0, mock_metric=6
-    assert output_offsets_tuple == (0, 6)  # parameterised[3]=0, mock_metric=6
-
-    # Test total size for output (buffer doesn't return total anymore)
-    assert output_total_size == 9  # 6 + 3
-
-
-def test_parametrized_metric_with_valid_parameter(mock_metrics):
-    """Test parametrized metric with valid parameter."""
-    requested = ["parameterised[5]"]
-
-    buffer_sizes_tuple = mock_metrics.buffer_sizes(requested)
-    output_sizes_tuple = mock_metrics.output_sizes(requested)
-
-    # parametrized buffer_size = param * 2, output_size = param * 2
-    assert buffer_sizes_tuple == (10,)  # 5 * 2
-    assert output_sizes_tuple == (10,)  # 5 * 2
-
-
-def test_parametrized_metric_without_parameter_raises_error(mock_metrics):
-    """Test that parametrized metric without parameter raises ValueError."""
-    requested = ["parameterised"]  # Missing parameter
-
-    with pytest.warns(
-        UserWarning, match="Metric 'parameterised' has a callable size"
-    ):
-        mock_metrics.buffer_sizes(requested)
-
-
-def test_parametrized_metric_with_invalid_parameter_raises_error(mock_metrics):
-    """Test that parametrized metric with invalid parameter raises ValueError."""
-    requested = ["parameterised[invalid]"]
-
-    with pytest.raises(
-        ValueError,
-        match="Parameter in 'parameterised\\[invalid\\]' must be an integer",
-    ):
-        mock_metrics.buffer_sizes(requested)
-
-
-def test_invalid_metric_name_raises_warning(mock_metrics):
-    """Test that invalid metric name raises a warning."""
-    requested = ["nonexistent_metric"]
-
-    with warnings.catch_warnings(record=True) as w:
-        warnings.simplefilter("always")
-        mock_metrics.buffer_sizes(requested)
-
-        assert len(w) == 1
-        assert issubclass(w[0].category, UserWarning)
-        assert "Metric 'nonexistent_metric' is not registered" in str(
-            w[0].message
+        return MetricFuncCache(
+            update=self._update_fn, save=self._save_fn
         )
 
 
-def test_mixed_valid_invalid_metrics_with_warning(mock_metrics):
-    """Test that mix of valid and invalid metrics processes valid ones and warns about invalid."""
-    requested = ["mock_metric", "nonexistent", "parameterised[3]"]
-
-    with warnings.catch_warnings(record=True) as w:
-        warnings.simplefilter("always")
-        buffer_sizes_tuple = mock_metrics.buffer_sizes(requested)
-
-        # Should warn about nonexistent metric
-        assert len(w) == 1
-        assert "Metric 'nonexistent' is not registered" in str(w[0].message)
-
-        # Should process valid metrics
-        assert buffer_sizes_tuple == (
-            5,
-            6,
-        )  # mock_metric=5, parameterised[3]=2*3=6
+# ── Helper to build a fresh SummaryMetrics with test metrics ───────── #
 
 
-def test_empty_request_returns_empty_tuple(mock_metrics):
-    """Test that empty request returns appropriate empty values."""
-    requested = []
-
-    buffer_sizes_tuple = mock_metrics.buffer_sizes(requested)
-    output_sizes_tuple = mock_metrics.output_sizes(requested)
-
-    # For offset methods, empty requests should return (0, empty_tuple)
-    buffer_offsets_tuple = mock_metrics.buffer_offsets(requested)
-    output_offsets_tuple = mock_metrics.output_offsets(requested)
-    buffer_total_size = mock_metrics.summaries_buffer_height(requested)
-    output_total_size = mock_metrics.summaries_output_height(requested)
-
-    assert buffer_sizes_tuple == ()
-    assert output_sizes_tuple == ()
-
-    # Empty requests should return total size of 0 and empty offset tuples
-    assert buffer_total_size == 0
-    assert output_total_size == 0
-    assert buffer_offsets_tuple == ()
-    assert output_offsets_tuple == ()
-
-
-def test_parse_string_for_params_valid_formats(mock_metrics):
-    """Test parameter parsing with various valid formats."""
-    # Test single parameter
-    result = mock_metrics.parse_string_for_params(["metric[5]"])
-    assert result == ["metric"]
-    assert mock_metrics._params["metric"] == 5
-
-    # Test multiple parameters
-    result = mock_metrics.parse_string_for_params(
-        ["metric1[3]", "metric2[7]", "metric3"]
-    )
-    assert result == ["metric1", "metric2", "metric3"]
-    assert mock_metrics._params["metric1"] == 3
-    assert mock_metrics._params["metric2"] == 7
-    assert mock_metrics._params["metric3"] == 0
-
-
-def test_parse_string_for_params_invalid_formats(mock_metrics):
-    """Test parameter parsing with invalid formats."""
-    # Test non-integer parameter
-    with pytest.raises(
-        ValueError, match="Parameter in 'metric\\[abc\\]' must be an integer"
-    ):
-        mock_metrics.parse_string_for_params(["metric[abc]"])
-
-    # Test float parameter (should fail as it expects integer)
-    with pytest.raises(
-        ValueError, match="Parameter in 'metric\\[3.14\\]' must be an integer"
-    ):
-        mock_metrics.parse_string_for_params(["metric[3.14]"])
-
-
-def test_save_functions_returns_correct_tuple(mock_metrics, mock_functions):
-    """Test that save_functions returns tuple with correct function objects."""
-    requested = ["mock_metric", "parameterised[3]"]
-    update_func, save_func = mock_functions
-
-    functions_tuple = mock_metrics.save_functions(requested)
-
-    # The registered mock metrics should return the correct save functions
-    assert len(functions_tuple) == 2
-    assert functions_tuple[0] is mock_metrics._metric_objects["mock_metric"].save_device_func
-    assert functions_tuple[1] is mock_metrics._metric_objects["parameterised"].save_device_func
-    # Also check they match the expected mock function
-    assert functions_tuple[0] is save_func
-    assert functions_tuple[1] is save_func
-
-
-def test_update_functions_returns_correct_tuple(mock_metrics, mock_functions):
-    """Test that update_functions returns tuple with correct function objects."""
-    requested = ["mock_metric", "parameterised[3]"]
-    update_func, save_func = mock_functions
-
-    functions_tuple = mock_metrics.update_functions(requested)
-
-    # The registered mock metrics should return the correct update functions
-    assert len(functions_tuple) == 2
-    assert functions_tuple[0] is mock_metrics._metric_objects["mock_metric"].update_device_func
-    assert functions_tuple[1] is mock_metrics._metric_objects["parameterised"].update_device_func
-    # Also check they match the expected mock function
-    assert functions_tuple[0] is update_func
-    assert functions_tuple[1] is update_func
-
-
-def test_complex_parameter_scenarios(mock_metrics, mock_functions, precision):
-    """Test complex scenarios with multiple parametrized metrics."""
-    # Create and register the complex metric with parametrized buffer_size
-    update_func, save_func = mock_functions
-
-    def complex_buffer_size(param):
-        if param is None:
-            raise ValueError("Parameter required")
-        return param + 10
-
-    complex_metric = ConcreteMetric(
-        name="complex",
+def _make_registry(precision):
+    """Create a fresh SummaryMetrics with two test metrics registered."""
+    reg = SummaryMetrics(precision=precision)
+    m1 = _ConcreteMetric(
         precision=precision,
-        buffer_size=complex_buffer_size,
-        output_size=5,
-        update_device_func=update_func,
-        save_device_func=save_func,
+        name="alpha",
+        buffer_size=2,
+        output_size=1,
     )
-    mock_metrics.register_metric(complex_metric)
-
-    # Test with multiple parametrized metrics
-    requested = ["parameterised[3]", "complex[7]", "mock_metric"]
-
-    buffer_sizes_tuple = mock_metrics.buffer_sizes(requested)
-    assert buffer_sizes_tuple == (6, 17, 5)  # 3*2=6, 7+10=17, 5
-
-
-def test_edge_case_bracket_parsing(mock_metrics):
-    """Test edge cases in bracket parsing."""
-    # Test with zero parameter
-    result = mock_metrics.parse_string_for_params(["metric[0]"])
-    assert result == ["metric"]
-    assert mock_metrics._params["metric"] == 0
-
-    # Test with negative parameter
-    result = mock_metrics.parse_string_for_params(["metric[-5]"])
-    assert result == ["metric"]
-    assert mock_metrics._params["metric"] == -5
+    m2 = _ConcreteMetric(
+        precision=precision,
+        name="beta",
+        buffer_size=3,
+        output_size=2,
+        unit_modification="V",
+    )
+    reg.register_metric(m1)
+    reg.register_metric(m2)
+    return reg
 
 
-def test_real_metrics_integration(real_metrics):
-    """Test integration with real metrics from the module."""
-    # Test that real metrics are properly registered
-    assert len(real_metrics.implemented_metrics) > 0
-
-    # Test with real metrics
-    available_metrics = real_metrics.implemented_metrics
-    if available_metrics:
-        # Test with first available metric
-        first_metric = available_metrics[0]
-
-        # Test sizes with real metrics
-        buffer_sizes_tuple = real_metrics.buffer_sizes([first_metric])
-        output_sizes_tuple = real_metrics.output_sizes([first_metric])
-        assert len(buffer_sizes_tuple) == 1
-        assert len(output_sizes_tuple) == 1
+def _make_registry_with_callable(precision):
+    """Registry with a callable-sized metric for parameterised tests."""
+    reg = SummaryMetrics(precision=precision)
+    m = _ConcreteMetric(
+        precision=precision,
+        name="sized",
+        buffer_size=lambda n: 3 + n,
+        output_size=lambda n: n,
+        unit_modification="s",
+    )
+    reg.register_metric(m)
+    return reg
 
 
-def test_combined_metrics_mean_std_rms_all_three(real_metrics):
-    """Test that mean+std+rms is substituted with mean_std_rms."""
-    requested = ["mean", "std", "rms"]
-    processed = real_metrics.preprocess_request(requested)
-    
-    # Should substitute with combined metric
+# ── MetricFuncCache ────────────────────────────────────────────────── #
+
+
+def test_metric_func_cache_defaults():
+    """MetricFuncCache stores update and save with None defaults."""
+    cache = MetricFuncCache()
+    assert cache.update is None
+    assert cache.save is None
+
+
+def test_metric_func_cache_stores_callables():
+    """MetricFuncCache stores provided update and save callables."""
+    fn_u = lambda: "u"
+    fn_s = lambda: "s"
+    cache = MetricFuncCache(update=fn_u, save=fn_s)
+    assert cache.update is fn_u
+    assert cache.save is fn_s
+
+
+def test_metric_func_cache_is_cuda_dispatcher_cache():
+    """MetricFuncCache inherits from CUDADispatcherCache."""
+    # isinstance is justified: the type itself IS the functionality
+    assert issubclass(MetricFuncCache, CUDADispatcherCache)
+
+
+# ── MetricConfig ───────────────────────────────────────────────────── #
+
+
+def test_metric_config_default_sample_summaries_every():
+    """sample_summaries_every defaults to 0.01."""
+    cfg = MetricConfig(precision=np.float32)
+    assert cfg.sample_summaries_every == pytest.approx(0.01)
+
+
+def test_metric_config_custom_sample_summaries_every():
+    """sample_summaries_every accepts custom positive values."""
+    cfg = MetricConfig(precision=np.float32, sample_summaries_every=0.05)
+    assert cfg.sample_summaries_every == pytest.approx(0.05)
+
+
+def test_metric_config_inherits_precision():
+    """MetricConfig inherits precision from CUDAFactoryConfig."""
+    # isinstance justified: verifying inheritance IS the functionality
+    assert issubclass(MetricConfig, CUDAFactoryConfig)
+    cfg = MetricConfig(precision=np.float64)
+    assert cfg.precision == np.float64
+
+
+# ── register_metric decorator ─────────────────────────────────────── #
+
+
+def test_register_metric_instantiates_with_precision():
+    """Decorator instantiates the class with registry.precision."""
+    reg = SummaryMetrics(precision=np.float32)
+    # Register via the decorator
+    @register_metric(reg)
+    class _TestMetric(SummaryMetric):
+        def __init__(self, precision):
+            super().__init__(
+                buffer_size=1, output_size=1,
+                name="_reg_test", precision=precision,
+            )
+
+        def build(self):
+            return MetricFuncCache()
+
+    assert "_reg_test" in reg.implemented_metrics
+    assert reg._metric_objects["_reg_test"].compile_settings.precision == np.float32
+
+
+def test_register_metric_returns_class():
+    """Decorator returns the original class, not the instance."""
+    reg = SummaryMetrics(precision=np.float32)
+
+    @register_metric(reg)
+    class _Cls(SummaryMetric):
+        def __init__(self, precision):
+            super().__init__(
+                buffer_size=1, output_size=1,
+                name="_cls_test", precision=precision,
+            )
+
+        def build(self):
+            return MetricFuncCache()
+
+    # The returned value should be the class, not an instance
+    assert isinstance(_Cls, type)
+    assert issubclass(_Cls, SummaryMetric)
+
+
+# ── SummaryMetric.__init__ ─────────────────────────────────────────── #
+
+
+def test_summary_metric_init_stores_attributes():
+    """__init__ stores buffer_size, output_size, name, unit_modification."""
+    m = _ConcreteMetric(
+        precision=np.float32,
+        name="test_m",
+        buffer_size=5,
+        output_size=3,
+        unit_modification="mV",
+    )
+    assert m.buffer_size == 5
+    assert m.output_size == 3
+    assert m.name == "test_m"
+    assert m.unit_modification == "mV"
+
+
+def test_summary_metric_init_creates_metric_config():
+    """__init__ creates MetricConfig with sample_summaries_every and precision."""
+    m = _ConcreteMetric(
+        precision=np.float64,
+        sample_summaries_every=0.05,
+    )
+    cs = m.compile_settings
+    assert cs.sample_summaries_every == pytest.approx(0.05)
+    assert cs.precision == np.float64
+
+
+def test_summary_metric_init_sets_up_compile_settings():
+    """__init__ calls setup_compile_settings (compile_settings not None)."""
+    m = _ConcreteMetric(precision=np.float32)
+    assert m.compile_settings is not None
+    # Stronger: verify it's a MetricConfig with expected defaults
+    assert m.compile_settings.sample_summaries_every == pytest.approx(0.01)
+
+
+# ── SummaryMetric properties ──────────────────────────────────────── #
+
+
+def test_summary_metric_update_device_func():
+    """update_device_func returns the cached 'update' function."""
+    m = _ConcreteMetric(precision=np.float32)
+    # Accessing update_device_func triggers build via get_cached_output
+    assert m.update_device_func is m._update_fn
+
+
+def test_summary_metric_save_device_func():
+    """save_device_func returns the cached 'save' function."""
+    m = _ConcreteMetric(precision=np.float32)
+    assert m.save_device_func is m._save_fn
+
+
+# ── SummaryMetric.update ──────────────────────────────────────────── #
+
+
+def test_summary_metric_update_delegates():
+    """update() delegates to update_compile_settings with silent=True."""
+    m = _ConcreteMetric(precision=np.float32, sample_summaries_every=0.01)
+    m.update(sample_summaries_every=0.05)
+    assert m.compile_settings.sample_summaries_every == pytest.approx(0.05)
+
+
+# ── SummaryMetric.build abstract ──────────────────────────────────── #
+
+
+def test_summary_metric_build_is_abstract():
+    """build() is abstract; instantiating SummaryMetric directly raises."""
+    with pytest.raises(TypeError, match="abstract"):
+        SummaryMetric(
+            buffer_size=1, output_size=1,
+            name="bad", precision=np.float32,
+        )
+
+
+# ── SummaryMetrics.__attrs_post_init__ ─────────────────────────────── #
+
+
+def test_summary_metrics_post_init_resets_params():
+    """__attrs_post_init__ resets _params to empty dict."""
+    reg = SummaryMetrics(precision=np.float32)
+    assert reg._params == {}
+
+
+def test_summary_metrics_post_init_defines_combined_metrics():
+    """__attrs_post_init__ defines all expected combined metric mappings."""
+    reg = SummaryMetrics(precision=np.float32)
+    expected_keys = {
+        frozenset(["mean", "std", "rms"]),
+        frozenset(["mean", "std"]),
+        frozenset(["std", "rms"]),
+        frozenset(["max", "min"]),
+        frozenset(["dxdt_max", "dxdt_min"]),
+        frozenset(["d2xdt2_max", "d2xdt2_min"]),
+    }
+    assert set(reg._combined_metrics.keys()) == expected_keys
+    assert reg._combined_metrics[frozenset(["mean", "std", "rms"])] == "mean_std_rms"
+    assert reg._combined_metrics[frozenset(["mean", "std"])] == "mean_std"
+    assert reg._combined_metrics[frozenset(["std", "rms"])] == "std_rms"
+    assert reg._combined_metrics[frozenset(["max", "min"])] == "extrema"
+    assert reg._combined_metrics[frozenset(["dxdt_max", "dxdt_min"])] == "dxdt_extrema"
+    assert reg._combined_metrics[frozenset(["d2xdt2_max", "d2xdt2_min"])] == "d2xdt2_extrema"
+
+
+# ── SummaryMetrics.update ──────────────────────────────────────────── #
+
+
+def test_summary_metrics_update_precision():
+    """update() sets self.precision when 'precision' in kwargs."""
+    reg = _make_registry(np.float32)
+    reg.update(precision=np.float64)
+    assert reg.precision == np.float64
+
+
+def test_summary_metrics_update_propagates_to_all_metrics():
+    """update() propagates kwargs to all registered metric objects."""
+    reg = _make_registry(np.float32)
+    reg.update(sample_summaries_every=0.07)
+    for metric in reg._metric_objects.values():
+        assert metric.compile_settings.sample_summaries_every == pytest.approx(0.07)
+
+
+# ── SummaryMetrics.register_metric ─────────────────────────────────── #
+
+
+def test_register_metric_duplicate_raises():
+    """register_metric raises ValueError for duplicate name."""
+    reg = SummaryMetrics(precision=np.float32)
+    m1 = _ConcreteMetric(precision=np.float32, name="dup")
+    m2 = _ConcreteMetric(precision=np.float32, name="dup")
+    reg.register_metric(m1)
+    with pytest.raises(ValueError, match="Metric 'dup' is already registered"):
+        reg.register_metric(m2)
+
+
+def test_register_metric_stores_all_data():
+    """register_metric appends name, stores sizes, object, and default param."""
+    reg = SummaryMetrics(precision=np.float32)
+    m = _ConcreteMetric(
+        precision=np.float32, name="mtest",
+        buffer_size=7, output_size=4,
+    )
+    reg.register_metric(m)
+    assert "mtest" in reg._names
+    assert reg._buffer_sizes["mtest"] == 7
+    assert reg._output_sizes["mtest"] == 4
+    assert reg._metric_objects["mtest"] is m
+    assert reg._params["mtest"] == 0
+
+
+# ── SummaryMetrics._apply_combined_metrics ─────────────────────────── #
+
+
+@pytest.mark.parametrize(
+    "request_list, expected_combined, expected_len",
+    [
+        pytest.param(
+            ["mean", "std", "rms"], "mean_std_rms", 1,
+            id="mean_std_rms",
+        ),
+        pytest.param(
+            ["mean", "std"], "mean_std", 1,
+            id="mean_std",
+        ),
+        pytest.param(
+            ["std", "rms"], "std_rms", 1,
+            id="std_rms",
+        ),
+        pytest.param(
+            ["max", "min"], "extrema", 1,
+            id="extrema",
+        ),
+        pytest.param(
+            ["dxdt_max", "dxdt_min"], "dxdt_extrema", 1,
+            id="dxdt_extrema",
+        ),
+        pytest.param(
+            ["d2xdt2_max", "d2xdt2_min"], "d2xdt2_extrema", 1,
+            id="d2xdt2_extrema",
+        ),
+    ],
+)
+def test_combined_metrics_substitution(request_list, expected_combined, expected_len):
+    """Each combined metric pattern is substituted correctly."""
+    processed = global_registry.preprocess_request(request_list)
+    assert expected_combined in processed
+    for original in request_list:
+        assert original not in processed
+    assert len(processed) == expected_len
+
+
+def test_combined_metrics_prefers_larger_combination():
+    """Larger combinations are preferred over smaller ones."""
+    # mean+std+rms should use mean_std_rms, not mean_std + rms
+    processed = global_registry.preprocess_request(["mean", "std", "rms"])
     assert "mean_std_rms" in processed
-    assert "mean" not in processed
-    assert "std" not in processed
-    assert "rms" not in processed
-    assert len(processed) == 1
-
-
-def test_combined_metrics_mean_std(real_metrics):
-    """Test that mean+std is substituted with mean_std."""
-    requested = ["mean", "std"]
-    processed = real_metrics.preprocess_request(requested)
-    
-    # Should substitute with combined metric
-    assert "mean_std" in processed
-    assert "mean" not in processed
-    assert "std" not in processed
-    assert len(processed) == 1
-
-
-def test_combined_metrics_std_rms(real_metrics):
-    """Test that std+rms is substituted with std_rms."""
-    requested = ["std", "rms"]
-    processed = real_metrics.preprocess_request(requested)
-    
-    # Should substitute with combined metric
-    assert "std_rms" in processed
-    assert "std" not in processed
-    assert "rms" not in processed
-    assert len(processed) == 1
-
-
-def test_combined_metrics_mean_rms(real_metrics):
-    """Test that mean+rms without std is NOT substituted (no benefit)."""
-    requested = ["mean", "rms"]
-    processed = real_metrics.preprocess_request(requested)
-    
-    # Should NOT substitute - no buffer saving
     assert "mean_std" not in processed
     assert "std_rms" not in processed
-    assert "mean_std_rms" not in processed
-    assert "mean" in processed
-    assert "rms" in processed
-    assert len(processed) == 2
-
-
-def test_combined_metrics_max_min(real_metrics):
-    """Test that max+min is substituted with extrema."""
-    requested = ["max", "min"]
-    processed = real_metrics.preprocess_request(requested)
-    
-    # Should substitute with combined metric
-    assert "extrema" in processed
-    assert "max" not in processed
-    assert "min" not in processed
     assert len(processed) == 1
 
 
-def test_combined_metrics_single_mean_not_substituted(real_metrics):
-    """Test that single mean is NOT substituted."""
-    requested = ["mean"]
-    processed = real_metrics.preprocess_request(requested)
-    
-    # Should NOT substitute
-    assert "mean" in processed
-    assert "mean_std_rms" not in processed
-    assert len(processed) == 1
+def test_combined_metrics_preserves_order():
+    """Metric order is preserved after substitution."""
+    processed = global_registry.preprocess_request(
+        ["max_magnitude", "mean", "std"]
+    )
+    # max_magnitude should come first, then mean_std
+    assert processed[0] == "max_magnitude"
+    assert processed[1] == "mean_std"
 
 
-def test_combined_metrics_single_std_not_substituted(real_metrics):
-    """Test that single std is NOT substituted."""
-    requested = ["std"]
-    processed = real_metrics.preprocess_request(requested)
-    
-    # Should NOT substitute
-    assert "std" in processed
-    assert "mean_std_rms" not in processed
-    assert len(processed) == 1
-
-
-def test_combined_metrics_single_rms_not_substituted(real_metrics):
-    """Test that single rms is NOT substituted."""
-    requested = ["rms"]
-    processed = real_metrics.preprocess_request(requested)
-    
-    # Should NOT substitute
-    assert "rms" in processed
-    assert "mean_std_rms" not in processed
-    assert len(processed) == 1
-
-
-def test_combined_metrics_single_max_not_substituted(real_metrics):
-    """Test that single max is NOT substituted."""
-    requested = ["max"]
-    processed = real_metrics.preprocess_request(requested)
-    
-    # Should NOT substitute
-    assert "max" in processed
-    assert "extrema" not in processed
-    assert len(processed) == 1
-
-
-def test_combined_metrics_single_min_not_substituted(real_metrics):
-    """Test that single min is NOT substituted."""
-    requested = ["min"]
-    processed = real_metrics.preprocess_request(requested)
-    
-    # Should NOT substitute
-    assert "min" in processed
-    assert "extrema" not in processed
-    assert len(processed) == 1
-
-
-def test_combined_metrics_with_other_metrics(real_metrics):
-    """Test combined metrics work alongside non-combinable metrics."""
-    requested = ["mean", "std", "rms", "max_magnitude"]
-    processed = real_metrics.preprocess_request(requested)
-    
-    # Should substitute mean+std+rms but keep max_magnitude
-    assert "mean_std_rms" in processed
-    assert "max_magnitude" in processed
-    assert "mean" not in processed
-    assert "std" not in processed
-    assert "rms" not in processed
-    assert len(processed) == 2
-
-
-def test_combined_metrics_multiple_combinations(real_metrics):
-    """Test multiple independent combinations in one request."""
-    requested = ["mean", "std", "rms", "max", "min"]
-    processed = real_metrics.preprocess_request(requested)
-    
-    # Should substitute both combinations
-    assert "mean_std_rms" in processed
-    assert "extrema" in processed
-    assert "mean" not in processed
-    assert "std" not in processed
-    assert "rms" not in processed
-    assert "max" not in processed
-    assert "min" not in processed
-    assert len(processed) == 2
-
-
-def test_combined_metrics_order_independence(real_metrics):
-    """Test that order of request doesn't affect substitution."""
-    # Test different orderings of the same metrics
-    requests = [
-        ["mean", "std", "rms"],
-        ["rms", "mean", "std"],
-        ["std", "rms", "mean"],
-    ]
-    
-    for requested in requests:
-        processed = real_metrics.preprocess_request(requested)
-        assert "mean_std_rms" in processed
-        assert "mean" not in processed
-        assert "std" not in processed
-        assert "rms" not in processed
+def test_combined_metrics_no_substitution_single_metric():
+    """Single metrics from a pair are NOT substituted."""
+    for metric in ["mean", "std", "rms", "max", "min"]:
+        processed = global_registry.preprocess_request([metric])
+        assert metric in processed
         assert len(processed) == 1
 
 
-def test_combined_metrics_buffer_efficiency(real_metrics):
-    """Test that requesting all three metrics uses the combined metric."""
-    # When requesting all three metrics together, they should be combined
-    all_three = ["mean", "std", "rms"]
-    
-    # When requesting just two (mean+std), they should be combined
-    mean_std = ["mean", "std"]
-    
-    # When requesting std+rms, they should be combined
-    std_rms = ["std", "rms"]
-    
-    all_three_buffer = real_metrics.summaries_buffer_height(all_three)
-    mean_std_buffer = real_metrics.summaries_buffer_height(mean_std)
-    std_rms_buffer = real_metrics.summaries_buffer_height(std_rms)
-    
-    # All three should use the combined metric (3 slots: shift, sum, sum_sq)
-    assert all_three_buffer == 3  # mean_std_rms uses 3 slots
-    
-    # Mean+std should use combined metric (3 slots, saves 1 vs 1+3=4 separate)
-    assert mean_std_buffer == 3  # mean_std uses 3 slots (vs 1+3=4 separate)
-    
-    # Std+rms should use combined metric (3 slots, saves 1 vs 3+1=4 separate)
-    assert std_rms_buffer == 3  # std_rms uses 3 slots (vs 3+1=4 separate)
+def test_combined_metrics_skips_unregistered_combined():
+    """No substitution when the combined metric is not registered."""
+    reg = SummaryMetrics(precision=np.float32)
+    # Register mean and std individually but NOT mean_std
+    m_mean = _ConcreteMetric(precision=np.float32, name="mean", buffer_size=1, output_size=1)
+    m_std = _ConcreteMetric(precision=np.float32, name="std", buffer_size=3, output_size=1)
+    reg.register_metric(m_mean)
+    reg.register_metric(m_std)
+    # combined_metrics has mean_std mapping but mean_std is not registered
+    processed = reg.preprocess_request(["mean", "std"])
+    assert "mean" in processed
+    assert "std" in processed
+    assert "mean_std" not in processed
 
 
-def test_combined_metrics_output_sizes(real_metrics):
-    """Test that combined metrics produce correct output sizes."""
-    requested = ["mean", "std", "rms"]
-    processed = real_metrics.preprocess_request(requested)
-    
-    # Get output sizes
-    output_sizes = real_metrics.output_sizes(processed)
-    
-    # mean_std_rms should output 3 values
-    assert len(output_sizes) == 1
-    assert output_sizes[0] == 3  # [mean, std, rms]
+# ── SummaryMetrics.preprocess_request ──────────────────────────────── #
 
 
-def test_combined_metrics_with_peaks(real_metrics):
-    """Test combined metrics work with parameterized metrics like peaks."""
-    requested = ["mean", "std", "peaks[3]"]
-    processed = real_metrics.preprocess_request(requested)
-    
-    # Should substitute mean+std with mean_std and keep peaks
-    assert "mean_std" in processed
-    assert "peaks" in processed
-    assert "mean" not in processed
-    assert "std" not in processed
-    # Should have two metrics
+def test_preprocess_request_warns_unregistered():
+    """preprocess_request warns and removes unregistered metrics."""
+    reg = _make_registry(np.float32)
+    with warnings.catch_warnings(record=True) as w:
+        warnings.simplefilter("always")
+        result = reg.preprocess_request(["alpha", "nonexistent"])
+    assert len(w) == 1
+    assert "nonexistent" in str(w[0].message)
+    assert "not registered" in str(w[0].message)
+    assert result == ["alpha"]
+
+
+def test_preprocess_request_parses_params_and_combines():
+    """preprocess_request calls parse_string_for_params and _apply_combined_metrics."""
+    # Use global registry which has all metrics
+    result = global_registry.preprocess_request(["mean", "peaks[3]"])
+    assert "mean" in result
+    assert "peaks" in result
+    assert len(result) == 2
+
+
+# ── SummaryMetrics.implemented_metrics ─────────────────────────────── #
+
+
+def test_implemented_metrics_returns_names():
+    """implemented_metrics returns _names list."""
+    reg = _make_registry(np.float32)
+    assert reg.implemented_metrics == ["alpha", "beta"]
+
+
+# ── SummaryMetrics.summaries_buffer_height ─────────────────────────── #
+
+
+def test_summaries_buffer_height():
+    """summaries_buffer_height sums buffer sizes for preprocessed metrics."""
+    reg = _make_registry(np.float32)
+    # alpha=2, beta=3 => 5
+    assert reg.summaries_buffer_height(["alpha", "beta"]) == 5
+
+
+def test_summaries_buffer_height_empty():
+    """summaries_buffer_height returns 0 for empty request."""
+    reg = _make_registry(np.float32)
+    assert reg.summaries_buffer_height([]) == 0
+
+
+# ── SummaryMetrics.buffer_offsets ──────────────────────────────────── #
+
+
+def test_buffer_offsets():
+    """buffer_offsets returns cumulative offsets for each metric."""
+    reg = _make_registry(np.float32)
+    # alpha(size=2) at 0, beta(size=3) at 2
+    assert reg.buffer_offsets(["alpha", "beta"]) == (0, 2)
+
+
+def test_buffer_offsets_empty():
+    """buffer_offsets returns empty tuple for empty request."""
+    reg = _make_registry(np.float32)
+    assert reg.buffer_offsets([]) == ()
+
+
+# ── SummaryMetrics.buffer_sizes ────────────────────────────────────── #
+
+
+def test_buffer_sizes():
+    """buffer_sizes returns tuple of buffer sizes for each metric."""
+    reg = _make_registry(np.float32)
+    assert reg.buffer_sizes(["alpha", "beta"]) == (2, 3)
+
+
+# ── SummaryMetrics.output_offsets ──────────────────────────────────── #
+
+
+def test_output_offsets():
+    """output_offsets returns cumulative output offsets."""
+    reg = _make_registry(np.float32)
+    # alpha(output=1) at 0, beta(output=2) at 1
+    assert reg.output_offsets(["alpha", "beta"]) == (0, 1)
+
+
+# ── SummaryMetrics.summaries_output_height ─────────────────────────── #
+
+
+def test_summaries_output_height():
+    """summaries_output_height sums output sizes for preprocessed metrics."""
+    reg = _make_registry(np.float32)
+    # alpha=1, beta=2 => 3
+    assert reg.summaries_output_height(["alpha", "beta"]) == 3
+
+
+# ── SummaryMetrics._get_size ──────────────────────────────────────── #
+
+
+def test_get_size_int():
+    """_get_size returns int directly when size is not callable."""
+    reg = _make_registry(np.float32)
+    assert reg._get_size("alpha", reg._buffer_sizes) == 2
+
+
+def test_get_size_callable():
+    """_get_size calls size(param) when size is callable."""
+    reg = _make_registry_with_callable(np.float32)
+    reg._params["sized"] = 5
+    assert reg._get_size("sized", reg._buffer_sizes) == 8  # 3 + 5
+
+
+def test_get_size_callable_warns_param_zero():
+    """_get_size warns when callable size has param == 0."""
+    reg = _make_registry_with_callable(np.float32)
+    reg._params["sized"] = 0
+    with warnings.catch_warnings(record=True) as w:
+        warnings.simplefilter("always")
+        result = reg._get_size("sized", reg._buffer_sizes)
+    assert len(w) == 1
+    assert "callable size" in str(w[0].message)
+    assert "parameter is set to 0" in str(w[0].message)
+    assert result == 3  # 3 + 0
+
+
+# ── SummaryMetrics.legend ──────────────────────────────────────────── #
+
+
+def test_legend_single_element():
+    """Single-element metrics get their name as heading."""
+    reg = _make_registry(np.float32)
+    assert reg.legend(["alpha"]) == ["alpha"]
+
+
+def test_legend_multi_element():
+    """Multi-element metrics get {name}_1, {name}_2, etc."""
+    reg = _make_registry(np.float32)
+    # beta has output_size=2
+    assert reg.legend(["beta"]) == ["beta_1", "beta_2"]
+
+
+def test_legend_mixed():
+    """Mixed single and multi-element metrics produce correct headings."""
+    reg = _make_registry(np.float32)
+    assert reg.legend(["alpha", "beta"]) == ["alpha", "beta_1", "beta_2"]
+
+
+# ── SummaryMetrics.unit_modifications ──────────────────────────────── #
+
+
+def test_unit_modifications_single():
+    """Returns one unit modification per output element."""
+    reg = _make_registry(np.float32)
+    assert reg.unit_modifications(["alpha"]) == ["[unit]"]
+
+
+def test_unit_modifications_multi():
+    """Multi-element outputs repeat the same modification."""
+    reg = _make_registry(np.float32)
+    # beta has output_size=2, unit_modification="V"
+    assert reg.unit_modifications(["beta"]) == ["V", "V"]
+
+
+# ── SummaryMetrics.output_sizes ────────────────────────────────────── #
+
+
+def test_output_sizes():
+    """output_sizes returns tuple of output sizes."""
+    reg = _make_registry(np.float32)
+    assert reg.output_sizes(["alpha", "beta"]) == (1, 2)
+
+
+# ── SummaryMetrics.save_functions / update_functions ───────────────── #
+
+
+def test_save_functions():
+    """save_functions returns tuple of save device funcs from metric objects."""
+    reg = _make_registry(np.float32)
+    fns = reg.save_functions(["alpha", "beta"])
+    assert len(fns) == 2
+    # save_device_func triggers build; verify identity with metric objects
+    assert fns[0] is reg._metric_objects["alpha"].save_device_func
+    assert fns[1] is reg._metric_objects["beta"].save_device_func
+
+
+def test_update_functions():
+    """update_functions returns tuple of update device funcs from metric objects."""
+    reg = _make_registry(np.float32)
+    fns = reg.update_functions(["alpha", "beta"])
+    assert len(fns) == 2
+    assert fns[0] is reg._metric_objects["alpha"].update_device_func
+    assert fns[1] is reg._metric_objects["beta"].update_device_func
+
+
+# ── SummaryMetrics.params ──────────────────────────────────────────── #
+
+
+def test_params_default():
+    """params returns default (0) for metrics without [N] suffix."""
+    reg = _make_registry(np.float32)
+    assert reg.params(["alpha", "beta"]) == (0, 0)
+
+
+def test_params_with_parsed():
+    """params returns parsed parameter values."""
+    reg = _make_registry_with_callable(np.float32)
+    assert reg.params(["sized[7]"]) == (7,)
+
+
+# ── SummaryMetrics.parse_string_for_params ─────────────────────────── #
+
+
+def test_parse_extracts_param():
+    """Extracts [N] parameter from metric string."""
+    reg = SummaryMetrics(precision=np.float32)
+    result = reg.parse_string_for_params(["foo[3]"])
+    assert result == ["foo"]
+    assert reg._params["foo"] == 3
+
+
+def test_parse_raises_non_integer():
+    """Raises ValueError for non-integer parameter."""
+    reg = SummaryMetrics(precision=np.float32)
+    with pytest.raises(ValueError, match="must be an integer"):
+        reg.parse_string_for_params(["foo[abc]"])
+
+
+def test_parse_raises_float():
+    """Raises ValueError for float parameter."""
+    reg = SummaryMetrics(precision=np.float32)
+    with pytest.raises(ValueError, match="must be an integer"):
+        reg.parse_string_for_params(["foo[3.14]"])
+
+
+def test_parse_stores_in_params():
+    """Parsed params are stored in _params dict."""
+    reg = SummaryMetrics(precision=np.float32)
+    reg.parse_string_for_params(["a[10]", "b"])
+    assert reg._params["a"] == 10
+    assert reg._params["b"] == 0
+
+
+def test_parse_default_param_zero():
+    """Metrics without [N] get default param 0."""
+    reg = SummaryMetrics(precision=np.float32)
+    reg.parse_string_for_params(["plain"])
+    assert reg._params["plain"] == 0
+
+
+def test_parse_resets_params_each_call():
+    """_params is reset on each call to parse_string_for_params."""
+    reg = SummaryMetrics(precision=np.float32)
+    reg.parse_string_for_params(["a[5]"])
+    assert "a" in reg._params
+    reg.parse_string_for_params(["b[7]"])
+    assert "a" not in reg._params
+    assert reg._params["b"] == 7
+
+
+# ── Real global registry integration ──────────────────────────────── #
+
+
+EXPECTED_METRICS = [
+    "mean", "max", "rms", "peaks", "std", "min", "max_magnitude",
+    "extrema", "negative_peaks", "mean_std_rms", "mean_std", "std_rms",
+    "dxdt_max", "dxdt_min", "dxdt_extrema",
+    "d2xdt2_max", "d2xdt2_min", "d2xdt2_extrema",
+]
+
+
+def test_global_registry_has_all_expected_metrics():
+    """Global registry has all 18 expected metrics registered."""
+    available = global_registry.implemented_metrics
+    for name in EXPECTED_METRICS:
+        assert name in available, f"Missing metric: {name}"
+    assert len(available) == len(EXPECTED_METRICS)
+
+
+# ── Per-metric buffer_size, output_size, unit_modification table ───── #
+
+
+@pytest.mark.parametrize(
+    "name, buf, out, unit_mod",
+    [
+        pytest.param("mean", 1, 1, "[unit]", id="mean"),
+        pytest.param("max", 1, 1, "[unit]", id="max"),
+        pytest.param("min", 1, 1, "[unit]", id="min"),
+        pytest.param("rms", 1, 1, "[unit]", id="rms"),
+        pytest.param("std", 3, 1, "[unit]", id="std"),
+        pytest.param("max_magnitude", 1, 1, "[unit]", id="max_magnitude"),
+        pytest.param("extrema", 2, 2, "[unit]", id="extrema"),
+        pytest.param("mean_std", 3, 2, "[unit]", id="mean_std"),
+        pytest.param("mean_std_rms", 3, 3, "[unit]", id="mean_std_rms"),
+        pytest.param("std_rms", 3, 2, "[unit]", id="std_rms"),
+        pytest.param("dxdt_max", 2, 1, "[unit]*s^-1", id="dxdt_max"),
+        pytest.param("dxdt_min", 2, 1, "[unit]*s^-1", id="dxdt_min"),
+        pytest.param("dxdt_extrema", 3, 2, "[unit]*s^-1", id="dxdt_extrema"),
+        pytest.param("d2xdt2_max", 3, 1, "[unit]*s^-2", id="d2xdt2_max"),
+        pytest.param("d2xdt2_min", 3, 1, "[unit]*s^-2", id="d2xdt2_min"),
+        pytest.param("d2xdt2_extrema", 4, 2, "[unit]*s^-2", id="d2xdt2_extrema"),
+    ],
+)
+def test_metric_sizes_and_unit(name, buf, out, unit_mod):
+    """Each metric has the expected buffer_size, output_size, and unit."""
+    m = global_registry._metric_objects[name]
+    assert m.buffer_size == buf
+    assert m.output_size == out
+    assert m.unit_modification == unit_mod
+
+
+# ── Parameterised metrics (peaks, negative_peaks) ─────────────────── #
+
+
+@pytest.mark.parametrize(
+    "name, n",
+    [
+        pytest.param("peaks", 3, id="peaks-3"),
+        pytest.param("peaks", 5, id="peaks-5"),
+        pytest.param("negative_peaks", 3, id="neg_peaks-3"),
+        pytest.param("negative_peaks", 5, id="neg_peaks-5"),
+    ],
+)
+def test_parameterised_metric_sizes(name, n):
+    """Parameterised metrics compute correct buffer and output sizes."""
+    request = [f"{name}[{n}]"]
+    buf = global_registry.buffer_sizes(request)
+    out = global_registry.output_sizes(request)
+    assert buf == (3 + n,)
+    assert out == (n,)
+
+
+def test_parameterised_metric_unit_modification():
+    """peaks and negative_peaks have unit_modification 's'."""
+    assert global_registry._metric_objects["peaks"].unit_modification == "s"
+    assert global_registry._metric_objects["negative_peaks"].unit_modification == "s"
+
+
+# ── Combined metrics buffer efficiency ─────────────────────────────── #
+
+
+def test_combined_mean_std_rms_buffer_height():
+    """mean+std+rms combined uses 3 buffer slots (not 1+3+1=5 separate)."""
+    assert global_registry.summaries_buffer_height(["mean", "std", "rms"]) == 3
+
+
+def test_combined_extrema_buffer_height():
+    """max+min combined uses 2 buffer slots (not 1+1=2 separate but as extrema)."""
+    assert global_registry.summaries_buffer_height(["max", "min"]) == 2
+
+
+def test_combined_dxdt_extrema_buffer_height():
+    """dxdt_max+dxdt_min combined uses 3 buffer slots."""
+    assert global_registry.summaries_buffer_height(["dxdt_max", "dxdt_min"]) == 3
+
+
+def test_combined_d2xdt2_extrema_buffer_height():
+    """d2xdt2_max+d2xdt2_min combined uses 4 buffer slots."""
+    assert global_registry.summaries_buffer_height(["d2xdt2_max", "d2xdt2_min"]) == 4
+
+
+# ── Multiple combinations in one request ───────────────────────────── #
+
+
+def test_multiple_independent_combinations():
+    """Multiple independent combinations are all applied."""
+    processed = global_registry.preprocess_request(
+        ["mean", "std", "rms", "max", "min"]
+    )
+    assert "mean_std_rms" in processed
+    assert "extrema" in processed
     assert len(processed) == 2
 
-def test_real_summary_metrics_available_metrics(real_metrics):
-    """Test that all expected metrics are available in the real summary_metrics instance."""
-    expected_metrics = [
-        "mean", "std", "rms", "max", "min", "max_magnitude",
-        "peaks", "negative_peaks", "mean_std_rms", "extrema",
-        "mean_std", "std_rms",
-        "dxdt_max", "dxdt_min", "dxdt_extrema",
-        "d2xdt2_max", "d2xdt2_min", "d2xdt2_extrema"
-    ]
-    available_metrics = real_metrics.implemented_metrics
 
-    # Check that all expected metrics are present
-    for metric in expected_metrics:
-        assert metric in available_metrics, (
-            f"Expected metric '{metric}' not found in {available_metrics}"
-        )
-
-    # Check that we have exactly the expected metrics
-    assert len(available_metrics) == len(expected_metrics), (
-        f"Expected {len(expected_metrics)} metrics, got {len(available_metrics)}"
-    )
+# ── Real registry offset calculations ──────────────────────────────── #
 
 
-def test_real_summary_metrics_simple_metrics_sizes(real_metrics):
-    """Test that simple metrics (mean, max, rms) have expected sizes."""
-    simple_metrics = ["mean", "max", "rms"]
-
-    for metric in simple_metrics:
-        # Test buffer sizes
-        buffer_sizes_tuple = tuple(real_metrics.buffer_sizes([metric]))
-        assert buffer_sizes_tuple == (1,), (
-            f"Expected buffer_size=1 for {metric}, got {buffer_sizes_tuple}"
-        )
-
-        # Test output sizes
-        output_sizes_tuple = tuple(real_metrics.output_sizes([metric]))
-        assert output_sizes_tuple == (1,), (
-            f"Expected output_size=1 for {metric}, got {output_sizes_tuple}"
-        )
-        assert callable(real_metrics.save_functions(simple_metrics)[0])
-
-
-def test_real_summary_metrics_peaks_parametrized(real_metrics):
-    """Test that peaks metric works correctly with parameters."""
-    # Test peaks with different parameter values
-    test_params = [1, 3, 5, 10]
-
-    for n in test_params:
-        metric_request = f"peaks[{n}]"
-
-        # Test buffer sizes: should be 3 + n
-        buffer_sizes_tuple = tuple(real_metrics.buffer_sizes([metric_request]))
-        expected_buffer_size = 3 + n
-        assert buffer_sizes_tuple == (expected_buffer_size,), (
-            f"Expected buffer_size={expected_buffer_size} for peaks[{n}], got {buffer_sizes_tuple}"
-        )
-
-        # Test output sizes: should be n
-        output_sizes_tuple = tuple(real_metrics.output_sizes([metric_request]))
-        expected_output_size = n
-        assert output_sizes_tuple == (expected_output_size,), (
-            f"Expected output_size={expected_output_size} for peaks[{n}], got {output_sizes_tuple}"
-        )
-
-
-def test_real_summary_metrics_peaks_without_parameter_raises_warning(
-    real_metrics,
-):
-    """Test that peaks metric without parameter raises ValueError."""
-    with pytest.warns(UserWarning, match="Metric 'peaks' has a callable size"):
-        tuple(real_metrics.buffer_sizes(["peaks"]))
-
-
-def test_real_summary_metrics_offset_calculations(real_metrics):
-    """Test offset calculations with real metrics."""
-    # Test with mix of simple and parametrized metrics
+def test_real_registry_offsets():
+    """Offset calculations with real metrics are correct."""
     requested = ["mean", "peaks[2]", "max", "rms"]
-
-    # Test buffer offsets
-    buffer_offsets_tuple = real_metrics.buffer_offsets(requested)
-
-    # Expected buffer offsets:
-    # mean: 0 (size=1)
-    # peaks[2]: 1 (size=3+2=5)
-    # max: 6 (size=1)
-    # rms: 7 (size=1)
-    expected_buffer_offsets = (0, 1, 6, 7)
-
-    assert buffer_offsets_tuple == expected_buffer_offsets
-
-    # Test output offsets
-    output_offsets_tuple = real_metrics.output_offsets(requested)
-    output_total_size = real_metrics.summaries_output_height(requested)
-
-    # Expected output offsets:
-    # mean: 0 (size=1)
-    # peaks[2]: 1 (size=2)
-    # max: 3 (size=1)
-    # rms: 4 (size=1)
-    expected_output_offsets = (0, 1, 3, 4)
-    expected_output_total = 5  # 1 + 2 + 1 + 1
-
-    assert output_offsets_tuple == expected_output_offsets
-    assert output_total_size == expected_output_total
+    buf_offsets = global_registry.buffer_offsets(requested)
+    out_offsets = global_registry.output_offsets(requested)
+    # mean(buf=1) at 0, peaks[2](buf=5) at 1, max(buf=1) at 6, rms(buf=1) at 7
+    assert buf_offsets == (0, 1, 6, 7)
+    # mean(out=1) at 0, peaks[2](out=2) at 1, max(out=1) at 3, rms(out=1) at 4
+    assert out_offsets == (0, 1, 3, 4)
 
 
-def test_real_summary_metrics_tuple_ordering_consistency(real_metrics):
-    """Test that all tuple methods return values in consistent order with real metrics."""
-    requested = [
-        "rms",
-        "peaks[4]",
-        "mean",
-    ]  # Different order than registration
-
-    # Get all tuple results
-    buffer_offsets_tuple = tuple(real_metrics.buffer_offsets(requested))
-    output_offsets_tuple = tuple(real_metrics.output_offsets(requested))
-    buffer_sizes_tuple = tuple(real_metrics.buffer_sizes(requested))
-    output_sizes_tuple = tuple(real_metrics.output_sizes(requested))
-
-    # All should have same length (number of requested metrics)
-    expected_length = len(requested)
-    assert len(buffer_offsets_tuple) == expected_length
-    assert len(output_offsets_tuple) == expected_length
-    assert len(buffer_sizes_tuple) == expected_length
-    assert len(output_sizes_tuple) == expected_length
-
-    # Verify sizes match expected values for the requested order
-    # rms: buffer=1, output=1
-    # peaks[4]: buffer=3+4=7, output=4
-    # mean: buffer=1, output=1
-    assert buffer_sizes_tuple == (1, 7, 1)
-    assert output_sizes_tuple == (1, 4, 1)
-
-    # Verify offsets are calculated correctly
-    # rms: buffer_offset=0, output_offset=0
-    # peaks[4]: buffer_offset=1, output_offset=1
-    # mean: buffer_offset=8, output_offset=5
-    assert buffer_offsets_tuple == (0, 1, 8)
-    assert output_offsets_tuple == (0, 1, 5)
-
-    # Verify totals
-    buffer_total_size = real_metrics.summaries_buffer_height(requested)
-    output_total_size = real_metrics.summaries_output_height(requested)
-
-    assert buffer_total_size == 9  # 1 + 7 + 1
-    assert output_total_size == 6  # 1 + 4 + 1
+# ── Legend with real combined metrics ──────────────────────────────── #
 
 
-def test_real_summary_metrics_edge_cases(real_metrics):
-    """Test edge cases with real metrics."""
-    # Test with single metric
-    summary_buffer_height = real_metrics.summaries_buffer_height(["mean"])
-    buffer_offsets_generator = real_metrics.buffer_offsets(["mean"])
-    buffer_offsets_tuple = tuple(buffer_offsets_generator)
-
-    assert buffer_offsets_tuple == (0,)
-    assert summary_buffer_height == 1
-
-    # Test with peaks parameter edge cases
-    buffer_sizes_tuple = tuple(real_metrics.buffer_sizes(["peaks[0]"]))
-    output_sizes_tuple = tuple(real_metrics.output_sizes(["peaks[0]"]))
-
-    assert buffer_sizes_tuple == (3,)  # 3 + 0
-    assert output_sizes_tuple == (0,)  # 0
+def test_legend_combined_metric():
+    """Combined mean_std_rms produces 3 numbered headings."""
+    headings = global_registry.legend(["mean", "std", "rms"])
+    assert headings == ["mean_std_rms_1", "mean_std_rms_2", "mean_std_rms_3"]
 
 
-def test_column_headings(real_metrics):
-    """Test that column_headings returns correctly formatted headers for metrics."""
-    # Test with single output metrics
-    single_metrics = ["mean", "max", "rms"]
-    headings = real_metrics.legend(single_metrics)
-
-    # For single output metrics, headings should be identical to metric names
-    assert headings == single_metrics
-
-    # Test with a multi-output metric (peaks)
-    peak_request = ["peaks[3]"]
-    peak_headings = real_metrics.legend(peak_request)
-
-    # Should have 3 column headers: peaks_1, peaks_2, peaks_3
-    assert peak_headings == ["peaks_1", "peaks_2", "peaks_3"]
-
-    # Test with a mix of single and multi-output metrics
-    mixed_request = ["mean", "peaks[2]", "max"]
-    mixed_headings = real_metrics.legend(mixed_request)
-
-    # Should have 4 column headers: mean, peaks_1, peaks_2, max
-    assert mixed_headings == ["mean", "peaks_1", "peaks_2", "max"]
-
-    # Test with invalid metric name
-    with warnings.catch_warnings(record=True) as w:
-        invalid_headings = real_metrics.legend(["not_a_metric"])
-        assert len(w) == 1
-        assert "not registered" in str(w[0].message)
-        assert invalid_headings == []
-
-
-def test_summary_buffer_size_returns_correct_total(mock_metrics):
-    """Test that summary_buffer_size returns correct total buffer size."""
-    requested = ["mock_metric", "parameterised[5]"]
-    total_size = mock_metrics.summaries_buffer_height(requested)
-
-    # mock_metric=5 + parameterised[5]=10
-    expected_total_size = 15
-
-    assert total_size == expected_total_size
-
-
-def test_mean_std_buffer_and_output_sizes(real_metrics):
-    """Test mean_std combined metric has correct buffer and output sizes."""
-    requested = ["mean_std"]
-    
-    buffer_sizes = real_metrics.buffer_sizes(requested)
-    output_sizes = real_metrics.output_sizes(requested)
-    
-    assert buffer_sizes == (3,), "mean_std should use 3 buffer slots (shift, sum, sum_sq)"
-    assert output_sizes == (2,), "mean_std should output 2 values (mean, std)"
-
-
-def test_std_rms_buffer_and_output_sizes(real_metrics):
-    """Test std_rms combined metric has correct buffer and output sizes."""
-    requested = ["std_rms"]
-    
-    buffer_sizes = real_metrics.buffer_sizes(requested)
-    output_sizes = real_metrics.output_sizes(requested)
-    
-    assert buffer_sizes == (3,), "std_rms should use 3 buffer slots (shift, sum, sum_sq)"
-    assert output_sizes == (2,), "std_rms should output 2 values (std, rms)"
-
-
-def test_pairwise_combinations_buffer_efficiency(real_metrics):
-    """Test that pairwise combinations save buffer space."""
-    # mean+std: 1+3=4 individually, 3 combined (saves 1)
-    mean_std = ["mean", "std"]
-    mean_std_buffer = real_metrics.summaries_buffer_height(mean_std)
-    assert mean_std_buffer == 3, "mean+std should use 3 buffer slots (combined)"
-    
-    # std+rms: 3+1=4 individually, 3 combined (saves 1)
-    std_rms = ["std", "rms"]
-    std_rms_buffer = real_metrics.summaries_buffer_height(std_rms)
-    assert std_rms_buffer == 3, "std+rms should use 3 buffer slots (combined)"
-    
-    # mean+rms: 1+1=2 individually, would still be 2 combined (no saving)
-    # So this should NOT be combined
-    mean_rms = ["mean", "rms"]
-    mean_rms_buffer = real_metrics.summaries_buffer_height(mean_rms)
-    assert mean_rms_buffer == 2, "mean+rms should use 2 buffer slots (not combined)"
+def test_legend_single_output_metrics():
+    """Single-output metrics produce their name as heading."""
+    headings = global_registry.legend(["mean", "max", "rms"])
+    assert headings == ["mean", "max", "rms"]

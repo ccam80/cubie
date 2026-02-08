@@ -295,12 +295,16 @@ class TestSolveResultProperties:
         assert "iteration_counters" in numpy_dict
         # Verify arrays are copies
         assert np.array_equal(
-            numpy_dict["time_domain_array"], result.time_domain_array
+            numpy_dict["time_domain_array"],
+            result.time_domain_array,
+            equal_nan=True,
         )
         assert numpy_dict["time_domain_array"] is not result.time_domain_array
         if result.iteration_counters is not None:
             assert np.array_equal(
-                numpy_dict["iteration_counters"], result.iteration_counters
+                numpy_dict["iteration_counters"],
+                result.iteration_counters,
+                equal_nan=True,
             )
             assert (
                 numpy_dict["iteration_counters"]

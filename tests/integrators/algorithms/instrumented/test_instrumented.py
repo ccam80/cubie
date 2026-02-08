@@ -2,7 +2,7 @@
 
 import pytest
 
-from tests.integrators.algorithms.test_step_algorithms import (
+from tests.integrated_numerical_tests.test_step_algorithms import (
     device_step_results  # noqa
 )
 from tests._utils import ALGORITHM_PARAM_SETS

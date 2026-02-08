@@ -63,8 +63,6 @@ from cubie.buffer_registry import buffer_registry
 DIRK_ADAPTIVE_DEFAULTS = StepControlDefaults(
     step_controller={
         "step_controller": "pid",
-        "dt_min": 1e-6,
-        "dt_max": 1e-1,
         "kp": 0.7,
         "ki": -0.4,
         "deadband_min": 1.0,
@@ -92,7 +90,6 @@ explicitly specifying step controller parameters.
 DIRK_FIXED_DEFAULTS = StepControlDefaults(
     step_controller={
         "step_controller": "fixed",
-        "dt": 1e-3,
     }
 )
 """Default step controller settings for errorless DIRK tableaus.
@@ -103,12 +100,6 @@ estimate (``tableau.has_error_estimate == False``).
 Fixed-step controllers maintain a constant step size throughout the
 integration. This is the only valid choice for errorless tableaus since
 adaptive stepping requires an error estimate to adjust the step size.
-
-Notes
------
-These defaults are applied automatically when creating a :class:`DIRKStep`
-with an errorless tableau. Users can override the step size ``dt`` by
-explicitly specifying it in the step controller settings.
 """
 @define
 class DIRKStepConfig(ImplicitStepConfig):
