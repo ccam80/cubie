@@ -840,11 +840,6 @@ class IVPLoop(CUDAFactory):
                     )
                     irrecoverable = bool_(irrecoverable or stagnant)
 
-                    if fixed_mode:
-                        # In fixed mode, a failed step is irrecoverable
-                        # since we can't try again witha a smaller dt
-                        irrecoverable = bool_(irrecoverable or step_failed)
-
                     t = selp(accept, t_proposal, t)
                     t_prec = precision(t)
 
