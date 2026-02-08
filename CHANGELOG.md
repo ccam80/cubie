@@ -1,5 +1,24 @@
 # Changelog
 
+## [0.1.0](https://github.com/ccam80/cubie/compare/v0.0.7...v0.1.0) (2026-02-08)
+
+
+### Features
+
+* constants/params/inits setting gui added (for large models) ([e6af22b](https://github.com/ccam80/cubie/commit/e6af22b380786297a6ae3cd6f1836e620f16fd00))
+* more-sensible defaults are set when only a subset of dt_min, dt_max, dt are set ([f552dda](https://github.com/ccam80/cubie/commit/f552dda1c928f17bc88e7efc24492b16eff6cd60))
+
+
+### Bug Fixes
+
+* adaptive loops no longer hang when newton solver fails on a save boundary ([#519](https://github.com/ccam80/cubie/issues/519)) ([f552dda](https://github.com/ccam80/cubie/commit/f552dda1c928f17bc88e7efc24492b16eff6cd60))
+* pyfunc now doesn't relabel output states ([45b94c6](https://github.com/ccam80/cubie/commit/45b94c6ad9b4ad992233321bedfe39df46be944c))
+
+
+### Documentation
+
+* add explanation of output timing, loop duration/start timing, and step timing to the user guide ([f552dda](https://github.com/ccam80/cubie/commit/f552dda1c928f17bc88e7efc24492b16eff6cd60))
+
 ## [0.0.7](https://github.com/ccam80/cubie/compare/v0.0.6...v0.0.7) (2026-01-20)
 
 
