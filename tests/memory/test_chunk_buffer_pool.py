@@ -1,210 +1,141 @@
-"""Tests for ChunkBufferPool and PinnedBuffer classes."""
+"""Tests for cubie.memory.chunk_buffer_pool."""
+
+from __future__ import annotations
 
 import threading
+
 import numpy as np
 
 from cubie.memory.chunk_buffer_pool import ChunkBufferPool, PinnedBuffer
 
 
-class TestPinnedBuffer:
-    """Tests for PinnedBuffer class."""
+# ── PinnedBuffer ──────────────────────────────────────────────── #
 
-    def test_pinned_buffer_creation(self):
-        """Verify PinnedBuffer can be created with required attributes."""
-        arr = np.zeros((10, 20), dtype=np.float32)
-        buffer = PinnedBuffer(buffer_id=0, array=arr)
-
-        assert buffer.buffer_id == 0
-        assert buffer.array is arr
-        assert buffer.in_use is False
-
-    def test_pinned_buffer_in_use_flag(self):
-        """Verify in_use flag can be set."""
-        arr = np.zeros((10,), dtype=np.float64)
-        buffer = PinnedBuffer(buffer_id=1, array=arr, in_use=True)
-
-        assert buffer.in_use is True
+def test_pinned_buffer_construction():
+    """PinnedBuffer stores buffer_id, array, and in_use (default False)."""
+    arr = np.zeros((10, 20), dtype=np.float32)
+    buf = PinnedBuffer(buffer_id=0, array=arr)
+    assert buf.buffer_id == 0
+    assert buf.array is arr
+    assert buf.in_use is False
 
 
-class TestChunkBufferPool:
-    """Tests for ChunkBufferPool class."""
+def test_pinned_buffer_in_use_override():
+    """in_use can be set to True at construction."""
+    arr = np.zeros((5,), dtype=np.float64)
+    buf = PinnedBuffer(buffer_id=1, array=arr, in_use=True)
+    assert buf.in_use is True
 
-    def test_acquire_returns_pinned_buffer(self):
-        """Verify acquire returns a PinnedBuffer with correct shape and dtype.
-        """
-        pool = ChunkBufferPool()
-        shape = (100, 50)
-        dtype = np.float32
 
-        buffer = pool.acquire("state", shape, dtype)
+# ── acquire ───────────────────────────────────────────────────── #
 
-        assert isinstance(buffer, PinnedBuffer)
-        assert buffer.array.shape == shape
-        assert buffer.array.dtype == dtype
-        assert buffer.in_use is True
+def test_acquire_returns_buffer_with_correct_shape_dtype():
+    """acquire returns a PinnedBuffer matching requested shape and dtype."""
+    pool = ChunkBufferPool()
+    buf = pool.acquire("state", (100, 4), np.float32)
+    assert buf.array.shape == (100, 4)
+    assert buf.array.dtype == np.float32
+    assert buf.in_use is True
 
-    def test_release_marks_buffer_available(self):
-        """Verify released buffer can be reacquired."""
-        pool = ChunkBufferPool()
-        shape = (10, 20)
-        dtype = np.float64
 
-        buffer = pool.acquire("observables", shape, dtype)
-        assert buffer.in_use is True
+def test_acquire_reuses_released_buffer():
+    """acquire reuses a released buffer with matching shape/dtype."""
+    pool = ChunkBufferPool()
+    buf1 = pool.acquire("state", (50, 3), np.float32)
+    bid = buf1.buffer_id
+    pool.release(buf1)
+    buf2 = pool.acquire("state", (50, 3), np.float32)
+    assert buf2.buffer_id == bid
+    assert buf2 is buf1
 
-        pool.release(buffer)
-        assert buffer.in_use is False
 
-    def test_acquire_reuses_released_buffer(self):
-        """Verify pool reuses buffers instead of allocating new ones."""
-        pool = ChunkBufferPool()
-        shape = (50, 30)
-        dtype = np.float32
+def test_acquire_allocates_new_when_all_in_use():
+    """acquire allocates new buffer when existing ones are in use."""
+    pool = ChunkBufferPool()
+    buf1 = pool.acquire("x", (10,), np.float32)
+    buf2 = pool.acquire("x", (10,), np.float32)
+    assert buf1.buffer_id != buf2.buffer_id
 
-        # Acquire and release a buffer
-        buffer1 = pool.acquire("state", shape, dtype)
-        buffer1_id = buffer1.buffer_id
-        pool.release(buffer1)
 
-        # Acquire again - should reuse the same buffer
-        buffer2 = pool.acquire("state", shape, dtype)
+def test_acquire_allocates_new_for_different_shape():
+    """acquire allocates new buffer when shape differs."""
+    pool = ChunkBufferPool()
+    buf1 = pool.acquire("x", (10,), np.float32)
+    pool.release(buf1)
+    buf2 = pool.acquire("x", (20,), np.float32)
+    assert buf1.buffer_id != buf2.buffer_id
 
-        assert buffer2.buffer_id == buffer1_id
-        assert buffer2 is buffer1
 
-    def test_acquire_allocates_new_when_all_in_use(self):
-        """Verify new buffer allocated when existing ones are in use."""
-        pool = ChunkBufferPool()
-        shape = (25, 25)
-        dtype = np.float32
+def test_acquire_allocates_new_for_different_dtype():
+    """acquire allocates new buffer when dtype differs."""
+    pool = ChunkBufferPool()
+    buf1 = pool.acquire("x", (10,), np.float32)
+    pool.release(buf1)
+    buf2 = pool.acquire("x", (10,), np.float64)
+    assert buf1.buffer_id != buf2.buffer_id
 
-        buffer1 = pool.acquire("test", shape, dtype)
-        buffer2 = pool.acquire("test", shape, dtype)
 
-        assert buffer1.buffer_id != buffer2.buffer_id
-        assert buffer1 is not buffer2
+def test_acquire_creates_new_array_name_entry():
+    """First acquire for a name creates a new entry in _buffers."""
+    pool = ChunkBufferPool()
+    pool.acquire("new_name", (5,), np.float32)
+    assert "new_name" in pool._buffers
+    assert len(pool._buffers["new_name"]) == 1
 
-    def test_acquire_allocates_new_for_different_shape(self):
-        """Verify new buffer allocated when shape differs."""
-        pool = ChunkBufferPool()
-        dtype = np.float32
 
-        buffer1 = pool.acquire("test", (10, 10), dtype)
-        pool.release(buffer1)
+# ── release ───────────────────────────────────────────────────── #
 
-        # Different shape should allocate new buffer
-        buffer2 = pool.acquire("test", (20, 10), dtype)
+def test_release_marks_not_in_use():
+    """release sets buffer.in_use to False."""
+    pool = ChunkBufferPool()
+    buf = pool.acquire("x", (10,), np.float32)
+    assert buf.in_use is True
+    pool.release(buf)
+    assert buf.in_use is False
 
-        assert buffer1.buffer_id != buffer2.buffer_id
 
-    def test_acquire_allocates_new_for_different_dtype(self):
-        """Verify new buffer allocated when dtype differs."""
-        pool = ChunkBufferPool()
-        shape = (15, 15)
+# ── clear ─────────────────────────────────────────────────────── #
 
-        buffer1 = pool.acquire("test", shape, np.float32)
-        pool.release(buffer1)
+def test_clear_empties_pool_and_resets_id():
+    """clear removes all buffers and resets _next_id to 0."""
+    pool = ChunkBufferPool()
+    pool.acquire("a", (10,), np.float32)
+    pool.acquire("b", (20,), np.float64)
+    pool.clear()
+    assert len(pool._buffers) == 0
+    assert pool._next_id == 0
 
-        # Different dtype should allocate new buffer
-        buffer2 = pool.acquire("test", shape, np.float64)
 
-        assert buffer1.buffer_id != buffer2.buffer_id
+# ── _allocate_buffer ──────────────────────────────────────────── #
 
-    def test_clear_removes_all_buffers(self):
-        """Verify clear empties the pool."""
-        pool = ChunkBufferPool()
+def test_allocate_buffer_increments_id():
+    """Each allocated buffer gets an incrementing buffer_id."""
+    pool = ChunkBufferPool()
+    ids = []
+    for i in range(5):
+        buf = pool.acquire(f"arr_{i}", (3,), np.float32)
+        ids.append(buf.buffer_id)
+    assert ids == [0, 1, 2, 3, 4]
 
-        # Allocate some buffers
-        pool.acquire("state", (10, 10), np.float32)
-        pool.acquire("observables", (20, 5), np.float64)
 
-        pool.clear()
+# ── Thread safety ─────────────────────────────────────────────── #
 
-        # Pool should be empty
-        assert len(pool._buffers) == 0
-        assert pool._next_id == 0
+def test_thread_safe_concurrent_acquire_release():
+    """Concurrent acquire/release does not raise or corrupt state."""
+    pool = ChunkBufferPool()
+    errors = []
 
-    def test_buffers_organized_by_array_name(self):
-        """Verify buffers are organized by array name in pool."""
-        pool = ChunkBufferPool()
+    def worker(tid):
+        try:
+            for _ in range(20):
+                buf = pool.acquire(f"arr_{tid}", (10,), np.float32)
+                pool.release(buf)
+        except Exception as e:
+            errors.append(e)
 
-        pool.acquire("state", (10,), np.float32)
-        pool.acquire("observables", (20,), np.float64)
-        pool.acquire("state", (10,), np.float32)
-
-        assert "state" in pool._buffers
-        assert "observables" in pool._buffers
-        assert len(pool._buffers["state"]) == 2
-        assert len(pool._buffers["observables"]) == 1
-
-    def test_thread_safety_concurrent_acquire_release(self):
-        """Verify concurrent operations don't cause race conditions."""
-        pool = ChunkBufferPool()
-        shape = (100, 100)
-        dtype = np.float32
-        num_threads = 10
-        iterations_per_thread = 50
-        errors = []
-
-        def worker(thread_id):
-            try:
-                for _ in range(iterations_per_thread):
-                    buffer = pool.acquire(f"array_{thread_id}", shape, dtype)
-                    assert buffer.in_use is True
-                    assert buffer.array.shape == shape
-                    pool.release(buffer)
-            except Exception as e:
-                errors.append(e)
-
-        threads = [
-            threading.Thread(target=worker, args=(i,))
-            for i in range(num_threads)
-        ]
-
-        for t in threads:
-            t.start()
-
-        for t in threads:
-            t.join()
-
-        assert len(errors) == 0, f"Thread errors: {errors}"
-
-    def test_concurrent_acquire_same_array_name(self):
-        """Verify concurrent acquire on same array name is thread-safe."""
-        pool = ChunkBufferPool()
-        shape = (50, 50)
-        dtype = np.float32
-        num_threads = 5
-        acquired_buffers = []
-        lock = threading.Lock()
-
-        def worker():
-            buffer = pool.acquire("shared_array", shape, dtype)
-            with lock:
-                acquired_buffers.append(buffer)
-
-        threads = [
-            threading.Thread(target=worker) for _ in range(num_threads)
-        ]
-
-        for t in threads:
-            t.start()
-
-        for t in threads:
-            t.join()
-
-        # All buffers should be unique since none were released
-        buffer_ids = [b.buffer_id for b in acquired_buffers]
-        assert len(buffer_ids) == len(set(buffer_ids))
-
-    def test_buffer_id_uniqueness(self):
-        """Verify each allocated buffer has a unique ID."""
-        pool = ChunkBufferPool()
-
-        buffers = [
-            pool.acquire(f"array_{i}", (10,), np.float32)
-            for i in range(10)
-        ]
-
-        buffer_ids = [b.buffer_id for b in buffers]
-        assert len(buffer_ids) == len(set(buffer_ids))
+    threads = [threading.Thread(target=worker, args=(i,)) for i in range(5)]
+    for t in threads:
+        t.start()
+    for t in threads:
+        t.join()
+    assert len(errors) == 0

@@ -15,6 +15,10 @@ from tests._utils import (
     _get_evaluate_driver_at_t,
     _get_driver_del_t,
 )
+import attrs
+
+from cubie.batchsolving.BatchInputHandler import BatchInputHandler
+from cubie.batchsolving.SystemInterface import SystemInterface
 from cubie.buffer_registry import buffer_registry
 from cubie.integrators.SingleIntegratorRun import SingleIntegratorRun
 from cubie._utils import merge_kwargs_into_settings
@@ -45,7 +49,8 @@ from tests.integrators.cpu_reference import (
 )
 
 from tests._utils import _driver_sequence, run_device_loop
-from tests.integrators.loops.test_ode_loop import Array
+from numpy.typing import NDArray
+Array = NDArray[np.floating]
 from tests.system_fixtures import (
     build_large_nonlinear_system,
     build_three_chamber_system,
@@ -529,13 +534,15 @@ def output_functions(output_settings, system, precision):
 
 
 @pytest.fixture(scope="function")
-def output_functions_mutable(output_settings, system):
+def output_functions_mutable(output_settings, system, precision):
     """Return a fresh ``OutputFunctions`` for mutation-prone tests."""
-
+    settings = output_settings.copy()
+    settings.pop("precision", None)
     return OutputFunctions(
         system.sizes.states,
-        system.sizes.parameters,
-        **output_settings,
+        system.sizes.observables,
+        precision=precision,
+        **settings,
     )
 
 
@@ -922,4 +929,169 @@ def device_loop_outputs(
         initial_state=initial_state,
         solver_config=solver_settings,
         driver_array=driver_array,
+    )
+
+
+# ========================================
+# BATCH INPUT FIXTURES
+# ========================================
+@pytest.fixture(scope="session")
+def system_interface(system) -> SystemInterface:
+    """Return a SystemInterface wrapping the configured system."""
+    return SystemInterface.from_system(system)
+
+
+@pytest.fixture(scope="function")
+def system_interface_mutable(system) -> SystemInterface:
+    """Return a fresh SystemInterface for mutation tests."""
+    return SystemInterface.from_system(system)
+
+
+@pytest.fixture(scope="session")
+def input_handler(system) -> BatchInputHandler:
+    """Return a batch input handler for the configured system."""
+    return BatchInputHandler.from_system(system)
+
+
+@pytest.fixture(scope="session")
+def batch_settings_override(request) -> dict:
+    """Override values for batch grid settings when parametrised."""
+    return request.param if hasattr(request, "param") else {}
+
+
+@pytest.fixture(scope="session")
+def batch_settings(batch_settings_override) -> dict:
+    """Return default batch grid settings merged with overrides."""
+    defaults = {
+        "num_state_vals_0": 2,
+        "num_state_vals_1": 0,
+        "num_param_vals_0": 2,
+        "num_param_vals_1": 0,
+        "kind": "combinatorial",
+    }
+    defaults.update(
+        {k: v for k, v in batch_settings_override.items() if k in defaults}
+    )
+    return defaults
+
+
+@pytest.fixture(scope="session")
+def batch_request(system, batch_settings, precision) -> dict[str, Array]:
+    """Build a request dictionary describing the batch sweep."""
+    state_names = list(system.initial_values.names)
+    param_names = list(system.parameters.names)
+    return {
+        state_names[0]: np.concatenate([
+            np.linspace(
+                0.1, 1.0,
+                batch_settings["num_state_vals_0"],
+                dtype=precision,
+            ),
+            [system.initial_values.values_dict[state_names[0]]],
+        ]),
+        state_names[1]: np.concatenate([
+            np.linspace(
+                0.1, 1.0,
+                batch_settings["num_state_vals_1"],
+                dtype=precision,
+            ),
+            [system.initial_values.values_dict[state_names[1]]],
+        ]),
+        param_names[0]: np.concatenate([
+            np.linspace(
+                0.1, 1.0,
+                batch_settings["num_param_vals_0"],
+                dtype=precision,
+            ),
+            [system.parameters.values_dict[param_names[0]]],
+        ]),
+        param_names[1]: np.concatenate([
+            np.linspace(
+                0.1, 1.0,
+                batch_settings["num_param_vals_1"],
+                dtype=precision,
+            ),
+            [system.parameters.values_dict[param_names[1]]],
+        ]),
+    }
+
+
+@pytest.fixture(scope="session")
+def batch_input_arrays(
+    batch_request,
+    batch_settings,
+    input_handler,
+    system,
+) -> tuple[Array, Array]:
+    """Return the initial state and parameter arrays for the batch run."""
+    state_names = set(system.initial_values.names)
+    param_names = set(system.parameters.names)
+
+    states_dict = {
+        k: v for k, v in batch_request.items() if k in state_names
+    }
+    params_dict = {
+        k: v for k, v in batch_request.items() if k in param_names
+    }
+
+    return input_handler(
+        states=states_dict,
+        params=params_dict,
+        kind=batch_settings["kind"],
+    )
+
+
+@attrs.define
+class BatchResult:
+    """Container for CPU reference outputs for a single batch run."""
+
+    state: Array
+    observables: Array
+    state_summaries: Array
+    observable_summaries: Array
+    status: int
+
+
+@pytest.fixture(scope="session")
+def cpu_batch_results(
+    batch_input_arrays,
+    cpu_loop_runner,
+    system,
+    solver_settings,
+    precision,
+    driver_array,
+) -> BatchResult:
+    """Compute CPU reference outputs for each run in the batch."""
+    initial_sets, parameter_sets = batch_input_arrays
+    results: list[BatchResult] = []
+    coefficients = (
+        driver_array.coefficients if driver_array is not None else None
+    )
+    n_runs = initial_sets.shape[1]
+    for idx in range(n_runs):
+        loop_result = cpu_loop_runner(
+            initial_values=initial_sets[:, idx],
+            parameters=parameter_sets[:, idx],
+            driver_coefficients=coefficients,
+        )
+        results.append(
+            BatchResult(
+                state=loop_result["state"],
+                observables=loop_result["observables"],
+                state_summaries=loop_result["state_summaries"],
+                observable_summaries=loop_result["observable_summaries"],
+                status=int(loop_result["status"]),
+            )
+        )
+
+    return BatchResult(
+        state=np.stack([r.state for r in results], axis=2),
+        observables=np.stack([r.observables for r in results], axis=2),
+        state_summaries=np.stack(
+            [r.state_summaries for r in results], axis=2,
+        ),
+        observable_summaries=np.stack(
+            [r.observable_summaries for r in results], axis=2,
+        ),
+        status=0 if all(r.status == 0 for r in results) else 1,
     )

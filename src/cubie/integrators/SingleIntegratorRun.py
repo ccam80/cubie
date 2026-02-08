@@ -51,12 +51,6 @@ class SingleIntegratorRun(SingleIntegratorRunCore):
         return self.compile_settings.algorithm
 
     @property
-    def algorithm_key(self) -> str:
-        """Return the canonical algorithm identifier."""
-
-        return self.compile_settings.algorithm
-
-    @property
     def step_controller(self) -> str:
         """Return the configured step-controller identifier."""
 
@@ -89,22 +83,10 @@ class SingleIntegratorRun(SingleIntegratorRunCore):
         return self._loop.persistent_local_buffer_size
 
     @property
-    def compiled_loop_function(self) -> Callable:
-        """Return the compiled loop function."""
+    def dt(self) -> float:
+        """Return the initial step size from the controller."""
 
-        return self.device_function
-
-    @property
-    def threads_per_loop(self) -> int:
-        """Return the number of CUDA threads required per system."""
-
-        return self.threads_per_step
-
-    @property
-    def dt0(self) -> float:
-        """Return the starting step size from the controller."""
-
-        return self._step_controller.dt0
+        return self._step_controller.dt
 
     @property
     def dt_min(self) -> float:
@@ -189,6 +171,7 @@ class SingleIntegratorRun(SingleIntegratorRunCore):
         """
         save_every = self.save_every
         precision = self.precision
+        duration = precision(duration)
 
         regular_samples = 0
         final_samples = 1 if self.save_last else 0

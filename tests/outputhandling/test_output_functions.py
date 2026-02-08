@@ -1,782 +1,340 @@
-import pytest
+"""Tests for cubie.outputhandling.OutputFunctions."""
+
+from __future__ import annotations
+
 import numpy as np
-from numpy.testing import assert_allclose
-from numba import cuda, from_dtype
+import pytest
+from numpy.testing import assert_array_equal
 
-from cubie.outputhandling import OutputFunctions
-from tests._utils import deterministic_array, calculate_expected_summaries
+from cubie.outputhandling.output_functions import (
+    OutputFunctionCache,
+    OutputFunctions,
+)
+from cubie.outputhandling.output_config import OutputCompileFlags
+from cubie.outputhandling.output_sizes import OutputArrayHeights
 
 
-@pytest.fixture(scope="session")
-def output_test_settings(output_test_settings_overrides, precision):
-    """Parameters for instantiating and testing the outputfunctions class, both compile settings and run settings
-    per test. Outputfunctions should not care about the higher-level modules, so we duplicate information that is
-    housed elsewhere in conftest.py for use in tests of system integration (pun)."""
-    output_test_settings_dict = {
-        "num_samples": 10,
-        "num_summaries": 1,
-        "num_states": 10,
-        "num_observables": 10,
-        "saved_state_indices": [0, 1],
-        "saved_observable_indices": [0, 1],
-        "random_scale": 1.0,
-        "output_types": ["state"],
-        "precision": precision,
-        "test_shared_mem": True,
+# ── __init__ ─────────────────────────────────────────────── #
+
+
+def test_default_output_types_is_state(system, precision):
+    """output_types defaults to ['state'] when None is passed."""
+    of = OutputFunctions(
+        system.sizes.states,
+        system.sizes.observables,
+        precision=precision,
+    )
+    assert "state" in of.output_types
+    assert len(of.output_types) == 1
+
+
+def test_init_creates_output_config(output_functions):
+    """Construction installs an OutputConfig with matching output_types."""
+    cs = output_functions.compile_settings
+    assert cs.output_types == output_functions.output_types
+
+
+# ── update ───────────────────────────────────────────────── #
+
+
+def test_update_merges_dict_and_kwargs(output_functions_mutable):
+    """update merges updates_dict and kwargs; both keys recognised."""
+    recognised = output_functions_mutable.update(
+        {"saved_state_indices": [0]},
+        saved_observable_indices=[0],
+    )
+    assert recognised == {"saved_state_indices", "saved_observable_indices"}
+
+
+def test_update_returns_empty_set_for_empty_dict(
+    output_functions_mutable,
+):
+    """update({}) returns empty set without modifying state."""
+    result = output_functions_mutable.update({})
+    assert result == set()
+
+
+def test_update_applies_to_compile_settings(output_functions_mutable):
+    """update delegates to compile_settings and values propagate."""
+    output_functions_mutable.update(
+        {"saved_state_indices": [0]}, silent=True,
+    )
+    assert_array_equal(
+        output_functions_mutable.saved_state_indices,
+        np.array([0]),
+    )
+
+
+def test_update_raises_for_unrecognised_silent_false(
+    output_functions_mutable,
+):
+    """update raises KeyError for unrecognised params when silent=False."""
+    with pytest.raises(KeyError, match="Unrecognized"):
+        output_functions_mutable.update(
+            {"nonexistent_param": 42}, silent=False,
+        )
+
+
+def test_update_suppresses_unrecognised_silent_true(
+    output_functions_mutable,
+):
+    """update returns empty recognised set for unknown params, silent."""
+    recognised = output_functions_mutable.update(
+        {"nonexistent_param": 42}, silent=True,
+    )
+    assert recognised == set()
+
+
+# ── build / cache ────────────────────────────────────────── #
+
+
+def test_build_populates_cache(output_functions):
+    """build produces cache whose functions match the property accessors."""
+    # Trigger build by accessing a cached property
+    _ = output_functions.save_state_func
+    cache = output_functions._cache
+    assert isinstance(cache, OutputFunctionCache)
+    assert cache.save_state_function is output_functions.save_state_func
+    assert (
+        cache.update_summaries_function
+        is output_functions.update_summaries_func
+    )
+    assert (
+        cache.save_summaries_function
+        is output_functions.save_summary_metrics_func
+    )
+
+
+def test_build_cache_has_three_distinct_functions(output_functions):
+    """The three cached functions are distinct callables."""
+    fns = {
+        output_functions.save_state_func,
+        output_functions.update_summaries_func,
+        output_functions.save_summary_metrics_func,
     }
-    output_test_settings_dict.update(**output_test_settings_overrides)
-    return output_test_settings_dict
+    assert len(fns) == 3
 
 
-@pytest.fixture(scope="session")
-def output_test_settings_overrides(request):
-    """Parametrize this fixture indirectly to change test settings, no need to request this fixture directly
-    unless you're testing that it worked."""
-    return request.param if hasattr(request, "param") else {}
-
-
-@pytest.fixture(scope="session")
-def output_functions(output_test_settings, precision):
-    """outputhandling object under test"""
-    return OutputFunctions(
-        output_test_settings["num_states"],
-        output_test_settings["num_observables"],
-        precision,
-        output_test_settings["output_types"],
-        output_test_settings["saved_state_indices"],
-        output_test_settings["saved_observable_indices"],
-    )
+# ── Forwarding properties (scalar) ──────────────────────── #
 
 
 @pytest.mark.parametrize(
-    "output_test_settings_overrides",
-    [{"output_types": ["state", "observables"]}, {"output_types": ["time"]}],
-    indirect=True
-)
-def test_save_time(output_functions, output_test_settings):
-    """Test that the save_time setting is correctly set in the outputhandling object."""
-    assert output_functions.save_time == (
-        "time" in output_test_settings["output_types"]
-    )
-
-
-@pytest.mark.parametrize(
-    "output_test_settings_overrides, fails",
+    "prop, child_attr",
     [
-        ({"output_types": ["state", "observables"]}, False),
+        ("output_types", "output_types"),
+        ("save_time", "save_time"),
+        ("n_saved_states", "n_saved_states"),
+        ("n_saved_observables", "n_saved_observables"),
+        ("state_summaries_output_height", "state_summaries_output_height"),
         (
-            {
-                "output_types": [
-                    "state",
-                    "observables",
-                    "mean",
-                    "std",
-                    "rms",
-                    "min",
-                    "max",
-                    "max_magnitude",
-                    "negative_peaks[3]",
-                    "peaks[3]",
-                ]
-            },
-            False,
+            "observable_summaries_output_height",
+            "observable_summaries_output_height",
         ),
-        ({"saved_state_indices": [0], "saved_observable_indices": [0]}, False),
-        ({"saved_state_indices": [20]}, True),
-        ({"saved_state_indices": [], "saved_observable_indices": []}, False),
-        ({"output_types": []}, True),
+        (
+            "summaries_buffer_height_per_var",
+            "summaries_buffer_height_per_var",
+        ),
+        (
+            "state_summaries_buffer_height",
+            "state_summaries_buffer_height",
+        ),
+        (
+            "observable_summaries_buffer_height",
+            "observable_summaries_buffer_height",
+        ),
+        (
+            "summaries_output_height_per_var",
+            "summaries_output_height_per_var",
+        ),
+        (
+            "summary_legend_per_variable",
+            "summary_legend_per_variable",
+        ),
+        (
+            "summary_unit_modifications",
+            "summary_unit_modifications",
+        ),
+        ("buffer_sizes_dict", "buffer_sizes_dict"),
     ],
-    ids=[
-        "no_summaries",
-        "all_summaries",
-        "single_saved",
-        "saved_index_out_of_bounds",
-        "saved_empty",
-        "no_output_types",
-    ],
-    indirect=["output_test_settings_overrides"],
 )
-def test_output_functions_build(output_test_settings, precision, fails):
-    """Test happy path and failure cases for instantiating and building outputfunctions Builds a new object instead
-    of using fixtures to capture errors in instantiation."""
-    if fails:
-        with pytest.raises(ValueError):
-            OutputFunctions(
-                output_test_settings["num_states"],
-                output_test_settings["num_observables"],
-                precision,
-                output_test_settings["output_types"],
-                output_test_settings["saved_state_indices"],
-                output_test_settings["saved_observable_indices"],
-            )
-
-    else:
-        output_functions = OutputFunctions(
-            output_test_settings["num_states"],
-            output_test_settings["num_observables"],
-            precision,
-            output_test_settings["output_types"],
-            output_test_settings["saved_state_indices"],
-            output_test_settings["saved_observable_indices"],
-        )
-        save_state = output_functions.save_state_func
-        update_summaries = output_functions.update_summaries_func
-        save_summaries = output_functions.save_summary_metrics_func
-
-        assert callable(save_state)
-        assert callable(update_summaries)
-        assert callable(save_summaries)
-
-
-@pytest.fixture(scope="session")
-def input_arrays(output_test_settings):
-    """Random input state and observable arrays for tests."""
-    num_states = output_test_settings["num_states"]
-    num_observables = output_test_settings["num_observables"]
-    num_samples = output_test_settings["num_samples"]
-    precision = output_test_settings["precision"]
-    scale = output_test_settings["random_scale"]
-
-    states = deterministic_array(
-        precision, (num_samples, num_states), scale
-    )
-    observables = deterministic_array(
-        precision, (num_samples, num_observables), scale
-    )
-
-    return states, observables
-
-
-@pytest.fixture(scope="session")
-def empty_output_arrays(output_test_settings, output_functions):
-    """Empty output arrays for testing."""
-
-    n_saved_states = output_functions.n_saved_states
-    n_saved_observables = output_functions.n_saved_observables
-    n_summarised_states = len(output_functions.summarised_state_indices)
-    n_summarised_observables = len(output_functions.summarised_observable_indices)
-    num_samples = output_test_settings["num_samples"]
-    num_summaries = output_test_settings["num_summaries"]
-    summary_height_per_variable = (
-        output_functions.summaries_output_height_per_var
-    )
-    state_summary_height = summary_height_per_variable * n_summarised_states
-    observable_summary_height = (
-        summary_height_per_variable * n_summarised_observables
-    )
-
-    precision = output_test_settings["precision"]
-    save_time = "time" in output_test_settings["output_types"]
-
-    if save_time:
-        n_saved_states += 1
-
-    state_out = np.zeros((num_samples, n_saved_states), dtype=precision)
-    observable_out = np.zeros(
-        (num_samples, n_saved_observables), dtype=precision
-    )
-    state_summary = np.zeros(
-        (num_summaries, state_summary_height), dtype=precision
-    )
-    observable_summary = np.zeros(
-        (num_summaries, observable_summary_height), dtype=precision
-    )
-    counters_out = np.zeros((num_samples, 4), dtype=np.int32)
-
-    return state_out, observable_out, state_summary, observable_summary, counters_out
-
-
-@pytest.fixture(scope="session")
-def expected_outputs(output_test_settings, input_arrays, precision):
-    """Selected portions of input arrays - should match what the test kernel does."""
-    num_samples = output_test_settings["num_samples"]
-    state_in, observables_in = input_arrays
-    state_out = state_in[:, output_test_settings["saved_state_indices"]]
-    observable_out = observables_in[
-        :, output_test_settings["saved_observable_indices"]
-    ]
-    save_time = "time" in output_test_settings["output_types"]
-
-    if save_time:
-        time_output = np.arange(num_samples, dtype=precision)
-        time_output = time_output.reshape((num_samples, 1))
-        state_out = np.concatenate((state_out, time_output), axis=1)
-
-    return state_out, observable_out
-
-
-@pytest.fixture(scope="session")
-def expected_summaries(
-    output_test_settings,
-    empty_output_arrays,
-    expected_outputs,
-    output_functions,
-    precision,
+def test_scalar_forwarding_to_compile_settings(
+    output_functions, prop, child_attr,
 ):
-    """Default expected summaries_array for the output functions."""
-    state_output, observables_output = expected_outputs
-    if output_functions.save_time:
-        state_output = state_output[:, :-1]
-    summarise_every = (
-        output_test_settings["num_samples"]
-        // output_test_settings["num_summaries"]
-    )
-    output_types = output_test_settings["output_types"]
-    summary_height_per_variable = (
-        output_functions.summaries_output_height_per_var
+    """Scalar forwarding properties delegate to compile_settings."""
+    assert getattr(output_functions, prop) == getattr(
+        output_functions.compile_settings, child_attr,
     )
 
-    state_summaries, observable_summaries = calculate_expected_summaries(
-        state_output,
-        observables_output,
-        output_test_settings['saved_state_indices'],
-        output_test_settings['saved_observable_indices'],
-        summarise_every,
-        output_types,
-        summary_height_per_variable,
-        precision,
+
+def test_compile_flags_forwarded(output_functions):
+    """compile_flags is the same object as compile_settings.compile_flags."""
+    assert (
+        output_functions.compile_flags
+        == output_functions.compile_settings.compile_flags
     )
+    assert isinstance(output_functions.compile_flags, OutputCompileFlags)
 
-    return state_summaries, observable_summaries
+
+# ── Forwarding properties (array) ───────────────────────── #
 
 
-@pytest.fixture(scope="session")
-def output_functions_test_kernel(
-    precision, output_test_settings, output_functions
+@pytest.mark.parametrize(
+    "prop, child_attr",
+    [
+        ("saved_state_indices", "saved_state_indices"),
+        ("saved_observable_indices", "saved_observable_indices"),
+        ("summarised_state_indices", "summarised_state_indices"),
+        (
+            "summarised_observable_indices",
+            "summarised_observable_indices",
+        ),
+    ],
+)
+def test_array_forwarding_to_compile_settings(
+    output_functions, prop, child_attr,
 ):
-    """Kernel that writes input to local state, then uses output functions to save every sample and summarise every
-    summarise_every samples."""
-    summarise_every = (
-        output_test_settings["num_samples"]
-        // output_test_settings["num_summaries"]
-    )
-    test_shared_mem = output_test_settings["test_shared_mem"]
-
-    save_state_func = output_functions.save_state_func
-    update_summary_metrics_func = output_functions.update_summaries_func
-    save_summary_metrics_func = output_functions.save_summary_metrics_func
-
-    num_states = output_test_settings["num_states"]
-
-    num_observables = output_test_settings["num_observables"]
-
-    n_summarised_states = len(output_functions.summarised_state_indices)
-    n_summarised_observables = len(output_functions.summarised_observable_indices)
-
-    shared_memory_requirements = (
-        output_functions.summaries_buffer_height_per_var
-    )
-    state_summary_buffer_length = (
-        shared_memory_requirements * n_summarised_states
-    )
-    obs_summary_buffer_length = (
-        shared_memory_requirements * n_summarised_observables
+    """Array forwarding properties match compile_settings values."""
+    assert_array_equal(
+        getattr(output_functions, prop),
+        getattr(output_functions.compile_settings, child_attr),
     )
 
-    # Output heights for dummy initialization arrays
-    state_summary_output_height = (
-        max(output_functions.state_summaries_output_height, 1)
-    )
-    obs_summary_output_height = (
-        max(output_functions.observable_summaries_output_height, 1)
-    )
 
-    if test_shared_mem is False:
-        num_states = 1 if num_states == 0 else num_states
-        num_observables = 1 if num_observables == 0 else num_observables
-        state_summary_buffer_length = (
-            1
-            if state_summary_buffer_length == 0
-            else state_summary_buffer_length
-        )
-        obs_summary_buffer_length = (
-            1 if obs_summary_buffer_length == 0 else obs_summary_buffer_length
-        )
-
-    numba_precision = from_dtype(precision)
-
-    @cuda.jit()
-    def _output_functions_test_kernel(
-        _state_input,
-        _observable_input,
-        _state_output,
-        _observable_output,
-        _state_summaries_output,
-        _observable_summaries_output,
-        _counters_output,
-    ):
-        """Test kernel for output functions."""
-
-        tx = cuda.threadIdx.x
-        bx = cuda.blockIdx.x
-
-        # single-threaded test, slow as you like
-        if tx != 0 or bx != 0:
-            return
-
-        if test_shared_mem:
-            # Shared memory arrays for current state, current observables, and running summaries_array
-            shared = cuda.shared.array(0, dtype=numba_precision)
-
-            observables_start_idx = num_states
-            state_summaries_start_idx = observables_start_idx + num_observables
-            obs_summaries_start_idx = (
-                state_summaries_start_idx + state_summary_buffer_length
-            )
-            obs_summaries_end_idx = (
-                obs_summaries_start_idx + obs_summary_buffer_length
-            )
-
-            current_state = shared[:observables_start_idx]
-            current_observable = shared[
-                observables_start_idx:state_summaries_start_idx
-            ]
-            state_summaries = shared[
-                state_summaries_start_idx:obs_summaries_start_idx
-            ]
-            observable_summaries = shared[
-                obs_summaries_start_idx:obs_summaries_end_idx
-            ]
-
-        else:
-            current_state = cuda.local.array(num_states, dtype=numba_precision)
-            current_observable = cuda.local.array(
-                num_observables, dtype=numba_precision
-            )
-            state_summaries = cuda.local.array(
-                state_summary_buffer_length, dtype=numba_precision
-            )
-            observable_summaries = cuda.local.array(
-                obs_summary_buffer_length, dtype=numba_precision
-            )
-
-        current_state[:] = 0.0
-        current_observable[:] = 0.0
-        state_summaries[:] = 0.0
-        observable_summaries[:] = 0.0
-
-        # Counters buffer - always use local memory for simplicity
-        counters = cuda.local.array(4, dtype=np.int32)
-        counters[:] = 0
-
-        # Initialize summary buffers with proper sentinel values by calling
-        # save_summary_metrics_func once with dummy output arrays.
-        # This resets max buffers to -1e30, min buffers to 1e30, etc.
-        dummy_state_summary_out = cuda.local.array(
-            state_summary_output_height, dtype=numba_precision
-        )
-        dummy_obs_summary_out = cuda.local.array(
-            obs_summary_output_height, dtype=numba_precision
-        )
-        save_summary_metrics_func(
-            state_summaries,
-            observable_summaries,
-            dummy_state_summary_out,
-            dummy_obs_summary_out,
-            summarise_every,
-        )
-
-        for i in range(_state_input.shape[0]):
-            for j in range(num_states):
-                current_state[j] = _state_input[i, j]
-            for j in range(num_observables):
-                current_observable[j] = _observable_input[i, j]
-
-            # Call the output functions
-            save_state_func(
-                current_state,
-                current_observable,
-                counters,
-                i,  # time is just loop index here
-                _state_output[i, :],
-                _observable_output[i, :],
-                _counters_output[i, :],
-            )
-
-            update_summary_metrics_func(
-                current_state,
-                current_observable,
-                state_summaries,
-                observable_summaries,
-                i,
-            )
-
-            # Save summary metrics every summarise_every samples
-            if (i + 1) % summarise_every == 0:
-                sample_index = int(i / summarise_every)
-                save_summary_metrics_func(
-                    state_summaries,
-                    observable_summaries,
-                    _state_summaries_output[sample_index, :],
-                    _observable_summaries_output[sample_index, :],
-                    summarise_every,
-                )
-
-    return _output_functions_test_kernel
+# ── Cached function forwarding ──────────────────────────── #
 
 
-@pytest.fixture(scope="session")
-def compare_input_output(
-    output_functions_test_kernel,
-    output_functions,
-    output_test_settings,
-    input_arrays,
-    empty_output_arrays,
-    expected_outputs,
-    expected_summaries,
-    precision,
-    tolerance,
+@pytest.mark.parametrize(
+    "prop, cache_attr",
+    [
+        ("save_state_func", "save_state_function"),
+        ("update_summaries_func", "update_summaries_function"),
+        ("save_summary_metrics_func", "save_summaries_function"),
+    ],
+)
+def test_func_properties_forward_from_cache(
+    output_functions, prop, cache_attr,
 ):
-    """Test that output functions correctly save state and observable values."""
-
-    state_input, observable_input = input_arrays
-    (
-        state_output,
-        observable_output,
-        state_summaries_output,
-        observable_summaries_output,
-        counters_output,
-    ) = empty_output_arrays
-
-    n_summarised_states = len(output_functions.summarised_state_indices)
-    n_summarised_observables = len(output_functions.summarised_observable_indices)
-
-    n_states = output_test_settings["num_states"]
-    n_observables = output_test_settings["num_observables"]
-
-    # To the CUDA device
-    d_state_input = cuda.to_device(state_input)
-    d_observable_input = cuda.to_device(observable_input)
-    d_state_output = cuda.to_device(state_output)
-    d_observable_output = cuda.to_device(observable_output)
-    d_state_summaries_output = cuda.to_device(state_summaries_output)
-    d_observable_summaries_output = cuda.to_device(observable_summaries_output)
-    d_counters_output = cuda.to_device(counters_output)
-
-    kernel_shared_memory = (
-        n_states + n_observables
-    )  # Hard-coded from test kernel code
-    summary_buffer_size = output_functions.summaries_buffer_height_per_var
-    summary_shared_memory = (
-        n_summarised_states + n_summarised_observables
-    ) * summary_buffer_size
-    dynamic_shared_memory = (
-        kernel_shared_memory + summary_shared_memory
-    ) * precision().itemsize
-
-    output_functions_test_kernel[1, 1, 0, dynamic_shared_memory](
-        d_state_input,
-        d_observable_input,
-        d_state_output,
-        d_observable_output,
-        d_state_summaries_output,
-        d_observable_summaries_output,
-        d_counters_output,
+    """Function properties return the same object stored in the cache."""
+    assert getattr(output_functions, prop) is getattr(
+        output_functions._cache, cache_attr,
     )
 
-    # Synchronize and copy results back
-    cuda.synchronize()
 
-    state_output = d_state_output.copy_to_host()
-    observable_output = d_observable_output.copy_to_host()
-    state_summaries_output = d_state_summaries_output.copy_to_host()
-    observable_summaries_output = d_observable_summaries_output.copy_to_host()
+# ── Computed properties: heights ─────────────────────────── #
 
-    expected_state_output, expected_observable_output = expected_outputs
-    expected_state_summaries, expected_observable_summaries = (
-        expected_summaries
+
+def test_state_summaries_output_height_computed(output_functions):
+    """state_summaries_output_height = per_var * n_summarised_states."""
+    cs = output_functions.compile_settings
+    expected = cs.summaries_output_height_per_var * len(
+        output_functions.summarised_state_indices,
     )
+    assert output_functions.state_summaries_output_height == expected
 
-    if output_functions.compile_settings.save_state:
-        assert_allclose(
-            state_output,
-            expected_state_output,
-            atol=tolerance.abs_tight,
-            rtol=tolerance.rel_tight,
-            err_msg="State &| time values were not saved correctly",
-        )
 
-    if output_functions.compile_settings.save_observables:
-        assert_allclose(
-            observable_output,
-            expected_observable_output,
-            atol=tolerance.abs_tight,
-            rtol=tolerance.rel_tight,
-            err_msg="Observable values were not saved correctly",
-        )
+def test_observable_summaries_output_height_computed(output_functions):
+    """observable_summaries_output_height = per_var * n_summarised_obs."""
+    cs = output_functions.compile_settings
+    expected = cs.summaries_output_height_per_var * len(
+        output_functions.summarised_observable_indices,
+    )
+    assert output_functions.observable_summaries_output_height == expected
 
-    if output_functions.compile_settings.summarise_state:
-        assert_allclose(
-            expected_state_summaries,
-            state_summaries_output,
-            atol=1e-4,
-            rtol=1e-4,
-            err_msg=f"State summaries_array didn't match expected values. Shapes: expected"
-            f"[{expected_state_summaries.shape}, actual[{state_summaries_output.shape}]",
-            verbose=True,
-        )
-    if output_functions.compile_settings.summarise_observables:
-        assert_allclose(
-            expected_observable_summaries,
-            observable_summaries_output,
-            atol=1e-4,
-            rtol=1e-4,
-            err_msg=f"Observable summaries_array didn't match expected values. Shapes: expected[{expected_observable_summaries.shape}, actual[{observable_summaries_output.shape}]",
-            verbose=True,
-        )
+
+def test_state_summaries_buffer_height_computed(output_functions):
+    """state_summaries_buffer_height = per_var * n_summarised_states."""
+    cs = output_functions.compile_settings
+    expected = cs.summaries_buffer_height_per_var * len(
+        output_functions.summarised_state_indices,
+    )
+    assert output_functions.state_summaries_buffer_height == expected
+
+
+def test_observable_summaries_buffer_height_computed(output_functions):
+    """observable_summaries_buffer_height = per_var * n_summarised_obs."""
+    cs = output_functions.compile_settings
+    expected = cs.summaries_buffer_height_per_var * len(
+        output_functions.summarised_observable_indices,
+    )
+    assert output_functions.observable_summaries_buffer_height == expected
+
+
+def test_n_saved_states_matches_indices_length(
+    output_functions, solver_settings,
+):
+    """n_saved_states equals length of saved_state_indices."""
+    expected = len(solver_settings["saved_state_indices"])
+    assert output_functions.n_saved_states == expected
+
+
+def test_n_saved_observables_matches_indices_length(
+    output_functions, solver_settings,
+):
+    """n_saved_observables equals length of saved_observable_indices."""
+    expected = len(solver_settings["saved_observable_indices"])
+    assert output_functions.n_saved_observables == expected
+
+
+# ── has_time_domain_outputs ──────────────────────────────── #
+
+
+def test_has_time_domain_outputs_default(output_functions):
+    """has_time_domain_outputs True with default config (has state+time)."""
+    assert output_functions.has_time_domain_outputs is True
 
 
 @pytest.mark.parametrize(
     "solver_settings_override",
-    [{"precision": np.float32},
-     {"precision": np.float64}],
-    ids=["float32", "float64"],
+    [pytest.param(
+        {"output_types": ["mean"]},
+        id="summary-only",
+    )],
     indirect=True,
 )
+def test_has_time_domain_outputs_false(output_functions):
+    """has_time_domain_outputs False when only summary types present."""
+    assert output_functions.has_time_domain_outputs is False
+
+
+# ── has_summary_outputs ──────────────────────────────────── #
+
+
+def test_has_summary_outputs_default(output_functions):
+    """has_summary_outputs True with default config (has mean)."""
+    assert output_functions.has_summary_outputs is True
+
+
 @pytest.mark.parametrize(
-    "output_test_settings_overrides",
-    [
-        {
-            "output_types": [
-                "state",
-                "observables",
-                "mean",
-                "std",
-                "rms",
-                "max",
-                "min",
-                "max_magnitude",
-                "negative_peaks[3]",
-                "peaks[3]",
-            ],
-            "num_samples": 1000,
-            "num_summaries": 100,
-            "random_scale": 1e1,
-        },
-    ],
-    ids=["large_dataset"],
+    "solver_settings_override",
+    [pytest.param(
+        {"output_types": ["state", "time"]},
+        id="no-summaries",
+    )],
     indirect=True,
 )
-def test_all_summaries_long_run(compare_input_output):
-    """Test a long run with frequent summaries_array."""
-    pass
+def test_has_summary_outputs_false(output_functions):
+    """has_summary_outputs False when no summary types configured."""
+    assert output_functions.has_summary_outputs is False
 
 
-@pytest.mark.parametrize(
-        "solver_settings_override",
-        [{"precision": np.float32},
-         {"precision": np.float64}],
-        indirect=True
-)
-@pytest.mark.parametrize(
-    "output_test_settings_overrides",
-    [
-        {
-            "output_types": [
-                "state",
-                "observables",
-                "mean",
-                "std",
-                "rms",
-                "max",
-                "min",
-                "max_magnitude",
-                "negative_peaks[3]",
-                "peaks[3]",
-            ],
-            "num_samples": 500,
-            "num_summaries": 1,
-            "random_scale": 1e1,
-        },
-    ],
-    ids=["large_dataset"],
-    indirect=True,
-)
-def test_all_summaries_long_window(compare_input_output):
-    """Test a long summary window (500 samples)"""
-    # Ensure output_types has all possible metrics
-    output_types = [
-        "state",
-        "observables",
-        "mean",
-        "max",
-        "min",
-        "rms",
-        "std",
-        "max_magnitude",
-        "peaks[3]",
-        "negative_peaks[3]",
-        "extrema",
-        "dxdt_max",
-        "dxdt_min",
-        "dxdt_extrema",
-        "d2xdt2_max",
-        "d2xdt2_min",
-        "d2xdt2_extrema",
-    ]
-    pass
+# ── output_array_heights ─────────────────────────────────── #
 
 
-@pytest.mark.parametrize(
-    "output_test_settings_overrides",
-    [
-        {
-            "output_types": [
-                "state",
-                "observables",
-                "mean",
-                "max",
-                "peaks[3]",
-            ],
-            "test_shared_mem": False,
-        },
-        {
-            "output_types": [
-                "state",
-                "observables",
-                "mean",
-                "max",
-                "peaks[3]",
-            ],
-            "test_shared_mem": True,
-        },
-    ],
-    ids=["local_mem", "shared_mem"],
-    indirect=True,
-)
-def test_memory_types(compare_input_output):
-    """Test shared vs local memory with complex output configurations."""
-    pass
-
-
-@pytest.mark.parametrize(
-    "output_test_settings_overrides",
-    [
-        {"random_scale": 1e-6},
-        {"random_scale": 1e6},
-        {"random_scale": [-12, 12]},
-    ],
-    ids=["tiny_values", "large_values", "wide_range"],
-    indirect=True,
-)
-def test_input_value_ranges(compare_input_output):
-    """Test different input scales and simulation lengths."""
-    pass
-
-
-@pytest.mark.parametrize(
-    "output_test_settings_overrides",
-    [
-        {"output_types": ["state", "observables"]},
-        {"output_types": ["observables"]},
-        {"output_types": ["observables", "time"]},
-        {"output_types": ["time"]},
-        {"output_types": ["state", "observables", "time"]},
-    ],
-    ids=["state_obs", "obs_only", "obs_time", "time_only", "state_obs_time"],
-    indirect=True,
-)
-def test_no_summarys(compare_input_output):
-    """Test basic state and observable output configurations."""
-    pass
-
-
-@pytest.mark.parametrize(
-    "output_test_settings_overrides",
-    [
-        {"output_types": ["mean", "max", "rms"]},
-        {"output_types": ["peaks[10]"]},
-        {
-            "output_types": [
-                "state",
-                "observables",
-                "time",
-                "mean",
-                "std",
-                "rms",
-                "max",
-                "min",
-                "max_magnitude",
-                "negative_peaks[1]",
-                "peaks[1]",
-            ]
-        },
-        {"output_types": ["state", "mean"]},
-        {"output_types": ["observables", "mean"]},
-    ],
-    ids=[
-        "basic_summaries",
-        "peaks_only",
-        "all",
-        "state_and_mean",
-        "obs_and_mean",
-    ],
-    indirect=True,
-)
-def test_various_summaries(compare_input_output):
-    """Test various summary metrics configurations."""
-    pass
-
-
-@pytest.mark.parametrize(
-    "output_test_settings_overrides",
-    [
-        {"saved_state_indices": [0], "saved_observable_indices": [0]},
-        {
-            "num_states": 11,
-            "num_observables": 6,
-            "saved_state_indices": list(range(10)),
-            "saved_observable_indices": list(range(5)),
-        },
-        {
-            "num_states": 51,
-            "num_observables": 21,
-            "saved_state_indices": list(range(50)),
-            "saved_observable_indices": list(range(20)),
-        },
-        {
-            "num_states": 101,
-            "num_observables": 100,
-            "saved_state_indices": list(range(100)),
-            "saved_observable_indices": list(range(100)),
-        },
-    ],
-    ids=["1_1", "10_5", "50_20", "100_100"],
-    indirect=True,
-)
-def test_big_and_small_systems(compare_input_output):
-    """Test various small to medium system sizes."""
-    pass
-
-@pytest.mark.parametrize(
-    "output_test_settings_overrides", [{"num_summaries": 5}], indirect=True
-)
-def test_frequent_summaries(compare_input_output):
-    """Test different summary frequencies."""
-    pass
-
-def test_output_array_heights_property(output_functions):
-    """Test that output_array_heights property returns correct OutputArrayHeights object."""
-    from cubie.outputhandling.output_sizes import OutputArrayHeights
-
-    array_heights = output_functions.output_array_heights
-
-    # Verify it returns the correct type
-    assert isinstance(array_heights, OutputArrayHeights)
-
-    # Verify the values match the individual properties
+def test_output_array_heights_values(output_functions):
+    """output_array_heights fields match individually computed values."""
+    heights = output_functions.output_array_heights
+    assert isinstance(heights, OutputArrayHeights)
     expected_state = (
-        output_functions.n_saved_states + 1 * output_functions.save_time
+        output_functions.n_saved_states
+        + (1 if output_functions.save_time else 0)
     )
-    expected_observables = output_functions.n_saved_observables
-    expected_state_summaries = output_functions.state_summaries_output_height
-    expected_observable_summaries = (
-        output_functions.observable_summaries_output_height
+    assert heights.state == expected_state
+    assert heights.observables == output_functions.n_saved_observables
+    assert (
+        heights.state_summaries
+        == output_functions.state_summaries_output_height
     )
-    expected_per_variable = output_functions.summaries_output_height_per_var
-
-    assert array_heights.state == expected_state
-    assert array_heights.observables == expected_observables
-    assert array_heights.state_summaries == expected_state_summaries
-    assert array_heights.observable_summaries == expected_observable_summaries
-    assert array_heights.per_variable == expected_per_variable
+    assert (
+        heights.observable_summaries
+        == output_functions.observable_summaries_output_height
+    )

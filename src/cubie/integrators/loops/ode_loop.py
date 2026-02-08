@@ -65,7 +65,7 @@ ALL_LOOP_SETTINGS = {
     "save_every",
     "summarise_every",
     "sample_summaries_every",
-    "dt0",
+    "dt",
     "is_adaptive",
     "save_last",
     "save_regularly",
@@ -107,7 +107,7 @@ or to :meth:`IVPLoop.update`.  Parent components use this set to filter
    * - ``sample_summaries_every``
      - :class:`~cubie.integrators.loops.ode_loop_config.ODELoopConfig`
      - Interval between summary metric updates.
-   * - ``dt0``
+   * - ``dt``
      - :class:`~cubie.integrators.loops.ode_loop_config.ODELoopConfig`
      - Initial timestep.
    * - ``is_adaptive``
@@ -177,7 +177,7 @@ class IVPLoop(CUDAFactory):
         Device function that computes observables for proposed states.
     **kwargs
         Optional parameters passed to ODELoopConfig. Available parameters
-        include dt0, is_adaptive, and buffer location
+        include dt, is_adaptive, and buffer location
         parameters (state_location, proposed_state_location,
         parameters_location, drivers_location, proposed_drivers_location,
         observables_location, proposed_observables_location, error_location,
@@ -258,7 +258,7 @@ class IVPLoop(CUDAFactory):
             Device function that computes observables for proposed states.
         **kwargs
             Optional parameters passed to ODELoopConfig. See ODELoopConfig
-            for available parameters including dt0, is_adaptive, and buffer
+            for available parameters including dt, is_adaptive, and buffer
             location parameters (state_location, proposed_state_location,
             etc.). None values are ignored.
         """
@@ -458,7 +458,7 @@ class IVPLoop(CUDAFactory):
         alloc_proposed_counters = getalloc("proposed_counters", self)
 
         # Timing values
-        dt0 = precision(config.dt0)
+        initial_dt = precision(config.dt)
         save_every = config.save_every
         sample_summaries_every = config.sample_summaries_every
         samples_per_summary = int32(config.samples_per_summary)
@@ -664,8 +664,8 @@ class IVPLoop(CUDAFactory):
                     )
 
             status = int32(0)
-            dt[0] = dt0
-            dt_raw = dt0
+            dt[0] = initial_dt
+            dt_raw = initial_dt
             accept_step[0] = int32(0)
 
             # Initialize iteration counters
@@ -998,10 +998,10 @@ class IVPLoop(CUDAFactory):
         return self.compile_settings.evaluate_observables
 
     @property
-    def dt0(self) -> Optional[float]:
+    def dt(self) -> Optional[float]:
         """Return the initial step size provided to the loop."""
 
-        return self.compile_settings.dt0
+        return self.compile_settings.dt
 
     @property
     def is_adaptive(self) -> Optional[bool]:

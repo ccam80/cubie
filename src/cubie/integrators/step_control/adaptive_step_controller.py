@@ -35,6 +35,7 @@ from cubie._utils import (
     float_array_validator,
     getype_validator,
     inrangetype_validator,
+    opt_getype_validator,
     tol_converter,
 )
 from cubie.integrators.step_control.base_step_controller import (
@@ -93,17 +94,6 @@ class AdaptiveStepControlConfig(BaseStepControllerConfig):
     def __attrs_post_init__(self) -> None:
         """Ensure step limits are coherent after initialisation."""
         super().__attrs_post_init__()
-        if self._dt_max is None:
-            self._dt_max = self._dt_min * 100
-        elif self._dt_max < self._dt_min:
-            warn(
-                (
-                    f"dt_max ({self._dt_max}) < dt_min ({self._dt_min}). "
-                    "Setting dt_max = dt_min * 100"
-                )
-            )
-            self._dt_max = self._dt_min * 100
-
         if self._deadband_min > self._deadband_max:
             self._deadband_min, self._deadband_max = (
                 self._deadband_max,
@@ -118,15 +108,18 @@ class AdaptiveStepControlConfig(BaseStepControllerConfig):
     @property
     def dt_max(self) -> float:
         """Return the maximum permissible step size."""
-        value = self._dt_max
-        if value is None:
-            value = self._dt_min * 100
-        return self.precision(value)
+        return self.precision(self._dt_max)
 
     @property
-    def dt0(self) -> float:
-        """Return the initial step size."""
-        return self.precision(sqrt(self.dt_min * self.dt_max))
+    def dt(self) -> float:
+        """Return the initial step size.
+
+        When the user has not provided an explicit dt, returns the
+        geometric mean of dt_min and dt_max.
+        """
+        if self._dt is not None:
+            return self.precision(self._dt)
+        return self.precision(sqrt(self._dt_min * self._dt_max))
 
     @property
     def is_adaptive(self) -> bool:
@@ -176,7 +169,7 @@ class AdaptiveStepControlConfig(BaseStepControllerConfig):
                 "safety": self.safety,
                 "deadband_min": self.deadband_min,
                 "deadband_max": self.deadband_max,
-                "dt": self.dt0,
+                "dt": self.dt,
             }
         )
         return settings_dict
@@ -185,20 +178,88 @@ class AdaptiveStepControlConfig(BaseStepControllerConfig):
 class BaseAdaptiveStepController(BaseStepController):
     """Base class for adaptive step-size controllers."""
 
-    def __init__(
-        self,
-        config: AdaptiveStepControlConfig,
-    ) -> None:
-        """Initialise the adaptive controller.
+    _config_class = AdaptiveStepControlConfig
+
+    def _resolve_step_params(self, dt: float, kwargs: dict) -> None:
+        """Derive bounds from dt and track user-provided values.
 
         Parameters
         ----------
-        config
-            Configuration for the controller.
+        dt
+            Initial step size, or None if not provided.
+        kwargs
+            Mutable dict of keyword arguments. Modified in place.
         """
-        super().__init__()
-        self.setup_compile_settings(config)
-        self.register_buffers()
+        # Track user-provided values BEFORE derivation
+        if dt is not None:
+            self._user_step_params["dt"] = dt
+        if "dt_min" in kwargs:
+            self._user_step_params["dt_min"] = kwargs["dt_min"]
+        if "dt_max" in kwargs:
+            self._user_step_params["dt_max"] = kwargs["dt_max"]
+
+        # Derive missing values
+        if dt is not None:
+            kwargs.setdefault("dt_min", dt / 100)
+            kwargs.setdefault("dt_max", dt * 100)
+            kwargs["dt"] = dt
+        else:
+            # dt not provided; derive from bounds if both present
+            dt_min = kwargs.get("dt_min")
+            dt_max = kwargs.get("dt_max")
+            if dt_min is not None and dt_max is not None:
+                kwargs["dt"] = sqrt(dt_min * dt_max)
+
+    def _ensure_sane_bounds(self) -> None:
+        """Validate step bounds; fix only non-user-provided parameters.
+
+        Raises
+        ------
+        ValueError
+            If user-provided bounds are inverted (dt_max < dt_min) or if
+            dt falls outside a user-provided bound.
+        """
+        dt = self.dt
+        dt_min = self.dt_min
+        dt_max = self.dt_max
+
+        dt_min_user = self._user_step_params.get("dt_min") is not None
+        dt_max_user = self._user_step_params.get("dt_max") is not None
+
+        # Inverted bounds: error only if both user-provided
+        if dt_max < dt_min and dt_min_user and dt_max_user:
+            raise ValueError(
+                f"dt_max ({dt_max}) < dt_min ({dt_min}). "
+                f"Provide compatible bounds."
+            )
+
+        # dt outside user-provided bounds is an error
+        if dt < dt_min and dt_min_user:
+            raise ValueError(
+                f"dt ({dt}) < dt_min ({dt_min}). "
+                f"Provide a compatible dt or adjust dt_min."
+            )
+        if dt > dt_max and dt_max_user:
+            raise ValueError(
+                f"dt ({dt}) > dt_max ({dt_max}). "
+                f"Provide a compatible dt or adjust dt_max."
+            )
+
+        # Auto-fix non-user-provided parameters
+        fixes = {}
+        if dt_max < dt_min and not dt_max_user:
+            # Inverted bounds with auto-derived dt_max: fix dt_max
+            fixes["dt_max"] = dt_min * 100
+        if dt_max < dt_min and not dt_min_user:
+            # Inverted bounds with auto-derived dt_min: fix dt_min
+            fixes["dt_min"] = dt_max / 100
+        if dt < dt_min and not dt_min_user:
+            fixes["dt_min"] = dt / 100
+        if dt > dt_max and not dt_max_user:
+            fixes["dt_max"] = dt * 100
+
+        if fixes:
+            self.update_compile_settings(fixes, silent=True)
 
     def build(self) -> ControllerCache:
         """Construct the device function implementing the controller.
