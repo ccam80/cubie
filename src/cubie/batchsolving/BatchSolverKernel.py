@@ -1163,6 +1163,12 @@ class BatchSolverKernel(CUDAFactory):
         return self.single_integrator.system_sizes
 
     @property
+    def n_drivers(self) -> int:
+        """Number of interpolated driver inputs for the system."""
+
+        return self.system_sizes.drivers
+
+    @property
     def output_array_heights(self) -> Any:
         """Height metadata for the batched output arrays."""
 

@@ -91,9 +91,9 @@ class TestControllers:
         assert callable(step_controller.device_function)
 
     @pytest.mark.parametrize('solver_settings_override, step_setup',
-                             (({'dt_min': 0.1, 'dt_max': 0.2},
+                             (({'dt': 0.15, 'dt_min': 0.1, 'dt_max': 0.2},
                                {'dt0': 1.0, 'error': np.asarray([1e-12, 1e-12, 1e-12])}),
-                              ({'dt_min': 0.1, 'dt_max': 0.2},
+                              ({'dt': 0.15, 'dt_min': 0.1, 'dt_max': 0.2},
                                {'dt0': 0.001, 'error': np.asarray([1e12, 1e12, 1e12])})),
                              ids=("max_limit", "min_limit"),
                              indirect=True)

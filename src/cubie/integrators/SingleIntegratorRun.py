@@ -83,10 +83,10 @@ class SingleIntegratorRun(SingleIntegratorRunCore):
         return self._loop.persistent_local_buffer_size
 
     @property
-    def dt0(self) -> float:
-        """Return the starting step size from the controller."""
+    def dt(self) -> float:
+        """Return the initial step size from the controller."""
 
-        return self._step_controller.dt0
+        return self._step_controller.dt
 
     @property
     def dt_min(self) -> float:
@@ -171,6 +171,7 @@ class SingleIntegratorRun(SingleIntegratorRunCore):
         """
         save_every = self.save_every
         precision = self.precision
+        duration = precision(duration)
 
         regular_samples = 0
         final_samples = 1 if self.save_last else 0

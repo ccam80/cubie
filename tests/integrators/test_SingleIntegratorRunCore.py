@@ -140,7 +140,6 @@ def test_dt_from_step_control_reaches_controller(
         output_settings=output_settings,
     )
     assert run.dt == pytest.approx(0.005, rel=1e-3)
-    assert run.dt0 == pytest.approx(0.005, rel=1e-3)
 
 
 @pytest.mark.parametrize(
@@ -392,8 +391,8 @@ def test_errorless_euler_with_adaptive_warns_and_replaces(system):
         assert core._algo_step.is_controller_fixed
 
 
-def test_replacement_controller_uses_original_dt0(system):
-    """Replacement fixed controller uses dt0 from original adaptive."""
+def test_replacement_controller_uses_original_dt(system):
+    """Replacement fixed controller uses dt from original adaptive."""
     with warnings.catch_warnings(record=True):
         warnings.simplefilter("always")
         core = SingleIntegratorRunCore(
@@ -405,10 +404,12 @@ def test_replacement_controller_uses_original_dt0(system):
                 "dt_max": 1e-1,
             },
         )
-        # The fixed replacement should use the original dt0 as its dt
-        assert core._step_controller.dt == pytest.approx(
-            core._step_controller.dt0
+        # The fixed replacement should use dt computed from user's bounds
+        # dt = sqrt(dt_min * dt_max) = sqrt(1e-6 * 1e-1) = sqrt(1e-7)
+        expected_dt = pytest.approx(
+            (1e-6 * 1e-1) ** 0.5, rel=1e-3
         )
+        assert core._step_controller.dt == expected_dt
 
 
 def test_errorless_rk4_with_adaptive_warns(system):

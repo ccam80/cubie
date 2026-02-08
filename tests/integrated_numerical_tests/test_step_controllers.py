@@ -305,8 +305,8 @@ class TestControllerNumerical:
         n_states = system.sizes.states
         dtype = precision
         cpu_controller = cpu_step_controller
-        current_dt_cpu = float(step_controller.dt0)
-        current_dt_gpu = float(step_controller.dt0)
+        current_dt_cpu = float(step_controller.dt)
+        current_dt_gpu = float(step_controller.dt)
         local_mem = np.zeros(
             step_controller.local_memory_elements,
             dtype=dtype,
@@ -494,8 +494,8 @@ class TestControllerEquivalence:
         gpu_trace = ControllerTrace()
         cpu_trace = ControllerTrace()
 
-        current_dt_device = dtype(step_controller.dt0)
-        current_dt_cpu = dtype(step_controller.dt0)
+        current_dt_device = dtype(step_controller.dt)
+        current_dt_cpu = dtype(step_controller.dt)
         cpu_step_controller.dt = dtype(current_dt_cpu)
 
         for idx, (prev_state, new_state, err_vec, niter) in (
@@ -619,7 +619,7 @@ class TestControllerEquivalence:
         cpu_step_controller._prev_nrm2 = dtype(0)
         cpu_step_controller._prev_prev_nrm2 = dtype(0)
         cpu_step_controller.dt = dtype(
-            step_controller_mutable.dt0
+            step_controller_mutable.dt
         )
         accept_cpu = cpu_step_controller.propose_dt(
             error_vector=error_vec,
@@ -630,7 +630,7 @@ class TestControllerEquivalence:
         device_result = _run_device_step(
             step_controller_mutable.device_function,
             dtype,
-            dtype(step_controller_mutable.dt0),
+            dtype(step_controller_mutable.dt),
             error_vec,
             state=new_state,
             state_prev=prev_state,

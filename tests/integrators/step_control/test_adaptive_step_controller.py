@@ -72,6 +72,7 @@ def test_post_init_dt_max_lt_dt_min_warns_and_corrects():
     assert cfg._dt_max == pytest.approx(1.0 * 100)
 
 
+
 def test_post_init_dt_max_ge_dt_min_no_change():
     """When dt_max >= dt_min, no correction occurs."""
     cfg = AdaptiveStepControlConfig(
@@ -156,13 +157,13 @@ def test_config_dt_max_property_normal_path():
     assert cfg.dt_max == pytest.approx(np.float64(2.0))
 
 
-def test_config_dt0():
-    """dt0 returns precision(sqrt(dt_min * dt_max))."""
-    cfg = AdaptiveStepControlConfig(
-        precision=np.float64, dt_min=1e-4, dt_max=1.0
+def test_controller_derives_dt_from_bounds():
+    """Controller derives dt as sqrt(dt_min * dt_max) when not provided."""
+    ctrl = AdaptiveIController(
+        precision=np.float64, n=3, dt_min=1e-4, dt_max=1.0
     )
-    expected = np.float64(sqrt(cfg.dt_min * cfg.dt_max))
-    assert cfg.dt0 == pytest.approx(expected)
+    expected = np.float64(sqrt(1e-4 * 1.0))
+    assert ctrl.dt == pytest.approx(expected)
 
 
 def test_config_is_adaptive():
@@ -177,7 +178,7 @@ def test_config_is_adaptive():
 def test_config_settings_dict_keys():
     """settings_dict contains all expected adaptive controller keys."""
     cfg = AdaptiveStepControlConfig(
-        precision=np.float64, dt_min=1e-5, dt_max=0.5,
+        precision=np.float64, dt=1e-3, dt_min=1e-5, dt_max=0.5,
         algorithm_order=2,
     )
     d = cfg.settings_dict
@@ -191,7 +192,7 @@ def test_config_settings_dict_keys():
     assert d["dt_max"] == cfg.dt_max
     assert d["algorithm_order"] == cfg.algorithm_order
     assert d["safety"] == cfg.safety
-    assert d["dt"] == cfg.dt0
+    assert d["dt"] == cfg.dt
 
 
 # ── BaseAdaptiveStepController __init__ (item 68) ────────────────── #
@@ -287,3 +288,98 @@ def test_local_memory_elements_is_int(step_controller):
     val = step_controller.local_memory_elements
     assert isinstance(val, int)
     assert val >= 0
+
+
+# ── resolve_step_params translation ──────────────────────────── #
+
+from cubie.integrators.step_control.adaptive_I_controller import (
+    AdaptiveIController,
+)
+
+
+def test_resolve_adaptive_bounds_only():
+    """dt_min + dt_max pass through; dt = sqrt(dt_min*dt_max) when not set."""
+    ctrl = AdaptiveIController(
+        precision=np.float64, dt_min=1e-4, dt_max=1.0,
+    )
+    assert ctrl.dt_min == pytest.approx(np.float64(1e-4))
+    assert ctrl.dt_max == pytest.approx(np.float64(1.0))
+    expected_dt = np.float64(sqrt(1e-4 * 1.0))
+    assert ctrl.dt == pytest.approx(expected_dt)
+
+
+def test_resolve_adaptive_dt_only():
+    """Bare dt translates to dt_min=dt/100, dt_max=dt*100."""
+    ctrl = AdaptiveIController(precision=np.float64, dt=0.01)
+    assert ctrl.dt_min == pytest.approx(np.float64(0.01 / 100))
+    assert ctrl.dt_max == pytest.approx(np.float64(0.01 * 100))
+
+
+def test_resolve_adaptive_dt_plus_dt_min():
+    """dt + dt_min: dt_max filled from dt*100."""
+    ctrl = AdaptiveIController(
+        precision=np.float64, dt=0.01, dt_min=1e-5,
+    )
+    assert ctrl.dt_min == pytest.approx(np.float64(1e-5))
+    assert ctrl.dt_max == pytest.approx(np.float64(0.01 * 100))
+
+
+def test_resolve_adaptive_dt_plus_dt_max():
+    """dt + dt_max: dt_min filled from dt/100."""
+    ctrl = AdaptiveIController(
+        precision=np.float64, dt=0.01, dt_max=10.0,
+    )
+    assert ctrl.dt_min == pytest.approx(np.float64(0.01 / 100))
+    assert ctrl.dt_max == pytest.approx(np.float64(10.0))
+
+
+def test_resolve_adaptive_all_three_accepted():
+    """dt + dt_min + dt_max: all three accepted without warning."""
+    ctrl = AdaptiveIController(
+        precision=np.float64, dt=0.01,
+        dt_min=1e-5, dt_max=10.0,
+    )
+    assert ctrl.dt == pytest.approx(np.float64(0.01))
+    assert ctrl.dt_min == pytest.approx(np.float64(1e-5))
+    assert ctrl.dt_max == pytest.approx(np.float64(10.0))
+
+
+def test_update_preserves_user_set_bounds():
+    """User-set bounds are preserved when dt is updated."""
+    ctrl = AdaptiveIController(
+        precision=np.float64, dt_min=1e-4, dt_max=1.0,
+    )
+    ctrl.update({"dt": 0.05})
+    # Bounds were user-set at construction, so preserved
+    assert ctrl.dt == pytest.approx(np.float64(0.05))
+    assert ctrl.dt_min == pytest.approx(np.float64(1e-4))
+    assert ctrl.dt_max == pytest.approx(np.float64(1.0))
+
+
+def test_update_fixes_violated_bounds():
+    """Non-user-set bounds are fixed when constraints violated."""
+    # Construction with dt only - bounds are derived
+    ctrl = AdaptiveIController(precision=np.float64, dt=1e-6)
+    assert ctrl.dt_min == pytest.approx(np.float64(1e-8))
+    assert ctrl.dt_max == pytest.approx(np.float64(1e-4))
+
+    # Update dt to value outside derived bounds
+    ctrl.update({"dt": 1e-2})
+    assert ctrl.dt == pytest.approx(np.float64(1e-2))
+    # dt > old dt_max, so dt_max re-derived (not user-set)
+    assert ctrl.dt_max == pytest.approx(np.float64(1e-2 * 100))
+    # dt_min unchanged (no violation)
+    assert ctrl.dt_min == pytest.approx(np.float64(1e-8))
+
+
+def test_update_tracks_newly_set_bounds():
+    """Bounds set via update become sticky and raise on violation."""
+    ctrl = AdaptiveIController(precision=np.float64, dt=1e-4)
+    # dt_min and dt_max were derived at construction
+
+    # Explicitly set dt_min via update
+    ctrl.update({"dt_min": 1e-6})
+
+    # Updating dt to violate user-set dt_min raises ValueError
+    with pytest.raises(ValueError, match="dt.*<.*dt_min"):
+        ctrl.update({"dt": 1e-8})

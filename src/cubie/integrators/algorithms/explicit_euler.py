@@ -39,7 +39,6 @@ from cubie.integrators.algorithms.ode_explicitstep import (
 EE_DEFAULTS = StepControlDefaults(
     step_controller={
         "step_controller": "fixed",
-        "dt": 1e-3,
     }
 )
 
