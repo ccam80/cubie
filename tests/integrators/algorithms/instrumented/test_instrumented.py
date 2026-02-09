@@ -2,9 +2,6 @@
 
 import pytest
 
-from tests.integrated_numerical_tests.test_step_algorithms import (
-    device_step_results  # noqa
-)
 from tests._utils import ALGORITHM_PARAM_SETS
 
 from .conftest import print_comparison
@@ -19,12 +16,12 @@ from .conftest import print_comparison
 def test_instrumented_gpu_vs_cpu(
     instrumented_cpu_step_results,
     instrumented_step_results,
-    device_step_results,
+    device_algorithm_step_results,
 ):
     """Print instrumented CPU and GPU arrays for two consecutive steps."""
 
     print_comparison(
         instrumented_cpu_step_results,
         instrumented_step_results,
-        device_step_results,
+        device_algorithm_step_results,
     )

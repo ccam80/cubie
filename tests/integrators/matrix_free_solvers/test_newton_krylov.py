@@ -1,33 +1,23 @@
+import attrs
 import numpy as np
 import pytest
 from numba import cuda
 from numpy.testing import assert_allclose
 
+from cubie.integrators.matrix_free_solvers.base_solver import (
+    MatrixFreeSolver,
+)
 from cubie.integrators.matrix_free_solvers.linear_solver import (
     LinearSolver,
 )
 from cubie.integrators.matrix_free_solvers.newton_krylov import (
     NewtonKrylov,
+    NewtonKrylovConfig,
 )
 from cubie.integrators.matrix_free_solvers import SolverRetCodes
+from cubie.integrators.norms import ScaledNorm
 
 STATUS_MASK = 0xFFFF
-
-
-@pytest.fixture(scope="session")
-def placeholder_system(precision):
-    """Provide residual and operator for a scalar ODE step."""
-
-    @cuda.jit(device=True)
-    def residual(state, parameters, drivers, t, h, a_ij, base_state, out):
-        out[0] = state[0] - h * (base_state[0] + a_ij * state[0])
-
-    @cuda.jit(device=True)
-    def operator(state, parameters, drivers, base_state, t, h, a_ij, vec, out):
-        out[0] = (precision(1.0) - h * a_ij) * vec[0]
-
-    base = cuda.to_device(np.array([1.0], dtype=precision))
-    return residual, operator, base
 
 
 def test_newton_krylov_placeholder(placeholder_system, precision, tolerance):
@@ -558,8 +548,6 @@ def test_newton_krylov_scaled_tolerance_converges(precision, tolerance):
 
 def test_newton_krylov_uses_scaled_norm(precision):
     """Verify NewtonKrylov uses ScaledNorm for convergence checking."""
-    from cubie.integrators.norms import ScaledNorm
-
     n = 3
     linear_solver = LinearSolver(precision=precision, n=n)
     newton = NewtonKrylov(
@@ -613,11 +601,6 @@ def test_newton_krylov_tolerance_update_propagates(precision):
 
 def test_newton_krylov_config_no_tolerance_fields(precision):
     """Verify NewtonKrylovConfig no longer has tolerance scalar fields."""
-    from cubie.integrators.matrix_free_solvers.newton_krylov import (
-        NewtonKrylovConfig,
-    )
-    import attrs
-
     # Get all field names from NewtonKrylovConfig
     field_names = {f.name for f in attrs.fields(NewtonKrylovConfig)}
 
@@ -638,10 +621,6 @@ def test_newton_krylov_config_settings_dict_excludes_tolerance_arrays(
     precision,
 ):
     """Verify settings_dict does not include tolerance arrays."""
-    from cubie.integrators.matrix_free_solvers.newton_krylov import (
-        NewtonKrylovConfig,
-    )
-
     config = NewtonKrylovConfig(precision=precision, n=3)
     settings = config.settings_dict
 
@@ -665,10 +644,6 @@ def test_newton_krylov_config_settings_dict_excludes_tolerance_arrays(
 
 def test_newton_krylov_inherits_from_matrix_free_solver(precision):
     """Verify NewtonKrylov is instance of MatrixFreeSolver."""
-    from cubie.integrators.matrix_free_solvers.base_solver import (
-        MatrixFreeSolver,
-    )
-
     n = 3
     linear_solver = LinearSolver(precision=precision, n=n)
     newton = NewtonKrylov(
@@ -683,8 +658,6 @@ def test_newton_krylov_inherits_from_matrix_free_solver(precision):
 
 def test_newton_krylov_update_preserves_original_dict(precision):
     """Verify update() does not modify the input updates_dict."""
-    from numba import cuda
-
     @cuda.jit(device=True)
     def residual(state, parameters, drivers, t, h, a_ij, base_state, out):
         out[0] = state[0]

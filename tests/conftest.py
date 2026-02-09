@@ -1,6 +1,8 @@
 from pathlib import Path
 from types import SimpleNamespace
 import os
+import tempfile
+import shutil
 
 import numpy as np
 import pytest
@@ -15,7 +17,11 @@ from tests._utils import (
     _get_evaluate_driver_at_t,
     _get_driver_del_t,
     _run_device_step,
+    _run_device_algorithm_step,
+    _execute_cpu_step_twice as _cpu_step_twice,
     StepResult,
+    AlgorithmStepResult,
+    STATUS_MASK,
 )
 import attrs
 
@@ -48,6 +54,7 @@ from tests.integrators.cpu_reference import (
     CPUODESystem,
     DriverEvaluator,
     run_reference_loop,
+    get_ref_stepper,
 )
 
 from tests._utils import _driver_sequence, run_device_loop
@@ -100,8 +107,6 @@ def codegen_dir():
     disable the temporary redirect and keep the original
     `odefile.GENERATED_DIR`.
     """
-    import tempfile
-    import shutil
     import os
     from cubie.odesystems.symbolic import odefile
 
@@ -875,6 +880,128 @@ def cpu_step_results(cpu_step_controller, precision, step_setup):
         out_local = np.zeros(0, dtype=precision)
 
     return StepResult(controller.dt, int(accept), out_local)
+
+
+# ========================================
+# DEVICE UNIT TEST FIXTURES: ALGORITHM STEPS
+# ========================================
+
+
+@pytest.fixture(scope="session")
+def algorithm_step_inputs(
+    system,
+    precision,
+    initial_state,
+    solver_settings,
+    cpu_driver_evaluator,
+) -> dict:
+    """State, parameters, and drivers for a single step execution."""
+    width = system.num_drivers
+    driver_coefficients = np.array(
+        cpu_driver_evaluator.coefficients,
+        dtype=precision,
+        copy=True,
+    )
+    return {
+        "state": initial_state,
+        "parameters": system.parameters.values_array.astype(
+            precision
+        ),
+        "drivers": np.zeros(width, dtype=precision),
+        "driver_coefficients": driver_coefficients,
+    }
+
+
+@pytest.fixture(scope="session")
+def device_algorithm_step_results(
+    step_object,
+    solver_settings,
+    precision,
+    algorithm_step_inputs,
+    system,
+    driver_array,
+) -> AlgorithmStepResult:
+    """Execute the CUDA step and collect host-side outputs."""
+    return _run_device_algorithm_step(
+        step_object=step_object,
+        solver_settings=solver_settings,
+        precision=precision,
+        step_inputs=algorithm_step_inputs,
+        system=system,
+        driver_array=driver_array,
+    )
+
+
+@pytest.fixture(scope="session")
+def cpu_algorithm_step_results(
+    solver_settings,
+    cpu_system,
+    algorithm_step_inputs,
+    cpu_driver_evaluator,
+    step_object,
+) -> AlgorithmStepResult:
+    """Execute the CPU reference stepper."""
+
+    tableau = getattr(step_object, "tableau", None)
+    dt = solver_settings["dt"]
+    state = np.asarray(
+        algorithm_step_inputs["state"],
+        dtype=cpu_system.precision,
+    )
+    params = np.asarray(
+        algorithm_step_inputs["parameters"],
+        dtype=cpu_system.precision,
+    )
+    if cpu_system.system.num_drivers > 0:
+        driver_evaluator = (
+            cpu_driver_evaluator.with_coefficients(
+                algorithm_step_inputs["driver_coefficients"]
+            )
+        )
+    else:
+        driver_evaluator = cpu_driver_evaluator
+
+    stepper = get_ref_stepper(
+        cpu_system,
+        driver_evaluator,
+        solver_settings["algorithm"],
+        newton_tol=solver_settings["newton_atol"],
+        newton_max_iters=solver_settings["newton_max_iters"],
+        linear_tol=solver_settings["krylov_atol"],
+        linear_max_iters=solver_settings["krylov_max_iters"],
+        linear_correction_type=solver_settings[
+            "linear_correction_type"
+        ],
+        preconditioner_order=solver_settings[
+            "preconditioner_order"
+        ],
+        tableau=tableau,
+        newton_damping=solver_settings["newton_damping"],
+        newton_max_backtracks=solver_settings[
+            "newton_max_backtracks"
+        ],
+    )
+
+    result = stepper.step(
+        state=state,
+        params=params,
+        dt=dt,
+        time=0.0,
+    )
+
+    return AlgorithmStepResult(
+        state=result.state.astype(
+            cpu_system.precision, copy=True
+        ),
+        observables=result.observables.astype(
+            cpu_system.precision, copy=True
+        ),
+        error=result.error.astype(
+            cpu_system.precision, copy=True
+        ),
+        status=result.status & STATUS_MASK,
+        n_iters=(result.status >> 16) & STATUS_MASK,
+    )
 
 
 # ========================================

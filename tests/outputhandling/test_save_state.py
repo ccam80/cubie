@@ -4,85 +4,11 @@ from __future__ import annotations
 
 import numpy as np
 import pytest
-from numba import cuda, from_dtype, int32
 
-from cubie.outputhandling.save_state import save_state_factory
+from tests._utils import _run_save_state_kernel
 
 
 # ── Structural kernel tests ─────────────────────────────── #
-
-
-def _run_save_state_kernel(
-    saved_state_indices,
-    saved_observable_indices,
-    save_state,
-    save_observables,
-    save_time,
-    save_counters,
-    state_values,
-    observable_values,
-    counter_values,
-    current_step,
-    precision,
-):
-    """Invoke save_state_factory output in a minimal CUDA kernel.
-
-    Returns (state_output, obs_output, counters_output) as host arrays.
-    """
-    fn = save_state_factory(
-        saved_state_indices=saved_state_indices,
-        saved_observable_indices=saved_observable_indices,
-        save_state=save_state,
-        save_observables=save_observables,
-        save_time=save_time,
-        save_counters=save_counters,
-    )
-
-    n_state_cols = len(saved_state_indices) + (1 if save_time else 0)
-    n_obs_cols = len(saved_observable_indices)
-    n_counter_cols = 4
-
-    # Ensure at least 1 element to avoid zero-size arrays
-    state_out = np.full(max(n_state_cols, 1), -999.0, dtype=precision)
-    obs_out = np.full(max(n_obs_cols, 1), -999.0, dtype=precision)
-    counters_out = np.full(n_counter_cols, -999, dtype=precision)
-
-    d_state = cuda.to_device(
-        np.array(state_values, dtype=precision)
-    )
-    d_obs = cuda.to_device(
-        np.array(observable_values, dtype=precision)
-    )
-    d_counters = cuda.to_device(
-        np.array(counter_values, dtype=precision)
-    )
-    d_state_out = cuda.to_device(state_out)
-    d_obs_out = cuda.to_device(obs_out)
-    d_counters_out = cuda.to_device(counters_out)
-
-    numba_prec = from_dtype(precision)
-    step_val = precision(current_step)
-
-    @cuda.jit
-    def kernel(
-        st, obs, ctrs, step, st_out, obs_out, ctrs_out
-    ):
-        idx = cuda.grid(1)
-        if idx > 0:
-            return
-        fn(st, obs, ctrs, step, st_out, obs_out, ctrs_out)
-
-    kernel[1, 1](
-        d_state, d_obs, d_counters, step_val,
-        d_state_out, d_obs_out, d_counters_out,
-    )
-    cuda.synchronize()
-
-    return (
-        d_state_out.copy_to_host(),
-        d_obs_out.copy_to_host(),
-        d_counters_out.copy_to_host(),
-    )
 
 
 @pytest.mark.parametrize(

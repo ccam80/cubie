@@ -7,22 +7,6 @@ from cubie.integrators.matrix_free_solvers.linear_solver import (
     LinearSolver,
 )
 from cubie.integrators.matrix_free_solvers import SolverRetCodes
-
-
-@pytest.fixture(scope="function")
-def placeholder_operator(precision):
-    """Device operator applying a simple SPD matrix."""
-
-    @cuda.jit(device=True)
-    def operator(state, parameters, drivers, base_state, t, h, a_ij, vec, out):
-        out[0] = precision(4.0) * vec[0] + precision(1.0) * vec[1]
-        out[1] = precision(1.0) * vec[0] + precision(3.0) * vec[1]
-        out[2] = precision(2.0) * vec[2]
-
-    return operator
-
-
-# Removed placeholder Neumann factory usage; use real generated preconditioner via system_setup
 @pytest.mark.parametrize(
     "solver_settings_override",
     [{"precision": np.float64}],
@@ -66,22 +50,6 @@ def test_neumann_preconditioner(
         rtol=tolerance.rel_loose,
         atol=tolerance.abs_loose,
     )
-
-
-@pytest.fixture(scope="function")
-def solver_device(request, placeholder_operator, precision):
-    """Return solver device for the requested correction type."""
-
-    solver = LinearSolver(
-        precision=precision,
-        n=3,
-        linear_correction_type=request.param,
-        krylov_atol=1e-12,
-        krylov_rtol=1e-12,
-        krylov_max_iters=32,
-    )
-    solver.update(operator_apply=placeholder_operator)
-    return solver.device_function
 
 
 @pytest.mark.parametrize(

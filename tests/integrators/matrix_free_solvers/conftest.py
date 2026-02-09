@@ -2,6 +2,14 @@ import numpy as np
 import pytest
 from numba import cuda
 
+from cubie.integrators.matrix_free_solvers.linear_solver import (
+    LinearSolver,
+    LinearSolverConfig,
+)
+from cubie.integrators.matrix_free_solvers.newton_krylov import (
+    NewtonKrylov,
+    NewtonKrylovConfig,
+)
 from cubie.odesystems.symbolic.symbolicODE import create_ODE_system
 
 
@@ -203,11 +211,6 @@ def neumann_kernel(precision):
 def solver_kernel():
     """Compile a kernel for linear solver device functions.
 
-    Parameters
-    ----------
-    precision : np.dtype
-        Floating point precision used for arrays.
-
     Returns
     -------
     callable
@@ -248,23 +251,63 @@ def solver_kernel():
 
 
 @pytest.fixture(scope="function")
+def placeholder_operator(precision):
+    """Device operator applying a simple SPD matrix."""
+
+    @cuda.jit(device=True)
+    def operator(state, parameters, drivers, base_state, t, h, a_ij, vec, out):
+        out[0] = precision(4.0) * vec[0] + precision(1.0) * vec[1]
+        out[1] = precision(1.0) * vec[0] + precision(3.0) * vec[1]
+        out[2] = precision(2.0) * vec[2]
+
+    return operator
+
+
+@pytest.fixture(scope="function")
+def solver_device(request, placeholder_operator, precision):
+    """Return solver device for the requested correction type."""
+
+    solver = LinearSolver(
+        precision=precision,
+        n=3,
+        linear_correction_type=request.param,
+        krylov_atol=1e-12,
+        krylov_rtol=1e-12,
+        krylov_max_iters=32,
+    )
+    solver.update(operator_apply=placeholder_operator)
+    return solver.device_function
+
+
+@pytest.fixture(scope="session")
+def placeholder_system(precision):
+    """Provide residual and operator for a scalar ODE step."""
+
+    @cuda.jit(device=True)
+    def residual(state, parameters, drivers, t, h, a_ij, base_state, out):
+        out[0] = state[0] - h * (base_state[0] + a_ij * state[0])
+
+    @cuda.jit(device=True)
+    def operator(state, parameters, drivers, base_state, t, h, a_ij, vec, out):
+        out[0] = (precision(1.0) - h * a_ij) * vec[0]
+
+    base = cuda.to_device(np.array([1.0], dtype=precision))
+    return residual, operator, base
+
+
+@pytest.fixture(scope="function")
 def linear_solver_instance(request, system_setup, precision):
     """Instantiate LinearSolver with settings from system_setup."""
-    from cubie.integrators.matrix_free_solvers.linear_solver import (
-        LinearSolver,
-        LinearSolverConfig,
-    )
-    
     n = system_setup['n']
     operator = system_setup['operator']
-    
+
     overrides = getattr(request, 'param', {})
     precond_order = overrides.get('preconditioner_order', 1)
     if precond_order == 0:
         preconditioner = None
     else:
         preconditioner = system_setup['preconditioner'](precond_order)
-    
+
     config_dict = {
         'precision': precision,
         'n': n,
@@ -274,7 +317,7 @@ def linear_solver_instance(request, system_setup, precision):
         'tolerance': overrides.get('tolerance', 1e-8),
         'max_iters': overrides.get('max_iters', 1000),
     }
-    
+
     config = LinearSolverConfig(**config_dict)
     return LinearSolver(config)
 
@@ -282,16 +325,11 @@ def linear_solver_instance(request, system_setup, precision):
 @pytest.fixture(scope="function")
 def newton_solver_instance(request, linear_solver_instance, system_setup, precision):
     """Instantiate NewtonKrylov with LinearSolver and settings."""
-    from cubie.integrators.matrix_free_solvers.newton_krylov import (
-        NewtonKrylov,
-        NewtonKrylovConfig,
-    )
-    
     n = system_setup['n']
     residual = system_setup['residual']
-    
+
     overrides = getattr(request, 'param', {})
-    
+
     config = NewtonKrylovConfig(
         precision=precision,
         n=n,
@@ -302,5 +340,5 @@ def newton_solver_instance(request, linear_solver_instance, system_setup, precis
         damping=overrides.get('damping', 0.5),
         max_backtracks=overrides.get('max_backtracks', 8),
     )
-    
+
     return NewtonKrylov(config)
