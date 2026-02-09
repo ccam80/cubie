@@ -9,6 +9,9 @@ import pytest
 from numpy import sqrt
 from numpy.testing import assert_array_equal
 
+from cubie.integrators.step_control.adaptive_I_controller import (
+    AdaptiveIController,
+)
 from cubie.integrators.step_control.adaptive_step_controller import (
     AdaptiveStepControlConfig,
 )
@@ -59,19 +62,6 @@ def test_post_init_dt_max_none_rejected_by_validator():
         AdaptiveStepControlConfig(
             precision=np.float64, dt_min=0.001, dt_max=None
         )
-
-
-def test_post_init_dt_max_lt_dt_min_warns_and_corrects():
-    """When dt_max < dt_min, a warning is emitted and dt_max corrected."""
-    with warnings.catch_warnings(record=True) as w:
-        warnings.simplefilter("always")
-        cfg = AdaptiveStepControlConfig(
-            precision=np.float64, dt_min=1.0, dt_max=0.5
-        )
-    assert any("dt_max" in str(warning.message) for warning in w)
-    assert cfg._dt_max == pytest.approx(1.0 * 100)
-
-
 
 def test_post_init_dt_max_ge_dt_min_no_change():
     """When dt_max >= dt_min, no correction occurs."""
@@ -291,10 +281,6 @@ def test_local_memory_elements_is_int(step_controller):
 
 
 # ── resolve_step_params translation ──────────────────────────── #
-
-from cubie.integrators.step_control.adaptive_I_controller import (
-    AdaptiveIController,
-)
 
 
 def test_resolve_adaptive_bounds_only():

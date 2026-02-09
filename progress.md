@@ -1,4 +1,4 @@
-# CuBIE Test Sweep — Progress Log
+ CuBIE Test Sweep — Progress Log
 
 ## Phase 0: Test Structure Guide
 - **Status:** COMPLETE (prior session)

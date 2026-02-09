@@ -799,6 +799,112 @@ def deterministic_array(precision, size: Union[int, tuple[int]], scale=1.0):
 
 
 # ******************** Device Test Kernels *********************************  #
+
+
+class StepResult:
+    """Lightweight return container mirroring GPU kernel outputs."""
+
+    def __init__(self, dt, accepted, local_mem, return_code=None):
+        self.dt = dt
+        self.accepted = accepted
+        self.local_mem = local_mem
+        self.return_code = return_code
+
+
+def _run_device_step(
+    device_func,
+    precision,
+    dt0,
+    error,
+    *,
+    local_mem=None,
+    state=None,
+    state_prev=None,
+    niters=1,
+):
+    """Execute a controller device function once via throwaway kernel.
+
+    Parameters
+    ----------
+    device_func : numba device function
+        Compiled step controller device function.
+    precision : dtype
+        Float dtype (np.float32 or np.float64).
+    dt0 : float
+        Initial timestep value.
+    error : array_like
+        Error vector for this step.
+    local_mem : array_like, optional
+        Persistent local memory (controller state between calls).
+        Defaults to zeros(2).
+    state : array_like, optional
+        Current state vector. Defaults to zeros matching error.
+    state_prev : array_like, optional
+        Previous state vector. Defaults to zeros matching error.
+    niters : int, optional
+        Newton iteration count. Defaults to 1.
+
+    Returns
+    -------
+    StepResult
+        Container with dt, accepted flag, and local_mem copies.
+    """
+    err = np.asarray(error, dtype=precision)
+    state_arr = (
+        np.asarray(state, dtype=precision)
+        if state is not None
+        else np.zeros_like(err)
+    )
+    state_prev_arr = (
+        np.asarray(state_prev, dtype=precision)
+        if state_prev is not None
+        else np.zeros_like(err)
+    )
+
+    dt = np.asarray([dt0], dtype=precision)
+    accept = np.zeros(1, dtype=np.int32)
+    niters_val = np.int32(niters)
+    shared_scratch = np.zeros(1, dtype=precision)
+    if local_mem is not None:
+        persistent_local = np.array(local_mem, dtype=precision)
+    else:
+        persistent_local = np.zeros(2, dtype=precision)
+    return_code = np.zeros(1, dtype=np.int32)
+
+    @cuda.jit
+    def kernel(
+        dt_val,
+        state_val,
+        state_prev_val,
+        err_val,
+        niters_val,
+        accept_val,
+        shared_val,
+        persistent_val,
+        rc_out,
+    ):
+        rc = device_func(
+            dt_val,
+            state_val,
+            state_prev_val,
+            err_val,
+            niters_val,
+            accept_val,
+            shared_val,
+            persistent_val,
+        )
+        rc_out[0] = rc
+
+    kernel[1, 1](
+        dt, state_arr, state_prev_arr, err, niters_val, accept,
+        shared_scratch, persistent_local, return_code,
+    )
+    return StepResult(
+        precision(dt[0]), int(accept[0]), persistent_local.copy(),
+        int(return_code[0]),
+    )
+
+
 @attrs.define
 class LoopRunResult:
     """Container holding the outputs produced by a single loop execution."""

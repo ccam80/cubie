@@ -14,6 +14,8 @@ from tests._utils import (
     _build_enhanced_algorithm_settings,
     _get_evaluate_driver_at_t,
     _get_driver_del_t,
+    _run_device_step,
+    StepResult,
 )
 import attrs
 
@@ -775,6 +777,104 @@ def cpu_step_controller(precision, step_controller_settings):
         precision=precision,
         step_controller_settings=step_controller_settings,
     )
+
+
+# ========================================
+# DEVICE UNIT TEST FIXTURES: STEP CONTROLLERS
+# ========================================
+
+
+@pytest.fixture(scope='function')
+def step_setup(request, precision, system):
+    """Parametrizable inputs for a single controller invocation.
+
+    Use with ``indirect=True`` to vary error, dt, local_mem, etc.
+    Defaults: dt0=0.05, error=0.01*ones, state=ones,
+    state_prev=ones, local_mem=zeros(2).
+    """
+    n = system.sizes.states
+    setup_dict = {
+        'dt0': 0.05,
+        'error': np.asarray(
+            [0.01] * system.sizes.states, dtype=precision
+        ),
+        'state': np.ones(n, dtype=precision),
+        'state_prev': np.ones(n, dtype=precision),
+        'local_mem': np.zeros(2, dtype=precision),
+        'niters': 1,
+    }
+    if hasattr(request, 'param'):
+        for key, value in request.param.items():
+            if key in setup_dict:
+                setup_dict[key] = value
+    return setup_dict
+
+
+@pytest.fixture(scope='function')
+def device_step_results(step_controller, precision, step_setup):
+    """Run device controller once, return StepResult."""
+    return _run_device_step(
+        step_controller.device_function,
+        precision,
+        step_setup['dt0'],
+        step_setup['error'],
+        state=step_setup['state'],
+        state_prev=step_setup['state_prev'],
+        local_mem=step_setup['local_mem'],
+        niters=step_setup['niters'],
+    )
+
+
+@pytest.fixture(scope='function')
+def cpu_step_results(cpu_step_controller, precision, step_setup):
+    """Run CPU reference controller once, return StepResult."""
+    controller = cpu_step_controller
+    kind = controller.kind.lower()
+    controller.dt = step_setup['dt0']
+    state = np.asarray(step_setup['state'], dtype=precision)
+    state_prev = np.asarray(
+        step_setup['state_prev'], dtype=precision
+    )
+    error_vec = np.asarray(step_setup['error'], dtype=precision)
+    provided_local = np.asarray(
+        step_setup['local_mem'], dtype=precision
+    )
+
+    if kind == 'pi':
+        controller._prev_nrm2 = float(provided_local[0])
+    elif kind == 'pid':
+        controller._prev_nrm2 = float(provided_local[0])
+        controller._prev_prev_nrm2 = float(provided_local[1])
+    elif kind == 'gustafsson':
+        controller._prev_dt = float(provided_local[0])
+        controller._prev_nrm2 = float(provided_local[1])
+
+    accept = controller.propose_dt(
+        prev_state=state_prev,
+        new_state=state,
+        error_vector=error_vec,
+        niters=step_setup['niters'],
+    )
+    errornorm = controller.error_norm(state_prev, state, error_vec)
+
+    if kind == 'i':
+        out_local = np.zeros(0, dtype=precision)
+    elif kind == 'pi':
+        out_local = np.array([errornorm], dtype=precision)
+    elif kind == 'pid':
+        out_local = np.array([
+            controller._prev_nrm2,
+            controller._prev_prev_nrm2,
+        ], dtype=precision)
+    elif kind == 'gustafsson':
+        out_local = np.array([
+            controller._prev_dt,
+            errornorm,
+        ], dtype=precision)
+    else:
+        out_local = np.zeros(0, dtype=precision)
+
+    return StepResult(controller.dt, int(accept), out_local)
 
 
 # ========================================
