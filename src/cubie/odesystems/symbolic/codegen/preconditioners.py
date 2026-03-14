@@ -563,6 +563,339 @@ def generate_neumann_preconditioner_cached_code(
     return result
 
 
+JACOBI_TEMPLATE = (
+    "\n"
+    "# AUTO-GENERATED DIAGONAL JACOBI PRECONDITIONER FACTORY\n"
+    "def {func_name}(constants, precision, beta=1.0, gamma=1.0, order=1):\n"
+    '    """Auto-generated diagonal Jacobi preconditioner.\n'
+    "    Computes diagonal of ``beta * I - gamma * a_ij * h * J`` and\n"
+    "    applies pointwise inversion: ``out[i] = v[i] / d[i]``.\n"
+    "    Returns device function:\n"
+    "      preconditioner(state, parameters, drivers, base_state,"
+    " t, h, a_ij, v, out, jvp, scratch)\n"
+    '    """\n'
+    "    n = int32({n_out})\n"
+    "    _cubie_codegen_gamma = precision(gamma)\n"
+    "    _cubie_codegen_beta = precision(beta)\n"
+    "{const_lines}"
+    "    @cuda.jit(\n"
+    "        device=True,\n"
+    "        inline=True)\n"
+    "    def preconditioner("
+    "state, parameters, drivers, base_state, t, h, a_ij, v, out, jvp, scratch):\n"
+    "{diag_body}\n"
+    "    return preconditioner\n"
+)
+
+
+JACOBI_CACHED_TEMPLATE = (
+    "\n"
+    "# AUTO-GENERATED CACHED DIAGONAL JACOBI PRECONDITIONER FACTORY\n"
+    "def {func_name}(constants, precision, beta=1.0, gamma=1.0, order=1):\n"
+    '    """Cached diagonal Jacobi preconditioner using stored auxiliaries.\n'
+    "    Computes diagonal of ``beta * I - gamma * a_ij * h * J`` and\n"
+    "    applies pointwise inversion: ``out[i] = v[i] / d[i]``.\n"
+    "    Returns device function:\n"
+    "      preconditioner(\n"
+    "          state, parameters, drivers, cached_aux, base_state,"
+    " t, h, a_ij, v, out, jvp, scratch\n"
+    "      )\n"
+    '    """\n'
+    "    n = int32({n_out})\n"
+    "    _cubie_codegen_gamma = precision(gamma)\n"
+    "    _cubie_codegen_beta = precision(beta)\n"
+    "{const_lines}"
+    "    @cuda.jit(\n"
+    "        device=True,\n"
+    "        inline=True)\n"
+    "    def preconditioner("
+    "state, parameters, drivers, cached_aux, base_state,"
+    " t, h, a_ij, v, out, jvp, scratch):\n"
+    "{diag_body}\n"
+    "    return preconditioner\n"
+)
+
+
+def _build_jacobi_body_with_state_subs(
+    equations: ParsedEquations,
+    index_map: IndexedBases,
+    cse: bool = True,
+) -> str:
+    """Build single-system Jacobi body with inline state evaluation.
+
+    For Newton-Krylov usage: ``state`` is the stage increment, evaluate
+    the Jacobian diagonal at ``base_state + a_ij * state``.
+    """
+    from cubie.odesystems.symbolic.codegen.jacobian import generate_jacobian
+
+    eq_list = equations.to_equation_list()
+    state_symbols = list(index_map.states.index_map.keys())
+    dx_symbols = list(index_map.dxdt.index_map.keys())
+    observable_symbols = list(index_map.observable_symbols)
+    state_count = len(state_symbols)
+
+    jac = generate_jacobian(
+        equations,
+        input_order=index_map.states.index_map,
+        output_order=index_map.dxdt.index_map,
+    )
+
+    state_vec = sp.IndexedBase("state", shape=(sp.Integer(state_count),))
+    base_state = sp.IndexedBase("base_state", shape=(sp.Integer(state_count),))
+    out_vec = sp.IndexedBase("out", shape=(sp.Integer(state_count),))
+    v_vec = sp.IndexedBase("v", shape=(sp.Integer(state_count),))
+    time_arg = sp.Symbol("t")
+    h_sym = sp.Symbol("h")
+    a_ij_sym = sp.Symbol("a_ij")
+    beta_sym = sp.Symbol("_cubie_codegen_beta")
+    gamma_sym = sp.Symbol("_cubie_codegen_gamma")
+
+    # Substitute state symbols -> base_state + a_ij * state
+    state_subs = {}
+    for i, sym in enumerate(state_symbols):
+        state_subs[sym] = base_state[i] + a_ij_sym * state_vec[i]
+
+    # Build auxiliary substitution map for dx/observable intermediates
+    dx_subs = {sym: sp.Symbol(f"dx_{idx}") for idx, sym in enumerate(dx_symbols)}
+    obs_subs = {}
+    if observable_symbols:
+        obs_subs = {
+            sym: sp.Symbol(f"aux_{idx + 1}")
+            for idx, sym in enumerate(observable_symbols)
+        }
+    substitution_map = {**dx_subs, **obs_subs}
+
+    # Emit full equation list with state subs so intermediates are defined
+    eval_exprs: List[Tuple[sp.Symbol, sp.Expr]] = []
+    for lhs, rhs in eq_list:
+        new_lhs = lhs.subs(substitution_map)
+        new_rhs = rhs.subs(substitution_map).subs(state_subs)
+        eval_exprs.append((new_lhs, new_rhs))
+
+    # Build auxiliary subs for Jacobian diagonal entries
+    combined_subs = {}
+    combined_subs.update(substitution_map)
+    combined_subs.update(state_subs)
+
+    for comp_idx in range(state_count):
+        j_ii = jac[comp_idx, comp_idx]
+        substituted = j_ii.xreplace(combined_subs)
+
+        diag_sym = sp.Symbol(f"diag_{comp_idx}")
+        diag_val = beta_sym - gamma_sym * h_sym * a_ij_sym * substituted
+        eval_exprs.append((diag_sym, diag_val))
+        eval_exprs.append((
+            out_vec[comp_idx],
+            v_vec[comp_idx] / diag_sym,
+        ))
+
+    if cse:
+        eval_exprs = cse_and_stack(eval_exprs)
+    else:
+        eval_exprs = topological_sort(eval_exprs)
+
+    symbol_map = dict(index_map.all_arrayrefs)
+    symbol_map.update({
+        "state": state_vec,
+        "base_state": base_state,
+        "out": out_vec,
+        "v": v_vec,
+        "t": time_arg,
+    })
+    eval_exprs = prune_unused_assignments(eval_exprs, outputsym_str='out')
+
+    lines = print_cuda_multiple(eval_exprs, symbol_map=symbol_map)
+    if not lines:
+        return "        pass"
+    return "\n".join("        " + ln for ln in lines)
+
+
+def _build_cached_jacobi_body(
+    equations: ParsedEquations,
+    index_map: IndexedBases,
+    cse: bool = True,
+) -> str:
+    """Build cached Jacobi body for Rosenbrock usage.
+
+    ``state`` is the actual state vector — no inline substitution needed.
+    Auxiliaries come from the ``cached_aux`` buffer.
+    """
+    from cubie.odesystems.symbolic.codegen.jacobian import generate_jacobian
+
+    state_symbols = list(index_map.states.index_map.keys())
+    state_count = len(state_symbols)
+
+    jac = generate_jacobian(
+        equations,
+        input_order=index_map.states.index_map,
+        output_order=index_map.dxdt.index_map,
+    )
+
+    # Generate JVP equations to get cached partition info
+    jvp_equations = generate_analytical_jvp(
+        equations,
+        input_order=index_map.states.index_map,
+        output_order=index_map.dxdt.index_map,
+        observables=index_map.observable_symbols,
+        cse=cse,
+    )
+    cached_aux, runtime_aux, _ = jvp_equations.cached_partition()
+
+    out_vec = sp.IndexedBase("out", shape=(sp.Integer(state_count),))
+    v_vec = sp.IndexedBase("v", shape=(sp.Integer(state_count),))
+    h_sym = sp.Symbol("h")
+    a_ij_sym = sp.Symbol("a_ij")
+    beta_sym = sp.Symbol("_cubie_codegen_beta")
+    gamma_sym = sp.Symbol("_cubie_codegen_gamma")
+
+    if cached_aux:
+        cached = sp.IndexedBase(
+            "cached_aux", shape=(sp.Integer(len(cached_aux)),)
+        )
+    else:
+        cached = sp.IndexedBase("cached_aux")
+
+    eval_exprs: List[Tuple[sp.Symbol, sp.Expr]] = []
+    # Bring in cached auxiliaries
+    eval_exprs.extend(
+        (lhs, cached[idx]) for idx, (lhs, _) in enumerate(cached_aux)
+    )
+    eval_exprs.extend(runtime_aux)
+
+    # Build auxiliary subs from cached partition
+    aux_subs = {lhs: cached[idx] for idx, (lhs, _) in enumerate(cached_aux)}
+    for lhs, rhs in runtime_aux:
+        aux_subs[lhs] = rhs
+
+    for comp_idx in range(state_count):
+        j_ii = jac[comp_idx, comp_idx]
+        substituted = j_ii.xreplace(aux_subs)
+
+        diag_sym = sp.Symbol(f"diag_{comp_idx}")
+        diag_val = beta_sym - gamma_sym * h_sym * a_ij_sym * substituted
+        eval_exprs.append((diag_sym, diag_val))
+        eval_exprs.append((
+            out_vec[comp_idx],
+            v_vec[comp_idx] / diag_sym,
+        ))
+
+    if cse:
+        eval_exprs = cse_and_stack(eval_exprs)
+    else:
+        eval_exprs = topological_sort(eval_exprs)
+
+    symbol_map = dict(index_map.all_arrayrefs)
+    symbol_map.update({
+        "out": out_vec,
+        "v": v_vec,
+    })
+    eval_exprs = prune_unused_assignments(eval_exprs, outputsym_str='out')
+
+    lines = print_cuda_multiple(eval_exprs, symbol_map=symbol_map)
+    if not lines:
+        return "        pass"
+    return "\n".join("        " + ln for ln in lines)
+
+
+default_timelogger.register_event(
+    "codegen_generate_jacobi_preconditioner_code", "codegen",
+    "Codegen time for generate_jacobi_preconditioner_code")
+default_timelogger.register_event(
+    "codegen_generate_jacobi_preconditioner_cached_code", "codegen",
+    "Codegen time for generate_jacobi_preconditioner_cached_code")
+
+
+def generate_jacobi_preconditioner_code(
+    equations: ParsedEquations,
+    index_map: IndexedBases,
+    func_name: str = "jacobi_preconditioner_factory",
+    cse: bool = True,
+) -> str:
+    """Generate a diagonal Jacobi preconditioner for single-system solvers.
+
+    Computes ``diag(beta*I - gamma*h*a_ij*J_diag)`` and applies
+    pointwise inversion. For Newton-Krylov usage with inline state
+    evaluation.
+
+    Parameters
+    ----------
+    equations
+        Parsed ODE equations.
+    index_map
+        Symbol-to-array mapping for states, parameters, etc.
+    func_name
+        Name for the generated factory function.
+    cse
+        Whether to apply common-subexpression elimination.
+
+    Returns
+    -------
+    str
+        Generated Python/CUDA factory function code.
+    """
+    default_timelogger.start_event(
+        "codegen_generate_jacobi_preconditioner_code"
+    )
+    n_out = len(index_map.dxdt.ref_map)
+    const_block = render_constant_assignments(index_map.constants.symbol_map)
+    diag_body = _build_jacobi_body_with_state_subs(equations, index_map, cse)
+    result = JACOBI_TEMPLATE.format(
+        func_name=func_name,
+        n_out=n_out,
+        const_lines=const_block,
+        diag_body=diag_body,
+    )
+    default_timelogger.stop_event(
+        "codegen_generate_jacobi_preconditioner_code"
+    )
+    return result
+
+
+def generate_jacobi_preconditioner_cached_code(
+    equations: ParsedEquations,
+    index_map: IndexedBases,
+    func_name: str = "jacobi_preconditioner_cached",
+    cse: bool = True,
+) -> str:
+    """Generate a cached diagonal Jacobi preconditioner.
+
+    For Rosenbrock usage: state is the actual state, auxiliaries come
+    from a cached buffer.
+
+    Parameters
+    ----------
+    equations
+        Parsed ODE equations.
+    index_map
+        Symbol-to-array mapping for states, parameters, etc.
+    func_name
+        Name for the generated factory function.
+    cse
+        Whether to apply common-subexpression elimination.
+
+    Returns
+    -------
+    str
+        Generated Python/CUDA factory function code.
+    """
+    default_timelogger.start_event(
+        "codegen_generate_jacobi_preconditioner_cached_code"
+    )
+    n_out = len(index_map.dxdt.ref_map)
+    const_block = render_constant_assignments(index_map.constants.symbol_map)
+    diag_body = _build_cached_jacobi_body(equations, index_map, cse)
+    result = JACOBI_CACHED_TEMPLATE.format(
+        func_name=func_name,
+        n_out=n_out,
+        const_lines=const_block,
+        diag_body=diag_body,
+    )
+    default_timelogger.stop_event(
+        "codegen_generate_jacobi_preconditioner_cached_code"
+    )
+    return result
+
+
 N_STAGE_JACOBI_TEMPLATE = (
     "\n"
     "# AUTO-GENERATED N-STAGE DIAGONAL JACOBI PRECONDITIONER FACTORY\n"
@@ -866,6 +1199,8 @@ def generate_n_stage_jacobi_preconditioner_code(
 __all__ = [
     "generate_neumann_preconditioner_code",
     "generate_neumann_preconditioner_cached_code",
+    "generate_jacobi_preconditioner_code",
+    "generate_jacobi_preconditioner_cached_code",
     "generate_n_stage_neumann_preconditioner_code",
     "generate_n_stage_jacobi_preconditioner_code",
 ]

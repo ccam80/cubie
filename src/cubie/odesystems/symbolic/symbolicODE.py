@@ -61,6 +61,8 @@ from cubie.odesystems.symbolic.codegen.dxdt import (
 from cubie.odesystems.symbolic.codegen import (
     generate_cached_jvp_code,
     generate_cached_operator_apply_code,
+    generate_jacobi_preconditioner_cached_code,
+    generate_jacobi_preconditioner_code,
     generate_neumann_preconditioner_cached_code,
     generate_neumann_preconditioner_code,
     generate_n_stage_neumann_preconditioner_code,
@@ -98,7 +100,6 @@ _NEUMANN_PRECONDITIONER_TYPES = frozenset((
     "neumann_preconditioner",
     "neumann_preconditioner_cached",
     "n_stage_neumann_preconditioner",
-    "n_stage_jacobi_preconditioner",
 ))
 
 
@@ -722,6 +723,7 @@ class SymbolicODE(BaseODE):
         beta: float = 1.0,
         gamma: float = 1.0,
         preconditioner_order: int = 2,
+        preconditioner_type: Union[str, list] = "neumann",
         mass: Optional[Union[ndarray, sp.Matrix]] = None,
         stage_coefficients: Optional[
             Sequence[Sequence[Union[float, sp.Expr]]]
@@ -840,6 +842,10 @@ class SymbolicODE(BaseODE):
                 f"neumann_preconditioner_cached"
                 f"_o{preconditioner_order}"
             )
+        elif func_type == "jacobi_preconditioner":
+            factory_name = "jacobi_preconditioner"
+        elif func_type == "jacobi_preconditioner_cached":
+            factory_name = "jacobi_preconditioner_cached"
         else:
             factory_name = func_type
 
@@ -930,6 +936,18 @@ class SymbolicODE(BaseODE):
                     self.indices,
                     factory_name,
                     jvp_equations=self._get_jvp_exprs(),
+                )
+            elif func_type == "jacobi_preconditioner":
+                code = generate_jacobi_preconditioner_code(
+                    self.equations,
+                    self.indices,
+                    factory_name,
+                )
+            elif func_type == "jacobi_preconditioner_cached":
+                code = generate_jacobi_preconditioner_cached_code(
+                    self.equations,
+                    self.indices,
+                    factory_name,
                 )
             elif func_type == "stage_residual":
                 code = generate_stage_residual_code(
@@ -1043,7 +1061,7 @@ class SymbolicODE(BaseODE):
             },
             "preconditioner_cached": {
                 "neumann": "neumann_preconditioner_cached",
-                "jacobi": "neumann_preconditioner_cached",
+                "jacobi": "jacobi_preconditioner_cached",
             },
         }
 
