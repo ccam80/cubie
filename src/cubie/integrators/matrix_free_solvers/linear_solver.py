@@ -134,6 +134,13 @@ class MRLinearSolver(LinearSolverBase):
             config.temp_location,
             precision=config.precision,
         )
+        buffer_registry.register(
+            "mr_precond_scratch",
+            self,
+            config.n,
+            "local",
+            precision=config.precision,
+        )
 
     @property
     def linear_correction_type(self) -> str:
@@ -182,6 +189,7 @@ class MRLinearSolver(LinearSolverBase):
         get_alloc = buffer_registry.get_allocator
         alloc_precond = get_alloc("preconditioned_vec", self)
         alloc_temp = get_alloc("temp", self)
+        alloc_precond_scratch = get_alloc("mr_precond_scratch", self)
 
         # Build device function based on cached auxiliaries flag
         if use_cached_auxiliaries:
@@ -247,6 +255,9 @@ class MRLinearSolver(LinearSolverBase):
                 # Allocate buffers from registry
                 preconditioned_vec = alloc_precond(shared, persistent_local)
                 temp = alloc_temp(shared, persistent_local)
+                precond_scratch = alloc_precond_scratch(
+                    shared, persistent_local
+                )
 
                 operator_apply(
                     state,
@@ -286,6 +297,7 @@ class MRLinearSolver(LinearSolverBase):
                             rhs,
                             preconditioned_vec,
                             temp,
+                            precond_scratch,
                         )
                     else:
                         for i in range(n_val):
@@ -410,6 +422,9 @@ class MRLinearSolver(LinearSolverBase):
                 # Allocate buffers from registry
                 preconditioned_vec = alloc_precond(shared, persistent_local)
                 temp = alloc_temp(shared, persistent_local)
+                precond_scratch = alloc_precond_scratch(
+                    shared, persistent_local
+                )
 
                 operator_apply(
                     state, parameters, drivers, base_state, t, h, a_ij, x, temp
@@ -439,6 +454,7 @@ class MRLinearSolver(LinearSolverBase):
                             rhs,
                             preconditioned_vec,
                             temp,
+                            precond_scratch,
                         )
                     else:
                         for i in range(n_val):

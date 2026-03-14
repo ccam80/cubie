@@ -75,6 +75,9 @@ class ImplicitStepConfig(BaseStepConfig):
     preconditioner_order: int = field(
         default=2, validator=inrangetype_validator(int, 1, 32)
     )
+    preconditioner_type: Union[str, list] = field(
+        default="neumann",
+    )
     solver_function = field(
         default=None,
         validator=validators.optional(is_device_validator),
@@ -343,7 +346,8 @@ class ODEImplicitStep(BaseAlgorithmStep):
 
         # Get device functions from ODE system
         preconditioner = get_fn(
-            "neumann_preconditioner",
+            "preconditioner",
+            preconditioner_type=config.preconditioner_type,
             beta=beta,
             gamma=gamma,
             mass=mass,
@@ -403,6 +407,11 @@ class ODEImplicitStep(BaseAlgorithmStep):
         """Return the order of the Neumann preconditioner."""
 
         return int(self.compile_settings.preconditioner_order)
+
+    @property
+    def preconditioner_type(self) -> Union[str, list]:
+        """Return the type of preconditioner used by the linear solver."""
+        return self.compile_settings.preconditioner_type
 
     @property
     def krylov_atol(self) -> ndarray:

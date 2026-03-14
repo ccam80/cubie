@@ -298,7 +298,8 @@ class FIRKStep(ODEImplicitStep):
         )
 
         preconditioner = get_fn(
-            "n_stage_neumann_preconditioner",
+            "n_stage_preconditioner",
+            preconditioner_type=config.preconditioner_type,
             beta=beta,
             gamma=gamma,
             preconditioner_order=config.preconditioner_order,

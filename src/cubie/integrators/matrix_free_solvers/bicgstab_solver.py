@@ -131,7 +131,7 @@ class BiCGSTABSolver(LinearSolverBase):
         )
 
     def register_buffers(self) -> None:
-        """Register 5 device buffers with buffer_registry."""
+        """Register 6 device buffers with buffer_registry."""
         config = self.compile_settings
         prec = config.precision
         for name, loc in [
@@ -140,6 +140,7 @@ class BiCGSTABSolver(LinearSolverBase):
             ("bicg_v", config.v_location),
             ("bicg_tmp", config.tmp_location),
             ("bicg_s_hat", config.s_hat_location),
+            ("bicg_precond_scratch", "local"),
         ]:
             buffer_registry.register(
                 name, self, config.n, loc, precision=prec
@@ -159,12 +160,6 @@ class BiCGSTABSolver(LinearSolverBase):
             Container with compiled linear_solver device function.
         """
         config = self.compile_settings
-
-        if config.use_cached_auxiliaries:
-            raise NotImplementedError(
-                "BiCGSTAB does not yet support cached auxiliaries "
-                "(required by Rosenbrock-W methods)."
-            )
 
         # Device Functions
         operator_apply = config.operator_apply
@@ -190,18 +185,22 @@ class BiCGSTABSolver(LinearSolverBase):
         )
         bicgstab_breakdown = int32(CUBIE_RESULT_CODES.BICGSTAB_BREAKDOWN)
 
-        # Breakdown thresholds (~ sqrt(eps) for rho, ~ eps for omega)
-        # float32: eps ~ 1.2e-7, sqrt(eps) ~ 3.5e-4
-        # float64: eps ~ 2.2e-16, sqrt(eps) ~ 1.5e-8
+        # Breakdown thresholds: absolute floors for rho and omega.
+        # Rho breakdown fires only when |rho| is near the float
+        # representable limit, not when it shrinks proportionally
+        # to ||r|| during convergence.
         if precision == np_float32:
-            breakdown_tol_rho = precision_numba(1e-6)
-            breakdown_tol_omega = precision_numba(1.2e-7)
+            breakdown_tol_rho = precision_numba(1e-30)
+            breakdown_tol_omega = precision_numba(1e-30)
+            dot_clamp = precision_numba(1e16)
         elif precision == np_float64:
-            breakdown_tol_rho = precision_numba(1e-14)
-            breakdown_tol_omega = precision_numba(2.3e-16)
+            breakdown_tol_rho = precision_numba(1e-200)
+            breakdown_tol_omega = precision_numba(1e-200)
+            dot_clamp = precision_numba(1e150)
         else:
-            breakdown_tol_rho = precision_numba(1e-14)
-            breakdown_tol_omega = precision_numba(2.3e-16)
+            breakdown_tol_rho = precision_numba(1e-200)
+            breakdown_tol_omega = precision_numba(1e-200)
+            dot_clamp = precision_numba(1e150)
 
         # Get allocators from buffer_registry
         get_alloc = buffer_registry.get_allocator
@@ -210,6 +209,9 @@ class BiCGSTABSolver(LinearSolverBase):
         alloc_v = get_alloc("bicg_v", self)
         alloc_tmp = get_alloc("bicg_tmp", self)
         alloc_s_hat = get_alloc("bicg_s_hat", self)
+        alloc_precond_scratch = get_alloc(
+            "bicg_precond_scratch", self
+        )
 
         # no cover: start
         @cuda.jit(
@@ -273,6 +275,9 @@ class BiCGSTABSolver(LinearSolverBase):
             v = alloc_v(shared, persistent_local)
             tmp = alloc_tmp(shared, persistent_local)
             s_hat = alloc_s_hat(shared, persistent_local)
+            precond_scratch = alloc_precond_scratch(
+                shared, persistent_local
+            )
 
             # ── INIT ────────────────────────────────────
             # I1-I2: r = rhs - A(x)
@@ -280,6 +285,13 @@ class BiCGSTABSolver(LinearSolverBase):
                 state, parameters, drivers, base_state,
                 t, h, a_ij, x, tmp,
             )
+            for i in range(n_val):
+                tmp[i] = selp(
+                    tmp[i] > dot_clamp, dot_clamp, tmp[i]
+                )
+                tmp[i] = selp(
+                    tmp[i] < -dot_clamp, -dot_clamp, tmp[i]
+                )
             for i in range(n_val):
                 rhs[i] = rhs[i] - tmp[i]
 
@@ -291,8 +303,9 @@ class BiCGSTABSolver(LinearSolverBase):
             # I5: rho_prev = <r0, r0> (always >= 0)
             rho_prev = typed_zero
             for i in range(n_val):
-                rho_prev += r0_hat[i] * rhs[i]
-            rho_0 = rho_prev
+                sq = r0_hat[i] * rhs[i]
+                sq = selp(sq > dot_clamp, dot_clamp, sq)
+                rho_prev += sq
 
             # I6: initial convergence check
             acc = scaled_norm_fn(rhs, x)
@@ -318,21 +331,39 @@ class BiCGSTABSolver(LinearSolverBase):
                     preconditioner(
                         state, parameters, drivers, base_state,
                         t, h, a_ij, p, tmp, v,
+                        precond_scratch,
                     )
                 else:
                     for i in range(n_val):
                         tmp[i] = p[i]
+                for i in range(n_val):
+                    tmp[i] = selp(
+                        tmp[i] > dot_clamp, dot_clamp, tmp[i]
+                    )
+                    tmp[i] = selp(
+                        tmp[i] < -dot_clamp, -dot_clamp, tmp[i]
+                    )
 
                 # ── Step 2: v = A(tmp) ──────────────────
                 operator_apply(
                     state, parameters, drivers, base_state,
                     t, h, a_ij, tmp, v,
                 )
+                for i in range(n_val):
+                    v[i] = selp(
+                        v[i] > dot_clamp, dot_clamp, v[i]
+                    )
+                    v[i] = selp(
+                        v[i] < -dot_clamp, -dot_clamp, v[i]
+                    )
 
                 # ── Step 3: alpha = rho_prev / <r0_hat, v>
                 dot_r0v = typed_zero
                 for i in range(n_val):
-                    dot_r0v += r0_hat[i] * v[i]
+                    prod = r0_hat[i] * v[i]
+                    prod = selp(prod > dot_clamp, dot_clamp, prod)
+                    prod = selp(prod < -dot_clamp, -dot_clamp, prod)
+                    dot_r0v += prod
                 alpha = selp(
                     dot_r0v != typed_zero,
                     rho_prev / dot_r0v,
@@ -365,24 +396,44 @@ class BiCGSTABSolver(LinearSolverBase):
                     preconditioner(
                         state, parameters, drivers, base_state,
                         t, h, a_ij, rhs, s_hat, tmp,
+                        precond_scratch,
                     )
                 else:
                     for i in range(n_val):
                         s_hat[i] = rhs[i]
+                for i in range(n_val):
+                    s_hat[i] = selp(
+                        s_hat[i] > dot_clamp, dot_clamp, s_hat[i]
+                    )
+                    s_hat[i] = selp(
+                        s_hat[i] < -dot_clamp, -dot_clamp, s_hat[i]
+                    )
 
                 # ── Step 8: tmp = A(s_hat) ──────────────
                 operator_apply(
                     state, parameters, drivers, base_state,
                     t, h, a_ij, s_hat, tmp,
                 )
+                for i in range(n_val):
+                    tmp[i] = selp(
+                        tmp[i] > dot_clamp, dot_clamp, tmp[i]
+                    )
+                    tmp[i] = selp(
+                        tmp[i] < -dot_clamp, -dot_clamp, tmp[i]
+                    )
 
                 # ── Step 9: omega = <tmp,s>/<tmp,tmp> ───
                 dot_ts = typed_zero
                 dot_tt = typed_zero
                 for i in range(n_val):
                     ti = tmp[i]
-                    dot_ts += ti * rhs[i]
-                    dot_tt += ti * ti
+                    prod = ti * rhs[i]
+                    prod = selp(prod > dot_clamp, dot_clamp, prod)
+                    prod = selp(prod < -dot_clamp, -dot_clamp, prod)
+                    dot_ts += prod
+                    sq = ti * ti
+                    sq = selp(sq > dot_clamp, dot_clamp, sq)
+                    dot_tt += sq
                 omega = selp(
                     dot_tt != typed_zero,
                     dot_ts / dot_tt,
@@ -412,10 +463,13 @@ class BiCGSTABSolver(LinearSolverBase):
                 # ── Step 13: rho_new = <r0_hat, r> ──────
                 rho_new = typed_zero
                 for i in range(n_val):
-                    rho_new += r0_hat[i] * rhs[i]
+                    prod = r0_hat[i] * rhs[i]
+                    prod = selp(prod > dot_clamp, dot_clamp, prod)
+                    prod = selp(prod < -dot_clamp, -dot_clamp, prod)
+                    rho_new += prod
 
                 # ── Step 14-15: breakdown detection ──────
-                rho_bad = abs(rho_new) < breakdown_tol_rho * rho_0
+                rho_bad = abs(rho_new) < breakdown_tol_rho
                 omega_bad = abs(omega) < breakdown_tol_omega
                 broken = broken or (
                     (not converged) and (rho_bad or omega_bad)

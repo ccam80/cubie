@@ -64,6 +64,7 @@ from cubie.odesystems.symbolic.codegen import (
     generate_neumann_preconditioner_cached_code,
     generate_neumann_preconditioner_code,
     generate_n_stage_neumann_preconditioner_code,
+    generate_n_stage_jacobi_preconditioner_code,
     generate_n_stage_linear_operator_code,
     generate_n_stage_residual_code,
     generate_operator_apply_code,
@@ -97,6 +98,7 @@ _NEUMANN_PRECONDITIONER_TYPES = frozenset((
     "neumann_preconditioner",
     "neumann_preconditioner_cached",
     "n_stage_neumann_preconditioner",
+    "n_stage_jacobi_preconditioner",
 ))
 
 
@@ -787,16 +789,57 @@ class SymbolicODE(BaseODE):
         try:
             func = self.get_cached_output(func_type)
             return func
-        except NotImplementedError:
+        except (NotImplementedError, KeyError):
             pass
 
+        # Handle composite preconditioner types (early return)
+        if func_type in (
+            "preconditioner",
+            "n_stage_preconditioner",
+            "preconditioner_cached",
+        ):
+            default_timelogger.start_event(event_name)
+            func = self._build_preconditioner_chain(
+                preconditioner_type,
+                func_type,
+                beta=beta,
+                gamma=gamma,
+                mass=mass,
+                preconditioner_order=preconditioner_order,
+                stage_coefficients=stage_coefficients,
+                stage_nodes=stage_nodes,
+            )
+            default_timelogger.stop_event(event_name)
+            return func
+
         # Determine factory_name for n_stage helpers (needed to check cache)
+        # Preconditioner names encode the order so that different
+        # orders get distinct cache entries and force re-codegen.
         if func_type == "n_stage_residual":
             factory_name = f"n_stage_residual_{len(stage_nodes)}"
         elif func_type == "n_stage_linear_operator":
             factory_name = f"n_stage_linear_operator_{len(stage_nodes)}"
         elif func_type == "n_stage_neumann_preconditioner":
-            factory_name = f"n_stage_neumann_preconditioner_{len(stage_nodes)}"
+            factory_name = (
+                f"n_stage_neumann_preconditioner"
+                f"_{len(stage_nodes)}"
+                f"_o{preconditioner_order}"
+            )
+        elif func_type == "n_stage_jacobi_preconditioner":
+            factory_name = (
+                f"n_stage_jacobi_preconditioner"
+                f"_{len(stage_nodes)}"
+            )
+        elif func_type == "neumann_preconditioner":
+            factory_name = (
+                f"neumann_preconditioner"
+                f"_o{preconditioner_order}"
+            )
+        elif func_type == "neumann_preconditioner_cached":
+            factory_name = (
+                f"neumann_preconditioner_cached"
+                f"_o{preconditioner_order}"
+            )
         else:
             factory_name = func_type
 
@@ -929,6 +972,14 @@ class SymbolicODE(BaseODE):
                     func_name=factory_name,
                     jvp_equations=self._get_jvp_exprs(),
                 )
+            elif func_type == "n_stage_jacobi_preconditioner":
+                code = generate_n_stage_jacobi_preconditioner_code(
+                    equations=self.equations,
+                    index_map=self.indices,
+                    stage_coefficients=stage_coefficients,
+                    stage_nodes=stage_nodes,
+                    func_name=factory_name,
+                )
             else:
                 raise NotImplementedError(
                     f"Solver helper '{func_type}' is not implemented."
@@ -951,3 +1002,128 @@ class SymbolicODE(BaseODE):
         default_timelogger.stop_event(event_name)
 
         return func
+
+    def _build_preconditioner_chain(
+        self,
+        preconditioner_type: Union[str, list],
+        composite_type: str,
+        **kwargs,
+    ):
+        """Resolve preconditioner type(s) and chain if needed.
+
+        Parameters
+        ----------
+        preconditioner_type
+            Single type string or list of type strings.
+        composite_type
+            One of ``"preconditioner"``,
+            ``"n_stage_preconditioner"``, or
+            ``"preconditioner_cached"``.
+        **kwargs
+            Forwarded to individual ``get_solver_helper`` calls.
+
+        Returns
+        -------
+        Callable
+            Single or chained preconditioner device function.
+        """
+        if isinstance(preconditioner_type, str):
+            types = [preconditioner_type]
+        else:
+            types = list(preconditioner_type)
+
+        type_map = {
+            "preconditioner": {
+                "neumann": "neumann_preconditioner",
+                "jacobi": "jacobi_preconditioner",
+            },
+            "n_stage_preconditioner": {
+                "neumann": "n_stage_neumann_preconditioner",
+                "jacobi": "n_stage_jacobi_preconditioner",
+            },
+            "preconditioner_cached": {
+                "neumann": "neumann_preconditioner_cached",
+                "jacobi": "neumann_preconditioner_cached",
+            },
+        }
+
+        mapping = type_map[composite_type]
+        fns = []
+        for t in types:
+            if t not in mapping:
+                raise ValueError(
+                    f"Unknown preconditioner type '{t}' for "
+                    f"variant '{composite_type}'"
+                )
+            helper_name = mapping[t]
+            fn = self.get_solver_helper(helper_name, **kwargs)
+            fns.append(fn)
+
+        if len(fns) == 1:
+            return fns[0]
+
+        if len(fns) != 2:
+            raise ValueError(
+                "Preconditioner chaining supports exactly "
+                "2 preconditioners, got "
+                f"{len(fns)}"
+            )
+
+        is_cached = composite_type == "preconditioner_cached"
+        return _chain_two_preconditioners(
+            fns[0], fns[1], cached=is_cached
+        )
+
+
+def _chain_two_preconditioners(p0, p1, cached=False):
+    """Build a device function chaining two preconditioners.
+
+    Parameters
+    ----------
+    p0
+        First preconditioner device function.
+    p1
+        Second preconditioner device function.
+    cached
+        When ``True`` use the cached signature (with
+        ``cached_aux``).
+
+    Returns
+    -------
+    Callable
+        Chained preconditioner device function.
+    """
+    from numba import cuda
+
+    if cached:
+        @cuda.jit(device=True, inline=True)
+        def chained_cached(
+            state, parameters, drivers, cached_aux,
+            base_state, t, h, a_ij, v, out, jvp, scratch,
+        ):
+            p0(
+                state, parameters, drivers, cached_aux,
+                base_state, t, h, a_ij,
+                v, scratch, jvp, scratch,
+            )
+            p1(
+                state, parameters, drivers, cached_aux,
+                base_state, t, h, a_ij,
+                scratch, out, jvp, scratch,
+            )
+        return chained_cached
+    else:
+        @cuda.jit(device=True, inline=True)
+        def chained(
+            state, parameters, drivers, base_state,
+            t, h, a_ij, v, out, jvp, scratch,
+        ):
+            p0(
+                state, parameters, drivers, base_state,
+                t, h, a_ij, v, scratch, jvp, scratch,
+            )
+            p1(
+                state, parameters, drivers, base_state,
+                t, h, a_ij, scratch, out, jvp, scratch,
+            )
+        return chained
