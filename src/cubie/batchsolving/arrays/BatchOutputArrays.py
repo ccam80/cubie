@@ -413,7 +413,7 @@ class OutputArrays(BaseArrayManager):
                 event = cuda.event()
                 event.record(stream)
                 event.handle = event.handle.value  # BUG: This is workig
-                # around a number issue - will patch upstream
+                # around a numba issue - will patch upstream
             else:
                 event = None
 

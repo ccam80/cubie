@@ -80,7 +80,7 @@ class InstrumentedLinearSolver(LinearSolver):
         preconditioner = config.preconditioner
         n = config.n
         linear_correction_type = config.linear_correction_type
-        krylov_max_iters = config.krylov_max_iters
+        max_iters = config.max_iters
         precision = config.precision
         use_cached_auxiliaries = config.use_cached_auxiliaries
         
@@ -94,7 +94,7 @@ class InstrumentedLinearSolver(LinearSolver):
 
         # Convert types for device function
         n_val = int32(n)
-        max_iters_val = int32(krylov_max_iters)
+        max_iters_val = int32(max_iters)
         precision_numba = from_dtype(np.dtype(precision))
         typed_zero = precision_numba(0.0)
         typed_one = precision_numba(1.0)
@@ -423,13 +423,13 @@ class InstrumentedNewtonKrylov(NewtonKrylov):
             Records alpha scaling factor at each Newton iteration.
         linear_initial_guesses : array[total_linear_slots, n]
             Records initial guess x values for embedded linear solves.
-        linear_iteration_guesses : array[total_linear_slots, krylov_max_iters, n]
+        linear_iteration_guesses : array[total_linear_slots, max_iters, n]
             Records x values at each linear solver iteration.
-        linear_residuals : array[total_linear_slots, krylov_max_iters, n]
+        linear_residuals : array[total_linear_slots, max_iters, n]
             Records residual values at each linear solver iteration.
-        linear_squared_norms : array[total_linear_slots, krylov_max_iters]
+        linear_squared_norms : array[total_linear_slots, max_iters]
             Records squared residual norms at each linear solver iteration.
-        linear_preconditioned_vectors : array[total_linear_slots, krylov_max_iters, n]
+        linear_preconditioned_vectors : array[total_linear_slots, max_iters, n]
             Records preconditioned search direction at each linear iteration.
         
         Raises
@@ -447,9 +447,9 @@ class InstrumentedNewtonKrylov(NewtonKrylov):
         linear_solver_fn = config.linear_solver_function
 
         n = config.n
-        max_iters = config.newton_max_iters
+        max_iters = config.max_iters
         damping = config.newton_damping
-        max_backtracks = config.newton_max_backtracks
+        newton_max_backtracks = config.newton_max_backtracks
         precision = config.precision
 
         # Get scaled norm device function from config
@@ -463,7 +463,7 @@ class InstrumentedNewtonKrylov(NewtonKrylov):
         typed_damping = numba_precision(damping)
         n_val = int32(n)
         max_iters_val = int32(max_iters)
-        max_backtracks_val = int32(max_backtracks + 1)
+        newton_max_backtracks_val = int32(newton_max_backtracks + 1)
         
         # Get allocators from buffer_registry using production buffer names
         # (registered by parent NewtonKrylov.register_buffers)
@@ -624,7 +624,7 @@ class InstrumentedNewtonKrylov(NewtonKrylov):
                 found_step = False
                 snapshot_ready = False
                 
-                for _ in range(max_backtracks_val):
+                for _ in range(newton_max_backtracks_val):
                     active_bt = active and (not found_step) and (not converged)
                     if not any_sync(mask, active_bt):
                         break
