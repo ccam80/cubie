@@ -172,6 +172,7 @@ class BiCGSTABSolver(LinearSolverBase):
         precision = config.precision
 
         preconditioned = preconditioner is not None
+        cached = config.use_cached_auxiliaries
 
         # Convert types for device function
         n_val = int32(n)
@@ -214,16 +215,65 @@ class BiCGSTABSolver(LinearSolverBase):
         )
 
         # no cover: start
+        # Adapter device functions absorb the cached-auxiliaries arity
+        # difference so the solver body calls a uniform signature. The
+        # freevar bool ``cached`` is a compile-time constant, so the
+        # unused branch is pruned before type inference (same mechanism
+        # as ``preconditioned`` below).
+        if cached:
+            @cuda.jit(device=True, inline=True, **compile_kwargs)
+            def op_apply(
+                state, parameters, drivers, cached_aux, base_state,
+                t, h, a_ij, vin, vout,
+            ):
+                operator_apply(
+                    state, parameters, drivers, cached_aux, base_state,
+                    t, h, a_ij, vin, vout,
+                )
+        else:
+            @cuda.jit(device=True, inline=True, **compile_kwargs)
+            def op_apply(
+                state, parameters, drivers, cached_aux, base_state,
+                t, h, a_ij, vin, vout,
+            ):
+                operator_apply(
+                    state, parameters, drivers, base_state,
+                    t, h, a_ij, vin, vout,
+                )
+
+        if preconditioned:
+            if cached:
+                @cuda.jit(device=True, inline=True, **compile_kwargs)
+                def precond(
+                    state, parameters, drivers, cached_aux, base_state,
+                    t, h, a_ij, rhs, out, temp, scratch,
+                ):
+                    preconditioner(
+                        state, parameters, drivers, cached_aux,
+                        base_state, t, h, a_ij, rhs, out, temp, scratch,
+                    )
+            else:
+                @cuda.jit(device=True, inline=True, **compile_kwargs)
+                def precond(
+                    state, parameters, drivers, cached_aux, base_state,
+                    t, h, a_ij, rhs, out, temp, scratch,
+                ):
+                    preconditioner(
+                        state, parameters, drivers, base_state,
+                        t, h, a_ij, rhs, out, temp, scratch,
+                    )
+
         @cuda.jit(
             device=True,
             inline=True,
             **compile_kwargs,
         )
-        def bicgstab_solver(
+        def _core(
             state,
             parameters,
             drivers,
             base_state,
+            cached_aux,
             t,
             h,
             a_ij,
@@ -281,8 +331,8 @@ class BiCGSTABSolver(LinearSolverBase):
 
             # ── INIT ────────────────────────────────────
             # I1-I2: r = rhs - A(x)
-            operator_apply(
-                state, parameters, drivers, base_state,
+            op_apply(
+                state, parameters, drivers, cached_aux, base_state,
                 t, h, a_ij, x, tmp,
             )
             for i in range(n_val):
@@ -328,9 +378,9 @@ class BiCGSTABSolver(LinearSolverBase):
 
                 # ── Step 1: tmp = P(p), scratch = v ─────
                 if preconditioned:
-                    preconditioner(
-                        state, parameters, drivers, base_state,
-                        t, h, a_ij, p, tmp, v,
+                    precond(
+                        state, parameters, drivers, cached_aux,
+                        base_state, t, h, a_ij, p, tmp, v,
                         precond_scratch,
                     )
                 else:
@@ -345,8 +395,8 @@ class BiCGSTABSolver(LinearSolverBase):
                     )
 
                 # ── Step 2: v = A(tmp) ──────────────────
-                operator_apply(
-                    state, parameters, drivers, base_state,
+                op_apply(
+                    state, parameters, drivers, cached_aux, base_state,
                     t, h, a_ij, tmp, v,
                 )
                 for i in range(n_val):
@@ -393,9 +443,9 @@ class BiCGSTABSolver(LinearSolverBase):
 
                 # ── Step 7: s_hat = P(s), scratch = tmp ─
                 if preconditioned:
-                    preconditioner(
-                        state, parameters, drivers, base_state,
-                        t, h, a_ij, rhs, s_hat, tmp,
+                    precond(
+                        state, parameters, drivers, cached_aux,
+                        base_state, t, h, a_ij, rhs, s_hat, tmp,
                         precond_scratch,
                     )
                 else:
@@ -410,8 +460,8 @@ class BiCGSTABSolver(LinearSolverBase):
                     )
 
                 # ── Step 8: tmp = A(s_hat) ──────────────
-                operator_apply(
-                    state, parameters, drivers, base_state,
+                op_apply(
+                    state, parameters, drivers, cached_aux, base_state,
                     t, h, a_ij, s_hat, tmp,
                 )
                 for i in range(n_val):
@@ -503,6 +553,63 @@ class BiCGSTABSolver(LinearSolverBase):
             )
             krylov_iters_out[0] = iter_count
             return final_status
+
+        # Outer wrappers: the caller-facing signature differs by the
+        # presence of ``cached_aux`` (Rosenbrock-W passes it, Newton
+        # does not). The non-cached wrapper feeds ``_core`` a throwaway
+        # aux array that the pruned adapter never reads.
+        if cached:
+            @cuda.jit(
+                device=True,
+                inline=True,
+                **compile_kwargs,
+            )
+            def bicgstab_solver(
+                state,
+                parameters,
+                drivers,
+                base_state,
+                cached_aux,
+                t,
+                h,
+                a_ij,
+                rhs,
+                x,
+                shared,
+                persistent_local,
+                krylov_iters_out,
+            ):
+                return _core(
+                    state, parameters, drivers, base_state, cached_aux,
+                    t, h, a_ij, rhs, x, shared, persistent_local,
+                    krylov_iters_out,
+                )
+        else:
+            @cuda.jit(
+                device=True,
+                inline=True,
+                **compile_kwargs,
+            )
+            def bicgstab_solver(
+                state,
+                parameters,
+                drivers,
+                base_state,
+                t,
+                h,
+                a_ij,
+                rhs,
+                x,
+                shared,
+                persistent_local,
+                krylov_iters_out,
+            ):
+                dummy_aux = cuda.local.array(1, precision_numba)
+                return _core(
+                    state, parameters, drivers, base_state, dummy_aux,
+                    t, h, a_ij, rhs, x, shared, persistent_local,
+                    krylov_iters_out,
+                )
 
         # no cover: end
         return LinearSolverCache(linear_solver=bicgstab_solver)

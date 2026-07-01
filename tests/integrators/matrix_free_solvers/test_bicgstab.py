@@ -380,3 +380,101 @@ def test_bicgstab_tolerance_broadcast(precision):
     assert solver.krylov_rtol.shape == (n,)
     assert np.all(solver.krylov_atol == precision(1e-6))
     assert np.all(solver.krylov_rtol == precision(1e-4))
+
+
+# --- Cached-auxiliaries path (Rosenbrock-W selects this) -------------
+# The operator and preconditioner use the cached signature, taking
+# cached_aux immediately after drivers. Here cached_aux carries the
+# diagonal of A, so a correct solve proves cached_aux is threaded
+# through the solver rather than ignored.
+@cuda.jit(device=True, inline=True)
+def _cached_diag_operator(
+    state, parameters, drivers, cached_aux, base_state,
+    t, h, a_ij, vin, vout,
+):
+    for i in range(vin.shape[0]):
+        vout[i] = cached_aux[i] * vin[i]
+
+
+@cuda.jit(device=True, inline=True)
+def _cached_jacobi_precond(
+    state, parameters, drivers, cached_aux, base_state,
+    t, h, a_ij, rhs, out, temp, scratch,
+):
+    for i in range(rhs.shape[0]):
+        out[i] = rhs[i] / cached_aux[i]
+
+
+def _cached_solver_kernel(n, precision):
+    """Kernel that invokes a solver with the cached-aux signature."""
+    scratch_size = 2 * n
+
+    def factory(solver, h):
+        @cuda.jit
+        def kernel(state_init, rhs, base_state, cached_aux, x, flag):
+            time_scalar = precision(0.0)
+            state = cuda.local.array(n, precision)
+            for i in range(n):
+                state[i] = state_init[i]
+            parameters = cuda.local.array(1, precision)
+            drivers = cuda.local.array(1, precision)
+            shared = cuda.shared.array(scratch_size, dtype=precision)
+            persistent_local = cuda.local.array(
+                scratch_size, dtype=precision
+            )
+            counters = cuda.local.array(1, np.int32)
+            flag[0] = solver(
+                state, parameters, drivers, base_state, cached_aux,
+                time_scalar, h, precision(1.0), rhs, x, shared,
+                persistent_local, counters,
+            )
+
+        return kernel
+
+    return factory
+
+
+@pytest.mark.parametrize("with_precond", [False, True])
+def test_bicgstab_cached_auxiliaries(precision, tolerance, with_precond):
+    """Cached-aux BiCGSTAB compiles and solves (Rosenbrock-W path).
+
+    Regression for the signature mismatch that made
+    ``linear_correction_type='bicgstab'`` unusable with Rosenbrock-W:
+    the solver received a cached-signature operator but emitted a
+    non-cached call site.
+    """
+    n = 3
+    diag = np.array([4.0, 5.0, 6.0], dtype=precision)
+    rhs = np.array([1.0, 1.0, 1.0], dtype=precision)
+
+    solver = BiCGSTABSolver(
+        precision=precision,
+        n=n,
+        krylov_atol=1e-8,
+        krylov_rtol=1e-8,
+        krylov_max_iters=200,
+    )
+    solver.update(
+        operator_apply=_cached_diag_operator,
+        preconditioner=_cached_jacobi_precond if with_precond else None,
+        use_cached_auxiliaries=True,
+    )
+    solver_fn = solver.device_function
+
+    kernel = _cached_solver_kernel(n, precision)(solver_fn, precision(0.01))
+    state = cuda.to_device(np.zeros(n, dtype=precision))
+    base = cuda.to_device(np.zeros(n, dtype=precision))
+    aux = cuda.to_device(diag)
+    rhs_dev = cuda.to_device(rhs.copy())
+    x_dev = cuda.to_device(np.zeros(n, dtype=precision))
+    flag = cuda.to_device(np.array([0], dtype=np.int32))
+
+    kernel[1, 1](state, rhs_dev, base, aux, x_dev, flag)
+
+    assert (flag.copy_to_host()[0] & 0xFF) == SolverRetCodes.SUCCESS
+    assert_allclose(
+        x_dev.copy_to_host(),
+        rhs / diag,
+        rtol=tolerance.rel_loose,
+        atol=tolerance.abs_loose,
+    )
