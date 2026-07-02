@@ -30,8 +30,11 @@ change — the full suite is slow (run it as a pre-commit check only, and only w
 - Markers (`pyproject.toml`): `nocudasim` (real-GPU only), `sim_only` (simulator-only debug),
   `cupy` (needs CuPy), `slow`, `specific_algos` (non-default tableau aliases).
 - **Use the shared session-scoped fixtures in `tests/conftest.py`** with their default parameter
-  sets unless the user explicitly excepts a case; don't hand-roll fixtures or mock/patch cubie
-  objects. Don't type-hint tests.
+  sets unless the user explicitly excepts a case; don't hand-roll fixtures. **Mocks/patches may
+  only be added with an explicit user exception.** Don't type-hint tests.
+- **A failing test is a good test.** Never soften a test, loosen a tolerance, or use inexact/lax
+  assertions to make it pass — even while developing. Fix the code, not the test; assert the exact
+  intended behaviour.
 
 ## Lint & build
 - `ruff` (line-length 79, max-doc-length 72, docstring-code-format) and `flake8`. CI's blocking
