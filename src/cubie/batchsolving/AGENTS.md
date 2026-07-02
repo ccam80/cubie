@@ -88,8 +88,7 @@ are NaN-masked. `SolveSpec` is an attrs snapshot of the solve configuration.
 
 ### Testing
 `tests/batchsolving/` (`test_solver.py`, `test_BatchSolverKernel.py`, input-handler/result tests).
-Prefer real system fixtures (`tests/system_fixtures.py`) over mocks; never patch `is_device`/CUDA
-availability.
+Prefer real system fixtures (`tests/system_fixtures.py`) over mocks.
 
 ## Dependencies
 ### Internal

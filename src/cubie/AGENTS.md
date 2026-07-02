@@ -148,18 +148,9 @@ of 1 — call it before allocating host or device buffers to avoid zero-length a
   device code.
 
 ### Testing
-- **Quick check — CUDA simulator (~5 min):** run with `NUMBA_ENABLE_CUDASIM=1` and
-  `pytest -m "not nocudasim and not cupy"`. Exercises device code on the simulator.
-- **Verify on real CUDA:** run with `NUMBA_ENABLE_CUDASIM=0` and
-  `pytest -m "not sim_only"`. CUDA is always available in dev environments; this is
-  how you confirm code actually works on the GPU (`sim_only` tests are
-  simulator-only debug tests).
-- **The full suite is slow** (~20–30 min on CUDA, ~5 min simulated). Run it only as
-  a final pre-commit check, and only when the user approves. Otherwise run a focused
-  subset for the area you changed.
-- Never `xfail`, `importorskip`, or otherwise conditionally skip behaviour; never
-  shortcut `is_device`/CUDA-availability checks. Prefer real cubie objects over mocks
-  (see the repo-root `AGENTS.md` and `tests/conftest.py`).
+See the repo-root `AGENTS.md` for the canonical simulator vs real-GPU commands, markers, and the
+full-suite approval gate. Never `xfail`, `importorskip`, or otherwise conditionally skip
+behaviour; use the shared `tests/conftest.py` fixtures rather than mocking cubie objects.
 
 ### Root-file gotchas
 - **`cubie_cache` depends on numba-cuda internals** (`_Kernel`, `IndexDataCacheFile`,

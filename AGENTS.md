@@ -29,11 +29,9 @@ change — the full suite is slow (run it as a pre-commit check only, and only w
   `pytest -m "not specific_algos and not sim_only"`
 - Markers (`pyproject.toml`): `nocudasim` (real-GPU only), `sim_only` (simulator-only debug),
   `cupy` (needs CuPy), `slow`, `specific_algos` (non-default tableau aliases).
-- `tests/conftest.py` provides shared **session-scoped** fixtures driven by one default
-  `solver_settings` param set; override per-test via indirect params
-  (`solver_settings_override`/`solver_settings_override2`) and use the `_mutable` (function-scoped)
-  fixture variants for tests that mutate state. Prefer these real-object fixtures over mocks/patches;
-  never shortcut `is_device`/CUDA-availability checks. Don't type-hint tests.
+- **Use the shared session-scoped fixtures in `tests/conftest.py`** with their default parameter
+  sets unless the user explicitly excepts a case; don't hand-roll fixtures or mock/patch cubie
+  objects. Don't type-hint tests.
 
 ## Lint & build
 - `ruff` (line-length 79, max-doc-length 72, docstring-code-format) and `flake8`. CI's blocking
