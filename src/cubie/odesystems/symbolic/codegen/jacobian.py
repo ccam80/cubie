@@ -4,8 +4,6 @@ Derives analytic Jacobian-vector product expressions from parsed ODE
 equations using SymPy differentiation. Results are cached in a module-level
 dictionary keyed by the equation tuple.
 
-Adapted from :mod:`chaste_codegen._jacobian` under the MIT licence.
-
 Published Functions
 -------------------
 :func:`generate_analytical_jvp`
