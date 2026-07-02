@@ -159,7 +159,7 @@ of 1 — call it before allocating host or device buffers to avoid zero-length a
   subset for the area you changed.
 - Never `xfail`, `importorskip`, or otherwise conditionally skip behaviour; never
   shortcut `is_device`/CUDA-availability checks. Prefer real cubie objects over mocks
-  (see `.github/copilot-instructions.md`).
+  (see the repo-root `AGENTS.md` and `tests/conftest.py`).
 
 ### Root-file gotchas
 - **`cubie_cache` depends on numba-cuda internals** (`_Kernel`, `IndexDataCacheFile`,

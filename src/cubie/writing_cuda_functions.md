@@ -41,4 +41,4 @@ _Open: state the rule precisely and the cases that require `any_sync` vs `all_sy
 
 ## References
 - `AGENTS.md` (repo root `src/cubie/`) — settled device-code invariants.
-- `.github/copilot-instructions.md` — project-wide style/CUDA conventions.
+- Repo-root `AGENTS.md` — project-wide style & CUDA conventions.
