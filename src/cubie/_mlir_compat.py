@@ -14,12 +14,29 @@ picked up when the MLIR target context refreshes its registries.
 This is a stop-gap that belongs upstream in numba-cuda-mlir.
 """
 
+import copy
 import operator
 
+import numpy
+
 from numba_cuda_mlir import lowering_utilities
+from numba_cuda_mlir import mlir_lowering as _mlir_lowering
 from numba_cuda_mlir._mlir.dialects import arith
-from numba_cuda_mlir.lowering.math import registry as _math_registry
+from numba_cuda_mlir.lowering import builtins as _lowering_builtins
+from numba_cuda_mlir.lowering import cuda as _lowering_cuda
+from numba_cuda_mlir.lowering import numpy as _lowering_numpy
+from numba_cuda_mlir.lowering.numpy import registry as _np_registry
+from numba_cuda_mlir.lowering.math import (
+    eq_cg,
+    ge_cg,
+    gt_cg,
+    le_cg,
+    lt_cg,
+    ne_cg,
+    registry as _math_registry,
+)
 from numba_cuda_mlir.numba_cuda import types
+from numba_cuda_mlir.numba_cuda.core import config as _cuda_config
 
 
 def _make_bitwise_cg(mlir_op):
@@ -94,3 +111,209 @@ def register_boolean_bitwise_lowerings() -> None:
 
 
 register_boolean_bitwise_lowerings()
+
+
+_COMPARISON_CGS = {
+    operator.eq: eq_cg,
+    operator.ne: ne_cg,
+    operator.lt: lt_cg,
+    operator.le: le_cg,
+    operator.gt: gt_cg,
+    operator.ge: ge_cg,
+}
+
+
+def register_boolean_comparison_lowerings() -> None:
+    """Register comparisons on Boolean operands.
+
+    Upstream registers eq/ne/lt/le/gt/ge for ``(Number, Number)``
+    only; Boolean operands raise ``NotImplementedError`` during
+    lowering. Route the same code generators through the Boolean
+    signatures, mirroring upstream's own Boolean registrations for
+    ``sub`` and ``mul``.
+    """
+
+    signatures = (
+        (types.Boolean, types.Boolean),
+        (types.Boolean, types.Number),
+        (types.Number, types.Boolean),
+    )
+    for op, cg in _COMPARISON_CGS.items():
+        for lhs_type, rhs_type in signatures:
+            _math_registry.lower(op, lhs_type, rhs_type)(cg)
+
+
+register_boolean_comparison_lowerings()
+
+
+_original_try_extract_constant = lowering_utilities.try_extract_constant
+
+
+def _try_extract_constant_numpy(value):
+    """Unwrap numpy scalar constants before constant extraction.
+
+    numba freezes closure constants such as ``numpy.bool_(True)`` into
+    kernels, but numba-cuda-mlir 0.4.0's ``try_extract_constant`` only
+    matches Python ``int``/``float``/``bool`` and crashes constructing
+    ``ir.Value`` from a numpy scalar. Convert via ``.item()`` first.
+    """
+
+    if isinstance(value, numpy.generic):
+        value = value.item()
+    return _original_try_extract_constant(value)
+
+
+def register_numpy_constant_shim() -> None:
+    """Patch try_extract_constant in every module that imported it."""
+
+    for module in (
+        lowering_utilities,
+        _lowering_builtins,
+        _lowering_cuda,
+        _lowering_numpy,
+    ):
+        module.try_extract_constant = _try_extract_constant_numpy
+
+
+register_numpy_constant_shim()
+
+
+_original_lower_const_assign = _mlir_lowering.MLIRLower.lower_const_assign
+
+
+def _lower_const_assign_numpy(self, target, const):
+    """Convert numpy scalar constants before const-assign lowering.
+
+    ``lower_const_assign`` gates on ``isinstance(value, (bool, int,
+    float, np.number))``, but ``numpy.bool_`` is not ``np.number``,
+    so frozen numpy bool constants fall through to
+    ``NotImplementedError``. Normalise to Python scalars first.
+    """
+
+    if isinstance(const.value, numpy.generic):
+        const = copy.copy(const)
+        const.value = const.value.item()
+    return _original_lower_const_assign(self, target, const)
+
+
+_mlir_lowering.MLIRLower.lower_const_assign = _lower_const_assign_numpy
+
+
+_original_load_var = _mlir_lowering.MLIRLower.load_var
+
+
+def _load_var_numpy(self, var):
+    """Unwrap numpy scalars read out of the lowering varmap.
+
+    Frozen closure/global numpy scalars reach the varmap unconverted
+    and crash downstream utilities (``unverified_convert``,
+    ``try_extract_constant``) that only accept Python scalars or MLIR
+    values. Convert at the single read chokepoint.
+    """
+
+    result = _original_load_var(self, var)
+    if isinstance(result, numpy.generic):
+        result = result.item()
+    return result
+
+
+_mlir_lowering.MLIRLower.load_var = _load_var_numpy
+
+
+@lowering_utilities.unverified_convert.register(numpy.generic)
+def _unverified_convert_numpy_scalar(value, target_type, *, signed=False):
+    """Convert numpy scalar values via their Python equivalents.
+
+    ``unverified_convert`` dispatches on the value type and has no
+    overload for numpy scalars, which reach it through frozen closure
+    constants in multi-stage algorithm loops.
+    """
+
+    return lowering_utilities.unverified_convert(
+        value.item(), target_type, signed=signed
+    )
+
+
+_original_tuple_getitem = _lowering_numpy.lower_uni_tuple_getitem
+
+
+def _lower_tuple_getitem_nested(builder, target, args, kwargs):
+    """Support dynamic getitem on tuples whose elements are tuples.
+
+    Upstream's tuple getitem emits a single-result
+    ``scf.index_switch``, which requires a scalar MLIR result type;
+    tuple-of-tuple elements (Butcher tableau rows) crash it. Decompose
+    the row selection into one scalar switch per column and store the
+    resulting Python tuple of values, matching the varmap convention
+    that tuples are always Python tuples.
+    """
+    from numba_cuda_mlir._mlir import ir
+    from numba_cuda_mlir.lowering_utilities import convert, index_of
+    from numba_cuda_mlir.mlir.dialect_exts import scf
+    from numba_cuda_mlir.numba_cuda.core import ir as numba_ir
+
+    target_type = builder.get_numba_type(target.name)
+    if not isinstance(target_type, types.BaseTuple):
+        return _original_tuple_getitem(builder, target, args, kwargs)
+
+    tup = builder.load_var(args[0])
+    index = (
+        builder.load_var(args[1])
+        if isinstance(args[1], numba_ir.Var)
+        else args[1]
+    )
+    if not isinstance(index, ir.Value):
+        builder.store_var(target, tup[int(index)])
+        return
+
+    tup = builder.lower_literal_if_needed(tup)
+    index = index_of(index)
+    element_types = (
+        [target_type.dtype] * target_type.count
+        if isinstance(target_type, types.UniTuple)
+        else list(target_type.types)
+    )
+    cases = ir.DenseI64ArrayAttr.get(range(len(tup)))
+    selected = []
+    for column, element_type in enumerate(element_types):
+        column_mlir_type = builder.get_mlir_type(element_type)
+
+        def default(op, _column=column, _type=column_mlir_type):
+            scf.yield_([convert(tup[0][_column], _type)])
+
+        def case_builder(
+            op, case_index, case_value, _column=column,
+            _type=column_mlir_type,
+        ):
+            scf.yield_([convert(tup[case_value][_column], _type)])
+
+        selected.append(
+            scf.index_switch(
+                results=[column_mlir_type],
+                arg=index,
+                cases=cases,
+                default_body_builder=default,
+                case_body_builder=case_builder,
+            )
+        )
+    builder.store_var(target, tuple(selected))
+
+
+def register_nested_tuple_getitem_lowering() -> None:
+    """Register the nested-tuple getitem over upstream's version."""
+
+    for container in (types.UniTuple, types.Tuple):
+        _np_registry.lower(operator.getitem, container, types.Number)(
+            _lower_tuple_getitem_nested
+        )
+
+
+register_nested_tuple_getitem_lowering()
+
+
+# numba-cuda-mlir's LTO cubin link at opt_level>0 has a known bug that
+# erases stores (upstream warns about float16/bfloat16, but float64
+# output writes in cubie's save paths are also erased). Force
+# opt_level=0 on LTO links until the linker bug is fixed; kernels are
+# still optimised, only the final link is not.
+_cuda_config.CUDA_DISABLE_LTO_OPT = 1

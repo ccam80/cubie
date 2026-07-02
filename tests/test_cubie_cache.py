@@ -170,13 +170,26 @@ def test_cache_impl_filename_base():
 
 
 def test_cache_impl_check_cachable():
-    """Verify check_cachable returns True."""
+    """Verify check_cachable accepts link-free compile results.
+
+    The MLIR cache implementation inspects the compile result's
+    targetoptions and refuses results that link external files.
+    """
     impl = CUBIECacheImpl(
         system_name="test_system",
         system_hash="abc123",
         compile_settings_hash="def456",
     )
-    assert impl.check_cachable(None) is True
+
+    class LinkFreeResult:
+        metadata = {"targetoptions": {"link": []}}
+
+    class LinkedResult:
+        metadata = {"targetoptions": {"link": ["kernels.cu"]}}
+
+    assert impl.check_cachable(LinkFreeResult()) is True
+    with pytest.raises(RuntimeError):
+        impl.check_cachable(LinkedResult())
 
 
 # --- CUBIECache tests ---
