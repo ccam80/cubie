@@ -3,7 +3,7 @@
 Vendored from NVIDIA/numba-cuda on 2026-01-11
 Source: numba_cuda/numba/cuda/core/caching.py
 
-The Cache class is vendored because CUDACache from numba.cuda.dispatcher
+The Cache class is vendored because CUDACache from numba_cuda_mlir.numba_cuda.dispatcher
 is not available in CUDASIM mode. The supporting classes (_CacheLocator,
 CacheImpl, IndexDataCacheFile) import successfully in CUDASIM.
 """
@@ -14,9 +14,9 @@ import hashlib
 import os
 from abc import ABCMeta, abstractmethod
 
-from numba.cuda.core.caching import IndexDataCacheFile
-from numba.cuda.serialize import dumps
-from numba.cuda import utils
+from numba_cuda_mlir.numba_cuda.core.caching import IndexDataCacheFile
+from numba_cuda_mlir.numba_cuda.serialize import dumps
+from numba_cuda_mlir.numba_cuda import utils
 
 
 class _Cache(metaclass=ABCMeta):

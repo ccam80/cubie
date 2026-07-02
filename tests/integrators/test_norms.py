@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import numpy as np
 import pytest
-from numba import cuda
+from numba_cuda_mlir import cuda
 from numpy.testing import assert_allclose
 
 from cubie.integrators.norms import (

@@ -44,8 +44,7 @@ from numpy import (
     ndarray,
     dtype as np_dtype,
 )
-from numba import from_dtype
-
+from numba_cuda_mlir.numba_cuda.np.numpy_support import from_dtype
 from cubie._utils import (
     in_attr,
     PrecisionDType,

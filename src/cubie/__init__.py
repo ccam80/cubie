@@ -13,6 +13,10 @@ import os
 
 os.environ["NUMBA_CUDA_LOW_OCCUPANCY_WARNINGS"] = "0"
 
+# Register Boolean bitwise lowerings missing from numba-cuda-mlir
+# before any kernel compilation can occur.
+import cubie._mlir_compat  # noqa: F401
+
 from cubie.batchsolving import *  # noqa
 from cubie.integrators import *  # noqa
 from cubie.outputhandling import *  # noqa

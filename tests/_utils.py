@@ -6,7 +6,8 @@ from typing import Mapping, Optional, Union, Dict, Any, Callable
 
 import numpy as np
 import pytest
-from numba import cuda, from_dtype
+from numba_cuda_mlir import cuda
+from numba_cuda_mlir.numba_cuda.np.numpy_support import from_dtype
 from numpy.testing import assert_allclose
 
 from cubie.integrators.SingleIntegratorRun import SingleIntegratorRun

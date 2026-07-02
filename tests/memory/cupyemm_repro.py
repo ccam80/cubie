@@ -4,10 +4,12 @@ is using the correct API calls (cudaMallocAsync) and the profile looks a
 little different in this test (shorter duration malloc, and for some reason
 shorter memcopies."""
 
-from numba import cuda, NumbaPerformanceWarning
+from numba_cuda_mlir import cuda
+
+from numba_cuda_mlir.numba_cuda.core.errors import NumbaPerformanceWarning
 import numpy as np
 import time
-from numba.cuda.cudadrv.driver import NumbaCUDAMemoryManager
+from numba_cuda_mlir.numba_cuda.cudadrv.driver import NumbaCUDAMemoryManager
 from cubie.memory import (
     current_cupy_stream,
     CuPyAsyncNumbaManager,

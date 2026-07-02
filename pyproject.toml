@@ -14,13 +14,12 @@ authors = [
     { name="Chris Cameron" }
 ]
 readme = "readme.md"
-requires-python = ">=3.9"
+requires-python = ">=3.11"
 license = "MIT"
 license-files = ["src/LICEN[CS]E*"]
 dependencies = [
-    "numpy==1.26.4", # Pinned < 2.0 by cellmlmanip dependency
-    "numba",
-    "numba-cuda[cu12]",
+    "numpy>=2.0", # numba-cuda-mlir requires numpy 2.x type aliases
+    "numba-cuda-mlir[cu12]",
     "attrs",
     "sympy>=1.13.0",
     "cellmlmanip",
@@ -32,6 +31,7 @@ Issues = "https://github.com/ccam80/cubie/issues"
 
 [project.optional-dependencies]
 dev = [
+    "numba",  # CPU-reference implementations in tests use numba.njit
     "pytest",
     "pytest-cov",
     "pytest-durations",
@@ -74,7 +74,7 @@ addopts = [
     "--cov-report=term-missing",
 ]
 filterwarnings = [
-    "ignore::numba.core.errors.NumbaPerformanceWarning",
+    "ignore::numba_cuda_mlir.numba_cuda.core.errors.NumbaPerformanceWarning",
 ]
 
 [tool.coverage.run]

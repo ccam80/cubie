@@ -10,8 +10,7 @@ from cubie.batchsolving.writeback_watcher import (
     WritebackTask,
     WritebackWatcher,
 )
-from numba import cuda
-
+from numba_cuda_mlir import cuda
 from cubie.cuda_simsafe import CUDA_SIMULATION
 from cubie.memory.chunk_buffer_pool import ChunkBufferPool, PinnedBuffer
 

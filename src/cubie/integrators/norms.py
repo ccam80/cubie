@@ -25,7 +25,7 @@ See Also
 from typing import Callable
 
 from numpy import asarray, ndarray, all, full
-from numba import cuda
+from numba_cuda_mlir import cuda
 from attrs import define, field, Converter
 
 from cubie._utils import (

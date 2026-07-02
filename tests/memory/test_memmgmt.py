@@ -1,6 +1,5 @@
 import pytest
-from numba import cuda
-
+from numba_cuda_mlir import cuda
 from cubie.cuda_simsafe import (
     Stream,
 )

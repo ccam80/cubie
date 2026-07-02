@@ -11,7 +11,7 @@ from typing import Callable
 
 import matplotlib.pyplot as plt
 import numpy as np
-from numba import cuda
+from numba_cuda_mlir import cuda
 from scipy.interpolate import CubicSpline
 
 from cubie.integrators.array_interpolator import ArrayInterpolator

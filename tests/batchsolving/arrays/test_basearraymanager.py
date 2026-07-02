@@ -19,7 +19,7 @@ if environ.get("NUMBA_ENABLE_CUDASIM", "0") == "1":
     from numpy import zeros as pinned_array
     from numpy import zeros as device_array
 else:
-    from numba.cuda import pinned_array, device_array
+    from numba_cuda_mlir.cuda import pinned_array, device_array
 
 
 @attrs.define

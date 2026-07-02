@@ -2,9 +2,7 @@
 
 import numpy as np
 import pytest
-from numba import cuda
-
-
+from numba_cuda_mlir import cuda
 @pytest.fixture(scope='function')
 def step_setup(request, precision, system):
     n = system.sizes.states

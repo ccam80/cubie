@@ -2,8 +2,7 @@ import sympy as sp
 
 import numpy as np
 import pytest
-from numba import cuda
-
+from numba_cuda_mlir import cuda
 from cubie.odesystems.symbolic.codegen.dxdt import (
     DXDT_TEMPLATE,
     generate_dxdt_fac_code,

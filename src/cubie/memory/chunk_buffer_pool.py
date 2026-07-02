@@ -37,7 +37,7 @@ from threading import Lock
 
 from attrs import define, field
 from attrs.validators import instance_of as attrsval_instance_of
-from numba import cuda
+from numba_cuda_mlir import cuda
 from numpy import ndarray, zeros as np_zeros
 from numpy import dtype as np_dtype
 

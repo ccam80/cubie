@@ -4,8 +4,7 @@ from typing import Tuple
 
 import numpy as np
 import pytest
-from numba import cuda
-
+from numba_cuda_mlir import cuda
 from cubie.integrators.array_interpolator import ArrayInterpolator
 from cubie.odesystems.symbolic.symbolicODE import SymbolicODE
 from tests.integrators.cpu_reference.cpu_utils import DriverEvaluator

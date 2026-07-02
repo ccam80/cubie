@@ -10,8 +10,8 @@ Recovered from git history (pre-Phase 1 refactor).
 import numpy as np
 import pytest
 from numpy.testing import assert_allclose
-from numba import cuda, from_dtype
-
+from numba_cuda_mlir import cuda
+from numba_cuda_mlir.numba_cuda.np.numpy_support import from_dtype
 from cubie.outputhandling import OutputFunctions
 from tests._utils import deterministic_array, calculate_expected_summaries
 

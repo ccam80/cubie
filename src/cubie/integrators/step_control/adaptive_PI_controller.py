@@ -28,7 +28,9 @@ See Also
 
 from typing import Callable
 
-from numba import cuda, int32
+from numba_cuda_mlir import cuda
+
+from numba_cuda_mlir.types import int32
 from numpy import ndarray
 from attrs import field, define, validators
 from math import isnan, isinf

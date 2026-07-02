@@ -27,7 +27,8 @@ See Also
 """
 
 from attrs import define, field
-from numba import cuda, int32
+from numba_cuda_mlir import cuda
+from numba_cuda_mlir.types import int32
 from cubie.cuda_simsafe import compile_kwargs
 
 from cubie._utils import getype_validator

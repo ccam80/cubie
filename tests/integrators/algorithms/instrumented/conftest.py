@@ -3,8 +3,10 @@ from typing import Dict, List, Optional, Union, Tuple, Any
 
 import numpy as np
 import pytest
-from numba import cuda, from_dtype, int32
-from numba.core.types import int32
+from numba_cuda_mlir import cuda
+from numba_cuda_mlir.numba_cuda.np.numpy_support import from_dtype
+from numba_cuda_mlir.types import int32
+from numba_cuda_mlir.types import int32
 
 from tests._utils import _build_enhanced_algorithm_settings
 from cubie.integrators.algorithms import (

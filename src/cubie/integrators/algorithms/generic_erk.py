@@ -55,8 +55,8 @@ See Also
 from typing import Callable, Optional
 
 from attrs import define, field, validators
-from numba import cuda, int32
-
+from numba_cuda_mlir import cuda
+from numba_cuda_mlir.types import int32
 from cubie._utils import PrecisionDType, build_config
 from cubie.buffer_registry import buffer_registry
 from cubie.cuda_simsafe import all_sync, activemask

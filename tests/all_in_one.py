@@ -10,8 +10,10 @@ from time import perf_counter
 from typing import Optional
 
 import numpy as np
-from numba import cuda, int32, float32, float64, bool_
-from numba import from_dtype as numba_from_dtype
+from numba_cuda_mlir import cuda
+from numba_cuda_mlir.types import boolean as bool_
+from numba_cuda_mlir.types import int32, float32, float64
+from numba_cuda_mlir.numba_cuda.np.numpy_support import from_dtype as numba_from_dtype
 from cubie.cuda_simsafe import (
     activemask,
     all_sync,
@@ -6569,7 +6571,8 @@ def unrolled_save_summary_factory(
 UPDATE_SUMMARY_TEMPLATE = '''
 def {func_name}():
     """Auto-generated summary update factory."""
-    from numba import cuda, int32
+    from numba_cuda_mlir import cuda
+    from numba_cuda_mlir.types import int32
     from cubie.cuda_simsafe import compile_kwargs
 {constant_assignments}
 
@@ -6752,7 +6755,8 @@ def codegen_update_summary_factory(
 SAVE_SUMMARY_TEMPLATE = '''
 def {func_name}():
     """Auto-generated summary save factory."""
-    from numba import cuda, int32
+    from numba_cuda_mlir import cuda
+    from numba_cuda_mlir.types import int32
     from cubie.cuda_simsafe import compile_kwargs
 {constant_assignments}
 

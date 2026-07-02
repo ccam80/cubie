@@ -32,9 +32,7 @@ from time import perf_counter
 from typing import Optional, Any
 import attrs
 from cubie.cuda_simsafe import is_cudasim_enabled
-from numba import cuda
-
-
+from numba_cuda_mlir import cuda
 @attrs.define(frozen=True)
 class TimingEvent:
     """Record of a single timing event.

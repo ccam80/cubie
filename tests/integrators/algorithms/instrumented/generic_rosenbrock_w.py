@@ -1,8 +1,8 @@
 from typing import Callable, Optional
 
 import numpy as np
-from numba import cuda, int32
-
+from numba_cuda_mlir import cuda
+from numba_cuda_mlir.types import int32
 from cubie._utils import PrecisionDType
 from cubie.integrators.algorithms.base_algorithm_step import (
     StepCache,

@@ -2,7 +2,7 @@ import pytest
 
 from cubie.memory.cupy_emm import _numba_stream_ptr
 from cubie.memory.cupy_emm import current_cupy_stream
-from numba import cuda
+from numba_cuda_mlir import cuda
 import cupy as cp
 
 

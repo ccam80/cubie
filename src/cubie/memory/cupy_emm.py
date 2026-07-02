@@ -11,7 +11,7 @@ Published Classes
 :class:`current_cupy_stream`
     Context manager forwarding a Numba stream into CuPy APIs.
 
-    >>> from numba import cuda
+    >>> from numba_cuda_mlir import cuda
     >>> stream = cuda.stream()
     >>> with current_cupy_stream(stream):  # doctest: +SKIP
     ...     pass
@@ -35,7 +35,7 @@ import logging
 from types import TracebackType
 from typing import Any, Callable, Iterator, Optional
 
-from numba import cuda
+from numba_cuda_mlir import cuda
 import ctypes
 
 from cubie.cuda_simsafe import (

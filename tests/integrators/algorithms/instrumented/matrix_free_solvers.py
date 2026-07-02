@@ -4,8 +4,9 @@ import attrs
 from typing import Callable
 
 import numpy as np
-from numba import cuda, int32, from_dtype
-
+from numba_cuda_mlir import cuda
+from numba_cuda_mlir.numba_cuda.np.numpy_support import from_dtype
+from numba_cuda_mlir.types import int32
 from cubie._utils import is_device_validator
 from cubie.buffer_registry import buffer_registry
 from cubie.CUDAFactory import CUDADispatcherCache

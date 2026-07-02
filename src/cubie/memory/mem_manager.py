@@ -53,7 +53,7 @@ from warnings import warn
 import contextlib
 from copy import deepcopy
 
-from numba import cuda
+from numba_cuda_mlir import cuda
 from attrs import define, Factory as attrsFactory, field
 from attrs.validators import (
     in_ as attrsval_in,

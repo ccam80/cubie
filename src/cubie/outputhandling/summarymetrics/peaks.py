@@ -13,7 +13,9 @@ See Also
     Global registry where this metric is registered.
 """
 
-from numba import cuda, int32
+from numba_cuda_mlir import cuda
+
+from numba_cuda_mlir.types import int32
 from cubie.cuda_simsafe import compile_kwargs
 
 from cubie.outputhandling.summarymetrics import summary_metrics

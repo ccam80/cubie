@@ -9,10 +9,10 @@ if a custom directory is provided as an argument to "cache".
 
 Notes
 -----
-This module depends on numba-cuda internal classes and may require
-updates when numba-cuda versions change. The CUDACache class is imported
-from cubie_simsafe, which imports a vendored version when CUDASIM is enabled,
-as the module is not imported in that mode.
+This module depends on numba-cuda-mlir internal classes and may
+require updates when numba-cuda-mlir versions change. Serialization
+follows the MLIR compile-result scheme (cubin/PTX payloads) provided
+by :class:`numba_cuda_mlir.caching.MLIRCacheImpl`.
 """
 
 from shutil import rmtree
@@ -24,13 +24,12 @@ from attrs import field, validators as val, define, converters
 
 from cubie.CUDAFactory import _CubieConfigBase
 from cubie._utils import getype_validator, build_config
-from numba.cuda.core.caching import (  # noqa: F401
+from numba_cuda_mlir.caching import MLIRCache, MLIRCacheImpl
+from numba_cuda_mlir.numba_cuda.core.caching import (  # noqa: F401
     _CacheLocator,  # noqa: F401
-    CacheImpl,  # noqa: F401
     IndexDataCacheFile,  # noqa: F401
 )
 
-from cubie.cuda_simsafe import is_cudasim_enabled, CUDACache
 from cubie.odesystems.symbolic.odefile import GENERATED_DIR
 from cubie.time_logger import default_timelogger
 
@@ -181,11 +180,11 @@ class CUBIECacheLocator(_CacheLocator):
         )
 
 
-class CUBIECacheImpl(CacheImpl):
+class CUBIECacheImpl(MLIRCacheImpl):
     """Serialization logic for CuBIE compiled kernels.
 
-    Delegates actual serialization to numba's built-in _Kernel methods
-    while using CuBIE-specific cache locator for file paths.
+    Delegates actual serialization to numba-cuda-mlir's compile-result
+    scheme while using CuBIE-specific cache locator for file paths.
 
     Parameters
     ----------
@@ -249,72 +248,8 @@ class CUBIECacheImpl(CacheImpl):
         if compile_settings_hash is not None:
             self._locator.set_compile_settings_hash(compile_settings_hash)
 
-    def reduce(self, kernel) -> dict:
-        """Reduce kernel to serializable form.
 
-        Parameters
-        ----------
-        kernel
-            Compiled CUDA kernel with _reduce_states method.
-
-        Returns
-        -------
-        dict
-            Serializable state dictionary.
-        """
-        if not is_cudasim_enabled():
-            return kernel._reduce_states()
-        else:
-            raise RuntimeError(
-                "CUBIECacheImpl.reduce() was called inside "
-                "CUDASIM mode, indicating a cache miss when "
-                "there are no compiled kernels available. This "
-                "indicates a config error; it should not be reachable if "
-                "CUDASIM mode was properly enabled."
-            )
-
-    def rebuild(self, target_context, payload: dict):
-        """Rebuild kernel from cached payload.
-
-        Parameters
-        ----------
-        target_context
-            CUDA target context for kernel reconstruction.
-        payload
-            Serialized kernel state from reduce().
-
-        Returns
-        -------
-        _Kernel
-            Reconstructed CUDA kernel.
-        """
-        if not is_cudasim_enabled():
-            from numba.cuda.dispatcher import _Kernel
-
-            return _Kernel._rebuild(**payload)
-        else:
-            raise RuntimeError(
-                "CUBIECacheImpl.rebuild() was called inside "
-                "CUDASIM mode, indicating a cache hit when "
-                "there are no compiled kernels available. This "
-                "indicates a config error; it should not be reachable if "
-                "CUDASIM mode was properly enabled."
-            )
-
-    def check_cachable(self, data) -> bool:
-        """Check if the data is cachable.
-
-        CUDA kernels are always cachable.
-
-        Returns
-        -------
-        bool
-            Always True for CUDA kernels.
-        """
-        return True
-
-
-class CUBIECache(CUDACache):
+class CUBIECache(MLIRCache):
     """File-based cache for CuBIE compiled kernels.
 
     Coordinates loading and saving of cached kernels, incorporating

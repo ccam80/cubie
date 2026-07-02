@@ -42,9 +42,9 @@ from warnings import warn
 from pathlib import Path
 
 from numpy import ceil as np_ceil, float64 as np_float64, floating
-from numba import cuda, float64
-from numba import int32
-
+from numba_cuda_mlir import cuda
+from numba_cuda_mlir.types import float64
+from numba_cuda_mlir.types import int32
 from attrs import define, field, evolve
 
 from cubie.odesystems import SymbolicODE

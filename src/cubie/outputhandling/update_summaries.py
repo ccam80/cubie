@@ -26,7 +26,9 @@ JIT-compiled functions without passing them as an iterable.
 
 from typing import Callable, Sequence, Union
 
-from numba import cuda, int32
+from numba_cuda_mlir import cuda
+
+from numba_cuda_mlir.types import int32
 from numpy.typing import ArrayLike
 
 from cubie.cuda_simsafe import compile_kwargs

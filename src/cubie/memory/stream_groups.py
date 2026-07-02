@@ -23,7 +23,7 @@ See Also
 """
 
 from typing import Any, Optional, Union
-from numba import cuda
+from numba_cuda_mlir import cuda
 import attrs
 import attrs.validators as val
 

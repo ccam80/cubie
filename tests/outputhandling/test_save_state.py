@@ -4,8 +4,9 @@ from __future__ import annotations
 
 import numpy as np
 import pytest
-from numba import cuda, from_dtype, int32
-
+from numba_cuda_mlir import cuda
+from numba_cuda_mlir.numba_cuda.np.numpy_support import from_dtype
+from numba_cuda_mlir.types import int32
 from cubie.outputhandling.save_state import save_state_factory
 
 

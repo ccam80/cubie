@@ -13,7 +13,7 @@ See Also
     Global registry where this metric is registered.
 """
 
-from numba import cuda
+from numba_cuda_mlir import cuda
 from math import fabs
 
 from cubie.outputhandling.summarymetrics import summary_metrics

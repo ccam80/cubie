@@ -43,7 +43,8 @@ Designed for Parabolic Problems. *BIT Numerical Mathematics* 41,
 from typing import Callable, Optional
 
 from attrs import define, field, validators
-from numba import cuda, int32
+from numba_cuda_mlir import cuda
+from numba_cuda_mlir.types import int32
 from numpy import eye, int32 as np_int32
 
 from cubie._utils import PrecisionDType, build_config, is_device_validator

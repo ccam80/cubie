@@ -2,8 +2,9 @@
 
 from typing import Callable, Optional
 
-from numba import cuda, int32
+from numba_cuda_mlir import cuda
 
+from numba_cuda_mlir.types import int32
 from cubie.buffer_registry import buffer_registry
 from cubie.cuda_simsafe import all_sync, activemask
 from cubie.integrators.algorithms.base_algorithm_step import (
