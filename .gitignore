@@ -67,4 +67,6 @@ nvprof/
 
 # AI
 .claude/
-Claude.md
+
+# Working notes / specs (local only)
+spec/
