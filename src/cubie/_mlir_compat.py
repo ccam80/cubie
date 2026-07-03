@@ -16,16 +16,31 @@ truncated remainder (``arith.remsi``) rather than Python's floored
 modulo. This module registers ``(Integer, Integer)`` lowerings for
 ``%`` and ``//`` with sign-aware widening and floored semantics.
 
+numba-cuda-mlir also lowers shared memory to zero-sized
+internal-linkage globals: ``cuda.shared.array(0)`` becomes a private
+zero-length ``memref.global`` and ``gpu.dynamic_shared_memory``'s
+base becomes ``llvm.mlir.global internal @__dynamic_shmem__N :
+!llvm.array<0 x i8>``. Indexing a zero-length internal object is
+undefined behaviour, so optimizers (libnvvm -O3 and the LTO cubin
+link at opt > 0) legally sink or delete stores staged through
+dynamic shared memory. This module reroutes zero-length shared
+arrays through a ``gpu.dynamic_shared_memory`` view and rewrites the
+``__dynamic_shmem__`` globals to external linkage, which is the
+"LTO store erasure" fix (upstream warning in #117 blames the
+linker's fp16 handling; the actual defect is this lowering).
+
 Import this module before compiling any kernel; registrations are
 picked up when the MLIR target context refreshes its registries.
 These are stop-gaps that belong upstream in numba-cuda-mlir; patch
 branches exist in the ccam80/numba-cuda-mlir fork
 (fix-boolean-bitwise-invert-lowering, fix-boolean-comparison-lowering,
 fix-numpy-scalar-constants, fix-nested-tuple-dynamic-getitem,
-fix-integer-mod-floordiv-lowering). Remove the corresponding shim
-once each lands upstream. The LTO opt-disable below is a workaround
-for a linker bug (upstream #117), reproducible by setting
-NUMBA_CUDA_MLIR_DISABLE_LTO_OPT=0.
+fix-integer-mod-floordiv-lowering, fix-dynamic-shared-memory-ub).
+Remove the corresponding shim once each lands upstream. The LTO
+opt-disable below stays as the conservative default; with the
+shared-memory shim in place the only known divergence at
+NUMBA_CUDA_MLIR_DISABLE_LTO_OPT=0 is FMA-level float variance in the
+second-derivative summary metrics.
 """
 
 import copy
@@ -36,7 +51,10 @@ import numpy
 
 from numba_cuda_mlir import lowering_utilities
 from numba_cuda_mlir import mlir_lowering as _mlir_lowering
-from numba_cuda_mlir._mlir.dialects import arith
+from numba_cuda_mlir import mlir_optimization as _mlir_optimization
+from numba_cuda_mlir._mlir import ir as _ir
+from numba_cuda_mlir._mlir.dialects import arith, memref as _memref
+from numba_cuda_mlir._mlir.extras import types as _T
 from numba_cuda_mlir.lowering import builtins as _lowering_builtins
 from numba_cuda_mlir.lowering import cuda as _lowering_cuda
 from numba_cuda_mlir.lowering import numpy as _lowering_numpy
@@ -404,12 +422,152 @@ def register_integer_division_lowerings() -> None:
 register_integer_division_lowerings()
 
 
-# numba-cuda-mlir's LTO cubin link at opt_level>0 has a known bug that
-# erases stores (upstream warns about float16/bfloat16, but float64
-# output writes in cubie's save paths are also erased). Force
-# opt_level=0 on LTO links until the linker bug is fixed; kernels are
-# still optimised, only the final link is not. An explicit
-# NUMBA_CUDA_MLIR_DISABLE_LTO_OPT in the environment wins, so the
-# erasure can be reproduced on demand by setting it to 0.
+_original_static_shared = _lowering_cuda.cuda_static_shared_memory
+
+
+def _dynamic_region_shared_memory(lower, target, dtype):
+    """Lower ``cuda.shared.array(0)`` to the dynamic shared region.
+
+    A private zero-length shared ``memref.global`` is undefined
+    behaviour to index, so optimizers sink or delete stores staged
+    through it. A view over ``gpu.dynamic_shared_memory`` at byte
+    offset zero, sized at runtime from the region's extent, matches
+    numba's convention that every zero-length shared array aliases
+    the dynamic region base. The view does not advance the running
+    byte offset used by runtime-shaped shared arrays.
+    """
+
+    element_type = lower.get_storage_type(
+        _lowering_cuda._resolve_numba_dtype(lower, dtype)
+    )
+    mr_type = _ir.MemRefType.get(
+        shape=[_ir.ShapedType.get_dynamic_size()],
+        element_type=element_type,
+        memory_space=lower._get_shared_address_space(),
+    )
+    with lower.alloca_insertion_point():
+        shm_base = lower._get_shared_memory_base()
+        zero = arith.constant(result=_T.index(), value=0)
+        element_bytes = arith.constant(
+            result=_T.index(), value=element_type.width // 8
+        )
+        num_elements = arith.divui(
+            _memref.dim(shm_base, zero), element_bytes
+        )
+        view = _memref.view(
+            result=mr_type,
+            source=shm_base,
+            byte_shift=zero,
+            sizes=[num_elements],
+        )
+    lower.store_var(target, view)
+
+
+def _static_shared_memory_shim(lower, target, static_shape, dtype, alignas):
+    """Route zero-length 1-D shared arrays to the dynamic region."""
+
+    if len(static_shape) == 1 and static_shape[0] == 0:
+        return _dynamic_region_shared_memory(lower, target, dtype)
+    return _original_static_shared(
+        lower, target, static_shape, dtype, alignas
+    )
+
+
+def _request_shared_memory_shim(self, sizes, mr_type):
+    """Emit runtime-shaped shared views at the current insertion point.
+
+    Upstream inserts at the end of the entry block, which raises an
+    insertion error once the block has a terminator (any shared
+    request lowered after control flow) and cannot see size operands
+    computed after a branch.
+    """
+
+    match mr_type.element_type:
+        case _ir.IntegerType() | _ir.FloatType() as t:
+            element_bytes = t.width // 8
+        case _T.index:
+            element_bytes = 8
+        case _:
+            raise NotImplementedError(
+                f"NotImplemented shared memory type {mr_type}."
+            )
+    assert self.mlir_funcOp
+    bytes_op = arith.constant(result=_T.index(), value=element_bytes)
+    for size in sizes:
+        size = self.mlir_convert(size, _T.index())
+        bytes_op = arith.muli(lhs=bytes_op, rhs=size)
+    shm_base = self._get_shared_memory_base()
+    if self._total_shared_memory_bytes is None:
+        self._total_shared_memory_bytes = arith.constant(
+            result=_T.index(), value=0
+        )
+    view = _memref.view(
+        result=mr_type,
+        source=shm_base,
+        byte_shift=self._total_shared_memory_bytes,
+        sizes=sizes,
+    )
+    self._total_shared_memory_bytes = arith.addi(
+        lhs=self._total_shared_memory_bytes, rhs=bytes_op
+    )
+    return view
+
+
+def _make_dynamic_shared_memory_external(module):
+    """Rewrite ``__dynamic_shmem__*`` globals to external linkage.
+
+    With internal linkage the optimizer may assume the zero-length
+    object really is zero bytes long, making every indexed access
+    out of bounds; external linkage makes the size unknown and
+    restores conservative aliasing, matching CUDA C's
+    ``extern __shared__`` declaration.
+    """
+
+    external = _ir.Attribute.parse("#llvm.linkage<external>")
+
+    def walk(op):
+        for region in op.regions:
+            for block in region.blocks:
+                for child in block.operations:
+                    if child.operation.name == "llvm.mlir.global":
+                        sym = str(child.attributes["sym_name"])
+                        if "__dynamic_shmem__" in sym:
+                            child.attributes["linkage"] = external
+                    walk(child.operation)
+
+    walk(module.operation)
+
+
+_original_pre_codegen = _mlir_optimization.run_pre_codegen_patterns
+
+
+def _pre_codegen_with_external_shmem(module, *args, **kwargs):
+    result = _original_pre_codegen(module, *args, **kwargs)
+    _make_dynamic_shared_memory_external(module)
+    return result
+
+
+def register_dynamic_shared_memory_shims() -> None:
+    """Install the dynamic-shared-memory UB fixes."""
+
+    _lowering_cuda.cuda_static_shared_memory = _static_shared_memory_shim
+    _mlir_lowering.MLIRLower._request_shared_memory = (
+        _request_shared_memory_shim
+    )
+    _mlir_optimization.run_pre_codegen_patterns = (
+        _pre_codegen_with_external_shmem
+    )
+
+
+register_dynamic_shared_memory_shims()
+
+
+# The dynamic-shared-memory shims above fix the store erasure that
+# made LTO-link optimization unsafe. Opt stays disabled by default
+# anyway as the conservative choice: at opt>0 the second-derivative
+# summary metrics show FMA-level float variance against the CPU
+# reference (their central difference is cancellation-prone). An
+# explicit NUMBA_CUDA_MLIR_DISABLE_LTO_OPT in the environment wins,
+# so LTO-link optimization can be enabled by setting it to 0.
 if "NUMBA_CUDA_MLIR_DISABLE_LTO_OPT" not in environ:
     _cuda_config.CUDA_DISABLE_LTO_OPT = 1
