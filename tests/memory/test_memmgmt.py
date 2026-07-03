@@ -264,7 +264,7 @@ class TestMemoryManager:
         regmgr.register(inst2, stream_group="other")
         stream2 = regmgr.get_stream(inst2)
         assert stream2 is not None
-        assert int(stream.handle.value) != int(stream2.handle.value)
+        assert int(stream.handle) != int(stream2.handle)
 
     def test_change_stream_group(
         self, mem_manager_settings, registered_instance_settings
@@ -293,7 +293,7 @@ class TestMemoryManager:
         stream1 = regmgr.get_stream(instance)
         regmgr.reinit_streams()
         stream2 = regmgr.get_stream(instance)
-        assert int(stream1.handle.value) != int(stream2.handle.value)
+        assert int(stream1.handle) != int(stream2.handle)
 
     def test_invalidate_all(
         self, mem_manager_settings, registered_instance_settings
