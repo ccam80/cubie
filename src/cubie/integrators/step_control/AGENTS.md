@@ -31,15 +31,22 @@ controllers.
 ### Device-function contract (the caller — `IVPLoop` — must match)
 - Signature, identical across all controllers:
   `(dt, state, state_prev, error, niters, accept_out, shared_scratch, persistent_local)`.
-- Writes `accept_out[0] = int32(1)` to accept the step, `int32(0)` to reject.
-- Returns `int32(0)` normally, or `int32(8)` when the proposed step would fall at/below
-  `dt_min` (reject-at-minimum-step — the loop uses this to stop adaptive retries).
+- Writes `accept_out[0] = int32(1)` to accept the step, `int32(0)` to reject (a plain
+  accept/reject flag, not a result code).
+- Returns `CUBIE_RESULT_CODES.SUCCESS` normally, or `CUBIE_RESULT_CODES.STEP_TOO_SMALL`
+  when the proposed step would fall at/below `dt_min` (reject-at-minimum-step — the loop
+  uses this to stop adaptive retries). Both are captured as device closure constants from
+  `cubie/result_codes.py`.
 
 ### History buffers
 - Controllers that keep per-trajectory history register a single `timestep_buffer`:
   PI stores the previous error norm, PID the previous two norms, and Gustafsson the
-  previous `dt` and norm (I and fixed keep no history). The buffer size comes from the
-  controller's `register_buffers()`.
+  previous `dt` and norm (I and fixed keep no history). The slot count is the
+  `_timestep_buffer_elements` class attribute (PI 1, PID/Gustafsson 2, fixed/I 0), which
+  the base `register_buffers()` uses to register the buffer — controllers with 0 register
+  nothing. There is **no** `local_memory_elements` property; query the size the same way
+  as any other buffer-registered factory, via the registry-derived
+  `persistent_local_buffer_size`.
 
 ### Controller specifics
 - **`_resolve_step_params`** differs by family: `FixedStepController` collapses

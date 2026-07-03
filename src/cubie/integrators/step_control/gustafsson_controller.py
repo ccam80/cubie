@@ -47,6 +47,7 @@ from cubie._utils import (
     inrangetype_validator,
 )
 from cubie.cuda_simsafe import compile_kwargs, selp
+from cubie.result_codes import CUBIE_RESULT_CODES
 from cubie.integrators.step_control.base_step_controller import ControllerCache
 
 
@@ -110,11 +111,7 @@ class GustafssonController(BaseAdaptiveStepController):
 
         return self.compile_settings.newton_max_iters
 
-    @property
-    def local_memory_elements(self) -> int:
-        """Return the number of local memory slots required."""
-
-        return 2
+    _timestep_buffer_elements = 2  # previous dt and error norm
 
     def build_controller(
         self,
@@ -183,6 +180,8 @@ class GustafssonController(BaseAdaptiveStepController):
         n = int32(n)
         inv_n = precision(1.0 / n)
         typed_large = precision(1e16)
+        success = int32(CUBIE_RESULT_CODES.SUCCESS)
+        step_too_small = int32(CUBIE_RESULT_CODES.STEP_TOO_SMALL)
 
         # step sizes and norms can be approximate - fastmath is fine
         @cuda.jit(
@@ -236,7 +235,7 @@ class GustafssonController(BaseAdaptiveStepController):
 
             nrm2 = typed_zero
             for i in range(n):
-                error_i = max(abs(error[i]), precision(1e-12))
+                error_i = max(abs(error[i]), precision(1e-16))
                 tol = atol[i] + rtol[i] * max(
                     abs(state[i]), abs(state_prev[i])
                 )
@@ -276,7 +275,7 @@ class GustafssonController(BaseAdaptiveStepController):
 
             timestep_buffer[0] = current_dt
             timestep_buffer[1] = nrm2
-            ret = int32(0) if dt_new_raw > dt_min else int32(8)
+            ret = success if dt_new_raw > dt_min else step_too_small
             return ret
 
         return ControllerCache(device_function=controller_gustafsson)

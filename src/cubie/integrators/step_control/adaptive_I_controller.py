@@ -28,18 +28,13 @@ from cubie.integrators.step_control.adaptive_step_controller import (
     BaseAdaptiveStepController,
 )
 from cubie.cuda_simsafe import compile_kwargs, selp
+from cubie.result_codes import CUBIE_RESULT_CODES
 
 from cubie.integrators.step_control.base_step_controller import ControllerCache
 
 
 class AdaptiveIController(BaseAdaptiveStepController):
     """Integral step-size controller using only previous error."""
-
-    @property
-    def local_memory_elements(self) -> int:
-        """Return the number of local memory slots required."""
-
-        return 0
 
     def build_controller(
         self,
@@ -102,6 +97,8 @@ class AdaptiveIController(BaseAdaptiveStepController):
         n = int32(n)
         inv_n = precision(1.0 / n)
         typed_large = precision(1e16)
+        success = int32(CUBIE_RESULT_CODES.SUCCESS)
+        step_too_small = int32(CUBIE_RESULT_CODES.STEP_TOO_SMALL)
 
         precision = self.compile_settings.numba_precision
         # step sizes and norms can be approximate - fastmath is fine
@@ -174,7 +171,7 @@ class AdaptiveIController(BaseAdaptiveStepController):
             dt_new_raw = dt[0] * gain
             dt[0] = clamp(dt_new_raw, dt_min, dt_max)
 
-            ret = int32(0) if dt_new_raw > dt_min else int32(8)
+            ret = success if dt_new_raw > dt_min else step_too_small
             return ret
 
         return ControllerCache(device_function=controller_I)

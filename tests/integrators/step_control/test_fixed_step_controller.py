@@ -96,9 +96,9 @@ def test_forwarding_to_compile_settings(
     )
 
 
-def test_local_memory_elements_zero(step_controller):
-    """Fixed controller requires zero local memory elements."""
-    assert step_controller.local_memory_elements == 0
+def test_registers_no_timestep_buffer(step_controller):
+    """Fixed controller keeps no history, so registers no local memory."""
+    assert step_controller.persistent_local_buffer_size == 0
 
 
 def test_build_returns_controller_cache(step_controller):

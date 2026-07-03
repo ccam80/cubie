@@ -286,7 +286,7 @@ class TestControllerNumerical:
             rel=tolerance.rel_tight,
             abs=tolerance.abs_tight,
         )
-        valid_localmem = step_controller.local_memory_elements
+        valid_localmem = step_controller.persistent_local_buffer_size
         assert np.allclose(
             device_step_results.local_mem[:valid_localmem],
             cpu_step_results.local_mem[:valid_localmem],
@@ -308,7 +308,7 @@ class TestControllerNumerical:
         current_dt_cpu = float(step_controller.dt)
         current_dt_gpu = float(step_controller.dt)
         local_mem = np.zeros(
-            step_controller.local_memory_elements,
+            step_controller.persistent_local_buffer_size,
             dtype=dtype,
         )
         base_state = np.linspace(
@@ -474,7 +474,7 @@ class TestControllerEquivalence:
         dtype = precision
         n_states = system.sizes.states
         local_mem = np.zeros(
-            step_controller.local_memory_elements,
+            step_controller.persistent_local_buffer_size,
             dtype=dtype,
         )
         base_state = (
@@ -517,7 +517,7 @@ class TestControllerEquivalence:
             )
             cpu_trace.dt.append(result_cpu.dt)
             cpu_trace.accepted.append(result_cpu.accepted)
-            if step_controller.local_memory_elements:
+            if step_controller.persistent_local_buffer_size:
                 if isinstance(
                     step_controller, AdaptivePIController
                 ):
@@ -567,7 +567,7 @@ class TestControllerEquivalence:
             gpu_trace.local_memory.append(
                 device_result.local_mem.copy()
             )
-            if step_controller.local_memory_elements:
+            if step_controller.persistent_local_buffer_size:
                 local_mem = device_result.local_mem.copy()
             current_dt_device = device_result.dt
             current_dt_cpu = result_cpu.dt
@@ -579,7 +579,7 @@ class TestControllerEquivalence:
             rtol=1e-7,
             atol=1e-7,
         )
-        if step_controller.local_memory_elements:
+        if step_controller.persistent_local_buffer_size:
             for i, (gpu_mem, cpu_mem) in enumerate(zip(
                 gpu_trace.local_memory,
                 cpu_trace.local_memory,
@@ -612,7 +612,7 @@ class TestControllerEquivalence:
         new_state = prev_state + dtype(0.02)
         error_vec = np.full(n_states, dtype(10.0), dtype=dtype)
         local_mem = np.zeros(
-            step_controller_mutable.local_memory_elements,
+            step_controller_mutable.persistent_local_buffer_size,
             dtype=dtype,
         )
         cpu_step_controller._prev_dt = dtype(0)

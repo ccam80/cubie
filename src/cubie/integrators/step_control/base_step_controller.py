@@ -220,6 +220,7 @@ class BaseStepController(CUDAFactory):
     """Factory interface for compiling CUDA step-size controllers."""
 
     _config_class = None  # Subclasses must override
+    _timestep_buffer_elements = 0  # History slots; overridden per controller
 
     def __init__(
         self,
@@ -281,22 +282,24 @@ class BaseStepController(CUDAFactory):
     def register_buffers(self) -> None:
         """Register controller buffers with the central buffer registry.
 
-        Registers the timestep_buffer using size from
-        ``local_memory_elements`` and location from
-        ``compile_settings.timestep_memory_location``.
+        Registers the ``timestep_buffer`` at ``_timestep_buffer_elements``
+        history slots in the location given by
+        ``compile_settings.timestep_memory_location``. Controllers that keep
+        no history (``_timestep_buffer_elements == 0``) register nothing, so
+        the registry owns the size like every other buffer-registered class.
         """
-        config = self.compile_settings
-        precision = config.precision
-        size = self.local_memory_elements
+        size = self._timestep_buffer_elements
+        if size == 0:
+            return
 
-        # Register timestep buffer
+        config = self.compile_settings
         buffer_registry.register(
             "timestep_buffer",
             self,
             size,
             config.timestep_memory_location,
             persistent=True,
-            precision=precision,
+            precision=config.precision,
         )
 
     @abstractmethod
@@ -338,13 +341,6 @@ class BaseStepController(CUDAFactory):
         """Return ``True`` if the controller is adaptive."""
 
         return self.compile_settings.is_adaptive
-
-    @property
-    @abstractmethod
-    def local_memory_elements(self) -> int:
-        """Return the number of local scratch elements required."""
-
-        return 0
 
     @property
     def settings_dict(self) -> dict[str, object]:

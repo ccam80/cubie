@@ -29,6 +29,7 @@ See Also
 from attrs import define, field
 from numba import cuda, int32
 from cubie.cuda_simsafe import compile_kwargs
+from cubie.result_codes import CUBIE_RESULT_CODES
 
 from cubie._utils import getype_validator
 from cubie.integrators.step_control.base_step_controller import (
@@ -119,6 +120,7 @@ class FixedStepController(BaseStepController):
         ControllerCache
             Cache containing the compiled fixed-step device function.
         """
+        success = int32(CUBIE_RESULT_CODES.SUCCESS)
 
         @cuda.jit(
             device=True,
@@ -162,11 +164,6 @@ class FixedStepController(BaseStepController):
                 Zero, indicating that the current step size should be kept.
             """
             accept_out[0] = int32(1)
-            return int32(0)
+            return success
 
         return ControllerCache(device_function=controller_fixed_step)
-
-    @property
-    def local_memory_elements(self) -> int:
-        """Amount of local memory required by the controller."""
-        return 0

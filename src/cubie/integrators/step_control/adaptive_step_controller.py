@@ -379,8 +379,3 @@ class BaseAdaptiveStepController(BaseStepController):
         """Return relative tolerance."""
         return self.compile_settings.rtol
 
-    @property
-    @abstractmethod
-    def local_memory_elements(self) -> int:
-        """Return number of floats required for controller local memory."""
-        raise NotImplementedError
