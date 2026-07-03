@@ -36,16 +36,16 @@ branches exist in the ccam80/numba-cuda-mlir fork
 (fix-boolean-bitwise-invert-lowering, fix-boolean-comparison-lowering,
 fix-numpy-scalar-constants, fix-nested-tuple-dynamic-getitem,
 fix-integer-mod-floordiv-lowering, fix-dynamic-shared-memory-ub).
-Remove the corresponding shim once each lands upstream. The LTO
-opt-disable below stays as the conservative default; with the
-shared-memory shim in place the only known divergence at
-NUMBA_CUDA_MLIR_DISABLE_LTO_OPT=0 is FMA-level float variance in the
-second-derivative summary metrics.
+Remove the corresponding shim once each lands upstream. With the
+shared-memory shim in place LTO-link optimization is safe and runs
+at the upstream default (enabled); set
+NUMBA_CUDA_MLIR_DISABLE_LTO_OPT=1 to force opt_level=0 on the LTO
+link. The only known divergence with optimization enabled is
+FMA-level float variance in the second-derivative summary metrics.
 """
 
 import copy
 import operator
-from os import environ
 
 import numpy
 
@@ -69,7 +69,6 @@ from numba_cuda_mlir.lowering.math import (
     registry as _math_registry,
 )
 from numba_cuda_mlir.numba_cuda import types
-from numba_cuda_mlir.numba_cuda.core import config as _cuda_config
 
 
 def _make_bitwise_cg(mlir_op):
@@ -563,11 +562,8 @@ register_dynamic_shared_memory_shims()
 
 
 # The dynamic-shared-memory shims above fix the store erasure that
-# made LTO-link optimization unsafe. Opt stays disabled by default
-# anyway as the conservative choice: at opt>0 the second-derivative
-# summary metrics show FMA-level float variance against the CPU
-# reference (their central difference is cancellation-prone). An
-# explicit NUMBA_CUDA_MLIR_DISABLE_LTO_OPT in the environment wins,
-# so LTO-link optimization can be enabled by setting it to 0.
-if "NUMBA_CUDA_MLIR_DISABLE_LTO_OPT" not in environ:
-    _cuda_config.CUDA_DISABLE_LTO_OPT = 1
+# previously made LTO-link optimization unsafe, so it runs at the
+# upstream default (enabled). Set NUMBA_CUDA_MLIR_DISABLE_LTO_OPT=1
+# to force opt_level=0 on the LTO link; the remaining difference at
+# opt>0 is FMA-level float variance in the second-derivative summary
+# metrics (their central difference is cancellation-prone).
