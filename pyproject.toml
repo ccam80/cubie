@@ -28,10 +28,12 @@ dependencies = [
     "sympy>=1.13.0",
     # cellmlmanip is vendored under cubie.vendored.cellmlmanip (it pins
     # Pint<0.20, incompatible with the numpy>=2 required above). These
-    # are its runtime dependencies.
+    # are its runtime dependencies. Pint>=0.24 is the first release that
+    # supports numpy 2 and provides the pint.facets.plain API the
+    # vendored units.py imports.
     "lxml",
     "networkx",
-    "Pint",
+    "Pint>=0.24",
     "rdflib",
 ]
 
