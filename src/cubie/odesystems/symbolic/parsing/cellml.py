@@ -37,8 +37,8 @@ See Also
 """
 
 try:  # pragma: no cover - optional dependency
-    import cellmlmanip  # type: ignore
-    from cellmlmanip.model import Quantity  # type: ignore
+    from cubie.vendored import cellmlmanip  # type: ignore
+    from cubie.vendored.cellmlmanip.model import Quantity  # type: ignore
 except Exception:  # pragma: no cover
     cellmlmanip = None  # type: ignore
     Quantity = None  # type: ignore
