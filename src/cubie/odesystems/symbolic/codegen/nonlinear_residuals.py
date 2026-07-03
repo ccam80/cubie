@@ -57,10 +57,9 @@ default_timelogger.register_event("codegen_generate_n_stage_residual_code",
 RESIDUAL_TEMPLATE = (
     "\n"
     "# AUTO-GENERATED NONLINEAR RESIDUAL FACTORY\n"
-    "def {func_name}(constants, precision, beta=1.0, gamma=1.0, order=None):\n"
+    "def {func_name}(constants, precision, beta=1.0, gamma=1.0):\n"
     '    """Auto-generated nonlinear residual for implicit updates.\n'
     "    Computes beta * M * u - gamma * h * f(t, base_state + a_ij * u).\n"
-    "    Order is ignored, included for compatibility with preconditioner API.\n"
     '    """\n'
     "    _cubie_codegen_beta = precision(beta)\n"
     "    _cubie_codegen_gamma = precision(gamma)\n"
@@ -85,10 +84,9 @@ RESIDUAL_TEMPLATE = (
 N_STAGE_RESIDUAL_TEMPLATE = (
     "\n"
     "# AUTO-GENERATED N-STAGE RESIDUAL FACTORY\n"
-    "def {func_name}(constants, precision, beta=1.0, gamma=1.0, order=None):\n"
+    "def {func_name}(constants, precision, beta=1.0, gamma=1.0):\n"
     '    """Auto-generated FIRK residual for flattened stage increments.\n'
     "    Handles {stage_count} stages with ``s * n`` unknowns.\n"
-    "    Order is ignored, included for compatibility with preconditioner API.\n"
     '    """\n'
     "    _cubie_codegen_beta = precision(beta)\n"
     "    _cubie_codegen_gamma = precision(gamma)\n"

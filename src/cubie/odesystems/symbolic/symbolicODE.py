@@ -40,6 +40,7 @@ See Also
     Code generation modules invoked by :meth:`SymbolicODE.get_solver_helper`.
 """
 
+import inspect
 from typing import (
     Any,
     Callable,
@@ -84,19 +85,6 @@ from cubie.odesystems.symbolic.sym_utils import hash_system_definition
 from cubie.odesystems.baseODE import BaseODE, ODECache
 from cubie._utils import PrecisionDType
 from cubie.time_logger import default_timelogger
-
-# Helper types that require beta, gamma, and order factory kwargs
-_HELPERS_NEEDING_PRECONDITIONER_KWARGS = frozenset((
-    "linear_operator",
-    "linear_operator_cached",
-    "neumann_preconditioner",
-    "neumann_preconditioner_cached",
-    "stage_residual",
-    "n_stage_residual",
-    "n_stage_linear_operator",
-    "n_stage_neumann_preconditioner",
-))
-
 
 def create_ODE_system(
     dxdt: Union[str, Iterable[str], Callable],
@@ -804,6 +792,9 @@ class SymbolicODE(BaseODE):
         factory_kwargs = {
             "constants": constants,
             "precision": numba_precision,
+            "beta": beta,
+            "gamma": gamma,
+            "order": preconditioner_order,
         }
 
         # Skip expensive code generation when function is already cached
@@ -901,21 +892,19 @@ class SymbolicODE(BaseODE):
                     f"Solver helper '{func_type}' is not implemented."
                 )
 
-        # Set factory_kwargs for types that need preconditioner parameters
-        if func_type in _HELPERS_NEEDING_PRECONDITIONER_KWARGS:
-            factory_kwargs.update(
-                beta=beta,
-                gamma=gamma,
-                order=preconditioner_order,
-            )
-
         factory, was_cached = self.gen_file.import_function(factory_name, code)
 
         # For prepare_jac, retrieve aux_count from cached factory if needed
         if func_type == "prepare_jac" and self._jacobian_aux_count is None:
             self._jacobian_aux_count = getattr(factory, 'aux_count', 0)
 
-        func = factory(**factory_kwargs)
+        # Pass only the kwargs each factory declares; beta/gamma reach the
+        # operators/residuals/preconditioners and order reaches only the
+        # preconditioners, per each factory's own signature.
+        accepted = inspect.signature(factory).parameters
+        func = factory(
+            **{k: v for k, v in factory_kwargs.items() if k in accepted}
+        )
         setattr(self._cache, func_type, func)
         default_timelogger.stop_event(event_name)
 

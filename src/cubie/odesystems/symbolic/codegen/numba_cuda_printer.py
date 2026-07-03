@@ -37,6 +37,13 @@ from typing import Any, Dict, Iterable, List, Optional, Tuple
 import sympy as sp
 from sympy.printing.pycode import PythonCodePrinter
 
+__all__ = [
+    "CUDAPrinter",
+    "print_cuda",
+    "print_cuda_multiple",
+    "CUDA_FUNCTIONS",
+]
+
 # Map SymPy function names to CUDA/Python math equivalents for printing
 # Keys should match expr.func.__name__ from SymPy expressions
 CUDA_FUNCTIONS: Dict[str, str] = {
