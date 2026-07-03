@@ -66,9 +66,9 @@ markers = [
 ]
 addopts = [
     "--import-mode=importlib",
-    "-nlogical",
+    "-n8",
     "-ra",
-    # "--pytest-durations=0",  # disabled during test refactor sweep
+    "--pytest-durations=0",
     "--cov=cubie",
     "--cov-report=xml:coverage.xml",
     "--cov-report=term-missing",

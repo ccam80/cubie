@@ -17,8 +17,8 @@ from .conftest import print_comparison
 @pytest.mark.specific_algos
 @pytest.mark.sim_only
 def test_instrumented_gpu_vs_cpu(
-    instrumented_cpu_step_results,
     instrumented_step_results,
+    instrumented_cpu_step_results,
     device_step_results,
 ):
     """Print instrumented CPU and GPU arrays for two consecutive steps."""
