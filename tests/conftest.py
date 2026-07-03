@@ -644,6 +644,29 @@ def solver_mutable(
 
 
 @pytest.fixture(scope="session")
+def solve_result(
+    solver,
+    solver_settings,
+    batch_input_arrays,
+    driver_settings,
+):
+    """Solve the shared solver using solver_settings verbatim.
+
+    Passes no keyword overrides to ``solve``, so the shared session
+    solver is never mutated or recompiled; parametrize
+    ``solver_settings_override`` to change the solve configuration.
+    """
+    initial_sets, parameter_sets = batch_input_arrays
+    return solver.solve(
+        initial_values=initial_sets,
+        parameters=parameter_sets,
+        drivers=driver_settings,
+        duration=float(solver_settings["duration"]),
+        blocksize=int(solver_settings["blocksize"]),
+    )
+
+
+@pytest.fixture(scope="session")
 def step_controller(precision, step_controller_settings):
     """Instantiate the requested step controller for loop execution."""
     controller = get_controller(precision, step_controller_settings)

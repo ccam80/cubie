@@ -10,25 +10,14 @@ Array = np.ndarray
 
 
 @pytest.fixture(scope="session")
-def solver_with_arrays(
-    solver,
-    batch_input_arrays,
-    solver_settings,
-    precision,
-    driver_array,
-):
-    """Solver with actual arrays computed - ready for SolveResult instantiation"""
-    inits, params = batch_input_arrays
-    solver.kernel.run(
-        duration=solver_settings["duration"],
-        params=params,
-        inits=inits,
-        driver_coefficients=driver_array.coefficients,
-        blocksize=solver_settings["blocksize"],
-        stream=solver_settings["stream"],
-        warmup=solver_settings["warmup"],
-    )
+def solver_with_arrays(solver, solve_result):
+    """Solver with actual arrays computed, ready for SolveResult tests.
 
+    Depends on solve_result so the batch has run through Solver.solve,
+    which synchronises the stream and waits for writeback before the
+    host arrays are read; calling solver.kernel.run directly races
+    the writeback watcher and can expose all-zero host arrays.
+    """
     return solver
 
 
