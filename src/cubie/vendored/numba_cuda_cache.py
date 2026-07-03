@@ -1,7 +1,9 @@
 """Vendored Cache class from numba-cuda for CUDASIM compatibility.
 
-Vendored from NVIDIA/numba-cuda on 2026-01-11
-Source: numba_cuda/numba/cuda/core/caching.py
+Vendored from NVIDIA/numba-cuda on 2026-07-03
+Source: numba_cuda/numba/cuda/core/caching.py (_Cache, Cache) and
+numba_cuda/numba/cuda/dispatcher.py (CUDACache, including the
+launch-config API added in PR #804).
 
 The Cache class is vendored because CUDACache from numba.cuda.dispatcher
 is not available in CUDASIM mode. The supporting classes (_CacheLocator,
@@ -157,6 +159,52 @@ class CUDACache(Cache):
     """
     Implements a cache that saves and loads CUDA kernels and compile results.
     """
+
+    def __init__(self, py_func):
+        self._launch_config_key = None
+        self._launch_config_sensitive_flag = None
+        super().__init__(py_func)
+        marker_name = f"{self._impl.filename_base}.lcs"
+        self._launch_config_marker_path = os.path.join(
+            self._cache_path, marker_name
+        )
+
+    def _index_key(self, sig, codegen):
+        key = super()._index_key(sig, codegen)
+        if self._launch_config_key is None:
+            return key
+        return key + (("launch_config", self._launch_config_key),)
+
+    def set_launch_config_key(self, key):
+        self._launch_config_key = key
+
+    def is_launch_config_sensitive(self):
+        if self._launch_config_sensitive_flag is None:
+            self._launch_config_sensitive_flag = os.path.exists(
+                self._launch_config_marker_path
+            )
+        return self._launch_config_sensitive_flag
+
+    def mark_launch_config_sensitive(self):
+        if self._launch_config_sensitive_flag is True:
+            return True
+        try:
+            self._impl.locator.ensure_cache_path()
+            with open(self._launch_config_marker_path, "a"):
+                pass
+        except OSError:
+            self._launch_config_sensitive_flag = False
+            return False
+        self._launch_config_sensitive_flag = True
+        return True
+
+    def flush(self):
+        super().flush()
+        try:
+            os.unlink(self._launch_config_marker_path)
+        except FileNotFoundError:
+            pass
+        self._launch_config_sensitive_flag = None
 
     def load_overload(self, sig, target_context):
         # Loading an overload refreshes the context to ensure it is initialized.
