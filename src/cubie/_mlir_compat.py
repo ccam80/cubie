@@ -9,15 +9,23 @@ so this module registers the missing Boolean signatures using the
 same ``arith.andi``/``ori``/``xori`` code generation the package
 uses for integers (all three operate on ``i1``).
 
+numba-cuda-mlir also widens signless integers with zero-extension
+(``arith.extui``) by default, corrupting negative signed operands of
+``%`` and ``//`` on runtime values, and its integer ``%`` emits a
+truncated remainder (``arith.remsi``) rather than Python's floored
+modulo. This module registers ``(Integer, Integer)`` lowerings for
+``%`` and ``//`` with sign-aware widening and floored semantics.
+
 Import this module before compiling any kernel; registrations are
 picked up when the MLIR target context refreshes its registries.
 These are stop-gaps that belong upstream in numba-cuda-mlir; patch
-branches for items 2-5 exist in the ccam80/numba-cuda-mlir fork
+branches exist in the ccam80/numba-cuda-mlir fork
 (fix-boolean-bitwise-invert-lowering, fix-boolean-comparison-lowering,
-fix-numpy-scalar-constants, fix-nested-tuple-dynamic-getitem). Remove
-the corresponding shim once each lands upstream. The LTO opt-disable
-below is a workaround for a linker bug (upstream #117), reproducible
-by setting NUMBA_CUDA_MLIR_DISABLE_LTO_OPT=0.
+fix-numpy-scalar-constants, fix-nested-tuple-dynamic-getitem,
+fix-integer-mod-floordiv-lowering). Remove the corresponding shim
+once each lands upstream. The LTO opt-disable below is a workaround
+for a linker bug (upstream #117), reproducible by setting
+NUMBA_CUDA_MLIR_DISABLE_LTO_OPT=0.
 """
 
 import copy
@@ -316,6 +324,84 @@ def register_nested_tuple_getitem_lowering() -> None:
 
 
 register_nested_tuple_getitem_lowering()
+
+
+def _int_mod_cg(builder, target, args, kwargs):
+    """Lower integer ``%`` with Python floored-modulo semantics.
+
+    Upstream's ``mod_cg`` widens operands through a conversion that
+    zero-extends signless integers, so negative ``int32`` dividends
+    become huge positive ``int64`` values, and it emits a bare
+    ``arith.remsi`` (truncated remainder) where Python requires
+    floored modulo. Sign-extend signed operands and add the divisor
+    when the remainder's sign disagrees with it.
+    """
+
+    target_type = builder.get_numba_type(target.name)
+    target_mlir_type = builder.get_mlir_type(target_type)
+    signed = getattr(target_type, "signed", True)
+    lhs, rhs = args
+    lhs = lowering_utilities.convert(
+        builder.load_var(lhs), target_mlir_type, signed=signed
+    )
+    rhs = lowering_utilities.convert(
+        builder.load_var(rhs), target_mlir_type, signed=signed
+    )
+    if signed:
+        rem = arith.remsi(lhs, rhs)
+        zero = lowering_utilities.constant(0, rem.type)
+        sign_mismatch = arith.cmpi(
+            arith.CmpIPredicate.slt, arith.xori(rem, rhs), zero
+        )
+        rem_nonzero = arith.cmpi(arith.CmpIPredicate.ne, rem, zero)
+        needs_fix = arith.andi(sign_mismatch, rem_nonzero)
+        correction = arith.select(needs_fix, rhs, zero)
+        result = arith.addi(rem, correction)
+    else:
+        result = arith.remui(lhs, rhs)
+    builder.store_var(target, result)
+
+
+def _int_floordiv_cg(builder, target, args, kwargs):
+    """Lower integer ``//`` with sign-aware operand widening.
+
+    Upstream's ``floordiv_cg`` emits the correct floored division
+    (``arith.floordivsi``) but widens operands with zero-extension,
+    corrupting any negative runtime operand. Sign-extend signed
+    operands; use ``arith.divui`` for unsigned ones.
+    """
+
+    target_type = builder.get_numba_type(target.name)
+    target_mlir_type = builder.get_mlir_type(target_type)
+    signed = getattr(target_type, "signed", True)
+    lhs, rhs = args
+    lhs = lowering_utilities.convert(
+        builder.load_var(lhs), target_mlir_type, signed=signed
+    )
+    rhs = lowering_utilities.convert(
+        builder.load_var(rhs), target_mlir_type, signed=signed
+    )
+    if signed:
+        result = arith.floordivsi(lhs, rhs)
+    else:
+        result = arith.divui(lhs, rhs)
+    builder.store_var(target, result)
+
+
+def register_integer_division_lowerings() -> None:
+    """Register floored ``%`` and sign-safe ``//`` for integers."""
+
+    for op in (operator.mod, operator.imod):
+        _math_registry.lower(op, types.Integer, types.Integer)(
+            _int_mod_cg
+        )
+    for op in (operator.floordiv, operator.ifloordiv):
+        _math_registry.lower(op, types.Integer, types.Integer)(
+            _int_floordiv_cg
+        )
+
+
+register_integer_division_lowerings()
 
 
 # numba-cuda-mlir's LTO cubin link at opt_level>0 has a known bug that
