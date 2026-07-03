@@ -38,6 +38,7 @@ from numpy import ndarray, zeros as np_zeros
 
 from cubie.outputhandling.output_config import OutputCompileFlags
 from cubie._utils import PrecisionDType
+from cubie.result_codes import decode_status_codes
 from cubie.batchsolving.BatchSolverConfig import ActiveOutputs
 from cubie.batchsolving.BatchInputHandler import BatchInputHandler
 from cubie.batchsolving.BatchSolverKernel import BatchSolverKernel
@@ -833,6 +834,19 @@ class Solver:
     def status_codes(self):
         """Expose integration status codes."""
         return self.kernel.status_codes
+
+    @property
+    def status_messages(self):
+        """Decode nonzero run status codes into named result flags.
+
+        Returns
+        -------
+        dict[int, list[str]]
+            Mapping from run index to the ``CUBIE_RESULT_CODES`` member
+            names set in that run's status word; successful runs are
+            omitted.
+        """
+        return decode_status_codes(self.status_codes)
 
     @property
     def parameters(self):

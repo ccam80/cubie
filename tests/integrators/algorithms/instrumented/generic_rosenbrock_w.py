@@ -3,6 +3,8 @@ from typing import Callable, Optional
 import numpy as np
 from numba import cuda, int32
 
+from cubie.result_codes import CUBIE_RESULT_CODES
+
 from cubie._utils import PrecisionDType
 from cubie.integrators.algorithms.base_algorithm_step import (
     StepCache,
@@ -323,6 +325,7 @@ class InstrumentedRosenbrockWStep(InstrumentedODEImplicitStep):
         has_evaluate_driver_at_t = evaluate_driver_at_t is not None
         has_error = self.is_adaptive
         typed_zero = numba_precision(0.0)
+        success = int32(CUBIE_RESULT_CODES.SUCCESS)
 
         a_coeffs = tableau.typed_columns(tableau.a, numba_precision)
         C_coeffs = tableau.typed_columns(tableau.C, numba_precision)
@@ -473,7 +476,7 @@ class InstrumentedRosenbrockWStep(InstrumentedODEImplicitStep):
             for driver_idx in range(driver_count):
                 stage_drivers_out[0, driver_idx] = drivers_buffer[driver_idx]
 
-            status_code = int32(0)
+            status_code = success
             stage_time = current_time + dt_scalar * stage_time_fractions[0]
 
             # --------------------------------------------------------------- #

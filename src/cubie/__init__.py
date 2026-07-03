@@ -13,6 +13,7 @@ import os
 
 os.environ["NUMBA_CUDA_LOW_OCCUPANCY_WARNINGS"] = "0"
 
+from cubie.result_codes import CUBIE_RESULT_CODES
 from cubie.batchsolving import *  # noqa
 from cubie.integrators import *  # noqa
 from cubie.outputhandling import *  # noqa
@@ -32,6 +33,7 @@ __all__ = [
     "TimeLogger",
     "default_timelogger",
     "load_cellml_model",
+    "CUBIE_RESULT_CODES",
 ]
 
 try:

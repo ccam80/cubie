@@ -4,6 +4,8 @@ from typing import Callable, Optional
 
 from numba import cuda, int32
 
+from cubie.result_codes import CUBIE_RESULT_CODES
+
 from cubie._utils import PrecisionDType
 from cubie.integrators.algorithms.base_algorithm_step import (
     StepCache,
@@ -95,6 +97,7 @@ class InstrumentedExplicitEulerStep(ODEExplicitStep):
 
         has_evaluate_driver_at_t = evaluate_driver_at_t is not None
         n = int32(n)
+        success = int32(CUBIE_RESULT_CODES.SUCCESS)
 
         # no cover: start
         @cuda.jit(
@@ -255,7 +258,7 @@ class InstrumentedExplicitEulerStep(ODEExplicitStep):
                 proposed_observables,
                 next_time,
             )
-            return int32(0)
+            return success
         # no cover: end
         
         return StepCache(step=step, nonlinear_solver=None)

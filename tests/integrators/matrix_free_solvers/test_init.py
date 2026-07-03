@@ -5,7 +5,7 @@ from __future__ import annotations
 import pytest
 
 import cubie.integrators.matrix_free_solvers as mfs
-from cubie.integrators.matrix_free_solvers import SolverRetCodes
+from cubie.integrators.matrix_free_solvers import CUBIE_RESULT_CODES
 
 
 # ── Re-exports (items 1-3) ───────────────────────────────── #
@@ -28,7 +28,7 @@ def test_reexport_available(name, mod_prefix):
     assert obj.__module__.startswith(mod_prefix)
 
 
-# ── SolverRetCodes (items 4-7) ───────────────────────────── #
+# ── CUBIE_RESULT_CODES (re-export) ───────────────────────── #
 
 @pytest.mark.parametrize(
     "member, value",
@@ -40,6 +40,6 @@ def test_reexport_available(name, mod_prefix):
     ],
 )
 def test_solver_ret_code_values(member, value):
-    """SolverRetCodes members have correct integer values."""
-    assert SolverRetCodes[member] == value
-    assert int(SolverRetCodes[member]) == value
+    """CUBIE_RESULT_CODES members have correct integer values."""
+    assert CUBIE_RESULT_CODES[member] == value
+    assert int(CUBIE_RESULT_CODES[member]) == value

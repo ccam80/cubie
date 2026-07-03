@@ -54,6 +54,7 @@ from cubie.cuda_simsafe import (
     any_sync,
     compile_kwargs,
 )
+from cubie.result_codes import CUBIE_RESULT_CODES
 
 from cubie.integrators.matrix_free_solvers.linear_solver import LinearSolver
 
@@ -317,6 +318,13 @@ class NewtonKrylov(MatrixFreeSolver):
 
         numba_precision = config.numba_precision
         typed_zero = numba_precision(0.0)
+        success = int32(CUBIE_RESULT_CODES.SUCCESS)
+        max_newton_iters_exceeded = int32(
+            CUBIE_RESULT_CODES.MAX_NEWTON_ITERATIONS_EXCEEDED
+        )
+        newton_backtracking_failed = int32(
+            CUBIE_RESULT_CODES.NEWTON_BACKTRACKING_NO_SUITABLE_STEP
+        )
         typed_one = numba_precision(1.0)
         typed_damping = numba_precision(newton_damping)
         n_val = int32(n)
@@ -410,14 +418,14 @@ class NewtonKrylov(MatrixFreeSolver):
                 delta[i] = typed_zero
 
             converged = norm2_prev <= typed_one
-            final_status = int32(0)
+            final_status = success
 
             krylov_iters_local = alloc_krylov_iters_local(
                 shared_scratch, persistent_scratch
             )
 
             # Track the latest active iteration's status signals.
-            last_lin_status = int32(0)
+            last_lin_status = success
             last_backtrack_failed = False
 
             iters_count = int32(0)
@@ -510,14 +518,14 @@ class NewtonKrylov(MatrixFreeSolver):
 
             # Compose status word on exit.
             if not converged:
-                final_status = int32(final_status | int32(2))
+                final_status = int32(final_status | max_newton_iters_exceeded)
                 final_status = selp(
                     last_backtrack_failed,
-                    int32(final_status | int32(1)),
+                    int32(final_status | newton_backtracking_failed),
                     final_status,
                 )
                 final_status = selp(
-                    last_lin_status != int32(0),
+                    last_lin_status != success,
                     int32(final_status | last_lin_status),
                     final_status,
                 )

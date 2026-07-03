@@ -9,7 +9,7 @@ from cubie.integrators.matrix_free_solvers.linear_solver import (
 from cubie.integrators.matrix_free_solvers.newton_krylov import (
     NewtonKrylov,
 )
-from cubie.integrators.matrix_free_solvers import SolverRetCodes
+from cubie.integrators.matrix_free_solvers import CUBIE_RESULT_CODES
 
 STATUS_MASK = 0xFFFF
 
@@ -90,7 +90,7 @@ def test_newton_krylov_placeholder(placeholder_system, precision, tolerance):
     kernel[1, 1](x, base_state, out_flag, h)
     status_code = int(out_flag.copy_to_host()[0]) & STATUS_MASK
 
-    assert status_code == SolverRetCodes.SUCCESS
+    assert status_code == CUBIE_RESULT_CODES.SUCCESS
     result_increment = x.copy_to_host()
     # Scaled norm may converge at different iterations than L2 norm,
     # producing slightly different final values (~5% difference).
@@ -193,10 +193,10 @@ def test_newton_krylov_symbolic(
     # Nonlinear system needs preconditioning.
     # if system_setup["id"] == "nonlinear" and precond_order == 0:
     #     assert (
-    #         status_code == SolverRetCodes.NEWTON_BACKTRACKING_NO_SUITABLE_STEP
+    #         status_code == CUBIE_RESULT_CODES.NEWTON_BACKTRACKING_NO_SUITABLE_STEP
     #     )
     # else:
-    assert status_code == SolverRetCodes.SUCCESS
+    assert status_code == CUBIE_RESULT_CODES.SUCCESS
     # Scaled norm may converge at different iterations than L2 norm,
     # producing slightly different final values (~5% difference).
     assert_allclose(
@@ -270,8 +270,8 @@ def test_newton_krylov_failure(precision):
     kernel[1, 1](out_flag, precision(0.01))
     status_code = int(out_flag.copy_to_host()[0]) & STATUS_MASK
     assert status_code in (
-        SolverRetCodes.MAX_NEWTON_ITERATIONS_EXCEEDED,
-        SolverRetCodes.NEWTON_BACKTRACKING_NO_SUITABLE_STEP,
+        CUBIE_RESULT_CODES.MAX_NEWTON_ITERATIONS_EXCEEDED,
+        CUBIE_RESULT_CODES.NEWTON_BACKTRACKING_NO_SUITABLE_STEP,
     )
 
 
@@ -351,7 +351,7 @@ def test_newton_krylov_newton_max_iters_exceeded(
     out_flag = cuda.to_device(np.array([0], dtype=np.int32))
     kernel[1, 1](x, base_state, out_flag, h)
     status_code = int(out_flag.copy_to_host()[0]) & STATUS_MASK
-    assert status_code == SolverRetCodes.MAX_NEWTON_ITERATIONS_EXCEEDED
+    assert status_code == CUBIE_RESULT_CODES.MAX_NEWTON_ITERATIONS_EXCEEDED
 
 
 def test_newton_krylov_linear_solver_failure_propagates(precision):
@@ -423,9 +423,9 @@ def test_newton_krylov_linear_solver_failure_propagates(precision):
     kernel[1, 1](out_flag, precision(0.01))
     status_code = int(out_flag.copy_to_host()[0]) & STATUS_MASK
     assert status_code == (
-        SolverRetCodes.MAX_NEWTON_ITERATIONS_EXCEEDED
-        | SolverRetCodes.NEWTON_BACKTRACKING_NO_SUITABLE_STEP
-        | SolverRetCodes.MAX_LINEAR_ITERATIONS_EXCEEDED
+        CUBIE_RESULT_CODES.MAX_NEWTON_ITERATIONS_EXCEEDED
+        | CUBIE_RESULT_CODES.NEWTON_BACKTRACKING_NO_SUITABLE_STEP
+        | CUBIE_RESULT_CODES.MAX_LINEAR_ITERATIONS_EXCEEDED
     )
 
 
@@ -545,7 +545,7 @@ def test_newton_krylov_scaled_tolerance_converges(precision, tolerance):
     kernel[1, 1](x, base, out_flag, h)
     status_code = int(out_flag.copy_to_host()[0]) & STATUS_MASK
 
-    assert status_code == SolverRetCodes.SUCCESS
+    assert status_code == CUBIE_RESULT_CODES.SUCCESS
     # Scaled norm may converge at different iterations than L2 norm,
     # producing slightly different final values (~5% difference).
     assert np.allclose(

@@ -53,6 +53,7 @@ from numpy import (
 from numpy.typing import NDArray
 from cubie.batchsolving.BatchSolverConfig import ActiveOutputs
 from cubie.batchsolving import ArrayTypes
+from cubie.result_codes import decode_status_codes
 from cubie._utils import (
     slice_variable_dimension,
     opt_gttype_validator,
@@ -542,6 +543,21 @@ class SolveResult:
     def active_outputs(self) -> ActiveOutputs:
         """Return the active output flags."""
         return self._active_outputs
+
+    @property
+    def status_messages(self) -> dict[int, List[str]]:
+        """Decode nonzero run status codes into named result flags.
+
+        Returns
+        -------
+        dict[int, list[str]]
+            Mapping from run index to the list of
+            :class:`~cubie.result_codes.CUBIE_RESULT_CODES` member names set
+            in that run's status word. Runs that completed successfully
+            (status ``0``) are omitted, so an empty mapping means every run
+            succeeded.
+        """
+        return decode_status_codes(self.status_codes)
 
     @staticmethod
     def cleave_time(

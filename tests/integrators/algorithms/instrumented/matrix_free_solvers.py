@@ -12,6 +12,7 @@ from cubie.CUDAFactory import CUDADispatcherCache
 from cubie.cuda_simsafe import (
     activemask, all_sync, selp, any_sync, compile_kwargs
 )
+from cubie.result_codes import CUBIE_RESULT_CODES
 from cubie.integrators.matrix_free_solvers.linear_solver import (
     LinearSolver,
 )
@@ -97,6 +98,10 @@ class InstrumentedLinearSolver(LinearSolver):
         max_iters_val = int32(max_iters)
         precision_numba = from_dtype(np.dtype(precision))
         typed_zero = precision_numba(0.0)
+        success = int32(CUBIE_RESULT_CODES.SUCCESS)
+        max_linear_iters_exceeded = int32(
+            CUBIE_RESULT_CODES.MAX_LINEAR_ITERATIONS_EXCEEDED
+        )
         typed_one = precision_numba(1.0)
         
         # Get allocators from buffer_registry using production buffer names
@@ -231,7 +236,9 @@ class InstrumentedLinearSolver(LinearSolver):
                     linear_squared_norms[log_slot, log_iter] = acc
                 
                 # Log "exceeded linear iters" status if still not converged
-                final_status = selp(converged, int32(0), int32(4))
+                final_status = selp(
+                    converged, success, max_linear_iters_exceeded
+                )
                 krylov_iters_out[0] = iteration
                 return final_status
             
@@ -363,7 +370,9 @@ class InstrumentedLinearSolver(LinearSolver):
                     linear_squared_norms[log_slot, log_iter] = acc
                 
                 # Log "exceeded linear iters" status if still not converged
-                final_status = selp(converged, int32(0), int32(4))
+                final_status = selp(
+                    converged, success, max_linear_iters_exceeded
+                )
                 krylov_iters_out[0] = iteration
                 return final_status
             
@@ -459,6 +468,13 @@ class InstrumentedNewtonKrylov(NewtonKrylov):
         precision_dtype = np.dtype(precision)
         numba_precision = from_dtype(precision_dtype)
         typed_zero = numba_precision(0.0)
+        success = int32(CUBIE_RESULT_CODES.SUCCESS)
+        max_newton_iters_exceeded = int32(
+            CUBIE_RESULT_CODES.MAX_NEWTON_ITERATIONS_EXCEEDED
+        )
+        newton_backtracking_failed = int32(
+            CUBIE_RESULT_CODES.NEWTON_BACKTRACKING_NO_SUITABLE_STEP
+        )
         typed_one = numba_precision(1.0)
         typed_damping = numba_precision(damping)
         n_val = int32(n)
@@ -561,7 +577,7 @@ class InstrumentedNewtonKrylov(NewtonKrylov):
             
             converged = norm2_prev <= typed_one
             has_error = False
-            final_status = int32(0)
+            final_status = success
             
             krylov_iters_local = alloc_krylov_iters_local(
                 shared_scratch, persistent_scratch
@@ -668,7 +684,7 @@ class InstrumentedNewtonKrylov(NewtonKrylov):
                 has_error = has_error or backtrack_failed
                 final_status = selp(
                     backtrack_failed,
-                    int32(final_status | int32(1)),
+                    int32(final_status | newton_backtracking_failed),
                     final_status
                 )
                 
@@ -695,7 +711,7 @@ class InstrumentedNewtonKrylov(NewtonKrylov):
             max_iters_exceeded = (not converged) and (not has_error)
             final_status = selp(
                 max_iters_exceeded,
-                int32(final_status | int32(2)),
+                int32(final_status | max_newton_iters_exceeded),
                 final_status
             )
             

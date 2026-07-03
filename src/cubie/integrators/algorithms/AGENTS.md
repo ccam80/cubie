@@ -50,10 +50,11 @@ attrs-config mechanics; CUDA-authoring *optimisation* patterns are in
   first_step_flag, accepted_flag, shared, persistent_local, counters)`.
 - Non-adaptive (fixed-step) methods receive a **zero-length `error` slice** (no
   embedded estimate); adaptive methods get a length-`n` `error` array.
-- **Returns an `int32` status code.** For implicit methods it OR-combines the
-  `SolverRetCodes` from each stage's solve (`status_code |= solver_status`); explicit
-  methods return `int32(0)`. Iteration counts are written to the `counters` array (the
-  last argument, forwarded to the solver).
+- **Returns an `int32` status code** from the `CUBIE_RESULT_CODES` vocabulary
+  (`cubie/result_codes.py`, captured as device closure constants). For implicit methods it
+  OR-combines the solver status from each stage's solve (`status_code |= solver_status`);
+  explicit methods return `SUCCESS`. Iteration counts are written to the `counters` array
+  (the last argument, forwarded to the solver).
 - The commented-out `@cuda.jit` signature block atop each kernel documents the intended
   types; keep it in sync but it stays commented.
 

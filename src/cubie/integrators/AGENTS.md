@@ -10,8 +10,8 @@ instantiates the algorithm step, step controller, output functions, and CUDA loo
 their compiled device functions and data together, and injects the composed objects into
 the children that need them; `SingleIntegratorRun` adds read-only properties over it. The
 directory also provides array-driven forcing-term interpolation (`ArrayInterpolator`) and
-a general scaled error-norm utility (`ScaledNorm`). `IntegratorReturnCodes` — the
-kernel-level status vocabulary — is defined here.
+a general scaled error-norm utility (`ScaledNorm`). The kernel-level status vocabulary is
+the package-central `CUBIE_RESULT_CODES` (`cubie/result_codes.py`), re-exported here.
 
 See `CUDAFactory` (repo root) for the build/cache/`update`, buffer-registry, and
 attrs-config mechanics. Subsystems (algorithms, loops, matrix_free_solvers, step_control)
@@ -25,7 +25,7 @@ each have their own `AGENTS.md`.
 | `IntegratorRunSettings.py` | `IntegratorRunSettings(CUDAFactoryConfig)`: thin compile-settings holding only `algorithm` and `step_controller` names (plus inherited `precision`) — the core's own cache key. |
 | `array_interpolator.py` | `ArrayInterpolator(CUDAFactory)`: builds piecewise-polynomial (spline) coefficients from sampled driver arrays and compiles `evaluate_all` (Horner evaluation of all drivers at `t`) and `evaluate_time_derivative`. Defines `ArrayInterpolatorConfig`, `InterpolatorCache`. |
 | `norms.py` | `ScaledNorm(MultipleInstanceCUDAFactory)`: a general scaled error-norm utility — compiles `sum((|v_i|/tol_i)^2)/n` (mean-squared, tolerance-scaled). Currently used by the matrix-free solvers for convergence testing. Defines `ScaledNormConfig`, `ScaledNormCache`. |
-| `__init__.py` | Package API re-exports (`SingleIntegratorRun`, `IVPLoop`, algorithm/solver/controller classes, `get_algorithm_step`, `get_controller`); defines `IntegratorReturnCodes(IntEnum)`. |
+| `__init__.py` | Package API re-exports (`SingleIntegratorRun`, `IVPLoop`, algorithm/solver/controller classes, `get_algorithm_step`, `get_controller`); re-exports `CUBIE_RESULT_CODES` from `cubie.result_codes`. |
 
 ## Subdirectories
 | Directory | Purpose |
@@ -37,13 +37,17 @@ each have their own `AGENTS.md`.
 
 ## For AI Agents
 
-### IntegratorReturnCodes — kernel status-bit meanings
-`__init__.py` defines `IntegratorReturnCodes(IntEnum)`, the integer status codes
-OR-combined into the returned status word: `SUCCESS=0`,
-`NEWTON_BACKTRACKING_NO_SUITABLE_STEP=1`, `MAX_NEWTON_ITERATIONS_EXCEEDED=2`,
-`MAX_LINEAR_ITERATIONS_EXCEEDED=4`, `STEP_TOO_SMALL=8`, `DT_EFF_EFFECTIVELY_ZERO=16`,
-`MAX_LOOP_ITERS_EXCEEDED=32` (1/2/4 mirror `SolverRetCodes`; `STEP_TOO_SMALL=8` is the
-controllers' reject-at-min).
+### CUBIE_RESULT_CODES — kernel status-bit meanings
+The status vocabulary is the package-central `CUBIE_RESULT_CODES(IntFlag)` (defined in
+`cubie/result_codes.py`, re-exported from this package and from `cubie`). Device functions
+capture its values as closure constants and OR them into the returned status word:
+`SUCCESS=0`, `NEWTON_BACKTRACKING_NO_SUITABLE_STEP=1`, `MAX_NEWTON_ITERATIONS_EXCEEDED=2`,
+`MAX_LINEAR_ITERATIONS_EXCEEDED=4`, `STEP_TOO_SMALL=8` (controllers' reject-at-min),
+`DT_EFF_EFFECTIVELY_ZERO=16` and `MAX_LOOP_ITERS_EXCEEDED=32` (reserved, unemitted),
+`STAGNATION=64` (loop no-progress). Iteration counts are returned separately via the
+`counters` array, never packed into the status word. Host-side, decode via
+`cubie.result_codes.decode_status_codes` (exposed as `SolveResult.status_messages` /
+`Solver.status_messages`).
 
 ### Component assembly (`SingleIntegratorRunCore.__init__`)
 Order matters — each component seeds the next:

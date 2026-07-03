@@ -47,6 +47,7 @@ from cubie.integrators.matrix_free_solvers.base_solver import (
 from cubie.buffer_registry import buffer_registry
 from cubie.CUDAFactory import CUDADispatcherCache
 from cubie.cuda_simsafe import activemask, all_sync, compile_kwargs, selp
+from cubie.result_codes import CUBIE_RESULT_CODES
 
 
 @define
@@ -265,6 +266,10 @@ class LinearSolver(MatrixFreeSolver):
         precision_numba = from_dtype(np_dtype(precision))
         typed_zero = precision_numba(0.0)
         typed_one = precision_numba(1.0)
+        success = int32(CUBIE_RESULT_CODES.SUCCESS)
+        max_linear_iters_exceeded = int32(
+            CUBIE_RESULT_CODES.MAX_LINEAR_ITERATIONS_EXCEEDED
+        )
 
         # Get allocators from buffer_registry
         get_alloc = buffer_registry.get_allocator
@@ -418,7 +423,9 @@ class LinearSolver(MatrixFreeSolver):
                     converged = converged or (acc <= typed_one)
 
                 # Log "exceeded linear iters" status if still not converged
-                final_status = selp(converged, int32(0), int32(4))
+                final_status = selp(
+                    converged, success, max_linear_iters_exceeded
+                )
                 krylov_iters_out[0] = iter_count
                 return final_status
 
@@ -568,7 +575,9 @@ class LinearSolver(MatrixFreeSolver):
                     converged = converged or (acc <= typed_one)
 
                 # Log "exceeded linear iters" status if still not converged
-                final_status = selp(converged, int32(0), int32(4))
+                final_status = selp(
+                    converged, success, max_linear_iters_exceeded
+                )
                 krylov_iters_out[0] = iter_count
                 return final_status
 

@@ -6,7 +6,7 @@ from numpy.testing import assert_allclose
 from cubie.integrators.matrix_free_solvers.linear_solver import (
     LinearSolver,
 )
-from cubie.integrators.matrix_free_solvers import SolverRetCodes
+from cubie.integrators.matrix_free_solvers import CUBIE_RESULT_CODES
 
 
 @pytest.fixture(scope="function")
@@ -113,7 +113,7 @@ def test_linear_solver_placeholder(
     empty_base = cuda.to_device(np.empty(0, dtype=precision))
     kernel[1, 1](state, rhs_dev, empty_base, x_dev, flag)
     code = flag.copy_to_host()[0] & 0xFF
-    assert code == SolverRetCodes.SUCCESS
+    assert code == CUBIE_RESULT_CODES.SUCCESS
     assert np.allclose(
         x_dev.copy_to_host(),
         expected,
@@ -169,7 +169,7 @@ def test_linear_solver_symbolic(
     empty_base = cuda.to_device(np.empty(0, dtype=precision))
     kernel[1, 1](state, rhs_dev, empty_base, x_dev, flag)
     code = flag.copy_to_host()[0] & 0xFF
-    assert code == SolverRetCodes.SUCCESS
+    assert code == CUBIE_RESULT_CODES.SUCCESS
     assert np.allclose(
         x_dev.copy_to_host(),
         expected,
@@ -210,7 +210,7 @@ def test_linear_solver_max_iters_exceeded(solver_kernel, precision):
     empty_base = cuda.to_device(np.empty(0, dtype=precision))
     kernel[1, 1](state, rhs_dev, empty_base, x_dev, flag)
     code = flag.copy_to_host()[0] & 0xFF
-    assert code == SolverRetCodes.MAX_LINEAR_ITERATIONS_EXCEEDED
+    assert code == CUBIE_RESULT_CODES.MAX_LINEAR_ITERATIONS_EXCEEDED
 
 
 def test_linear_solver_config_scalar_tolerance_broadcast(precision):
@@ -287,7 +287,7 @@ def test_linear_solver_scaled_tolerance_converges(
     empty_base = cuda.to_device(np.empty(0, dtype=precision))
     kernel[1, 1](state, rhs_dev, empty_base, x_dev, flag)
     code = flag.copy_to_host()[0] & 0xFF
-    assert code == SolverRetCodes.SUCCESS
+    assert code == CUBIE_RESULT_CODES.SUCCESS
     assert np.allclose(
         x_dev.copy_to_host(),
         expected,

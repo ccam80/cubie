@@ -43,6 +43,7 @@ from numba import cuda, int32, float64, bool_
 from cubie.CUDAFactory import CUDAFactory, CUDADispatcherCache
 from cubie.buffer_registry import buffer_registry
 from cubie.cuda_simsafe import activemask, all_sync, compile_kwargs, selp
+from cubie.result_codes import CUBIE_RESULT_CODES
 from cubie._utils import PrecisionDType, unpack_dict_values, build_config
 from cubie.integrators.loops.ode_loop_config import ODELoopConfig
 from cubie.outputhandling import OutputCompileFlags
@@ -410,6 +411,10 @@ class IVPLoop(CUDAFactory):
 
         precision = config.numba_precision
 
+        success = int32(CUBIE_RESULT_CODES.SUCCESS)
+        step_too_small = int32(CUBIE_RESULT_CODES.STEP_TOO_SMALL)
+        stagnation = int32(CUBIE_RESULT_CODES.STAGNATION)
+
         save_state = config.save_state_fn
         update_summaries = config.update_summaries_fn
         save_summaries = config.save_summaries_fn
@@ -663,7 +668,7 @@ class IVPLoop(CUDAFactory):
                         samples_per_summary,
                     )
 
-            status = int32(0)
+            status = success
             dt[0] = initial_dt
             dt_raw = initial_dt
             accept_step[0] = int32(0)
@@ -804,7 +809,8 @@ class IVPLoop(CUDAFactory):
                         # Controller may signal irrecoverable error via status bit
                         irrecoverable = bool_(
                             irrecoverable
-                            or ((controller_status & 0x8) != int32(0))
+                            or ((controller_status & step_too_small)
+                                != success)
                         )
                     else:
                         accept = bool_(not step_failed)
@@ -836,7 +842,7 @@ class IVPLoop(CUDAFactory):
 
                     stagnant = bool_(stagnant_counts >= int32(2))
                     status = selp(
-                        stagnant, int32(status | int32(0x40)), status
+                        stagnant, int32(status | stagnation), status
                     )
                     irrecoverable = bool_(irrecoverable or stagnant)
 

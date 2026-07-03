@@ -22,6 +22,7 @@ subpackages.
 | `default_memmgr` | `memory` | Global `MemoryManager` singleton. |
 | `ArrayTypes` | `batchsolving` | Array-type helper exported at package level. |
 | `TimeLogger`, `default_timelogger` | `time_logger` | Timing/verbosity logger and its global singleton. |
+| `CUBIE_RESULT_CODES` | `result_codes` | Bit-flag status codes for the per-run status word (device→solver). |
 
 `__init__.py` also sets `NUMBA_CUDA_LOW_OCCUPANCY_WARNINGS="0"` at import time and
 resolves `__version__` via `importlib.metadata.version("cubie")`.
@@ -36,6 +37,7 @@ resolves `__version__` via `importlib.metadata.version("cubie")`.
 | `cuda_simsafe.py` | CUDASIM compatibility layer: `CUDA_SIMULATION`, `compile_kwargs`, `from_dtype`, `is_devfunc`, `is_cuda_array`, the warp intrinsics (`selp`, `activemask`, `all_sync`, `any_sync`, `syncwarp`), the store write-through hint `stwt`, and memory-manager/array stand-ins. |
 | `cubie_cache.py` | File-based persistence of compiled kernels: `CUBIECache*`, `CacheConfig`, `CubieCacheHandler`, `ALL_CACHE_PARAMETERS`. Depends on numba-cuda internals. |
 | `time_logger.py` | `TimeLogger` (verbosity-gated timing), `CUDAEvent` (GPU event pair with CUDASIM fallback), `TimingEvent`, `default_timelogger`. |
+| `result_codes.py` | `CUBIE_RESULT_CODES(IntFlag)` — the package-central status vocabulary OR-combined into the per-run status word — plus `decode_status_codes` for host-side decoding. |
 | `writing_cuda_functions.md` | Working notes on CUDA device-function *optimisation* conventions (predicated commit, warp-coherent loops, …). Under discussion — consult before hand-optimising device code. |
 
 ## Subdirectories
@@ -169,7 +171,7 @@ dependency order is roughly `cuda_simsafe` ← `_utils` ← `buffer_registry`,
 
 ### External
 - **numba / numba-cuda** — CUDA JIT, device intrinsics, cache internals.
-- **numpy** (pinned `1.26.4`) — dtypes, array hashing/comparison, validators.
+- **numpy** (`>=2.0`) — dtypes, array hashing/comparison, validators.
 - **attrs** — all config/data containers.
 - **sympy** — used downstream in `odesystems/symbolic`.
 - Optional: **cupy** (memory pool, via `memory/`), **qtpy + a Qt backend** (`gui/`).
