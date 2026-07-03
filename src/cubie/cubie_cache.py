@@ -15,6 +15,9 @@ follows the MLIR compile-result scheme (cubin/PTX payloads) provided
 by :class:`numba_cuda_mlir.caching.MLIRCacheImpl`.
 """
 
+from functools import cache
+from hashlib import sha256
+from importlib.metadata import distributions
 from shutil import rmtree
 from warnings import warn
 from pathlib import Path
@@ -76,6 +79,32 @@ filter kwargs before forwarding.
 """
 
 
+@cache
+def environment_hash() -> str:
+    """Return a hash of every installed distribution's name and version.
+
+    Returns
+    -------
+    str
+        Hex digest fingerprinting the Python environment.
+
+    Notes
+    -----
+    Folded into the cache source stamp so cached kernels are
+    invalidated when any installed package changes — compiled
+    artifacts depend on the whole toolchain (numba-cuda-mlir, numba,
+    numpy, CUDA bindings), not just cubie's own configuration.
+    Computed once per process; editable installs whose source changes
+    without a version bump are not detected.
+    """
+    entries = []
+    for distribution in distributions():
+        name = distribution.metadata["Name"] or "unknown"
+        entries.append(f"{name}=={distribution.version}")
+    joined = "\n".join(sorted(entries))
+    return sha256(joined.encode("utf-8")).hexdigest()
+
+
 class CUBIECacheLocator(_CacheLocator):
     """Locate cache files in CuBIE's generated directory structure.
 
@@ -130,9 +159,10 @@ class CUBIECacheLocator(_CacheLocator):
         Returns
         -------
         str
-            The system hash acts as the freshness indicator.
+            The system hash combined with the environment hash, so a
+            change to any installed package invalidates the cache.
         """
-        return self._system_hash
+        return f"{self._system_hash}-{environment_hash()}"
 
     def get_disambiguator(self) -> str:
         """Return a string to disambiguate similar functions.

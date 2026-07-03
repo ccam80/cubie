@@ -1,5 +1,8 @@
 """Tests for cubie_cache module."""
 
+from hashlib import sha256
+from importlib.metadata import distributions
+
 import pytest
 from numpy import array, float32
 
@@ -12,6 +15,7 @@ from cubie.cubie_cache import (
     CubieCacheHandler,
     CacheConfig,
     ALL_CACHE_PARAMETERS,
+    environment_hash,
 )
 
 
@@ -67,13 +71,32 @@ def test_cache_locator_get_cache_path():
 
 
 def test_cache_locator_get_source_stamp():
-    """Verify source stamp returns system_hash."""
+    """Verify source stamp combines system_hash and environment hash."""
     locator = CUBIECacheLocator(
         system_name="test_system",
         system_hash="abc123",
         compile_settings_hash="def456",
     )
-    assert locator.get_source_stamp() == "abc123"
+    assert locator.get_source_stamp() == f"abc123-{environment_hash()}"
+
+
+def test_environment_hash_is_stable_hex_digest():
+    """Verify the environment hash is a deterministic sha256 digest."""
+    digest = environment_hash()
+    assert len(digest) == 64
+    assert int(digest, 16) >= 0
+    assert environment_hash() == digest
+
+
+def test_environment_hash_covers_installed_packages():
+    """Verify the hash is built from every installed distribution."""
+    entries = []
+    for distribution in distributions():
+        name = distribution.metadata["Name"] or "unknown"
+        entries.append(f"{name}=={distribution.version}")
+    joined = "\n".join(sorted(entries))
+    expected = sha256(joined.encode("utf-8")).hexdigest()
+    assert environment_hash() == expected
 
 
 def test_cache_locator_get_disambiguator():
@@ -278,7 +301,7 @@ def test_cache_locator_instantiation_works():
     )
     # Path operations should work
     assert locator.get_cache_path() is not None
-    assert locator.get_source_stamp() == "abc123"
+    assert locator.get_source_stamp() == f"abc123-{environment_hash()}"
     assert locator.get_disambiguator() == "def456"
 
 
