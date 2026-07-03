@@ -12,23 +12,20 @@ from operator import mul
 
 import pint
 import sympy
-# CuBIE vendoring patch: Pint >= 0.20 moved ScaleConverter and
-# UnitDefinition to pint.facets.plain and added a required
-# ``reference`` argument to UnitDefinition. Upstream cellmlmanip pins
-# Pint < 0.20; this fallback supports modern Pint (needed for
-# numpy >= 2 compatibility).
-try:
-    from pint.converters import ScaleConverter
-    from pint.definitions import UnitDefinition
-except ImportError:
-    from pint.facets.plain import ScaleConverter
-    from pint.facets.plain import UnitDefinition as _PintUnitDefinition
-
-    def UnitDefinition(name, symbol, aliases, converter):
-        return _PintUnitDefinition(name, symbol, aliases, converter, None)
+# CuBIE vendoring patch: cellmlmanip 0.3.6 imported ScaleConverter and
+# UnitDefinition from pint.converters / pint.definitions (Pint < 0.20).
+# CuBIE requires Pint >= 0.24 (for numpy >= 2), where these classes
+# live in pint.facets.plain and UnitDefinition takes a required
+# ``reference`` argument.
+from pint.facets.plain import ScaleConverter
+from pint.facets.plain import UnitDefinition as _PintUnitDefinition
 from pint.errors import DimensionalityError
 
 from . import model
+
+
+def UnitDefinition(name, symbol, aliases, converter):
+    return _PintUnitDefinition(name, symbol, aliases, converter, None)
 
 
 logger = logging.getLogger(__name__)

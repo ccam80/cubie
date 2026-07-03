@@ -21,12 +21,9 @@ Published Functions
 
 Notes
 -----
-The ``cellmlmanip`` dependency is optional. Install with::
-
-    pip install cellmlmanip
-
-CellML models can be obtained from the Physiome Model Repository:
-https://models.physiomeproject.org/
+``cellmlmanip`` is vendored under
+:mod:`cubie.vendored.cellmlmanip`, so no external install is
+required.
 
 See Also
 --------
@@ -36,12 +33,7 @@ See Also
     String-based alternative for hand-written equations.
 """
 
-try:  # pragma: no cover - optional dependency
-    from cubie.vendored import cellmlmanip  # type: ignore
-    from cubie.vendored.cellmlmanip.model import Quantity  # type: ignore
-except Exception:  # pragma: no cover
-    cellmlmanip = None  # type: ignore
-    Quantity = None  # type: ignore
+from cubie.vendored import cellmlmanip
 
 import sympy as sp
 from pathlib import Path
@@ -183,9 +175,6 @@ def load_cellml_model(
     - CellML models from Physiome repository are compatible
     - The cellmlmanip library handles the complex CellML XML parsing
     """
-    if cellmlmanip is None:  # pragma: no cover
-        raise ImportError("cellmlmanip is required for CellML parsing")
-    
     # Validate input type
     if not isinstance(path, str):
         raise TypeError(
