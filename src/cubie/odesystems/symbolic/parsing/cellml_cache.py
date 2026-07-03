@@ -69,7 +69,6 @@ class CellMLCache:
         # Generated directory computed relative to current working directory
         generated_dir = Path.cwd() / "generated"
         self.cache_dir = generated_dir / model_name
-        self.cache_file = self.cache_dir / "cellml_cache.pkl"
         self.manifest_file = self.cache_dir / "cellml_cache_manifest.json"
         self.max_entries = 5  # LRU cache limit
 
