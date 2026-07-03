@@ -1,0 +1,47 @@
+# This is a Pint units definition file specifying units in the CellML 1.1 specification
+# https://www.cellml.org/specifications/cellml_1.1/#sec_units
+
+@defaults
+    group = international
+    system = mks
+@end
+
+# base SI units (table 2 in 5.2.1 of spec.)
+ampere = [current]
+candela = [luminosity]
+kilogram = [mass]
+kelvin = [temperature]
+meter = [length] = metre
+mole = [substance]
+radian = []
+second = [time]
+
+# derived units (table 2 in 5.2.1 of spec.)
+becquerel = hertz
+coulomb = ampere * second
+farad = coulomb / volt
+gram = 1e-3 * kilogram
+henry = weber / ampere
+hertz = 1 / second
+joule = newton * meter
+katal = mole / second
+liter = 1e-3 * metre ** 3 = litre
+lumen = candela * steradian
+lux = lumen / meter ** 2
+newton = kilogram * meter / second ** 2
+ohm = volt / ampere
+pascal = newton / meter ** 2
+siemens = ampere / volt
+sievert = joule / kilogram = gray
+steradian = radian ** 2
+tesla = weber / meter ** 2
+volt = joule / coulomb
+watt = joule / second
+weber = volt * second
+
+@system mks using international
+    meter
+    kilogram
+    second
+@end
+

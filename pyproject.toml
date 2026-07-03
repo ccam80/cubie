@@ -6,6 +6,10 @@ build-backend = "setuptools.build_meta"
 where    = ["src"]
 exclude  = ["./tests/*"]
 
+[tool.setuptools.package-data]
+# Ship the vendored cellmlmanip schema/unit data and license.
+"cubie.vendored.cellmlmanip" = ["data/*", "version.txt", "LICENSE"]
+
 [project]
 name = "cubie"
 version = "0.0.7"
@@ -22,7 +26,13 @@ dependencies = [
     "numba-cuda-mlir[cu12]",
     "attrs",
     "sympy>=1.13.0",
-    "cellmlmanip",
+    # cellmlmanip is vendored under cubie.vendored.cellmlmanip (it pins
+    # Pint<0.20, incompatible with the numpy>=2 required above). These
+    # are its runtime dependencies.
+    "lxml",
+    "networkx",
+    "Pint",
+    "rdflib",
 ]
 
 [project.urls]

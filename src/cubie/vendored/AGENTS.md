@@ -13,6 +13,7 @@ in the module docstring.
 |------|-------------|
 | `__init__.py` | Package docstring only; no exports. |
 | `numba_cuda_cache.py` | Snapshot from NVIDIA/numba-cuda (`numba_cuda/numba/cuda/core/caching.py`), 2026-01-11: `_Cache` (ABC), `Cache` (per-function compile cache over `IndexDataCacheFile`), `CUDACache` (overrides `load_overload` to run under `utils.numba_target_override()`). |
+| `cellmlmanip/` | Vendored snapshot of cellmlmanip 0.3.6 (ModellingWebLab, BSD 3-Clause; `LICENSE` kept alongside). Parses CellML into SymPy via `load_model`. Consumed by `odesystems/symbolic/parsing/cellml.py`. |
 
 ## For AI Agents
 - No inline modifications — it reads as a direct snapshot. CuBIE's customization lives in the
@@ -26,7 +27,22 @@ in the module docstring.
   `CUBIECache` rather than editing the snapshot.
 - No license header; upstream numba-cuda (NVIDIA) is BSD — confirm before redistribution.
 
+### cellmlmanip
+- Vendored because cellmlmanip pins `Pint<0.20`, which is incompatible with the `numpy>=2`
+  that numba-cuda-mlir requires. Vendoring drops the metadata pin so a modern Pint can be used.
+- Local modifications only: absolute intra-package imports (`from cellmlmanip.x`) rewritten to
+  relative (`from .x`); a `try/except ImportError` fallback in `units.py` for Pint>=0.20
+  (`ScaleConverter`/`UnitDefinition` moved to `pint.facets.plain`, `UnitDefinition` gained a
+  required `reference` arg). Do NOT otherwise edit — to update, re-snapshot upstream and re-apply
+  these two mechanical changes.
+- Data files (`data/*.rng`/`.rnc`/`.txt`, `version.txt`, `LICENSE`) ship via
+  `[tool.setuptools.package-data]` in `pyproject.toml`; they load through
+  `os.path.dirname(__file__)`, so the vendored layout needs no code change.
+- Runtime deps moved into cubie's `dependencies`: `lxml`, `networkx`, `Pint`, `rdflib`.
+
 ## Dependencies
-- None internal (consumed by `cubie_cache`/`cuda_simsafe`). Live upstream imports:
-  `numba.cuda.core.caching` (`IndexDataCacheFile`), `numba.cuda.serialize` (`dumps`),
+- `numba_cuda_cache.py`: none internal (consumed by `cubie_cache`/`cuda_simsafe`). Live upstream
+  imports: `numba.cuda.core.caching` (`IndexDataCacheFile`), `numba.cuda.serialize` (`dumps`),
   `numba.cuda.utils` (`numba_target_override`).
+- `cellmlmanip/`: external `lxml`, `networkx`, `Pint`, `rdflib`, `sympy`; consumed by
+  `cubie.odesystems.symbolic.parsing.cellml`.
