@@ -231,15 +231,22 @@ class ButcherTableau(_CubieConfigBase):
     b_hat: Optional[Tuple[float, ...]] = field(default=None)
 
     def __attrs_post_init__(self) -> None:
-        """Validate tableau coefficients after initialisation."""
+        """Validate tableau structure after initialisation."""
         super().__attrs_post_init__()
-        stage_count = self.stage_count
-        if self.b_hat is not None:
-            if len(self.b_hat) != stage_count:
-                raise ValueError("b_hat must match the number of stages in b")
-            if (1.0 - np_sum(self.b_hat)) > 1e-8:
-                raise ValueError("b_hat must sum to one")
-        if (1.0 - np_sum(self.b)) > 1e-8:
+        if self.b_hat is not None and len(self.b_hat) != self.stage_count:
+            raise ValueError("b_hat must match the number of stages in b")
+
+    def _validate_weight_sums(self) -> None:
+        """Validate that solution and embedded weights sum to one.
+
+        Runge--Kutta quadrature weights must sum to one; the RK-family
+        tableaus call this from their own ``__attrs_post_init__``.
+        Rosenbrock-W weights obey a different consistency condition and
+        do not use this check.
+        """
+        if self.b_hat is not None and abs(1.0 - np_sum(self.b_hat)) > 1e-8:
+            raise ValueError("b_hat must sum to one")
+        if abs(1.0 - np_sum(self.b)) > 1e-8:
             raise ValueError("b must sum to one")
 
     @property
