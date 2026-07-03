@@ -37,7 +37,7 @@ See Also
 
 from typing import Optional, Dict, Any
 
-from attrs import define, field
+from attrs import cmp_using as attrs_cmp_using, define, field
 from attrs.validators import (
     instance_of as attrsval_instance_of,
     optional as attrsval_optional,
@@ -47,6 +47,7 @@ from attrs.validators import (
 from cubie.CUDAFactory import CUDAFactoryConfig
 from cubie._utils import (
     PrecisionDType,
+    mass_equal,
 )
 from cubie.odesystems.SystemValues import SystemValues
 
@@ -131,7 +132,7 @@ class ODEData(CUDAFactoryConfig):
         ),
     )
     num_drivers: int = field(validator=attrsval_instance_of(int), default=1)
-    _mass: Any = field(default=None, eq=False)
+    _mass: Any = field(default=None, eq=attrs_cmp_using(eq=mass_equal))
 
     def __attrs_post_init__(self):
         super().__attrs_post_init__()
@@ -175,16 +176,6 @@ class ODEData(CUDAFactoryConfig):
             constants=self.num_constants,
             drivers=self.num_drivers,
         )
-
-    @property
-    def beta(self) -> float:
-        """Return the cached solver shift parameter."""
-        return self.precision(self._beta)
-
-    @property
-    def gamma(self) -> float:
-        """Return the cached solver Jacobian weight."""
-        return self.precision(self._gamma)
 
     @property
     def mass(self) -> Any:

@@ -58,6 +58,7 @@ from warnings import warn
 
 from numpy import (
     all as np_all,
+    array_equal,
     asarray,
     dtype as np_dtype,
     float16 as np_float16,
@@ -484,6 +485,33 @@ def ensure_nonzero_size(
         return value
     else:
         return value
+
+
+def mass_equal(left, right) -> bool:
+    """Compare two ODE mass matrices for attrs equality.
+
+    A mass matrix (``ODEData._mass``) may be ``None``, a
+    :class:`numpy.ndarray`, or a :class:`sympy.Matrix`. Used as the ``eq``
+    comparator so a mass change participates in the config hash and forces
+    recompilation.
+
+    Parameters
+    ----------
+    left, right
+        Mass-matrix operands, each ``None``, an ``ndarray``, or a
+        ``sympy.Matrix``.
+
+    Returns
+    -------
+    bool
+        ``True`` only when both operands are the same kind and hold equal
+        entries.
+    """
+    if left is None or right is None:
+        return left is None and right is None
+    if isinstance(left, ndarray) or isinstance(right, ndarray):
+        return array_equal(asarray(left), asarray(right))
+    return bool(left == right)
 
 
 def unpack_dict_values(updates_dict: dict) -> Tuple[dict, Set[str]]:
