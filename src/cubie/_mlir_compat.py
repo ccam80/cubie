@@ -11,11 +11,18 @@ uses for integers (all three operate on ``i1``).
 
 Import this module before compiling any kernel; registrations are
 picked up when the MLIR target context refreshes its registries.
-This is a stop-gap that belongs upstream in numba-cuda-mlir.
+These are stop-gaps that belong upstream in numba-cuda-mlir; patch
+branches for items 2-5 exist in the ccam80/numba-cuda-mlir fork
+(fix-boolean-bitwise-invert-lowering, fix-boolean-comparison-lowering,
+fix-numpy-scalar-constants, fix-nested-tuple-dynamic-getitem). Remove
+the corresponding shim once each lands upstream. The LTO opt-disable
+below is a workaround for a linker bug (upstream #117), reproducible
+by setting NUMBA_CUDA_MLIR_DISABLE_LTO_OPT=0.
 """
 
 import copy
 import operator
+from os import environ
 
 import numpy
 
@@ -315,5 +322,8 @@ register_nested_tuple_getitem_lowering()
 # erases stores (upstream warns about float16/bfloat16, but float64
 # output writes in cubie's save paths are also erased). Force
 # opt_level=0 on LTO links until the linker bug is fixed; kernels are
-# still optimised, only the final link is not.
-_cuda_config.CUDA_DISABLE_LTO_OPT = 1
+# still optimised, only the final link is not. An explicit
+# NUMBA_CUDA_MLIR_DISABLE_LTO_OPT in the environment wins, so the
+# erasure can be reproduced on demand by setting it to 0.
+if "NUMBA_CUDA_MLIR_DISABLE_LTO_OPT" not in environ:
+    _cuda_config.CUDA_DISABLE_LTO_OPT = 1
