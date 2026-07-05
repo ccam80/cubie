@@ -21,7 +21,7 @@ See Also
     Newton--Krylov solver that wraps a linear solver.
 """
 
-from typing import Dict, Any
+from typing import Dict, Any, Optional
 
 from attrs import define, field, validators
 from numba import cuda, int32, from_dtype
@@ -42,14 +42,59 @@ from cubie.cuda_simsafe import activemask, all_sync, compile_kwargs, selp
 from cubie.result_codes import CUBIE_RESULT_CODES
 
 
+SHARED_WITNESS_MIN_BYTES = 512
+SHARED_WITNESS_MAX_BYTES = 1024
+"""Byte window on ``n * itemsize`` for auto-shared witness placement.
+
+Nsight Compute sweeps (RTX 4070 SUPER, 65536 runs, Newton + BiCGSTAB
+backwards Euler) show the solve becomes DRAM-bandwidth-bound once the
+per-run working set spills past the L2 budget: at ``n*itemsize`` of
+200 B a shared witness vector was 9% slower, at 400 B a wash, and at
+800 B 25% faster. Above 1 KiB the 32 KiB dynamic-shared block ceiling
+forces the effective block size below 32 threads and residency
+collapses (1.6 KiB measured 29% slower). Within [512, 1024] bytes,
+placing one vector in shared relieves DRAM traffic while keeping at
+least 96 resident threads per SM.
+"""
+
+
+def _default_r0_hat_location(n, precision):
+    """Return the auto-selected memory location for the witness vector.
+
+    Parameters
+    ----------
+    n
+        Length of the residual and search-direction vectors.
+    precision
+        Numerical precision for computations.
+
+    Returns
+    -------
+    str
+        ``"shared"`` when ``n * itemsize`` falls inside the
+        DRAM-bound window, ``"local"`` otherwise.
+    """
+    vector_bytes = int(n) * np_dtype(precision).itemsize
+    in_window = (
+        SHARED_WITNESS_MIN_BYTES <= vector_bytes
+        <= SHARED_WITNESS_MAX_BYTES
+    )
+    return "shared" if in_window else "local"
+
+
 @define
 class BiCGSTABSolverConfig(LinearSolverBaseConfig):
     """Configuration for BiCGSTABSolver compilation.
 
     Attributes
     ----------
-    r0_hat_location : str
-        Memory location for r0_hat buffer (witness vector).
+    r0_hat_location : Optional[str]
+        Memory location for r0_hat buffer (witness vector). ``None``
+        (default) auto-selects: ``"shared"`` when ``n * itemsize``
+        lies in the measured DRAM-bound window
+        [``SHARED_WITNESS_MIN_BYTES``, ``SHARED_WITNESS_MAX_BYTES``],
+        ``"local"`` otherwise. Pass ``"local"`` or ``"shared"`` to
+        override.
     p_location : str
         Memory location for p buffer (search direction).
     v_location : str
@@ -60,8 +105,11 @@ class BiCGSTABSolverConfig(LinearSolverBaseConfig):
         Memory location for s_hat buffer (preconditioned s).
     """
 
-    r0_hat_location: str = field(
-        default="local", validator=validators.in_(["local", "shared"])
+    r0_hat_location: Optional[str] = field(
+        default=None,
+        validator=validators.optional(
+            validators.in_(["local", "shared"])
+        ),
     )
     p_location: str = field(
         default="local", validator=validators.in_(["local", "shared"])
@@ -80,6 +128,20 @@ class BiCGSTABSolverConfig(LinearSolverBaseConfig):
         super().__attrs_post_init__()
 
     @property
+    def resolved_r0_hat_location(self) -> str:
+        """Return the witness-vector location with the auto default.
+
+        Returns
+        -------
+        str
+            Explicit ``r0_hat_location`` when set, otherwise the
+            heuristic selection for this ``n`` and ``precision``.
+        """
+        if self.r0_hat_location is not None:
+            return self.r0_hat_location
+        return _default_r0_hat_location(self.n, self.precision)
+
+    @property
     def settings_dict(self) -> Dict[str, Any]:
         """Return BiCGSTAB solver configuration as dictionary.
 
@@ -91,7 +153,7 @@ class BiCGSTABSolverConfig(LinearSolverBaseConfig):
         return {
             "krylov_max_iters": self.max_iters,
             "linear_correction_type": "bicgstab",
-            "r0_hat_location": self.r0_hat_location,
+            "r0_hat_location": self.resolved_r0_hat_location,
             "p_location": self.p_location,
             "v_location": self.v_location,
             "tmp_location": self.tmp_location,
@@ -135,7 +197,7 @@ class BiCGSTABSolver(LinearSolverBase):
         config = self.compile_settings
         prec = config.precision
         for name, loc in [
-            ("bicg_r0_hat", config.r0_hat_location),
+            ("bicg_r0_hat", config.resolved_r0_hat_location),
             ("bicg_p", config.p_location),
             ("bicg_v", config.v_location),
             ("bicg_tmp", config.tmp_location),

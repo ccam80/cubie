@@ -315,11 +315,50 @@ def test_bicgstab_buffer_locations(precision):
 def test_bicgstab_config_defaults(precision):
     """BiCGSTABSolverConfig has correct default buffer locations."""
     config = BiCGSTABSolverConfig(precision=precision, n=3)
-    assert config.r0_hat_location == "local"
+    assert config.r0_hat_location is None
+    assert config.resolved_r0_hat_location == "local"
     assert config.p_location == "local"
     assert config.v_location == "local"
     assert config.tmp_location == "local"
     assert config.s_hat_location == "local"
+
+
+def test_bicgstab_r0_hat_auto_placement():
+    """Witness vector auto-selects shared in the DRAM-bound window.
+
+    The window is 512 <= n*itemsize <= 1024 bytes: below it the
+    working set is served on-chip and shared placement loses; above
+    it the 32 KiB dynamic-shared cap collapses the block size.
+    """
+    cases = [
+        (np.float32, 8, "local"),
+        (np.float32, 100, "local"),
+        (np.float32, 128, "shared"),
+        (np.float32, 200, "shared"),
+        (np.float32, 256, "shared"),
+        (np.float32, 300, "local"),
+        (np.float64, 50, "local"),
+        (np.float64, 64, "shared"),
+        (np.float64, 128, "shared"),
+        (np.float64, 200, "local"),
+    ]
+    for prec, n, expected in cases:
+        config = BiCGSTABSolverConfig(precision=prec, n=n)
+        assert config.resolved_r0_hat_location == expected, (
+            f"n={n}, precision={prec.__name__}"
+        )
+
+
+def test_bicgstab_r0_hat_override_respected():
+    """Explicit r0_hat_location bypasses the auto heuristic."""
+    config = BiCGSTABSolverConfig(
+        precision=np.float32, n=200, r0_hat_location="local"
+    )
+    assert config.resolved_r0_hat_location == "local"
+    config = BiCGSTABSolverConfig(
+        precision=np.float32, n=8, r0_hat_location="shared"
+    )
+    assert config.resolved_r0_hat_location == "shared"
 
 
 def test_bicgstab_linear_correction_type(precision):
