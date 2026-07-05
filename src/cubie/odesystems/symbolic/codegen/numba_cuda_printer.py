@@ -321,7 +321,8 @@ class CUDAPrinter(PythonCodePrinter):
         return expr_str
 
     def _replace_square_powers(self, expr_str: str) -> str:
-        """Replace ``x**2`` or ``x**2.0`` with ``x*x`` while preserving spacing.
+        """Replace ``x**2`` or ``x**2.0`` with ``(x*x)`` while preserving
+        spacing.
 
         Parameters
         ----------
@@ -332,25 +333,36 @@ class CUDAPrinter(PythonCodePrinter):
         -------
         str
             Source string with ``x**2`` or ``x**2.0`` rewritten.
-            
+
         Notes
         -----
         Matches both simple identifiers (x**2, arr[i]**2) and parenthesized
-        expressions ((a + b)**2).
+        expressions ((a + b)**2). The replacement is parenthesized so the
+        rewrite is precedence-safe in division context: ``a/x**2`` becomes
+        ``a/(x*x)``, never ``a/x*x``. Non-integer exponents such as
+        ``x**2.5`` are left untouched.
         """
+
+        def replace(match):
+            base = match.group(1)
+            if float(match.group(2)) != 2.0:
+                return match.group(0)
+            return f"({base}*{base})"
+
         # Match identifier or array access
-        simple_pattern = r"(\w+(?:\[[^]]+])*)\s*\*\*\s*2(?:\.\d+)?\b"
-        expr_str = re.sub(simple_pattern, r"\1*\1", expr_str)
-        
+        simple_pattern = r"(\w+(?:\[[^]]+])*)\s*\*\*\s*(2(?:\.\d+)?)\b"
+        expr_str = re.sub(simple_pattern, replace, expr_str)
+
         # Match parenthesized expressions (but not function calls)
         # Negative lookbehind (?<!\w) ensures no word char before (
-        paren_pattern = r"(?<!\w)(\([^()]+\))\s*\*\*\s*2(?:\.\d+)?\b"
-        expr_str = re.sub(paren_pattern, r"\1*\1", expr_str)
-        
+        paren_pattern = r"(?<!\w)(\([^()]+\))\s*\*\*\s*(2(?:\.\d+)?)\b"
+        expr_str = re.sub(paren_pattern, replace, expr_str)
+
         return expr_str
 
     def _replace_cube_powers(self, expr_str: str) -> str:
-        """Replace ``x**3`` or ``x**3.0`` with ``x*x*x`` while preserving spacing.
+        """Replace ``x**3`` or ``x**3.0`` with ``(x*x*x)`` while preserving
+        spacing.
 
         Parameters
         ----------
@@ -361,21 +373,31 @@ class CUDAPrinter(PythonCodePrinter):
         -------
         str
             Source string with ``x**3`` or ``x**3.0`` rewritten.
-            
+
         Notes
         -----
         Matches both simple identifiers (x**3, arr[i]**3) and parenthesized
-        expressions ((a + b)**3).
+        expressions ((a + b)**3). The replacement is parenthesized so the
+        rewrite is precedence-safe in division context: ``a/x**3`` becomes
+        ``a/(x*x*x)``, never ``a/x*x*x``. Non-integer exponents such as
+        ``x**3.5`` are left untouched.
         """
+
+        def replace(match):
+            base = match.group(1)
+            if float(match.group(2)) != 3.0:
+                return match.group(0)
+            return f"({base}*{base}*{base})"
+
         # Match identifier or array access
-        simple_pattern = r'(\w+(?:\[[^]]+])*)\s*\*\*\s*3(?:\.\d+)?\b'
-        expr_str = re.sub(simple_pattern, r'\1*\1*\1', expr_str)
-        
+        simple_pattern = r'(\w+(?:\[[^]]+])*)\s*\*\*\s*(3(?:\.\d+)?)\b'
+        expr_str = re.sub(simple_pattern, replace, expr_str)
+
         # Match parenthesized expressions (but not function calls)
         # Negative lookbehind (?<!\w) ensures no word char before (
-        paren_pattern = r'(?<!\w)(\([^()]+\))\s*\*\*\s*3(?:\.\d+)?\b'
-        expr_str = re.sub(paren_pattern, r'\1*\1*\1', expr_str)
-        
+        paren_pattern = r'(?<!\w)(\([^()]+\))\s*\*\*\s*(3(?:\.\d+)?)\b'
+        expr_str = re.sub(paren_pattern, replace, expr_str)
+
         return expr_str
 
     def _print_Function(self, expr: sp.Function) -> str:
