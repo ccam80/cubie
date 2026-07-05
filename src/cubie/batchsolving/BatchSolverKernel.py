@@ -48,7 +48,11 @@ from numba import int32
 from attrs import define, field, evolve
 
 from cubie.odesystems import SymbolicODE
-from cubie.cuda_simsafe import is_cudasim_enabled, compile_kwargs
+from cubie.cuda_simsafe import (
+    is_cudasim_enabled,
+    compile_kwargs,
+    max_shared_memory_per_block,
+)
 from cubie.cubie_cache import (
     CacheConfig,
     CubieCacheHandler,
@@ -659,26 +663,54 @@ class BatchSolverKernel(CUDAFactory):
         tuple[int, int]
             Adjusted block size and shared-memory footprint per block.
 
+        Raises
+        ------
+        ValueError
+            If a single run's shared-memory demand exceeds the
+            device's per-block limit, so no block size can launch.
+
         Notes
         -----
-        The shared-memory ceiling uses 32 kiB so three blocks can reside per SM
-        on CC7* hardware. Larger requests reduce per-thread L1 availability.
-        The block size is floored at one warp (32 threads): profiling
-        shows sub-warp blocks starve the SMs of resident threads and
-        run slower than exceeding the shared-memory ceiling. When the
-        per-run shared demand still exceeds the ceiling at the floor,
-        the launch proceeds with the larger footprint and a warning.
+        Reduction is two-staged. The performance stage targets a
+        32 kiB footprint (three blocks per SM on CC7* hardware;
+        larger requests reduce per-thread L1 availability) but is
+        floored at one warp: profiling shows sub-warp blocks starve
+        the SMs of resident threads and run slower than exceeding
+        the target. The hardware stage then reduces below one warp
+        only when the device's per-block shared-memory limit leaves
+        no alternative — there a sub-warp block is a launchability
+        requirement, not a tuning choice.
         """
         while dynamic_sharedmem >= 32768 and blocksize > 32:
             blocksize = max(32, int(blocksize // 2))
             dynamic_sharedmem = int(bytes_per_run * min(numruns, blocksize))
-        if dynamic_sharedmem >= 32768:
+
+        hardware_limit = max_shared_memory_per_block()
+        if dynamic_sharedmem > hardware_limit:
+            if bytes_per_run > hardware_limit:
+                raise ValueError(
+                    f"A single run requires {bytes_per_run} B of "
+                    f"shared memory, exceeding the device limit of "
+                    f"{hardware_limit} B per block. Move buffers to "
+                    "local memory to reduce per-run shared usage."
+                )
+            warn(
+                "Per-run shared memory exceeds the device's "
+                "per-block limit at one warp per block; block size "
+                "is reduced below warp width. Performance will "
+                "degrade. Consider moving buffers to local memory."
+            )
+            while dynamic_sharedmem > hardware_limit and blocksize > 1:
+                blocksize = int(blocksize // 2)
+                dynamic_sharedmem = int(
+                    bytes_per_run * min(numruns, blocksize)
+                )
+        elif dynamic_sharedmem >= 32768:
             warn(
                 "Dynamic shared memory exceeds the 32 kiB per-block "
-                "target at the minimum block size of 32 threads. "
-                "Performance will degrade, and the launch may fail if "
-                "the device's shared-memory-per-block limit is "
-                "exceeded. Reduce the number of shared-memory buffers."
+                "performance target at the minimum block size of 32 "
+                "threads. Occupancy will be reduced. Consider moving "
+                "buffers to local memory."
             )
         return blocksize, dynamic_sharedmem
 

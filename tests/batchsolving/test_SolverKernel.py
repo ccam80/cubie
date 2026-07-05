@@ -379,21 +379,51 @@ class TestRunParamsIntegration:
 
 
 def test_limit_blocksize_floors_at_one_warp(solverkernel):
-    """Block size reduction stops at 32 threads.
+    """Performance-stage reduction stops at 32 threads.
 
-    Per-run shared demand that cannot fit under the 32 kiB ceiling
-    at one warp keeps blocksize 32, warns, and reports the oversized
-    footprint instead of halving into sub-warp blocks.
+    Per-run shared demand over the 32 kiB target but within the
+    device per-block limit at one warp keeps blocksize 32 and warns
+    instead of halving into sub-warp blocks.
     """
-    bytes_per_run = 4096
+    bytes_per_run = 1200
     blocksize = 256
     smem = bytes_per_run * blocksize
-    with pytest.warns(UserWarning, match="minimum block size"):
+    with pytest.warns(UserWarning, match="performance target"):
         new_blocksize, new_smem = solverkernel.limit_blocksize(
             blocksize, smem, bytes_per_run, 65536
         )
     assert new_blocksize == 32
     assert new_smem == bytes_per_run * 32
+
+
+def test_limit_blocksize_subwarp_only_when_hardware_requires(
+    solverkernel,
+):
+    """Sub-warp blocks appear only past the device per-block limit.
+
+    4096 B/run needs 128 kiB at one warp — over the 48 kiB device
+    limit — so the hardware stage halves to the largest launchable
+    block size (8 runs, 32 kiB).
+    """
+    bytes_per_run = 4096
+    blocksize = 256
+    smem = bytes_per_run * blocksize
+    with pytest.warns(UserWarning, match="below warp width"):
+        new_blocksize, new_smem = solverkernel.limit_blocksize(
+            blocksize, smem, bytes_per_run, 65536
+        )
+    assert new_blocksize == 8
+    assert new_smem == bytes_per_run * 8
+    assert new_smem <= 49152
+
+
+def test_limit_blocksize_raises_when_one_run_cannot_fit(solverkernel):
+    """A single run over the device limit is unlaunchable: raise."""
+    bytes_per_run = 50000
+    with pytest.raises(ValueError, match="single run"):
+        solverkernel.limit_blocksize(
+            256, bytes_per_run * 256, bytes_per_run, 65536
+        )
 
 
 def test_limit_blocksize_halves_to_fit(solverkernel):
