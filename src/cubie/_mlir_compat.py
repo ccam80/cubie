@@ -689,3 +689,804 @@ register_array_literal_shim()
 # to force opt_level=0 on the LTO link; the remaining difference at
 # opt>0 is FMA-level float variance in the second-derivative summary
 # metrics (their central difference is cancellation-prone).
+
+
+# ------------------------------------------------------------------ #
+# Compile-time performance patches (numba_cuda frontend)             #
+# ------------------------------------------------------------------ #
+# The shims below rebind the compiler-frontend performance changes
+# carried on the cubie_patch branch of the ccam80/numba-cuda-mlir
+# fork so they apply to the stock wheel: lazy PostProcessor liveness,
+# string-only error markup, the per-class TargetConfig hash, SSA
+# sweeps restricted to def/use blocks, memoised callee IR with a
+# structural clone (including the preserve_ir form of inline_ir),
+# CallConstraint re-resolution skipping, and bitset liveness fix
+# points. All are behaviour-preserving; only compile time changes.
+# Each group feature-detects the installed package and no-ops when
+# the change is already present (a patched build, or a future release
+# that merged it). Fork feature branches: feat/lazy-postproc-liveness,
+# feat/lazy-error-markup, feat/targetconfig-hash-cache,
+# feat/ssa-restricted-sweeps, feat/inline-callee-ir-cache (stacked on
+# inline-ir-preserve), feat/callconstraint-memo, feat/liveness-bitsets.
+# The numba-cuda lowering-side patches (call-type cache, linear
+# singly-assigned scan) have no analogue here: MLIRBackend replaces
+# the LLVM lowering entirely. The NumbaError double-highlight fix is
+# also inapplicable: the vendored NumbaError inherits Exception
+# directly, so no base class re-highlights the message.
+
+import inspect
+import itertools
+import weakref
+from collections import defaultdict
+
+from numba_cuda_mlir.numba_cuda import types as _nb_types
+from numba_cuda_mlir.numba_cuda.core import (
+    analysis as _nb_analysis,
+    errors as _nb_errors,
+    inline_closurecall as _nb_icc,
+    ir as _nb_ir,
+    ir_utils as _nb_ir_utils,
+    postproc as _nb_postproc,
+    ssa as _nb_ssa,
+    targetconfig as _nb_targetconfig,
+    transforms as _nb_transforms,
+    typeinfer as _nb_typeinfer,
+)
+
+
+_BYTE_BITS = tuple(
+    tuple(bit for bit in range(8) if value & (1 << bit))
+    for value in range(256)
+)
+
+
+def _compute_live_map(cfg, blocks, var_use_map, var_def_map):
+    """
+    Find variables that must be alive at the ENTRY of each block.
+
+    The two fix points (forward definition reach, backward liveness)
+    run on bitsets: every variable gets a bit index and per-block sets
+    become arbitrary-size integers, so the union/intersection work in
+    each sweep is machine-word bignum arithmetic instead of hash-set
+    element traversal. Large flattened functions have tens of
+    thousands of variables live across thousands of blocks, where set
+    objects made this analysis dominate compilation.
+    """
+    index = {}
+    names = []
+    for use_def_map in (var_def_map, var_use_map):
+        for name_set in use_def_map.values():
+            for name in name_set:
+                if name not in index:
+                    index[name] = len(names)
+                    names.append(name)
+    nbytes = (len(names) + 7) // 8
+
+    def to_bits(name_set):
+        buf = bytearray(nbytes)
+        for name in name_set:
+            i = index[name]
+            buf[i >> 3] |= 1 << (i & 7)
+        return int.from_bytes(buf, "little")
+
+    offsets = list(blocks.keys())
+    def_bits = {offset: to_bits(var_def_map[offset]) for offset in offsets}
+    use_bits = {offset: to_bits(var_use_map[offset]) for offset in offsets}
+
+    successors = {
+        offset: [out_blk for out_blk, _ in cfg.successors(offset)]
+        for offset in offsets
+    }
+    predecessors = {
+        offset: [inc_blk for inc_blk, _ in cfg.predecessors(offset)]
+        for offset in offsets
+    }
+
+    # Forward: definitions (and uses) of every block that can reach a
+    # block, itself included. Ascending label order approximates a
+    # topological order, so this converges in a couple of sweeps.
+    def_reach_map = {
+        offset: def_bits[offset] | use_bits[offset] for offset in offsets
+    }
+    changed = True
+    while changed:
+        changed = False
+        for offset in offsets:
+            cur = def_reach_map[offset]
+            for out_blk in successors[offset]:
+                merged = def_reach_map[out_blk] | cur
+                if merged != def_reach_map[out_blk]:
+                    def_reach_map[out_blk] = merged
+                    changed = True
+
+    # Backward: push variable usage to predecessors, restricted to
+    # variables a definition can reach and not defined in the
+    # predecessor itself. Reverse label order approximates a reverse
+    # topological order for the same fast convergence.
+    live_bits = {offset: use_bits[offset] for offset in offsets}
+    changed = True
+    while changed:
+        changed = False
+        for offset in reversed(offsets):
+            live_vars = live_bits[offset]
+            for inc_blk in predecessors[offset]:
+                incoming = (
+                    live_vars & def_reach_map[inc_blk]
+                ) & ~def_bits[inc_blk]
+                merged = live_bits[inc_blk] | incoming
+                if merged != live_bits[inc_blk]:
+                    live_bits[inc_blk] = merged
+                    changed = True
+
+    live_map = {}
+    for offset in offsets:
+        blob = live_bits[offset].to_bytes(nbytes, "little")
+        live = set()
+        for byte_pos, byte in enumerate(blob):
+            if byte:
+                base = byte_pos << 3
+                for bit in _BYTE_BITS[byte]:
+                    live.add(names[base + bit])
+        live_map[offset] = live
+    return live_map
+
+
+def _patch_live_map():
+    if hasattr(_nb_analysis, "_BYTE_BITS"):
+        return
+    stock = _nb_analysis.compute_live_map
+    _nb_analysis._BYTE_BITS = _BYTE_BITS
+    _nb_analysis.compute_live_map = _compute_live_map
+    # ir_utils imports the function by name at module import time.
+    if getattr(_nb_ir_utils, "compute_live_map", None) is stock:
+        _nb_ir_utils.compute_live_map = _compute_live_map
+
+
+def _patch_postproc():
+    src = inspect.getsource(_nb_postproc.PostProcessor.run)
+    if "Only generator info consumes" in src:
+        return  # already lazy
+
+    def run(self, emit_dels: bool = False, extend_lifetimes: bool = False):
+        """
+        Run the following passes over Numba IR:
+        - canonicalize the CFG
+        - emit explicit `del` instructions for variables
+        - compute lifetime of variables
+        - compute generator info (if function is a generator function)
+        """
+        self.func_ir.blocks = _nb_transforms.canonicalize_cfg(
+            self.func_ir.blocks
+        )
+        vlt = _nb_postproc.VariableLifetime(self.func_ir.blocks)
+        self.func_ir.variable_lifetime = vlt
+
+        if self.func_ir.is_generator:
+            # Only generator info consumes the entry-liveness result
+            # (via get_block_entry_vars); non-generator consumers of
+            # liveness use the lazily computed properties on
+            # VariableLifetime instead, so the fix-point analyses are
+            # not run eagerly for them.
+            bev = _nb_analysis.compute_live_variables(
+                vlt.cfg,
+                self.func_ir.blocks,
+                vlt.usedefs.defmap,
+                vlt.deadmaps.combined,
+            )
+            for offset, ir_block in self.func_ir.blocks.items():
+                self.func_ir.block_entry_vars[ir_block] = bev[offset]
+
+            self.func_ir.generator_info = _nb_postproc.GeneratorInfo()
+            self._compute_generator_info()
+        else:
+            self.func_ir.generator_info = None
+
+        # Emit del nodes, do this last as the generator info parsing
+        # generates and then strips dels as part of its analysis.
+        if emit_dels:
+            self._insert_var_dels(extend_lifetimes=extend_lifetimes)
+
+    _nb_postproc.PostProcessor.run = run
+
+
+def _patch_error_markup():
+    scheme_cls = getattr(_nb_errors, "HighlightColorScheme", None)
+    if scheme_cls is None or "ColorShell" not in inspect.getsource(
+        scheme_cls._markup
+    ):
+        return
+    from colorama import Style
+
+    def _markup(self, msg, color=None, style=Style.BRIGHT):
+        # This only builds a string; it does not write to a stream.
+        # Wrapping the standard streams with colorama (ColorShell) is
+        # unnecessary for that and was undone before anything printed
+        # the string, yet its init/deinit dominated error
+        # construction when typing speculatively instantiates many
+        # exceptions. Emit the same bytes without touching the
+        # streams.
+        features = ""
+        if color:
+            features += color
+        if style:
+            features += style
+        return features + msg + Style.RESET_ALL
+
+    scheme_cls._markup = _markup
+
+
+def _patch_targetconfig_hash():
+    cfg_cls = _nb_targetconfig.TargetConfig
+    if hasattr(cfg_cls, "_precomputed_hash"):
+        return
+
+    def _set_hash(cls):
+        cls._precomputed_hash = hash(tuple(sorted(cls.options)))
+        for sub in cls.__subclasses__():
+            _set_hash(sub)
+
+    _set_hash(cfg_cls)
+
+    meta = type(cfg_cls)
+    orig_meta_init = meta.__init__
+
+    def meta_init(cls, name, bases, dct):
+        orig_meta_init(cls, name, bases, dct)
+        cls._precomputed_hash = hash(tuple(sorted(cls.options)))
+
+    meta.__init__ = meta_init
+
+    def __hash__(self):
+        # Equal to hash(tuple(sorted(self.values()))): sorting the
+        # values() mapping iterates option names only, so the hash is
+        # the per-class constant precomputed above.
+        return self._precomputed_hash
+
+    cfg_cls.__hash__ = __hash__
+
+
+def _ssa_find_defs_violators(blocks, cfg):
+    """
+    Returns
+    -------
+    res : Tuple[Dict[str, None], Mapping, Mapping]
+        The SSA violators in a dictionary of variable names, the
+        per-variable definition map (name -> [(assign, label)]) and
+        the per-variable use-block map (name -> {label}).
+    """
+    defs = defaultdict(list)
+    uses = defaultdict(set)
+    states = dict(defs=defs, uses=uses)
+    _nb_ssa._run_block_analysis(blocks, states, _nb_ssa._GatherDefsHandler())
+    violators = {k: None for k, vs in defs.items() if len(vs) > 1}
+    doms = cfg.dominators()
+    for k, use_blocks in uses.items():
+        if k not in violators:
+            for label in use_blocks:
+                dom = doms[label]
+                def_labels = {label for _assign, label in defs[k]}
+                if not def_labels.intersection(dom):
+                    violators[k] = None
+                    break
+    return violators, defs, uses
+
+
+def _ssa_run_block_rewrite(blocks, states, handler, relevant_labels=None):
+    newblocks = {}
+    for label, blk in blocks.items():
+        if relevant_labels is not None and label not in relevant_labels:
+            # The handler can only change statements that mention the
+            # variable being processed, so blocks without a def/use
+            # of it pass through unchanged.
+            newblocks[label] = blk
+            continue
+        newblk = _nb_ir.Block(scope=blk.scope, loc=blk.loc)
+        newbody = []
+        states["label"] = label
+        states["block"] = blk
+        for stmt in _nb_ssa._run_ssa_block_pass(states, blk, handler):
+            assert stmt is not None
+            newbody.append(stmt)
+        newblk.body = newbody
+        newblocks[label] = newblk
+    return newblocks
+
+
+def _ssa_fresh_vars(blocks, varname, def_labels):
+    """Rewrite to put fresh variable names"""
+    states = _nb_ssa._make_states(blocks)
+    states["varname"] = varname
+    states["defmap"] = defmap = defaultdict(list)
+    newblocks = _ssa_run_block_rewrite(
+        blocks, states, _nb_ssa._FreshVarHandler(), def_labels
+    )
+    return newblocks, defmap
+
+
+def _ssa_fix_ssa_vars(
+    blocks, varname, defmap, cfg, df_plus, cache_list_vars, use_labels
+):
+    """Rewrite all uses to ``varname`` given the definition map"""
+    states = _nb_ssa._make_states(blocks)
+    states["varname"] = varname
+    states["defmap"] = defmap
+    states["phimap"] = phimap = defaultdict(list)
+    states["cfg"] = cfg
+    states["phi_locations"] = _nb_ssa._compute_phi_locations(df_plus, defmap)
+    newblocks = _ssa_run_block_rewrite(
+        blocks, states, _nb_ssa._FixSSAVars(cache_list_vars), use_labels
+    )
+    # insert phi nodes
+    for label, philist in phimap.items():
+        curblk = newblocks[label]
+        # Prepend PHI nodes to the block. Build a fresh block rather
+        # than mutating in place: phi locations include pass-through
+        # blocks, and input block objects must never be mutated.
+        newblk = _nb_ir.Block(scope=curblk.scope, loc=curblk.loc)
+        newblk.body = philist + curblk.body
+        newblocks[label] = newblk
+    return newblocks
+
+
+def _ssa_run_ssa(blocks):
+    """Run SSA reconstruction on IR blocks of a function."""
+    if not blocks:
+        return {}
+    cfg = _nb_ssa.compute_cfg_from_blocks(blocks)
+    df_plus = _nb_ssa._iterated_domfronts(cfg)
+    violators, defs, uses = _ssa_find_defs_violators(blocks, cfg)
+    cache_list_vars = _nb_ssa._CacheListVars()
+
+    for varname in violators:
+        # Only blocks that define or use the variable can be changed
+        # by its rewrite passes; every other block passes through
+        # untouched. The def/use block sets collected up front stay
+        # valid throughout: the passes rename assignment targets and
+        # uses of the current variable only, and phi nodes introduce
+        # only freshly versioned names. The uses map excludes a
+        # variable's use on the RHS of an assignment to itself
+        # (e.g. ``x = x + 1``), but such a use can only appear in a
+        # statement that assigns the variable, so its block is always
+        # a def block; the fix pass therefore visits the union.
+        def_labels = {label for _assign, label in defs[varname]}
+        use_labels = uses[varname] | def_labels
+        blocks, defmap = _ssa_fresh_vars(blocks, varname, def_labels)
+        blocks = _ssa_fix_ssa_vars(
+            blocks,
+            varname,
+            defmap,
+            cfg,
+            df_plus,
+            cache_list_vars,
+            use_labels,
+        )
+
+    cfg_post = _nb_ssa.compute_cfg_from_blocks(blocks)
+    if cfg_post != cfg:
+        raise _nb_errors.CompilerError("CFG mutated in SSA pass")
+    return blocks
+
+
+def _patch_ssa():
+    params = inspect.signature(_nb_ssa._fresh_vars).parameters
+    if "def_labels" in params:
+        return
+    _nb_ssa._find_defs_violators = _ssa_find_defs_violators
+    _nb_ssa._run_block_rewrite = _ssa_run_block_rewrite
+    _nb_ssa._fresh_vars = _ssa_fresh_vars
+    _nb_ssa._fix_ssa_vars = _ssa_fix_ssa_vars
+    _nb_ssa._run_ssa = _ssa_run_ssa
+
+
+_callee_ir_cache = weakref.WeakKeyDictionary()
+
+
+def _clone_callee_ir(func_ir):
+    """Structural clone of ``func_ir`` for use as an inline callee.
+
+    Equivalent in effect to deep-copying the IR blocks, but far
+    cheaper: a fresh single Scope is created (with its redefinition
+    state), every Var is recreated in it, and every statement,
+    expression and mutable container is rebuilt. Immutable leaves are
+    shared: Loc objects, constant/global/freevar payloads, and any
+    non-IR values held in expressions. The clone can be freely
+    relabelled, renamed and spliced by ``inline_ir`` without mutating
+    the source IR.
+    """
+    blocks = func_ir.blocks
+    old_scope = next(iter(blocks.values())).scope
+    new_scope = _nb_ir.Scope(parent=old_scope.parent, loc=old_scope.loc)
+    new_scope.redefined.update(old_scope.redefined)
+    for name, versions in old_scope.var_redefinitions.items():
+        new_scope.var_redefinitions[name] = set(versions)
+
+    varmap = {}
+    for name, var in old_scope.localvars._con.items():
+        varmap[name] = new_scope.define(name, var.loc)
+
+    def clone_value(value):
+        if isinstance(value, _nb_ir.Var):
+            new_var = varmap.get(value.name)
+            if new_var is None:
+                new_var = new_scope.define(value.name, value.loc)
+                varmap[value.name] = new_var
+            return new_var
+        if isinstance(value, _nb_ir.Expr):
+            new_expr = copy.copy(value)
+            new_expr._kws = {
+                key: clone_value(item) for key, item in value._kws.items()
+            }
+            return new_expr
+        if isinstance(value, list):
+            return [clone_value(item) for item in value]
+        if isinstance(value, tuple):
+            return tuple(clone_value(item) for item in value)
+        if isinstance(value, dict):
+            return {key: clone_value(item) for key, item in value.items()}
+        return value
+
+    def clone_stmt(stmt):
+        new_stmt = copy.copy(stmt)
+        for name, value in tuple(new_stmt.__dict__.items()):
+            cloned = clone_value(value)
+            if cloned is not value:
+                new_stmt.__dict__[name] = cloned
+        return new_stmt
+
+    new_blocks = {}
+    for label, block in blocks.items():
+        new_block = _nb_ir.Block(scope=new_scope, loc=block.loc)
+        new_block.body = [clone_stmt(stmt) for stmt in block.body]
+        new_blocks[label] = new_block
+
+    new_ir = copy.copy(func_ir)
+    new_ir.blocks = new_blocks
+    new_ir.block_entry_vars = {}
+    return new_ir
+
+
+def _make_inline_ir():
+    def inline_ir(
+        self, caller_ir, block, i, callee_ir, callee_freevars,
+        arg_typs=None, preserve_ir=True,
+    ):
+        """Inlines the callee_ir in the caller_ir at statement index i
+        of block `block`, callee_freevars are the free variables for
+        the callee_ir. If the callee_ir is derived from a function
+        `func` then this is `func.__code__.co_freevars`. If `arg_typs`
+        is given and the InlineWorker instance was initialized with a
+        typemap and calltypes then they will be appropriately updated
+        based on the arg_typs. If `preserve_ir` is True, the callee_ir
+        object will be copied before mutating, otherwise it will be
+        mutated in place.
+        """
+        # Save a reference to the incoming callee_ir
+        callee_ir_original = callee_ir
+
+        if preserve_ir:
+            def copy_ir(the_ir):
+                kernel_copy = the_ir.copy()
+                kernel_copy.blocks = {}
+                for block_label, block in the_ir.blocks.items():
+                    new_block = copy.deepcopy(the_ir.blocks[block_label])
+                    kernel_copy.blocks[block_label] = new_block
+                return kernel_copy
+
+            callee_ir = copy_ir(callee_ir)
+
+        if self.validator is not None:
+            self.validator(callee_ir)
+
+        scope = block.scope
+        instr = block.body[i]
+        call_expr = instr.value
+        callee_blocks = callee_ir.blocks
+
+        # 1. relabel callee_ir by adding an offset
+        max_label = max(
+            _nb_ir_utils._the_max_label.next(),
+            max(caller_ir.blocks.keys()),
+        )
+        callee_blocks = _nb_icc.add_offset_to_labels(
+            callee_blocks, max_label + 1
+        )
+        callee_blocks = _nb_icc.simplify_CFG(callee_blocks)
+        callee_ir.blocks = callee_blocks
+        min_label = min(callee_blocks.keys())
+        max_label = max(callee_blocks.keys())
+        _nb_ir_utils._the_max_label.update(max_label)
+        self.debug_print("After relabel")
+        _nb_icc._debug_dump(callee_ir)
+
+        # 2. rename all local variables in callee_ir with new locals
+        # created in caller_ir
+        callee_scopes = _nb_icc._get_all_scopes(callee_blocks)
+        self.debug_print("callee_scopes = ", callee_scopes)
+        assert len(callee_scopes) == 1
+        callee_scope = callee_scopes[0]
+        var_dict = {}
+        for var in tuple(callee_scope.localvars._con.values()):
+            if var.name not in callee_freevars:
+                inlined_name = _nb_icc._created_inlined_var_name(
+                    callee_ir.func_id.unique_name, var.name
+                )
+                new_var = scope.redefine(inlined_name, loc=var.loc)
+                callee_scope.redefine(inlined_name, loc=var.loc)
+                var_dict[var.name] = new_var
+        self.debug_print("var_dict = ", var_dict)
+        _nb_icc.replace_vars(callee_blocks, var_dict)
+        self.debug_print("After local var rename")
+        _nb_icc._debug_dump(callee_ir)
+
+        # 3. replace formal parameters with actual arguments
+        callee_func = callee_ir.func_id.func
+        args = _nb_icc._get_callee_args(
+            call_expr, callee_func, block.body[i].loc, caller_ir
+        )
+
+        # 4. Update typemap
+        if self._permit_update_type_and_call_maps:
+            if arg_typs is None:
+                raise TypeError("arg_typs should have a value not None")
+            self.update_type_and_call_maps(callee_ir, arg_typs)
+            callee_blocks = callee_ir.blocks
+
+        self.debug_print("After arguments rename: ")
+        _nb_icc._debug_dump(callee_ir)
+
+        _nb_icc._replace_args_with(callee_blocks, args)
+        # 5. split caller blocks into two
+        new_blocks = []
+        new_block = _nb_ir.Block(scope, block.loc)
+        new_block.body = block.body[i + 1 :]
+        new_label = _nb_icc.next_label()
+        caller_ir.blocks[new_label] = new_block
+        new_blocks.append((new_label, new_block))
+        block.body = block.body[:i]
+        block.body.append(_nb_ir.Jump(min_label, instr.loc))
+
+        # 6. replace Return with assignment to LHS
+        topo_order = _nb_icc.find_topo_order(callee_blocks)
+        _nb_icc._replace_returns(callee_blocks, instr.target, new_label)
+
+        if (
+            instr.target.name in caller_ir._definitions
+            and call_expr in caller_ir._definitions[instr.target.name]
+        ):
+            caller_ir._definitions[instr.target.name].remove(call_expr)
+
+        # 7. insert all new blocks, and add back definitions
+        for label in topo_order:
+            block = callee_blocks[label]
+            block.scope = scope
+            _nb_icc._add_definitions(caller_ir, block)
+            caller_ir.blocks[label] = block
+            new_blocks.append((label, block))
+        self.debug_print("After merge in")
+        _nb_icc._debug_dump(caller_ir)
+
+        return callee_ir_original, callee_blocks, var_dict, new_blocks
+
+    return inline_ir
+
+
+def _patch_inline_worker():
+    if hasattr(_nb_icc, "_clone_callee_ir"):
+        return
+    _nb_icc._clone_callee_ir = _clone_callee_ir
+    _nb_icc._callee_ir_cache = _callee_ir_cache
+
+    worker = _nb_icc.InlineWorker
+    if "preserve_ir" not in inspect.signature(worker.inline_ir).parameters:
+        worker.inline_ir = _make_inline_ir()
+
+    def inline_function(self, caller_ir, block, i, function, arg_typs=None):
+        """Inlines the function in the caller_ir at statement index i
+        of block `block`. If `arg_typs` is given and the InlineWorker
+        instance was initialized with a typemap and calltypes then
+        they will be appropriately updated based on the arg_typs.
+        """
+        callee_ir = self._fresh_callee_ir(function)
+        freevars = function.__code__.co_freevars
+        return self.inline_ir(
+            caller_ir, block, i, callee_ir, freevars,
+            arg_typs=arg_typs, preserve_ir=False,
+        )
+
+    def _fresh_callee_ir(self, function, enable_ssa=False):
+        """Return callee IR that is safe for ``inline_ir`` to mutate.
+
+        The canonical IR produced by the untyped pipeline for a given
+        function and flags configuration is cached, and each call
+        site receives a structural clone of it. Running the untyped
+        pipeline is far more expensive than cloning, and deeply
+        nested inline='always' functions otherwise recompile their
+        whole subtree at every transitive call site.
+        """
+        try:
+            per_func = _callee_ir_cache.setdefault(function, {})
+        except TypeError:
+            # Function is not weak-referenceable; skip caching.
+            return self.run_untyped_passes(function, enable_ssa)
+        key = (str(self.flags), enable_ssa)
+        canonical_ir = per_func.get(key)
+        if canonical_ir is None:
+            canonical_ir = self.run_untyped_passes(function, enable_ssa)
+            per_func[key] = canonical_ir
+        return _clone_callee_ir(canonical_ir)
+
+    worker.inline_function = inline_function
+    worker._fresh_callee_ir = _fresh_callee_ir
+
+
+def _patch_callconstraint():
+    constraint = _nb_typeinfer.CallConstraint
+    if "_resolved_key" in inspect.getsource(constraint.resolve):
+        return
+
+    orig_init = constraint.__init__
+
+    def __init__(self, target, func, args, kws, vararg, loc):
+        orig_init(self, target, func, args, kws, vararg, loc)
+        # Input types of the last successful resolution, when that
+        # resolution is provably repeatable (see resolve). The
+        # propagation fix-point re-executes every constraint each
+        # round; when the inputs are unchanged the resolution result
+        # is identical, so the (expensive) template matching can be
+        # skipped.
+        self._resolved_key = None
+
+    def resolve(self, typeinfer, typevars, fnty):
+        assert fnty
+        context = typeinfer.context
+
+        r = _nb_typeinfer.fold_arg_vars(
+            typevars, self.args, self.vararg, self.kws
+        )
+        if r is None:
+            # Cannot resolve call type until all argument types are
+            # known
+            return
+        pos_args, kw_args = r
+
+        # Check argument to be precise
+        for a in itertools.chain(pos_args, kw_args.values()):
+            # Forbids imprecise type except array of undefined dtype
+            if not a.is_precise() and not isinstance(a, _nb_types.Array):
+                return
+
+        # Resolve call type
+        if isinstance(fnty, _nb_types.TypeRef):
+            # Unwrap TypeRef
+            fnty = fnty.instance_type
+
+        resolve_key = (fnty, pos_args, tuple(sorted(kw_args.items())))
+        if resolve_key == self._resolved_key:
+            # Same inputs as the last successful resolution and that
+            # resolution was repeatable: the signature, the target
+            # type addition and the refinement bookkeeping would all
+            # be identical, so there is nothing new to compute.
+            return
+
+        try:
+            sig = typeinfer.resolve_call(fnty, pos_args, kw_args)
+        except _nb_typeinfer.ForceLiteralArg as e:
+            # Adjust for bound methods
+            folding_args = (
+                (fnty.this,) + tuple(self.args)
+                if isinstance(fnty, _nb_types.BoundFunction)
+                else self.args
+            )
+            folded = e.fold_arguments(folding_args, self.kws)
+            requested = set()
+            unsatisfied = set()
+            for idx in e.requested_args:
+                maybe_arg = typeinfer.func_ir.get_definition(folded[idx])
+                if isinstance(maybe_arg, _nb_ir.Arg):
+                    requested.add(maybe_arg.index)
+                else:
+                    unsatisfied.add(idx)
+            if unsatisfied:
+                raise _nb_typeinfer.TypingError(
+                    "Cannot request literal type.", loc=self.loc
+                )
+            elif requested:
+                raise _nb_typeinfer.ForceLiteralArg(requested, loc=self.loc)
+        if sig is None:
+            # Note: duplicated error checking.
+            #       See types.BaseFunction.get_call_type
+            # Arguments are invalid => explain why
+            headtemp = "Invalid use of {0} with parameters ({1})"
+            args = [str(a) for a in pos_args]
+            args += ["%s=%s" % (k, v) for k, v in sorted(kw_args.items())]
+            head = headtemp.format(fnty, ", ".join(map(str, args)))
+            desc = context.explain_function_type(fnty)
+            msg = "\n".join([head, desc])
+            raise _nb_typeinfer.TypingError(msg)
+
+        typeinfer.add_type(self.target, sig.return_type, loc=self.loc)
+
+        # If the function is a bound function and its receiver type
+        # was refined, propagate it.
+        if (
+            isinstance(fnty, _nb_types.BoundFunction)
+            and sig.recvr is not None
+            and sig.recvr != fnty.this
+        ):
+            refined_this = context.unify_pairs(sig.recvr, fnty.this)
+            if (
+                refined_this is None
+                and fnty.this.is_precise()
+                and sig.recvr.is_precise()
+            ):
+                msg = "Cannot refine type {} to {}".format(
+                    sig.recvr,
+                    fnty.this,
+                )
+                raise _nb_typeinfer.TypingError(msg, loc=self.loc)
+            if refined_this is not None and refined_this.is_precise():
+                refined_fnty = fnty.copy(this=refined_this)
+                typeinfer.propagate_refined_type(self.func, refined_fnty)
+
+        # If the return type is imprecise but can be unified with the
+        # target variable's inferred type, use the latter.
+        # Useful for code such as::
+        #    s = set()
+        #    s.add(1)
+        # (the set() call must be typed as int64(), not undefined())
+        if not sig.return_type.is_precise():
+            target = typevars[self.target]
+            if target.defined:
+                targetty = target.getone()
+                if (
+                    context.unify_pairs(targetty, sig.return_type)
+                    == targetty
+                ):
+                    sig = sig.replace(return_type=targetty)
+
+        self.signature = sig
+        self._add_refine_map(typeinfer, typevars, sig)
+
+        # Mark this resolution as repeatable only when re-running it
+        # with identical inputs could not produce a different
+        # outcome: a template-based BaseFunction resolves purely from
+        # its registered templates (unlike e.g. a Dispatcher, whose
+        # resolution consults the callee's still-refining inference
+        # state during recursion), a precise return type skips the
+        # target-unification branch, a non-BoundFunction skips
+        # receiver refinement, and absence from the refine map means
+        # no later refinement will call back into this constraint.
+        if (
+            isinstance(fnty, _nb_types.BaseFunction)
+            and not isinstance(fnty, _nb_types.BoundFunction)
+            and sig.return_type.is_precise()
+            and typeinfer.refine_map.get(self.target) is not self
+        ):
+            self._resolved_key = resolve_key
+        else:
+            self._resolved_key = None
+
+    constraint.__init__ = __init__
+    constraint.resolve = resolve
+
+
+def apply_compiler_perf_patches() -> None:
+    """Apply all frontend perf patch groups the installed wheel needs.
+
+    Set CUBIE_DISABLE_NUMBA_PERF_PATCHES=1 to skip every group, for
+    A/B benchmarking and for isolating suspected patch regressions.
+    """
+    import os
+
+    if os.environ.get("CUBIE_DISABLE_NUMBA_PERF_PATCHES", "0") == "1":
+        return
+    _patch_live_map()
+    _patch_postproc()
+    _patch_error_markup()
+    _patch_targetconfig_hash()
+    _patch_ssa()
+    _patch_inline_worker()
+    _patch_callconstraint()
+
+
+apply_compiler_perf_patches()
