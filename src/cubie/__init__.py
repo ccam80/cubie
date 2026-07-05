@@ -13,6 +13,11 @@ import os
 
 os.environ["NUMBA_CUDA_LOW_OCCUPANCY_WARNINGS"] = "0"
 
+# Apply compile-time performance patches to stock numba-cuda before
+# anything can compile a kernel. No-op on the cubie_patch fork, under
+# CUDASIM, and for any patch already accepted upstream.
+import cubie._numba_cuda_compat  # noqa: F401
+
 from cubie.result_codes import CUBIE_RESULT_CODES
 from cubie.batchsolving import *  # noqa
 from cubie.integrators import *  # noqa
