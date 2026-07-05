@@ -663,16 +663,23 @@ class BatchSolverKernel(CUDAFactory):
         -----
         The shared-memory ceiling uses 32 kiB so three blocks can reside per SM
         on CC7* hardware. Larger requests reduce per-thread L1 availability.
+        The block size is floored at one warp (32 threads): profiling
+        shows sub-warp blocks starve the SMs of resident threads and
+        run slower than exceeding the shared-memory ceiling. When the
+        per-run shared demand still exceeds the ceiling at the floor,
+        the launch proceeds with the larger footprint and a warning.
         """
-        while dynamic_sharedmem >= 32768:
-            if blocksize < 32:
-                warn(
-                    "Block size has been reduced to less than 32 threads, "
-                    "which means your code will suffer a "
-                    "performance hit."
-                )
-            blocksize = int(blocksize // 2)
+        while dynamic_sharedmem >= 32768 and blocksize > 32:
+            blocksize = max(32, int(blocksize // 2))
             dynamic_sharedmem = int(bytes_per_run * min(numruns, blocksize))
+        if dynamic_sharedmem >= 32768:
+            warn(
+                "Dynamic shared memory exceeds the 32 kiB per-block "
+                "target at the minimum block size of 32 threads. "
+                "Performance will degrade, and the launch may fail if "
+                "the device's shared-memory-per-block limit is "
+                "exceeded. Reduce the number of shared-memory buffers."
+            )
         return blocksize, dynamic_sharedmem
 
     def build_kernel(self) -> None:
@@ -811,11 +818,15 @@ class BatchSolverKernel(CUDAFactory):
 
         # no cover: end
 
-        # Update cache for this configuration and attach
+        # Update cache for this configuration and attach. When caching
+        # is disabled the dispatcher keeps its default NullCache; the
+        # dispatcher requires a cache object with a load_overload method.
         cfg_hash = self.config_hash
-        integration_kernel._cache = self.cache_handler.configured_cache(
+        configured_cache = self.cache_handler.configured_cache(
             self.system.fn_hash, cfg_hash
         )
+        if configured_cache is not None:
+            integration_kernel._cache = configured_cache
         return integration_kernel
 
     def update(

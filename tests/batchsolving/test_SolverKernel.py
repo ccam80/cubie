@@ -376,3 +376,43 @@ class TestRunParamsIntegration:
         assert solverkernel.run_params.runs == 1
         assert solverkernel.run_params.num_chunks == 1
         assert solverkernel.run_params.chunk_length == 0
+
+
+def test_limit_blocksize_floors_at_one_warp(solverkernel):
+    """Block size reduction stops at 32 threads.
+
+    Per-run shared demand that cannot fit under the 32 kiB ceiling
+    at one warp keeps blocksize 32, warns, and reports the oversized
+    footprint instead of halving into sub-warp blocks.
+    """
+    bytes_per_run = 4096
+    blocksize = 256
+    smem = bytes_per_run * blocksize
+    with pytest.warns(UserWarning, match="minimum block size"):
+        new_blocksize, new_smem = solverkernel.limit_blocksize(
+            blocksize, smem, bytes_per_run, 65536
+        )
+    assert new_blocksize == 32
+    assert new_smem == bytes_per_run * 32
+
+
+def test_limit_blocksize_halves_to_fit(solverkernel):
+    """Reduction still finds the largest fitting block size."""
+    bytes_per_run = 320
+    blocksize = 256
+    smem = bytes_per_run * blocksize
+    new_blocksize, new_smem = solverkernel.limit_blocksize(
+        blocksize, smem, bytes_per_run, 65536
+    )
+    assert new_blocksize == 64
+    assert new_smem == bytes_per_run * 64
+    assert new_smem < 32768
+
+
+def test_limit_blocksize_leaves_fitting_requests_alone(solverkernel):
+    """Requests already under the ceiling pass through unchanged."""
+    new_blocksize, new_smem = solverkernel.limit_blocksize(
+        256, 16384, 64, 65536
+    )
+    assert new_blocksize == 256
+    assert new_smem == 16384
