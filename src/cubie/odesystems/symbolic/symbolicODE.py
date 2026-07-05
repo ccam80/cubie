@@ -41,6 +41,7 @@ See Also
 """
 
 import inspect
+from hashlib import sha256
 from typing import (
     Any,
     Callable,
@@ -101,6 +102,46 @@ _NEUMANN_PRECONDITIONER_TYPES = frozenset((
     "neumann_preconditioner_cached",
     "n_stage_neumann_preconditioner",
 ))
+
+
+# Helper types whose generated source bakes in mass-matrix entries.
+# Their disk-cache names must encode the mass matrix so different
+# matrices do not collide in the generated-code file.
+_MASS_CONSUMING_HELPERS = frozenset((
+    "linear_operator",
+    "linear_operator_cached",
+    "stage_residual",
+    "n_stage_residual",
+    "n_stage_linear_operator",
+    "jacobi_preconditioner",
+    "jacobi_preconditioner_cached",
+    "n_stage_jacobi_preconditioner",
+))
+
+
+def _mass_matrix_cache_tag(mass):
+    """Return a factory-name suffix identifying a mass matrix.
+
+    Parameters
+    ----------
+    mass
+        Mass matrix as an array-like or SymPy matrix, or ``None``.
+
+    Returns
+    -------
+    str
+        Empty string for an omitted or identity mass matrix (default
+        cache entries keep their unsuffixed names), otherwise
+        ``"_M<8-hex-digest>"`` derived from the matrix entries.
+    """
+    if mass is None:
+        return ""
+    mat = sp.Matrix(mass)
+    if mat.rows == mat.cols and mat == sp.eye(mat.rows):
+        return ""
+    entries = "|".join(str(entry) for entry in mat)
+    digest = sha256(entries.encode("utf-8")).hexdigest()[:8]
+    return f"_M{digest}"
 
 
 def create_ODE_system(
@@ -857,6 +898,11 @@ class SymbolicODE(BaseODE):
             factory_name = "jacobi_preconditioner_cached"
         else:
             factory_name = func_type
+
+        # Helpers that bake mass-matrix entries into their source get
+        # a mass-derived suffix so each matrix caches separately.
+        if func_type in _MASS_CONSUMING_HELPERS:
+            factory_name = f"{factory_name}{_mass_matrix_cache_tag(mass)}"
 
         # Handle cached_aux_count specially - it doesn't generate code
         # and doesn't depend on whether other functions are cached

@@ -1580,3 +1580,80 @@ def test_jacobi_preconditioner_mass_matrix(
         atol=tolerance.abs_tight,
         rtol=tolerance.rel_tight,
     )
+
+
+def test_mass_matrix_selects_distinct_cached_helpers(
+    jacobi_kernel,
+    precision,
+    tolerance,
+):
+    """Changing the mass matrix yields freshly generated helpers.
+
+    The generated source bakes mass entries in, so requesting the same
+    helper type with a different mass matrix must not return the
+    previously cached device function (in memory or from the
+    generated-code file on disk).
+    """
+    system = create_ODE_system(
+        [
+            "dx0 = -k0*x0 + x0*x1",
+            "dx1 = -k1*x1 + x0*x0",
+        ],
+        states=["x0", "x1"],
+        constants={"k0": 1.0, "k1": 2.0},
+        precision=precision,
+        name="mass_cache_key_sys",
+    )
+
+    h, a_ij = 0.2, 0.5
+    state = np.array([0.3, -0.6], dtype=precision)
+    base = np.array([0.1, 0.2], dtype=precision)
+    v = np.array([0.7, -1.3], dtype=precision)
+    eval_point = base + a_ij * state
+    # J00 = -k0 + x1, J11 = -k1 at the evaluation point
+    diag_j = np.array([-1.0 + eval_point[1], -2.0])
+
+    pre_eye = system.get_solver_helper(
+        "jacobi_preconditioner", beta=1.0, gamma=1.0
+    )
+    out_eye = np.zeros(2, dtype=precision)
+    jacobi_kernel(pre_eye)[1, 1](
+        precision(0.0),
+        precision(h),
+        precision(a_ij),
+        state,
+        base,
+        v,
+        out_eye,
+    )
+
+    mass = np.diag([2.0, 3.0])
+    pre_mass = system.get_solver_helper(
+        "jacobi_preconditioner", beta=1.0, gamma=1.0, mass=mass
+    )
+    out_mass = np.zeros(2, dtype=precision)
+    jacobi_kernel(pre_mass)[1, 1](
+        precision(0.0),
+        precision(h),
+        precision(a_ij),
+        state,
+        base,
+        v,
+        out_mass,
+    )
+
+    expected_eye = v / (1.0 - h * a_ij * diag_j)
+    expected_mass = v / (np.diag(mass) - h * a_ij * diag_j)
+
+    assert np.allclose(
+        out_eye,
+        expected_eye,
+        atol=tolerance.abs_tight,
+        rtol=tolerance.rel_tight,
+    )
+    assert np.allclose(
+        out_mass,
+        expected_mass,
+        atol=tolerance.abs_tight,
+        rtol=tolerance.rel_tight,
+    )
