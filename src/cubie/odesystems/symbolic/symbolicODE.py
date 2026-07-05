@@ -951,12 +951,14 @@ class SymbolicODE(BaseODE):
                     self.equations,
                     self.indices,
                     factory_name,
+                    M=mass,
                 )
             elif func_type == "jacobi_preconditioner_cached":
                 code = generate_jacobi_preconditioner_cached_code(
                     self.equations,
                     self.indices,
                     factory_name,
+                    M=mass,
                 )
             elif func_type == "stage_residual":
                 code = generate_stage_residual_code(
@@ -1006,6 +1008,7 @@ class SymbolicODE(BaseODE):
                     stage_coefficients=stage_coefficients,
                     stage_nodes=stage_nodes,
                     func_name=factory_name,
+                    M=mass,
                 )
             else:
                 raise NotImplementedError(

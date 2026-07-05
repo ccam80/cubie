@@ -568,7 +568,7 @@ JACOBI_TEMPLATE = (
     "# AUTO-GENERATED DIAGONAL JACOBI PRECONDITIONER FACTORY\n"
     "def {func_name}(constants, precision, beta=1.0, gamma=1.0, order=1):\n"
     '    """Auto-generated diagonal Jacobi preconditioner.\n'
-    "    Computes diagonal of ``beta * I - gamma * a_ij * h * J`` and\n"
+    "    Computes diagonal of ``beta * M - gamma * a_ij * h * J`` and\n"
     "    applies pointwise inversion: ``out[i] = v[i] / d[i]``.\n"
     "    Returns device function:\n"
     "      preconditioner(state, parameters, drivers, base_state,"
@@ -593,7 +593,7 @@ JACOBI_CACHED_TEMPLATE = (
     "# AUTO-GENERATED CACHED DIAGONAL JACOBI PRECONDITIONER FACTORY\n"
     "def {func_name}(constants, precision, beta=1.0, gamma=1.0, order=1):\n"
     '    """Cached diagonal Jacobi preconditioner using stored auxiliaries.\n'
-    "    Computes diagonal of ``beta * I - gamma * a_ij * h * J`` and\n"
+    "    Computes diagonal of ``beta * M - gamma * a_ij * h * J`` and\n"
     "    applies pointwise inversion: ``out[i] = v[i] / d[i]``.\n"
     "    Returns device function:\n"
     "      preconditioner(\n"
@@ -616,15 +616,108 @@ JACOBI_CACHED_TEMPLATE = (
 )
 
 
+DIAG_DIVISION_FLOOR = 1e-16
+"""Magnitude floor applied to Jacobi diagonals before division.
+
+A diagonal entry ``beta - gamma*h*a_ij*J_ii`` crosses zero when
+``h*a_ij*J_ii`` approaches ``beta/gamma``; dividing by it would emit
+inf/NaN, and NaN passes untouched through the linear solvers' selp
+clamps. Flooring the magnitude keeps the correction large but finite.
+"""
+
+
+def _guarded_diag_division(diag_sym, comp_idx, stage_idx=None):
+    """Return a magnitude-floored alias assignment for a diagonal.
+
+    Parameters
+    ----------
+    diag_sym
+        Symbol holding the raw diagonal value.
+    comp_idx
+        State component index used to name the alias.
+    stage_idx
+        Optional FIRK stage index prefixed to the alias name.
+
+    Returns
+    -------
+    tuple of (sympy.Symbol, sympy.Expr)
+        ``safe_diag_*`` symbol and the guarded expression. When
+        ``|diag| < DIAG_DIVISION_FLOOR`` the floor value is used
+        (sign dropped; near zero the sign carries no information).
+    """
+    if stage_idx is not None:
+        suffix = f"{stage_idx}_{comp_idx}"
+    else:
+        suffix = f"{comp_idx}"
+    safe_sym = sp.Symbol(f"safe_diag_{suffix}")
+    floor = sp.Float(DIAG_DIVISION_FLOOR)
+    guarded = sp.Piecewise(
+        (diag_sym, sp.Abs(diag_sym) >= floor),
+        (floor, sp.S.true),
+    )
+    return (safe_sym, guarded)
+
+
+def _resolve_mass_matrix(M, state_count):
+    """Return the mass matrix as a SymPy matrix, defaulting to identity.
+
+    Parameters
+    ----------
+    M
+        Mass matrix as an array-like or SymPy matrix, or ``None``.
+    state_count
+        Dimension of the state vector.
+
+    Returns
+    -------
+    sympy.Matrix
+        Mass matrix used for diagonal extraction.
+    """
+    if M is None:
+        return sp.eye(state_count)
+    return sp.Matrix(M)
+
+
+def _mass_diag_term(M, comp_idx, beta_sym):
+    """Return the ``beta*M_ii`` term of a Jacobi diagonal entry.
+
+    Off-diagonal mass entries are ignored: the Jacobi preconditioner
+    approximates only the diagonal of ``beta*M - gamma*h*a_ij*J``.
+
+    Parameters
+    ----------
+    M
+        Mass matrix as a SymPy matrix.
+    comp_idx
+        State component index.
+    beta_sym
+        Symbol holding the beta coefficient.
+
+    Returns
+    -------
+    sympy.Expr
+        ``beta`` when ``M_ii == 1``, otherwise ``beta * M_ii``.
+    """
+    entry = M[comp_idx, comp_idx]
+    if entry == 1:
+        return beta_sym
+    if isinstance(entry, sp.Integer):
+        entry = sp.Float(float(entry))
+    return beta_sym * entry
+
+
 def _build_jacobi_body_with_state_subs(
     equations: ParsedEquations,
     index_map: IndexedBases,
     cse: bool = True,
+    M: Optional[Union[sp.Matrix, Sequence]] = None,
 ) -> str:
     """Build single-system Jacobi body with inline state evaluation.
 
     For Newton-Krylov usage: ``state`` is the stage increment, evaluate
-    the Jacobian diagonal at ``base_state + a_ij * state``.
+    the Jacobian diagonal at ``base_state + a_ij * state``. The
+    diagonal is ``beta*M_ii - gamma*h*a_ij*J_ii``; off-diagonal mass
+    entries are ignored.
     """
     from cubie.odesystems.symbolic.codegen.jacobian import generate_jacobian
 
@@ -677,12 +770,16 @@ def _build_jacobi_body_with_state_subs(
     combined_subs.update(substitution_map)
     combined_subs.update(state_subs)
 
+    mass = _resolve_mass_matrix(M, state_count)
     for comp_idx in range(state_count):
         j_ii = jac[comp_idx, comp_idx]
         substituted = j_ii.xreplace(combined_subs)
 
         diag_sym = sp.Symbol(f"diag_{comp_idx}")
-        diag_val = beta_sym - gamma_sym * h_sym * a_ij_sym * substituted
+        diag_val = (
+            _mass_diag_term(mass, comp_idx, beta_sym)
+            - gamma_sym * h_sym * a_ij_sym * substituted
+        )
         eval_exprs.append((diag_sym, diag_val))
         eval_exprs.append((
             out_vec[comp_idx],
@@ -714,11 +811,14 @@ def _build_cached_jacobi_body(
     equations: ParsedEquations,
     index_map: IndexedBases,
     cse: bool = True,
+    M: Optional[Union[sp.Matrix, Sequence]] = None,
 ) -> str:
     """Build cached Jacobi body for Rosenbrock usage.
 
     ``state`` is the actual state vector — no inline substitution needed.
-    Auxiliaries come from the ``cached_aux`` buffer.
+    Auxiliaries come from the ``cached_aux`` buffer. The diagonal is
+    ``beta*M_ii - gamma*h*a_ij*J_ii``; off-diagonal mass entries are
+    ignored.
     """
     from cubie.odesystems.symbolic.codegen.jacobian import generate_jacobian
 
@@ -767,12 +867,16 @@ def _build_cached_jacobi_body(
     for lhs, rhs in runtime_aux:
         aux_subs[lhs] = rhs
 
+    mass = _resolve_mass_matrix(M, state_count)
     for comp_idx in range(state_count):
         j_ii = jac[comp_idx, comp_idx]
         substituted = j_ii.xreplace(aux_subs)
 
         diag_sym = sp.Symbol(f"diag_{comp_idx}")
-        diag_val = beta_sym - gamma_sym * h_sym * a_ij_sym * substituted
+        diag_val = (
+            _mass_diag_term(mass, comp_idx, beta_sym)
+            - gamma_sym * h_sym * a_ij_sym * substituted
+        )
         eval_exprs.append((diag_sym, diag_val))
         eval_exprs.append((
             out_vec[comp_idx],
@@ -810,12 +914,13 @@ def generate_jacobi_preconditioner_code(
     index_map: IndexedBases,
     func_name: str = "jacobi_preconditioner_factory",
     cse: bool = True,
+    M: Optional[Union[sp.Matrix, Sequence]] = None,
 ) -> str:
     """Generate a diagonal Jacobi preconditioner for single-system solvers.
 
-    Computes ``diag(beta*I - gamma*h*a_ij*J_diag)`` and applies
+    Computes ``diag(beta*M - gamma*h*a_ij*J)`` and applies
     pointwise inversion. For Newton-Krylov usage with inline state
-    evaluation.
+    evaluation. Off-diagonal mass entries are ignored.
 
     Parameters
     ----------
@@ -827,6 +932,8 @@ def generate_jacobi_preconditioner_code(
         Name for the generated factory function.
     cse
         Whether to apply common-subexpression elimination.
+    M
+        Mass matrix; identity when omitted.
 
     Returns
     -------
@@ -838,7 +945,9 @@ def generate_jacobi_preconditioner_code(
     )
     n_out = len(index_map.dxdt.ref_map)
     const_block = render_constant_assignments(index_map.constants.symbol_map)
-    diag_body = _build_jacobi_body_with_state_subs(equations, index_map, cse)
+    diag_body = _build_jacobi_body_with_state_subs(
+        equations, index_map, cse, M=M
+    )
     result = JACOBI_TEMPLATE.format(
         func_name=func_name,
         n_out=n_out,
@@ -856,11 +965,12 @@ def generate_jacobi_preconditioner_cached_code(
     index_map: IndexedBases,
     func_name: str = "jacobi_preconditioner_cached",
     cse: bool = True,
+    M: Optional[Union[sp.Matrix, Sequence]] = None,
 ) -> str:
     """Generate a cached diagonal Jacobi preconditioner.
 
     For Rosenbrock usage: state is the actual state, auxiliaries come
-    from a cached buffer.
+    from a cached buffer. Off-diagonal mass entries are ignored.
 
     Parameters
     ----------
@@ -872,6 +982,8 @@ def generate_jacobi_preconditioner_cached_code(
         Name for the generated factory function.
     cse
         Whether to apply common-subexpression elimination.
+    M
+        Mass matrix; identity when omitted.
 
     Returns
     -------
@@ -883,7 +995,7 @@ def generate_jacobi_preconditioner_cached_code(
     )
     n_out = len(index_map.dxdt.ref_map)
     const_block = render_constant_assignments(index_map.constants.symbol_map)
-    diag_body = _build_cached_jacobi_body(equations, index_map, cse)
+    diag_body = _build_cached_jacobi_body(equations, index_map, cse, M=M)
     result = JACOBI_CACHED_TEMPLATE.format(
         func_name=func_name,
         n_out=n_out,
@@ -902,7 +1014,7 @@ N_STAGE_JACOBI_TEMPLATE = (
     "def {func_name}(constants, precision, beta=1.0, gamma=1.0, order=1):\n"
     '    """Auto-generated FIRK diagonal Jacobi preconditioner.\n'
     "    Handles {stage_count} stages with ``s * n`` unknowns.\n"
-    "    Computes diagonal of ``beta * I - gamma * h * (A ⊗ J)`` and\n"
+    "    Computes diagonal of ``beta * M - gamma * h * (A ⊗ J)`` and\n"
     "    applies pointwise inversion: ``out[k] = v[k] / d[k]``.\n"
     "    Returns device function:\n"
     "      preconditioner(state, parameters, drivers, base_state,"
@@ -933,12 +1045,13 @@ def _build_n_stage_jacobi_lines(
     stage_coefficients: sp.Matrix,
     stage_nodes: Tuple[sp.Expr, ...],
     cse: bool = True,
+    M: Optional[Union[sp.Matrix, Sequence]] = None,
 ) -> str:
     """Build diagonal Jacobi preconditioner body for n-stage FIRK.
 
     Extracts J_ii = df_i/dy_i for each state, evaluates at each
-    stage point, forms d = beta - gamma*h*a_ss*J_ii, and applies
-    out[k] = v[k] / d[k].
+    stage point, forms d = beta*M_ii - gamma*h*a_ss*J_ii (off-diagonal
+    mass entries ignored), and applies out[k] = v[k] / d[k].
     """
     from cubie.odesystems.symbolic.codegen.jacobian import (
         generate_jacobian,
@@ -983,6 +1096,7 @@ def _build_n_stage_jacobi_lines(
     else:
         drivers = sp.IndexedBase("drivers")
 
+    mass = _resolve_mass_matrix(M, state_count)
     eval_exprs: List[Tuple[sp.Symbol, sp.Expr]] = list(metadata_exprs)
 
     for stage_idx in range(stage_count):
@@ -1083,7 +1197,7 @@ def _build_n_stage_jacobi_lines(
                 f"diag_{stage_idx}_{comp_idx}"
             )
             diag_val = (
-                beta_sym
+                _mass_diag_term(mass, comp_idx, beta_sym)
                 - gamma_sym * h_sym * diag_coeff * substituted
             )
             eval_exprs.append((diag_sym, diag_val))
@@ -1133,12 +1247,14 @@ def generate_n_stage_jacobi_preconditioner_code(
     stage_nodes: Sequence[Union[float, sp.Expr]],
     func_name: str = "n_stage_jacobi_preconditioner",
     cse: bool = True,
+    M: Optional[Union[sp.Matrix, Sequence]] = None,
 ) -> str:
     """Generate a diagonal Jacobi preconditioner for n-stage FIRK.
 
-    Computes ``diag(beta*I - gamma*h*(A_diag x J_diag))`` and
+    Computes ``diag(beta*M - gamma*h*(A_diag x J_diag))`` and
     applies pointwise inversion. Much cheaper than Neumann series
-    and handles stiff diagonal entries correctly.
+    and handles stiff diagonal entries correctly. Off-diagonal mass
+    entries are ignored.
 
     Parameters
     ----------
@@ -1154,6 +1270,8 @@ def generate_n_stage_jacobi_preconditioner_code(
         Name for the generated factory function.
     cse
         Whether to apply common-subexpression elimination.
+    M
+        Mass matrix; identity when omitted.
 
     Returns
     -------
@@ -1173,6 +1291,7 @@ def generate_n_stage_jacobi_preconditioner_code(
         stage_coefficients=coeff_matrix,
         stage_nodes=node_values,
         cse=cse,
+        M=M,
     )
     const_block = render_constant_assignments(
         index_map.constants.symbol_map
