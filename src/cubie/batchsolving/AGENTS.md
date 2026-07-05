@@ -95,7 +95,8 @@ Prefer real system fixtures (`tests/system_fixtures.py`) over mocks.
 
 ## Dependencies
 ### Internal
-- `cubie.CUDAFactory`; `cubie.integrators` (`SingleIntegratorRun`, `ArrayInterpolator`);
+- `cubie.CUDAFactory`; `cubie.integrators` (`SingleIntegratorRun`);
+  `cubie.array_interpolator` (`ArrayInterpolator`);
   `cubie.memory` (`default_memmgr`, `MemoryManager`, `ArrayRequest`/`ArrayResponse`,
   `chunk_buffer_pool`) + `cubie.buffer_registry`; `cubie.outputhandling` (`OutputCompileFlags`,
   `output_sizes`, `summary_metrics`); `cubie.odesystems` (`BaseODE`, `SymbolicODE`,

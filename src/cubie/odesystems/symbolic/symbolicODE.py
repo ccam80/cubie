@@ -53,7 +53,7 @@ from typing import (
 
 from numpy import float32, ndarray
 import sympy as sp
-from cubie.integrators.array_interpolator import ArrayInterpolator
+from cubie.array_interpolator import ArrayInterpolator
 from cubie.odesystems.symbolic.codegen.dxdt import (
     generate_dxdt_fac_code,
     generate_observables_fac_code,

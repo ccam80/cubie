@@ -18,7 +18,7 @@ import matplotlib.pyplot as plt
 import numpy as np
 from numpy.typing import NDArray
 
-from cubie.integrators.array_interpolator import ArrayInterpolator
+from cubie.array_interpolator import ArrayInterpolator
 from cubie.memory import default_memmgr
 from cubie.outputhandling.output_functions import OutputFunctions
 from tests._utils import _driver_sequence

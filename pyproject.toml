@@ -18,13 +18,14 @@ authors = [
     { name="Chris Cameron" }
 ]
 readme = "readme.md"
-requires-python = ">=3.9"
+requires-python = ">=3.10"
 license = "MIT"
 license-files = ["src/LICEN[CS]E*"]
 dependencies = [
     "numpy>=2.0", # vendoring cellmlmanip lifts the former <2.0 cap
     "numba",
-    "numba-cuda[cu12]",
+    "numba-cuda", # frontend; toolkit resolved from wheels (cuda12/cuda13
+                  # extras) or an existing system CUDA install
     "attrs",
     "sympy>=1.13.0",
     # cellmlmanip is vendored under cubie.vendored.cellmlmanip (it pins
@@ -43,21 +44,27 @@ Homepage = "https://github.com/ccam80/cubie.git"
 Issues = "https://github.com/ccam80/cubie/issues"
 
 [project.optional-dependencies]
-dev = [
+cuda12 = ["numba-cuda[cu12]"] # CUDA 12 toolkit wheels
+cuda13 = ["numba-cuda[cu13]"] # CUDA 13 toolkit wheels
+cupy12 = ["cupy-cuda12x"] # optional pool memory, CUDA 12 build
+cupy13 = ["cupy-cuda13x"] # optional pool memory, CUDA 13 build
+test = [
     "pytest",
     "pytest-cov",
     "pytest-durations",
     "pytest-xdist[psutil]",
     "flake8",
     "ruff",
-    "cupy-cuda12x",
     "pandas",
     "matplotlib",
     "scipy",
 ]
-cupy = [
-    "cupy-cuda12x",
-]
+# dev lanes pull cupy so the cupy-marked tests run against the matching
+# CUDA toolkit. dev defaults to the CUDA 12 lane; flip to dev13 once the
+# CUDA 13 matrix is verified.
+dev12 = ["cubie[cuda12,cupy12,test]"]
+dev13 = ["cubie[cuda13,cupy13,test]"]
+dev = ["cubie[dev12]"]
 optional = [
     "pandas",
     "matplotlib"

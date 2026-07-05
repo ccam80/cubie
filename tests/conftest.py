@@ -32,7 +32,7 @@ from cubie.integrators.loops.ode_loop import ALL_LOOP_SETTINGS
 from cubie.integrators.step_control.base_step_controller import (
     ALL_STEP_CONTROLLER_PARAMETERS,
 )
-from cubie.integrators.array_interpolator import ArrayInterpolator
+from cubie.array_interpolator import ArrayInterpolator
 from cubie.memory import default_memmgr
 from cubie.memory.mem_manager import (
     ALL_MEMORY_MANAGER_PARAMETERS,

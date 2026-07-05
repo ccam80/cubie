@@ -46,7 +46,7 @@ from cubie.batchsolving.solveresult import SolveResult, SolveSpec
 from cubie.batchsolving.SystemInterface import SystemInterface
 from cubie.memory.mem_manager import ALL_MEMORY_MANAGER_PARAMETERS
 from cubie.odesystems.baseODE import BaseODE
-from cubie.integrators.array_interpolator import ArrayInterpolator
+from cubie.array_interpolator import ArrayInterpolator
 from cubie.integrators.algorithms.base_algorithm_step import (
     ALL_ALGORITHM_STEP_PARAMETERS,
 )
@@ -390,7 +390,7 @@ class Solver:
             in (n_params, n_runs) format.
         drivers
             Driver samples or configuration matching
-            :class:`cubie.integrators.array_interpolator.ArrayInterpolator`.
+            :class:`cubie.array_interpolator.ArrayInterpolator`.
         duration
             Total integration time. Default is ``1.0``.
         settling_time

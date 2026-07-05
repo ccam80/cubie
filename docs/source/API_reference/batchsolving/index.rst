@@ -52,10 +52,9 @@ Dependencies
 ------------
 
 - Batch kernel compilation extends :class:`cubie.CUDAFactory` and relies on
-  :mod:`cubie.integrators.algorithms`,
-  :mod:`cubie.integrators.step_control`, and
-  :mod:`cubie.integrators.array_interpolator` for loop callables and driver
-  interpolation.
+  :mod:`cubie.integrators.algorithms` and
+  :mod:`cubie.integrators.step_control` for loop callables, and
+  :mod:`cubie.array_interpolator` for driver interpolation.
 - Array managers size buffers with
   :mod:`cubie.outputhandling.output_sizes` and allocate memory through
   :mod:`cubie.memory` managers.
