@@ -704,10 +704,10 @@ register_array_literal_shim()
 # points. All are behaviour-preserving; only compile time changes.
 # Each group feature-detects the installed package and no-ops when
 # the change is already present (a patched build, or a future release
-# that merged it). Fork feature branches: feat/lazy-postproc-liveness,
-# feat/lazy-error-markup, feat/targetconfig-hash-cache,
-# feat/ssa-restricted-sweeps, feat/inline-callee-ir-cache (stacked on
-# inline-ir-preserve), feat/callconstraint-memo, feat/liveness-bitsets.
+# that merged it). Fork feature branches: perf-lazy-postproc-liveness,
+# perf-lazy-error-markup, perf-targetconfig-hash-cache,
+# perf-ssa-restricted-sweeps, perf-inline-callee-ir-cache (stacked on
+# inline-ir-preserve), perf-callconstraint-memo, perf-liveness-bitsets.
 # The numba-cuda lowering-side patches (call-type cache, linear
 # singly-assigned scan) have no analogue here: MLIRBackend replaces
 # the LLVM lowering entirely. The NumbaError double-highlight fix is
