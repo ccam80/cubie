@@ -737,10 +737,19 @@ class SymbolicODE(BaseODE):
         func_type
             Helper identifier. Supported values are ``"linear_operator"``,
             ``"linear_operator_cached"``, ``"neumann_preconditioner"``,
-            ``"neumann_preconditioner_cached"``, ``"stage_residual"``,
-            ``"n_stage_residual"``, ``"n_stage_linear_operator"`,
-            ``"n_stage_neumann_preconditioner"``, ``"prepare_jac"`,
+            ``"neumann_preconditioner_cached"``,
+            ``"jacobi_preconditioner"``,
+            ``"jacobi_preconditioner_cached"``, ``"stage_residual"``,
+            ``"n_stage_residual"``, ``"n_stage_linear_operator"``,
+            ``"n_stage_neumann_preconditioner"``,
+            ``"n_stage_jacobi_preconditioner"``, ``"prepare_jac"``,
             ``"cached_aux_count"`` and ``"calculate_cached_jvp"``.
+            The composite types ``"preconditioner"``,
+            ``"preconditioner_cached"``, and
+            ``"n_stage_preconditioner"`` resolve
+            ``preconditioner_type`` (a string or a two-element list
+            chained as ``P1(P0(v))``) to the matching concrete
+            helper(s).
         beta
             Shift parameter for the linear operator.
         gamma
@@ -1110,11 +1119,23 @@ def _chain_two_preconditioners(p0, p1, cached=False):
     -------
     Callable
         Chained preconditioner device function.
+
+    Notes
+    -----
+    ``p0`` receives ``scratch`` as both its output and its scratch
+    argument (out = P1(P0(v)) needs an intermediate, and the fixed
+    signature offers no fourth buffer). This aliasing is safe only
+    because the generated Neumann and Jacobi preconditioners never
+    write to ``scratch``; a preconditioner that uses its scratch
+    buffer must not be chained without introducing a separate
+    intermediate buffer here.
     """
     from numba import cuda
 
+    from cubie.cuda_simsafe import compile_kwargs
+
     if cached:
-        @cuda.jit(device=True, inline=True)
+        @cuda.jit(device=True, inline=True, **compile_kwargs)
         def chained_cached(
             state, parameters, drivers, cached_aux,
             base_state, t, h, a_ij, v, out, jvp, scratch,
@@ -1131,7 +1152,7 @@ def _chain_two_preconditioners(p0, p1, cached=False):
             )
         return chained_cached
     else:
-        @cuda.jit(device=True, inline=True)
+        @cuda.jit(device=True, inline=True, **compile_kwargs)
         def chained(
             state, parameters, drivers, base_state,
             t, h, a_ij, v, out, jvp, scratch,

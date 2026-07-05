@@ -165,6 +165,10 @@ components use this set to filter kwargs before forwarding.
    * - ``preconditioner_order``
      - :class:`ImplicitStepConfig`
      - Order of the truncated Neumann preconditioner.
+   * - ``preconditioner_type``
+     - :class:`ImplicitStepConfig`
+     - Preconditioner selection: ``"neumann"``, ``"jacobi"``, or a
+       two-element list to chain both.
    * - ``krylov_atol``
      - :class:`LinearSolverBaseConfig`
      - Absolute tolerance for the linear solver.
