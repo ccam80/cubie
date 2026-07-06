@@ -74,13 +74,11 @@ def test_bicgstab_breakdown_detection(precision):
     out_flag = cuda.to_device(np.array([0], dtype=np.int32))
     kernel[1, 1](out_flag, precision(0.01))
     status_code = int(out_flag.copy_to_host()[0]) & 0xFF
-    # Zero operator: rho_0 = 0 initially, so the check
-    # |rho_new| < tol * rho_0 fires or max_iters is hit.
-    # Either breakdown or max_iters exceeded is acceptable.
-    assert status_code in (
-        CUBIE_RESULT_CODES.BICGSTAB_BREAKDOWN,
-        CUBIE_RESULT_CODES.MAX_LINEAR_ITERATIONS_EXCEEDED,
-    )
+    # Zero operator: v = A(p) = 0 with a nonzero residual, so the
+    # pivot quotient rho/<r0_hat, v> overflows on the first
+    # iteration and must be labelled as breakdown, not as an
+    # exhausted iteration budget.
+    assert status_code == CUBIE_RESULT_CODES.BICGSTAB_BREAKDOWN
 
 
 def test_bicgstab_r0_hat_auto_placement():

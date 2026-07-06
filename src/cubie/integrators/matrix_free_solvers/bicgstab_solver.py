@@ -248,10 +248,15 @@ class BiCGSTABSolver(LinearSolverBase):
         )
         bicgstab_breakdown = int32(CUBIE_RESULT_CODES.BICGSTAB_BREAKDOWN)
 
-        # Breakdown thresholds: absolute floors for rho and omega.
-        # Rho breakdown fires only when |rho| is near the float
-        # representable limit, not when it shrinks proportionally
-        # to ||r|| during convergence.
+        # Breakdown thresholds: absolute floors for rho and omega,
+        # plus relative overflow guards on every recurrence quotient.
+        # A quotient whose magnitude would exceed ``dot_clamp`` is a
+        # breakdown: computing it would poison x, r, or p with values
+        # the elementwise clamps cannot repair once they reach inf or
+        # NaN (NaN passes through selp comparisons untouched). Keeping
+        # every scalar and vector element within ``dot_clamp`` keeps
+        # all products finite (clamp**2 is representable in both
+        # precisions), so breakdown detection stays functional.
         if precision == np_float32:
             breakdown_tol_rho = precision_numba(1e-30)
             breakdown_tol_omega = precision_numba(1e-30)
@@ -476,8 +481,17 @@ class BiCGSTABSolver(LinearSolverBase):
                     prod = selp(prod > dot_clamp, dot_clamp, prod)
                     prod = selp(prod < -dot_clamp, -dot_clamp, prod)
                     dot_r0v += prod
+                # Pivot breakdown: <r0_hat, v> vanished relative to
+                # rho, so the quotient would exceed the clamp budget.
+                alpha_overflow = (
+                    abs(rho_prev) > abs(dot_r0v) * dot_clamp
+                )
+                broken = broken or (
+                    (not finished) and alpha_overflow
+                )
+                finished = converged or broken
                 alpha = selp(
-                    dot_r0v != typed_zero,
+                    (dot_r0v != typed_zero) and (not alpha_overflow),
                     rho_prev / dot_r0v,
                     typed_zero,
                 )
@@ -546,8 +560,11 @@ class BiCGSTABSolver(LinearSolverBase):
                     sq = ti * ti
                     sq = selp(sq > dot_clamp, dot_clamp, sq)
                     dot_tt += sq
+                # An overflowing quotient zeroes omega; the absolute
+                # omega floor in Step 14 then labels the breakdown.
+                omega_overflow = abs(dot_ts) > dot_tt * dot_clamp
                 omega = selp(
-                    dot_tt != typed_zero,
+                    (dot_tt != typed_zero) and (not omega_overflow),
                     dot_ts / dot_tt,
                     typed_zero,
                 )
@@ -589,6 +606,18 @@ class BiCGSTABSolver(LinearSolverBase):
                 finished = converged or broken
 
                 # ── Step 16: beta ────────────────────────
+                # A factor exceeding the clamp budget (omega tiny
+                # relative to alpha, or rho rebounding relative to
+                # rho_prev) is a breakdown; beta would poison p.
+                beta_overflow = (
+                    abs(rho_new) > abs(rho_prev) * dot_clamp
+                ) or (
+                    abs(alpha) > abs(omega) * dot_clamp
+                )
+                broken = broken or (
+                    (not finished) and beta_overflow
+                )
+                finished = converged or broken
                 beta = selp(
                     not finished,
                     (rho_new / rho_prev) * (alpha / omega),
@@ -601,6 +630,12 @@ class BiCGSTABSolver(LinearSolverBase):
                         not finished,
                         rhs[i] + beta * (p[i] - omega * v[i]),
                         p[i],
+                    )
+                    p[i] = selp(
+                        p[i] > dot_clamp, dot_clamp, p[i]
+                    )
+                    p[i] = selp(
+                        p[i] < -dot_clamp, -dot_clamp, p[i]
                     )
 
                 # ── Step 18: rho_prev = rho_new ─────────
