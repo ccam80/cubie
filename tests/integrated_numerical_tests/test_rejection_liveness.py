@@ -6,8 +6,6 @@ tolerance must walk dt down to ``dt_min`` and terminate with
 by at least the controller safety factor.
 """
 
-from __future__ import annotations
-
 import numpy as np
 import pytest
 
