@@ -1039,3 +1039,44 @@ def test_user_set_inner_tolerance_sticks_across_update(
     expected_atol = np.asarray(run._step_controller.atol) / 10.0
     assert np.allclose(expected_atol, 2e-5)
     assert np.allclose(run._algo_step.newton_atol, expected_atol)
+
+
+# FIRK stage solvers work on the stage-major stacked stage vector,
+# whose length is stage_count * n_states, so a per-state controller
+# tolerance vector tiles once per stage before reaching the inner
+# norms.
+_RADAU_ADAPTIVE_NOT_GIVEN = {
+    "algorithm": "radau_iia_5",
+    "step_controller": "pid",
+    "atol": np.asarray([1e-8, 2e-8, 4e-8]),
+    "rtol": 1e-8,
+    "dt_min": 1e-10,
+    "dt_max": 0.1,
+    "krylov_atol": None,
+    "krylov_rtol": None,
+    "newton_atol": None,
+    "newton_rtol": None,
+}
+
+
+@pytest.mark.parametrize(
+    "solver_settings_override", [_RADAU_ADAPTIVE_NOT_GIVEN], indirect=True
+)
+def test_inner_tolerance_defaults_with_stacked_stage_solver(
+    single_integrator_run,
+):
+    """Per-state vectors tile onto the stacked stage solver vector."""
+    run = single_integrator_run
+    algo = run._algo_step
+    controller = run._step_controller
+
+    solver_n = int(algo.solver.compile_settings.n)
+    n_states = np.asarray(controller.atol).size
+    stages = solver_n // n_states
+    expected_atol = np.tile(np.asarray(controller.atol) / 10.0, stages)
+    expected_rtol = np.tile(np.asarray(controller.rtol) / 10.0, stages)
+    assert solver_n > n_states
+    assert np.allclose(algo.krylov_atol, expected_atol)
+    assert np.allclose(algo.krylov_rtol, expected_rtol)
+    assert np.allclose(algo.newton_atol, expected_atol)
+    assert np.allclose(algo.newton_rtol, expected_rtol)

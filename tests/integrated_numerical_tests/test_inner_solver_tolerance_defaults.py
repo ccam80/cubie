@@ -6,10 +6,10 @@ controller's tolerance, the stage-solve residual noise floors the embedded
 error estimate, so a controller tolerance at or below the inner-solver
 tolerance can reject every step down to ``dt_min``.
 
-Leaving ``krylov_atol``/``krylov_rtol``/``newton_atol``/``newton_rtol`` unset
-now defaults them to the controller atol/rtol divided by ten.  These tests
-confirm the derived default is wired through the whole public ``Solver`` stack
-and that a real GPU solve with the new defaults still succeeds.
+Unset ``krylov_atol``/``krylov_rtol``/``newton_atol``/``newton_rtol``
+default to the controller atol/rtol divided by ten.  These tests confirm
+the derived default is wired through the whole public ``Solver`` stack and
+that a real GPU solve under the derived defaults succeeds.
 """
 
 from __future__ import annotations
