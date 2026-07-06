@@ -1,12 +1,11 @@
-"""Regression tests for Rosenbrock embedded-error correctness.
+"""Numerical tests for the rosenbrock23 tableau family.
 
 The rosenbrock23 tableau (aliased as ode23s and rosenbrock23_sciml)
 is stored in the transformed increment convention of Hairer & Wanner
-(Solving ODEs II, IV.7.17).  A mistranslated tableau produces an
-error estimate with a spurious O(dt) term, so the controller rejects
-every step down to ``dt_min`` and the solve dies with
-``STEP_TOO_SMALL`` and NaN output on even a trivial stiff linear
-decay (issue #527).
+(Solving ODEs II, IV.7.17).  These tests pin the order-2 solution and
+order-3 embedded estimate on stiff linear decay: consistent tableau
+coefficients are required for the adaptive controller to accept steps
+at all.
 """
 
 from __future__ import annotations
@@ -46,9 +45,8 @@ def test_rosenbrock23_solves_stiff_decay(stiff_decay_system, algorithm):
     """Adaptive solve succeeds with accurate output at tol 1e-6.
 
     Krylov tolerances sit well below the controller tolerance so the
-    test isolates the tableau: stage-solve residuals at the default
-    1e-6 put a floor under the embedded error estimate that rejects
-    steps for any tableau (see #529).
+    test isolates the tableau from the stage-solve residual floor on
+    the embedded error estimate.
     """
     solver = Solver(
         stiff_decay_system,
