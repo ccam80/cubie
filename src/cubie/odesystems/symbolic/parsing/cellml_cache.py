@@ -104,6 +104,8 @@ class CellMLCache:
         observables: Optional[List[str]],
         precision,
         name: str,
+        fix_singularities: bool = True,
+        voltage_variable: Optional[str] = None,
     ) -> str:
         """Serialize arguments to a deterministic string for cache key.
 
@@ -132,6 +134,8 @@ class CellMLCache:
             "observables": sorted(observables) if observables else None,
             "precision": precision_str,
             "name": name,
+            "fix_singularities": fix_singularities,
+            "voltage_variable": voltage_variable,
         }
         return json.dumps(args_dict, sort_keys=True)
 
@@ -141,6 +145,8 @@ class CellMLCache:
         observables: Optional[List[str]],
         precision,
         name: str,
+        fix_singularities: bool = True,
+        voltage_variable: Optional[str] = None,
     ) -> str:
         """Compute cache key from file content hash and argument hash.
 
@@ -148,7 +154,9 @@ class CellMLCache:
         """
         file_hash = self.get_cellml_hash()
         args_str = self._serialize_args(
-            parameters, observables, precision, name
+            parameters, observables, precision, name,
+            fix_singularities=fix_singularities,
+            voltage_variable=voltage_variable,
         )
         combined = file_hash + args_str
         return sha256(combined.encode()).hexdigest()[:16]

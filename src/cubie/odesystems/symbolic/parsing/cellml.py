@@ -40,10 +40,14 @@ from pathlib import Path
 import numpy as np
 from typing import Optional, List
 import re
+import logging
+import warnings
 
 from cubie._utils import PrecisionDType
 from cubie.time_logger import default_timelogger
 from .cellml_cache import CellMLCache
+
+logger = logging.getLogger(__name__)
 
 # Register timing events for cellml import functions
 # Module-level registration required for proper event tracking
@@ -89,8 +93,90 @@ def _sanitize_symbol_name(name: str) -> str:
     
     # Replace any remaining invalid characters with _
     name = re.sub(r'[^a-zA-Z0-9_]', '_', name)
-    
+
     return name
+
+
+def _find_membrane_voltage(model) -> Optional[sp.Symbol]:
+    """Return the state variable identified as membrane voltage.
+
+    Matches the first membrane-component state whose lowercased name
+    ends with ``$v`` or contains ``$voltage`` (e.g. ``membrane$V``), so
+    that other membrane states such as ``membrane$reversal_potential``
+    are not misidentified.
+
+    Parameters
+    ----------
+    model
+        A ``cellmlmanip`` model instance.
+
+    Returns
+    -------
+    sympy.Symbol or None
+        The membrane-voltage state variable, or ``None`` when no state
+        name matches.
+    """
+    for state in model.get_state_variables():
+        name = str(state).lower()
+        if "membrane" in name and (
+            name.endswith("$v") or "$voltage" in name
+        ):
+            return state
+    return None
+
+
+def _remove_fixable_singularities(model, voltage_variable) -> None:
+    """Rewrite removable GHK singularities in a CellML model in place.
+
+    Goldman-Hodgkin-Katz current terms of the form ``U / (exp(U) - 1)``
+    evaluate to ``0 / 0`` at ``U == 0`` and produce non-finite
+    gradients that break float32 Newton-Krylov solves. ``cellmlmanip``
+    replaces them with a piecewise bridge across the singular point,
+    given the membrane voltage variable.
+
+    When ``voltage_variable`` is ``None`` the voltage state is
+    auto-detected by name: on success the detected name is logged at
+    INFO level; when no membrane voltage can be found a
+    :class:`UserWarning` is issued and the rewrite is skipped so that
+    non-cardiac models still load.
+
+    Parameters
+    ----------
+    model
+        A ``cellmlmanip`` model instance, mutated in place.
+    voltage_variable
+        Name of the membrane voltage variable, or ``None`` to
+        auto-detect it.
+
+    Raises
+    ------
+    ValueError
+        When an explicitly named variable is not found in the model.
+    """
+    if voltage_variable is None:
+        voltage = _find_membrane_voltage(model)
+        if voltage is None:
+            warnings.warn(
+                "fix_singularities is enabled but no membrane voltage "
+                "state could be auto-detected; skipping singularity "
+                "removal. Pass voltage_variable to apply it.",
+                UserWarning,
+                stacklevel=3,
+            )
+            return
+        logger.info(
+            "fix_singularities: auto-detected membrane voltage '%s'",
+            voltage,
+        )
+    else:
+        try:
+            voltage = model.get_variable_by_name(voltage_variable)
+        except KeyError:
+            raise ValueError(
+                "Could not resolve membrane voltage variable "
+                f"{voltage_variable!r} for singularity removal."
+            )
+    model.remove_fixable_singularities(voltage)
 
 
 def load_cellml_model(
@@ -99,6 +185,8 @@ def load_cellml_model(
     name: Optional[str] = None,
     parameters: Optional[List[str]] = None,
     observables: Optional[List[str]] = None,
+    fix_singularities: bool = True,
+    voltage_variable: Optional[str] = None,
     show_gui: bool = False,
 ):
     """Load a CellML model and return an initialized SymbolicODE system.
@@ -124,6 +212,16 @@ def load_cellml_model(
     observables : list of str, optional
         List of symbol names to assign as observables. Otherwise,
         these symbols become anonymous auxiliaries.
+    fix_singularities : bool, optional
+        If True, rewrite removable Goldman-Hodgkin-Katz singularities
+        (``U / (exp(U) - 1)``) with cellmlmanip's piecewise
+        replacement before parsing. Default is True.
+    voltage_variable : str, optional
+        Name of the membrane voltage variable used by the singularity
+        rewrite. If None while ``fix_singularities`` is True, the
+        voltage state is auto-detected by name; when none is found a
+        UserWarning is issued and the rewrite is skipped. Ignored when
+        ``fix_singularities`` is False.
     show_gui : bool, optional
         If True, launch the constants/parameters editor GUI after
         loading. Default is False.
@@ -146,7 +244,8 @@ def load_cellml_model(
     FileNotFoundError
         If the specified CellML file does not exist.
     ValueError
-        If the file does not have .cellml extension.
+        If the file does not have .cellml extension, or if an explicit
+        ``voltage_variable`` cannot be resolved for singularity removal.
 
     Examples
     --------
@@ -203,6 +302,8 @@ def load_cellml_model(
         cache = CellMLCache(model_name=name, cellml_path=path)
         args_hash = cache.compute_cache_key(
             parameters, observables, precision, name,
+            fix_singularities=fix_singularities,
+            voltage_variable=voltage_variable,
         )
         if cache.cache_valid(args_hash):
             cached_data = cache.load_from_cache(args_hash)
@@ -228,6 +329,10 @@ def load_cellml_model(
 
     default_timelogger.start_event("codegen_cellml_load_model")
     model = cellmlmanip.load_model(path)
+    if fix_singularities:
+        # Rewrite removable GHK singularities before extracting
+        # equations so the fix flows through parsing and codegen.
+        _remove_fixable_singularities(model, voltage_variable)
     raw_states = list(model.get_state_variables())
     raw_derivatives = list(model.get_derivatives())
     default_timelogger.stop_event("codegen_cellml_load_model")
@@ -413,6 +518,8 @@ def load_cellml_model(
     effective_params = list(parameters_dict.keys()) or None
     args_hash = cache.compute_cache_key(
         effective_params, observables, precision, name,
+        fix_singularities=fix_singularities,
+        voltage_variable=voltage_variable,
     )
 
     if cache.cache_valid(args_hash):
