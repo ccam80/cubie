@@ -140,12 +140,11 @@ class TestControllers:
     indirect=True,
 )
 def test_rejected_step_never_grows_dt(step_controller, precision, system):
-    """A rejected step must shrink dt, even after a failed-step error.
+    """A rejected step shrinks dt even with a huge stored error history.
 
-    Reproduces the #529 limit-cycle ingredient: the loop injects a
-    huge error after a solver failure, and on the next rejected step
-    the history term of a PI/PID controller with negative ``ki``
-    drove the gain to ``max_gain``, growing dt while rejecting.
+    The error history from a failed step (the loop stores 1e16 on
+    solver failure) feeds the PI/PID history term on the next call;
+    the gain on a rejected step must stay below one regardless.
     """
     device_func = step_controller.device_function
     n = system.sizes.states

@@ -414,14 +414,6 @@ class IVPLoop(CUDAFactory):
         success = int32(CUBIE_RESULT_CODES.SUCCESS)
         step_too_small = int32(CUBIE_RESULT_CODES.STEP_TOO_SMALL)
         stagnation = int32(CUBIE_RESULT_CODES.STAGNATION)
-        max_loop_iters_exceeded = int32(
-            CUBIE_RESULT_CODES.MAX_LOOP_ITERS_EXCEEDED
-        )
-        # Liveness bound: consecutive rejected steps before the run is
-        # declared irrecoverable. Rejection shrinks dt by at least the
-        # controller safety factor, so a healthy run reaches dt_min (and
-        # STEP_TOO_SMALL) in far fewer rejections than this.
-        max_consecutive_rejections = int32(512)
 
         save_state = config.save_state_fn
         update_summaries = config.update_summaries_fn
@@ -611,7 +603,6 @@ class IVPLoop(CUDAFactory):
             first_step_flag = True
             prev_step_accepted_flag = True
             stagnant_counts = int32(0)
-            rejected_counts = int32(0)
             save_idx = int32(0)
             summary_idx = int32(0)
             update_idx = int32(0)
@@ -854,23 +845,6 @@ class IVPLoop(CUDAFactory):
                         stagnant, int32(status | stagnation), status
                     )
                     irrecoverable = bool_(irrecoverable or stagnant)
-
-                    # Liveness guard: stagnation only sees the attempted
-                    # step, so a controller stuck rejecting with dt pinned
-                    # above dt_min would otherwise spin forever.
-                    if accept:
-                        rejected_counts = int32(0)
-                    else:
-                        rejected_counts += int32(1)
-                    reject_bound = bool_(
-                        rejected_counts >= max_consecutive_rejections
-                    )
-                    status = selp(
-                        reject_bound,
-                        int32(status | max_loop_iters_exceeded),
-                        status,
-                    )
-                    irrecoverable = bool_(irrecoverable or reject_bound)
 
                     t = selp(accept, t_proposal, t)
                     t_prec = precision(t)
