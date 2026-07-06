@@ -11,8 +11,6 @@ status, so a completed run's trajectory survives the default
 iteration are preserved for diagnosis.
 """
 
-from __future__ import annotations
-
 from math import cos  # noqa: F401 — used inside the ODE function
 
 import numpy as np
