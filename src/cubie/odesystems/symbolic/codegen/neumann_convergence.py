@@ -356,10 +356,17 @@ def check_neumann_convergence(
             "(likely a genuine singularity at t0).",
             n_bad,
         )
+        n_stages = (
+            len(stage_coefficients)
+            if stage_coefficients is not None
+            else 1
+        )
         return {
             "rho_N": float("nan"),
             "max_ratio": float("nan"),
             "converges": None,
+            "n_states": jacobian.shape[0],
+            "n_stages": n_stages,
             "worst_rows": [],
             "J_numeric": jacobian,
         }

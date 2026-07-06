@@ -52,6 +52,33 @@ def gating_singularity_system():
     )
 
 
+@pytest.fixture(scope="session")
+def singular_initial_state_system():
+    """System whose Jacobian is non-finite at the initial state.
+
+    ``log(x)`` is undefined for the backward finite-difference step at
+    ``x == 0``, so the Jacobian cannot be evaluated there.
+    """
+    return SymbolicODE.create(
+        dxdt=["dx = log(x)", "dy = -10.0 * y"],
+        states={"x": 0.0, "y": 1.0},
+        precision=np.float64,
+    )
+
+
+# Keys every check_neumann_convergence return must expose, regardless of
+# which path produced it.
+_RESULT_KEYS = {
+    "rho_N",
+    "max_ratio",
+    "converges",
+    "n_states",
+    "n_stages",
+    "worst_rows",
+    "J_numeric",
+}
+
+
 def test_converges_for_diagonally_dominant_system(
     diagonally_dominant_system,
 ):
@@ -92,6 +119,35 @@ def test_gating_singularity_converges_without_false_divergence(
     assert result["converges"] is True
     assert result["rho_N"] < 1.0
     assert not [w for w in record if "DIVERGE" in str(w.message)]
+
+
+def test_non_finite_jacobian_reports_not_verified(
+    singular_initial_state_system,
+):
+    """A non-finite Jacobian returns the full signature with no verdict."""
+    result = check_neumann_convergence(
+        singular_initial_state_system.equations,
+        singular_initial_state_system.indices,
+    )
+    assert result["converges"] is None
+    # The early-return path must expose the same keys as the normal path.
+    assert set(result) == _RESULT_KEYS
+
+
+def test_finite_and_non_finite_paths_share_return_signature(
+    diagonally_dominant_system,
+    singular_initial_state_system,
+):
+    """Both convergence paths return an identical set of keys."""
+    finite = check_neumann_convergence(
+        diagonally_dominant_system.equations,
+        diagonally_dominant_system.indices,
+    )
+    non_finite = check_neumann_convergence(
+        singular_initial_state_system.equations,
+        singular_initial_state_system.indices,
+    )
+    assert set(finite) == set(non_finite) == _RESULT_KEYS
 
 
 def test_get_solver_helper_runs_diagnostic_for_neumann_type(
