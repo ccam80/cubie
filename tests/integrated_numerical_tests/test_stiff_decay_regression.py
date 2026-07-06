@@ -8,8 +8,6 @@ coefficients are required for the adaptive controller to accept steps
 at all.
 """
 
-from __future__ import annotations
-
 import numpy as np
 import pytest
 
