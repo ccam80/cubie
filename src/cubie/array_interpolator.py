@@ -762,10 +762,9 @@ class ArrayInterpolator(CUDAFactory):
 
         The interpolator stacks driver arrays into columns in dictionary
         insertion order and the compiled kernel reads those columns
-        positionally against the system's declared driver order. A user
-        supplying drivers in a different key order would otherwise have the
-        columns silently transposed, so the driver entries are reordered to
-        match the system before the interpolator consumes them.
+        positionally against the system's declared driver order, so the
+        driver entries are reordered to match the system before the
+        interpolator consumes them.
 
         Parameters
         ----------
