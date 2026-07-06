@@ -54,17 +54,18 @@ def test_rosenbrock23_solves_stiff_decay(stiff_decay_system, algorithm):
         rtol=1e-6,
         krylov_atol=1e-12,
         krylov_rtol=1e-10,
-        save_every=0.1,
+        save_every=0.01,
         output_types=["state", "time"],
     )
     result = solver.solve(
-        {"u1": np.array([1.0])}, {}, duration=1.0, t0=0.0,
+        {"u1": np.array([1.0])}, {}, duration=0.1, t0=0.0,
         grid_type="verbatim",
     )
     status = int(np.asarray(result.status_codes)[0])
     final = float(np.asarray(result.time_domain_array)[-1, 0, 0])
+    reference = float(np.exp(-5.0))
     assert status == 0
-    assert abs(final - np.exp(-50.0)) < 1e-4
+    assert abs(final - reference) < 1e-5
 
 
 def test_rosenbrock23_solves_forced_decay(forced_decay_system):
