@@ -843,6 +843,7 @@ def neumann_kernel(precision):
             state = cuda.local.array(n, precision)
             parameters = cuda.local.array(1, precision)
             drivers = cuda.local.array(1, precision)
+            jvp = cuda.local.array(n, precision)
             scratch = cuda.local.array(n, precision)
             pre(
                 state,
@@ -854,6 +855,7 @@ def neumann_kernel(precision):
                 a_ij,
                 vec,
                 out,
+                jvp,
                 scratch,
             )
 
@@ -920,6 +922,7 @@ def neumann_cached_kernel(cached_system, precision):
             drivers = cuda.local.array(driver_len, precision)
             cached_aux = cuda.local.array(aux_len, precision)
             jvp = cuda.local.array(n_state, precision)
+            scratch = cuda.local.array(n_state, precision)
 
             for idx in range(n_state):
                 state[idx] = state_values[idx]
@@ -941,6 +944,7 @@ def neumann_cached_kernel(cached_system, precision):
                 vec,
                 out,
                 jvp,
+                scratch,
             )
 
         return kernel
