@@ -109,6 +109,7 @@ class InstrumentedMRLinearSolver(MRLinearSolver):
         get_alloc = buffer_registry.get_allocator
         alloc_precond = get_alloc('preconditioned_vec', self)
         alloc_temp = get_alloc('temp', self)
+        alloc_precond_scratch = get_alloc('mr_precond_scratch', self)
         
         # Branch on use_cached_auxiliaries flag
         if use_cached_auxiliaries:
@@ -146,7 +147,10 @@ class InstrumentedMRLinearSolver(MRLinearSolver):
                 # Allocate buffers from registry
                 preconditioned_vec = alloc_precond(shared, persistent_local)
                 temp = alloc_temp(shared, persistent_local)
-                
+                precond_scratch = alloc_precond_scratch(
+                    shared, persistent_local
+                )
+
                 # Evaluate operator and compute initial residual
                 operator_apply(
                     state, parameters, drivers, cached_aux, base_state,
@@ -182,11 +186,12 @@ class InstrumentedMRLinearSolver(MRLinearSolver):
                             rhs,
                             preconditioned_vec,
                             temp,
+                            precond_scratch,
                         )
                     else:
                         for i in range(n_val):
                             preconditioned_vec[i] = rhs[i]
-                    
+
                     operator_apply(
                         state,
                         parameters,
@@ -280,7 +285,10 @@ class InstrumentedMRLinearSolver(MRLinearSolver):
                 # Allocate buffers from registry
                 preconditioned_vec = alloc_precond(shared, persistent_local)
                 temp = alloc_temp(shared, persistent_local)
-                
+                precond_scratch = alloc_precond_scratch(
+                    shared, persistent_local
+                )
+
                 # Evaluate operator and compute initial residual
                 operator_apply(
                     state, parameters, drivers, base_state, t, h, a_ij, x,
@@ -315,11 +323,12 @@ class InstrumentedMRLinearSolver(MRLinearSolver):
                             rhs,
                             preconditioned_vec,
                             temp,
+                            precond_scratch,
                         )
                     else:
                         for i in range(n_val):
                             preconditioned_vec[i] = rhs[i]
-                    
+
                     operator_apply(
                         state,
                         parameters,

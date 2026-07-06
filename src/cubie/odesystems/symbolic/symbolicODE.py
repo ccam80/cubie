@@ -838,13 +838,10 @@ class SymbolicODE(BaseODE):
             )
             self.registered_helper_events.add(event_name)
 
-        try:
-            func = self.get_cached_output(func_type)
-            return func
-        except (NotImplementedError, KeyError):
-            pass
-
-        # Handle composite preconditioner types (early return)
+        # Composite preconditioner types are virtual: they have no
+        # ODECache field (the cache lookup below would raise KeyError),
+        # so resolve the chain instead; the concrete helpers it calls
+        # cache individually.
         if func_type in (
             "preconditioner",
             "n_stage_preconditioner",
@@ -863,6 +860,12 @@ class SymbolicODE(BaseODE):
             )
             default_timelogger.stop_event(event_name)
             return func
+
+        try:
+            func = self.get_cached_output(func_type)
+            return func
+        except NotImplementedError:
+            pass
 
         # Determine factory_name for n_stage helpers (needed to check cache)
         # Preconditioner names encode the order so that different
