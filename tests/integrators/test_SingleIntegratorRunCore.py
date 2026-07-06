@@ -888,3 +888,24 @@ def test_duration_dependent_warning_on_solve(
             or "duration" in str(x.message).lower()
         ]
         assert len(timing_warns) >= 1
+
+
+# ── no-op selector updates keep buffer registration ───────────────────── #
+
+def test_update_same_selectors_still_builds(single_integrator_run_mutable):
+    """Re-supplying the current controller and algorithm names builds."""
+    run = single_integrator_run_mutable
+    run.update({
+        "step_controller": run.compile_settings.step_controller,
+        "algorithm": run.compile_settings.algorithm,
+    })
+    assert run.device_function is not None
+
+
+def test_update_controller_swap_builds(single_integrator_run_mutable):
+    """A genuine controller swap reconstructs and builds."""
+    run = single_integrator_run_mutable
+    target = "i" if run.compile_settings.step_controller != "i" else "pi"
+    run.update({"step_controller": target})
+    assert run.compile_settings.step_controller == target
+    assert run.device_function is not None

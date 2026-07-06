@@ -151,6 +151,12 @@ def solve_ivp(
     if summarise_variables is not None:
         kwargs.setdefault("summarise_variables", summarise_variables)
 
+    # Solve-time options go to solve(); the rest configure the Solver.
+    solve_option_keys = ("blocksize", "stream", "results_type")
+    solve_options = {
+        key: kwargs.pop(key) for key in solve_option_keys if key in kwargs
+    }
+
     solver = Solver(
         system,
         algorithm=method,
@@ -167,11 +173,11 @@ def solve_ivp(
         parameters,
         drivers=drivers,
         duration=duration,
-        warmup=settling_time,
+        settling_time=settling_time,
         t0=t0,
         grid_type=grid_type,
         nan_error_trajectories=nan_error_trajectories,
-        **kwargs,
+        **solve_options,
     )
 
     # Stop wall-clock timing (summary printed by Solver.solve)
@@ -281,6 +287,11 @@ class Solver:
             valid_keys=ALL_OUTPUT_FUNCTION_PARAMETERS,
             user_settings=output_settings,
         )
+        # Label kwargs are converted to index settings, not forwarded.
+        for key in ("save_variables", "summarise_variables"):
+            if key in kwargs:
+                output_settings.setdefault(key, kwargs[key])
+                output_recognized.add(key)
         self.convert_output_labels(output_settings)
 
         memory_settings, memory_recognized = merge_kwargs_into_settings(
