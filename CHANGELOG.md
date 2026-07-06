@@ -1,5 +1,44 @@
 # Changelog
 
+## [0.0.8](https://github.com/ccam80/cubie/compare/v0.0.7...v0.0.8) (2026-07-06)
+
+
+### Features
+
+* CellML loader removes GHK singularities by default ([#522](https://github.com/ccam80/cubie/issues/522)) ([ef99849](https://github.com/ccam80/cubie/commit/ef9984988187b9478bda52024e3c261b23f995cf))
+* cellmlmanip vendored under cubie.vendored to lift the Pint&lt;0.20 pin ([f30f9f3](https://github.com/ccam80/cubie/commit/f30f9f3f64ed0ed6547a3da02bfb40ab8f924ab0))
+* central CUBIE_RESULT_CODES status vocabulary ([72a7a36](https://github.com/ccam80/cubie/commit/72a7a36c7f0838822501f2c0a6e9a1a28dbad4b6))
+* constants/params/inits setting gui added (for large models) ([e6af22b](https://github.com/ccam80/cubie/commit/e6af22b380786297a6ae3cd6f1836e620f16fd00))
+* more-sensible defaults are set when only a subset of dt_min, dt_max, dt are set ([f552dda](https://github.com/ccam80/cubie/commit/f552dda1c928f17bc88e7efc24492b16eff6cd60))
+* numba-cuda compile-time patches ship as a compat module ([dc9fe8f](https://github.com/ccam80/cubie/commit/dc9fe8fa1c4e2b68f10a786b75635adc84f76bb2))
+
+
+### Bug Fixes
+
+* adaptive loops no longer hang when newton solver fails on a save boundary ([#519](https://github.com/ccam80/cubie/issues/519)) ([f552dda](https://github.com/ccam80/cubie/commit/f552dda1c928f17bc88e7efc24492b16eff6cd60))
+* broken ODEData beta/gamma properties removed and the mass matrix folded into the compile-cache key ([b5ad20c](https://github.com/ccam80/cubie/commit/b5ad20cb602e78308e6e361553f4b3beeaa2ce62))
+* CUBIECache initialises numba-cuda launch-config cache state ([9bb8e39](https://github.com/ccam80/cubie/commit/9bb8e39fd210d26d26808b0acd2b95c397d3691c))
+* dynamic-shared block-size reduction floors at one warp ([7d2b5fb](https://github.com/ccam80/cubie/commit/7d2b5fb956f3608719080d7e7b713951b02b37ea))
+* power-expansion rewrite parenthesizes x*x, preserving division precedence ([503c76c](https://github.com/ccam80/cubie/commit/503c76c168c69072afd28d1251deb12392e94cab))
+* pyfunc now doesn't relabel output states ([45b94c6](https://github.com/ccam80/cubie/commit/45b94c6ad9b4ad992233321bedfe39df46be944c))
+* sub-warp block sizes reserved for hardware necessity ([c51af85](https://github.com/ccam80/cubie/commit/c51af85ec9d738e3a526f1f210475ecbbe4af2fa))
+* tableau weight-sum validation is two-sided and RK-scoped ([94d8d2a](https://github.com/ccam80/cubie/commit/94d8d2a3fcef334d893967ea008e3a703bb78f04))
+* update event handle handling to inspect the value of handle directly. ([5926b8c](https://github.com/ccam80/cubie/commit/5926b8c0afa36ca41bde01b63ddbc9fc00955821))
+
+
+### Documentation
+
+* add explanation of output timing, loop duration/start timing, and step timing to the user guide ([f552dda](https://github.com/ccam80/cubie/commit/f552dda1c928f17bc88e7efc24492b16eff6cd60))
+* chaste_codegen attribution removed from the Jacobian generator, which shares no provenance with it ([259278a](https://github.com/ccam80/cubie/commit/259278a4f13e05de1874ed40c574e302412c9dca))
+* testing guidance restored to the mandatory centralised-fixture directive and the phantom is_device/CUDA-availability rule removed ([29215fb](https://github.com/ccam80/cubie/commit/29215fb2a19f802356506a02b364c55ce2ea2e97))
+* testing rules hardened so mocks require an explicit user exception and tests are never softened with lax assertions ([b9099f6](https://github.com/ccam80/cubie/commit/b9099f62264fb9308b1a313a94e8c2060ebbc3bc))
+* top-level AGENTS.md written, root CLAUDE.md symlink added, and GitHub agent-instruction files removed ([87ba31f](https://github.com/ccam80/cubie/commit/87ba31f3059c625e55ed88569b83a5ea066a06e2))
+
+
+### Miscellaneous Chores
+
+* release 0.0.8 ([b433b67](https://github.com/ccam80/cubie/commit/b433b67f7348651766d2a807582ecaf3947adf55))
+
 ## [0.0.7](https://github.com/ccam80/cubie/compare/v0.0.6...v0.0.7) (2026-01-20)
 
 
