@@ -63,6 +63,49 @@ STEP_CASES_CONSTANT_DERIV = [
     for case in ALGORITHM_PARAM_SETS
 ]
 
+# BiCGSTAB and Jacobi-preconditioner cases run through the same
+# device-vs-CPU comparison as ALGORITHM_PARAM_SETS. Kept out of the
+# shared STEP_CASES list because the instrumented debug harness only
+# implements the MR/SD solver.
+BICGSTAB_STEP_CASES = [
+    merge_param(MID_RUN_PARAMS, case)
+    for case in [
+        pytest.param(
+            {
+                "algorithm": "backwards_euler",
+                "step_controller": "fixed",
+                "linear_correction_type": "bicgstab",
+            },
+            id="backwards_euler-bicgstab",
+        ),
+        pytest.param(
+            {
+                "algorithm": "backwards_euler",
+                "step_controller": "fixed",
+                "linear_correction_type": "bicgstab",
+                "preconditioner_type": "jacobi",
+            },
+            id="backwards_euler-bicgstab-jacobi",
+        ),
+        pytest.param(
+            {
+                "algorithm": "rosenbrock",
+                "step_controller": "i",
+                "linear_correction_type": "bicgstab",
+            },
+            id="rosenbrock-bicgstab",
+        ),
+        pytest.param(
+            {
+                "algorithm": "dirk",
+                "step_controller": "fixed",
+                "preconditioner_type": "jacobi",
+            },
+            id="dirk-jacobi",
+        ),
+    ]
+]
+
 
 @pytest.fixture(scope="session")
 def step_inputs(
@@ -590,12 +633,7 @@ def cpu_step_results(
 
 # ── Two-step device-vs-CPU comparison ─────────────────────── #
 
-@pytest.mark.parametrize(
-    "solver_settings_override",
-    ALGORITHM_PARAM_SETS,
-    indirect=True,
-)
-def test_two_steps(
+def _run_two_step_comparison(
     solver_settings,
     step_object,
     precision,
@@ -605,8 +643,7 @@ def test_two_steps(
     cpu_system,
     cpu_driver_evaluator,
 ):
-    """Ensure shared-cache reuse yields consistent results
-    across devices."""
+    """Compare two device steps against the CPU reference stepper."""
 
     gpu_result = _execute_step_twice(
         step_object=step_object,
@@ -666,6 +703,66 @@ def test_two_steps(
         gpu_result.second_state - gpu_result.first_state
     )
     assert np.any(delta > precision(1e-10))
+
+
+@pytest.mark.parametrize(
+    "solver_settings_override",
+    ALGORITHM_PARAM_SETS,
+    indirect=True,
+)
+def test_two_steps(
+    solver_settings,
+    step_object,
+    precision,
+    step_inputs,
+    system,
+    driver_array,
+    cpu_system,
+    cpu_driver_evaluator,
+):
+    """Ensure shared-cache reuse yields consistent results
+    across devices."""
+
+    _run_two_step_comparison(
+        solver_settings,
+        step_object,
+        precision,
+        step_inputs,
+        system,
+        driver_array,
+        cpu_system,
+        cpu_driver_evaluator,
+    )
+
+
+@pytest.mark.parametrize(
+    "solver_settings_override",
+    BICGSTAB_STEP_CASES,
+    indirect=True,
+)
+def test_two_steps_bicgstab_jacobi(
+    solver_settings,
+    step_object,
+    precision,
+    step_inputs,
+    system,
+    driver_array,
+    cpu_system,
+    cpu_driver_evaluator,
+):
+    """Implicit steps solved with BiCGSTAB / Jacobi match the CPU
+    reference through the full step machinery."""
+
+    _run_two_step_comparison(
+        solver_settings,
+        step_object,
+        precision,
+        step_inputs,
+        system,
+        driver_array,
+        cpu_system,
+        cpu_driver_evaluator,
+    )
 
 
 # ── All algorithms match Euler for constant-derivative system ─ #
