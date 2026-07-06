@@ -1,18 +1,14 @@
-"""Regression tests for transient status-code staining.
+"""Tests for the run status word's transient-failure semantics.
 
-The outer integration loop previously OR-ed every step and controller
-status bit into the persistent per-run status word immediately.  A step
-that failed transiently (for example an inner linear solve exhausting its
-iteration budget) and was then recovered at a smaller ``dt`` permanently
-stained the run's status.  A run that went on to integrate the full time
-span with a finite trajectory still reported a nonzero status and was
-NaN-masked by :class:`SolveResult` (``nan_error_trajectories=True``).
-
-The loop now accumulates step/controller bits into an iteration-scoped
-temporary that is cleared whenever a step is accepted, and commits the
-accumulated bits into the persistent status word only when the run ends
-irrecoverably.  Recovered transient failures therefore leave a clean
-status, while the flags of a fatal iteration are preserved.
+The integration loop accumulates step/controller status bits into an
+iteration-scoped temporary that is cleared whenever a step is
+accepted, and commits the accumulated bits into the persistent status
+word only when the run ends irrecoverably.  A step that fails
+transiently (for example an inner linear solve exhausting its
+iteration budget) and is recovered at a smaller ``dt`` leaves a clean
+status, so a completed run's trajectory survives the default
+``nan_error_trajectories=True`` masking, while the flags of a fatal
+iteration are preserved for diagnosis.
 """
 
 from __future__ import annotations
