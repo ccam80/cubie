@@ -781,9 +781,10 @@ def _build_jacobi_body_with_state_subs(
             - gamma_sym * h_sym * a_ij_sym * substituted
         )
         eval_exprs.append((diag_sym, diag_val))
+        eval_exprs.append(_guarded_diag_division(diag_sym, comp_idx))
         eval_exprs.append((
             out_vec[comp_idx],
-            v_vec[comp_idx] / diag_sym,
+            v_vec[comp_idx] / sp.Symbol(f"safe_diag_{comp_idx}"),
         ))
 
     if cse:
@@ -878,9 +879,10 @@ def _build_cached_jacobi_body(
             - gamma_sym * h_sym * a_ij_sym * substituted
         )
         eval_exprs.append((diag_sym, diag_val))
+        eval_exprs.append(_guarded_diag_division(diag_sym, comp_idx))
         eval_exprs.append((
             out_vec[comp_idx],
-            v_vec[comp_idx] / diag_sym,
+            v_vec[comp_idx] / sp.Symbol(f"safe_diag_{comp_idx}"),
         ))
 
     if cse:
@@ -1201,11 +1203,17 @@ def _build_n_stage_jacobi_lines(
                 - gamma_sym * h_sym * diag_coeff * substituted
             )
             eval_exprs.append((diag_sym, diag_val))
+            eval_exprs.append(
+                _guarded_diag_division(
+                    diag_sym, comp_idx, stage_idx=stage_idx
+                )
+            )
 
             # out[k] = v[k] / d[k]
             eval_exprs.append((
                 out_vec[stage_offset + comp_idx],
-                v_vec[stage_offset + comp_idx] / diag_sym,
+                v_vec[stage_offset + comp_idx]
+                / sp.Symbol(f"safe_diag_{stage_idx}_{comp_idx}"),
             ))
 
     if cse:

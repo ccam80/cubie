@@ -6,6 +6,8 @@ from numba import cuda, from_dtype
 from cubie.odesystems.symbolic.codegen import (
     generate_cached_jvp_code,
     generate_cached_operator_apply_code,
+    generate_jacobi_preconditioner_cached_code,
+    generate_jacobi_preconditioner_code,
     generate_neumann_preconditioner_cached_code,
     generate_neumann_preconditioner_code,
     generate_operator_apply_code,
