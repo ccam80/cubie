@@ -25,9 +25,6 @@ from typing import TYPE_CHECKING, Any, Callable, Dict, Optional
 from warnings import warn
 
 from attrs import define, field
-from numpy import asarray as np_asarray
-from numpy import min as np_min
-from numpy import tile as np_tile
 
 from cubie.CUDAFactory import CUDAFactory, CUDADispatcherCache
 from cubie._utils import PrecisionDType, unpack_dict_values
@@ -339,14 +336,9 @@ class SingleIntegratorRunCore(CUDAFactory):
         ``atol``/``rtol`` divided by ten, so every stage solve converges
         tighter than the embedded error estimate it feeds.  Values the
         user set explicitly (tracked in ``_user_given_inner_tols``) are
-        preserved.
-
-        Vector controller tolerances are per-state.  The inner-solver
-        norms run over the solver vector, which is the state vector for
-        most implicit steps but the stage-major stacked stage vector for
-        fully implicit RK, so a per-state vector passes through when the
-        sizes match, tiles per stage when the solver length is a whole
-        multiple, and otherwise reduces to its tightest element.
+        preserved.  The solver norms' tolerance converter broadcasts
+        uniform arrays to their own vector length; a non-uniform
+        per-state vector must match the solver vector exactly.
 
         The defaults apply only when the controller is adaptive (it then
         has ``atol``/``rtol``) and the algorithm is implicit (it then
@@ -363,20 +355,8 @@ class SingleIntegratorRunCore(CUDAFactory):
         if not self._algo_step.is_implicit:
             return set()
 
-        solver_n = int(self._algo_step.solver.compile_settings.n)
-
-        def fit_to_solver(tolerance):
-            tolerance = np_asarray(tolerance) / 10.0
-            if tolerance.size == 1:
-                return float(tolerance)
-            if tolerance.size == solver_n:
-                return tolerance
-            if solver_n % tolerance.size == 0:
-                return np_tile(tolerance, solver_n // tolerance.size)
-            return float(np_min(tolerance))
-
-        atol = fit_to_solver(self._step_controller.atol)
-        rtol = fit_to_solver(self._step_controller.rtol)
+        atol = self._step_controller.atol / 10.0
+        rtol = self._step_controller.rtol / 10.0
         derived_source = {
             "krylov_atol": atol,
             "newton_atol": atol,
