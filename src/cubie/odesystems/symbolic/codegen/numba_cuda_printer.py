@@ -254,16 +254,39 @@ class CUDAPrinter(PythonCodePrinter):
 
         Notes
         -----
-        Exponents are not wrapped with precision() so that the
-        _replace_powers_with_multiplication regex can detect patterns like
-        x**2 and x**3 for optimization.
-        
+        Square and cube exponents are left unwrapped so that the
+        _replace_powers_with_multiplication regex can detect patterns
+        like x**2 and x**3 for optimization. Every other integer
+        exponent is rewritten: numba promotes ``float32 ** int`` to
+        float64, so a raw integer exponent leaks double-precision
+        instructions into a float32 kernel. Negative integer powers
+        print as a reciprocal with a precision-cast numerator (the
+        positive power then benefits from the square/cube rewrite);
+        remaining integer exponents are wrapped with precision() so
+        the pow stays in the working precision.
+
         Parentheses are added around compound base expressions to ensure
         correct precedence (e.g., (a + b)**2 not a + b**2).
         """
         PREC = sp.printing.precedence.precedence
         base_str = self.parenthesize(expr.base, PREC(expr))
         exp_expr = expr.exp
+
+        if exp_expr.is_Integer:
+            exponent_value = int(exp_expr)
+            if exponent_value < 0:
+                if exponent_value == -1:
+                    denominator = base_str
+                else:
+                    positive_power = sp.Pow(
+                        expr.base,
+                        sp.Integer(-exponent_value),
+                        evaluate=False,
+                    )
+                    denominator = f"({self._print(positive_power)})"
+                return f"(precision(1)/{denominator})"
+            if exponent_value not in (2, 3):
+                return f"{base_str}**precision({exponent_value})"
 
         # Let other print functions know we're in a power expression
         self._in_pow = True
