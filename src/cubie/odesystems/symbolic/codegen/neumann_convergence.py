@@ -7,12 +7,26 @@ spectral radius ``rho(T) < 1``.
 
 Since ``T`` scales linearly with ``h``, a more fundamental
 (h-independent) diagnostic is the spectral radius of the Jacobi
-iteration matrix ``N = I - D^-1 J`` where ``D = diag(J)``; if
-``rho(N) >= 1`` the ODE Jacobian is not diagonally dominant and the
-Neumann series diverges for all but the tiniest step sizes.
+iteration matrix ``N = I - D^-1 M`` where ``M = beta I - gamma (A (x) J)``
+and ``D = diag(M)``; if ``rho(N) >= 1`` the operator is not diagonally
+dominant and the Neumann series diverges for all but the tiniest step
+sizes.
+
+The Jacobian is evaluated at the initial state by central finite
+differences of the guarded right-hand side rather than by substituting
+into the analytic Jacobian matrix. The analytic derivative of a CellML
+gating term such as ``(V - E) / (exp((V - E) / k) - 1)`` is ``0 / 0`` at
+the resting potential even though the term itself is finite there;
+finite-differencing the guarded RHS takes that removable-singularity
+limit numerically and yields a finite Jacobian.
 
 Published Functions
 -------------------
+:func:`build_rhs_evaluator`
+    Build a cached finite-difference Jacobian evaluator for a system.
+:func:`neumann_spectral_radius`
+    Pure-numeric Jacobi spectral-radius diagnostic as a function of the
+    Jacobian and the ``beta``/``gamma``/tableau parameters.
 :func:`check_neumann_convergence`
     Evaluate convergence diagnostics for the Neumann preconditioner and
     emit a warning when divergence is likely.
@@ -25,20 +39,266 @@ from typing import Dict, Optional, Sequence, Union
 import numpy as np
 import sympy as sp
 
-from cubie.odesystems.symbolic.codegen.jacobian import generate_jacobian
-from cubie.odesystems.symbolic.parsing.parser import (
-    ParsedEquations,
-    TIME_SYMBOL,
-)
+from cubie.odesystems.symbolic.parsing.parser import TIME_SYMBOL
 from cubie.odesystems.symbolic.indexedbasemaps import IndexedBases
+from cubie.odesystems.symbolic.parsing.parser import ParsedEquations
 from cubie.odesystems.symbolic.sym_utils import topological_sort
 
 logger = logging.getLogger(__name__)
+
+# Central-difference step: cube-root of machine epsilon balances round-off
+# against truncation error for a double-precision second-order stencil.
+_FD_STEP = float(np.finfo(np.float64).eps) ** (1.0 / 3.0)
+
+
+class NeumannRHSEvaluator:
+    """Finite-difference Jacobian evaluator for a symbolic system.
+
+    Resolves the auxiliary chain into the state derivatives once and
+    compiles the guarded right-hand side to a NumPy callable. The
+    resulting object is cached on the owning :class:`SymbolicODE`; each
+    call reads current state/constant/parameter values from the index
+    map, so value changes are reflected without rebuilding.
+    """
+
+    def __init__(
+        self,
+        rhs_callable,
+        argument_symbols: Sequence[sp.Symbol],
+        state_symbols: Sequence[sp.Symbol],
+        driver_symbols: Sequence[sp.Symbol],
+    ) -> None:
+        self._rhs = rhs_callable
+        self._argument_symbols = list(argument_symbols)
+        self._state_symbols = list(state_symbols)
+        self._driver_symbols = set(driver_symbols)
+        self._state_count = len(state_symbols)
+
+    def _value_map(
+        self,
+        index_map: IndexedBases,
+        t0: float,
+    ) -> Dict[sp.Symbol, float]:
+        """Collect current numeric values for every RHS symbol."""
+        values: Dict[sp.Symbol, float] = {}
+        for sym, val in index_map.states.default_values.items():
+            values[sym] = float(val)
+        for sym, val in index_map.constants.default_values.items():
+            values[sym] = float(val)
+        if hasattr(index_map, "parameters"):
+            for sym, val in index_map.parameters.default_values.items():
+                values[sym] = float(val)
+        for sym in self._driver_symbols:
+            values[sym] = 0.0
+        values[TIME_SYMBOL] = float(t0)
+        return values
+
+    def jacobian(
+        self,
+        index_map: IndexedBases,
+        t0: float = 0.0,
+    ) -> np.ndarray:
+        """Return the state Jacobian at the initial state.
+
+        Parameters
+        ----------
+        index_map
+            Index maps supplying current state/constant/parameter values.
+        t0
+            Time at which to evaluate the right-hand side.
+
+        Returns
+        -------
+        numpy.ndarray
+            The ``state_count x state_count`` Jacobian. Entries that
+            cannot be evaluated are returned as ``nan``.
+        """
+        values = self._value_map(index_map, t0)
+        base_args = np.array(
+            [values.get(sym, 0.0) for sym in self._argument_symbols],
+            dtype=np.float64,
+        )
+        n = self._state_count
+
+        def evaluate(args):
+            with np.errstate(all="ignore"):
+                try:
+                    return np.asarray(self._rhs(*args), dtype=np.float64)
+                except (
+                    ZeroDivisionError,
+                    FloatingPointError,
+                    OverflowError,
+                    ValueError,
+                ):
+                    return np.full(n, np.nan)
+
+        jacobian = np.zeros((n, n), dtype=np.float64)
+        for col in range(n):
+            step = _FD_STEP * max(abs(base_args[col]), 1.0)
+            forward = base_args.copy()
+            backward = base_args.copy()
+            forward[col] += step
+            backward[col] -= step
+            f_plus = evaluate(forward)
+            f_minus = evaluate(backward)
+            jacobian[:, col] = (f_plus - f_minus) / (2.0 * step)
+        return jacobian
+
+
+def build_rhs_evaluator(
+    equations: ParsedEquations,
+    index_map: IndexedBases,
+) -> NeumannRHSEvaluator:
+    """Compile a finite-difference Jacobian evaluator for a system.
+
+    Resolves the auxiliary assignments into each state derivative and
+    lambdifies the guarded right-hand side. This is the expensive step;
+    the returned evaluator is cheap to call and should be cached.
+
+    Parameters
+    ----------
+    equations
+        Parsed ODE equations (the same object passed to codegen).
+    index_map
+        Index maps (states, constants, drivers, ...) for the system.
+
+    Returns
+    -------
+    NeumannRHSEvaluator
+        Callable evaluator producing the state Jacobian by central
+        finite differences of the guarded right-hand side.
+    """
+    state_symbols = list(index_map.states.index_map.keys())
+    dxdt_symbols = list(index_map.dxdt.index_map.keys())
+    dxdt_set = set(dxdt_symbols)
+
+    # Resolve the auxiliary chain into the derivatives so the compiled
+    # right-hand side depends only on states/constants/drivers/time. The
+    # guarded Piecewise gating terms survive substitution and keep the
+    # RHS finite at removable singularities.
+    sorted_equations = topological_sort(equations.to_equation_list())
+    auxiliary_subs: Dict[sp.Symbol, sp.Expr] = {}
+    derivative_exprs: Dict[sp.Symbol, sp.Expr] = {}
+    for lhs, rhs in sorted_equations:
+        resolved = rhs.xreplace(auxiliary_subs)
+        if lhs in dxdt_set:
+            derivative_exprs[lhs] = resolved
+        else:
+            auxiliary_subs[lhs] = resolved
+
+    constant_symbols = list(index_map.constants.default_values.keys())
+    parameter_symbols = []
+    if hasattr(index_map, "parameters"):
+        parameter_symbols = list(
+            index_map.parameters.default_values.keys()
+        )
+    driver_symbols = []
+    if hasattr(index_map, "drivers"):
+        driver_symbols = list(index_map.drivers.index_map.keys())
+
+    argument_symbols = (
+        state_symbols
+        + constant_symbols
+        + parameter_symbols
+        + driver_symbols
+        + [TIME_SYMBOL]
+    )
+    rhs_vector = [
+        derivative_exprs.get(sym, sp.S.Zero) for sym in dxdt_symbols
+    ]
+    # Evaluate with the ``math`` module (scalar ternaries for Piecewise,
+    # builtin min/max) rather than NumPy: the finite-difference stencil
+    # feeds scalars, and NumPy's ``select`` requires array conditions.
+    rhs_callable = sp.lambdify(
+        argument_symbols, rhs_vector, modules=["math"], cse=True
+    )
+    return NeumannRHSEvaluator(
+        rhs_callable,
+        argument_symbols,
+        state_symbols,
+        driver_symbols,
+    )
+
+
+def neumann_spectral_radius(
+    jacobian: np.ndarray,
+    beta: float = 1.0,
+    gamma: float = 1.0,
+    stage_coefficients: Optional[
+        Sequence[Sequence[Union[float, sp.Expr]]]
+    ] = None,
+) -> Dict[str, object]:
+    """Spectral radius of the Jacobi iteration matrix ``N``.
+
+    Pure-numeric diagnostic: builds ``M = beta I - gamma (A (x) J)``
+    (or ``beta I - gamma J`` when ``stage_coefficients`` is ``None``) and
+    returns the spectral radius and per-row diagonal-dominance ratios.
+
+    Parameters
+    ----------
+    jacobian
+        The ``n x n`` state Jacobian.
+    beta, gamma
+        Transformation parameters from the FIRK formulation.
+    stage_coefficients
+        Butcher-tableau ``A`` matrix. When provided the flattened staged
+        operator is analysed; otherwise the single-stage operator is
+        used.
+
+    Returns
+    -------
+    dict
+        ``rho_N`` -- spectral radius of the Jacobi iteration matrix.
+        ``max_ratio`` -- worst-case row off-diag/diag ratio.
+        ``ratios`` -- per-row diagonal-dominance ratios.
+        ``converges`` -- ``True`` if ``rho(N) < 1``.
+        ``n_states`` / ``n_stages`` -- flattened-system dimensions.
+    """
+    jacobian = np.asarray(jacobian, dtype=np.float64)
+    n = jacobian.shape[0]
+
+    if stage_coefficients is not None:
+        coefficients = np.array(
+            [[float(c) for c in row] for row in stage_coefficients],
+            dtype=np.float64,
+        )
+        s = coefficients.shape[0]
+        operator = beta * np.eye(s * n) - gamma * np.kron(
+            coefficients, jacobian
+        )
+    else:
+        s = 1
+        operator = beta * np.eye(n) - gamma * jacobian
+
+    diag = np.diag(operator)
+
+    # Guard against zero diagonal entries while preserving sign so the
+    # replacement never flips D_inv on a near-zero negative diagonal.
+    signs = np.where(diag >= 0.0, 1.0, -1.0)
+    diag_safe = np.where(np.abs(diag) > 1e-30, diag, signs * 1e-30)
+    diag_inv = np.diag(1.0 / diag_safe)
+
+    iteration_matrix = np.eye(s * n) - diag_inv @ operator
+    eigenvalues = np.linalg.eigvals(iteration_matrix)
+    rho_n = float(np.max(np.abs(eigenvalues)))
+
+    off_diagonal = np.sum(np.abs(operator), axis=1) - np.abs(diag)
+    ratios = off_diagonal / np.maximum(np.abs(diag), 1e-30)
+
+    return {
+        "rho_N": rho_n,
+        "max_ratio": float(np.max(ratios)),
+        "ratios": ratios,
+        "converges": rho_n < 1.0,
+        "n_states": n,
+        "n_stages": s,
+    }
 
 
 def check_neumann_convergence(
     equations: ParsedEquations,
     index_map: IndexedBases,
+    evaluator: Optional[NeumannRHSEvaluator] = None,
     stage_coefficients: Optional[
         Sequence[Sequence[Union[float, sp.Expr]]]
     ] = None,
@@ -49,9 +309,9 @@ def check_neumann_convergence(
 ) -> Dict[str, object]:
     """Evaluate whether the Neumann preconditioner is likely to converge.
 
-    Computes the symbolic ODE Jacobian, substitutes initial-state and
-    constant values, and checks diagonal dominance / spectral radius of
-    the Jacobi iteration matrix ``N = I - D^-1 J``.
+    Evaluates the state Jacobian at the initial state by finite
+    differences and checks the spectral radius of the Jacobi iteration
+    matrix ``N = I - D^-1 M``.
 
     Parameters
     ----------
@@ -59,167 +319,92 @@ def check_neumann_convergence(
         Parsed ODE equations (the same object passed to codegen).
     index_map
         Index maps (states, constants, etc.) with default values.
+    evaluator
+        Prebuilt finite-difference Jacobian evaluator. Built from
+        ``equations``/``index_map`` when omitted.
     stage_coefficients
         Butcher-tableau ``A`` matrix for the FIRK method. When provided,
-        the full staged system ``betaI - gamma(A (x) J)`` is analysed
+        the full staged system ``beta I - gamma (A (x) J)`` is analysed
         (un-scaled by ``h`` so the result is h-independent).
     stage_nodes
-        Butcher-tableau ``c`` nodes (unused for convergence, reserved
-        for future driver interpolation).
+        Butcher-tableau ``c`` nodes. These influence the Jacobian only
+        through the ``O(h)`` per-stage time/state offset, which this
+        h-independent diagnostic neglects, so they are not used.
     beta, gamma
         Transformation parameters from the FIRK formulation.
     t0
-        Time at which to evaluate the Jacobian (default 0).
+        Time at which to evaluate the Jacobian.
 
     Returns
     -------
     dict
-        ``rho_N`` -- spectral radius of the Jacobi iteration matrix.
-        ``max_ratio`` -- worst-case row off-diag/diag ratio.
-        ``worst_rows`` -- list of (row_index, state_name, ratio) tuples
-        for rows where ratio > 1.
-        ``converges`` -- ``True`` if ``rho(N) < 1``.
-        ``J_numeric`` -- the evaluated numeric Jacobian (for debugging).
+        The :func:`neumann_spectral_radius` result extended with
+        ``worst_rows`` (offending ``(index, label, ratio)`` tuples) and
+        ``J_numeric``. ``converges`` is ``None`` when the Jacobian could
+        not be evaluated.
     """
-    # 1. Symbolic Jacobian.
-    jac = generate_jacobian(
-        equations,
-        input_order=index_map.states.index_map,
-        output_order=index_map.dxdt.index_map,
-    )
-    state_count = len(index_map.states.index_map)
+    if evaluator is None:
+        evaluator = build_rhs_evaluator(equations, index_map)
 
-    # 2. Substitution map: states -> defaults, constants -> values.
-    subs = {}
-    for sym, default in index_map.states.default_values.items():
-        subs[sym] = float(default)
-    for sym, default in index_map.constants.default_values.items():
-        subs[sym] = float(default)
-    subs[TIME_SYMBOL] = float(t0)
-    if hasattr(index_map, "parameters"):
-        for sym, default in index_map.parameters.default_values.items():
-            subs[sym] = float(default)
-    if hasattr(index_map, "drivers"):
-        for sym in index_map.drivers.index_map:
-            subs[sym] = 0.0
+    jacobian = evaluator.jacobian(index_map, t0=t0)
 
-    # 3. Evaluate the Jacobian numerically. Jacobian entries reference
-    # auxiliary variables defined in the equation list; evaluate all
-    # auxiliaries in topological order so every intermediate resolves
-    # before we hit the J entries.
-    eq_list = equations.to_equation_list()
-    sorted_eqs = topological_sort(eq_list)
-    eval_subs = dict(subs)
-    dx_symbols = set(index_map.dxdt.index_map.keys())
-    for lhs, rhs in sorted_eqs:
-        if lhs in dx_symbols:
-            continue
-        try:
-            val = complex(rhs.xreplace(eval_subs))
-            eval_subs[lhs] = val.real if val.imag == 0 else val
-        except (TypeError, ValueError, AttributeError):
-            pass  # skip if it cannot be evaluated
-
-    n_failed = 0
-    J_num = np.zeros((state_count, state_count), dtype=np.float64)
-    for i in range(state_count):
-        for j in range(state_count):
-            entry = jac[i, j]
-            if entry is sp.S.Zero or entry == 0:
-                continue
-            try:
-                val = complex(entry.xreplace(eval_subs))
-                J_num[i, j] = val.real
-            except (TypeError, ValueError, AttributeError):
-                # Treat unevaluable entries as large (conservative).
-                J_num[i, j] = 1e30
-                n_failed += 1
-    if n_failed > 0:
+    if not np.isfinite(jacobian).all():
+        n_bad = int(np.count_nonzero(~np.isfinite(jacobian)))
         logger.warning(
-            "Could not evaluate %d Jacobian entries numerically; "
-            "treating them as large for convergence check.",
-            n_failed,
+            "Neumann preconditioner convergence not verified: the "
+            "Jacobian at the initial state has %d non-finite entries "
+            "(likely a genuine singularity at t0).",
+            n_bad,
         )
+        return {
+            "rho_N": float("nan"),
+            "max_ratio": float("nan"),
+            "converges": None,
+            "worst_rows": [],
+            "J_numeric": jacobian,
+        }
 
-    # 4. Build the system matrix and analyse. Map row/col indices back
-    # to state names for reporting.
+    result = neumann_spectral_radius(
+        jacobian, beta=beta, gamma=gamma,
+        stage_coefficients=stage_coefficients,
+    )
+
+    n = result["n_states"]
+    s = result["n_stages"]
+    ratios = result["ratios"]
     idx_to_name = {
         v: str(k) for k, v in index_map.states.index_map.items()
     }
-
-    if stage_coefficients is not None:
-        # Full h-independent staged matrix M_0 = beta*I - gamma*(A (x) J)
-        # (factor out h so the diagnostic is step-size independent).
-        A = np.array(
-            [[float(c) for c in row] for row in stage_coefficients],
-            dtype=np.float64,
-        )
-        s = A.shape[0]
-        n = state_count
-        M_0 = beta * np.eye(s * n) - gamma * np.kron(A, J_num)
-        D_0 = np.diag(M_0)
-    else:
-        # Single-stage fallback: M_0 = beta*I - gamma*J.
-        n = state_count
-        s = 1
-        M_0 = beta * np.eye(n) - gamma * J_num
-        D_0 = np.diag(M_0)
-
-    sn = s * n
-
-    # Guard against zero diagonal entries.
-    D_safe = np.where(np.abs(D_0) > 1e-30, D_0, 1e-30)
-    D_inv = np.diag(1.0 / D_safe)
-
-    # Jacobi iteration matrix: N = I - D^-1 * M_0.
-    N = np.eye(sn) - D_inv @ M_0
-    eigvals = np.linalg.eigvals(N)
-    rho_N = float(np.max(np.abs(eigvals)))
-
-    # Per-row diagonal dominance ratio.
-    abs_M = np.abs(M_0)
-    diag_abs = np.abs(D_0)
-    off_diag_sum = np.sum(abs_M, axis=1) - diag_abs
-    ratios = off_diag_sum / np.maximum(diag_abs, 1e-30)
-    max_ratio = float(np.max(ratios))
-
-    # Identify worst rows (map back to state names for staged system).
     worst_rows = []
-    for idx in range(sn):
+    for idx in range(s * n):
         if ratios[idx] > 1.0:
             stage_idx = idx // n
             state_idx = idx % n
             name = idx_to_name.get(state_idx, f"state_{state_idx}")
             label = f"stage{stage_idx}:{name}" if s > 1 else name
             worst_rows.append((idx, label, float(ratios[idx])))
-    worst_rows.sort(key=lambda x: -x[2])
+    worst_rows.sort(key=lambda row: -row[2])
 
-    converges = rho_N < 1.0
+    result["worst_rows"] = worst_rows
+    result["J_numeric"] = jacobian
+    del result["ratios"]
 
-    result = {
-        "rho_N": rho_N,
-        "max_ratio": max_ratio,
-        "worst_rows": worst_rows,
-        "converges": converges,
-        "J_numeric": J_num,
-    }
-
-    # 5. Emit a warning if divergent.
-    if not converges:
-        n_bad = len(worst_rows)
+    if not result["converges"]:
+        rho_n = result["rho_N"]
         top_rows = worst_rows[:5]
         row_details = ", ".join(
-            f"{label} (ratio={r:.1f})" for _, label, r in top_rows
+            f"{label} (ratio={ratio:.1f})"
+            for _, label, ratio in top_rows
         )
-        msg = (
+        message = (
             "Neumann preconditioner will likely DIVERGE for this "
-            f"system. Spectral radius rho(I - D^-1 M) = {rho_N:.2f} "
+            f"system. Spectral radius rho(I - D^-1 M) = {rho_n:.2f} "
             ">= 1.0 (need < 1 for convergence). "
-            f"{n_bad}/{sn} rows violate diagonal dominance. "
-            f"Worst: [{row_details}]. Consider a diagonal (Jacobi) "
-            "preconditioner or a smaller step size."
+            f"{len(worst_rows)}/{s * n} rows violate diagonal "
+            f"dominance. Worst: [{row_details}]. Consider a diagonal "
+            "(Jacobi) preconditioner or a smaller step size."
         )
-        warnings.warn(msg, stacklevel=3)
-        logger.warning(msg)
+        warnings.warn(message, stacklevel=3)
+        logger.warning(message)
 
     return result
