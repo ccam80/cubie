@@ -118,3 +118,64 @@ class TestControllers:
             rel=tolerance.rel_tight,
             abs=tolerance.abs_tight,
         )
+
+
+@pytest.mark.parametrize(
+    "solver_settings_override2",
+    [
+        ({"step_controller": "pi", "atol": 1e-3, "rtol": 0.0,
+          "kp": 0.6, "ki": -0.4, "min_gain": 0.5, "max_gain": 2.0,
+          "deadband_min": 1.0, "deadband_max": 1.1}),
+        ({"step_controller": "pid", "atol": 1e-3, "rtol": 0.0,
+          "kp": 0.6, "ki": -0.4, "min_gain": 0.5, "max_gain": 2.0,
+          "deadband_min": 1.0, "deadband_max": 1.1}),
+        ({"step_controller": "i", "atol": 1e-3, "rtol": 0.0,
+          "min_gain": 0.5, "max_gain": 2.0,
+          "deadband_min": 1.0, "deadband_max": 1.1}),
+        ({"step_controller": "gustafsson", "atol": 1e-3, "rtol": 0.0,
+          "min_gain": 0.5, "max_gain": 2.0,
+          "deadband_min": 1.0, "deadband_max": 1.1}),
+    ],
+    ids=("pi", "pid", "i", "gustafsson"),
+    indirect=True,
+)
+def test_rejected_step_never_grows_dt(step_controller, precision, system):
+    """A rejected step must shrink dt, even after a failed-step error.
+
+    Reproduces the #529 limit-cycle ingredient: the loop injects a
+    huge error after a solver failure, and on the next rejected step
+    the history term of a PI/PID controller with negative ``ki``
+    drove the gain to ``max_gain``, growing dt while rejecting.
+    """
+    device_func = step_controller.device_function
+    n = system.sizes.states
+
+    dt = np.asarray([0.017], dtype=precision)
+    accept = np.zeros(1, dtype=np.int32)
+    niters = np.int32(1)
+    shared_scratch = np.zeros(1, dtype=precision)
+    persistent_local = np.zeros(4, dtype=precision)
+    state = np.ones(n, dtype=precision)
+    state_prev = np.ones(n, dtype=precision)
+
+    @cuda.jit
+    def kernel(dt_val, state_val, state_prev_val, err_val, niters_val,
+               accept_val, shared_val, persistent_val):
+        device_func(dt_val, state_val, state_prev_val, err_val,
+                    niters_val, accept_val, shared_val, persistent_val)
+
+    # First step: solver-failure error injection (loop uses 1e16).
+    huge_error = np.full(n, 1e16, dtype=precision)
+    kernel[1, 1](dt, state, state_prev, huge_error, niters, accept,
+                 shared_scratch, persistent_local)
+    assert int(accept[0]) == 0
+
+    # Second step: moderate rejection (nrm2 just above one). The
+    # stored history from the failed step must not grow dt.
+    dt_before = precision(0.017)
+    dt[0] = dt_before
+    moderate_error = np.full(n, 1.23e-3, dtype=precision)
+    kernel[1, 1](dt, state, state_prev, moderate_error, niters, accept,
+                 shared_scratch, persistent_local)
+    assert int(accept[0]) == 0
+    assert float(dt[0]) < float(dt_before)

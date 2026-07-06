@@ -38,7 +38,8 @@ class CUBIE_RESULT_CODES(IntFlag):
     DT_EFF_EFFECTIVELY_ZERO
         Effective step size collapsed to zero (reserved).
     MAX_LOOP_ITERS_EXCEEDED
-        Integration loop hit its maximum iteration count (reserved).
+        Integration loop rejected too many consecutive steps without
+        accepting one; the run cannot make progress.
     STAGNATION
         Integration made no progress in ``t`` over consecutive steps.
     """
