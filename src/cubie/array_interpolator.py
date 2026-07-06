@@ -757,8 +757,15 @@ class ArrayInterpolator(CUDAFactory):
     def check_against_system_drivers(
         inputs_dict: Dict[str, Union[float, bool, FloatArray]],
         system: "SymbolicODE",
-    ) -> None:
-        """Validate that input dictionary keys match system driver symbols.
+    ) -> Dict[str, Union[float, bool, FloatArray]]:
+        """Validate input keys and order driver columns by declared order.
+
+        The interpolator stacks driver arrays into columns in dictionary
+        insertion order and the compiled kernel reads those columns
+        positionally against the system's declared driver order. A user
+        supplying drivers in a different key order would otherwise have the
+        columns silently transposed, so the driver entries are reordered to
+        match the system before the interpolator consumes them.
 
         Parameters
         ----------
@@ -766,6 +773,13 @@ class ArrayInterpolator(CUDAFactory):
             Dictionary of input arrays to validate against the system.
         system
             SymbolicODE instance defining the expected driver symbols.
+
+        Returns
+        -------
+        dict
+            Copy of ``inputs_dict`` with driver entries reordered to the
+            system's declared driver order, followed by the remaining
+            configuration and timing entries in their original order.
 
         Raises
         ------
@@ -781,7 +795,8 @@ class ArrayInterpolator(CUDAFactory):
                 ArrayInterpolator.config_keys + ArrayInterpolator.time_info
             )
         ]
-        system_driver_keys = set(system.indices.drivers.symbol_map.keys())
+        driver_order = list(system.indices.driver_names)
+        system_driver_keys = set(driver_order)
         if len(input_keys) != system.num_drivers:
             raise ValueError(
                 f"Number of inputs in inputs_dict "
@@ -794,6 +809,12 @@ class ArrayInterpolator(CUDAFactory):
                 f"{set(input_keys)}) do not match drivers "
                 f"symbols in system ({system_driver_keys})."
             )
+
+        ordered = {name: inputs_dict[name] for name in driver_order}
+        for key, value in inputs_dict.items():
+            if key not in ordered:
+                ordered[key] = value
+        return ordered
 
     # ---------------------------------------------------------------------- #
     # Spline coefficient generation

@@ -947,3 +947,85 @@ def test_cubic_interpolation_matches_analytic(cubic_inputs, precision, tolerance
             f"expected: {np.array2string(expected)}")
         )
 
+
+def _two_driver_system(precision) -> SymbolicODE:
+    """Two-state system whose derivatives track distinct drivers."""
+
+    return SymbolicODE.create(
+        dxdt=["du0 = d_a", "du1 = d_b"],
+        states={"u0": precision(0.0), "u1": precision(0.0)},
+        drivers=["d_a", "d_b"],
+        precision=precision,
+        strict=True,
+        name="two_driver_order_lockin",
+    )
+
+
+def test_check_against_system_drivers_orders_by_declared_order(
+    precision,
+) -> None:
+    """Driver entries are reordered to the system's declared order."""
+
+    system = _two_driver_system(precision)
+    samples_a = np.full(6, 2.0, dtype=precision)
+    samples_b = np.full(6, 5.0, dtype=precision)
+    shuffled = {
+        "d_b": samples_b,
+        "d_a": samples_a,
+        "dt": precision(0.1),
+        "wrap": False,
+    }
+
+    ordered = ArrayInterpolator.check_against_system_drivers(shuffled, system)
+
+    driver_keys = [key for key in ordered if key in ("d_a", "d_b")]
+    assert driver_keys == list(system.indices.driver_names)
+    # Non-driver configuration/timing entries are preserved.
+    assert ordered["dt"] == precision(0.1)
+    assert ordered["wrap"] is False
+
+
+def test_interpolator_columns_track_declared_driver_order(
+    precision,
+) -> None:
+    """Coefficient columns align with declared drivers for any key order."""
+
+    system = _two_driver_system(precision)
+    samples_a = np.full(6, 2.0, dtype=precision)
+    samples_b = np.full(6, 5.0, dtype=precision)
+
+    forward = {
+        "d_a": samples_a,
+        "d_b": samples_b,
+        "dt": precision(0.1),
+    }
+    reversed_dict = {
+        "d_b": samples_b,
+        "d_a": samples_a,
+        "dt": precision(0.1),
+    }
+
+    forward_interp = ArrayInterpolator(
+        precision=precision,
+        input_dict=ArrayInterpolator.check_against_system_drivers(
+            forward, system
+        ),
+    )
+    reversed_interp = ArrayInterpolator(
+        precision=precision,
+        input_dict=ArrayInterpolator.check_against_system_drivers(
+            reversed_dict, system
+        ),
+    )
+
+    # Column 0 holds d_a (constant 2.0), column 1 holds d_b (constant 5.0)
+    # regardless of the caller's insertion order.
+    np.testing.assert_array_equal(
+        forward_interp.coefficients[0, :, 0],
+        np.array([2.0, 5.0], dtype=precision),
+    )
+    np.testing.assert_array_equal(
+        reversed_interp.coefficients[0, :, 0],
+        forward_interp.coefficients[0, :, 0],
+    )
+
