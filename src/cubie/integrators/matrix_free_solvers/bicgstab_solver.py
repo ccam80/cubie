@@ -193,7 +193,7 @@ class BiCGSTABSolver(LinearSolverBase):
         )
 
     def register_buffers(self) -> None:
-        """Register 6 device buffers with buffer_registry."""
+        """Register 7 device buffers with buffer_registry."""
         config = self.compile_settings
         prec = config.precision
         for name, loc in [
@@ -203,6 +203,7 @@ class BiCGSTABSolver(LinearSolverBase):
             ("bicg_tmp", config.tmp_location),
             ("bicg_s_hat", config.s_hat_location),
             ("bicg_precond_scratch", "local"),
+            ("bicg_chain_scratch", "local"),
         ]:
             buffer_registry.register(
                 name, self, config.n, loc, precision=prec
@@ -235,6 +236,7 @@ class BiCGSTABSolver(LinearSolverBase):
 
         preconditioned = preconditioner is not None
         cached = config.use_cached_auxiliaries
+        chained_precond = config.preconditioner_is_chained
 
         # Convert types for device function
         n_val = int32(n)
@@ -280,6 +282,7 @@ class BiCGSTABSolver(LinearSolverBase):
         alloc_precond_scratch = get_alloc(
             "bicg_precond_scratch", self
         )
+        alloc_chain_scratch = get_alloc("bicg_chain_scratch", self)
 
         # no cover: start
         # Adapter device functions absorb the cached-auxiliaries arity
@@ -313,22 +316,37 @@ class BiCGSTABSolver(LinearSolverBase):
                 @cuda.jit(device=True, inline=True, **compile_kwargs)
                 def precond(
                     state, parameters, drivers, cached_aux, base_state,
-                    t, h, a_ij, rhs, out, temp, scratch,
+                    t, h, a_ij, rhs, out, temp, scratch, chain_scratch,
                 ):
-                    preconditioner(
-                        state, parameters, drivers, cached_aux,
-                        base_state, t, h, a_ij, rhs, out, temp, scratch,
-                    )
+                    if chained_precond:
+                        preconditioner(
+                            state, parameters, drivers, cached_aux,
+                            base_state, t, h, a_ij, rhs, out, temp,
+                            scratch, chain_scratch,
+                        )
+                    else:
+                        preconditioner(
+                            state, parameters, drivers, cached_aux,
+                            base_state, t, h, a_ij, rhs, out, temp,
+                            scratch,
+                        )
             else:
                 @cuda.jit(device=True, inline=True, **compile_kwargs)
                 def precond(
                     state, parameters, drivers, cached_aux, base_state,
-                    t, h, a_ij, rhs, out, temp, scratch,
+                    t, h, a_ij, rhs, out, temp, scratch, chain_scratch,
                 ):
-                    preconditioner(
-                        state, parameters, drivers, base_state,
-                        t, h, a_ij, rhs, out, temp, scratch,
-                    )
+                    if chained_precond:
+                        preconditioner(
+                            state, parameters, drivers, base_state,
+                            t, h, a_ij, rhs, out, temp,
+                            scratch, chain_scratch,
+                        )
+                    else:
+                        preconditioner(
+                            state, parameters, drivers, base_state,
+                            t, h, a_ij, rhs, out, temp, scratch,
+                        )
 
         @cuda.jit(
             device=True,
@@ -395,32 +413,35 @@ class BiCGSTABSolver(LinearSolverBase):
             precond_scratch = alloc_precond_scratch(
                 shared, persistent_local
             )
+            if chained_precond:
+                chain_scratch = alloc_chain_scratch(
+                    shared, persistent_local
+                )
+            else:
+                chain_scratch = precond_scratch
 
             # ── INIT ────────────────────────────────────
-            # I1-I2: r = rhs - A(x)
+            # I1-I5 fused: r = rhs - clamp(A(x)); freeze witness,
+            # seed search direction, accumulate rho_prev = <r0, r0>
+            # in the same pass over the vectors.
             op_apply(
                 state, parameters, drivers, cached_aux, base_state,
                 t, h, a_ij, x, tmp,
             )
-            for i in range(n_val):
-                tmp[i] = selp(
-                    tmp[i] > dot_clamp, dot_clamp, tmp[i]
-                )
-                tmp[i] = selp(
-                    tmp[i] < -dot_clamp, -dot_clamp, tmp[i]
-                )
-            for i in range(n_val):
-                rhs[i] = rhs[i] - tmp[i]
-
-            # I3-I4: freeze witness, init search direction
-            for i in range(n_val):
-                r0_hat[i] = rhs[i]
-                p[i] = rhs[i]
-
-            # I5: rho_prev = <r0, r0> (always >= 0)
             rho_prev = typed_zero
             for i in range(n_val):
-                sq = r0_hat[i] * rhs[i]
+                ax = tmp[i]
+                ax = selp(ax > dot_clamp, dot_clamp, ax)
+                ax = selp(ax < -dot_clamp, -dot_clamp, ax)
+                residual_i = rhs[i] - ax
+                rhs[i] = residual_i
+                r0_hat[i] = residual_i
+                pi = selp(
+                    residual_i > dot_clamp, dot_clamp, residual_i
+                )
+                pi = selp(pi < -dot_clamp, -dot_clamp, pi)
+                p[i] = pi
+                sq = residual_i * residual_i
                 sq = selp(sq > dot_clamp, dot_clamp, sq)
                 rho_prev += sq
 
@@ -444,40 +465,38 @@ class BiCGSTABSolver(LinearSolverBase):
                 )
 
                 # ── Step 1: tmp = P(p), scratch = v ─────
+                # p is maintained within the clamp budget, so the
+                # unpreconditioned copy needs no re-clamp.
                 if preconditioned:
                     precond(
                         state, parameters, drivers, cached_aux,
                         base_state, t, h, a_ij, p, tmp, v,
-                        precond_scratch,
+                        precond_scratch, chain_scratch,
                     )
+                    for i in range(n_val):
+                        tmp[i] = selp(
+                            tmp[i] > dot_clamp, dot_clamp, tmp[i]
+                        )
+                        tmp[i] = selp(
+                            tmp[i] < -dot_clamp, -dot_clamp, tmp[i]
+                        )
                 else:
                     for i in range(n_val):
                         tmp[i] = p[i]
-                for i in range(n_val):
-                    tmp[i] = selp(
-                        tmp[i] > dot_clamp, dot_clamp, tmp[i]
-                    )
-                    tmp[i] = selp(
-                        tmp[i] < -dot_clamp, -dot_clamp, tmp[i]
-                    )
 
-                # ── Step 2: v = A(tmp) ──────────────────
+                # ── Step 2-3 fused: v = clamp(A(tmp)) and
+                # dot_r0v = <r0_hat, v> in one pass.
                 op_apply(
                     state, parameters, drivers, cached_aux, base_state,
                     t, h, a_ij, tmp, v,
                 )
-                for i in range(n_val):
-                    v[i] = selp(
-                        v[i] > dot_clamp, dot_clamp, v[i]
-                    )
-                    v[i] = selp(
-                        v[i] < -dot_clamp, -dot_clamp, v[i]
-                    )
-
-                # ── Step 3: alpha = rho_prev / <r0_hat, v>
                 dot_r0v = typed_zero
                 for i in range(n_val):
-                    prod = r0_hat[i] * v[i]
+                    vi = v[i]
+                    vi = selp(vi > dot_clamp, dot_clamp, vi)
+                    vi = selp(vi < -dot_clamp, -dot_clamp, vi)
+                    v[i] = vi
+                    prod = r0_hat[i] * vi
                     prod = selp(prod > dot_clamp, dot_clamp, prod)
                     prod = selp(prod < -dot_clamp, -dot_clamp, prod)
                     dot_r0v += prod
@@ -496,63 +515,53 @@ class BiCGSTABSolver(LinearSolverBase):
                     typed_zero,
                 )
 
-                # ── Step 4: x += alpha * tmp (predicated)
+                # ── Step 4-5 fused: x += alpha*tmp and
+                # s = r - alpha*v. Frozen lanes multiply by zero
+                # instead of predicating each element.
+                alpha_eff = selp(finished, typed_zero, alpha)
                 for i in range(n_val):
-                    x[i] = selp(
-                        not finished,
-                        x[i] + alpha * tmp[i],
-                        x[i],
-                    )
-
-                # ── Step 5: s = r - alpha*v (in-place) ──
-                for i in range(n_val):
-                    rhs[i] = selp(
-                        not finished,
-                        rhs[i] - alpha * v[i],
-                        rhs[i],
-                    )
+                    x[i] = x[i] + alpha_eff * tmp[i]
+                    rhs[i] = rhs[i] - alpha_eff * v[i]
 
                 # ── Step 6: half-step convergence check ─
                 acc = scaled_norm_fn(rhs, x)
                 converged = converged or (acc <= typed_one)
                 finished = converged or broken
 
-                # ── Step 7: s_hat = P(s), scratch = tmp ─
+                # ── Step 7: s_hat = clamp(P(s)), scratch = tmp
                 if preconditioned:
                     precond(
                         state, parameters, drivers, cached_aux,
                         base_state, t, h, a_ij, rhs, s_hat, tmp,
-                        precond_scratch,
+                        precond_scratch, chain_scratch,
                     )
+                    for i in range(n_val):
+                        s_hat[i] = selp(
+                            s_hat[i] > dot_clamp, dot_clamp, s_hat[i]
+                        )
+                        s_hat[i] = selp(
+                            s_hat[i] < -dot_clamp, -dot_clamp, s_hat[i]
+                        )
                 else:
                     for i in range(n_val):
-                        s_hat[i] = rhs[i]
-                for i in range(n_val):
-                    s_hat[i] = selp(
-                        s_hat[i] > dot_clamp, dot_clamp, s_hat[i]
-                    )
-                    s_hat[i] = selp(
-                        s_hat[i] < -dot_clamp, -dot_clamp, s_hat[i]
-                    )
+                        si = rhs[i]
+                        si = selp(si > dot_clamp, dot_clamp, si)
+                        si = selp(si < -dot_clamp, -dot_clamp, si)
+                        s_hat[i] = si
 
-                # ── Step 8: tmp = A(s_hat) ──────────────
+                # ── Step 8-9 fused: tmp = clamp(A(s_hat)),
+                # omega = <tmp,s>/<tmp,tmp> in the same pass.
                 op_apply(
                     state, parameters, drivers, cached_aux, base_state,
                     t, h, a_ij, s_hat, tmp,
                 )
-                for i in range(n_val):
-                    tmp[i] = selp(
-                        tmp[i] > dot_clamp, dot_clamp, tmp[i]
-                    )
-                    tmp[i] = selp(
-                        tmp[i] < -dot_clamp, -dot_clamp, tmp[i]
-                    )
-
-                # ── Step 9: omega = <tmp,s>/<tmp,tmp> ───
                 dot_ts = typed_zero
                 dot_tt = typed_zero
                 for i in range(n_val):
                     ti = tmp[i]
+                    ti = selp(ti > dot_clamp, dot_clamp, ti)
+                    ti = selp(ti < -dot_clamp, -dot_clamp, ti)
+                    tmp[i] = ti
                     prod = ti * rhs[i]
                     prod = selp(prod > dot_clamp, dot_clamp, prod)
                     prod = selp(prod < -dot_clamp, -dot_clamp, prod)
@@ -569,21 +578,12 @@ class BiCGSTABSolver(LinearSolverBase):
                     typed_zero,
                 )
 
-                # ── Step 10: x += omega * s_hat ─────────
+                # ── Step 10-11 fused: x += omega*s_hat and
+                # r = s - omega*tmp, zero-multiplied when frozen.
+                omega_eff = selp(finished, typed_zero, omega)
                 for i in range(n_val):
-                    x[i] = selp(
-                        not finished,
-                        x[i] + omega * s_hat[i],
-                        x[i],
-                    )
-
-                # ── Step 11: r = s - omega*tmp ──────────
-                for i in range(n_val):
-                    rhs[i] = selp(
-                        not finished,
-                        rhs[i] - omega * tmp[i],
-                        rhs[i],
-                    )
+                    x[i] = x[i] + omega_eff * s_hat[i]
+                    rhs[i] = rhs[i] - omega_eff * tmp[i]
 
                 # ── Step 12: full-step convergence check ─
                 acc = scaled_norm_fn(rhs, x)
