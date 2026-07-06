@@ -449,14 +449,11 @@ def extend_grid_to_array(
         # When multidimensional ensure the grid row count matches indices
         if grid.shape[0] != indices.shape[0]:
             raise ValueError("Grid shape does not match indices shape.")
-        if default_values.shape[0] == indices.shape[0]:
-            # All indices swept, just pass the array straight through
-            array = grid
-        else:
-            # Create array with default values for all runs
-            n_runs = grid.shape[1]
-            array = np_column_stack([default_values] * n_runs)
-            array[indices, :] = grid
+        # Scatter grid rows to their variable indices; grid rows follow
+        # the caller's key order, which need not match declared order.
+        n_runs = grid.shape[1]
+        array = np_column_stack([default_values] * n_runs)
+        array[indices, :] = grid
 
     return array
 
