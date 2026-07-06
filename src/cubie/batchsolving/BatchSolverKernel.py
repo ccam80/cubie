@@ -1,39 +1,84 @@
 # -*- coding: utf-8 -*-
-"""CUDA batch solver kernel utilities."""
+"""CUDA batch solver kernel utilities.
 
-from typing import TYPE_CHECKING, Any, Callable, Dict, List, Optional, Tuple, Union
+Published Classes
+-----------------
+:class:`RunParams`
+    Frozen attrs dataclass holding run duration, warmup, t0, and chunking
+    metadata.
+
+:class:`BatchSolverKernel`
+    :class:`CUDAFactory` subclass that compiles and launches the integration
+    kernel for batched GPU solves.
+
+Notes
+-----
+Chunking is performed along the run axis when memory constraints require
+splitting the batch. This chunking is automatic and transparent to users.
+
+See Also
+--------
+:class:`~cubie.batchsolving.solver.Solver`
+    User-facing API that delegates to this kernel.
+:class:`~cubie.integrators.SingleIntegratorRun.SingleIntegratorRun`
+    Generates the compiled loop function consumed by the kernel.
+:class:`~cubie.batchsolving.arrays.BatchInputArrays.InputArrays`
+    Input array manager owned by the kernel.
+:class:`~cubie.batchsolving.arrays.BatchOutputArrays.OutputArrays`
+    Output array manager owned by the kernel.
+"""
+
+from typing import (
+    TYPE_CHECKING,
+    Any,
+    Callable,
+    Dict,
+    List,
+    Optional,
+    Tuple,
+    Union,
+)
 from warnings import warn
+from pathlib import Path
 
 from numpy import ceil as np_ceil, float64 as np_float64, floating
 from numba import cuda, float64
 from numba import int32
 
-from attrs import define, field
+from attrs import define, field, evolve
 
-from cubie.cuda_simsafe import is_cudasim_enabled, \
-    compile_kwargs
+from cubie.odesystems import SymbolicODE
+from cubie.cuda_simsafe import (
+    is_cudasim_enabled,
+    compile_kwargs,
+    max_shared_memory_per_block,
+)
+from cubie.cubie_cache import (
+    CacheConfig,
+    CubieCacheHandler,
+)
+
 from cubie.time_logger import CUDAEvent
 from numpy.typing import NDArray
 
 from cubie.memory import default_memmgr
 from cubie.buffer_registry import buffer_registry
-from cubie.CUDAFactory import CUDAFactory, CUDAFunctionCache
+from cubie.CUDAFactory import CUDAFactory, CUDADispatcherCache
 from cubie.batchsolving.arrays.BatchInputArrays import InputArrays
 from cubie.batchsolving.arrays.BatchOutputArrays import (
-    OutputArrays, )
+    OutputArrays,
+)
 from cubie.batchsolving.BatchSolverConfig import ActiveOutputs
 from cubie.batchsolving.BatchSolverConfig import BatchSolverConfig
 from cubie.odesystems.baseODE import BaseODE
-from cubie.outputhandling.output_sizes import (
-    BatchOutputSizes,
-    SingleRunOutputSizes,
-)
 from cubie.outputhandling.output_config import OutputCompileFlags
 from cubie.integrators.SingleIntegratorRun import SingleIntegratorRun
-from cubie._utils import PrecisionDType, unpack_dict_values
+from cubie._utils import unpack_dict_values, getype_validator
 
 if TYPE_CHECKING:
     from cubie.memory import MemoryManager
+    from cubie.memory.array_requests import ArrayResponse
+
 
 DEFAULT_MEMORY_SETTINGS = {
     "memory_manager": default_memmgr,
@@ -43,32 +88,112 @@ DEFAULT_MEMORY_SETTINGS = {
 
 
 @define(frozen=True)
-class ChunkParams:
-    """Chunked execution parameters calculated for a batch run.
+class RunParams:
+    """Run parameters with optional chunking metadata.
 
-    Attributes
+    Chunking always occurs along the run axis.
+
+    Parameters
     ----------
-    duration
-        Duration assigned to each chunk.
-    warmup
-        Warmup duration applied to the current chunk.
-    t0
-        Start time of the chunk.
-    size
-        Number of indices processed per chunk.
-    runs
-        Number of runs scheduled within a chunk.
+    duration : float
+        Full duration of the simulation window.
+    warmup : float
+        Full warmup time before the main simulation.
+    t0 : float
+        Initial integration time.
+    runs : int
+        Total number of runs in the batch.
+    num_chunks : int, default=1
+        Number of chunks the batch is divided into.
+    chunk_length : int, default=0
+        Number of runs per chunk (except possibly the last).
+
+    Notes
+    -----
+    When num_chunks=1, no chunking has occurred.
+    When num_chunks>1, chunk_length represents the standard chunk size.
     """
 
-    duration: float
-    warmup: float
-    t0: float
-    size: int
-    runs: int
+    duration: float = field(validator=getype_validator(float, 0.0))
+    warmup: float = field(validator=getype_validator(float, 0.0))
+    t0: float = field(validator=getype_validator(float, 0.0))
+    runs: int = field(validator=getype_validator(int, 1))
+    num_chunks: int = field(
+        default=1, repr=False, validator=getype_validator(int, 1)
+    )
+    chunk_length: int = field(
+        default=0, repr=False, validator=getype_validator(int, 0)
+    )
+
+    def __getitem__(self, index: int) -> "RunParams":
+        """Return RunParams for a specific chunk.
+
+        Parameters
+        ----------
+        index : int
+            Chunk index (0-based).
+
+        Returns
+        -------
+        RunParams
+            New RunParams instance with runs set to chunk size.
+
+        Raises
+        ------
+        IndexError
+            If index is out of range [0, num_chunks).
+
+        Notes
+        -----
+        For the last chunk (index == num_chunks - 1), the number of runs
+        is calculated as runs - (num_chunks - 1) * chunk_length to handle
+        the "dangling" chunk case.
+        """
+        # Validation
+        if index < 0 or index >= self.num_chunks:
+            raise IndexError(
+                f"Chunk index {index} out of range "
+                f"(valid range: 0 to {self.num_chunks - 1})"
+            )
+
+        if index == self.num_chunks - 1:
+            # Last chunk: calculate remaining runs
+            chunk_runs = self.runs - (self.num_chunks - 1) * self.chunk_length
+        else:
+            chunk_runs = self.chunk_length
+
+        return evolve(self, runs=chunk_runs)
+
+    def update_from_allocation(self, response: "ArrayResponse") -> "RunParams":
+        """Update with chunking metadata from allocation response.
+
+        Parameters
+        ----------
+        response : ArrayResponse
+            Allocation response containing chunking information.
+
+        Returns
+        -------
+        RunParams
+            New RunParams instance with updated chunking metadata.
+
+        Notes
+        -----
+        Extracts num_chunks and chunk_length from the response. When
+        num_chunks=1, chunk_length is set equal to runs (no chunking).
+        """
+
+        return evolve(
+            self,
+            num_chunks=response.chunks,
+            chunk_length=response.chunk_length,
+        )
+
 
 @define()
-class BatchSolverCache(CUDAFunctionCache):
+class BatchSolverCache(CUDADispatcherCache):
     solver_kernel: Union[int, Callable] = field(default=-1)
+
 
 class BatchSolverKernel(CUDAFactory):
     """Factory for CUDA kernel which coordinates a batch integration.
@@ -81,7 +206,7 @@ class BatchSolverKernel(CUDAFactory):
         Mapping of loop configuration forwarded to
         :class:`cubie.integrators.SingleIntegratorRun`. Recognised keys include
         ``"save_every"`` and ``"summarise_every"``.
-    driver_function
+    evaluate_driver_at_t
         Optional evaluation function for an interpolated forcing term.
     profileCUDA
         Flag enabling CUDA profiling hooks.
@@ -99,6 +224,13 @@ class BatchSolverKernel(CUDAFactory):
     memory_settings
         Mapping of memory configuration forwarded to the memory manager,
         typically via :mod:`cubie.memory`.
+    cache_settings
+        Mapping of cache configuration forwarded to
+        :class:`cubie.cubie_cache.CubieCacheHandler`.
+    cache
+        Cache mode control. ``True`` enables default caching, ``False``
+        disables caching, or a string/``Path`` sets a custom cache
+        directory.
 
     Notes
     -----
@@ -110,15 +242,17 @@ class BatchSolverKernel(CUDAFactory):
 
     def __init__(
         self,
-        system: "BaseODE",
+        system: "SymbolicODE",
         loop_settings: Optional[Dict[str, Any]] = None,
-        driver_function: Optional[Callable] = None,
+        evaluate_driver_at_t: Optional[Callable] = None,
         driver_del_t: Optional[Callable] = None,
         profileCUDA: bool = False,
         step_control_settings: Optional[Dict[str, Any]] = None,
         algorithm_settings: Optional[Dict[str, Any]] = None,
         output_settings: Optional[Dict[str, Any]] = None,
         memory_settings: Optional[Dict[str, Any]] = None,
+        cache_settings: Optional[Dict[str, Any]] = None,
+        cache: Union[bool, str, Path] = True,
     ) -> None:
         super().__init__()
         if memory_settings is None:
@@ -132,12 +266,14 @@ class BatchSolverKernel(CUDAFactory):
         self._profileCUDA = profileCUDA
 
         precision = system.precision
-        self._duration = precision(0.0)
-        self._warmup = precision(0.0)
-        self._t0 = precision(0.0)
-        self.chunks = None
-        self.chunk_axis = "run"
-        self.num_runs = 1
+
+        # Initialize run parameters with defaults
+        self.run_params = RunParams(
+            duration=precision(0.0),
+            warmup=precision(0.0),
+            t0=precision(0.0),
+            runs=1,
+        )
 
         # CUDA event tracking for timing
         self._cuda_events: List = []
@@ -149,22 +285,35 @@ class BatchSolverKernel(CUDAFactory):
         self.single_integrator = SingleIntegratorRun(
             system,
             loop_settings=loop_settings,
-            driver_function=driver_function,
+            evaluate_driver_at_t=evaluate_driver_at_t,
             driver_del_t=driver_del_t,
             step_control_settings=step_control_settings,
             algorithm_settings=algorithm_settings,
             output_settings=output_settings,
         )
 
+        # Extract system identification for cache
+        system_name = system.name
+        system_hash = system.fn_hash
+        if system_name == system_hash:
+            system_name = f"unnamed_{system_hash[:8]}"
+
+        # Build cache settings dict from cache_settings
+        if cache_settings is None:
+            cache_settings = {}
+
+        # Initialize cache_handler BEFORE setup_compile_settings since
+        # _invalidate_cache is called during setup and requires cache_handler
+        self.cache_handler = CubieCacheHandler(
+            cache_arg=cache,
+            system_name=system_name,
+            system_hash=system_hash,
+            **cache_settings,
+        )
+
         initial_config = BatchSolverConfig(
             precision=precision,
             loop_fn=None,
-            local_memory_elements=(
-                self.single_integrator.local_memory_elements
-            ),
-            shared_memory_elements=(
-                self.single_integrator.shared_memory_elements
-            ),
             compile_flags=self.single_integrator.output_compile_flags,
         )
         self.setup_compile_settings(initial_config)
@@ -173,17 +322,6 @@ class BatchSolverKernel(CUDAFactory):
         self.output_arrays = OutputArrays.from_solver(self)
 
         self.output_arrays.update(self)
-        self.update_compile_settings(
-            {
-                "local_memory_elements": (
-                    self.single_integrator.local_memory_elements
-                ),
-                "shared_memory_elements": (
-                    self.single_integrator.shared_memory_elements
-                ),
-                "precision": self.single_integrator.precision,
-            }
-        )
 
     def _setup_memory_manager(
         self, settings: Dict[str, Any]
@@ -258,8 +396,76 @@ class BatchSolverKernel(CUDAFactory):
         return (
             self._cuda_events[base_idx],
             self._cuda_events[base_idx + 1],
-            self._cuda_events[base_idx + 2]
+            self._cuda_events[base_idx + 2],
         )
+
+    def _validate_timing_parameters(self, duration: float) -> None:
+        """Validate timing parameters to prevent invalid array accesses.
+
+        Parameters
+        ----------
+        duration
+            Integration duration in time units.
+
+        Raises
+        ------
+        ValueError
+            When timing parameters would result in no outputs or invalid
+            sampling.
+
+        Notes
+        -----
+        Uses dt_min as an absolute tolerance when comparing floating
+        point timing parameters by adding dt_min to the requested
+        duration. Small in-loop timing oversteps smaller than dt_min
+        are treated as valid and do not trigger validation errors.
+        """
+        integrator = self.single_integrator
+        end_time = self.precision(duration) + self.dt_min
+
+        # Validate time-domain output timing parameters
+        if integrator.has_time_domain_outputs:
+            save_every = integrator.save_every
+            save_last = integrator.save_last
+            if (
+                save_every is not None
+                and save_every > end_time
+                and not save_last
+            ):
+                raise ValueError(
+                    f"save_every ({save_every}) > duration ({duration}) "
+                    f"so this loop will produce no outputs"
+                )
+
+        # Validate summary timing parameters
+        if integrator.has_summary_outputs:
+            sample_summaries_every = integrator.sample_summaries_every
+            summarise_every = integrator.summarise_every
+
+            if sample_summaries_every is None:
+                raise ValueError(
+                    "Summary outputs are enabled but sample_summaries_every "
+                    "is None"
+                )
+            if summarise_every is None:
+                raise ValueError(
+                    "Summary outputs are enabled but summarise_every is None"
+                )
+
+            if sample_summaries_every >= summarise_every:
+                raise ValueError(
+                    f"sample_summaries_every ({sample_summaries_every}) "
+                    f">= summarise_every ({summarise_every}); "
+                    f"The saved summary will be based on 0 samples, so will "
+                    f"result in 0/inf/NaN values."
+                )
+
+            if summarise_every > end_time:
+                raise ValueError(
+                    f"summarise_every ({summarise_every}) > duration "
+                    f"({duration}), so this loop will produce no summary "
+                    f"outputs"
+                )
 
     def run(
         self,
@@ -271,16 +477,18 @@ class BatchSolverKernel(CUDAFactory):
         stream: Optional[Any] = None,
         warmup: float = 0.0,
         t0: float = 0.0,
-        chunk_axis: str = "run",
     ) -> None:
         """Execute the solver kernel for batch integration.
+
+        Chunking is performed along the run axis when memory constraints
+        require splitting the batch.
 
         Parameters
         ----------
         inits
-            Initial conditions with shape ``(n_runs, n_states)``.
+            Initial conditions with shape ``(n_states, n_runs)``.
         params
-            Parameter table with shape ``(n_runs, n_params)``.
+            Parameter table with shape ``(n_params, n_runs)``.
         driver_coefficients
             Optional Horner-ordered driver interpolation coefficients with
             shape ``(num_segments, num_drivers, order + 1)``.
@@ -294,14 +502,6 @@ class BatchSolverKernel(CUDAFactory):
             Warmup time before the main simulation.
         t0
             Initial integration time.
-        chunk_axis
-            Axis used to partition the workload, either ``"run"`` or
-            ``"time"``.
-
-        Returns
-        -------
-        None
-            This method performs the integration for its side effects.
 
         Notes
         -----
@@ -315,31 +515,26 @@ class BatchSolverKernel(CUDAFactory):
 
         # Time parameters always use float64 for accumulation accuracy
         duration = np_float64(duration)
-        warmup = np_float64(warmup)
-        t0 = np_float64(t0)
 
-        self._duration = duration
-        self._warmup = warmup
-        self._t0 = t0
-
-        # inits is in (variable, run) format - run count is in shape[1]
-        numruns = inits.shape[1]
-        self.num_runs = numruns  # Don't delete - generates batchoutputsizes
+        # Update run params with actual values before allocation
+        self.run_params = RunParams(
+            duration=duration,
+            warmup=np_float64(warmup),
+            t0=np_float64(t0),
+            runs=inits.shape[1],
+        )
 
         # Update the single integrator with requested duration if required
         self.single_integrator.set_summary_timing_from_duration(duration)
 
+        # Validate timing parameters to prevent array index errors
+        self._validate_timing_parameters(duration)
+
         # Refresh compile-critical settings before array updates
         self.update_compile_settings(
             {
-                "loop_fn": self.single_integrator.compiled_loop_function,
+                "loop_fn": self.single_integrator.device_function,
                 "precision": self.single_integrator.precision,
-                "local_memory_elements": (
-                    self.single_integrator.local_memory_elements
-                ),
-                "shared_memory_elements": (
-                    self.single_integrator.shared_memory_elements
-                ),
             }
         )
 
@@ -348,84 +543,69 @@ class BatchSolverKernel(CUDAFactory):
         self.output_arrays.update(self)
 
         # Process allocations into chunks
-        self.memory_manager.allocate_queue(self, chunk_axis=chunk_axis)
+        self.memory_manager.allocate_queue(self)
 
         # ------------ from here on dimensions are "chunked" -----------------
-        chunk_params = self.chunk_run(
-            chunk_axis,
-            duration,
-            warmup,
-            t0,
-            numruns,
-            self.chunks,
-        )
-        chunk_warmup = chunk_params.warmup
-        chunk_t0 = chunk_params.t0
+        # self.run_params is updated in the on_allocation callback.
+        chunks = self.run_params.num_chunks
 
-        # Propagate chunk_duration to single_integrator if required
-        if self.chunks != 1:
-            self.single_integrator.set_summary_timing_from_duration(
-                    chunk_params.duration
-            )
-
-        # Use the chunk-local run count for run-chunking, and the full run
-        # count for time-chunking.
-        if chunk_axis == "run":
-            kernel_runs = int(chunk_params.runs)
-        else:
-            kernel_runs = int(numruns)
+        # Get first chunk runs for initial block size calculation
+        first_chunk_params = self.run_params[0]
+        runs = first_chunk_params.runs
 
         pad = 4 if self.shared_memory_needs_padding else 0
         padded_bytes = self.shared_memory_bytes + pad
-        dynamic_sharedmem = int(
-            padded_bytes * min(kernel_runs, blocksize)
-        )
+        dynamic_sharedmem = int(padded_bytes * min(runs, blocksize))
 
         blocksize, dynamic_sharedmem = self.limit_blocksize(
             blocksize,
             dynamic_sharedmem,
             padded_bytes,
-            kernel_runs,
+            runs,
         )
 
         # We need a nonzero number to tell the compiler we're using dynamic
         # memory. If zero, then the cuda.shared.array(0) call fails as we
         # can't declare a size-0 static shared memory array.
         dynamic_sharedmem = max(4, dynamic_sharedmem)
-        threads_per_loop = self.single_integrator.threads_per_loop
-        runsperblock = int(blocksize / self.single_integrator.threads_per_loop)
-        BLOCKSPERGRID = int(max(1, np_ceil(kernel_runs / blocksize)))
+        threads_per_loop = self.single_integrator.threads_per_step
+        runsperblock = int(blocksize / self.single_integrator.threads_per_step)
 
         if self.profileCUDA:  # pragma: no cover
             cuda.profile_start()
 
         # Setup CUDA events for timing (no-op when verbosity is None)
-        self._setup_cuda_events(self.chunks)
+        self._setup_cuda_events(chunks)
 
         # Record start of overall GPU workload
         self._gpu_workload_event.record_start(stream)
+        precision = self.precision
+        for i in range(chunks):
+            # Get parameters for this specific chunk
+            chunk_run_params = self.run_params[i]
+            duration = precision(chunk_run_params.duration)
+            warmup = precision(chunk_run_params.warmup)
+            t0 = precision(chunk_run_params.t0)
 
-        for i in range(self.chunks):
-            indices = slice(i * chunk_params.size, (i + 1) * chunk_params.size)
+            # Use the chunk-local run count
+            runs = chunk_run_params.runs
+
+            # Recompute blocks needed for this chunk's actual run count
+            chunk_blocks = int(max(1, np_ceil(runs / blocksize)))
 
             # Get events for this chunk
             h2d_event, kernel_event, d2h_event = self._get_chunk_events(i)
 
             # h2d transfer timing
             h2d_event.record_start(stream)
-            self.input_arrays.initialise(indices)
-            self.output_arrays.initialise(indices)
+            self.input_arrays.initialise(i)
+            self.output_arrays.initialise(i)
             h2d_event.record_end(stream)
-
-            # Don't use warmup in runs starting after t=t0
-            if (chunk_axis == "time") and (i != 0):
-                chunk_warmup = np_float64(0.0)
-                chunk_t0 = t0 + np_float64(i) * chunk_params.duration
 
             # Kernel execution timing
             kernel_event.record_start(stream)
             self.kernel[
-                BLOCKSPERGRID,
+                chunk_blocks,
                 (threads_per_loop, runsperblock),
                 stream,
                 dynamic_sharedmem,
@@ -439,21 +619,17 @@ class BatchSolverKernel(CUDAFactory):
                 self.output_arrays.device_observable_summaries,
                 self.output_arrays.device_iteration_counters,
                 self.output_arrays.device_status_codes,
-                chunk_params.duration,
-                chunk_warmup,
-                chunk_t0,
-                kernel_runs,
+                duration,
+                warmup,
+                t0,
+                runs,
             )
             kernel_event.record_end(stream)
 
-            # We don't want to sync between chunks, we should queue runs and
-            # transfers in the stream and sync before final result fetch.
-            # self.memory_manager.sync_stream(self)
-
             # d2h transfer timing
             d2h_event.record_start(stream)
-            self.input_arrays.finalise(indices)
-            self.output_arrays.finalise(indices)
+            self.input_arrays.finalise(i)
+            self.output_arrays.finalise(i)
             d2h_event.record_end(stream)
 
         # Finalize GPU workload timing
@@ -487,78 +663,56 @@ class BatchSolverKernel(CUDAFactory):
         tuple[int, int]
             Adjusted block size and shared-memory footprint per block.
 
+        Raises
+        ------
+        ValueError
+            If a single run's shared-memory demand exceeds the
+            device's per-block limit, so no block size can launch.
+
         Notes
         -----
-        The shared-memory ceiling uses 32 kiB so three blocks can reside per SM
-        on CC7* hardware. Larger requests reduce per-thread L1 availability.
+        Reduction is two-staged. The performance stage targets a
+        32 kiB footprint (three blocks per SM on CC7* hardware;
+        larger requests reduce per-thread L1 availability) but is
+        floored at one warp: profiling shows sub-warp blocks starve
+        the SMs of resident threads and run slower than exceeding
+        the target. The hardware stage then reduces below one warp
+        only when the device's per-block shared-memory limit leaves
+        no alternative — there a sub-warp block is a launchability
+        requirement, not a tuning choice.
         """
-        while dynamic_sharedmem >= 32768:
-            if blocksize < 32:
-                warn(
-                    "Block size has been reduced to less than 32 threads, "
-                    "which means your code will suffer a "
-                    "performance hit. This is due to your problem requiring "
-                    "too much shared memory - try changing "
-                    "some parameters to constants, or trying a different "
-                    "solving algorithm."
+        while dynamic_sharedmem >= 32768 and blocksize > 32:
+            blocksize = max(32, int(blocksize // 2))
+            dynamic_sharedmem = int(bytes_per_run * min(numruns, blocksize))
+
+        hardware_limit = max_shared_memory_per_block()
+        if dynamic_sharedmem > hardware_limit:
+            if bytes_per_run > hardware_limit:
+                raise ValueError(
+                    f"A single run requires {bytes_per_run} B of "
+                    f"shared memory, exceeding the device limit of "
+                    f"{hardware_limit} B per block. Move buffers to "
+                    "local memory to reduce per-run shared usage."
                 )
-            blocksize = int(blocksize // 2)
-            dynamic_sharedmem = int(
-                bytes_per_run * min(numruns, blocksize)
+            warn(
+                "Per-run shared memory exceeds the device's "
+                "per-block limit at one warp per block; block size "
+                "is reduced below warp width. Performance will "
+                "degrade. Consider moving buffers to local memory."
+            )
+            while dynamic_sharedmem > hardware_limit and blocksize > 1:
+                blocksize = int(blocksize // 2)
+                dynamic_sharedmem = int(
+                    bytes_per_run * min(numruns, blocksize)
+                )
+        elif dynamic_sharedmem >= 32768:
+            warn(
+                "Dynamic shared memory exceeds the 32 kiB per-block "
+                "performance target at the minimum block size of 32 "
+                "threads. Occupancy will be reduced. Consider moving "
+                "buffers to local memory."
             )
         return blocksize, dynamic_sharedmem
-
-    def chunk_run(
-        self,
-        chunk_axis: str,
-        duration: float,
-        warmup: float,
-        t0: float,
-        numruns: int,
-        chunks: int,
-    ) -> ChunkParams:
-        """Split the workload into chunks along the selected axis.
-
-        Parameters
-        ----------
-        chunk_axis
-            Axis along which to partition the workload, either ``"run"`` or
-            ``"time"``.
-        duration
-            Duration of the simulation window.
-        warmup
-            Warmup time before the main simulation.
-        t0
-            Initial integration time.
-        numruns
-            Total number of runs in the batch.
-        chunks
-            Number of partitions requested by the memory manager.
-
-        Returns
-        -------
-        ChunkParams
-            Chunked execution parameters describing the per-chunk workload.
-        """
-        chunkruns = numruns
-        chunk_warmup = warmup
-        chunk_duration = duration
-        chunk_t0 = t0
-        if chunk_axis == "run":
-            chunkruns = int(np_ceil(numruns / chunks))
-            chunksize = chunkruns
-        elif chunk_axis == "time":
-            chunk_duration = duration / chunks
-            chunksize = int(np_ceil(self.output_length / chunks))
-            chunkruns = numruns
-
-        return ChunkParams(
-            duration=chunk_duration,
-            warmup=chunk_warmup,
-            t0=chunk_t0,
-            size=chunksize,
-            runs=chunkruns,
-        )
 
     def build_kernel(self) -> None:
         """Build and compile the CUDA integration kernel."""
@@ -566,8 +720,8 @@ class BatchSolverKernel(CUDAFactory):
         simsafe_precision = config.simsafe_precision
         precision = config.numba_precision
 
-        if 'lineinfo' in compile_kwargs:
-            compile_kwargs['lineinfo'] = self.profileCUDA
+        if "lineinfo" in compile_kwargs:
+            compile_kwargs["lineinfo"] = self.profileCUDA
 
         loopfunction = self.single_integrator.device_function
 
@@ -578,7 +732,7 @@ class BatchSolverKernel(CUDAFactory):
         save_observable_summaries = output_flags.observable_summaries
         needs_padding = self.shared_memory_needs_padding
 
-        shared_elems_per_run = config.shared_memory_elements
+        shared_elems_per_run = self.shared_memory_elements
         f32_per_element = 2 if (precision is float64) else 1
         f32_pad_perrun = 1 if needs_padding else 0
         run_stride_f32 = int(
@@ -587,25 +741,11 @@ class BatchSolverKernel(CUDAFactory):
 
         # Get memory allocators from buffer registry
         alloc_shared, alloc_persistent = (
-            buffer_registry.get_toplevel_allocators(self))
+            buffer_registry.get_toplevel_allocators(self)
+        )
 
         # no cover: start
         @cuda.jit(
-            (
-                precision[:, ::1],
-                precision[:, ::1],
-                precision[:, :, ::1],
-                precision[:, :, ::1],
-                precision[:, :, ::1],
-                precision[:, :, ::1],
-                precision[:, :, ::1],
-                int32[:, :, ::1],
-                int32[::1],
-                float64,
-                float64,
-                float64,
-                int32,
-            ),
             **compile_kwargs,
         )
         def integration_kernel(
@@ -688,9 +828,7 @@ class BatchSolverKernel(CUDAFactory):
             rx_observables_summaries = observables_summaries_output[
                 :, :, run_index * save_observable_summaries
             ]
-            rx_iteration_counters = iteration_counters_output[
-                :, :, run_index
-            ]
+            rx_iteration_counters = iteration_counters_output[:, :, run_index]
             status = loopfunction(
                 rx_inits,
                 rx_params,
@@ -709,8 +847,18 @@ class BatchSolverKernel(CUDAFactory):
             if tx == 0:
                 status_codes_output[run_index] = status
             return None
+
         # no cover: end
 
+        # Update cache for this configuration and attach. When caching
+        # is disabled the dispatcher keeps its default NullCache; the
+        # dispatcher requires a cache object with a load_overload method.
+        cfg_hash = self.config_hash
+        configured_cache = self.cache_handler.configured_cache(
+            self.system.fn_hash, cfg_hash
+        )
+        if configured_cache is not None:
+            integration_kernel._cache = configured_cache
         return integration_kernel
 
     def update(
@@ -762,22 +910,26 @@ class BatchSolverKernel(CUDAFactory):
 
         all_unrecognized = set(updates_dict.keys())
         all_unrecognized -= self.single_integrator.update(
-                updates_dict, silent=True
+            updates_dict, silent=True
         )
 
-        updates_dict.update({
-            "loop_fn": self.single_integrator.device_function,
-            "local_memory_elements": (
-                self.single_integrator.local_memory_elements
-            ),
-            "shared_memory_elements": (
-                self.single_integrator.shared_memory_elements
-            ),
-            "compile_flags": self.single_integrator.output_compile_flags,
-        })
+        all_unrecognized -= buffer_registry.update(
+            self.single_integrator._loop, updates_dict, silent=True
+        )
+
+        updates_dict.update(
+            {
+                "loop_fn": self.single_integrator.device_function,
+                "compile_flags": self.single_integrator.output_compile_flags,
+            }
+        )
 
         all_unrecognized -= self.update_compile_settings(
-                updates_dict, silent=True
+            updates_dict, silent=True
+        )
+
+        all_unrecognized -= self.cache_handler.update(
+            updates_dict, silent=True
         )
 
         recognised = set(updates_dict.keys()) - all_unrecognized
@@ -789,23 +941,19 @@ class BatchSolverKernel(CUDAFactory):
         # Include unpacked dict keys in recognized set
         return recognised | unpacked_keys
 
-    @property
-    def precision(self) -> PrecisionDType:
-        """Precision dtype used in computations."""
-
-        return self.compile_settings.precision
+    def wait_for_writeback(self):
+        """Wait for async writebacks into host arrays after chunked runs"""
+        self.output_arrays.wait_pending()
 
     @property
     def local_memory_elements(self) -> int:
         """Number of precision elements required in local memory per run."""
-
-        return self.compile_settings.local_memory_elements
+        return self.single_integrator.local_memory_elements
 
     @property
     def shared_memory_elements(self) -> int:
         """Number of precision elements required in shared memory per run."""
-
-        return self.compile_settings.shared_memory_elements
+        return self.single_integrator.shared_memory_elements
 
     @property
     def compile_flags(self) -> OutputCompileFlags:
@@ -818,6 +966,21 @@ class BatchSolverKernel(CUDAFactory):
         """Active output array flags derived from compile_flags."""
 
         return self.compile_settings.active_outputs
+
+    @property
+    def cache_config(self) -> "CacheConfig":
+        """Cache configuration for the kernel, parsed on demand."""
+        return self.cache_handler.config
+
+    def set_cache_dir(self, path: Union[str, Path]) -> None:
+        """Set a custom cache directory for compiled kernels.
+
+        Parameters
+        ----------
+        path
+            New cache directory path. Can be absolute or relative.
+        """
+        self.cache_handler.update(cache_dir=Path(path))
 
     @property
     def shared_memory_needs_padding(self) -> bool:
@@ -845,9 +1008,15 @@ class BatchSolverKernel(CUDAFactory):
         else:
             return False
 
-    def _on_allocation(self, response: Any) -> None:
-        """Record the number of chunks required by the memory manager."""
-        self.chunks = response.chunks
+    def _on_allocation(self, response: "ArrayResponse") -> None:
+        """Update run parameters with chunking metadata from allocation."""
+        self.run_params = self.run_params.update_from_allocation(response)
+
+    def _invalidate_cache(self) -> None:
+        """Mark cached outputs as invalid, flushing cache if cache_handler
+        in "flush on change" mode."""
+        super()._invalidate_cache()
+        self.cache_handler.invalidate()
 
     @property
     def output_heights(self) -> Any:
@@ -901,51 +1070,63 @@ class BatchSolverKernel(CUDAFactory):
     @property
     def shared_memory_bytes(self) -> int:
         """Shared-memory footprint per run for the compiled kernel."""
-
         return self.single_integrator.shared_memory_bytes
-
 
     @property
     def threads_per_loop(self) -> int:
         """CUDA threads consumed by each run in the loop."""
 
-        return self.single_integrator.threads_per_loop
+        return self.single_integrator.threads_per_step
 
     @property
     def duration(self) -> float:
         """Requested integration duration."""
-
-        return np_float64(self._duration)
+        return np_float64(self.run_params.duration)
 
     @duration.setter
     def duration(self, value: float) -> None:
-        self._duration = np_float64(value)
+        oldparams = self.run_params
+        self.run_params = evolve(oldparams, duration=np_float64(value))
 
     @property
     def dt(self) -> Optional[float]:
         """Current integrator step size when available."""
-
         return self.single_integrator.dt or None
 
     @property
     def warmup(self) -> float:
         """Configured warmup duration."""
-
-        return np_float64(self._warmup)
+        return np_float64(self.run_params.warmup)
 
     @warmup.setter
     def warmup(self, value: float) -> None:
-        self._warmup = np_float64(value)
+        oldparams = self.run_params
+        self.run_params = evolve(oldparams, warmup=np_float64(value))
 
     @property
     def t0(self) -> float:
         """Configured initial integration time."""
-
-        return np_float64(self._t0)
+        return np_float64(self.run_params.t0)
 
     @t0.setter
     def t0(self, value: float) -> None:
-        self._t0 = np_float64(value)
+        oldparams = self.run_params
+        self.run_params = evolve(oldparams, t0=np_float64(value))
+
+    @property
+    def num_runs(self) -> int:
+        """Number of runs scheduled for the batch integration."""
+        return self.run_params.runs
+
+    @num_runs.setter
+    def num_runs(self, value: int) -> None:
+        oldparams = self.run_params
+        self.run_params = evolve(oldparams, runs=value)
+
+    @property
+    def chunks(self):
+        """Number of chunks in the most recent run."""
+        return self.run_params.num_chunks
 
     @property
     def output_length(self) -> int:
@@ -954,7 +1135,7 @@ class BatchSolverKernel(CUDAFactory):
         Delegates to SingleIntegratorRun.output_length() with the current
         duration.
         """
-        return self.single_integrator.output_length(self._duration)
+        return self.single_integrator.output_length(self.duration)
 
     @property
     def summaries_length(self) -> int:
@@ -963,7 +1144,7 @@ class BatchSolverKernel(CUDAFactory):
         Delegates to SingleIntegratorRun.summaries_length() with the current
         duration.
         """
-        return self.single_integrator.summaries_length(self._duration)
+        return self.single_integrator.summaries_length(self.duration)
 
     @property
     def system(self) -> "BaseODE":
@@ -975,7 +1156,7 @@ class BatchSolverKernel(CUDAFactory):
     def algorithm(self) -> str:
         """Identifier of the selected integration algorithm."""
 
-        return self.single_integrator.algorithm_key
+        return self.single_integrator.algorithm
 
     @property
     def dt_min(self) -> float:
@@ -1004,7 +1185,6 @@ class BatchSolverKernel(CUDAFactory):
     @property
     def save_every(self) -> Optional[float]:
         """Interval between saved samples from the loop, or None if save_last only."""
-
         return self.single_integrator.save_every
 
     @property
@@ -1012,7 +1192,7 @@ class BatchSolverKernel(CUDAFactory):
         """Interval between summary reductions from the loop"""
 
         return self.single_integrator.summarise_every
-    
+
     @property
     def sample_summaries_every(self) -> float:
         """Interval between summary metric samples from the loop."""
@@ -1026,22 +1206,16 @@ class BatchSolverKernel(CUDAFactory):
         return self.single_integrator.system_sizes
 
     @property
+    def n_drivers(self) -> int:
+        """Number of interpolated driver inputs for the system."""
+
+        return self.system_sizes.drivers
+
+    @property
     def output_array_heights(self) -> Any:
         """Height metadata for the batched output arrays."""
 
         return self.single_integrator.output_array_heights
-
-    @property
-    def ouput_array_sizes_2d(self) -> SingleRunOutputSizes:
-        """Two-dimensional output sizes for individual runs."""
-
-        return SingleRunOutputSizes.from_solver(self)
-
-    @property
-    def output_array_sizes_3d(self) -> BatchOutputSizes:
-        """Three-dimensional output sizes for batched runs."""
-
-        return BatchOutputSizes.from_solver(self)
 
     @property
     def summary_legend_per_variable(self) -> Any:
@@ -1078,36 +1252,6 @@ class BatchSolverKernel(CUDAFactory):
         """Indices of summarised observable variables."""
 
         return self.single_integrator.summarised_observable_indices
-
-    @property
-    def device_state_array(self) -> Any:
-        """Device buffer storing saved state trajectories."""
-
-        return self.output_arrays.device_state
-
-    @property
-    def device_observables_array(self) -> Any:
-        """Device buffer storing saved observable trajectories."""
-
-        return self.output_arrays.device_observables
-
-    @property
-    def device_state_summaries_array(self) -> Any:
-        """Device buffer storing state summary reductions."""
-
-        return self.output_arrays.device_state_summaries
-
-    @property
-    def device_observable_summaries_array(self) -> Any:
-        """Device buffer storing observable summary reductions."""
-
-        return self.output_arrays.device_observable_summaries
-
-    @property
-    def d_statuscodes(self) -> Any:
-        """Device buffer storing integration status codes."""
-
-        return self.output_arrays.device_status_codes
 
     @property
     def state(self) -> Any:
@@ -1170,12 +1314,6 @@ class BatchSolverKernel(CUDAFactory):
         return self.input_arrays.device_driver_coefficients
 
     @property
-    def state_stride_order(self) -> Tuple[str, ...]:
-        """Stride order for state arrays on the host."""
-
-        return self.output_arrays.host.state.stride_order
-
-    @property
     def save_time(self) -> float:
         """Elapsed time spent saving outputs during integration."""
 
@@ -1188,17 +1326,6 @@ class BatchSolverKernel(CUDAFactory):
     def disable_profiling(self) -> None:
         """Disable CUDA profiling hooks for subsequent launches."""
         self._profileCUDA = False
-
-    def set_stride_order(self, order: Tuple[str]) -> None:
-        """Set the stride order for device arrays.
-
-        Parameters
-        ----------
-        order
-            Tuple of labels in ["time", "run", "variable"]. The last string in
-            this order is the contiguous dimension on chip.
-        """
-        self.memory_manager.set_global_stride_ordering(order)
 
     @property
     def output_types(self) -> Any:

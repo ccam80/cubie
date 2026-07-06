@@ -1,4 +1,26 @@
-"""Code generation helpers for implicit solver preconditioners."""
+"""Emit CUDA factory code for Neumann-series preconditioners.
+
+Published Functions
+-------------------
+:func:`generate_neumann_preconditioner_code`
+    Emit a factory computing a truncated Neumann series approximation
+    to ``(I - gamma * h * J)^{-1} * v``.
+
+:func:`generate_neumann_preconditioner_cached_code`
+    Variant that reads precomputed auxiliary values from a cache buffer.
+
+:func:`generate_n_stage_neumann_preconditioner_code`
+    Emit a flattened multi-stage preconditioner for FIRK methods.
+
+See Also
+--------
+:mod:`cubie.odesystems.symbolic.codegen.linear_operators`
+    Companion linear operator code generators.
+:mod:`cubie.odesystems.symbolic.codegen.jacobian`
+    Produces the JVP expressions consumed by this module.
+:mod:`cubie.odesystems.symbolic.codegen._stage_utils`
+    Shared FIRK stage metadata helpers.
+"""
 
 from typing import List, Optional, Tuple, Dict, Sequence, Union
 
@@ -50,11 +72,13 @@ NEUMANN_TEMPLATE = (
     "    where `jvp` is a caller-provided scratch buffer for J*v.\n"
     '    """\n'
     "    n = int32({n_out})\n"
-    "    gamma = precision(gamma)\n"
-    "    beta = precision(beta)\n"
+    "    # Use _cubie_codegen_ prefix to avoid conflicts with user-defined\n"
+    "    # variables named beta or gamma (issue #373)\n"
+    "    _cubie_codegen_gamma = precision(gamma)\n"
+    "    _cubie_codegen_beta = precision(beta)\n"
     "    order = int32(order)\n"
-    "    beta_inv = precision(1.0 / beta)\n"
-    "    h_eff_factor = precision(gamma * beta_inv)\n"
+    "    beta_inv = precision(1.0 / _cubie_codegen_beta)\n"
+    "    h_eff_factor = precision(_cubie_codegen_gamma * beta_inv)\n"
     "{const_lines}"
     "    @cuda.jit(\n"
     "        # (precision[::1],\n"
@@ -100,10 +124,12 @@ NEUMANN_CACHED_TEMPLATE = (
     '    """\n'
     "    n = int32({n_out})\n"
     "    order = int32(order)\n"
-    "    gamma = precision(gamma)\n"
-    "    beta = precision(beta)\n"
-    "    beta_inv = precision(1.0 / beta)\n"
-    "    h_eff_factor = precision(gamma * beta_inv)\n"
+    "    # Use _cubie_codegen_ prefix to avoid conflicts with user-defined\n"
+    "    # variables named beta or gamma (issue #373)\n"
+    "    _cubie_codegen_gamma = precision(gamma)\n"
+    "    _cubie_codegen_beta = precision(beta)\n"
+    "    beta_inv = precision(1.0 / _cubie_codegen_beta)\n"
+    "    h_eff_factor = precision(_cubie_codegen_gamma * beta_inv)\n"
     "{const_lines}"
     "    @cuda.jit(\n"
     "        # (precision[::1],\n"
@@ -149,11 +175,11 @@ N_STAGE_NEUMANN_TEMPLATE = (
     "{const_lines}"
     "{metadata_lines}"
     "    total_n = int32({total_states})\n"
-    "    gamma = precision(gamma)\n"
-    "    beta = precision(beta)\n"
+    "    _cubie_codegen_gamma = precision(gamma)\n"
+    "    _cubie_codegen_beta = precision(beta)\n"
     "    order = int32(order)\n"
-    "    beta_inv = precision(1.0 / beta)\n"
-    "    h_eff_factor = precision(gamma * beta_inv)\n"
+    "    beta_inv = precision(1.0 / _cubie_codegen_beta)\n"
+    "    h_eff_factor = precision(_cubie_codegen_gamma * beta_inv)\n"
     "    stage_width = int32({state_count})\n"
     "    @cuda.jit(\n"
     "        # (precision[::1],\n"

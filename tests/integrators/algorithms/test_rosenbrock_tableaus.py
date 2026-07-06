@@ -49,7 +49,8 @@ def test_rosenbrock_step_function_accepts_registry_key(
         {
             "algorithm": "ros3p",
             "step_controller": "pid",
-            "krylov_tolerance": 1e-7,
+            "krylov_atol": 1e-7,
+            "krylov_rtol": 1e-7,
         },
     ],
     indirect=True,

@@ -1,6 +1,54 @@
-"""GPU memory management utilities for coordinating cubie allocations."""
+"""GPU memory management utilities for coordinating CuBIE allocations.
 
-from typing import Any, Optional, Callable, Union, Dict
+This module provides the :class:`MemoryManager` singleton that
+coordinates GPU memory allocation, stream usage, and automatic
+chunking across registered instances.
+
+Published Classes
+-----------------
+:class:`MemoryManager`
+    Singleton interface coordinating GPU memory allocation and stream
+    usage.
+
+    >>> mgr = MemoryManager()
+
+:class:`InstanceMemorySettings`
+    Per-instance registry entry tracking allocations and hooks.
+
+Published Constants
+-------------------
+:data:`ALL_MEMORY_MANAGER_PARAMETERS`
+    Parameter set accepted by the memory manager configuration.
+
+Module-Level Functions
+----------------------
+:func:`get_portioned_request_size`
+    Calculate chunkable and unchunkable byte totals for a request
+    dictionary.
+
+:func:`is_request_chunkable`
+    Determine whether a single :class:`ArrayRequest` can be chunked.
+
+:func:`replace_with_chunked_size`
+    Replace the run axis in a shape tuple with a chunked size.
+
+Notes
+-----
+Chunking is performed along the run axis to handle batches that
+exceed available GPU memory. The chunking process is automatic and
+coordinated across all instances in a stream group.
+
+See Also
+--------
+:class:`~cubie.memory.array_requests.ArrayRequest`
+    Describes a single allocation request.
+:class:`~cubie.memory.array_requests.ArrayResponse`
+    Reports allocation outcomes including chunking metadata.
+:class:`~cubie.memory.stream_groups.StreamGroups`
+    Manages CUDA stream groups used by the memory manager.
+"""
+
+from typing import Any, Optional, Callable, Dict, Tuple
 from warnings import warn
 import contextlib
 from copy import deepcopy
@@ -12,7 +60,12 @@ from attrs.validators import (
     instance_of as attrsval_instance_of,
     optional as attrsval_optional,
 )
-from numpy import ceil as np_ceil, ndarray, zeros as np_zeros
+from numpy import (
+    ceil as np_ceil,
+    ndarray,
+    empty as np_empty,
+    floor as np_floor,
+)
 from math import prod
 
 from cubie.cuda_simsafe import (
@@ -37,6 +90,29 @@ ALL_MEMORY_MANAGER_PARAMETERS = {
     "mem_proportion",
     "allocator",
 }
+"""All keyword arguments accepted by :class:`MemoryManager` registration
+and solver-level memory configuration.
+
+.. list-table:: Parameter Summary
+   :header-rows: 1
+
+   * - Parameter
+     - Accepted By
+     - Description
+   * - ``memory_manager``
+     - :class:`MemoryManager`
+     - Memory manager instance to use.
+   * - ``stream_group``
+     - :meth:`MemoryManager.register`
+     - Name of the CUDA stream group.
+   * - ``mem_proportion``
+     - :meth:`MemoryManager.register`
+     - Proportion of VRAM to assign (0.0--1.0).
+   * - ``allocator``
+     - :meth:`MemoryManager.set_allocator`
+     - Memory allocator type (``"default"``, ``"cupy"``,
+       ``"cupy_async"``).
+"""
 
 
 MIN_AUTOPOOL_SIZE = 0.05
@@ -46,9 +122,6 @@ def placeholder_invalidate() -> None:
     """
     Default invalidate hook placeholder that performs no operations.
 
-    Returns
-    -------
-    None
     """
     pass
 
@@ -62,10 +135,8 @@ def placeholder_dataready(response: ArrayResponse) -> None:
     response
         Array response object (unused).
 
-    Returns
-    -------
-    None
     """
+    pass
 
 
 def _ensure_cuda_context() -> None:
@@ -80,9 +151,6 @@ def _ensure_cuda_context() -> None:
     This is particularly important after cuda.close() calls which can
     leave the context in a state requiring reinitialization.
 
-    Returns
-    -------
-    None
 
     Raises
     ------
@@ -163,7 +231,8 @@ class InstanceMemorySettings:
         default=attrsFactory(dict), validator=attrsval_instance_of(dict)
     )
     invalidate_hook: Callable[[], None] = field(
-        default=placeholder_invalidate, validator=attrsval_instance_of(Callable)
+        default=placeholder_invalidate,
+        validator=attrsval_instance_of(Callable),
     )
     allocation_ready_hook: Callable[[ArrayResponse], None] = field(
         default=placeholder_dataready
@@ -173,8 +242,7 @@ class InstanceMemorySettings:
     )
 
     def add_allocation(self, key: str, arr: Any) -> None:
-        """
-        Add an allocation to the instance's allocations list.
+        """Add an allocation to the instance's allocations list.
 
         Parameters
         ----------
@@ -185,12 +253,8 @@ class InstanceMemorySettings:
 
         Notes
         -----
-        If a previous allocation exists with the same key, it is freed
-        before adding the new allocation.
-
-        Returns
-        -------
-        None
+        If a previous allocation exists with the same key, it is
+        freed before adding the new allocation.
         """
 
         if key in self.allocations:
@@ -199,8 +263,7 @@ class InstanceMemorySettings:
         self.allocations[key] = arr
 
     def free(self, key: str) -> None:
-        """
-        Free an allocation by key.
+        """Free an allocation by key.
 
         Parameters
         ----------
@@ -210,10 +273,6 @@ class InstanceMemorySettings:
         Notes
         -----
         Emits a warning if the key is not found in allocations.
-
-        Returns
-        -------
-        None
         """
         if key in self.allocations:
             del self.allocations[key]
@@ -224,13 +283,7 @@ class InstanceMemorySettings:
             )
 
     def free_all(self) -> None:
-        """
-        Drop all references to allocated arrays.
-
-        Returns
-        -------
-        None
-        """
+        """Drop all references to allocated arrays."""
         to_free = self.allocations.copy()
         for key in to_free:
             self.free(key)
@@ -246,44 +299,44 @@ class InstanceMemorySettings:
 
 @define
 class MemoryManager:
-    """
-    Singleton interface coordinating GPU memory allocation and stream usage.
+    """Singleton interface coordinating GPU memory allocation and
+    stream usage.
 
     Parameters
     ----------
     totalmem
-        Total GPU memory in bytes. Determined automatically when omitted.
+        Total GPU memory in bytes. Determined automatically when
+        omitted.
     registry
-        Registry mapping instance identifiers to their memory settings.
+        Registry mapping instance identifiers to their memory
+        settings.
     stream_groups
-        Manager for organizing instances into stream groups.
-    _mode
-        Memory management mode, either ``"passive"`` or ``"active"``.
-    _allocator
-        Memory allocator class registered with Numba.
-    _auto_pool
-        List of instance identifiers using automatic memory allocation.
-    _manual_pool
-        List of instance identifiers using manual memory allocation.
-    _stride_order
-        Default stride ordering for three-dimensional arrays.
-    _queued_allocations
-        Queued allocation requests organized by stream group.
+        Manager for organising instances into stream groups.
 
     Notes
     -----
     The manager accepts :class:`ArrayRequest` objects and returns
-    :class:`ArrayResponse` instances that reference allocated arrays and
-    chunking information. Active mode enforces per-instance VRAM proportions
-    while passive mode mirrors standard allocation behaviour using chunking
-    only when necessary.
+    :class:`ArrayResponse` instances that reference allocated arrays
+    and chunking information. Active mode enforces per-instance VRAM
+    proportions while passive mode mirrors standard allocation
+    behaviour using chunking only when necessary.
+
+    See Also
+    --------
+    :class:`~cubie.memory.array_requests.ArrayRequest`
+        Describes a single allocation request.
+    :class:`~cubie.memory.array_requests.ArrayResponse`
+        Reports allocation outcomes.
+    :class:`~cubie.memory.stream_groups.StreamGroups`
+        Manages CUDA stream groups.
     """
 
     totalmem: int = field(
         default=None, validator=attrsval_optional(attrsval_instance_of(int))
     )
     registry: dict[int, InstanceMemorySettings] = field(
-        default=attrsFactory(dict), validator=attrsval_optional(attrsval_instance_of(dict))
+        default=attrsFactory(dict),
+        validator=attrsval_optional(attrsval_instance_of(dict)),
     )
     stream_groups: StreamGroups = field(default=attrsFactory(StreamGroups))
     _mode: str = field(
@@ -298,10 +351,6 @@ class MemoryManager:
     )
     _manual_pool: list[int] = field(
         default=attrsFactory(list), validator=attrsval_instance_of(list)
-    )
-    _stride_order: tuple[str, str, str] = field(
-        default=("time", "variable", "run"), validator=attrsval_instance_of(
-                    tuple)
     )
     _queued_allocations: Dict[str, Dict] = field(
         default=attrsFactory(dict), validator=attrsval_instance_of(dict)
@@ -359,9 +408,6 @@ class MemoryManager:
             If instance is already registered or proportion is not between 0
             and 1.
 
-        Returns
-        -------
-        None
         """
         instance_id = id(instance)
         if instance_id in self.registry:
@@ -407,9 +453,6 @@ class MemoryManager:
             closed and reopened. This invalidates all previously compiled
             kernels and allocated arrays, requiring a full rebuild.
 
-        Returns
-        -------
-        None
         """
         # Ensure there's a valid context before change - only relevant if user
         # switches in rapid succession with no interceding operations.
@@ -455,9 +498,6 @@ class MemoryManager:
         ValueError
             If mode is not "passive" or "active".
 
-        Returns
-        -------
-        None
         """
         if mode not in ["passive", "active"]:
             raise ValueError(f"Unknown mode: {mode}")
@@ -490,9 +530,6 @@ class MemoryManager:
         new_group
             Name of the new stream group.
 
-        Returns
-        -------
-        None
         """
         self.stream_groups.change_group(instance, new_group)
 
@@ -500,9 +537,6 @@ class MemoryManager:
         """
         Reinitialise all streams after a CUDA context reset.
 
-        Returns
-        -------
-        None
         """
         self.stream_groups.reinit_streams()
 
@@ -510,9 +544,6 @@ class MemoryManager:
         """
         Call each invalidate hook and release all allocations.
 
-        Returns
-        -------
-        None
         """
         self.free_all()
         for registered_instance in self.registry.values():
@@ -539,9 +570,6 @@ class MemoryManager:
         ValueError
             If proportion is not between 0 and 1.
 
-        Returns
-        -------
-        None
         """
         instance_id = id(instance)
         if proportion < 0 or proportion > 1:
@@ -566,14 +594,9 @@ class MemoryManager:
         proportion
             Memory proportion to assign (0.0 to 1.0).
 
-        Raises
-        ------
-        ValueError
-            If instance is already in manual allocation pool.
-
-        Returns
-        -------
-        None
+        Notes
+        -----
+        If the instance is already in the manual pool, this is a no-op.
         """
         instance_id = id(instance)
         settings = self.registry[instance_id]
@@ -592,14 +615,9 @@ class MemoryManager:
         instance
             Instance to convert to auto mode.
 
-        Raises
-        ------
-        ValueError
-            If instance is already in auto allocation pool.
-
-        Returns
-        -------
-        None
+        Notes
+        -----
+        If the instance is already in the auto pool, this is a no-op.
         """
         instance_id = id(instance)
         settings = self.registry[instance_id]
@@ -665,7 +683,9 @@ class MemoryManager:
         )
         return pool_proportion
 
-    def _add_manual_proportion(self, instance: object, proportion: float) -> None:
+    def _add_manual_proportion(
+        self, instance: object, proportion: float
+    ) -> None:
         """
         Add an instance to the manual allocation pool with the specified proportion.
 
@@ -692,9 +712,6 @@ class MemoryManager:
         Updates the instance's proportion and cap, then rebalances the auto pool.
         Enforces minimum auto pool size constraints.
 
-        Returns
-        -------
-        None
         """
         instance_id = id(instance)
         new_manual_pool_size = self.manual_pool_proportion + proportion
@@ -768,9 +785,6 @@ class MemoryManager:
         divides it equally among all instances in the auto pool. Updates
         both proportion and cap for each auto-allocated instance.
 
-        Returns
-        -------
-        None
         """
         available_proportion = 1.0 - self.manual_pool_proportion
         if len(self._auto_pool) == 0:
@@ -781,42 +795,6 @@ class MemoryManager:
             self.registry[instance_id].proportion = each_proportion
             self.registry[instance_id].cap = cap
 
-    def set_global_stride_ordering(
-        self, ordering: tuple[str, str, str]
-    ) -> None:
-        """
-        Set the global memory stride ordering for arrays.
-
-        Parameters
-        ----------
-        ordering
-            Tuple containing ``"time"``, ``"run"``, and ``"variable"`` in desired
-            order.
-
-        Raises
-        ------
-        ValueError
-            If ordering doesn't contain exactly 'time', 'run', and 'variable'.
-
-        Notes
-        -----
-        This invalidates all current allocations as arrays need to be
-        reallocated with new stride patterns.
-
-        Returns
-        -------
-        None
-        """
-        if not all(elem in ("time", "run", "variable") for elem in ordering):
-            raise ValueError(
-                "Invalid stride ordering - must containt 'time', "
-                f"'run', 'variable' but got {ordering}"
-            )
-        self._stride_order = ordering
-        # This will also override 2D arrays, which are unaffected, but the
-        # overhead is not significant compared to the 3D arrays.
-        self.invalidate_all()
-
     def free(self, array_label: str) -> None:
         """
         Free an allocation by label across all instances.
@@ -826,9 +804,6 @@ class MemoryManager:
         array_label
             Label of the allocation to free.
 
-        Returns
-        -------
-        None
         """
         for settings in self.registry.values():
             if array_label in settings.allocations:
@@ -838,9 +813,6 @@ class MemoryManager:
         """
         Free all allocations across all registered instances.
 
-        Returns
-        -------
-        None
         """
         for settings in self.registry.values():
             settings.free_all()
@@ -859,9 +831,6 @@ class MemoryManager:
         TypeError
             If requests is not a dict or contains invalid ArrayRequest objects.
 
-        Returns
-        -------
-        None
         """
         if not isinstance(requests, dict):
             raise TypeError(
@@ -873,62 +842,15 @@ class MemoryManager:
                     f"Expected ArrayRequest for {key}, got {type(request)}"
                 )
 
-    def get_strides(self, request: ArrayRequest) -> Optional[tuple[int, ...]]:
-        """
-        Calculate memory strides for a given access pattern (stride order).
-
-        Parameters
-        ----------
-        request
-            Array request to calculate strides for.
-
-        Returns
-        -------
-        tuple of int or None
-            Stride tuple for the array, or None if no custom strides needed.
-
-        Notes
-        -----
-        Only 3D arrays get custom stride optimization. 2D arrays use
-        default strides as they are not performance-critical.
-        """
-        # 2D arrays (in the cubie sytem) are not hammered like the 3d ones,
-        # so they're not worth optimising.
-        if len(request.shape) != 3:
-            strides = None
-        else:
-            array_native_order = request.stride_order
-            desired_order = self._stride_order
-            shape = request.shape
-            itemsize = request.dtype().itemsize
-
-            if array_native_order == desired_order:
-                strides = None
-            else:
-                dims = {
-                    name: size for name, size in zip(array_native_order, shape)
-                }
-                strides = {}
-                current_stride = itemsize
-
-                # Iterate over the desired order reversed; the last dimension
-                # in the order changes fastest so it gets the smallest stride.
-                for name in reversed(desired_order):
-                    strides[name] = current_stride
-                    current_stride *= dims[name]
-                strides = tuple(strides[dim] for dim in array_native_order)
-
-        return strides
-
     def create_host_array(
         self,
         shape: tuple[int, ...],
         dtype: type,
-        stride_order: Optional[tuple[str, ...]] = None,
         memory_type: str = "pinned",
+        like: Optional[ndarray] = None,
     ) -> ndarray:
         """
-        Create a host array with strides matching the memory manager's order.
+        Create a C-contiguous host array.
 
         Parameters
         ----------
@@ -936,32 +858,22 @@ class MemoryManager:
             Shape of the array to create.
         dtype
             Data type for the array elements.
-        stride_order
-            Logical dimension labels in the array's native order. For 3D
-            arrays this should be a tuple like ``('time', 'run', 'variable')``.
-            When omitted, a C-contiguous array is returned.
         memory_type
             Memory type for the host array. Must be ``"pinned"`` or
             ``"host"``. Defaults to ``"pinned"``.
+        like
+            A source array to copy data from. If provided, the new array has
+            the same data as like; if not, it is filled with zeros
 
         Returns
         -------
         numpy.ndarray
-            Host array with strides compatible with device allocations.
+            C-contiguous host array.
 
-        Notes
-        -----
-        For 3D arrays, this method creates an array with strides that match
-        the memory manager's ``_stride_order``. The array is created by
-        allocating with the desired stride order, then transposing back to
-        the native order. This ensures that ``copy_to_host`` operations
-        succeed when copying from device arrays allocated with custom strides.
-
-        When ``memory_type="pinned"``, the array uses pinned (page-locked)
-        memory which enables truly asynchronous device-to-host transfers
-        with CUDA streams. Using ``memory_type="host"`` creates a regular
-        pageable array which will block async transfers due to required
-        intermediate buffering by the CUDA runtime.
+        Raises
+        ------
+        ValueError
+            If ``memory_type`` is not ``"pinned"`` or ``"host"``.
         """
         _ensure_cuda_context()
         if memory_type not in ("pinned", "host"):
@@ -969,78 +881,17 @@ class MemoryManager:
                 f"memory_type must be 'pinned' or 'host', got '{memory_type}'"
             )
         use_pinned = memory_type == "pinned"
-
-        if len(shape) != 3 or stride_order is None:
-            if use_pinned:
-                arr = cuda.pinned_array(shape, dtype=dtype)
-                arr.fill(0)
-            else:
-                arr = np_zeros(shape, dtype=dtype)
-            return arr
-
-        desired_order = self._stride_order
-        if stride_order == desired_order:
-            if use_pinned:
-                arr = cuda.pinned_array(shape, dtype=dtype)
-                arr.fill(0)
-            else:
-                arr = np_zeros(shape, dtype=dtype)
-            return arr
-
-        # Build shape in desired stride order
-        shape_map = {
-            name: size for name, size in zip(stride_order, shape)
-        }
-        ordered_shape = tuple(shape_map[dim] for dim in desired_order)
-
-        # Create array in desired stride order (contiguous in that order)
         if use_pinned:
-            arr = cuda.pinned_array(ordered_shape, dtype=dtype)
-            arr.fill(0)
+            arr = cuda.pinned_array(shape, dtype=dtype)
         else:
-            arr = np_zeros(ordered_shape, dtype=dtype)
-
-        # Compute transpose axes to return to native order
-        # We need axes that map desired_order -> stride_order
-        axes = tuple(desired_order.index(dim) for dim in stride_order)
-        return arr.transpose(axes)
-
-    def get_available_single(self, instance_id: int) -> int:
-        """
-        Get available memory for a single instance.
-
-        Parameters
-        ----------
-        instance_id
-            ID of the instance to check.
-
-        Returns
-        -------
-        int
-            Available memory in bytes for this instance.
-
-        Warnings
-        --------
-        UserWarning
-            If instance has used more than 95% of allocated memory.
-        """
-        free, total = self.get_memory_info()
-        if self._mode == "passive":
-            return free
+            arr = np_empty(shape, dtype=dtype)
+        if like is not None:
+            arr[:] = like
         else:
-            settings = self.registry[instance_id]
-            cap = settings.cap
-            allocated = settings.allocated_bytes
-            headroom = cap - allocated
-            if headroom / cap < 0.05:
-                warn(
-                    f"Instance {instance_id} has used more than 95% of it's "
-                    "allotted memory already, and future requests will run "
-                    "slowly/in many chunks"
-                )
-            return min(headroom, free)
+            arr.fill(0.0)
+        return arr
 
-    def get_available_group(self, group: str) -> int:
+    def get_available_memory(self, group: str) -> int:
         """
         Get available memory for an entire stream group.
 
@@ -1077,36 +928,6 @@ class MemoryManager:
                     "slowly/in many chunks"
                 )
             return min(headroom, free)
-
-    def get_chunks(self, request_size: int, available: int = 0) -> int:
-        """
-        Calculate number of chunks needed for a memory request.
-
-        Parameters
-        ----------
-        request_size
-            Total size of the request in bytes.
-        available
-            Available memory in bytes. Defaults to 0.
-
-        Returns
-        -------
-        int
-            Number of chunks needed to fit the request.
-
-        Warnings
-        --------
-        UserWarning
-            If request exceeds available VRAM by more than 20x.
-        """
-        free, total = self.get_memory_info()
-        if request_size / free > 20:
-            warn(
-                "This request exceeds available VRAM by more than 20x. "
-                f"Available VRAM = {free}, request size = {request_size}.",
-                UserWarning,
-            )
-        return int(np_ceil(request_size / available))
 
     def get_memory_info(self) -> tuple[int, int]:
         """
@@ -1183,13 +1004,11 @@ class MemoryManager:
         responses = {}
         instance_settings = self.registry[instance_id]
         for key, request in requests.items():
-            strides = self.get_strides(request)
             arr = self.allocate(
                 shape=request.shape,
                 dtype=request.dtype,
                 memory_type=request.memory,
                 stream=stream,
-                strides=strides,
             )
             instance_settings.add_allocation(key, arr)
             responses[key] = arr
@@ -1201,10 +1020,9 @@ class MemoryManager:
         dtype: Callable,
         memory_type: str,
         stream: "cuda.cudadrv.driver.Stream" = 0,
-        strides: Optional[tuple[int, ...]] = None,
     ) -> object:
         """
-        Allocate a single array with specified parameters.
+        Allocate a single C-contiguous array with specified parameters.
 
         Parameters
         ----------
@@ -1216,8 +1034,6 @@ class MemoryManager:
             Type of memory: "device", "mapped", "pinned", or "managed".
         stream
             CUDA stream for the allocation. Defaults to 0.
-        strides
-            Custom strides for the array. Defaults to None.
 
         Returns
         -------
@@ -1229,17 +1045,17 @@ class MemoryManager:
         ValueError
             If memory_type is not recognized.
         NotImplementedError
-            If memory_type is "managed" (not yet supported).
+            If memory_type is "managed" (not supported).
         """
         _ensure_cuda_context()
         cp_ = self._allocator == CuPyAsyncNumbaManager
         with current_cupy_stream(stream) if cp_ else contextlib.nullcontext():
             if memory_type == "device":
-                return cuda.device_array(shape, dtype, strides=strides)
+                return cuda.device_array(shape, dtype)
             elif memory_type == "mapped":
-                return cuda.mapped_array(shape, dtype, strides=strides)
+                return cuda.mapped_array(shape, dtype)
             elif memory_type == "pinned":
-                return cuda.pinned_array(shape, dtype, strides=strides)
+                return cuda.pinned_array(shape, dtype)
             elif memory_type == "managed":
                 raise NotImplementedError("Managed memory not implemented")
             else:
@@ -1264,9 +1080,6 @@ class MemoryManager:
         to contribute to a single coordinated allocation that can be
         optimally chunked together.
 
-        Returns
-        -------
-        None
         """
         self._check_requests(requests)
         stream_group = self.get_stream_group(instance)
@@ -1274,189 +1087,6 @@ class MemoryManager:
             self._queued_allocations[stream_group] = {}
         instance_id = id(instance)
         self._queued_allocations[stream_group].update({instance_id: requests})
-
-    def chunk_arrays(
-        self,
-        requests: dict[str, ArrayRequest],
-        numchunks: int,
-        axis: str = "run",
-    ) -> dict[str, ArrayRequest]:
-        """
-        Divide array requests into smaller chunks along a specified axis.
-
-        Parameters
-        ----------
-        requests
-            Dictionary mapping labels to array requests.
-        numchunks
-            Number of chunks to divide arrays into.
-        axis
-            Axis name along which to chunk the arrays. Defaults to "run".
-
-        Returns
-        -------
-        dict of str to ArrayRequest
-            New dictionary with modified array shapes for chunking.
-
-        Notes
-        -----
-        The axis must match a label in the stride ordering. Chunking is
-        done conservatively with ceiling division to ensure no data is lost.
-
-        Unchunkable requests (request.unchunkable == True) are left at full size.
-        """
-        chunked_requests = deepcopy(requests)
-        for key, request in chunked_requests.items():
-            # Skip chunking for explicitly unchunkable requests
-            if getattr(request, "unchunkable", False):
-                continue
-            # Divide all indices along selected axis by chunks
-            run_index = request.stride_order.index(axis)
-            newshape = tuple(
-                int(np_ceil(value / numchunks)) if i == run_index else value
-                for i, value in enumerate(request.shape)
-            )
-            request.shape = newshape
-            chunked_requests[key] = request
-        return chunked_requests
-
-    def single_request(
-        self,
-        instance: Union[object, int],
-        requests: dict[str, ArrayRequest],
-        chunk_axis: str = "run",
-    ) -> None:
-        """
-        Process a single allocation request with automatic chunking.
-
-        Parameters
-        ----------
-        instance
-            The requesting instance or its ID.
-        requests
-            Dictionary mapping labels to array requests.
-        chunk_axis
-            Axis along which to chunk if memory is insufficient. Defaults to "run".
-
-        Raises
-        ------
-        TypeError
-            If requests is not a dict or contains invalid ArrayRequest objects.
-
-        Notes
-        -----
-        This method calculates available memory, determines chunking needs,
-        allocates arrays with optimal strides, and calls the instance's
-        allocation_ready_hook with the results.
-
-        Returns
-        -------
-        None
-        """
-        self._check_requests(requests)
-        if isinstance(instance, int):
-            instance_id = instance
-        else:
-            instance_id = id(instance)
-
-        request_size = get_total_request_size(requests)
-        available_memory = self.get_available_single(id(instance))
-        numchunks = self.get_chunks(request_size, available_memory)
-        chunked_requests = self.chunk_arrays(
-            requests, numchunks, axis=chunk_axis
-        )
-
-        arrays = self.allocate_all(
-            chunked_requests, instance_id, self.get_stream(instance)
-        )
-        self.registry[instance_id].allocation_ready_hook(
-            ArrayResponse(arr=arrays, chunks=numchunks, chunk_axis=chunk_axis)
-        )
-
-    def allocate_queue(
-        self,
-        triggering_instance: object,
-        limit_type: str = "group",
-        chunk_axis: str = "run",
-    ) -> None:
-        """
-        Process all queued requests for a stream group with coordinated chunking.
-
-        Parameters
-        ----------
-        triggering_instance
-            The instance that triggered queue processing.
-        limit_type
-            Limiting strategy: "group" for aggregate limits or "instance" for
-            individual instance limits. Defaults to "group".
-        chunk_axis
-            Axis along which to chunk arrays if needed. Defaults to "run".
-
-        Notes
-        -----
-        Processes all pending requests in the same stream group, applying
-        coordinated chunking based on the specified limit type. Calls
-        allocation_ready_hook for each instance with their results.
-
-        Returns
-        -------
-        None
-        """
-        stream_group = self.get_stream_group(triggering_instance)
-        peers = self.stream_groups.get_instances_in_group(stream_group)
-        stream = self.get_stream(triggering_instance)
-        queued_requests = self._queued_allocations.get(stream_group, {})
-        n_queued = len(queued_requests)
-        if not queued_requests:
-            return None
-        elif n_queued == 1:
-            for instance_id, requests_dict in queued_requests.items():
-                self.single_request(
-                    instance=instance_id,
-                    requests=requests_dict,
-                    chunk_axis=chunk_axis,
-                )
-        else:
-            numchunks = 1  # safe default
-            if limit_type == "group":
-                available_memory = self.get_available_group(stream_group)
-                request_size = sum(
-                    [
-                        get_total_request_size(request)
-                        for request in queued_requests.values()
-                    ]
-                )
-                numchunks = self.get_chunks(request_size, available_memory)
-
-            elif limit_type == "instance":
-                numchunks = 0
-                for instance_id, requests_dict in queued_requests.items():
-                    available_memory = self.get_available_single(instance_id)
-                    request_size = get_total_request_size(requests_dict)
-                    chunks = self.get_chunks(request_size, available_memory)
-                    # Take the runnning maximum per-instance chunk size
-                    numchunks = chunks if chunks > numchunks else numchunks
-
-            notaries = set(peers) - set(queued_requests.keys())
-            for instance_id, requests_dict in queued_requests.items():
-                chunked_request = self.chunk_arrays(
-                    requests_dict, numchunks, chunk_axis
-                )
-                arrays = self.allocate_all(
-                    chunked_request, instance_id, stream=stream
-                )
-                response = ArrayResponse(
-                    arr=arrays, chunks=numchunks, chunk_axis=chunk_axis
-                )
-                self.registry[instance_id].allocation_ready_hook(response)
-
-            for peer in notaries:
-                self.registry[peer].allocation_ready_hook(
-                    ArrayResponse(
-                        arr={}, chunks=numchunks, chunk_axis=chunk_axis
-                    )
-                )
-        return None
 
     def to_device(
         self,
@@ -1476,9 +1106,6 @@ class MemoryManager:
         to_arrays
             Destination device arrays to copy to.
 
-        Returns
-        -------
-        None
         """
         _ensure_cuda_context()
         stream = self.get_stream(instance)
@@ -1505,9 +1132,6 @@ class MemoryManager:
         to_arrays
             Destination arrays to copy to.
 
-        Returns
-        -------
-        None
         """
         _ensure_cuda_context()
         stream = self.get_stream(instance)
@@ -1525,30 +1149,308 @@ class MemoryManager:
         instance
             Instance whose stream to synchronize.
 
-        Returns
-        -------
-        None
         """
         _ensure_cuda_context()
         stream = self.get_stream(instance)
         stream.synchronize()
 
+    def allocate_queue(
+        self,
+        triggering_instance: object,
+    ) -> None:
+        """
+        Process all queued requests for a stream group with coordinated chunking.
 
-def get_total_request_size(request: dict[str, ArrayRequest]) -> int:
+        Chunking is always performed along the run axis when memory
+        constraints require splitting the batch.
+
+        Parameters
+        ----------
+        triggering_instance
+            The instance that triggered queue processing.
+
+        Notes
+        -----
+        Processes all pending requests in the same stream group, applying
+        coordinated chunking based on available memory. Calls
+        allocation_ready_hook for each instance with their results.
+
+        """
+        stream_group = self.get_stream_group(triggering_instance)
+        stream = self.get_stream(triggering_instance)
+        queued_requests = self._queued_allocations.pop(stream_group, {})
+
+        # Get total_runs from first request
+        num_runs = 1
+        for requests_dict in queued_requests.values():
+            for request in requests_dict.values():
+                num_runs = request.total_runs
+                break
+            if num_runs > 1:
+                break
+
+        chunk_length, num_chunks = self.get_chunk_parameters(
+            queued_requests, num_runs, stream_group
+        )
+        peers = self.stream_groups.get_instances_in_group(stream_group)
+        notaries = set(peers) - set(queued_requests.keys())
+        for instance_id, requests_dict in queued_requests.items():
+            chunked_shapes = self.compute_chunked_shapes(
+                requests_dict,
+                chunk_length,
+            )
+
+            chunked_requests = deepcopy(requests_dict)
+            for key, request in chunked_requests.items():
+                request.shape = chunked_shapes[key]
+
+            arrays = self.allocate_all(
+                chunked_requests, instance_id, stream=stream
+            )
+            response = ArrayResponse(
+                arr=arrays,
+                chunks=num_chunks,
+                chunk_length=chunk_length,
+                chunked_shapes=chunked_shapes,
+            )
+
+            self.registry[instance_id].allocation_ready_hook(response)
+            for peer in notaries:
+                self.registry[peer].allocation_ready_hook(
+                    ArrayResponse(
+                        arr={},
+                        chunks=num_chunks,
+                        chunk_length=chunk_length,
+                        chunked_shapes={},
+                    )
+                )
+
+        return None
+
+    def get_chunk_parameters(
+        self,
+        requests: Dict[str, Dict],
+        axis_length: int,
+        stream_group: str,
+    ) -> Tuple[int, int]:
+        """
+        Calculate number of chunks and chunk size for a dict of array requests.
+
+        Chunking is performed along the run axis only.
+
+        Parameters
+        ----------
+        requests
+            Dictionary mapping instance IDs to their array requests.
+        axis_length
+            Unchunked length of the chunking axis.
+        stream_group
+            Name of the stream group making the request.
+
+        Returns
+        -------
+        int, int
+            Length of chunked axis and number of chunks needed to fit the
+            request.
+
+        Warnings
+        --------
+        UserWarning
+            If request exceeds available VRAM by more than 20x.
+        """
+        free, _ = self.get_memory_info()
+        available_memory = self.get_available_memory(stream_group)
+        chunkable_size, unchunkable_size = get_portioned_request_size(
+            requests,
+        )
+
+        request_size = chunkable_size + unchunkable_size
+
+        if request_size < available_memory:
+            return axis_length, 1  # No chunking needed
+
+        if request_size / free > 20:
+            warn(
+                "This request exceeds available VRAM by more than 20x. "
+                f"Available VRAM = {free}, request size = {request_size}.",
+                UserWarning,
+            )
+
+        # Check for all arrays unchunkable
+        if chunkable_size == 0:
+            raise ValueError(
+                f"All requested arrays are unchunkable, but request size "
+                f"({request_size}) exceeds available memory "
+                f"({available_memory}). Cannot proceed."
+            )
+
+        # Guard: unchunkable arrays alone exceed available memory
+        if unchunkable_size >= available_memory:
+            raise ValueError(
+                f"Unchunkable arrays require {unchunkable_size} bytes but only "
+                f"{available_memory} bytes available. Cannot proceed."
+            )
+
+        # Calculate chunk size and number of chunks once we know it's eligible
+        else:
+            available_to_chunk = available_memory - unchunkable_size
+            chunk_ratio = chunkable_size / available_to_chunk
+
+            # Maximum chunk size that fits in available memory
+            max_chunk_size = int(np_floor(axis_length / chunk_ratio))
+            if max_chunk_size == 0:
+                raise ValueError(
+                    "Can't fit a single run in GPU VRAM. "
+                    f"Available memory: {available_memory}. "
+                    f"Request size: {request_size}. "
+                    f"Chunkable request size: {chunkable_size}."
+                )
+            # With floor rounding, we might end up with an extra chunk or two
+            num_chunks = int(np_ceil(axis_length / max_chunk_size))
+
+        return max_chunk_size, num_chunks
+
+    def compute_chunked_shapes(
+        self,
+        requests: dict[str, ArrayRequest],
+        chunk_size: int,
+    ) -> dict[str, Tuple[int, ...]]:
+        """
+        Compute per-array chunked shapes based on available memory.
+
+        Parameters
+        ----------
+        requests
+            Dictionary mapping labels to array requests.
+        chunk_size
+            Length of chunked arrays along run axis
+
+        Returns
+        -------
+        dict[str, tuple[int, ...]]
+            Mapping from array labels to their per-chunk shapes.
+
+        Notes
+        -----
+        Unchunkable arrays retain their original shape.
+        """
+        chunked_shapes = {}
+        for key, request in requests.items():
+            if is_request_chunkable(request):
+                axis_index = request.chunk_axis_index
+                newshape = replace_with_chunked_size(
+                    shape=request.shape,
+                    axis_index=axis_index,
+                    chunked_size=chunk_size,
+                )
+                chunked_shapes[key] = newshape
+            else:
+                chunked_shapes[key] = request.shape
+
+        return chunked_shapes
+
+
+def get_portioned_request_size(
+    requests: dict[str, dict[str, ArrayRequest]],
+) -> tuple[int, int]:
     """
-    Calculate the total memory size of a request in bytes.
+    Calculate total memory requested for the chunkable and unchunkable
+    portions of the request.
+
+    Chunking is performed along the run axis only.
+
+    Parameters
+    ----------
+    requests
+        Dictionary of array requests to analyze.
+
+    Returns
+    -------
+    int, int
+        chunkable, unchunkable - Total bytes for arrays that can be chunked
+        or not, respectively, along the "run" axis.
+
+    Notes
+    -----
+    Arrays are chunkable if:
+    - request.unchunkable is False
+    - The array has a "run" axis
+    """
+    chunkable = 0
+    unchunkable = 0
+    for reqs in requests.values():
+        chunkable += sum(
+            prod(req.shape) * req.dtype().itemsize
+            for req in reqs.values()
+            if is_request_chunkable(req)
+        )
+        unchunkable += sum(
+            prod(req.shape) * req.dtype().itemsize
+            for req in reqs.values()
+            if not is_request_chunkable(req)
+        )
+    return chunkable, unchunkable
+
+
+def is_request_chunkable(request) -> bool:
+    """
+    Determine if a single ArrayRequest is chunkable.
+
+    Chunking is always performed along the run axis.
 
     Parameters
     ----------
     request
-        Dictionary of array requests to sum.
+        The ArrayRequest to evaluate.
 
     Returns
     -------
-    int
-        Total size in bytes across all requests.
+    bool
+        True if the request is chunkable, False otherwise.
+
+    Notes
+    -----
+    A request is considered chunkable if:
+    - request.unchunkable is False
+    - chunk_axis_index is not None and within bounds
+    - run axis has length > 1 (not a degenerate run axis)
     """
-    return sum(
-        prod(request.shape) * request.dtype().itemsize
-        for request in request.values()
+    if request.unchunkable:
+        return False
+    if len(request.shape) == 0:
+        return False
+    if request.chunk_axis_index is None:
+        return False
+    if request.chunk_axis_index >= len(request.shape):
+        return False
+    if request.shape[request.chunk_axis_index] == 1:
+        return False
+    return True
+
+
+def replace_with_chunked_size(
+    shape: Tuple[int, ...],
+    axis_index: int,
+    chunked_size: int,
+) -> Tuple[int, ...]:
+    """
+    Replace the "run" axis in shape with chunked size.
+
+    Parameters
+    ----------
+    shape
+        Original shape of the array.
+    axis_index
+        integer index of the run axis in shape
+    chunked_size
+        Length of array after chunking along run axis
+
+    Returns
+    -------
+    tuple[int, ...]
+        New shape with chunked size along the "run" axis.
+    """
+    newshape = tuple(
+        dim if i != axis_index else chunked_size for i, dim in enumerate(shape)
     )
+    return newshape

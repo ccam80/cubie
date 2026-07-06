@@ -1,12 +1,38 @@
-"""Adaptive proportional–integral controller implementations."""
-from typing import Callable, Optional, Union
+"""Adaptive proportional--integral step-size controller.
+
+Published Classes
+-----------------
+:class:`PIStepControlConfig`
+    Configuration for proportional--integral controllers.
+
+    >>> from numpy import float64
+    >>> config = PIStepControlConfig(precision=float64)
+    >>> config.kp  # doctest: +ELLIPSIS
+    0.055...
+
+:class:`AdaptivePIController`
+    Proportional--integral step-size controller.
+
+    >>> from numpy import float64
+    >>> ctrl = AdaptivePIController(precision=float64, n=4)
+    >>> ctrl.is_adaptive
+    True
+
+See Also
+--------
+:class:`~cubie.integrators.step_control.adaptive_step_controller.BaseAdaptiveStepController`
+    Abstract base class for adaptive controllers.
+:class:`~cubie.integrators.step_control.adaptive_step_controller.AdaptiveStepControlConfig`
+    Parent configuration class.
+"""
+
+from typing import Callable
 
 from numba import cuda, int32
 from numpy import ndarray
-from numpy._typing import ArrayLike
 from attrs import field, define, validators
+from math import isnan, isinf
 
-from cubie._utils import build_config
 from cubie._utils import PrecisionDType, _expand_dtype
 from cubie.buffer_registry import buffer_registry
 from cubie.integrators.step_control.adaptive_step_controller import (
@@ -14,6 +40,7 @@ from cubie.integrators.step_control.adaptive_step_controller import (
     BaseAdaptiveStepController,
 )
 from cubie.cuda_simsafe import compile_kwargs, selp
+from cubie.result_codes import CUBIE_RESULT_CODES
 from cubie.integrators.step_control.base_step_controller import ControllerCache
 
 
@@ -26,14 +53,16 @@ class PIStepControlConfig(AdaptiveStepControlConfig):
     The simplified PI gain formulation offers faster response for non-stiff
     systems than a pure integral controller.
     """
+
     _kp: float = field(
-        default=1/18,
-        validator=validators.instance_of(_expand_dtype(float))
+        default=1 / 18, validator=validators.instance_of(_expand_dtype(float))
     )
     _ki: float = field(
-        default=1/9,
-        validator=validators.instance_of(_expand_dtype(float))
+        default=1 / 9, validator=validators.instance_of(_expand_dtype(float))
     )
+
+    def __attrs_post_init__(self):
+        super().__attrs_post_init__()
 
     @property
     def kp(self) -> float:
@@ -49,34 +78,7 @@ class PIStepControlConfig(AdaptiveStepControlConfig):
 class AdaptivePIController(BaseAdaptiveStepController):
     """Proportional–integral step-size controller."""
 
-    def __init__(
-        self,
-        precision: PrecisionDType,
-        n: int = 1,
-        **kwargs,
-    ) -> None:
-        """Initialise a proportional–integral step controller.
-
-        Parameters
-        ----------
-        precision
-            Precision used for controller calculations.
-        n
-            Number of state variables.
-        **kwargs
-            Optional parameters passed to PIStepControlConfig. See
-            PIStepControlConfig for available parameters including dt_min,
-            dt_max, atol, rtol, algorithm_order, kp, ki, min_gain, max_gain,
-            deadband_min, deadband_max. None values are ignored.
-        """
-        config = build_config(
-            PIStepControlConfig,
-            required={'precision': precision, 'n': n},
-            **kwargs
-        )
-
-        super().__init__(config)
-
+    _config_class = PIStepControlConfig
 
     @property
     def kp(self) -> float:
@@ -88,17 +90,13 @@ class AdaptivePIController(BaseAdaptiveStepController):
         """Return the integral gain."""
         return self.compile_settings.ki
 
-    @property
-    def local_memory_elements(self) -> int:
-        """Return the number of local memory slots required."""
-        return 1
+    _timestep_buffer_elements = 1  # previous error norm
 
     @property
     def settings_dict(self) -> dict[str, object]:
         """Return the configuration as a dictionary."""
         settings_dict = super().settings_dict
-        settings_dict.update({'kp': self.kp,
-                              'ki': self.ki})
+        settings_dict.update({"kp": self.kp, "ki": self.ki})
         return settings_dict
 
     def build_controller(
@@ -148,7 +146,7 @@ class AdaptivePIController(BaseAdaptiveStepController):
             CUDA device function implementing the PI controller.
         """
         alloc_timestep_buffer = buffer_registry.get_allocator(
-            'timestep_buffer', self
+            "timestep_buffer", self
         )
 
         kp = precision(self.kp / ((algorithm_order + 1) * 2))
@@ -161,11 +159,14 @@ class AdaptivePIController(BaseAdaptiveStepController):
         deadband_min = precision(self.deadband_min)
         deadband_max = precision(self.deadband_max)
         deadband_disabled = (deadband_min == typed_one) and (
-                deadband_max == typed_one
+            deadband_max == typed_one
         )
         precision = self.compile_settings.numba_precision
         n = int32(n)
         inv_n = precision(1.0 / n)
+        typed_large = precision(1e16)
+        success = int32(CUBIE_RESULT_CODES.SUCCESS)
+        step_too_small = int32(CUBIE_RESULT_CODES.STEP_TOO_SMALL)
 
         # step sizes and norms can be approximate - fastmath is fine
         @cuda.jit(
@@ -174,8 +175,14 @@ class AdaptivePIController(BaseAdaptiveStepController):
             **compile_kwargs,
         )
         def controller_PI(
-            dt, state, state_prev, error, niters, accept_out,
-            shared_scratch, persistent_local
+            dt,
+            state,
+            state_prev,
+            error,
+            niters,
+            accept_out,
+            shared_scratch,
+            persistent_local,
         ):  # pragma: no cover - CUDA
             """Proportional–integral accept/step-size controller.
 
@@ -218,6 +225,7 @@ class AdaptivePIController(BaseAdaptiveStepController):
                 nrm2 += ratio * ratio
 
             nrm2 = nrm2 * inv_n
+            nrm2 = typed_large if (isnan(nrm2) or isinf(nrm2)) else nrm2
             accept = nrm2 <= typed_one
             accept_out[0] = int32(1) if accept else int32(0)
 
@@ -228,9 +236,8 @@ class AdaptivePIController(BaseAdaptiveStepController):
             gain_new = safety * pgain * igain
             gain = clamp(gain_new, min_gain, max_gain)
             if not deadband_disabled:
-                within_deadband = (
-                    (gain >= deadband_min)
-                    and (gain <= deadband_max)
+                within_deadband = (gain >= deadband_min) and (
+                    gain <= deadband_max
                 )
                 gain = selp(within_deadband, typed_one, gain)
 
@@ -238,7 +245,7 @@ class AdaptivePIController(BaseAdaptiveStepController):
             dt[0] = clamp(dt_new_raw, dt_min, dt_max)
             timestep_buffer[0] = nrm2
 
-            ret = int32(0) if dt_new_raw > dt_min else int32(8)
+            ret = success if dt_new_raw > dt_min else step_too_small
             return ret
 
         return ControllerCache(device_function=controller_PI)

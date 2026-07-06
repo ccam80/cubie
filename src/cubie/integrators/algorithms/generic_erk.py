@@ -1,30 +1,55 @@
 """Generic explicit Runge--Kutta integration step with streamed accumulators.
 
-This module provides the :class:`ERKStep` class, which implements generic
-explicit Runge--Kutta methods using configurable Butcher tableaus. The
-implementation supports both adaptive and fixed-step variants, automatically
-selecting appropriate default step controller settings based on whether the
-tableau includes an embedded error estimate.
+This module provides :class:`ERKStep`, a configurable explicit
+Runge--Kutta integrator compiled as a CUDA device function through
+the :class:`CUDAFactory` pattern. The tableau is supplied at
+construction time; adaptive or fixed-step controller defaults are
+selected automatically based on whether the tableau includes an
+embedded error estimate.
 
-Key Features
-------------
-- Configurable tableaus via :class:`ERKTableau`
-- Automatic controller defaults selection based on error estimate capability
-- Efficient CUDA kernel generation with streamed accumulation
-- Support for FSAL (First Same As Last) optimization
+Published Classes
+-----------------
+:class:`ERKStepConfig`
+    Configuration container for the ERK step.
 
-Notes
------
-The module defines two sets of default step controller settings:
+    >>> from numpy import float32
+    >>> from cubie.integrators.algorithms.generic_erk_tableaus import (
+    ...     CLASSICAL_RK4_TABLEAU,
+    ... )
+    >>> config = ERKStepConfig(
+    ...     precision=float32, n=3, tableau=CLASSICAL_RK4_TABLEAU,
+    ... )
+    >>> config.stage_count
+    4
 
-- :data:`ERK_ADAPTIVE_DEFAULTS`: Used when the tableau has an embedded error
-  estimate (e.g., Dormand-Prince). Defaults to PI controller with adaptive
-  stepping.
-- :data:`ERK_FIXED_DEFAULTS`: Used when the tableau lacks an error estimate
-  (e.g., Classical RK4). Defaults to fixed-step controller.
+:class:`ERKStep`
+    Concrete explicit Runge--Kutta step factory.
 
-This dynamic selection ensures that users cannot accidentally pair an
-errorless tableau with an adaptive controller, which would fail at runtime.
+    >>> from numpy import float32
+    >>> step = ERKStep(precision=float32, n=3)
+    >>> step.order
+    5
+    >>> step.is_adaptive
+    True
+
+Module-Level Constants
+----------------------
+:data:`ERK_ADAPTIVE_DEFAULTS`
+    Default PID controller settings applied when the tableau has an
+    embedded error estimate.
+
+:data:`ERK_FIXED_DEFAULTS`
+    Default fixed-step settings applied when the tableau lacks an
+    error estimate.
+
+See Also
+--------
+:class:`~cubie.integrators.algorithms.ode_explicitstep.ODEExplicitStep`
+    Abstract base class for explicit integration steps.
+:class:`~cubie.integrators.algorithms.generic_erk_tableaus.ERKTableau`
+    Butcher tableau subclass accepted by this step.
+:data:`~cubie.integrators.algorithms.generic_erk_tableaus.ERK_TABLEAU_REGISTRY`
+    Name-based lookup of available ERK tableaus.
 """
 
 from typing import Callable, Optional
@@ -35,6 +60,7 @@ from numba import cuda, int32
 from cubie._utils import PrecisionDType, build_config
 from cubie.buffer_registry import buffer_registry
 from cubie.cuda_simsafe import all_sync, activemask
+from cubie.result_codes import CUBIE_RESULT_CODES
 from cubie.integrators.algorithms.base_algorithm_step import (
     StepCache,
     StepControlDefaults,
@@ -51,8 +77,6 @@ from cubie.integrators.algorithms.generic_erk_tableaus import (
 ERK_ADAPTIVE_DEFAULTS = StepControlDefaults(
     step_controller={
         "step_controller": "pid",
-        "dt_min": 1e-6,
-        "dt_max": 1e-1,
         "kp": 0.7,
         "ki": -0.4,
         "deadband_min": 1.0,
@@ -64,48 +88,37 @@ ERK_ADAPTIVE_DEFAULTS = StepControlDefaults(
 )
 """Default step controller settings for adaptive ERK tableaus.
 
-This configuration is used when the ERK tableau has an embedded error
-estimate (``tableau.has_error_estimate == True``), such as Dormand-Prince
-or other embedded RK methods.
-
-The PI controller provides robust adaptive stepping with proportional and
-derivative terms to smooth step size adjustments. The deadband prevents
-unnecessary step size changes for small variations in the error estimate.
-
-Notes
------
-These defaults are applied automatically when creating an :class:`ERKStep`
-with an adaptive tableau. Users can override any of these settings by
-explicitly specifying step controller parameters.
+Applied when ``tableau.has_error_estimate`` is ``True``. Users can
+override individual settings by passing step controller parameters
+explicitly.
 """
 
 ERK_FIXED_DEFAULTS = StepControlDefaults(
     step_controller={
         "step_controller": "fixed",
-        "dt": 1e-3,
     }
 )
 """Default step controller settings for errorless ERK tableaus.
 
-This configuration is used when the ERK tableau lacks an embedded error
-estimate (``tableau.has_error_estimate == False``), such as Classical RK4
-or Heun's method.
-
-Fixed-step controllers maintain a constant step size throughout the
-integration. This is the only valid choice for errorless tableaus since
-adaptive stepping requires an error estimate to adjust the step size.
-
-Notes
------
-These defaults are applied automatically when creating an :class:`ERKStep`
-with an errorless tableau. Users can override the step size ``dt`` by
-explicitly specifying it in the step controller settings.
+Applied when ``tableau.has_error_estimate`` is ``False``.
 """
 
 
 @define
 class ERKStepConfig(ExplicitStepConfig):
-    """Configuration describing an explicit Runge--Kutta integrator."""
+    """Configuration describing an explicit Runge--Kutta integrator.
+
+    Parameters
+    ----------
+    tableau
+        Butcher tableau coefficients for the ERK method.
+    stage_rhs_location
+        Memory location for the stage RHS buffer (``'local'`` or
+        ``'shared'``).
+    stage_accumulator_location
+        Memory location for the stage accumulator buffer (``'local'``
+        or ``'shared'``).
+    """
 
     tableau: ERKTableau = field(default=DEFAULT_ERK_TABLEAU)
     stage_rhs_location: str = field(
@@ -130,9 +143,9 @@ class ERKStep(ODEExplicitStep):
         self,
         precision: PrecisionDType,
         n: int,
-        dxdt_function: Optional[Callable] = None,
-        observables_function: Optional[Callable] = None,
-        driver_function: Optional[Callable] = None,
+        evaluate_f: Optional[Callable] = None,
+        evaluate_observables: Optional[Callable] = None,
+        evaluate_driver_at_t: Optional[Callable] = None,
         get_solver_helper_fn: Optional[Callable] = None,
         tableau: ERKTableau = DEFAULT_ERK_TABLEAU,
         n_drivers: int = 0,
@@ -153,13 +166,13 @@ class ERKStep(ODEExplicitStep):
             np.float64).
         n
             Number of state variables in the ODE system.
-        dxdt_function
+        evaluate_f
             Compiled CUDA device function computing state derivatives. Should
             match signature expected by the integration kernel.
-        observables_function
+        evaluate_observables
             Optional compiled CUDA device function computing observable
             quantities from the state.
-        driver_function
+        evaluate_driver_at_t
             Optional compiled CUDA device function computing time-varying
             driver inputs.
         get_solver_helper_fn
@@ -198,7 +211,7 @@ class ERKStep(ODEExplicitStep):
         >>> import numpy as np
         >>> step = ERKStep(precision=np.float32,n=3)
         >>> step.controller_defaults.step_controller["step_controller"]
-        'pi'
+        'pid'
 
         Create an ERK step with Classical RK4 (errorless):
 
@@ -215,9 +228,9 @@ class ERKStep(ODEExplicitStep):
                 'precision': precision,
                 'n': n,
                 'n_drivers': n_drivers,
-                'dxdt_function': dxdt_function,
-                'observables_function': observables_function,
-                'driver_function': driver_function,
+                'evaluate_f': evaluate_f,
+                'evaluate_observables': evaluate_observables,
+                'evaluate_driver_at_t': evaluate_driver_at_t,
                 'get_solver_helper_fn': get_solver_helper_fn,
                 'tableau': tableau,
             },
@@ -261,9 +274,9 @@ class ERKStep(ODEExplicitStep):
 
     def build_step(
         self,
-        dxdt_fn: Callable,
-        observables_function: Callable,
-        driver_function: Optional[Callable],
+        evaluate_f: Callable,
+        evaluate_observables: Callable,
+        evaluate_driver_at_t: Optional[Callable],
         numba_precision: type,
         n: int,
         n_drivers: int,
@@ -277,10 +290,11 @@ class ERKStep(ODEExplicitStep):
         n = int32(n)
         stage_count = int32(tableau.stage_count)
         stages_except_first = stage_count - int32(1)
+        success = int32(CUBIE_RESULT_CODES.SUCCESS)
 
         accumulator_length = (tableau.stage_count - 1) * n
 
-        has_driver_function = driver_function is not None
+        has_evaluate_driver_at_t = evaluate_driver_at_t is not None
         first_same_as_last = self.first_same_as_last
         multistage = stage_count > 1
         has_error = self.is_adaptive
@@ -352,6 +366,49 @@ class ERKStep(ODEExplicitStep):
             persistent_local,
             counters,
         ):
+            """Advance the state with an explicit Runge--Kutta update.
+
+            Parameters
+            ----------
+            state : array of numba_precision
+                Current state vector, length ``n``.
+            proposed_state : array of numba_precision
+                Output buffer for the proposed state, length ``n``.
+            parameters : array of numba_precision
+                Static model parameters.
+            driver_coeffs : array of numba_precision
+                Spline driver coefficients.
+            drivers_buffer : array of numba_precision
+                Time-dependent driver values at current time.
+            proposed_drivers : array of numba_precision
+                Output buffer for driver values at proposed time.
+            observables : array of numba_precision
+                Accepted observable outputs.
+            proposed_observables : array of numba_precision
+                Output buffer for proposed observable outputs.
+            error : array of numba_precision
+                Output buffer for the embedded error estimate.
+                Non-adaptive tableaus receive a zero-length slice.
+            dt_scalar : numba_precision
+                Proposed step size.
+            time_scalar : numba_precision
+                Current simulation time.
+            first_step_flag : int32
+                Non-zero on the first step of the integration.
+            accepted_flag : int32
+                Non-zero when the previous step was accepted.
+            shared : array
+                Shared memory pool.
+            persistent_local : array
+                Persistent local memory pool.
+            counters : int32 array
+                Diagnostic counter array (unused here).
+
+            Returns
+            -------
+            status_code : int32
+                Always ``0`` (success).
+            """
 
             stage_rhs = alloc_stage_rhs(shared, persistent_local)
             stage_accumulator = alloc_stage_accumulator(shared, persistent_local)
@@ -382,7 +439,7 @@ class ERKStep(ODEExplicitStep):
 
             # Keep cached rhs if able to, otherwise recalculate.
             if not multistage or not use_cached_rhs:
-                dxdt_fn(
+                evaluate_f(
                     state,
                     parameters,
                     drivers_buffer,
@@ -434,14 +491,14 @@ class ERKStep(ODEExplicitStep):
 
                 # get rhs for next stage
                 stage_drivers = proposed_drivers
-                if has_driver_function:
-                    driver_function(
+                if has_evaluate_driver_at_t:
+                    evaluate_driver_at_t(
                         stage_time,
                         driver_coeffs,
                         stage_drivers,
                     )
 
-                observables_function(
+                evaluate_observables(
                     stage_accumulator[stage_offset : stage_offset + n],
                     parameters,
                     stage_drivers,
@@ -449,7 +506,7 @@ class ERKStep(ODEExplicitStep):
                     stage_time,
                 )
 
-                dxdt_fn(
+                evaluate_f(
                     stage_accumulator[stage_offset : stage_offset + n],
                     parameters,
                     stage_drivers,
@@ -494,14 +551,14 @@ class ERKStep(ODEExplicitStep):
                     else:
                         error[idx] = proposed_state[idx] - error[idx]
 
-            if has_driver_function:
-                driver_function(
+            if has_evaluate_driver_at_t:
+                evaluate_driver_at_t(
                     end_time,
                     driver_coeffs,
                     proposed_drivers,
                 )
 
-            observables_function(
+            evaluate_observables(
                     proposed_state,
                     parameters,
                     proposed_drivers,
@@ -509,7 +566,7 @@ class ERKStep(ODEExplicitStep):
                     end_time,
             )
 
-            return int32(0)
+            return success
 
         return StepCache(step=step)
 

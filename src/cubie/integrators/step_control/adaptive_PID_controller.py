@@ -1,11 +1,40 @@
-"""Adaptive proportional–integral–derivative controller implementations."""
-from typing import Callable, Optional, Union
+"""Adaptive proportional--integral--derivative step-size controller.
+
+Published Classes
+-----------------
+:class:`PIDStepControlConfig`
+    Configuration for PID controllers, extending
+    :class:`~cubie.integrators.step_control.adaptive_PI_controller.PIStepControlConfig`
+    with a derivative gain.
+
+    >>> from numpy import float64
+    >>> config = PIDStepControlConfig(precision=float64, kd=0.05)
+    >>> config.kd
+    0.05
+
+:class:`AdaptivePIDController`
+    Proportional--integral--derivative step-size controller.
+
+    >>> from numpy import float64
+    >>> ctrl = AdaptivePIDController(precision=float64, n=4, kd=0.05)
+    >>> ctrl.is_adaptive
+    True
+
+See Also
+--------
+:class:`~cubie.integrators.step_control.adaptive_PI_controller.AdaptivePIController`
+    PI controller without derivative term.
+:class:`~cubie.integrators.step_control.adaptive_PI_controller.PIStepControlConfig`
+    Parent configuration class.
+"""
+
+from typing import Callable
 
 from numpy import ndarray
 from numba import cuda, int32
 from attrs import define, field, validators
-
-from cubie._utils import PrecisionDType, _expand_dtype, build_config
+from math import isnan, isinf
+from cubie._utils import PrecisionDType, _expand_dtype
 from cubie.buffer_registry import buffer_registry
 from cubie.integrators.step_control.adaptive_step_controller import (
     BaseAdaptiveStepController,
@@ -14,6 +43,7 @@ from cubie.integrators.step_control.adaptive_PI_controller import (
     PIStepControlConfig,
 )
 from cubie.cuda_simsafe import compile_kwargs, selp
+from cubie.result_codes import CUBIE_RESULT_CODES
 from cubie.integrators.step_control.base_step_controller import ControllerCache
 
 
@@ -26,41 +56,19 @@ class PIDStepControlConfig(PIStepControlConfig):
         validator=validators.instance_of(_expand_dtype(float)),
     )
 
+    def __attrs_post_init__(self):
+        super().__attrs_post_init__()
+
     @property
     def kd(self) -> float:
         """Return the derivative gain."""
         return self.precision(self._kd)
 
+
 class AdaptivePIDController(BaseAdaptiveStepController):
     """Adaptive PID step size controller."""
 
-    def __init__(
-        self,
-        precision: PrecisionDType,
-        n: int = 1,
-        **kwargs,
-    ) -> None:
-        """Initialise a proportional–integral–derivative controller.
-
-        Parameters
-        ----------
-        precision
-            Precision used for controller calculations.
-        n
-            Number of state variables.
-        **kwargs
-            Optional parameters passed to PIDStepControlConfig. See
-            PIDStepControlConfig for available parameters including dt_min,
-            dt_max, atol, rtol, algorithm_order, kp, ki, kd, min_gain,
-            max_gain, deadband_min, deadband_max. None values are ignored.
-        """
-        config = build_config(
-            PIDStepControlConfig,
-            required={'precision': precision, 'n': n},
-            **kwargs
-        )
-
-        super().__init__(config)
+    _config_class = PIDStepControlConfig
 
     @property
     def kp(self) -> float:
@@ -77,23 +85,7 @@ class AdaptivePIDController(BaseAdaptiveStepController):
         """Return the derivative gain."""
         return self.compile_settings.kd
 
-    @property
-    def deadband_min(self) -> float:
-        """Return the lower gain threshold for the unity deadband."""
-
-        return self.compile_settings.deadband_min
-
-    @property
-    def deadband_max(self) -> float:
-        """Return the upper gain threshold for the unity deadband."""
-
-        return self.compile_settings.deadband_max
-
-    @property
-    def local_memory_elements(self) -> int:
-        """Return the number of local memory slots required."""
-
-        return 2
+    _timestep_buffer_elements = 2  # previous two error norms
 
     @property
     def settings_dict(self) -> dict[str, object]:
@@ -101,11 +93,9 @@ class AdaptivePIDController(BaseAdaptiveStepController):
         settings_dict = super().settings_dict
         settings_dict.update(
             {
-                'kp': self.kp,
-                'ki': self.ki,
-                'kd': self.kd,
-                'deadband_min': self.deadband_min,
-                'deadband_max': self.deadband_max,
+                "kp": self.kp,
+                "ki": self.ki,
+                "kd": self.kd,
             }
         )
         return settings_dict
@@ -157,7 +147,7 @@ class AdaptivePIDController(BaseAdaptiveStepController):
             CUDA device function implementing the PID controller.
         """
         alloc_timestep_buffer = buffer_registry.get_allocator(
-            'timestep_buffer', self
+            "timestep_buffer", self
         )
 
         kp = self.kp
@@ -176,11 +166,14 @@ class AdaptivePIDController(BaseAdaptiveStepController):
         deadband_min = precision(self.deadband_min)
         deadband_max = precision(self.deadband_max)
         deadband_disabled = (deadband_min == typed_one) and (
-                deadband_max == typed_one
+            deadband_max == typed_one
         )
         precision = self.compile_settings.numba_precision
         n = int32(n)
         inv_n = precision(1.0 / n)
+        typed_large = precision(1e16)
+        success = int32(CUBIE_RESULT_CODES.SUCCESS)
+        step_too_small = int32(CUBIE_RESULT_CODES.STEP_TOO_SMALL)
         # step sizes and norms can be approximate - fastmath is fine
         @cuda.jit(
             device=True,
@@ -240,6 +233,8 @@ class AdaptivePIDController(BaseAdaptiveStepController):
                 nrm2 += ratio * ratio
 
             nrm2 = nrm2 * inv_n
+            nrm2 = typed_large if (isnan(nrm2) or isinf(nrm2)) else nrm2
+
             accept = nrm2 <= typed_one
             accept_out[0] = int32(1) if accept else int32(0)
             err_prev_safe = err_prev if err_prev > typed_zero else nrm2
@@ -255,9 +250,8 @@ class AdaptivePIDController(BaseAdaptiveStepController):
             )
             gain = clamp(gain_new, min_gain, max_gain)
             if not deadband_disabled:
-                within_deadband = (
-                    (gain >= deadband_min)
-                    and (gain <= deadband_max)
+                within_deadband = (gain >= deadband_min) and (
+                    gain <= deadband_max
                 )
                 gain = selp(within_deadband, typed_one, gain)
 
@@ -266,7 +260,7 @@ class AdaptivePIDController(BaseAdaptiveStepController):
             timestep_buffer[1] = err_prev
             timestep_buffer[0] = nrm2
 
-            ret = int32(0) if dt_new_raw > dt_min else int32(8)
+            ret = success if dt_new_raw > dt_min else step_too_small
             return ret
 
         return ControllerCache(device_function=controller_PID)

@@ -1,9 +1,38 @@
 """Infrastructure for registering CUDA summary metrics.
 
-The module exposes the registry used by output handling to collate integration
-summaries. It compiles CUDA device callbacks through ``CUDAFactory`` and keeps
-per-metric metadata such as buffer sizes, parameterisation, and device
-function dispatch tables.
+Published Classes
+-----------------
+:class:`MetricFuncCache`
+    Cache container for compiled metric update and save functions.
+
+:class:`MetricConfig`
+    Configuration for summary metric compilation.
+
+:class:`SummaryMetric`
+    Abstract base class for summary metrics. Subclasses implement
+    :meth:`build` to provide CUDA device callbacks.
+
+:class:`SummaryMetrics`
+    Registry and dispatcher coordinating buffer sizing, function
+    dispatch, and combined metric substitution.
+
+    >>> from numpy import float32
+    >>> registry = SummaryMetrics(precision=float32)
+    >>> registry.implemented_metrics
+    []
+
+Module-Level Functions
+----------------------
+:func:`register_metric`
+    Decorator that instantiates and registers a metric class.
+
+See Also
+--------
+:class:`~cubie.CUDAFactory.CUDAFactory`
+    Base factory providing compilation and cache management.
+:mod:`~cubie.outputhandling.summarymetrics`
+    Package that creates the global registry and imports built-in
+    metrics.
 """
 
 from typing import Any, Callable, Optional, Union
@@ -19,11 +48,15 @@ from cubie._utils import (
     precision_converter,
     precision_validator,
 )
-from cubie.CUDAFactory import CUDAFactory, CUDAFunctionCache
+from cubie.CUDAFactory import (
+    CUDAFactory,
+    CUDAFactoryConfig,
+    CUDADispatcherCache,
+)
 
 
 @define
-class MetricFuncCache(CUDAFunctionCache):
+class MetricFuncCache(CUDADispatcherCache):
     """Cache container for compiled metric functions.
 
     Attributes
@@ -37,10 +70,11 @@ class MetricFuncCache(CUDAFunctionCache):
     update: Callable = field(default=None)
     save: Callable = field(default=None)
 
+
 @define
-class MetricConfig:
+class MetricConfig(CUDAFactoryConfig):
     """Configuration for summary metric compilation.
-    
+
     Attributes
     ----------
     sample_summaries_every
@@ -51,25 +85,15 @@ class MetricConfig:
         Numerical precision for metric calculations. Defaults to
         np.float32.
     """
-    _precision: PrecisionDType = field(
-        converter=precision_converter,
-        validator=precision_validator,
-    )
+
     _sample_summaries_every: float = field(
-        default=0.01,
-        validator=val_optional(gttype_validator(float, 0.0))
+        default=0.01, validator=val_optional(gttype_validator(float, 0.0))
     )
 
-    
     @property
     def sample_summaries_every(self) -> float:
         """Time interval between summary metric samples."""
         return self._sample_summaries_every
-    
-    @property
-    def precision(self) -> type[floating]:
-        """Numerical precision for metric calculations."""
-        return self._precision
 
 
 def register_metric(registry: "SummaryMetrics") -> Callable:
@@ -171,10 +195,11 @@ class SummaryMetric(CUDAFactory):
 
         # Instantiate empty settings object for CUDAFactory compatibility
         self.setup_compile_settings(
-            MetricConfig(sample_summaries_every=sample_summaries_every,
-                         precision=precision)
+            MetricConfig(
+                sample_summaries_every=sample_summaries_every,
+                precision=precision,
+            )
         )
-
 
     @abstractmethod
     def build(self) -> MetricFuncCache:
@@ -209,30 +234,27 @@ class SummaryMetric(CUDAFactory):
 
         return self.get_cached_output("save")
 
-    @property
-    def precision(self) -> type[floating]:
-        """Numerical precision for metric calculations."""
-        return self.compile_settings.precision
 
     def update(self, **kwargs) -> None:
         """Update metric compile settings.
-        
+
         Parameters
         ----------
         **kwargs
             Compile settings to update (e.g., sample_summaries_every=0.02).
-            
+
         Returns
         -------
         None
             Returns None.
-            
+
         Notes
         -----
         Updates the MetricConfig and invalidates cache if values change.
         Triggers recompilation on next device_function access.
         """
         self.update_compile_settings(kwargs, silent=True)
+
 
 @define
 class SummaryMetrics:
@@ -256,7 +278,10 @@ class SummaryMetrics:
     Methods only report information for metrics explicitly requested so the
     caller can compile device functions tailored to the active configuration.
     """
-    precision: PrecisionDType = field()
+
+    precision: PrecisionDType = field(
+        validator=precision_validator, converter=precision_converter
+    )
     _names: list[str] = field(
         validator=instance_of(list), factory=list, init=False
     )
@@ -284,7 +309,6 @@ class SummaryMetrics:
         init=False,
     )
 
-
     def __attrs_post_init__(self) -> None:
         """Reset the parsed parameter cache and define combined metrics."""
 
@@ -304,18 +328,18 @@ class SummaryMetrics:
 
     def update(self, **kwargs) -> None:
         """Update compile settings for all registered metrics.
-        
+
         Parameters
         ----------
         **kwargs
             Compile settings to update (e.g., sample_summaries_every=0.02,
             precision=np.float64).
-            
+
         Returns
         -------
         None
             Returns None.
-            
+
         Notes
         -----
         Propagates updates to all registered metric objects.
@@ -376,38 +400,41 @@ class SummaryMetrics:
         """
         result = []
         used = set()
-        
+
         # Sort by size (descending) to prefer larger combinations
         sorted_combinations = sorted(
             self._combined_metrics.items(),
             key=lambda x: len(x[0]),
-            reverse=True
+            reverse=True,
         )
-        
+
         # Process each metric in the original request order
         for metric in request:
             if metric in used:
                 # Already processed as part of a combination
                 continue
-                
+
             # Check if this metric is part of any combination
             combined_found = False
             for metric_set, combined_name in sorted_combinations:
                 if metric in metric_set and metric_set.issubset(request):
                     # Check if combined metric is registered and not already used
-                    if combined_name in self._names and combined_name not in result:
+                    if (
+                        combined_name in self._names
+                        and combined_name not in result
+                    ):
                         result.append(combined_name)
                         used.update(metric_set)
                         # Add parameter entry for combined metric (always 0)
                         self._params[combined_name] = 0
                         combined_found = True
                         break
-            
+
             if not combined_found:
                 # No combination found, add the metric as-is
                 result.append(metric)
                 used.add(metric)
-        
+
         return result
 
     def preprocess_request(self, request: list[str]) -> list[str]:
@@ -432,10 +459,10 @@ class SummaryMetrics:
         multiple individual metrics can be computed more efficiently together.
         """
         clean_request = self.parse_string_for_params(request)
-        
+
         # Apply combined metric substitutions
         clean_request = self._apply_combined_metrics(clean_request)
-        
+
         # Validate that all metrics exist and filter out unregistered ones
         validated_request = []
         for metric in clean_request:
@@ -552,32 +579,6 @@ class SummaryMetrics:
             offset += size
         return tuple(offsets_dict[metric] for metric in parsed_request)
 
-    def output_offsets_dict(
-        self,
-        output_types_requested: list[str],
-    ) -> dict[str, int]:
-        """Get output array offsets as a dictionary for requested metrics.
-
-        Parameters
-        ----------
-        output_types_requested
-            Metric names to generate offsets for.
-
-        Returns
-        -------
-        dict[str, int]
-            Mapping of metric names to output offsets.
-        """
-        parsed_request = self.preprocess_request(output_types_requested)
-
-        offset = 0
-        offsets_dict = {}
-        for metric in parsed_request:
-            offsets_dict[metric] = offset
-            size = self._get_size(metric, self._output_sizes)
-            offset += size
-        return offsets_dict
-
     def summaries_output_height(
         self,
         output_types_requested: list[str],
@@ -673,7 +674,9 @@ class SummaryMetrics:
 
         return headings
 
-    def unit_modifications(self, output_types_requested: list[str]) -> list[str]:
+    def unit_modifications(
+        self, output_types_requested: list[str]
+    ) -> list[str]:
         """Generate unit modification strings for requested summary metrics.
 
         Parameters

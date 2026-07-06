@@ -1,4 +1,33 @@
-"""Code generation helpers for linear operators and Jacobian products."""
+"""Emit CUDA factory code for linear operators and cached JVP helpers.
+
+Published Functions
+-------------------
+:func:`generate_operator_apply_code`
+    Emit a factory that applies ``(I - gamma * h * J) * v`` using
+    analytic JVP expressions.
+
+:func:`generate_cached_operator_apply_code`
+    Variant that reads precomputed auxiliary values from a cache buffer.
+
+:func:`generate_prepare_jac_code`
+    Emit a factory that populates the auxiliary cache buffer used by
+    ``generate_cached_operator_apply_code``.
+
+:func:`generate_cached_jvp_code`
+    Emit a factory that evaluates the JVP from cached auxiliaries.
+
+:func:`generate_n_stage_linear_operator_code`
+    Emit a flattened multi-stage linear operator for FIRK methods.
+
+See Also
+--------
+:mod:`cubie.odesystems.symbolic.codegen.jacobian`
+    Produces the JVP expressions consumed by this module.
+:mod:`cubie.odesystems.symbolic.codegen.preconditioners`
+    Companion preconditioner code generators.
+:mod:`cubie.odesystems.symbolic.codegen._stage_utils`
+    Shared FIRK stage metadata helpers.
+"""
 
 from typing import Dict, Iterable, List, Optional, Sequence, Tuple, Union
 
@@ -46,7 +75,7 @@ default_timelogger.register_event(
 CACHED_OPERATOR_APPLY_TEMPLATE = (
     "\n"
     "# AUTO-GENERATED CACHED LINEAR OPERATOR FACTORY\n"
-    "def {func_name}(constants, precision, beta=1.0, gamma=1.0, order=None):\n"
+    "def {func_name}(constants, precision, beta=1.0, gamma=1.0):\n"
     '    """Auto-generated cached linear operator.\n'
     "    Computes out = beta * (M @ v) - gamma * a_ij * h * (J @ v)\n"
     "    using cached auxiliary intermediates.\n"
@@ -54,11 +83,9 @@ CACHED_OPERATOR_APPLY_TEMPLATE = (
     "      operator_apply(\n"
     "          state, parameters, drivers, cached_aux, base_state, t, h, a_ij, v, out\n"
     "      )\n"
-    "    argument 'order' is ignored, included for compatibility with\n"
-    "    preconditioner API.\n"
     '    """\n'
-    "    beta = precision(beta)\n"
-    "    gamma = precision(gamma)\n"
+    "    _cubie_codegen_beta = precision(beta)\n"
+    "    _cubie_codegen_gamma = precision(gamma)\n"
     "{const_lines}"
     "    @cuda.jit(\n"
     "        # (precision[::1],\n"
@@ -84,16 +111,14 @@ CACHED_OPERATOR_APPLY_TEMPLATE = (
 OPERATOR_APPLY_TEMPLATE = (
     "\n"
     "# AUTO-GENERATED LINEAR OPERATOR FACTORY\n"
-    "def {func_name}(constants, precision, beta=1.0, gamma=1.0, order=None):\n"
+    "def {func_name}(constants, precision, beta=1.0, gamma=1.0):\n"
     '    """Auto-generated linear operator.\n'
     "    Computes out = beta * (M @ v) - gamma * a_ij * h * (J @ v)\n"
     "    Returns device function:\n"
     "      operator_apply(state, parameters, drivers, base_state, t, h, a_ij, v, out)\n"
-    "    argument 'order' is ignored, included for compatibility with\n"
-    "    preconditioner API.\n"
     '    """\n'
-    "    beta = precision(beta)\n"
-    "    gamma = precision(gamma)\n"
+    "    _cubie_codegen_beta = precision(beta)\n"
+    "    _cubie_codegen_gamma = precision(gamma)\n"
     "{const_lines}"
     "    @cuda.jit(\n"
     "        # (precision[::1],\n"
@@ -132,6 +157,8 @@ PREPARE_JAC_TEMPLATE = (
     "    def prepare_jac(state, parameters, drivers, t, cached_aux):\n"
     "{body}\n"
     "    return prepare_jac\n"
+    "# Store aux_count for retrieval when loading from file cache\n"
+    "{func_name}.aux_count = {aux_count}\n"
 )
 
 
@@ -211,8 +238,10 @@ def _build_operator_body(
     n_out = len(index_map.dxdt.ref_map)
     n_in = len(index_map.states.index_map)
     v = sp.IndexedBase("v")
-    beta_sym = sp.Symbol("beta")
-    gamma_sym = sp.Symbol("gamma")
+    # Use _cubie_codegen_ prefix to avoid conflicts with user-defined
+    # variables named beta or gamma (issue #373)
+    beta_sym = sp.Symbol("_cubie_codegen_beta")
+    gamma_sym = sp.Symbol("_cubie_codegen_gamma")
     a_ij_sym = sp.Symbol("a_ij")
     h_sym = sp.Symbol("h")
 
@@ -403,10 +432,12 @@ def generate_prepare_jac_code_from_jvp(
     cached_aux, _, prepare_assigns = _partition_cached_assignments(equations)
     body = _build_prepare_body(cached_aux, prepare_assigns, index_map)
     const_block = render_constant_assignments(index_map.constants.symbol_map)
+    aux_count = len(cached_aux)
     code = PREPARE_JAC_TEMPLATE.format(
-        func_name=func_name, body=body, const_lines=const_block
+        func_name=func_name, body=body, const_lines=const_block,
+        aux_count=aux_count
     )
-    return code, len(cached_aux)
+    return code, aux_count
 
 
 def generate_cached_jvp_code_from_jvp(
@@ -575,8 +606,8 @@ def _build_n_stage_operator_lines(
     state_count = len(state_symbols)
     stage_count = stage_coefficients.rows
 
-    beta_sym = sp.Symbol("beta")
-    gamma_sym = sp.Symbol("gamma")
+    beta_sym = sp.Symbol("_cubie_codegen_beta")
+    gamma_sym = sp.Symbol("_cubie_codegen_gamma")
     h_sym = sp.Symbol("h")
     time_arg = sp.Symbol("t")
     total_states = sp.Integer(stage_count * state_count)
@@ -712,8 +743,8 @@ def _build_n_stage_operator_lines(
             "base_state": base_state,
             "v": direction_vec,
             "out": out,
-            "beta": beta_sym,
-            "gamma": gamma_sym,
+            "_cubie_codegen_beta": beta_sym,
+            "_cubie_codegen_gamma": gamma_sym,
             "h": h_sym,
             "t": time_arg,
         }
@@ -780,14 +811,13 @@ def generate_n_stage_linear_operator_code(
 N_STAGE_OPERATOR_TEMPLATE = (
     "\n"
     "# AUTO-GENERATED N-STAGE LINEAR OPERATOR FACTORY\n"
-    "def {func_name}(constants, precision, beta=1.0, gamma=1.0, order=None):\n"
+    "def {func_name}(constants, precision, beta=1.0, gamma=1.0):\n"
     '    """Auto-generated FIRK linear operator for flattened stages.\n'
     "    Handles {stage_count} stages with ``s * n`` unknowns.\n"
-    "    Order is ignored, included for compatibility with preconditioner API.\n"
     '    """\n'
     "{const_lines}"
-    "    gamma = precision(gamma)\n"
-    "    beta = precision(beta)\n"
+    "    _cubie_codegen_gamma = precision(gamma)\n"
+    "    _cubie_codegen_beta = precision(beta)\n"
     "{metadata_lines}"
     "    @cuda.jit(\n"
     "        # (precision[::1],\n"
@@ -812,9 +842,5 @@ __all__ = [
     "generate_cached_operator_apply_code",
     "generate_prepare_jac_code",
     "generate_cached_jvp_code",
-    "generate_operator_apply_code_from_jvp",
-    "generate_cached_operator_apply_code_from_jvp",
-    "generate_prepare_jac_code_from_jvp",
-    "generate_cached_jvp_code_from_jvp",
     "generate_n_stage_linear_operator_code",
 ]

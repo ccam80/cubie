@@ -1,4 +1,30 @@
-"""Backward Euler step implementation using Newton–Krylov."""
+"""Backward Euler step implementation using Newton–Krylov.
+
+Published Classes
+-----------------
+:class:`BackwardsEulerStepConfig`
+    Configuration container for the backward Euler step.
+
+:class:`BackwardsEulerStep`
+    Single-stage, first-order implicit step with persistent increment
+    cache for warm-starting Newton iterations.
+
+Constants
+---------
+:data:`ALGO_CONSTANTS`
+    Beta, gamma, and mass matrix values for backward Euler
+    (all identity/unity).
+
+:data:`BE_DEFAULTS`
+    Default step controller settings (fixed-step, dt=1e-3).
+
+See Also
+--------
+:class:`~cubie.integrators.algorithms.ode_implicitstep.ODEImplicitStep`
+    Abstract parent managing the Newton–Krylov solver lifecycle.
+:class:`BackwardsEulerStepConfig`
+    Configuration for this step.
+"""
 
 from typing import Callable, Optional
 
@@ -32,7 +58,6 @@ ALGO_CONSTANTS = {'beta': 1.0,
 BE_DEFAULTS = StepControlDefaults(
     step_controller={
         "step_controller": "fixed",
-        "dt": 1e-3,
     }
 )
 
@@ -43,9 +68,9 @@ class BackwardsEulerStep(ODEImplicitStep):
         self,
         precision: PrecisionDType,
         n: int,
-        dxdt_function: Optional[Callable] = None,
-        observables_function: Optional[Callable] = None,
-        driver_function: Optional[Callable] = None,
+        evaluate_f: Optional[Callable] = None,
+        evaluate_observables: Optional[Callable] = None,
+        evaluate_driver_at_t: Optional[Callable] = None,
         get_solver_helper_fn: Optional[Callable] = None,
         **kwargs,
     ) -> None:
@@ -57,11 +82,11 @@ class BackwardsEulerStep(ODEImplicitStep):
             Precision applied to device buffers.
         n
             Number of state entries advanced per step.
-        dxdt_function
-            Device derivative function evaluating ``dx/dt``.
-        observables_function
+        evaluate_f
+            Device function for evaluating f(t, y) right-hand side.
+        evaluate_observables
             Device function computing system observables.
-        driver_function
+        evaluate_driver_at_t
             Optional device function evaluating drivers at arbitrary times.
         get_solver_helper_fn
             Callable returning device helpers used by the nonlinear solver.
@@ -79,9 +104,9 @@ class BackwardsEulerStep(ODEImplicitStep):
             required={
                 'precision': precision,
                 'n': n,
-                'dxdt_function': dxdt_function,
-                'observables_function': observables_function,
-                'driver_function': driver_function,
+                'evaluate_f': evaluate_f,
+                'evaluate_observables': evaluate_observables,
+                'evaluate_driver_at_t': evaluate_driver_at_t,
                 'get_solver_helper_fn': get_solver_helper_fn,
                 'beta': beta,
                 'gamma': gamma,
@@ -116,9 +141,9 @@ class BackwardsEulerStep(ODEImplicitStep):
 
     def build_step(
         self,
-        dxdt_fn: Callable,
-        observables_function: Callable,
-        driver_function: Optional[Callable],
+        evaluate_f: Callable,
+        evaluate_observables: Callable,
+        evaluate_driver_at_t: Optional[Callable],
         solver_function: Callable,
         numba_precision: type,
         n: int,
@@ -128,12 +153,12 @@ class BackwardsEulerStep(ODEImplicitStep):
 
         Parameters
         ----------
-        dxdt_fn
-            Device derivative function for the ODE system.
-        observables_function
-            Device observable computation helper.
-        driver_function
-            Optional device function evaluating drivers at arbitrary times.
+        evaluate_f
+            Device function for evaluating f(t, y).
+        evaluate_observables
+            Device function for computing observables.
+        evaluate_driver_at_t
+            Optional device function for evaluating drivers at time t.
         solver_function
             Device function for the Newton-Krylov nonlinear solver.
         numba_precision
@@ -149,8 +174,7 @@ class BackwardsEulerStep(ODEImplicitStep):
             Container holding the compiled step function and solver.
         """
         a_ij = numba_precision(1.0)
-        has_driver_function = driver_function is not None
-        driver_function = driver_function
+        has_evaluate_driver_at_t = evaluate_driver_at_t is not None
         n = int32(n)
 
         # Get child allocators for Newton solver
@@ -236,8 +260,14 @@ class BackwardsEulerStep(ODEImplicitStep):
                 Scalar containing the current simulation time.
             shared
                 Device array providing shared scratch buffers.
+            first_step_flag
+                Non-zero on the first integration step.
+            accepted_flag
+                Non-zero when the previous step was accepted.
             persistent_local
                 Device array for persistent local storage (unused here).
+            counters
+                Integer array for Newton iteration counters.
 
             Returns
             -------
@@ -252,8 +282,8 @@ class BackwardsEulerStep(ODEImplicitStep):
                 proposed_state[i] = increment_cache[i]
 
             next_time = time_scalar + dt_scalar
-            if has_driver_function:
-                driver_function(
+            if has_evaluate_driver_at_t:
+                evaluate_driver_at_t(
                     next_time,
                     driver_coefficients,
                     proposed_drivers,
@@ -276,7 +306,7 @@ class BackwardsEulerStep(ODEImplicitStep):
                 increment_cache[i] = proposed_state[i]
                 proposed_state[i] += state[i]
 
-            observables_function(
+            evaluate_observables(
                 proposed_state,
                 parameters,
                 proposed_drivers,
@@ -307,22 +337,7 @@ class BackwardsEulerStep(ODEImplicitStep):
         return 1
 
     @property
-    def settings_dict(self) -> dict:
-        """Return the configuration dictionary for the step."""
-
-        return self.compile_settings.settings_dict
-
-    @property
     def order(self) -> int:
         """Return the classical order of the backward Euler method."""
         return 1
 
-    @property
-    def dxdt_function(self) -> Optional[Callable]:
-        """Return the derivative device function."""
-
-        return self.compile_settings.dxdt_function
-
-    @property
-    def identifier(self) -> str:
-        return "backwards_euler"

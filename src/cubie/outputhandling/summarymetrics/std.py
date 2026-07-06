@@ -1,8 +1,16 @@
-"""
-Standard deviation summary metric for CUDA-accelerated batch integration.
+"""Standard deviation over a summary interval.
 
-This module implements a summary metric that calculates the standard deviation
-of values encountered during integration for each variable.
+Published Classes
+-----------------
+:class:`Std`
+    Standard deviation over a summary interval.
+
+See Also
+--------
+:class:`~cubie.outputhandling.summarymetrics.metrics.SummaryMetric`
+    Abstract base class for summary metrics.
+:data:`~cubie.outputhandling.summarymetrics.summary_metrics`
+    Global registry where this metric is registered.
 """
 
 from numba import cuda

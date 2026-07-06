@@ -332,13 +332,9 @@ class TestIndexedBases:
 
         # Test state getters
         state_names = ib.state_names
-        state_symbols = ib.state_symbols
         state_values = ib.state_values
 
         assert set(state_names) == {"x", "y"}
-        assert len(state_symbols) == len(state_names)
-        assert all(isinstance(sym, sp.Symbol) for sym in state_symbols)
-        assert set(str(sym) for sym in state_symbols) == set(state_names)
         assert len(state_values) == len(state_names)
         assert state_values[sp.Symbol("x", real=True)] == 1.0
         assert state_values[sp.Symbol("y", real=True)] == 2.0
@@ -358,43 +354,27 @@ class TestIndexedBases:
 
         # Test constant getters
         const_names = ib.constant_names
-        const_symbols = ib.constant_symbols
         const_values = ib.constant_values
 
         assert set(const_names) == {"c", "d"}
-        assert len(const_symbols) == len(const_names)
-        assert all(isinstance(sym, sp.Symbol) for sym in const_symbols)
-        assert set(str(sym) for sym in const_symbols) == set(const_names)
         assert len(const_values) == len(const_names)
         assert const_values[sp.Symbol("c", real=True)] == 3.14
         assert const_values[sp.Symbol("d", real=True)] == 2.71
 
         # Test observable getters
         obs_names = ib.observable_names
-        obs_symbols = ib.observable_symbols
 
         assert set(obs_names) == {"obs1", "obs2"}
-        assert len(obs_symbols) == len(obs_names)
-        assert all(isinstance(sym, sp.Symbol) for sym in obs_symbols)
-        assert set(str(sym) for sym in obs_symbols) == set(obs_names)
 
         # Test driver getters
         drv_names = ib.driver_names
-        drv_symbols = ib.driver_symbols
 
         assert set(drv_names) == {"drv1"}
-        assert len(drv_symbols) == len(drv_names)
-        assert all(isinstance(sym, sp.Symbol) for sym in drv_symbols)
-        assert set(str(sym) for sym in drv_symbols) == set(drv_names)
 
         # Test dxdt getters
         dxdt_names = ib.dxdt_names
-        dxdt_symbols = ib.dxdt_symbols
 
         assert set(dxdt_names) == {"dx", "dy"}
-        assert len(dxdt_symbols) == len(dxdt_names)
-        assert all(isinstance(sym, sp.Symbol) for sym in dxdt_symbols)
-        assert set(str(sym) for sym in dxdt_symbols) == set(dxdt_names)
 
     def test_properties(self, sample_indexed_bases):
         """Test properties of IndexedBases."""

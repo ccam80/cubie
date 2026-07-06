@@ -1,31 +1,56 @@
-"""Containers describing ODE system metadata used by factories."""
+"""Containers describing ODE system metadata used by factories.
+
+Published Classes
+-----------------
+:class:`SystemSizes`
+    Frozen counts for each component category in an ODE system.
+
+    >>> sizes = SystemSizes(states=4, observables=2, parameters=3,
+    ...                     constants=5, drivers=1)
+    >>> sizes.states
+    4
+
+:class:`ODEData`
+    Bundle of :class:`SystemValues` instances and derived sizes for CUDA
+    compilation.
+
+    >>> from numpy import float32
+    >>> data = ODEData.from_BaseODE_initargs(
+    ...     precision=float32,
+    ...     default_initial_values={"x": 0.0, "y": 1.0},
+    ...     default_parameters={"a": 0.5},
+    ...     default_constants={"g": 9.81},
+    ...     default_observable_names={"v": 0.0},
+    ... )
+    >>> data.num_states
+    2
+
+See Also
+--------
+:class:`~cubie.odesystems.SystemValues.SystemValues`
+    Keyed parameter container stored inside ``ODEData``.
+:class:`~cubie.CUDAFactory.CUDAFactoryConfig`
+    Parent class providing precision and hashing.
+:class:`~cubie.odesystems.baseODE.BaseODE`
+    Abstract ODE factory that owns an ``ODEData`` as compile settings.
+"""
 
 from typing import Optional, Dict, Any
 
-from attrs import define, field
+from attrs import cmp_using as attrs_cmp_using, define, field
 from attrs.validators import (
     instance_of as attrsval_instance_of,
     optional as attrsval_optional,
 )
-from numpy import float32 as np_float32
 
-from numba import from_dtype as numba_from_dtype
 
-from cubie.cuda_simsafe import from_dtype as simsafe_dtype
+from cubie.CUDAFactory import CUDAFactoryConfig
 from cubie._utils import (
     PrecisionDType,
-    precision_converter,
-    precision_validator,
+    mass_equal,
 )
 from cubie.odesystems.SystemValues import SystemValues
 
-def update_precisions(instance, attribute, value):
-    """Update precision of all values in an ODEData instance."""
-    instance.parameters.precision = value
-    instance.constants.precision = value
-    instance.initial_states.precision = value
-    instance.observables.precision = value
-    return value
 
 @define
 class SystemSizes:
@@ -58,7 +83,7 @@ class SystemSizes:
 
 
 @define
-class ODEData:
+class ODEData(CUDAFactoryConfig):
     """Bundle numerical values and metadata for an ODE system.
 
     Parameters
@@ -76,12 +101,6 @@ class ODEData:
         :class:`numpy.float32`.
     num_drivers
         Number of driver or forcing functions. Defaults to ``1``.
-
-    Returns
-    -------
-    ODEData
-        Instance containing all values and derived sizes needed for CUDA
-        compilation.
     """
 
     constants: Optional[SystemValues] = field(
@@ -112,16 +131,20 @@ class ODEData:
             ),
         ),
     )
-    precision: PrecisionDType = field(
-        converter=precision_converter,
-        validator=precision_validator,
-        on_setattr=update_precisions,
-        default=np_float32
-    )
-    num_drivers: int = field(
-        validator=attrsval_instance_of(int), default=1
-    )
-    _mass: Any = field(default=None, eq=False)
+    num_drivers: int = field(validator=attrsval_instance_of(int), default=1)
+    _mass: Any = field(default=None, eq=attrs_cmp_using(eq=mass_equal))
+
+    def __attrs_post_init__(self):
+        super().__attrs_post_init__()
+
+    def update_precisions(self, updates_dict):
+        """Update precision of all values in the ODEData instance."""
+        if "precision" in updates_dict:
+            precision = updates_dict["precision"]
+            self.parameters.precision = precision
+            self.constants.precision = precision
+            self.initial_states.precision = precision
+            self.observables.precision = precision
 
     @property
     def num_states(self) -> int:
@@ -153,26 +176,6 @@ class ODEData:
             constants=self.num_constants,
             drivers=self.num_drivers,
         )
-
-    @property
-    def numba_precision(self) -> type:
-        """Numba representation of the configured precision."""
-        return numba_from_dtype(self.precision)
-
-    @property
-    def simsafe_precision(self) -> type:
-        """Precision promoted for CUDA simulator compatibility."""
-        return simsafe_dtype(self.precision)
-
-    @property
-    def beta(self) -> float:
-        """Return the cached solver shift parameter."""
-        return self.precision(self._beta)
-
-    @property
-    def gamma(self) -> float:
-        """Return the cached solver Jacobian weight."""
-        return self.precision(self._gamma)
 
     @property
     def mass(self) -> Any:
@@ -214,15 +217,14 @@ class ODEData:
         default_observable_names
             Default observable names if ``observables`` omits entries.
         precision
-            Precision factory used for calculations. Defaults to
-            :class:`numpy.float64`.
+            Precision factory used for calculations.
         num_drivers
             Number of driver or forcing functions. Defaults to ``1``.
 
         Returns
         -------
         ODEData
-            Initialized data container suitable for CUDA compilation.
+            Initialised data container for CUDA compilation.
         """
         init_values = SystemValues(
             initial_values, precision, default_initial_values, name="States"

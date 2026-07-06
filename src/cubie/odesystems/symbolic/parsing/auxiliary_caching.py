@@ -1,12 +1,40 @@
-"""Auxiliary caching heuristics for symbolic solver helpers.
+"""Auxiliary caching heuristics for JVP solver helpers.
 
-This module was created to find an alternative to storing the whole Jacobian
-matrix for a Rosenbrock method, with the best of intentions and the eager
-collaboration of an AI agent. The problem is not straightforward to solve,
-and seemed an unecessary optimization when there were larger problems to
-fix. The bones remain here, but they are heavily AI-inflected, as I never
-got into the inner workings of the problem. They may save a few ops,
-here and there, in some sytems, but otherwise will just quietly do nothing."""
+Identifies intermediate auxiliary expressions in Jacobian-vector product
+computations that can be precomputed and reused, reducing redundant
+arithmetic across JVP evaluations without storing the full Jacobian.
+
+Published Classes
+-----------------
+:class:`CacheGroup`
+    Frozen attrs container describing a group of cached leaves derived
+    from a single seed symbol.
+
+:class:`CacheSelection`
+    Frozen attrs container capturing the final cache plan: which leaves
+    to cache, which nodes to remove from runtime, and the estimated
+    savings.
+
+Published Functions
+-------------------
+:func:`plan_auxiliary_cache`
+    Analyse a :class:`~cubie.odesystems.symbolic.parsing.jvp_equations.JVPEquations`
+    instance and persist the computed cache plan.
+
+    >>> from cubie.odesystems.symbolic.parsing.auxiliary_caching import (
+    ...     plan_auxiliary_cache,
+    ... )
+    >>> selection = plan_auxiliary_cache(jvp_equations)
+    >>> selection.saved  # operations removed at runtime
+    42
+
+See Also
+--------
+:class:`~cubie.odesystems.symbolic.parsing.jvp_equations.JVPEquations`
+    Owns the dependency metadata consumed by this module.
+:mod:`cubie.odesystems.symbolic.codegen.linear_operators`
+    Generates cached linear operator code using the cache plan.
+"""
 
 from itertools import combinations
 from typing import Dict, Iterable, List, Mapping, Optional, Sequence, Set, Tuple
@@ -49,7 +77,27 @@ class CacheGroup:
 
 @attrs.frozen
 class CacheSelection:
-    """Capture the final auxiliary cache plan."""
+    """Capture the final auxiliary cache plan.
+
+    Parameters
+    ----------
+    groups
+        Cache groups selected for the plan.
+    cached_leaves
+        Auxiliary symbols whose values are cached.
+    cached_leaf_order
+        Cached leaves in evaluation order.
+    removal_nodes
+        Symbols removed from runtime evaluation.
+    runtime_nodes
+        Symbols that remain in runtime evaluation.
+    prepare_nodes
+        Symbols evaluated when populating the cache.
+    saved
+        Total operations saved by caching.
+    fill_cost
+        Operations required to populate the cache.
+    """
 
     groups = attrs.field(converter=tuple)
     cached_leaves = attrs.field(converter=tuple)
@@ -59,29 +107,6 @@ class CacheSelection:
     prepare_nodes = attrs.field(converter=tuple)
     saved = attrs.field()
     fill_cost = attrs.field()
-
-
-@attrs.frozen
-class SeedSimulation:
-    """Capture the outcome of simulating a cached leaf combination."""
-
-    leaves = attrs.field(converter=tuple)
-    removal = attrs.field(converter=tuple)
-    prepare = attrs.field(converter=tuple)
-    saved = attrs.field()
-    fill_cost = attrs.field()
-    meets_threshold = attrs.field()
-
-
-@attrs.frozen
-class SeedDiagnostics:
-    """Collect diagnostics for a single seed symbol exploration."""
-
-    seed = attrs.field()
-    total_ops = attrs.field()
-    closure_uses = attrs.field()
-    reachable = attrs.field(converter=tuple)
-    simulations = attrs.field(converter=tuple)
 
 
 def _reachable_leaves(
@@ -106,6 +131,11 @@ def _reachable_leaves(
     min_internal_cost
         Minimum cumulative cost for treating an internal node as a cache
         candidate.
+
+    Returns
+    -------
+    set[sp.Symbol]
+        Symbols reachable from seed that qualify as cache candidates.
     """
 
     stack = [seed]
@@ -131,7 +161,20 @@ def _prepare_nodes_for_leaves(
     leaves: Iterable[sp.Symbol],
     dependencies: Mapping[sp.Symbol, Set[sp.Symbol]],
 ) -> Set[sp.Symbol]:
-    """Return dependencies that must execute to populate ``leaves``."""
+    """Return dependencies that must execute to populate ``leaves``.
+
+    Parameters
+    ----------
+    leaves
+        Target symbols to cache.
+    dependencies
+        Forward dependency graph for auxiliary assignments.
+
+    Returns
+    -------
+    set[sp.Symbol]
+        All symbols required to compute the given leaves.
+    """
 
     stack = list(leaves)
     prepare = set()
@@ -148,7 +191,23 @@ def _simulate_cached_leaves(
     equations: JVPEquations,
     leaves: Sequence[sp.Symbol],
 ) -> Optional[Tuple[int, Set[sp.Symbol], Set[sp.Symbol], int]]:
-    """Return savings metadata for cached ``leaves``."""
+    """Simulate caching the given leaves and compute savings.
+
+    Parameters
+    ----------
+    equations
+        JVP equations containing dependency and cost information.
+    leaves
+        Symbols to simulate caching.
+
+    Returns
+    -------
+    tuple or None
+        If caching is valid, returns ``(saved, removal, prepare, fill_cost)``
+        where saved is operations saved, removal is symbols removed from
+        runtime, prepare is symbols needed to fill cache, and fill_cost is
+        operations to populate cache. Returns None if caching is invalid.
+    """
 
     dependencies = equations.dependencies
     dependents = equations.dependents
@@ -179,90 +238,21 @@ def _simulate_cached_leaves(
     return saved, removal, prepare, fill_cost
 
 
-def gather_seed_diagnostics(equations: JVPEquations) -> Tuple[SeedDiagnostics, ...]:
-    """Return detailed simulation diagnostics for each caching seed."""
-
-    order_idx = equations.order_index
-    total_cost = equations.total_ops_cost
-    slot_limit = equations.cache_slot_limit
-    if slot_limit <= 0:
-        return tuple()
-    dependents = equations.dependents
-    jvp_usage = equations.jvp_usage
-    min_ops = equations.min_ops_threshold
-    min_internal_cost = max(min_ops, 1)
-    diagnostics = []
-    seeds = sorted(
-        equations.non_jvp_order,
-        key=lambda sym: (
-            -total_cost.get(sym, 0),
-            order_idx.get(sym, len(order_idx)),
-        ),
-    )
-    for seed in seeds:
-        closure_uses = equations.jvp_closure_usage.get(seed, 0)
-        if closure_uses == 0:
-            continue
-        reachable = _reachable_leaves(
-            seed,
-            dependents,
-            jvp_usage,
-            total_cost,
-            min_internal_cost,
-        )
-        if not reachable:
-            continue
-        ordered_leaves = tuple(
-            sorted(
-                reachable,
-                key=lambda sym: (
-                    -total_cost.get(sym, 0),
-                    order_idx.get(sym, len(order_idx)),
-                ),
-            )
-        )
-        simulations = []
-        max_size = min(len(ordered_leaves), slot_limit)
-        for size in range(1, max_size + 1):
-            for subset in combinations(ordered_leaves, size):
-                simulation = _simulate_cached_leaves(
-                    equations,
-                    subset,
-                )
-                if simulation is None:
-                    continue
-                saved, removal, prepare, fill_cost = simulation
-                meets_threshold = saved >= min_ops
-                simulations.append(
-                    SeedSimulation(
-                        leaves=tuple(subset),
-                        removal=tuple(
-                            sorted(removal, key=order_idx.get)
-                        ),
-                        prepare=tuple(
-                            sorted(prepare, key=order_idx.get)
-                        ),
-                        saved=saved,
-                        fill_cost=fill_cost,
-                        meets_threshold=meets_threshold,
-                    )
-                )
-        diagnostics.append(
-            SeedDiagnostics(
-                seed=seed,
-                total_ops=total_cost.get(seed, 0),
-                closure_uses=closure_uses,
-                reachable=ordered_leaves,
-                simulations=tuple(simulations),
-            )
-        )
-    return tuple(diagnostics)
-
-
 def _collect_candidates(
     equations: JVPEquations,
 ) -> List[CacheGroup]:
-    """Return candidate cache groups explored from each seed symbol."""
+    """Collect candidate cache groups from all seed symbols.
+
+    Parameters
+    ----------
+    equations
+        JVP equations to analyze for caching opportunities.
+
+    Returns
+    -------
+    list[CacheGroup]
+        Candidate groups sorted by savings (highest first).
+    """
 
     order_idx = equations.order_index
     total_cost = equations.total_ops_cost
@@ -353,7 +343,23 @@ def _evaluate_leaves(
     leaves_key: frozenset,
     memo: Dict[str, Dict],
 ) -> Optional[Tuple[int, Set[sp.Symbol], Set[sp.Symbol], int]]:
-    """Return cached evaluation metadata for the provided leaves."""
+    """Return memoized evaluation metadata for the provided leaves.
+
+    Parameters
+    ----------
+    equations
+        JVP equations containing dependency and cost information.
+    leaves_key
+        Frozenset of leaf symbols to evaluate.
+    memo
+        Memoization dictionary to cache results.
+
+    Returns
+    -------
+    tuple or None
+        If valid, returns ``(saved, removal, prepare, fill_cost)``.
+        Returns None if the leaf combination is invalid.
+    """
 
     leaves_memo = memo.setdefault("leaves", {})
     removal_memo = memo.setdefault("removal", {})
@@ -386,7 +392,20 @@ def _search_group_combinations(
     equations: JVPEquations,
     candidates: Sequence[CacheGroup],
 ) -> CacheSelection:
-    """Return the optimal combination of cache groups."""
+    """Search for the optimal combination of cache groups.
+
+    Parameters
+    ----------
+    equations
+        JVP equations containing slot limits and thresholds.
+    candidates
+        Candidate cache groups to combine.
+
+    Returns
+    -------
+    CacheSelection
+        The selected cache plan with optimal savings.
+    """
 
     order_idx = equations.order_index
     slot_limit = equations.cache_slot_limit
@@ -521,7 +540,18 @@ def _search_group_combinations(
 
 
 def plan_auxiliary_cache(equations: JVPEquations) -> CacheSelection:
-    """Compute and persist the auxiliary cache plan for ``equations``."""
+    """Compute and persist the auxiliary cache plan for ``equations``.
+
+    Parameters
+    ----------
+    equations
+        JVP equations to optimize with caching.
+
+    Returns
+    -------
+    CacheSelection
+        The computed cache plan, also stored in ``equations``.
+    """
 
     candidates = _collect_candidates(equations)
     selection = _search_group_combinations(
@@ -532,10 +562,3 @@ def plan_auxiliary_cache(equations: JVPEquations) -> CacheSelection:
     return selection
 
 
-def select_cached_nodes(
-    equations: JVPEquations,
-) -> Tuple[List[sp.Symbol], Set[sp.Symbol]]:
-    """Return cached leaves and runtime nodes for ``equations``."""
-
-    selection = equations.cache_selection
-    return list(selection.cached_leaf_order), set(selection.runtime_nodes)

@@ -1,10 +1,69 @@
-"""Utility helpers for symbolic ODE construction."""
+"""Utility helpers for symbolic ODE construction.
 
-import warnings
+Published Functions
+-------------------
+:func:`topological_sort`
+    Return assignments sorted by dependency order using Kahn's algorithm.
+
+    >>> import sympy as sp
+    >>> x, y = sp.symbols("x y")
+    >>> topological_sort([(y, x + 1), (x, sp.Integer(2))])
+    [(x, 2), (y, x + 1)]
+
+:func:`cse_and_stack`
+    Apply common subexpression elimination and topologically sort the
+    combined result.
+
+    >>> import sympy as sp
+    >>> a, b = sp.symbols("a b")
+    >>> result = cse_and_stack([(a, sp.sin(b)), (b, sp.Integer(1))])
+
+:func:`hash_system_definition`
+    Deterministic SHA-256 hash for a set of symbolic ODE equations.
+
+    >>> import sympy as sp
+    >>> x = sp.Symbol("x")
+    >>> h = hash_system_definition([(x, -x)])
+    >>> len(h)
+    64
+
+:func:`render_constant_assignments`
+    Emit Python assignment lines that load constants into local scope.
+
+    >>> render_constant_assignments(["g", "k"])
+    "    g = precision(constants['g'])\\n    k = precision(constants['k'])\\n"
+
+:func:`prune_unused_assignments`
+    Remove assignments that do not contribute to output symbols.
+
+    >>> import sympy as sp
+    >>> a, b, c = sp.symbols("a b c")
+    >>> out = sp.Symbol("out[0]")
+    >>> pruned = prune_unused_assignments(
+    ...     [(a, sp.Integer(1)), (b, a), (out, b), (c, sp.Integer(9))],
+    ...     output_symbols=[out],
+    ... )
+    >>> [str(lhs) for lhs, _ in pruned]
+    ['a', 'b', 'out[0]']
+
+See Also
+--------
+:mod:`cubie.odesystems.symbolic.codegen`
+    Code generation modules that consume these helpers.
+:class:`~cubie.odesystems.symbolic.indexedbasemaps.IndexedBases`
+    Symbol-to-array mapping used alongside these utilities.
+"""
+
+from hashlib import sha256
+
+from typing import TYPE_CHECKING
 from collections import defaultdict, deque
 from typing import Dict, Iterable, List, Optional, Tuple, Union
 
 import sympy as sp
+
+if TYPE_CHECKING:
+    from cubie.odesystems.symbolic.parsing import ParsedEquations
 
 
 def topological_sort(
@@ -77,8 +136,7 @@ def topological_sort(
     if len(result) != len(sym_map):
         remaining = all_assignees - {sym for sym, _ in result}
         raise ValueError(
-            "Circular dependency detected. Remaining symbols: "
-            f"{remaining}"
+            f"Circular dependency detected. Remaining symbols: {remaining}"
         )
 
     return result
@@ -129,90 +187,114 @@ def cse_and_stack(
         start_index = max_index + 1
 
     cse_exprs, reduced_exprs = sp.cse(
-            all_rhs, symbols=sp.numbered_symbols(
-                    symbol,
-                    start=start_index),
-                    order="none"
+        all_rhs,
+        symbols=sp.numbered_symbols(symbol, start=start_index),
+        order="none",
     )
     expressions = list(zip(expr_labels, reduced_exprs)) + list(cse_exprs)
     sorted_expressions = topological_sort(expressions)
     return sorted_expressions
 
+
 def hash_system_definition(
-    dxdt: Union[str, Iterable[str]],
-    constants: Optional[Union[Dict[str, float], Iterable[str]]] = None,
+    equations: Union[
+        "ParsedEquations",
+        Iterable[Tuple[sp.Symbol, sp.Expr]],
+    ],
+    constants: Optional[Dict[str, float]] = None,
+    observable_labels: Optional[Iterable[str]] = None,
 ) -> str:
-    """Generate a hash that captures equations and constant definitions.
+    """Generate deterministic hash for symbolic ODE definitions.
+
+    Produces identical hashes for identical equation sets regardless
+    of input order by sorting equations alphabetically by LHS symbol
+    name before building the hash string.
 
     Parameters
     ----------
-    dxdt
-        Representation of the system right-hand sides. Accepts either a single
-        string or an iterable of equation strings.
+    equations
+        Parsed equations object or iterable of (symbol, expression)
+        tuples representing the system.
     constants
-        Mapping or iterable describing constant names and values. Iterables are
-        interpreted as constant names using their default values.
+        Optional mapping of constant names to values.
+    observable_labels
+        Optional iterable of observable variable names. Sorted
+        alphabetically before inclusion in the hash.
 
     Returns
     -------
     str
-        Deterministic hash string that reflects both equations and constants.
+        Deterministic hash string reflecting equations, constants,
+        observables.
 
     Notes
     -----
-    The hash concatenates normalised differential equations with the sorted
-    constant name-value pairs. Any change to either component produces a new
-    hash so cached artifacts can be refreshed.
+    Sorting by LHS symbol name ensures order-independence so that
+    cache hits occur for identical systems regardless of input
+    pathway (string vs SymPy). Parameters labels are not included in the
+    resultant hash, as constants and parameters must together contain all
+    non-state LHS symbols; changing constants causes a 1:1 change in
+    parameters.
     """
-    if isinstance(dxdt, (list, tuple)) and len(dxdt) > 0:
-        first_elem = dxdt[0]
-        if isinstance(first_elem, sp.Equality) or \
-           (isinstance(first_elem, tuple) and 
-            len(first_elem) == 2 and 
-            isinstance(first_elem[0], sp.Symbol)):
-            hash_strings = []
-            for eq in dxdt:
-                if isinstance(eq, sp.Equality):
-                    lhs_str = str(eq.lhs)
-                    rhs_str = str(eq.rhs)
-                elif isinstance(eq, tuple):
-                    lhs_str = str(eq[0])
-                    rhs_str = str(eq[1])
-                else:
-                    lhs_str = str(eq)
-                    rhs_str = ""
-                hash_strings.append(f"{lhs_str} = {rhs_str}")
-            dxdt_str = "\n".join(hash_strings)
-        elif isinstance(first_elem, (list, tuple)):
-            dxdt = [str(symbol) + str(expr) for symbol, expr in dxdt]
-            dxdt_str = "".join(dxdt)
-        else:
-            dxdt_str = "".join(dxdt)
-    elif hasattr(dxdt, "__iter__") and not isinstance(dxdt, str):
-        dxdt_pairs = [f"{str(symbol)}{str(expr)}" for symbol, expr in dxdt]
-        dxdt_str = "".join(dxdt_pairs)
+    # Extract equations from ParsedEquations or convert from provided tuple
+    if hasattr(equations, "ordered"):
+        eq_list = list(equations.ordered)
     else:
-        dxdt_str = dxdt
+        eq_list = list(equations)
 
-    # Normalize dxdt by removing whitespace
+    # Sort equations alphabetically by LHS symbol name
+    sorted_eqs = sorted(eq_list, key=lambda eq: str(eq[0]))
+
+    # Join all equations into a single string and remove whitespace
+    eq_strings = [f"{str(lhs)}={str(rhs)}" for lhs, rhs in sorted_eqs]
+    dxdt_str = "|".join(eq_strings)
     normalized_dxdt = "".join(dxdt_str.split())
 
-    # Process constants
+    # Append sorted constants labels. When constants vs parameters change,
+    # we need to re-codegen. When values change, we just need to rebuild,
+    # so this is handled in the config hash for caching.
     constants_str = ""
     if constants is not None:
-        constants_str = "|".join(f"{k}:{v}" for k, v in constants.items())
+        # Keys in `constants` may be SymPy Symbols (for example from
+        # an index_map) as well as plain strings; SymPy Symbol keys are
+        # not directly orderable, so str() is used to obtain a stable
+        # string-based sort order for all key types.
+        label_strings = [str(k) for k in constants.keys()]
+        sorted_constants = sorted(label_strings)
+        constants_str = "|".join(f"{label}" for label in sorted_constants)
 
-    # Combine components with separator
-    combined = f"dxdt:{normalized_dxdt}|constants:{constants_str}"
+    # Append sorted observable labels
+    observables_str = ""
+    if observable_labels is not None:
+        sorted_observables = sorted(str(label) for label in observable_labels)
+        observables_str = "|".join(sorted_observables)
 
-    # Generate hash
-    return str(hash(combined))
+    # Combine and hash
+    combined = (
+        f"dxdt:{normalized_dxdt}|constants:{constants_str}"
+        f"|observables:{observables_str}"
+    )
+    return sha256(combined.encode("utf-8")).hexdigest()
 
 
 def render_constant_assignments(
     constant_names: Iterable[str], indent: int = 4
 ) -> str:
-    """Return assignment statements that load constants into locals."""
+    """Return assignment statements that load constants into locals.
+
+    Parameters
+    ----------
+    constant_names
+        Iterable of constant names to generate assignments for.
+    indent
+        Number of leading spaces per line. Defaults to ``4``.
+
+    Returns
+    -------
+    str
+        Newline-joined assignment block, or empty string when
+        ``constant_names`` is empty.
+    """
 
     prefix = " " * indent
     lines = [
@@ -227,30 +309,31 @@ def prune_unused_assignments(
     outputsym_str: str = "jvp",
     output_symbols: Optional[Iterable[sp.Symbol]] = None,
 ) -> List[Tuple[sp.Symbol, sp.Expr]]:
-    """Remove assignments that do not contribute to the final JVP outputs.
+    """Remove assignments that do not contribute to output symbols.
 
     Parameters
     ----------
     expressions
         Topologically sorted assignments ``(lhs, rhs)``.
     outputsym_str
-        Prefix identifying JVP output symbols. Ignored when
-        ``output_symbols`` is provided.
+        Prefix identifying output symbols by name convention
+        (matched as ``f"{outputsym_str}["``). Ignored when
+        ``output_symbols`` is provided. Defaults to ``"jvp"``.
     output_symbols
-        Optional collection of output symbols to retain when pruning.
-        When supplied, only assignments contributing to these symbols are
-        kept.
+        Explicit collection of output symbols to retain. When
+        supplied, ``outputsym_str`` is ignored.
 
     Returns
     -------
-    List[Tuple[sp.Symbol, sp.Expr]]
-        Pruned assignments that are required to compute the JVP outputs.
+    list[tuple[sympy.Symbol, sympy.Expr]]
+        Pruned assignments required to compute the output symbols.
 
     Notes
     -----
-    The function assumes that the list is topologically sorted and that output
-    assignments have left-hand-side symbols whose names start with
-    ``"jvp["``. It preserves the relative order of kept assignments.
+    Assumes topologically sorted input. Output symbols are detected by
+    name convention (``"prefix["`` pattern) or via the explicit
+    ``output_symbols`` set. Relative order of kept assignments is
+    preserved.
     """
     exprs = list(expressions)
     if not exprs:

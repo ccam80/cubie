@@ -3,6 +3,23 @@
 This module exposes :class:`SolveSpec` to describe solver configuration and
 :class:`SolveResult` to aggregate output arrays, legends, and metadata once a
 batch integration completes.
+
+Published Classes
+-----------------
+:class:`SolveSpec`
+    Frozen attrs dataclass describing the configuration used for a solver run.
+
+:class:`SolveResult`
+    Aggregates output arrays, legends, and metadata from a completed batch
+    integration.
+
+See Also
+--------
+:class:`~cubie.batchsolving.solver.Solver`
+    User-facing solver whose :meth:`~Solver.solve` returns a
+    :class:`SolveResult`.
+:func:`~cubie.batchsolving.solver.solve_ivp`
+    Convenience wrapper returning a :class:`SolveResult`.
 """
 
 from typing import Optional, TYPE_CHECKING, Union, List, Any, Tuple
@@ -12,7 +29,12 @@ if TYPE_CHECKING:
     from cubie.batchsolving.BatchSolverKernel import BatchSolverKernel
     import pandas as pd
 
-from attrs import cmp_using as attrs_cmp_using, define, Factory as attrsFactory, field
+from attrs import (
+    cmp_using as attrs_cmp_using,
+    define,
+    Factory as attrsFactory,
+    field,
+)
 from attrs.validators import (
     instance_of as attrsval_instance_of,
     optional as attrsval_optional,
@@ -31,16 +53,16 @@ from numpy import (
 from numpy.typing import NDArray
 from cubie.batchsolving.BatchSolverConfig import ActiveOutputs
 from cubie.batchsolving import ArrayTypes
+from cubie.result_codes import decode_status_codes
 from cubie._utils import (
-    PrecisionDType,
     slice_variable_dimension,
     opt_gttype_validator,
     opt_getype_validator,
     getype_validator,
     gttype_validator,
-    precision_converter,
-    precision_validator,
+    PrecisionDType,
 )
+
 
 def _format_time_domain_label(label: str, unit: str) -> str:
     """Format a time-domain legend label with unit if not dimensionless.
@@ -69,6 +91,8 @@ class SolveSpec:
 
     Attributes
     ----------
+    dt
+        Fixed step size, or ``None`` for adaptive controllers.
     dt_min
         Minimum time step size.
     dt_max
@@ -104,8 +128,8 @@ class SolveSpec:
     precision
         Floating-point precision factory used for host conversions.
     """
-    dt: Optional[float] = field(validator=opt_gttype_validator(float,
-                                                                    0.0))
+
+    dt: Optional[float] = field(validator=opt_gttype_validator(float, 0.0))
     dt_min: float = field(validator=gttype_validator(float, 0.0))
     dt_max: float = field(validator=gttype_validator(float, 0.0))
     save_every: Optional[float] = field(
@@ -118,28 +142,25 @@ class SolveSpec:
         validator=opt_getype_validator(float, 0.0)
     )
     atol: Optional[float] = field(
-            validator=attrsval_or(opt_gttype_validator(float, 0.0),
-                              attrsval_instance_of(ndarray)),
+        validator=attrsval_or(
+            opt_gttype_validator(float, 0.0), attrsval_instance_of(ndarray)
+        ),
     )
     rtol: Optional[float] = field(
-            validator=attrsval_or(opt_gttype_validator(float, 0.0),
-                             attrsval_instance_of(ndarray)),
+        validator=attrsval_or(
+            opt_gttype_validator(float, 0.0), attrsval_instance_of(ndarray)
+        ),
     )
     duration: float = field(validator=gttype_validator(float, 0.0))
     warmup: float = field(validator=getype_validator(float, 0.0))
-    t0: float = field(
-        validator=getype_validator(float, float("-inf"))
-    )
+    t0: float = field(validator=getype_validator(float, float("-inf")))
     algorithm: str = field(validator=attrsval_instance_of(str))
     saved_states: Optional[List[str]] = field()
     saved_observables: Optional[List[str]] = field()
     summarised_states: Optional[List[str]] = field()
     summarised_observables: Optional[List[str]] = field()
     output_types: Optional[List[str]] = field()
-    precision: PrecisionDType = field(
-        converter=precision_converter,
-        validator=precision_validator,
-    )
+    precision: PrecisionDType = field()
 
 
 @define
@@ -206,7 +227,8 @@ class SolveResult:
         validator=attrsval_optional(attrsval_instance_of(dict)),
     )
     solve_settings: Optional[SolveSpec] = field(
-        default=None, validator=attrsval_optional(attrsval_instance_of(SolveSpec))
+        default=None,
+        validator=attrsval_optional(attrsval_instance_of(SolveSpec)),
     )
     _singlevar_summary_legend: Optional[dict[int, str]] = field(
         default=attrsFactory(dict),
@@ -250,14 +272,14 @@ class SolveResult:
             ``SolveResult`` when ``results_type`` is ``"full"``; otherwise a
             dictionary containing the requested representation.
         """
-        if results_type == 'raw':
+        if results_type == "raw":
             return {
-                'state': solver.state,
-                'observables': solver.observables,
-                'state_summaries': solver.state_summaries,
-                'observable_summaries': solver.observable_summaries,
-                'iteration_counters': solver.iteration_counters,
-                'status_codes': solver.status_codes,
+                "state": solver.state,
+                "observables": solver.observables,
+                "state_summaries": solver.state_summaries,
+                "observable_summaries": solver.observable_summaries,
+                "iteration_counters": solver.iteration_counters,
+                "status_codes": solver.status_codes,
             }
         active_outputs = solver.active_outputs
         state_active = active_outputs.state
@@ -272,7 +294,7 @@ class SolveResult:
         time, state_less_time = cls.cleave_time(
             solver.state,
             time_saved=solver.save_time,
-            stride_order=solver.state_stride_order,
+            stride_order=solver.kernel.output_arrays.host.state.stride_order,
         )
 
         time_domain_array = cls.combine_time_domain_arrays(
@@ -290,14 +312,19 @@ class SolveResult:
         )
 
         # Process error trajectories when enabled
-        if (nan_error_trajectories and status_codes is not None
-                and status_codes.size > 0):
+        if (
+            nan_error_trajectories
+            and status_codes is not None
+            and status_codes.size > 0
+        ):
             # Find runs with nonzero status codes
             error_run_indices = np_where(status_codes != 0)[0]
 
             if len(error_run_indices) > 0:
                 # Get stride order and find run dimension
-                stride_order = solver.state_stride_order
+                stride_order = (
+                    solver.kernel.output_arrays.host.state.stride_order
+                )
                 run_index = stride_order.index("run")
 
                 # Set error trajectories to NaN using vectorized indexing
@@ -321,7 +348,7 @@ class SolveResult:
 
         summaries_legend = cls.summary_legend_from_solver(solver)
         singlevar_summary_legend = solver.summary_legend_per_variable
-        
+
         user_arrays = cls(
             time_domain_array=time_domain_array,
             summaries_array=summaries_array,
@@ -332,7 +359,7 @@ class SolveResult:
             summaries_legend=summaries_legend,
             active_outputs=active_outputs,
             solve_settings=solve_settings,
-            stride_order=solver.state_stride_order,
+            stride_order=solver.kernel.output_arrays.host.state.stride_order,
             singlevar_summary_legend=singlevar_summary_legend,
         )
 
@@ -388,6 +415,14 @@ class SolveResult:
         time_headings = list(self.time_domain_legend.values())
         summary_headings = list(self.summaries_legend.values())
 
+        # Resolve time index once (use first run's time for multi-run)
+        time_index = None
+        if self.time is not None and self.time.size > 0:
+            if self.time.ndim > 1:
+                time_index = self.time[:, 0]
+            else:
+                time_index = self.time
+
         for run in range(n_runs):
             run_slice = slice_variable_dimension(
                 slice(run, run + 1, None), run_index, ndim
@@ -397,18 +432,6 @@ class SolveResult:
                 self.time_domain_array[run_slice], axis=run_index
             )
             df = pd.DataFrame(singlerun_array, columns=time_headings)
-
-            # Use time as index if extant
-            if self.time is not None:
-                if self.time.ndim > 1:
-                    time_for_run = (
-                        self.time[:, run]
-                        if self.time.shape[1] > run
-                        else self.time[:, 0]
-                    )
-                else:
-                    time_for_run = self.time
-                df.index = time_for_run
 
             # Create MultiIndex columns with run number as first level
             df.columns = pd.MultiIndex.from_product(
@@ -430,6 +453,11 @@ class SolveResult:
 
         time_domain_df = pd.concat(time_dfs, axis=1)
         summaries_df = pd.concat(summaries_dfs, axis=1)
+
+        # Set time index after concat to avoid reindexing errors from
+        # float32 duplicate values during alignment
+        if time_index is not None:
+            time_domain_df.index = time_index
 
         return {"time_domain": time_domain_df, "summaries": summaries_df}
 
@@ -515,6 +543,21 @@ class SolveResult:
     def active_outputs(self) -> ActiveOutputs:
         """Return the active output flags."""
         return self._active_outputs
+
+    @property
+    def status_messages(self) -> dict[int, List[str]]:
+        """Decode nonzero run status codes into named result flags.
+
+        Returns
+        -------
+        dict[int, list[str]]
+            Mapping from run index to the list of
+            :class:`~cubie.result_codes.CUBIE_RESULT_CODES` member names set
+            in that run's status word. Runs that completed successfully
+            (status ``0``) are omitted, so an empty mapping means every run
+            succeeded.
+        """
+        return decode_status_codes(self.status_codes)
 
     @staticmethod
     def cleave_time(
@@ -655,10 +698,10 @@ class SolveResult:
 
         state_units = {}
         obs_units = {}
-        
-        if hasattr(solver.system, 'state_units'):
+
+        if hasattr(solver.system, "state_units"):
             state_units = solver.system.state_units
-        if hasattr(solver.system, 'observable_units'):
+        if hasattr(solver.system, "observable_units"):
             obs_units = solver.system.observable_units
 
         # state summaries_array
@@ -667,15 +710,17 @@ class SolveResult:
             for j, (key, summary_type) in enumerate(singlevar_legend.items()):
                 index = i * len(singlevar_legend) + j
                 unit_mod = unit_modifications.get(j, "[unit]")
-                
+
                 # Apply unit modification and format legend
                 if unit != "dimensionless":
                     # Replace 'unit' placeholder (not '[unit]') to preserve brackets
                     modified_unit = unit_mod.replace("unit", unit)
-                    summaries_legend[index] = f"{label} {modified_unit} {summary_type}"
+                    summaries_legend[index] = (
+                        f"{label} {modified_unit} {summary_type}"
+                    )
                 else:
                     summaries_legend[index] = f"{label} {summary_type}"
-                    
+
         # observable summaries_array
         len_state_legend = len(state_labels) * len(singlevar_legend)
         for i, label in enumerate(obs_labels):
@@ -683,15 +728,17 @@ class SolveResult:
             for j, (key, summary_type) in enumerate(singlevar_legend.items()):
                 index = len_state_legend + i * len(singlevar_legend) + j
                 unit_mod = unit_modifications.get(j, "[unit]")
-                
+
                 # Apply unit modification and format legend
                 if unit != "dimensionless":
                     # Replace 'unit' placeholder (not '[unit]') to preserve brackets
                     modified_unit = unit_mod.replace("unit", unit)
-                    summaries_legend[index] = f"{label} {modified_unit} {summary_type}"
+                    summaries_legend[index] = (
+                        f"{label} {modified_unit} {summary_type}"
+                    )
                 else:
                     summaries_legend[index] = f"{label} {summary_type}"
-                    
+
         return summaries_legend
 
     @staticmethod
@@ -711,15 +758,15 @@ class SolveResult:
         time_domain_legend = {}
         state_labels = solver.saved_states
         obs_labels = solver.saved_observables
-        
+
         state_units = {}
         obs_units = {}
-        
-        if hasattr(solver.system, 'state_units'):
+
+        if hasattr(solver.system, "state_units"):
             state_units = solver.system.state_units
-        if hasattr(solver.system, 'observable_units'):
+        if hasattr(solver.system, "observable_units"):
             obs_units = solver.system.observable_units
-        
+
         offset = 0
 
         for i, label in enumerate(state_labels):
@@ -729,5 +776,7 @@ class SolveResult:
         offset = len(state_labels)
         for i, label in enumerate(obs_labels):
             unit = obs_units.get(label, "dimensionless")
-            time_domain_legend[offset + i] = _format_time_domain_label(label, unit)
+            time_domain_legend[offset + i] = _format_time_domain_label(
+                label, unit
+            )
         return time_domain_legend

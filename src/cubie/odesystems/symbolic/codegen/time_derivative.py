@@ -1,4 +1,21 @@
-"""Generate CUDA helpers evaluating time derivatives of symbolic systems."""
+"""Emit CUDA factory code for explicit time derivatives of the RHS.
+
+Published Functions
+-------------------
+:func:`generate_time_derivative_fac_code`
+    Return a string containing the ``time_derivative_rhs`` factory
+    function definition, which computes the partial derivative of the
+    RHS with respect to time.
+
+See Also
+--------
+:class:`~cubie.odesystems.symbolic.symbolicODE.SymbolicODE`
+    Requests this helper via ``get_solver_helper("time_derivative_rhs")``.
+:mod:`cubie.odesystems.symbolic.codegen.dxdt`
+    Companion module generating the primary ``dxdt`` factory.
+:mod:`cubie.odesystems.symbolic.codegen.numba_cuda_printer`
+    Printer used to render SymPy assignments as CUDA code.
+"""
 
 from typing import Dict, List, Optional, Tuple
 
@@ -55,7 +72,22 @@ def _build_time_derivative_assignments(
     equations: ParsedEquations,
     index_map: IndexedBases,
 ) -> Tuple[List[Tuple[sp.Symbol, sp.Expr]], Dict[sp.Symbol, sp.Expr]]:
-    """Return assignments required for time-derivative evaluation."""
+    """Build symbolic assignments for time-derivative evaluation.
+
+    Parameters
+    ----------
+    equations
+        Parsed equations describing the ODE system.
+    index_map
+        Indexed bases mapping symbols to CUDA array references.
+
+    Returns
+    -------
+    tuple[list, dict]
+        Tuple of (ordered assignments, final symbol map) where assignments
+        include both original equations and their time derivatives, and the
+        symbol map provides output array references.
+    """
 
     sorted_equations = topological_sort(
         equations.non_observable_equations()
@@ -120,7 +152,22 @@ def generate_time_derivative_lines(
     index_map: IndexedBases,
     cse: bool = True,
 ) -> List[str]:
-    """Return CUDA assignments computing the explicit time derivative."""
+    """Generate CUDA source lines for time-derivative computation.
+
+    Parameters
+    ----------
+    equations
+        Parsed equations describing the ODE system.
+    index_map
+        Indexed bases mapping symbols to CUDA array references.
+    cse
+        Whether to apply common subexpression elimination.
+
+    Returns
+    -------
+    list[str]
+        CUDA source lines computing the explicit time derivative.
+    """
 
     assignments, final_symbol_map = _build_time_derivative_assignments(
         equations, index_map
@@ -149,7 +196,24 @@ def generate_time_derivative_fac_code(
     func_name: str = "time_derivative_rhs_factory",
     cse: bool = True,
 ) -> str:
-    """Return source for the time-derivative CUDA factory."""
+    """Emit Python source for a time-derivative CUDA factory.
+
+    Parameters
+    ----------
+    equations
+        Parsed equations describing the ODE system.
+    index_map
+        Indexed bases providing symbol references and constants.
+    func_name
+        Name of the generated factory function.
+    cse
+        Whether to apply common subexpression elimination.
+
+    Returns
+    -------
+    str
+        Python source code implementing the factory function.
+    """
     default_timelogger.start_event("codegen_generate_time_derivative_fac_code")
 
     body_lines = generate_time_derivative_lines(

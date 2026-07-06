@@ -1,58 +1,53 @@
-"""Minimal CellML parsing helpers using ``cellmlmanip``.
+"""Load CellML models into CuBIE's symbolic ODE framework.
 
-This module provides functionality to import CellML models into CuBIE's
-symbolic ODE framework. It wraps the cellmlmanip library to load
-CellML files and convert them directly into SymbolicODE objects.
+Wraps the ``cellmlmanip`` library to parse CellML files and convert
+them into :class:`~cubie.odesystems.symbolic.symbolicODE.SymbolicODE`
+instances. Inspired by :mod:`chaste_codegen.model_with_conversions`
+(MIT licence); only the subset required for basic model loading is
+implemented.
 
-The implementation is inspired by
-:mod:`chaste_codegen.model_with_conversions` from the chaste-codegen
-project (MIT licence). Only a minimal subset required for basic model
-loading is implemented here.
+Published Functions
+-------------------
+:func:`load_cellml_model`
+    Parse a CellML file and return a fully initialised
+    :class:`~cubie.odesystems.symbolic.symbolicODE.SymbolicODE`.
 
-Examples
---------
-Basic CellML model loading workflow:
-
->>> from cubie.odesystems.symbolic.parsing.cellml import (
-...     load_cellml_model
-... )
->>> 
->>> # Load a CellML model file - returns initialized SymbolicODE
->>> ode_system = load_cellml_model("cardiac_model.cellml")
->>> 
->>> # The model is ready to use with solve_ivp
->>> print(f"Model has {ode_system.num_states} states")
->>> print(f"Model has {len(ode_system.indices.observables)} observables")
+    >>> from cubie.odesystems.symbolic.parsing.cellml import (
+    ...     load_cellml_model,
+    ... )
+    >>> ode = load_cellml_model("cardiac_model.cellml")
+    >>> ode.num_states  # doctest: +SKIP
+    18
 
 Notes
 -----
-The cellmlmanip dependency is optional. Install with:
-
-    pip install cellmlmanip
-
-CellML models can be obtained from the Physiome Model Repository:
-https://models.physiomeproject.org/
+``cellmlmanip`` is vendored under
+:mod:`cubie.vendored.cellmlmanip`, so no external install is
+required.
 
 See Also
 --------
-load_cellml_model : Main function for loading CellML files
+:class:`~cubie.odesystems.symbolic.symbolicODE.SymbolicODE`
+    Object returned by :func:`load_cellml_model`.
+:func:`~cubie.odesystems.symbolic.parsing.parser.parse_input`
+    String-based alternative for hand-written equations.
 """
 
-try:  # pragma: no cover - optional dependency
-    import cellmlmanip  # type: ignore
-    from cellmlmanip.model import Quantity  # type: ignore
-except Exception:  # pragma: no cover
-    cellmlmanip = None  # type: ignore
-    Quantity = None  # type: ignore
+from cubie.vendored import cellmlmanip
 
 import sympy as sp
 from pathlib import Path
 import numpy as np
 from typing import Optional, List
 import re
+import logging
+import warnings
 
 from cubie._utils import PrecisionDType
 from cubie.time_logger import default_timelogger
+from .cellml_cache import CellMLCache
+
+logger = logging.getLogger(__name__)
 
 # Register timing events for cellml import functions
 # Module-level registration required for proper event tracking
@@ -98,8 +93,90 @@ def _sanitize_symbol_name(name: str) -> str:
     
     # Replace any remaining invalid characters with _
     name = re.sub(r'[^a-zA-Z0-9_]', '_', name)
-    
+
     return name
+
+
+def _find_membrane_voltage(model) -> Optional[sp.Symbol]:
+    """Return the state variable identified as membrane voltage.
+
+    Matches the first membrane-component state whose lowercased name
+    ends with ``$v`` or contains ``$voltage`` (e.g. ``membrane$V``), so
+    that other membrane states such as ``membrane$reversal_potential``
+    are not misidentified.
+
+    Parameters
+    ----------
+    model
+        A ``cellmlmanip`` model instance.
+
+    Returns
+    -------
+    sympy.Symbol or None
+        The membrane-voltage state variable, or ``None`` when no state
+        name matches.
+    """
+    for state in model.get_state_variables():
+        name = str(state).lower()
+        if "membrane" in name and (
+            name.endswith("$v") or "$voltage" in name
+        ):
+            return state
+    return None
+
+
+def _remove_fixable_singularities(model, voltage_variable) -> None:
+    """Rewrite removable GHK singularities in a CellML model in place.
+
+    Goldman-Hodgkin-Katz current terms of the form ``U / (exp(U) - 1)``
+    evaluate to ``0 / 0`` at ``U == 0`` and produce non-finite
+    gradients that break float32 Newton-Krylov solves. ``cellmlmanip``
+    replaces them with a piecewise bridge across the singular point,
+    given the membrane voltage variable.
+
+    When ``voltage_variable`` is ``None`` the voltage state is
+    auto-detected by name: on success the detected name is logged at
+    INFO level; when no membrane voltage can be found a
+    :class:`UserWarning` is issued and the rewrite is skipped so that
+    non-cardiac models still load.
+
+    Parameters
+    ----------
+    model
+        A ``cellmlmanip`` model instance, mutated in place.
+    voltage_variable
+        Name of the membrane voltage variable, or ``None`` to
+        auto-detect it.
+
+    Raises
+    ------
+    ValueError
+        When an explicitly named variable is not found in the model.
+    """
+    if voltage_variable is None:
+        voltage = _find_membrane_voltage(model)
+        if voltage is None:
+            warnings.warn(
+                "fix_singularities is enabled but no membrane voltage "
+                "state could be auto-detected; skipping singularity "
+                "removal. Pass voltage_variable to apply it.",
+                UserWarning,
+                stacklevel=3,
+            )
+            return
+        logger.info(
+            "fix_singularities: auto-detected membrane voltage '%s'",
+            voltage,
+        )
+    else:
+        try:
+            voltage = model.get_variable_by_name(voltage_variable)
+        except KeyError:
+            raise ValueError(
+                "Could not resolve membrane voltage variable "
+                f"{voltage_variable!r} for singularity removal."
+            )
+    model.remove_fixable_singularities(voltage)
 
 
 def load_cellml_model(
@@ -108,6 +185,9 @@ def load_cellml_model(
     name: Optional[str] = None,
     parameters: Optional[List[str]] = None,
     observables: Optional[List[str]] = None,
+    fix_singularities: bool = True,
+    voltage_variable: Optional[str] = None,
+    show_gui: bool = False,
 ):
     """Load a CellML model and return an initialized SymbolicODE system.
 
@@ -132,6 +212,19 @@ def load_cellml_model(
     observables : list of str, optional
         List of symbol names to assign as observables. Otherwise,
         these symbols become anonymous auxiliaries.
+    fix_singularities : bool, optional
+        If True, rewrite removable Goldman-Hodgkin-Katz singularities
+        (``U / (exp(U) - 1)``) with cellmlmanip's piecewise
+        replacement before parsing. Default is True.
+    voltage_variable : str, optional
+        Name of the membrane voltage variable used by the singularity
+        rewrite. If None while ``fix_singularities`` is True, the
+        voltage state is auto-detected by name; when none is found a
+        UserWarning is issued and the rewrite is skipped. Ignored when
+        ``fix_singularities`` is False.
+    show_gui : bool, optional
+        If True, launch the constants/parameters editor GUI after
+        loading. Default is False.
 
     Returns
     -------
@@ -151,7 +244,8 @@ def load_cellml_model(
     FileNotFoundError
         If the specified CellML file does not exist.
     ValueError
-        If the file does not have .cellml extension.
+        If the file does not have .cellml extension, or if an explicit
+        ``voltage_variable`` cannot be resolved for singularity removal.
 
     Examples
     --------
@@ -180,9 +274,6 @@ def load_cellml_model(
     - CellML models from Physiome repository are compatible
     - The cellmlmanip library handles the complex CellML XML parsing
     """
-    if cellmlmanip is None:  # pragma: no cover
-        raise ImportError("cellmlmanip is required for CellML parsing")
-    
     # Validate input type
     if not isinstance(path, str):
         raise TypeError(
@@ -204,8 +295,44 @@ def load_cellml_model(
     if name is None:
         name = path_obj.stem
     
+    # When no GUI is requested, check the cache early to skip the
+    # expensive cellmlmanip parse entirely.  When the GUI is active
+    # the cache check must wait until after user edits.
+    if not show_gui:
+        cache = CellMLCache(model_name=name, cellml_path=path)
+        args_hash = cache.compute_cache_key(
+            parameters, observables, precision, name,
+            fix_singularities=fix_singularities,
+            voltage_variable=voltage_variable,
+        )
+        if cache.cache_valid(args_hash):
+            cached_data = cache.load_from_cache(args_hash)
+            if cached_data is not None:
+                from cubie.odesystems.symbolic.symbolicODE import (
+                    SymbolicODE,
+                )
+
+                ode = SymbolicODE(
+                    equations=cached_data['parsed_equations'],
+                    all_indexed_bases=cached_data['indexed_bases'],
+                    all_symbols=cached_data['all_symbols'],
+                    fn_hash=cached_data['fn_hash'],
+                    user_functions=cached_data['user_functions'],
+                    name=cached_data['name'],
+                    precision=precision,
+                )
+                default_timelogger.print_message(
+                    f"Loaded {name} from CellML cache "
+                    f"(config: {args_hash[:8]})"
+                )
+                return ode
+
     default_timelogger.start_event("codegen_cellml_load_model")
     model = cellmlmanip.load_model(path)
+    if fix_singularities:
+        # Rewrite removable GHK singularities before extracting
+        # equations so the fix flows through parsing and codegen.
+        _remove_fixable_singularities(model, voltage_variable)
     raw_states = list(model.get_state_variables())
     raw_derivatives = list(model.get_derivatives())
     default_timelogger.stop_event("codegen_cellml_load_model")
@@ -356,22 +483,118 @@ def load_cellml_model(
                 observable_units[obs] = all_symbol_units[obs]
     
     if parameters is not None and isinstance(parameters, dict):
-        parameters_dict = {**parameters_dict, **parameters}
-    
+        # CellML-extracted values take precedence; the user dict only
+        # adds entries for parameters that lack a CellML numeric value.
+        parameters_dict = {**parameters, **parameters_dict}
+
     default_timelogger.stop_event("codegen_cellml_sympy_preparation")
-    
+
+    # ---- Pre-parse GUI (before cache key) ----
+    # The GUI operates on raw dicts so the user's constant/parameter
+    # choices are reflected in the cache key and codegen output.
+    if show_gui:
+        from cubie.gui.constants_editor import edit_pre_parse_dicts
+
+        constant_units = {
+            k: all_symbol_units.get(k, "")
+            for k in constants_dict
+        }
+        constants_dict, parameters_dict, initial_values = (
+            edit_pre_parse_dicts(
+                constants_dict,
+                parameters_dict,
+                initial_values,
+                constant_units=constant_units,
+                parameter_units=parameter_units,
+                state_units=state_units,
+            )
+        )
+
+    # ---- Cache check (incorporates GUI choices) ----
+    # Initialize cache manager with argument-based cache keys
+    cache = CellMLCache(model_name=name, cellml_path=path)
+    # Build the parameters list from the (possibly GUI-modified) dict
+    # so the cache key reflects actual categorisation.
+    effective_params = list(parameters_dict.keys()) or None
+    args_hash = cache.compute_cache_key(
+        effective_params, observables, precision, name,
+        fix_singularities=fix_singularities,
+        voltage_variable=voltage_variable,
+    )
+
+    if cache.cache_valid(args_hash):
+        cached_data = cache.load_from_cache(args_hash)
+        if cached_data is not None:
+            from cubie.odesystems.symbolic.symbolicODE import SymbolicODE
+
+            ode = SymbolicODE(
+                equations=cached_data['parsed_equations'],
+                all_indexed_bases=cached_data['indexed_bases'],
+                all_symbols=cached_data['all_symbols'],
+                fn_hash=cached_data['fn_hash'],
+                user_functions=cached_data['user_functions'],
+                name=cached_data['name'],
+                precision=precision,
+            )
+            default_timelogger.print_message(
+                f"Loaded {name} from CellML cache "
+                f"(config: {args_hash[:8]})"
+            )
+            return ode
+
+    # ---- Cache miss: parse from source ----
+    # Import required modules for direct parse_input call
     from cubie.odesystems.symbolic.symbolicODE import SymbolicODE
-    
-    return SymbolicODE.create(
+    from cubie.odesystems.symbolic.parsing import parse_input
+
+    # Register parsing event (same as SymbolicODE.create)
+    default_timelogger.register_event(
+        "symbolic_ode_parsing",
+        "codegen",
+        "Codegen time for symbolic ODE parsing",
+    )
+
+    # Parse equations into structured components
+    default_timelogger.start_event("symbolic_ode_parsing")
+    sys_components = parse_input(
         dxdt=all_equations,
         states=initial_values if initial_values else None,
+        observables=observables,
         parameters=parameters_dict if parameters_dict else None,
         constants=constants_dict if constants_dict else None,
-        observables=observables,
-        name=name,
-        precision=precision,
+        drivers=None,
+        user_functions=None,
         strict=False,
         state_units=state_units if state_units else None,
         parameter_units=parameter_units if parameter_units else None,
+        constant_units=None,
         observable_units=observable_units if observable_units else None,
+        driver_units=None,
     )
+    index_map, all_symbols, functions, equations, fn_hash = sys_components
+    default_timelogger.stop_event("symbolic_ode_parsing")
+
+    # Save to cache
+    cache.save_to_cache(
+        args_hash=args_hash,
+        parsed_equations=equations,
+        indexed_bases=index_map,
+        all_symbols=all_symbols,
+        user_functions=functions,
+        fn_hash=fn_hash,
+        precision=precision,
+        name=name,
+    )
+
+    # Construct SymbolicODE directly (not via .create())
+    symbolic_ode = SymbolicODE(
+        equations=equations,
+        all_indexed_bases=index_map,
+        all_symbols=all_symbols,
+        name=name,
+        fn_hash=fn_hash,
+        user_functions=functions,
+        precision=precision,
+    )
+
+    return symbolic_ode

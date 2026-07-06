@@ -1,85 +1,134 @@
-import pytest
+"""Tests for cubie.memory.array_requests."""
+
+from __future__ import annotations
+
 import numpy as np
-from cubie.memory.array_requests import ArrayRequest
-from cubie.memory.mem_manager import MemoryManager
+import pytest
+
+from cubie.memory.array_requests import ArrayRequest, ArrayResponse
 
 
-class DummyClass:
-    def __init__(self, proportion=None, invalidate_all_hook=None):
-        self.proportion = proportion
-        self.invalidate_all_hook = invalidate_all_hook
+# ── ArrayRequest: dtype validation ──────────────────── #
+
+@pytest.mark.parametrize(
+    "dtype",
+    [
+        pytest.param(np.float64, id="float64"),
+        pytest.param(np.float32, id="float32"),
+        pytest.param(np.int32, id="int32"),
+    ],
+)
+def test_array_request_accepts_valid_dtypes(dtype):
+    """ArrayRequest accepts float64, float32, and int32."""
+    req = ArrayRequest(dtype=dtype)
+    assert req.dtype is dtype
 
 
-class TestArrayRequests:
-    @pytest.mark.parametrize(
-        "array_request_override",
-        [
-            {"shape": (20000,), "dtype": np.float64},
-            {"memory": "pinned"},
-            {"shape": (10, 10, 10, 10, 10), "dtype": np.float32},
-        ],
-        indirect=True,
-    )
-    def test_size(self, array_request):
-        assert (
-            array_request.size
-            == np.prod(array_request.shape) * array_request.dtype().itemsize
-        ), "Incorrect size calculated"
+def test_array_request_rejects_invalid_dtype():
+    """ArrayRequest rejects dtypes not in the allowed set."""
+    with pytest.raises(ValueError):
+        ArrayRequest(dtype=np.int64)
 
-    @pytest.mark.parametrize(
-        "array_request_override",
-        [{"shape": (20000,), "dtype": np.float64}],
-        indirect=True,
-    )
-    def test_instantiation(self, array_request):
-        assert array_request.shape == (20000,)
-        assert array_request.dtype == np.float64
-        assert array_request.memory == "device"
-        assert array_request.stride_order == ("time", "variable", "run")
 
-    def test_default_stride_ordering(self):
-        # 3D shape default _stride_order
-        req3 = ArrayRequest(
-            shape=(2, 3, 4),
-            dtype=np.float32,
-            memory="device",
-            stride_order=None,
-        )
-        assert req3.stride_order == ("time", "variable", "run")
-        # 2D shape default _stride_order
-        req2 = ArrayRequest(
-            shape=(5, 6), dtype=np.float32, memory="device", stride_order=None
-        )
-        assert req2.stride_order == ("variable", "run")
-        # 1D shape leaves _stride_order None
-        req1 = ArrayRequest(
-            shape=(10,), dtype=np.float32, memory="device", stride_order=None
-        )
-        assert req1.stride_order is None
+# ── ArrayRequest: defaults ──────────────────────────── #
 
-    @pytest.mark.parametrize(
-        "array_request_override",
-        [
-            {"shape": (20000,), "dtype": np.float64},
-            {"memory": "pinned"},
-            {"memory": "mapped"},
-        ],
-        indirect=True,
-    )
-    def test_array_response(
-        self, array_request, array_request_settings, expected_single_array
-    ):
-        mgr = MemoryManager()
-        instance = DummyClass()
-        mgr.register(instance)
-        resp = mgr.allocate_all(
-            {"test": array_request}, id(instance), stream=0
-        )
-        arr = resp["test"]
+def test_array_request_defaults():
+    """Default shape, memory, chunk_axis_index, unchunkable, total_runs."""
+    req = ArrayRequest(dtype=np.float64)
+    assert req.shape == (1, 1, 1)
+    assert req.memory == "device"
+    assert req.chunk_axis_index == 2
+    assert req.unchunkable is False
+    assert req.total_runs == 1
 
-        # Can't directly check for equality as they'll be at different addresses
-        assert arr.shape == expected_single_array.shape
-        assert type(arr) == type(expected_single_array)
-        assert arr.nbytes == expected_single_array.nbytes
-        assert arr.strides == expected_single_array.strides
-        assert arr.dtype == expected_single_array.dtype
+
+# ── ArrayRequest: shape validation ──────────────────── #
+
+def test_array_request_accepts_custom_shape():
+    """ArrayRequest stores a custom shape tuple."""
+    req = ArrayRequest(dtype=np.float32, shape=(100, 4, 50))
+    assert req.shape == (100, 4, 50)
+
+
+def test_array_request_rejects_non_tuple_shape():
+    """Shape must be a tuple, not a list."""
+    with pytest.raises((TypeError, ValueError)):
+        ArrayRequest(dtype=np.float64, shape=[10, 20])
+
+
+# ── ArrayRequest: memory validation ─────────────────── #
+
+@pytest.mark.parametrize(
+    "mem",
+    [
+        pytest.param("device", id="device"),
+        pytest.param("mapped", id="mapped"),
+        pytest.param("pinned", id="pinned"),
+        pytest.param("managed", id="managed"),
+    ],
+)
+def test_array_request_accepts_valid_memory(mem):
+    """ArrayRequest accepts all four memory placement options."""
+    req = ArrayRequest(dtype=np.float64, memory=mem)
+    assert req.memory == mem
+
+
+def test_array_request_rejects_invalid_memory():
+    """ArrayRequest rejects unknown memory placements."""
+    with pytest.raises(ValueError):
+        ArrayRequest(dtype=np.float64, memory="host")
+
+
+# ── ArrayRequest: chunk_axis_index ──────────────────── #
+
+def test_array_request_chunk_axis_none():
+    """chunk_axis_index accepts None."""
+    req = ArrayRequest(dtype=np.float64, chunk_axis_index=None)
+    assert req.chunk_axis_index is None
+
+
+def test_array_request_chunk_axis_rejects_negative():
+    """chunk_axis_index rejects negative values."""
+    with pytest.raises(ValueError, match="must be >= 0"):
+        ArrayRequest(dtype=np.float64, chunk_axis_index=-1)
+
+
+# ── ArrayRequest: total_runs ────────────────────────── #
+
+def test_array_request_total_runs_custom():
+    """total_runs stores a positive integer."""
+    req = ArrayRequest(dtype=np.float64, total_runs=100)
+    assert req.total_runs == 100
+
+
+def test_array_request_total_runs_rejects_zero():
+    """total_runs rejects zero."""
+    with pytest.raises(ValueError, match="must be >= 1"):
+        ArrayRequest(dtype=np.float64, total_runs=0)
+
+
+def test_array_request_total_runs_rejects_none():
+    """total_runs rejects None (not optional)."""
+    with pytest.raises((TypeError, ValueError)):
+        ArrayRequest(dtype=np.float64, total_runs=None)
+
+
+# ── ArrayResponse: defaults ─────────────────────────── #
+
+def test_array_response_defaults():
+    """ArrayResponse defaults: arr={}, chunks=1, chunk_length=1, chunked_shapes={}."""
+    resp = ArrayResponse()
+    assert resp.arr == {}
+    assert resp.chunks == 1
+    assert resp.chunk_length == 1
+    assert resp.chunked_shapes == {}
+
+
+def test_array_response_stores_chunked_shapes():
+    """ArrayResponse stores provided chunked_shapes dict."""
+    shapes = {"output": (100, 3, 50), "state": (3, 50)}
+    resp = ArrayResponse(chunks=2, chunk_length=50, chunked_shapes=shapes)
+    assert resp.chunks == 2
+    assert resp.chunk_length == 50
+    assert resp.chunked_shapes["output"] == (100, 3, 50)
+    assert resp.chunked_shapes["state"] == (3, 50)

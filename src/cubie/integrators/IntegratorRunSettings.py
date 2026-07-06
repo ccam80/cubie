@@ -1,19 +1,34 @@
 """Runtime configuration settings for numerical integration algorithms.
 
-This module provides :class:`IntegratorRunSettings`, an attrs-based
-container that centralises precision, algorithm, and controller
-configuration for the CUDA IVP loop orchestrators.
+Published Classes
+-----------------
+:class:`IntegratorRunSettings`
+    Attrs container holding algorithm name and step controller name
+    alongside the inherited precision field.
+
+    >>> from numpy import float32
+    >>> settings = IntegratorRunSettings(
+    ...     precision=float32, algorithm="erk", step_controller="pid"
+    ... )
+    >>> settings.algorithm
+    'erk'
+
+See Also
+--------
+:class:`~cubie.CUDAFactory.CUDAFactoryConfig`
+    Parent class providing precision and numba type conversion.
+:class:`~cubie.integrators.SingleIntegratorRunCore.SingleIntegratorRunCore`
+    Consumer that uses these settings to select algorithm and
+    controller factories.
 """
 
 import attrs
-import numba
-from numpy import float32
 
-from cubie._utils import PrecisionDType, precision_converter, precision_validator
+from cubie.CUDAFactory import CUDAFactoryConfig
 
 
 @attrs.define
-class IntegratorRunSettings:
+class IntegratorRunSettings(CUDAFactoryConfig):
     """Container for runtime and controller settings used by IVP loops.
 
     Attributes
@@ -26,11 +41,6 @@ class IntegratorRunSettings:
         Name of the step-size controller.
     """
 
-    precision: PrecisionDType = attrs.field(
-        default=float32,
-        converter=precision_converter,
-        validator=precision_validator,
-    )
     algorithm: str = attrs.field(
         default="euler",
         validator=attrs.validators.instance_of(str),
@@ -40,8 +50,5 @@ class IntegratorRunSettings:
         validator=attrs.validators.instance_of(str),
     )
 
-    @property
-    def numba_precision(self) -> type:
-        """Return the Numba-compatible precision."""
-
-        return numba.from_dtype(self.precision)
+    def __attrs_post_init__(self):
+        super().__attrs_post_init__()

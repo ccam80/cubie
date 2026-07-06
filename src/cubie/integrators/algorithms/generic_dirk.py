@@ -1,29 +1,37 @@
 """Diagonally implicit Runge–Kutta integration step implementation.
 
-This module provides the :class:`DIRKStep` class, which implements
-diagonally implicit Runge--Kutta (DIRK) methods using configurable Butcher
-tableaus. DIRK methods are linearly implicit with a diagonal structure in
-the coefficient matrix, allowing each implicit stage to be solved
-independently.
+Published Classes
+-----------------
+:class:`DIRKStepConfig`
+    Configuration container for the DIRK step.
 
-Key Features
-------------
-- Configurable tableaus via :class:`DIRKTableau`
-- Automatic controller defaults selection based on error estimate capability
-- Matrix-free Newton-Krylov solvers for implicit stages
-- Efficient diagonal structure reduces computational cost vs fully implicit
+:class:`DIRKStep`
+    Multi-stage implicit step supporting configurable DIRK Butcher
+    tableaus with FSAL and stage-skipping compile-time optimisations.
+
+Constants
+---------
+:data:`DIRK_ADAPTIVE_DEFAULTS`
+    Default PID controller settings for adaptive tableaus.
+
+:data:`DIRK_FIXED_DEFAULTS`
+    Default fixed-step settings for errorless tableaus.
 
 Notes
 -----
-The module defines two sets of default step controller settings:
+The step controller defaults are selected dynamically based on whether
+the tableau has an embedded error estimate. Tableaus with error
+estimates default to adaptive stepping (PID controller), while
+errorless tableaus default to fixed stepping.
 
-- :data:`DIRK_ADAPTIVE_DEFAULTS`: Used when the tableau has an embedded
-  error estimate. Defaults to PI controller with adaptive stepping.
-- :data:`DIRK_FIXED_DEFAULTS`: Used when the tableau lacks an error
-  estimate. Defaults to fixed-step controller.
-
-This dynamic selection ensures that users cannot accidentally pair an
-errorless tableau with an adaptive controller, which would fail at runtime.
+See Also
+--------
+:class:`~cubie.integrators.algorithms.ode_implicitstep.ODEImplicitStep`
+    Abstract parent managing the Newton–Krylov solver lifecycle.
+:class:`~cubie.integrators.algorithms.generic_dirk_tableaus.DIRKTableau`
+    Tableau class describing DIRK coefficients.
+:class:`DIRKStepConfig`
+    Configuration for this step.
 """
 
 from typing import Callable, Optional
@@ -34,6 +42,7 @@ from numpy import eye
 
 from cubie._utils import PrecisionDType, build_config
 from cubie.cuda_simsafe import activemask, all_sync
+from cubie.result_codes import CUBIE_RESULT_CODES
 from cubie.integrators.algorithms.base_algorithm_step import (
     StepCache,
     StepControlDefaults,
@@ -55,8 +64,6 @@ from cubie.buffer_registry import buffer_registry
 DIRK_ADAPTIVE_DEFAULTS = StepControlDefaults(
     step_controller={
         "step_controller": "pid",
-        "dt_min": 1e-6,
-        "dt_max": 1e-1,
         "kp": 0.7,
         "ki": -0.4,
         "deadband_min": 1.0,
@@ -84,7 +91,6 @@ explicitly specifying step controller parameters.
 DIRK_FIXED_DEFAULTS = StepControlDefaults(
     step_controller={
         "step_controller": "fixed",
-        "dt": 1e-3,
     }
 )
 """Default step controller settings for errorless DIRK tableaus.
@@ -95,12 +101,6 @@ estimate (``tableau.has_error_estimate == False``).
 Fixed-step controllers maintain a constant step size throughout the
 integration. This is the only valid choice for errorless tableaus since
 adaptive stepping requires an error estimate to adjust the step size.
-
-Notes
------
-These defaults are applied automatically when creating a :class:`DIRKStep`
-with an errorless tableau. Users can override the step size ``dt`` by
-explicitly specifying it in the step controller settings.
 """
 @define
 class DIRKStepConfig(ImplicitStepConfig):
@@ -133,9 +133,9 @@ class DIRKStep(ODEImplicitStep):
         self,
         precision: PrecisionDType,
         n: int,
-        dxdt_function: Optional[Callable] = None,
-        observables_function: Optional[Callable] = None,
-        driver_function: Optional[Callable] = None,
+        evaluate_f: Optional[Callable] = None,
+        evaluate_observables: Optional[Callable] = None,
+        evaluate_driver_at_t: Optional[Callable] = None,
         get_solver_helper_fn: Optional[Callable] = None,
         tableau: DIRKTableau = DEFAULT_DIRK_TABLEAU,
         n_drivers: int = 0,
@@ -155,13 +155,12 @@ class DIRKStep(ODEImplicitStep):
             Floating-point precision for CUDA computations.
         n
             Number of state variables in the ODE system.
-        dxdt_function
-            Compiled CUDA device function computing state derivatives.
-        observables_function
-            Optional compiled CUDA device function computing observables.
-        driver_function
-            Optional compiled CUDA device function computing time-varying
-            drivers.
+        evaluate_f
+            Device function for evaluating f(t, y) right-hand side.
+        evaluate_observables
+            Device function computing system observables.
+        evaluate_driver_at_t
+            Optional device function evaluating drivers at arbitrary times.
         get_solver_helper_fn
             Factory function returning solver helper for Jacobian operations.
         tableau
@@ -194,9 +193,9 @@ class DIRKStep(ODEImplicitStep):
                 'precision': precision,
                 'n': n,
                 'n_drivers': n_drivers,
-                'dxdt_function': dxdt_function,
-                'observables_function': observables_function,
-                'driver_function': driver_function,
+                'evaluate_f': evaluate_f,
+                'evaluate_observables': evaluate_observables,
+                'evaluate_driver_at_t': evaluate_driver_at_t,
                 'get_solver_helper_fn': get_solver_helper_fn,
                 'tableau': tableau,
                 'beta': 1.0,
@@ -322,9 +321,9 @@ class DIRKStep(ODEImplicitStep):
 
     def build_step(
         self,
-        dxdt_fn: Callable,
-        observables_function: Callable,
-        driver_function: Optional[Callable],
+        evaluate_f: Callable,
+        evaluate_observables: Callable,
+        evaluate_driver_at_t: Optional[Callable],
         solver_function: Callable,
         numba_precision: type,
         n: int,
@@ -341,7 +340,7 @@ class DIRKStep(ODEImplicitStep):
         stages_except_first = stage_count - int32(1)
 
         # Compile-time toggles
-        has_driver_function = driver_function is not None
+        has_evaluate_driver_at_t = evaluate_driver_at_t is not None
         has_error = self.is_adaptive
         multistage = stage_count > 1
         first_same_as_last = self.first_same_as_last
@@ -350,6 +349,7 @@ class DIRKStep(ODEImplicitStep):
         explicit_a_coeffs = tableau.explicit_terms(numba_precision)
         solution_weights = tableau.typed_vector(tableau.b, numba_precision)
         typed_zero = numba_precision(0.0)
+        success = int32(CUBIE_RESULT_CODES.SUCCESS)
         error_weights = tableau.error_weights(numba_precision)
         if error_weights is None or not has_error:
             error_weights = tuple(typed_zero for _ in range(stage_count))
@@ -446,7 +446,7 @@ class DIRKStep(ODEImplicitStep):
                 if has_error and accumulates_error:
                     error[idx] = typed_zero
 
-            status_code = int32(0)
+            status_code = success
             # --------------------------------------------------------------- #
             #            Stage 0: may reuse cached values                     #
             # --------------------------------------------------------------- #
@@ -481,8 +481,8 @@ class DIRKStep(ODEImplicitStep):
                         proposed_drivers[idx] = drivers_buffer[idx]
 
                 else:
-                    if has_driver_function:
-                        driver_function(
+                    if has_evaluate_driver_at_t:
+                        evaluate_driver_at_t(
                             stage_time,
                             driver_coeffs,
                             proposed_drivers,
@@ -509,7 +509,7 @@ class DIRKStep(ODEImplicitStep):
                         )
 
                 # Get obs->dxdt from stage_base
-                observables_function(
+                evaluate_observables(
                     stage_base,
                     parameters,
                     proposed_drivers,
@@ -517,7 +517,7 @@ class DIRKStep(ODEImplicitStep):
                     stage_time,
                 )
 
-                dxdt_fn(
+                evaluate_f(
                     stage_base,
                     parameters,
                     proposed_drivers,
@@ -570,8 +570,8 @@ class DIRKStep(ODEImplicitStep):
                     current_time + dt_scalar * stage_time_fractions[stage_idx]
                 )
 
-                if has_driver_function:
-                    driver_function(
+                if has_evaluate_driver_at_t:
+                    evaluate_driver_at_t(
                         stage_time,
                         driver_coeffs,
                         proposed_drivers,
@@ -602,7 +602,7 @@ class DIRKStep(ODEImplicitStep):
                     for idx in range(n):
                         stage_base[idx] += diagonal_coeff * stage_increment[idx]
 
-                observables_function(
+                evaluate_observables(
                     stage_base,
                     parameters,
                     proposed_drivers,
@@ -610,7 +610,7 @@ class DIRKStep(ODEImplicitStep):
                     stage_time,
                 )
 
-                dxdt_fn(
+                evaluate_f(
                     stage_base,
                     parameters,
                     proposed_drivers,
@@ -648,14 +648,14 @@ class DIRKStep(ODEImplicitStep):
                     else:
                         error[idx] = proposed_state[idx] - error[idx]
 
-            if has_driver_function:
-                driver_function(
+            if has_evaluate_driver_at_t:
+                evaluate_driver_at_t(
                     end_time,
                     driver_coeffs,
                     proposed_drivers,
                 )
 
-            observables_function(
+            evaluate_observables(
                 proposed_state,
                 parameters,
                 proposed_drivers,

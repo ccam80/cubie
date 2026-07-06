@@ -416,3 +416,84 @@ def test_with_large_dictionary():
     params.update_from_dict(update_dict)
     assert params.values_dict["param_500"] == 1000.0
     assert params.values_dict["param_999"] == 1998.0
+
+
+def test_add_entry():
+    """Test that add_entry correctly adds new entries."""
+    values_dict = {"a": 1.0, "b": 2.0}
+    precision = np.float32
+    params = SystemValues(values_dict, precision)
+
+    # Add a new entry
+    params.add_entry("c", 3.0)
+    assert "c" in params.values_dict
+    assert params.values_dict["c"] == 3.0
+    assert params.n == 3
+    assert len(params.values_array) == 3
+    assert params.indices_dict["c"] == 2
+
+    # Add another entry with default value
+    params.add_entry("d")
+    assert "d" in params.values_dict
+    assert params.values_dict["d"] == 0.0
+    assert params.n == 4
+
+
+def test_add_entry_raises_for_existing():
+    """Test that add_entry raises ValueError for existing entry."""
+    values_dict = {"a": 1.0, "b": 2.0}
+    precision = np.float32
+    params = SystemValues(values_dict, precision)
+
+    with pytest.raises(ValueError, match="already exists"):
+        params.add_entry("a", 10.0)
+
+
+def test_remove_entry():
+    """Test that remove_entry correctly removes entries."""
+    values_dict = {"a": 1.0, "b": 2.0, "c": 3.0}
+    precision = np.float32
+    params = SystemValues(values_dict, precision)
+
+    # Remove an entry
+    removed_value = params.remove_entry("b")
+    assert removed_value == 2.0
+    assert "b" not in params.values_dict
+    assert params.n == 2
+    assert len(params.values_array) == 2
+
+    # Verify remaining entries are intact
+    assert params.values_dict["a"] == 1.0
+    assert params.values_dict["c"] == 3.0
+
+
+def test_remove_entry_raises_for_nonexistent():
+    """Test that remove_entry raises KeyError for non-existent entry."""
+    values_dict = {"a": 1.0, "b": 2.0}
+    precision = np.float32
+    params = SystemValues(values_dict, precision)
+
+    with pytest.raises(KeyError, match="not found"):
+        params.remove_entry("c")
+
+
+def test_add_and_remove_roundtrip():
+    """Test adding and removing entries in sequence."""
+    values_dict = {"a": 1.0}
+    precision = np.float32
+    params = SystemValues(values_dict, precision)
+
+    # Add entries
+    params.add_entry("b", 2.0)
+    params.add_entry("c", 3.0)
+    assert params.n == 3
+
+    # Remove middle entry
+    params.remove_entry("b")
+    assert params.n == 2
+    assert "b" not in params.values_dict
+
+    # Add it back
+    params.add_entry("b", 5.0)
+    assert params.n == 3
+    assert params.values_dict["b"] == 5.0

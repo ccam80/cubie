@@ -1,7 +1,7 @@
 ActiveOutputs
 =============
 
-.. currentmodule:: cubie.batchsolving.arrays.BatchOutputArrays
+.. currentmodule:: cubie.batchsolving.BatchSolverConfig
 
 .. autoclass:: ActiveOutputs
     :members:

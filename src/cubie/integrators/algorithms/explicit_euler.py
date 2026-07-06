@@ -1,8 +1,34 @@
-"""Explicit Euler step implementation."""
+"""Explicit Euler step implementation.
+
+This module provides :class:`ExplicitEulerStep`, a single-stage,
+non-adaptive forward Euler integrator compiled as a CUDA device
+function through the :class:`CUDAFactory` pattern.
+
+Published Classes
+-----------------
+:class:`ExplicitEulerStep`
+    Forward Euler integration step.
+
+    >>> from numpy import float32
+    >>> step = ExplicitEulerStep(precision=float32, n=4)
+    >>> step.order
+    1
+    >>> step.is_adaptive
+    False
+
+See Also
+--------
+:class:`~cubie.integrators.algorithms.ode_explicitstep.ODEExplicitStep`
+    Abstract base class for explicit integration steps.
+:class:`~cubie.integrators.algorithms.base_algorithm_step.BaseAlgorithmStep`
+    Factory base managing compilation and caching.
+"""
 
 from typing import Callable, Optional
 
 from numba import cuda, int32
+
+from cubie.result_codes import CUBIE_RESULT_CODES
 
 from cubie._utils import PrecisionDType, build_config
 from cubie.integrators.algorithms.base_algorithm_step import StepCache, \
@@ -15,7 +41,6 @@ from cubie.integrators.algorithms.ode_explicitstep import (
 EE_DEFAULTS = StepControlDefaults(
     step_controller={
         "step_controller": "fixed",
-        "dt": 1e-3,
     }
 )
 
@@ -26,9 +51,9 @@ class ExplicitEulerStep(ODEExplicitStep):
         self,
         precision: PrecisionDType,
         n: int,
-        dxdt_function: Optional[Callable] = None,
-        observables_function: Optional[Callable] = None,
-        driver_function: Optional[Callable] = None,
+        evaluate_f: Optional[Callable] = None,
+        evaluate_observables: Optional[Callable] = None,
+        evaluate_driver_at_t: Optional[Callable] = None,
         get_solver_helper_fn: Optional[Callable] = None,
         **kwargs,
     ) -> None:
@@ -40,13 +65,12 @@ class ExplicitEulerStep(ODEExplicitStep):
             Precision applied to device buffers.
         n
             Number of state entries advanced per step.
-        dxdt_function
-            Device derivative function evaluating ``dx/dt``.
-        observables_function
+        evaluate_f
+            Device function for evaluating f(t, y) right-hand side.
+        evaluate_observables
             Device function computing system observables.
-        driver_function
-            Optional device function evaluating spline drivers at arbitrary
-            times.
+        evaluate_driver_at_t
+            Optional device function evaluating drivers at arbitrary times.
         get_solver_helper_fn
             Present for interface parity with implicit steps and ignored here.
         **kwargs
@@ -59,9 +83,9 @@ class ExplicitEulerStep(ODEExplicitStep):
             required={
                 'precision': precision,
                 'n': n,
-                'dxdt_function': dxdt_function,
-                'observables_function': observables_function,
-                'driver_function': driver_function,
+                'evaluate_f': evaluate_f,
+                'evaluate_observables': evaluate_observables,
+                'evaluate_driver_at_t': evaluate_driver_at_t,
             },
             **kwargs
         )
@@ -70,9 +94,9 @@ class ExplicitEulerStep(ODEExplicitStep):
 
     def build_step(
         self,
-        dxdt_function: Callable,
-        observables_function: Callable,
-        driver_function: Optional[Callable],
+        evaluate_f: Callable,
+        evaluate_observables: Callable,
+        evaluate_driver_at_t: Optional[Callable],
         numba_precision: type,
         n: int,
         n_drivers: int,
@@ -81,27 +105,28 @@ class ExplicitEulerStep(ODEExplicitStep):
 
         Parameters
         ----------
-        dxdt_function
-            Device derivative function used within the update.
-        observables_function
-            Device function computing system observables.
-        driver_function
-            Optional device function evaluating drivers at arbitrary times.
+        evaluate_f
+            Device function for evaluating f(t, y).
+        evaluate_observables
+            Device function for computing observables.
+        evaluate_driver_at_t
+            Optional device function for evaluating drivers at time t.
         numba_precision
-            Numba precision corresponding to the configured precision.
+            Numba type for device buffers.
         n
-            Dimension of the state vector.
+            State vector dimension.
         n_drivers
-            Number of driver signals provided to the system.
+            Number of driver signals.
 
         Returns
         -------
         StepCache
-            Container holding the compiled step function.
+            Compiled step function.
         """
 
-        has_driver_function = driver_function is not None
+        has_evaluate_driver_at_t = evaluate_driver_at_t is not None
         n = int32(n)
+        success = int32(CUBIE_RESULT_CODES.SUCCESS)
 
         # no cover: start
         @cuda.jit(
@@ -166,16 +191,22 @@ class ExplicitEulerStep(ODEExplicitStep):
                 Device array receiving proposed observable outputs.
             error
                 Device array reserved for error estimates. Non-adaptive
-                algorithms receive a zero-length slice that can be reused as
-                scratch.
+                algorithms receive a zero-length slice that can be reused
+                as scratch.
             dt_scalar
                 Scalar containing the proposed step size.
             time_scalar
                 Scalar containing the current simulation time.
+            first_step_flag : int32
+                Non-zero on the first step of the integration.
+            accepted_flag : int32
+                Non-zero when the previous step was accepted.
             shared
                 Device array providing shared scratch buffers.
             persistent_local
                 Device array for persistent local storage (unused here).
+            counters : int32 array
+                Diagnostic counter array (unused here).
 
             Returns
             -------
@@ -185,7 +216,7 @@ class ExplicitEulerStep(ODEExplicitStep):
 
             # error buffer unused; stage dx/dt in proposed_state instead.
             dxdt_buffer = proposed_state
-            dxdt_function(
+            evaluate_f(
                 state,
                 parameters,
                 drivers_buffer,
@@ -197,20 +228,20 @@ class ExplicitEulerStep(ODEExplicitStep):
                 proposed_state[i] = state[i] + dt_scalar * dxdt_buffer[i]
 
             next_time = time_scalar + dt_scalar
-            if has_driver_function:
-                driver_function(
+            if has_evaluate_driver_at_t:
+                evaluate_driver_at_t(
                     next_time,
                     driver_coefficients,
                     proposed_drivers,
                 )
-            observables_function(
+            evaluate_observables(
                 proposed_state,
                 parameters,
                 proposed_drivers,
                 proposed_observables,
                 next_time,
             )
-            return int32(0)
+            return success
         # no cover: end
         
         return StepCache(step=step, nonlinear_solver=None)

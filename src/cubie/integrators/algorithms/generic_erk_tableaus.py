@@ -1,9 +1,35 @@
 """Explicit Runge--Kutta tableau definitions used by generic ERK steps.
 
-The tableaus collected here provide reusable coefficients for explicit
-Runge--Kutta methods with classical order of at least two. Each tableau lists
-the literature source describing the coefficients so integrators can reference
-the original derivations when validating implementations.
+Each tableau lists the literature source describing the coefficients
+so integrators can reference the original derivations.
+
+Published Classes
+-----------------
+:class:`ERKTableau`
+    Butcher tableau subclass for explicit Runge--Kutta methods.
+
+    >>> tab = ERKTableau(
+    ...     a=((0.0, 0.0), (1.0, 0.0)),
+    ...     b=(0.5, 0.5), c=(0.0, 1.0), order=2,
+    ... )
+    >>> tab.stage_count
+    2
+
+Module-Level Constants
+----------------------
+:data:`DEFAULT_ERK_TABLEAU`
+    Alias for :data:`DORMAND_PRINCE_54_TABLEAU`.
+
+:data:`ERK_TABLEAU_REGISTRY`
+    Mapping from human-readable identifiers (e.g. ``'rk45'``,
+    ``'tsit5'``) to :class:`ERKTableau` instances.
+
+See Also
+--------
+:class:`~cubie.integrators.algorithms.base_algorithm_step.ButcherTableau`
+    Parent class providing typed accessors and FSAL detection.
+:class:`~cubie.integrators.algorithms.generic_erk.ERKStep`
+    Step factory that consumes these tableaus.
 """
 
 from typing import Dict
@@ -13,9 +39,21 @@ import attrs
 from cubie.integrators.algorithms.base_algorithm_step import ButcherTableau
 
 
-@attrs.define(frozen=True)
+@attrs.define
 class ERKTableau(ButcherTableau):
-    """Coefficient tableau describing an explicit Runge--Kutta scheme."""
+    """Coefficient tableau describing an explicit Runge--Kutta scheme.
+
+    See Also
+    --------
+    :class:`~cubie.integrators.algorithms.base_algorithm_step.ButcherTableau`
+        Parent class defining ``a``, ``b``, ``b_hat``, ``c``, and
+        ``order`` fields.
+    """
+
+    def __attrs_post_init__(self) -> None:
+        """Validate structure and Runge--Kutta weight sums."""
+        super().__attrs_post_init__()
+        self._validate_weight_sums()
 
 
 #: Heun's improved Euler method offering second-order accuracy.
@@ -305,7 +343,20 @@ DORMAND_PRINCE_853_TABLEAU = ERKTableau(
             0.0,
             0.0,
         ),
-        (0.02958758547680685, 0.0, 0.08876275643042055, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0),
+        (
+            0.02958758547680685,
+            0.0,
+            0.08876275643042055,
+            0.0,
+            0.0,
+            0.0,
+            0.0,
+            0.0,
+            0.0,
+            0.0,
+            0.0,
+            0.0,
+        ),
         (
             0.2413651341592667,
             0.0,
@@ -444,8 +495,8 @@ DORMAND_PRINCE_853_TABLEAU = ERKTableau(
         -7.465581142465572,
         0.6614932157077936,
         -0.4863400683755336,
-        0.20136540080403035,
-        0.04471061572777259,
+        0.11944219431891464,
+        0.06706592359165888,
     ),
     c=(
         0.0,
@@ -476,22 +527,22 @@ DORMAND_PRINCE_853_TABLEAU = ERKTableau(
 # https://github.com/rtqichen/torchdiffeq/blob/master/torchdiffeq/_impl/tsit5.py
 # https://github.com/patrick-kidger/diffrax/blob/main/diffrax/_solver/tsit5.py
 tsitouras_b = (
-        0.09646076681806523,
-        0.01,
-        0.4798896504144996,
-        1.379008574103742,
-        -3.290069515436081,
-        2.324710524099774,
-        0.0,
-    )
+    0.09646076681806523,
+    0.01,
+    0.4798896504144996,
+    1.379008574103742,
+    -3.290069515436081,
+    2.324710524099774,
+    0.0,
+)
 tsitouras_d = (
-        -1.780011052225771443378550607539534775944678804333659557637450799792588061629796e-03,
-        -8.164344596567469032236360633546862401862537590159047610940604670770447527463931e-04,
-        7.880878010261996010314727672526304238628733777103128603258129604952959142646516e-03,
-        -1.44711007173262907537165147972635116720922712343167677619514233896760819649515e-01,
-        5.823571654525552250199376106520421794260781239567387797673045438803694038950012e-01,
-        -4.580821059291869466616365188325542974428047279788398179474684434732070620889539e-01,
-        1 / 66
+    -1.780011052225771443378550607539534775944678804333659557637450799792588061629796e-03,
+    -8.164344596567469032236360633546862401862537590159047610940604670770447527463931e-04,
+    7.880878010261996010314727672526304238628733777103128603258129604952959142646516e-03,
+    -1.44711007173262907537165147972635116720922712343167677619514233896760819649515e-01,
+    5.823571654525552250199376106520421794260781239567387797673045438803694038950012e-01,
+    -4.580821059291869466616365188325542974428047279788398179474684434732070620889539e-01,
+    1 / 66,
 )
 tsitouras_b_hat = tuple(b - d for b, d in zip(tsitouras_b, tsitouras_d))
 TSITOURAS_54_TABLEAU = ERKTableau(

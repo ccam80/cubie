@@ -1,10 +1,16 @@
-"""
-Maximum second derivative summary metric for CUDA-accelerated batch
-integration.
+"""Maximum second derivative via central finite differences.
 
-This module implements a summary metric that tracks the maximum second
-derivative (rate of change of rate of change) encountered during integration
-for each variable using central finite differences.
+Published Classes
+-----------------
+:class:`D2xdt2Max`
+    Maximum second derivative via central finite differences.
+
+See Also
+--------
+:class:`~cubie.outputhandling.summarymetrics.metrics.SummaryMetric`
+    Abstract base class for summary metrics.
+:data:`~cubie.outputhandling.summarymetrics.summary_metrics`
+    Global registry where this metric is registered.
 """
 
 from numba import cuda

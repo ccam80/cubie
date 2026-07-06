@@ -1,58 +1,201 @@
-"""Base classes and shared configuration for integration step factories."""
+"""Base classes and shared configuration for integration step factories.
+
+Published Classes
+-----------------
+:class:`ButcherTableau`
+    Attrs container for Butcher tableau coefficients with typed
+    accessors and FSAL detection.
+
+:class:`StepControlDefaults`
+    Per-algorithm default settings for step controllers.
+
+:class:`BaseStepConfig`
+    Abstract attrs configuration shared by explicit and implicit steps.
+
+:class:`StepCache`
+    Cache container for compiled step and optional nonlinear solver
+    device functions.
+
+:class:`BaseAlgorithmStep`
+    Abstract CUDAFactory base for all integration step implementations.
+
+Constants
+---------
+:data:`ALL_ALGORITHM_STEP_PARAMETERS`
+    Set of all keyword arguments accepted across all algorithm types.
+
+See Also
+--------
+:class:`~cubie.CUDAFactory.CUDAFactory`
+    Parent factory class.
+:class:`~cubie.integrators.algorithms.ode_explicitstep.ODEExplicitStep`
+    Explicit step intermediate base.
+:class:`~cubie.integrators.algorithms.ode_implicitstep.ODEImplicitStep`
+    Implicit step intermediate base.
+"""
 
 from abc import ABC, abstractmethod
 from typing import Callable, Dict, Optional, Set, Any, Tuple, Sequence
 import warnings
 
 from attrs import define, field, validators
-from numba import from_dtype
-from numpy import dtype as np_dtype, sum as np_sum
+from numpy import sum as np_sum
 
 from cubie._utils import (
-    PrecisionDType,
     getype_validator,
     is_device_validator,
-    precision_converter,
-    precision_validator,
 )
 from cubie.buffer_registry import buffer_registry
-from cubie.CUDAFactory import CUDAFactory, CUDAFunctionCache
-from cubie.cuda_simsafe import from_dtype as simsafe_dtype
+from cubie.CUDAFactory import (
+    CUDAFactory,
+    CUDAFactoryConfig,
+    CUDADispatcherCache,
+    _CubieConfigBase,
+)
 
-# Define all possible algorithm step parameters across all algorithm types
 ALL_ALGORITHM_STEP_PARAMETERS = {
-    'algorithm',
-    'precision', 'n', 'dxdt_function', 'observables_function',
-    'driver_function', 'get_solver_helper_fn', "driver_del_t",
-    'beta', 'gamma', 'M', 'preconditioner_order', 'krylov_tolerance',
-    'max_linear_iters', 'linear_correction_type', 'newton_tolerance',
-    'max_newton_iters', 'newton_damping', 'newton_max_backtracks',
-    'n_drivers',
+    "algorithm",
+    "precision",
+    "n",
+    "evaluate_f",
+    "evaluate_observables",
+    "evaluate_driver_at_t",
+    "get_solver_helper_fn",
+    "driver_del_t",
+    "beta",
+    "gamma",
+    "M",
+    "preconditioner_order",
+    "krylov_atol",
+    "krylov_rtol",
+    "krylov_max_iters",
+    "linear_correction_type",
+    "newton_atol",
+    "newton_rtol",
+    "newton_max_iters",
+    "newton_damping",
+    "newton_max_backtracks",
+    "n_drivers",
     # DIRK buffer location parameters
-    'stage_increment_location', 'stage_base_location', 'accumulator_location',
+    "stage_increment_location",
+    "stage_base_location",
+    "accumulator_location",
     # ERK buffer location parameters
-    'stage_rhs_location', 'stage_accumulator_location',
+    "stage_rhs_location",
+    "stage_accumulator_location",
     # FIRK buffer location parameters
-    'stage_driver_stack_location', 'stage_state_location',
+    "stage_driver_stack_location",
+    "stage_state_location",
     # Rosenbrock buffer location parameters
-    'stage_store_location', 'cached_auxiliaries_location',
+    "stage_store_location",
+    "cached_auxiliaries_location",
     # BackwardsEuler buffer location parameters
-    'increment_cache_location',
+    "increment_cache_location",
     # CrankNicolson buffer location parameters
-    'dxdt_location',
+    "dxdt_location",
     # Solver buffer location parameters
-    'preconditioned_vec_location', 'temp_location', 'delta_location',
-    'residual_location', 'residual_temp_location', 'stage_base_bt_location',
+    "preconditioned_vec_location",
+    "temp_location",
+    "delta_location",
+    "residual_location",
+    "residual_temp_location",
+    "stage_base_bt_location",
     # Newton-Krylov buffer location parameters
-    'krylov_iters_local_location',
+    "krylov_iters_local_location",
     # Rosenbrock int32 buffer location parameters
-    'base_state_placeholder_location', 'krylov_iters_out_location',
+    "base_state_placeholder_location",
+    "krylov_iters_out_location",
 }
+"""All keyword arguments accepted by integration step constructors.
+
+These parameters can be passed as keyword arguments to any
+:class:`BaseAlgorithmStep` subclass or via
+:func:`~cubie.integrators.algorithms.get_algorithm_step`. Parent
+components use this set to filter kwargs before forwarding.
+
+.. list-table:: Parameter Summary
+   :header-rows: 1
+
+   * - Parameter
+     - Accepted By
+     - Description
+   * - ``algorithm``
+     - :func:`get_algorithm_step`
+     - Algorithm name or :class:`ButcherTableau` instance.
+   * - ``precision``
+     - :class:`BaseStepConfig`
+     - Floating-point dtype for CUDA computations.
+   * - ``n``
+     - :class:`BaseStepConfig`
+     - Number of state variables.
+   * - ``n_drivers``
+     - :class:`BaseStepConfig`
+     - Number of external driver signals.
+   * - ``evaluate_f``
+     - :class:`BaseStepConfig`
+     - Device function evaluating the ODE RHS.
+   * - ``evaluate_observables``
+     - :class:`BaseStepConfig`
+     - Device function evaluating observables.
+   * - ``evaluate_driver_at_t``
+     - :class:`BaseStepConfig`
+     - Device function evaluating drivers at a given time.
+   * - ``get_solver_helper_fn``
+     - :class:`BaseStepConfig`
+     - Callable returning device helpers for solver construction.
+   * - ``driver_del_t``
+     - Rosenbrock algorithms
+     - Device function for driver time derivative.
+   * - ``beta``
+     - :class:`ImplicitStepConfig`
+     - Implicit integration coefficient on stage derivative.
+   * - ``gamma``
+     - :class:`ImplicitStepConfig`
+     - Implicit integration coefficient on mass matrix product.
+   * - ``M``
+     - :class:`ImplicitStepConfig`
+     - Mass matrix for residual and Jacobian actions.
+   * - ``preconditioner_order``
+     - :class:`ImplicitStepConfig`
+     - Order of the truncated Neumann preconditioner.
+   * - ``krylov_atol``
+     - :class:`LinearSolverConfig`
+     - Absolute tolerance for the linear solver.
+   * - ``krylov_rtol``
+     - :class:`LinearSolverConfig`
+     - Relative tolerance for the linear solver.
+   * - ``krylov_max_iters``
+     - :class:`LinearSolverConfig`
+     - Maximum linear solver iterations.
+   * - ``linear_correction_type``
+     - :class:`LinearSolverConfig`
+     - Correction strategy identifier.
+   * - ``newton_atol``
+     - :class:`NewtonKrylovConfig`
+     - Absolute tolerance for Newton iteration.
+   * - ``newton_rtol``
+     - :class:`NewtonKrylovConfig`
+     - Relative tolerance for Newton iteration.
+   * - ``newton_max_iters``
+     - :class:`NewtonKrylovConfig`
+     - Maximum Newton iterations.
+   * - ``newton_damping``
+     - :class:`NewtonKrylovConfig`
+     - Newton damping factor.
+   * - ``newton_max_backtracks``
+     - :class:`NewtonKrylovConfig`
+     - Maximum Newton backtracking steps.
+   * - Buffer location parameters
+     - Various algorithm configs
+     - Memory location (``'local'`` or ``'shared'``) for
+       working buffers. Names follow the pattern
+       ``<buffer>_location``.
+"""
 
 
-@define(frozen=True)
-class ButcherTableau:
-    """ Generic ``Butcher Tableau``` object.
+@define
+class ButcherTableau(_CubieConfigBase):
+    """Generic Butcher tableau object.
 
     Attributes
     ----------
@@ -88,15 +231,22 @@ class ButcherTableau:
     b_hat: Optional[Tuple[float, ...]] = field(default=None)
 
     def __attrs_post_init__(self) -> None:
-        """Validate tableau coefficients after initialisation."""
+        """Validate tableau structure after initialisation."""
+        super().__attrs_post_init__()
+        if self.b_hat is not None and len(self.b_hat) != self.stage_count:
+            raise ValueError("b_hat must match the number of stages in b")
 
-        stage_count = self.stage_count
-        if self.b_hat is not None:
-            if len(self.b_hat) != stage_count:
-                raise ValueError("b_hat must match the number of stages in b")
-            if (1.0 - np_sum(self.b_hat)) > 1e-8:
-                raise ValueError("b_hat must sum to one")
-        if (1.0 - np_sum(self.b)) > 1e-8:
+    def _validate_weight_sums(self) -> None:
+        """Validate that solution and embedded weights sum to one.
+
+        Runge--Kutta quadrature weights must sum to one; the RK-family
+        tableaus call this from their own ``__attrs_post_init__``.
+        Rosenbrock-W weights obey a different consistency condition and
+        do not use this check.
+        """
+        if self.b_hat is not None and abs(1.0 - np_sum(self.b_hat)) > 1e-8:
+            raise ValueError("b_hat must sum to one")
+        if abs(1.0 - np_sum(self.b)) > 1e-8:
             raise ValueError("b must sum to one")
 
     @property
@@ -141,9 +291,9 @@ class ButcherTableau:
         return tuple(typed_rows)
 
     def typed_columns(
-            self,
-            rows: Sequence[Sequence[float]],
-            numba_precision: type,
+        self,
+        rows: Sequence[Sequence[float]],
+        numba_precision: type,
     ) -> Tuple[Tuple[float, ...], ...]:
         """Transpose and convert tableau rows to the requested precision.
 
@@ -187,6 +337,7 @@ class ButcherTableau:
             )
             for col_idx in range(stage_count)
         )
+
     def typed_vector(
         self,
         vector: Sequence[float],
@@ -207,23 +358,16 @@ class ButcherTableau:
         error_coeffs = self.d
         return self.typed_vector(error_coeffs, numba_precision)
 
-    def embedded_weights(
-        self,
-        numba_precision: type,
-    ) -> Optional[Tuple[float, ...]]:
-        """Return the embedded solution weights typed to ``numba_precision``."""
-
-        if not self.has_error_estimate:
-            return None
-        return self.typed_vector(self.b_hat, numba_precision)
-
     @property
     def first_same_as_last(self) -> bool:
         """Return ``True`` when the first and last stages align."""
 
-        return bool(self.c
-                    and self.c[0] == 0.0 and self.c[-1] == 1.0
-                    and self.a[-1] == self.b)
+        return bool(
+            self.c
+            and self.c[0] == 0.0
+            and self.c[-1] == 1.0
+            and self.a[-1] == self.b
+        )
 
     @property
     def can_reuse_accepted_start(self) -> bool:
@@ -233,12 +377,12 @@ class ButcherTableau:
 
     @property
     def accumulates_output(self) -> bool:
-        """Returns `False` if one stage's state equals the output. """
+        """Returns `False` if one stage's state equals the output."""
         return self.b_matches_a_row is None
 
     @property
     def accumulates_error(self) -> bool:
-        """Returns `False` if one stage's error equals the output. """
+        """Returns `False` if one stage's error equals the output."""
         return self.b_hat_matches_a_row is None
 
     def _find_matching_row(
@@ -335,8 +479,9 @@ class StepControlDefaults:
             step_controller=dict(self.step_controller),
         )
 
+
 @define
-class BaseStepConfig(ABC):
+class BaseStepConfig(CUDAFactoryConfig, ABC):
     """Configuration shared by explicit and implicit integration steps.
 
     Parameters
@@ -348,56 +493,39 @@ class BaseStepConfig(ABC):
         Number of state entries advanced by each step call.
     n_drivers
         Number of external driver signals consumed by the step (>= 0).
-    dxdt_function
-        Device function that evaluates the system right-hand side.
-    observables_function
+    evaluate_f
+        Device function that evaluates the system right-hand side f(t, y).
+    evaluate_observables
         Device function that evaluates the system observables.
-    driver_function
-        Device function that evaluates driver arrays for a given time.
+    evaluate_driver_at_t
+        Device function that evaluates driver arrays for a given time t.
     get_solver_helper_fn
         Optional callable that returns device helpers required by the
         nonlinear solver construction.
     """
 
-    precision: PrecisionDType = field(
-        converter=precision_converter,
-        validator=precision_validator,
-    )
-
     n: int = field(default=1, validator=getype_validator(int, 1))
     n_drivers: int = field(default=0, validator=getype_validator(int, 0))
-    dxdt_function: Optional[Callable] = field(
+    evaluate_f: Optional[Callable] = field(
         default=None,
         validator=validators.optional(is_device_validator),
-        eq=False
+        eq=False,
     )
-    observables_function: Optional[Callable] = field(
+    evaluate_observables: Optional[Callable] = field(
         default=None,
         validator=validators.optional(is_device_validator),
-        eq=False
+        eq=False,
     )
-    driver_function: Optional[Callable] = field(
+    evaluate_driver_at_t: Optional[Callable] = field(
         default=None,
         validator=validators.optional(is_device_validator),
-        eq=False
+        eq=False,
     )
     get_solver_helper_fn: Optional[Callable] = field(
         default=None,
         validator=validators.optional(validators.is_callable()),
-        eq=False
+        eq=False,
     )
-
-    @property
-    def numba_precision(self) -> type:
-        """Return the Numba dtype associated with ``precision``."""
-
-        return from_dtype(np_dtype(self.precision))
-
-    @property
-    def simsafe_precision(self) -> type:
-        """Return the CUDA-simulator-safe dtype for ``precision``."""
-
-        return simsafe_dtype(np_dtype(self.precision))
 
     @property
     def settings_dict(self) -> Dict[str, object]:
@@ -441,8 +569,9 @@ class BaseStepConfig(ABC):
             return 1
         return tableau.stage_count
 
+
 @define
-class StepCache(CUDAFunctionCache):
+class StepCache(CUDADispatcherCache):
     """Container for compiled device helpers used by an algorithm step.
 
     Parameters
@@ -460,6 +589,7 @@ class StepCache(CUDAFunctionCache):
         validator=validators.optional(is_device_validator),
     )
 
+
 class BaseAlgorithmStep(CUDAFactory):
     """Base class implementing cache and configuration handling for steps.
 
@@ -469,10 +599,11 @@ class BaseAlgorithmStep(CUDAFactory):
     usage.
     """
 
-    def __init__(self,
-                 config: BaseStepConfig,
-                 _controller_defaults: StepControlDefaults,
-                 ) -> None:
+    def __init__(
+        self,
+        config: BaseStepConfig,
+        _controller_defaults: StepControlDefaults,
+    ) -> None:
         """Initialise the algorithm step with its configuration object and its
         default runtime settings for collaborators.
 
@@ -482,10 +613,6 @@ class BaseAlgorithmStep(CUDAFactory):
             Configuration describing the algorithm step.
         _controller_defaults
             Per-algorithm default step controller settings.
-        Returns
-        -------
-        None
-            This constructor updates internal configuration state.
         """
 
         super().__init__()
@@ -554,7 +681,7 @@ class BaseAlgorithmStep(CUDAFactory):
                 f"Parameters {{{params_str}}} are not recognized by {algorithm_type}; "
                 "updates have been ignored.",
                 UserWarning,
-                stacklevel=2
+                stacklevel=2,
             )
 
         if not silent and truly_invalid:
@@ -566,28 +693,10 @@ class BaseAlgorithmStep(CUDAFactory):
         return recognised
 
     @property
-    def precision(self) -> PrecisionDType:
-        """Return the configured numerical precision."""
-
-        return self.compile_settings.precision
-
-    @property
     def n_drivers(self) -> int:
         """Return the configured number of external drivers."""
 
         return int(self.compile_settings.n_drivers)
-
-    @property
-    def numba_precision(self) -> type:
-        """Return the Numba dtype used by compiled device helpers."""
-
-        return self.compile_settings.numba_precision
-
-    @property
-    def simsafe_precision(self) -> type:
-        """Return the CUDA-simulator-safe dtype for the step."""
-
-        return self.compile_settings.simsafe_precision
 
     @property
     def n(self) -> int:
@@ -640,22 +749,6 @@ class BaseAlgorithmStep(CUDAFactory):
         return self.compile_settings.can_reuse_accepted_start
 
     @property
-    def shared_memory_elements(self) -> int:
-        """Return the precision-entry count of shared memory required."""
-        return buffer_registry.shared_buffer_size(self)
-
-    @property
-    def local_scratch_elements(self) -> int:
-        """Return the precision-entry count of local scratch required."""
-        return buffer_registry.local_buffer_size(self)
-
-    @property
-    def persistent_local_elements(self) -> int:
-        """Return the persistent local precision-entry requirement."""
-
-        return buffer_registry.persistent_local_buffer_size(self)
-
-    @property
     @abstractmethod
     def is_implicit(self) -> bool:
         raise NotImplementedError
@@ -671,22 +764,20 @@ class BaseAlgorithmStep(CUDAFactory):
         """Return the cached device function that advances the solution."""
         return self.get_cached_output("step")
 
-
     @property
     def settings_dict(self) -> Dict[str, object]:
         """Return the configuration dictionary for the algorithm step."""
         return self.compile_settings.settings_dict
 
     @property
-    def dxdt_function(self) -> Optional[Callable]:
+    def evaluate_f(self) -> Optional[Callable]:
         """Return the compiled device derivative function."""
-        return self.compile_settings.dxdt_function
+        return self.compile_settings.evaluate_f
 
     @property
-    def observables_function(self) -> Optional[Callable]:
+    def evaluate_observables(self) -> Optional[Callable]:
         """Return the compiled device observables function."""
-        return self.compile_settings.observables_function
-
+        return self.compile_settings.evaluate_observables
 
     @property
     def get_solver_helper_fn(self) -> Optional[Callable]:

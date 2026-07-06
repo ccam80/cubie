@@ -24,36 +24,50 @@ like this:
     beta = 0.1   # heater dissipation coefficient (how quickly the heat dissipates)
 
 
-    fns = ["base_wiggle = np.sin(2 * np.pi * f * t)",  # Example signal
-        "f = 1e4 * t + 1e5", # a "chirp" signal, sweeping from 100kHz to 110 kHz over 1 second
-        "dT = ",
-        "di = ",
-        "dx = ",
-        "dv = ",
+    fns = [
+        "base_wiggle = sin(2 * pi * f * t)",
+        "f = 1e4 * t + 1e5",
+        "dT = alpha * (feedback_strength * x + feedback_offset) - beta * T",
+        "di = feedback_strength * x + feedback_offset",
+        "dx = v",
+        "dv = -k * x - c * v + alpha * T + base_wiggle",
     ]
-    constants = {}
+    constants = {
+        "k": 0.1,
+        "c": 0.01,
+        "alpha": 0.5,
+        "beta": 0.1,
+        "pi": np.pi,
+    }
     initial_conditions = {
-        'x': 0,    # initial position
-        'v': 0,    # initial velocity
-        'T': 0,    # initial temperature
-        'i': 0     # initial current
+        "x": 0,    # initial position
+        "v": 0,    # initial velocity
+        "T": 0,    # initial temperature
+        "i": 0,    # initial current
     }
     parameters = {
-        feedback_strength = 0.5, #Amplitude of feedback signal
-        feedback_offset = 0.1,   #Offset of feedback signal
+        "feedback_strength": 0.5,
+        "feedback_offset": 0.1,
     }
 
     sys = qb.create_ODE_system(
-        fns=fns,
+        fns,
         parameters=parameters,
         constants=constants,
-        states=initial_conditions)
+        states=initial_conditions,
+        name="MEMSCantilever",
+    )
 
-    solve_ivp(
+    result = qb.solve_ivp(
         sys,
-        {'feedback_strength' : np.linspace(-1, 1, 200),
-         'feedback_offset': np.linspace(-1,1,200)},
-        algorithm='crank-nicolson')
+        y0=initial_conditions,
+        parameters={
+            "feedback_strength": np.linspace(-1, 1, 200),
+            "feedback_offset": np.linspace(-1, 1, 200),
+        },
+        method="crank_nicolson",
+        duration=1e-3,
+    )
 
 This is an easy way to set up and parametrize a forcing term, and see how your system responds to different versions of
 it.
@@ -70,12 +84,48 @@ correspond, and will interpolate between them to get the value at any time point
 algorithms, and also means you don't need to store the value at every time point if your forcing function is smooth. Here's
 an example of how to do this:
 
-.. code-block::
+.. code-block:: python
 
+    import cubie as qb
+    import numpy as np
 
-You have some levers that you can pull when defining your driver function. You can dictate whether the term should "wrap"
-and repeat indefinitely, or whether it is set to zero outside of the range of the provided data. If it's returning to zero,
-you can also dictate what happens at the ends. By default, it will fit a continuous smooth spline from your last data point
-down to a zero one sample time step later.
+    # Create a measured signal as a driver
+    t_driver = np.linspace(0, 1.0, 1000)
+    signal = np.sin(2 * np.pi * 5 * t_driver) * np.exp(-t_driver)
 
-Add plots of endpoints with different options
+    sys = qb.create_ODE_system(
+        """
+        dx = -k * x + amplitude * drive_signal
+        """,
+        constants={"k": 1.0},
+        parameters={"amplitude": 1.0},
+        states={"x": 0.0},
+        name="DrivenSystem",
+    )
+
+    result = qb.solve_ivp(
+        sys,
+        y0={"x": np.array([0.0])},
+        parameters={"amplitude": np.linspace(0.1, 2.0, 100)},
+        drivers={"drive_signal": (t_driver, signal)},
+        method="dormand_prince_54",
+        duration=1.0,
+    )
+
+Boundary Conditions
+-------------------
+
+You have several options for how the driver behaves at and beyond the
+edges of the provided data:
+
+**Wrap**
+   The signal repeats periodically.  Useful for periodic forcing.
+
+**Zero-pad**
+   The signal is set to zero outside the provided time range.  By
+   default, CuBIE fits a smooth spline from the last data point down to
+   zero over one sample interval, avoiding a discontinuous jump.
+
+**Spline endpoints**
+   Custom endpoint handling using spline interpolation for smooth
+   transitions at the boundaries.

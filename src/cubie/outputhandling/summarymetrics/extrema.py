@@ -1,9 +1,16 @@
-"""
-Extrema (both max and min) summary metric for CUDA-accelerated batch
-integration.
+"""Combined maximum and minimum over a summary interval.
 
-This module implements a summary metric that tracks both the maximum and
-minimum values encountered during integration for each variable.
+Published Classes
+-----------------
+:class:`Extrema`
+    Combined maximum and minimum over a summary interval.
+
+See Also
+--------
+:class:`~cubie.outputhandling.summarymetrics.metrics.SummaryMetric`
+    Abstract base class for summary metrics.
+:data:`~cubie.outputhandling.summarymetrics.summary_metrics`
+    Global registry where this metric is registered.
 """
 
 from numba import cuda

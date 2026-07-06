@@ -10,9 +10,16 @@ value problems. The source code is available on `Github
    :caption: Contents
 
    systems
+   solving
+   batching
+   results
    drivers
-   algorithms
+   timing
+   choosing_algorithms
    optional_arguments
-   speed
-   cuda
    userfunctions
+   cellml
+   memory
+   caching
+   speed
+   troubleshooting

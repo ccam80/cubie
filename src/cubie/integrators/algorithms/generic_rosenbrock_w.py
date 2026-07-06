@@ -1,40 +1,51 @@
-"""Rosenbrock-W integration step as described in (5.2) in Lang & Verwer (2001).
+"""Rosenbrock-W integration step as described in Lang & Verwer (2001).
 
-This module provides the :class:`GenericRosenbrockWStep` class, which
-implements Rosenbrock-W methods for stiff ODEs. Rosenbrock methods are
-linearly implicit methods that avoid the need for iterative nonlinear
-solvers by linearizing the problem around the current state.
+Published Classes
+-----------------
+:class:`RosenbrockWStepConfig`
+    Configuration container for the Rosenbrock-W step.
 
-Key Features
-------------
-- Configurable tableaus via :class:`RosenbrockTableau`
-- Automatic controller defaults selection based on error estimate capability
-- Matrix-free linear solvers with cached Jacobian approximation
-- Efficient for moderately stiff systems without Newton iteration overhead
+:class:`GenericRosenbrockWStep`
+    Multi-stage linearly implicit step using a cached Jacobian
+    approximation and linear (not Newton) solvers.
+
+Constants
+---------
+:data:`ROSENBROCK_ADAPTIVE_DEFAULTS`
+    Default PID controller settings for adaptive tableaus.
+
+:data:`ROSENBROCK_FIXED_DEFAULTS`
+    Default fixed-step settings for errorless tableaus.
 
 Notes
 -----
-The module defines two sets of default step controller settings:
+The step controller defaults are selected dynamically based on whether
+the tableau has an embedded error estimate. Rosenbrock methods
+linearise the ODE around the current state, avoiding iterative Newton
+solves.
 
-- :data:`ROSENBROCK_ADAPTIVE_DEFAULTS`: Used when the tableau has an
-  embedded error estimate. Defaults to PI controller with adaptive stepping.
-- :data:`ROSENBROCK_FIXED_DEFAULTS`: Used when the tableau lacks an error
-  estimate. Defaults to fixed-step controller.
-
-This dynamic selection ensures that users cannot accidentally pair an
-errorless tableau with an adaptive controller, which would fail at runtime.
+See Also
+--------
+:class:`~cubie.integrators.algorithms.ode_implicitstep.ODEImplicitStep`
+    Abstract parent managing the solver lifecycle.
+:class:`~cubie.integrators.algorithms.generic_rosenbrockw_tableaus.RosenbrockTableau`
+    Tableau class describing Rosenbrock-W coefficients.
+:class:`RosenbrockWStepConfig`
+    Configuration for this step.
 
 References
 ----------
-Lang, J., Verwer, J. ROS3P—An Accurate Third-Order Rosenbrock Solver Designed
-for Parabolic Problems. BIT Numerical Mathematics 41, 731–738 (2001).
-https://doi.org/10.1023/A:1021900219772
+Lang, J., Verwer, J. ROS3P—An Accurate Third-Order Rosenbrock Solver
+Designed for Parabolic Problems. *BIT Numerical Mathematics* 41,
+731–738 (2001).
 """
 
 from typing import Callable, Optional
 
 from attrs import define, field, validators
 from numba import cuda, int32
+
+from cubie.result_codes import CUBIE_RESULT_CODES
 from numpy import eye, int32 as np_int32
 
 from cubie._utils import PrecisionDType, build_config, is_device_validator
@@ -53,14 +64,9 @@ from cubie.integrators.algorithms.generic_rosenbrockw_tableaus import (
 from cubie.buffer_registry import buffer_registry
 
 
-
-
-
 ROSENBROCK_ADAPTIVE_DEFAULTS = StepControlDefaults(
     step_controller={
         "step_controller": "pid",
-        "dt_min": 1e-6,
-        "dt_max": 1e-1,
         "kp": 0.6,
         "ki": -0.4,
         "deadband_min": 1.0,
@@ -88,7 +94,6 @@ any of these settings by explicitly specifying step controller parameters.
 ROSENBROCK_FIXED_DEFAULTS = StepControlDefaults(
     step_controller={
         "step_controller": "fixed",
-        "dt": 1e-3,
     }
 )
 """Default step controller settings for errorless Rosenbrock tableaus.
@@ -99,13 +104,6 @@ error estimate (``tableau.has_error_estimate == False``).
 Fixed-step controllers maintain a constant step size throughout the
 integration. This is the only valid choice for errorless tableaus since
 adaptive stepping requires an error estimate to adjust the step size.
-
-Notes
------
-These defaults are applied automatically when creating a
-:class:`GenericRosenbrockWStep` with an errorless tableau. Users can
-override the step size ``dt`` by explicitly specifying it in the step
-controller settings.
 """
 
 
@@ -115,36 +113,34 @@ class RosenbrockWStepConfig(ImplicitStepConfig):
 
     tableau: RosenbrockTableau = field(default=DEFAULT_ROSENBROCK_TABLEAU)
     time_derivative_function: Optional[Callable] = field(
-            default=None,
-            validator=validators.optional(is_device_validator)
+        default=None,
+        validator=validators.optional(is_device_validator),
+        eq=False,
     )
     prepare_jacobian_function: Optional[Callable] = field(
-            default=None,
-            validator=validators.optional(is_device_validator)
+        default=None,
+        validator=validators.optional(is_device_validator),
+        eq=False,
     )
     driver_del_t: Optional[Callable] = field(
-            default=None,
-            validator=validators.optional(is_device_validator)
+        default=None,
+        validator=validators.optional(is_device_validator),
+        eq=False,
     )
     stage_rhs_location: str = field(
-        default='local',
-        validator=validators.in_(['local', 'shared'])
+        default="local", validator=validators.in_(["local", "shared"])
     )
     stage_store_location: str = field(
-        default='local',
-        validator=validators.in_(['local', 'shared'])
+        default="local", validator=validators.in_(["local", "shared"])
     )
     cached_auxiliaries_location: str = field(
-        default='local',
-        validator=validators.in_(['local', 'shared'])
+        default="local", validator=validators.in_(["local", "shared"])
     )
     base_state_placeholder_location: str = field(
-        default='local',
-        validator=validators.in_(['local', 'shared'])
+        default="local", validator=validators.in_(["local", "shared"])
     )
     krylov_iters_out_location: str = field(
-        default='local',
-        validator=validators.in_(['local', 'shared'])
+        default="local", validator=validators.in_(["local", "shared"])
     )
 
 
@@ -155,9 +151,9 @@ class GenericRosenbrockWStep(ODEImplicitStep):
         self,
         precision: PrecisionDType,
         n: int,
-        dxdt_function: Optional[Callable] = None,
-        observables_function: Optional[Callable] = None,
-        driver_function: Optional[Callable] = None,
+        evaluate_f: Optional[Callable] = None,
+        evaluate_observables: Optional[Callable] = None,
+        evaluate_driver_at_t: Optional[Callable] = None,
         driver_del_t: Optional[Callable] = None,
         get_solver_helper_fn: Optional[Callable] = None,
         tableau: RosenbrockTableau = DEFAULT_ROSENBROCK_TABLEAU,
@@ -177,13 +173,12 @@ class GenericRosenbrockWStep(ODEImplicitStep):
             Floating-point precision for CUDA computations.
         n
             Number of state variables in the ODE system.
-        dxdt_function
-            Compiled CUDA device function computing state derivatives.
-        observables_function
-            Optional compiled CUDA device function computing observables.
-        driver_function
-            Optional compiled CUDA device function computing time-varying
-            drivers.
+        evaluate_f
+            Device function for evaluating f(t, y) right-hand side.
+        evaluate_observables
+            Device function computing system observables.
+        evaluate_driver_at_t
+            Optional device function evaluating drivers at arbitrary times.
         driver_del_t
             Optional compiled CUDA device function computing time derivatives
             of drivers (required for some Rosenbrock formulations).
@@ -220,19 +215,19 @@ class GenericRosenbrockWStep(ODEImplicitStep):
         config = build_config(
             RosenbrockWStepConfig,
             required={
-                'precision': precision,
-                'n': n,
-                'dxdt_function': dxdt_function,
-                'observables_function': observables_function,
-                'driver_function': driver_function,
-                'driver_del_t': driver_del_t,
-                'get_solver_helper_fn': get_solver_helper_fn,
-                'tableau': tableau_value,
-                'beta': 1.0,
-                'gamma': tableau_value.gamma,
-                'M': mass,
+                "precision": precision,
+                "n": n,
+                "evaluate_f": evaluate_f,
+                "evaluate_observables": evaluate_observables,
+                "evaluate_driver_at_t": evaluate_driver_at_t,
+                "driver_del_t": driver_del_t,
+                "get_solver_helper_fn": get_solver_helper_fn,
+                "tableau": tableau_value,
+                "beta": 1.0,
+                "gamma": tableau_value.gamma,
+                "M": mass,
             },
-            **kwargs
+            **kwargs,
         )
         self._cached_auxiliary_count = None
 
@@ -243,7 +238,7 @@ class GenericRosenbrockWStep(ODEImplicitStep):
             controller_defaults = ROSENBROCK_FIXED_DEFAULTS
 
         super().__init__(
-            config, controller_defaults, solver_type='linear', **kwargs
+            config, controller_defaults, solver_type="linear", **kwargs
         )
 
         self.register_buffers()
@@ -260,49 +255,58 @@ class GenericRosenbrockWStep(ODEImplicitStep):
 
         # Register algorithm buffers using config values
         buffer_registry.register(
-            'stage_rhs', self, n, config.stage_rhs_location,
-            precision=precision
+            "stage_rhs",
+            self,
+            n,
+            config.stage_rhs_location,
+            precision=precision,
         )
         buffer_registry.register(
-            'stage_store', self, stage_store_elements,
-            config.stage_store_location, precision=precision
+            "stage_store",
+            self,
+            stage_store_elements,
+            config.stage_store_location,
+            precision=precision,
         )
         # cached_auxiliaries registered with 0 size; updated in build_implicit_helpers
         buffer_registry.register(
-            'cached_auxiliaries', self, 0,
-            config.cached_auxiliaries_location, precision=precision
+            "cached_auxiliaries",
+            self,
+            0,
+            config.cached_auxiliaries_location,
+            precision=precision,
         )
 
         # Stage increment should persist between steps for initial guess
         buffer_registry.register(
-            'stage_increment', self, n,
+            "stage_increment",
+            self,
+            n,
             config.stage_store_location,
-            aliases='stage_store',
+            aliases="stage_store",
             persistent=True,
-            precision=precision
+            precision=precision,
         )
 
         buffer_registry.register(
-            'base_state_placeholder', self, 1,
+            "base_state_placeholder",
+            self,
+            1,
             config.base_state_placeholder_location,
-            precision=np_int32
+            precision=np_int32,
         )
         buffer_registry.register(
-            'krylov_iters_out', self, 1,
+            "krylov_iters_out",
+            self,
+            1,
             config.krylov_iters_out_location,
-            precision=np_int32
+            precision=np_int32,
         )
 
     def build_implicit_helpers(
         self,
-    ) -> Callable:
-        """Construct the linear solver used by Rosenbrock methods.
-
-        Returns
-        -------
-        Callable
-            Linear solver function compiled for the configured scheme.
-        """
+    ) -> None:
+        """Construct the linear solver used by Rosenbrock methods."""
         config = self.compile_settings
         beta = config.beta
         gamma = config.gamma
@@ -313,18 +317,18 @@ class GenericRosenbrockWStep(ODEImplicitStep):
 
         # Get device functions from ODE system
         preconditioner = get_fn(
-            'neumann_preconditioner_cached',
+            "neumann_preconditioner_cached",
             beta=beta,
             gamma=gamma,
             mass=mass,
-            preconditioner_order=preconditioner_order
+            preconditioner_order=preconditioner_order,
         )
         operator = get_fn(
-            'linear_operator_cached',
+            "linear_operator_cached",
             beta=beta,
             gamma=gamma,
             mass=mass,
-            preconditioner_order=preconditioner_order
+            preconditioner_order=preconditioner_order,
         )
 
         prepare_jacobian = get_fn(
@@ -335,11 +339,10 @@ class GenericRosenbrockWStep(ODEImplicitStep):
 
         # Update buffer registry with the actual cached_auxiliary_count
         buffer_registry.update_buffer(
-            'cached_auxiliaries', self,
-            size=self._cached_auxiliary_count
+            "cached_auxiliaries", self, size=self._cached_auxiliary_count
         )
 
-        time_derivative_function = get_fn('time_derivative_rhs')
+        time_derivative_function = get_fn("time_derivative_rhs")
 
         # Update linear solver with device functions
         self.solver.update(
@@ -350,16 +353,18 @@ class GenericRosenbrockWStep(ODEImplicitStep):
 
         # Return linear solver device function
         self.update_compile_settings(
-                {'solver_function': self.solver.device_function,
-                 'time_derivative_function': time_derivative_function,
-                 'prepare_jacobian_function': prepare_jacobian}
+            {
+                "solver_function": self.solver.device_function,
+                "time_derivative_function": time_derivative_function,
+                "prepare_jacobian_function": prepare_jacobian,
+            }
         )
 
     def build_step(
         self,
-        dxdt_fn: Callable,
-        observables_function: Callable,
-        driver_function: Optional[Callable],
+        evaluate_f: Callable,
+        evaluate_observables: Callable,
+        evaluate_driver_at_t: Optional[Callable],
         solver_function: Callable,
         numba_precision: type,
         n: int,
@@ -379,9 +384,10 @@ class GenericRosenbrockWStep(ODEImplicitStep):
         n = int32(n)
         stage_count = int32(self.stage_count)
         stages_except_first = stage_count - int32(1)
-        has_driver_function = driver_function is not None
+        has_evaluate_driver_at_t = evaluate_driver_at_t is not None
         has_error = self.is_adaptive
         typed_zero = numba_precision(0.0)
+        success = int32(CUBIE_RESULT_CODES.SUCCESS)
 
         a_coeffs = tableau.typed_columns(tableau.a, numba_precision)
         C_coeffs = tableau.typed_columns(tableau.C, numba_precision)
@@ -407,18 +413,16 @@ class GenericRosenbrockWStep(ODEImplicitStep):
         # Get allocators from buffer registry
         alloc_solver_shared, alloc_solver_persistent = (
             buffer_registry.get_child_allocators(
-                    self,
-                    self.solver,
-                    name="solver"
+                self, self.solver, name="solver"
             )
         )
         getalloc = buffer_registry.get_allocator
-        alloc_stage_rhs = getalloc('stage_rhs', self)
-        alloc_stage_store = getalloc('stage_store', self)
-        alloc_cached_auxiliaries = getalloc('cached_auxiliaries', self)
-        alloc_stage_increment = getalloc('stage_increment', self)
-        alloc_base_state_placeholder = getalloc('base_state_placeholder', self)
-        alloc_krylov_iters_out = getalloc('krylov_iters_out', self)
+        alloc_stage_rhs = getalloc("stage_rhs", self)
+        alloc_stage_store = getalloc("stage_store", self)
+        alloc_cached_auxiliaries = getalloc("cached_auxiliaries", self)
+        alloc_stage_increment = getalloc("stage_increment", self)
+        alloc_base_state_placeholder = getalloc("base_state_placeholder", self)
+        alloc_krylov_iters_out = getalloc("krylov_iters_out", self)
 
         # no cover: start
         @cuda.jit(
@@ -461,18 +465,21 @@ class GenericRosenbrockWStep(ODEImplicitStep):
             persistent_local,
             counters,
         ):
-
             # Allocate buffers
             stage_rhs = alloc_stage_rhs(shared, persistent_local)
             stage_store = alloc_stage_store(shared, persistent_local)
-            cached_auxiliaries = alloc_cached_auxiliaries(shared, persistent_local)
+            cached_auxiliaries = alloc_cached_auxiliaries(
+                shared, persistent_local
+            )
             stage_increment = alloc_stage_increment(shared, persistent_local)
             base_state_placeholder = alloc_base_state_placeholder(
                 shared, persistent_local
             )
             krylov_iters_out = alloc_krylov_iters_out(shared, persistent_local)
             solver_shared = alloc_solver_shared(shared, persistent_local)
-            solver_persistent = alloc_solver_persistent(shared, persistent_local)
+            solver_persistent = alloc_solver_persistent(
+                shared, persistent_local
+            )
             # ----------------------------------------------------------- #
 
             current_time = time_scalar
@@ -493,7 +500,7 @@ class GenericRosenbrockWStep(ODEImplicitStep):
             )
 
             # Evaluate del_t term at t_n, y_n
-            if has_driver_function:
+            if has_evaluate_driver_at_t:
                 driver_del_t(
                     current_time,
                     driver_coeffs,
@@ -519,14 +526,14 @@ class GenericRosenbrockWStep(ODEImplicitStep):
                 if has_error:
                     error[idx] = typed_zero
 
-            status_code = int32(0)
+            status_code = success
             stage_time = current_time + dt_scalar * stage_time_fractions[0]
 
             # --------------------------------------------------------------- #
             #            Stage 0: uses starting values                        #
             # --------------------------------------------------------------- #
 
-            dxdt_fn(
+            evaluate_f(
                 state,
                 parameters,
                 drivers_buffer,
@@ -539,9 +546,8 @@ class GenericRosenbrockWStep(ODEImplicitStep):
                 # No accumulated contributions at stage 0.
                 f_value = stage_rhs[idx]
                 rhs_value = (
-                        (f_value + gamma_stages[0] * time_derivative[idx])
-                        * dt_scalar
-                )
+                    f_value + gamma_stages[0] * time_derivative[idx]
+                ) * dt_scalar
                 stage_rhs[idx] = rhs_value * gamma
 
             krylov_iters_out[0] = int32(0)
@@ -568,11 +574,13 @@ class GenericRosenbrockWStep(ODEImplicitStep):
 
             for idx in range(n):
                 if accumulates_output:
-                    proposed_state[idx] += (stage_increment[idx] *
-                                            solution_weights[int32(0)])
+                    proposed_state[idx] += (
+                        stage_increment[idx] * solution_weights[int32(0)]
+                    )
                 if has_error and accumulates_error:
-                    error[idx] += stage_increment[idx] * error_weights[
-                        int32(0)]
+                    error[idx] += (
+                        stage_increment[idx] * error_weights[int32(0)]
+                    )
 
             # --------------------------------------------------------------- #
             #            Stages 1-s: must refresh all values                  #
@@ -602,21 +610,22 @@ class GenericRosenbrockWStep(ODEImplicitStep):
                         base_idx = predecessor_idx * n
                         for idx in range(n):
                             prior_val = stage_store[base_idx + idx]
-                            stage_store[stage_offset + idx] += (a_coeff *
-                                                              prior_val)
+                            stage_store[stage_offset + idx] += (
+                                a_coeff * prior_val
+                            )
 
                 for idx in range(n):
                     stage_increment[idx] = stage_store[stage_offset + idx]
 
                 # Get t + c_i * dt parts
-                if has_driver_function:
-                    driver_function(
+                if has_evaluate_driver_at_t:
+                    evaluate_driver_at_t(
                         stage_time,
                         driver_coeffs,
                         proposed_drivers,
                     )
 
-                observables_function(
+                evaluate_observables(
                     stage_increment,
                     parameters,
                     proposed_drivers,
@@ -624,7 +633,7 @@ class GenericRosenbrockWStep(ODEImplicitStep):
                     stage_time,
                 )
 
-                dxdt_fn(
+                evaluate_f(
                     stage_increment,
                     parameters,
                     proposed_drivers,
@@ -643,7 +652,7 @@ class GenericRosenbrockWStep(ODEImplicitStep):
 
                 # Overwrite the final accumulator slice with time-derivative
                 if stage_idx == stage_count - int32(1):
-                    if has_driver_function:
+                    if has_evaluate_driver_at_t:
                         driver_del_t(
                             current_time,
                             driver_coeffs,
@@ -723,14 +732,14 @@ class GenericRosenbrockWStep(ODEImplicitStep):
                 for idx in range(n):
                     error[idx] = proposed_state[idx] - error[idx]
 
-            if has_driver_function:
-                driver_function(
+            if has_evaluate_driver_at_t:
+                evaluate_driver_at_t(
                     end_time,
                     driver_coeffs,
                     proposed_drivers,
                 )
 
-            observables_function(
+            evaluate_observables(
                 proposed_state,
                 parameters,
                 proposed_drivers,
@@ -738,8 +747,8 @@ class GenericRosenbrockWStep(ODEImplicitStep):
                 end_time,
             )
 
-
             return status_code
+
         # no cover: end
         return StepCache(step=step)
 

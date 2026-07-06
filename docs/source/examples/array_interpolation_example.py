@@ -14,7 +14,7 @@ import numpy as np
 from numba import cuda
 from scipy.interpolate import CubicSpline
 
-from cubie.integrators.array_interpolator import ArrayInterpolator
+from cubie.array_interpolator import ArrayInterpolator
 
 
 def build_wiggly_driver(

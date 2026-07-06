@@ -1,10 +1,16 @@
-"""
-Minimum first derivative summary metric for CUDA-accelerated batch
-integration.
+"""Minimum first derivative via finite differences.
 
-This module implements a summary metric that tracks the minimum first
-derivative (rate of change) encountered during integration for each variable
-using finite differences.
+Published Classes
+-----------------
+:class:`DxdtMin`
+    Minimum first derivative via finite differences.
+
+See Also
+--------
+:class:`~cubie.outputhandling.summarymetrics.metrics.SummaryMetric`
+    Abstract base class for summary metrics.
+:data:`~cubie.outputhandling.summarymetrics.summary_metrics`
+    Global registry where this metric is registered.
 """
 
 from numba import cuda

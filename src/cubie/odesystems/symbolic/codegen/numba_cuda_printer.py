@@ -1,10 +1,48 @@
-"""SymPy printer utilities that emit CUDA-friendly Python code snippets."""
+"""SymPy printer that emits CUDA-compatible Python code snippets.
+
+Published Classes
+-----------------
+:class:`CUDAPrinter`
+    :class:`~sympy.printing.pycode.PythonCodePrinter` subclass that
+    renders SymPy expressions as Numba CUDA device code, mapping
+    function calls to their ``math`` equivalents and wrapping numeric
+    literals with precision casts.
+
+Published Functions
+-------------------
+:func:`print_cuda`
+    Render a single SymPy expression as a CUDA-compatible string.
+
+:func:`print_cuda_multiple`
+    Render a sequence of ``(lhs, rhs)`` assignments as indented CUDA
+    code lines.
+
+Constants
+---------
+:data:`CUDA_FUNCTIONS`
+    Mapping from SymPy function names to ``math.*`` equivalents used
+    by the printer.
+
+See Also
+--------
+:mod:`cubie.odesystems.symbolic.codegen.dxdt`
+    Uses :func:`print_cuda_multiple` to emit ``dxdt`` factory code.
+:mod:`cubie.odesystems.symbolic.codegen.linear_operators`
+    Uses :func:`print_cuda_multiple` to emit linear operator code.
+"""
 
 import re
 from typing import Any, Dict, Iterable, List, Optional, Tuple
 
 import sympy as sp
 from sympy.printing.pycode import PythonCodePrinter
+
+__all__ = [
+    "CUDAPrinter",
+    "print_cuda",
+    "print_cuda_multiple",
+    "CUDA_FUNCTIONS",
+]
 
 # Map SymPy function names to CUDA/Python math equivalents for printing
 # Keys should match expr.func.__name__ from SymPy expressions
@@ -127,7 +165,6 @@ class CUDAPrinter(PythonCodePrinter):
         else:
             result = super().doprint(expr, **kwargs)
         result = self._replace_powers_with_multiplication(result)
-        # result = self._ifelse_to_selp(result)
         return result
 
     def _print_Symbol(self, expr: sp.Symbol) -> str:
@@ -284,7 +321,8 @@ class CUDAPrinter(PythonCodePrinter):
         return expr_str
 
     def _replace_square_powers(self, expr_str: str) -> str:
-        """Replace ``x**2`` or ``x**2.0`` with ``x*x`` while preserving spacing.
+        """Replace ``x**2`` or ``x**2.0`` with ``(x*x)`` while preserving
+        spacing.
 
         Parameters
         ----------
@@ -295,25 +333,36 @@ class CUDAPrinter(PythonCodePrinter):
         -------
         str
             Source string with ``x**2`` or ``x**2.0`` rewritten.
-            
+
         Notes
         -----
         Matches both simple identifiers (x**2, arr[i]**2) and parenthesized
-        expressions ((a + b)**2).
+        expressions ((a + b)**2). The replacement is parenthesized so the
+        rewrite is precedence-safe in division context: ``a/x**2`` becomes
+        ``a/(x*x)``, never ``a/x*x``. Non-integer exponents such as
+        ``x**2.5`` are left untouched.
         """
+
+        def replace(match):
+            base = match.group(1)
+            if float(match.group(2)) != 2.0:
+                return match.group(0)
+            return f"({base}*{base})"
+
         # Match identifier or array access
-        simple_pattern = r"(\w+(?:\[[^]]+])*)\s*\*\*\s*2(?:\.\d+)?\b"
-        expr_str = re.sub(simple_pattern, r"\1*\1", expr_str)
-        
+        simple_pattern = r"(\w+(?:\[[^]]+])*)\s*\*\*\s*(2(?:\.\d+)?)\b"
+        expr_str = re.sub(simple_pattern, replace, expr_str)
+
         # Match parenthesized expressions (but not function calls)
         # Negative lookbehind (?<!\w) ensures no word char before (
-        paren_pattern = r"(?<!\w)(\([^()]+\))\s*\*\*\s*2(?:\.\d+)?\b"
-        expr_str = re.sub(paren_pattern, r"\1*\1", expr_str)
-        
+        paren_pattern = r"(?<!\w)(\([^()]+\))\s*\*\*\s*(2(?:\.\d+)?)\b"
+        expr_str = re.sub(paren_pattern, replace, expr_str)
+
         return expr_str
 
     def _replace_cube_powers(self, expr_str: str) -> str:
-        """Replace ``x**3`` or ``x**3.0`` with ``x*x*x`` while preserving spacing.
+        """Replace ``x**3`` or ``x**3.0`` with ``(x*x*x)`` while preserving
+        spacing.
 
         Parameters
         ----------
@@ -324,41 +373,32 @@ class CUDAPrinter(PythonCodePrinter):
         -------
         str
             Source string with ``x**3`` or ``x**3.0`` rewritten.
-            
+
         Notes
         -----
         Matches both simple identifiers (x**3, arr[i]**3) and parenthesized
-        expressions ((a + b)**3).
+        expressions ((a + b)**3). The replacement is parenthesized so the
+        rewrite is precedence-safe in division context: ``a/x**3`` becomes
+        ``a/(x*x*x)``, never ``a/x*x*x``. Non-integer exponents such as
+        ``x**3.5`` are left untouched.
         """
+
+        def replace(match):
+            base = match.group(1)
+            if float(match.group(2)) != 3.0:
+                return match.group(0)
+            return f"({base}*{base}*{base})"
+
         # Match identifier or array access
-        simple_pattern = r'(\w+(?:\[[^]]+])*)\s*\*\*\s*3(?:\.\d+)?\b'
-        expr_str = re.sub(simple_pattern, r'\1*\1*\1', expr_str)
-        
+        simple_pattern = r'(\w+(?:\[[^]]+])*)\s*\*\*\s*(3(?:\.\d+)?)\b'
+        expr_str = re.sub(simple_pattern, replace, expr_str)
+
         # Match parenthesized expressions (but not function calls)
         # Negative lookbehind (?<!\w) ensures no word char before (
-        paren_pattern = r'(?<!\w)(\([^()]+\))\s*\*\*\s*3(?:\.\d+)?\b'
-        expr_str = re.sub(paren_pattern, r'\1*\1*\1', expr_str)
-        
+        paren_pattern = r'(?<!\w)(\([^()]+\))\s*\*\*\s*(3(?:\.\d+)?)\b'
+        expr_str = re.sub(paren_pattern, replace, expr_str)
+
         return expr_str
-
-    def _ifelse_to_selp(self, expr_str: str) -> str:
-        """Replace conditional expressions with ``selp`` calls.
-
-        Parameters
-        ----------
-        expr_str
-            Source string to rewrite.
-
-        Returns
-        -------
-        str
-            Source string with ternaries replaced by ``selp`` calls.
-        """
-        return re.sub(
-            r"\s+(.+?)\sif\s+(.+?)\s+else\s+(.+)",
-            r"selp(\2, \1, \3)",
-            expr_str,
-        )
 
     def _print_Function(self, expr: sp.Function) -> str:
         """Print a function call with CUDA-specific substitutions.
@@ -474,6 +514,7 @@ def print_cuda(
     """
     printer = CUDAPrinter(symbol_map=symbol_map, **kwargs)
     return printer.doprint(expr)
+
 
 def print_cuda_multiple(
     exprs: Iterable[Tuple[sp.Symbol, sp.Expr]],

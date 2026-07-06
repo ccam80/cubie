@@ -1,56 +1,40 @@
-"""Adaptive integral step controller."""
-from typing import Callable, Optional, Union
+"""Adaptive integral step-size controller.
+
+Published Classes
+-----------------
+:class:`AdaptiveIController`
+    Integral-only adaptive step-size controller.
+
+    >>> from numpy import float64
+    >>> ctrl = AdaptiveIController(precision=float64, n=4)
+    >>> ctrl.is_adaptive
+    True
+
+See Also
+--------
+:class:`~cubie.integrators.step_control.adaptive_step_controller.BaseAdaptiveStepController`
+    Abstract base class for adaptive controllers.
+:class:`~cubie.integrators.step_control.adaptive_step_controller.AdaptiveStepControlConfig`
+    Configuration used by this controller.
+"""
+from typing import Callable
 
 from numba import cuda, int32
 from numpy import ndarray
-from numpy._typing import ArrayLike
+from math import isnan, isinf
 
-from cubie._utils import PrecisionDType, build_config
+from cubie._utils import PrecisionDType
 from cubie.integrators.step_control.adaptive_step_controller import (
     BaseAdaptiveStepController,
-    AdaptiveStepControlConfig,
 )
 from cubie.cuda_simsafe import compile_kwargs, selp
+from cubie.result_codes import CUBIE_RESULT_CODES
 
 from cubie.integrators.step_control.base_step_controller import ControllerCache
 
 
 class AdaptiveIController(BaseAdaptiveStepController):
     """Integral step-size controller using only previous error."""
-
-    def __init__(
-        self,
-        precision: PrecisionDType,
-        n: int = 1,
-        **kwargs,
-    ) -> None:
-        """Initialise an integral step controller.
-
-        Parameters
-        ----------
-        precision
-            Precision used for controller calculations.
-        n
-            Number of state variables.
-        **kwargs
-            Optional parameters passed to AdaptiveStepControlConfig. See
-            AdaptiveStepControlConfig for available parameters including
-            dt_min, dt_max, atol, rtol, algorithm_order, min_gain, max_gain,
-            deadband_min, deadband_max. None values are ignored.
-        """
-        config = build_config(
-            AdaptiveStepControlConfig,
-            required={'precision': precision, 'n': n},
-            **kwargs
-        )
-
-        super().__init__(config)
-
-    @property
-    def local_memory_elements(self) -> int:
-        """Return the number of local memory slots required."""
-
-        return 0
 
     def build_controller(
         self,
@@ -112,6 +96,9 @@ class AdaptiveIController(BaseAdaptiveStepController):
         )
         n = int32(n)
         inv_n = precision(1.0 / n)
+        typed_large = precision(1e16)
+        success = int32(CUBIE_RESULT_CODES.SUCCESS)
+        step_too_small = int32(CUBIE_RESULT_CODES.STEP_TOO_SMALL)
 
         precision = self.compile_settings.numba_precision
         # step sizes and norms can be approximate - fastmath is fine
@@ -166,6 +153,8 @@ class AdaptiveIController(BaseAdaptiveStepController):
                 nrm2 += ratio * ratio
 
             nrm2 = nrm2 * inv_n
+            nrm2 = typed_large if (isnan(nrm2) or isinf(nrm2)) else nrm2
+
             accept = nrm2 <= typed_one
             accept_out[0] = int32(1) if accept else int32(0)
 
@@ -182,7 +171,7 @@ class AdaptiveIController(BaseAdaptiveStepController):
             dt_new_raw = dt[0] * gain
             dt[0] = clamp(dt_new_raw, dt_min, dt_max)
 
-            ret = int32(0) if dt_new_raw > dt_min else int32(8)
+            ret = success if dt_new_raw > dt_min else step_too_small
             return ret
 
         return ControllerCache(device_function=controller_I)

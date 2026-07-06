@@ -1,16 +1,43 @@
-"""Fixed step-size controller implementations."""
+"""Fixed step-size controller.
 
+Published Classes
+-----------------
+:class:`FixedStepControlConfig`
+    Configuration container for fixed-step controllers.
+
+    >>> from numpy import float32
+    >>> config = FixedStepControlConfig(precision=float32, dt=1e-3)
+    >>> config.dt
+    0.001
+
+:class:`FixedStepController`
+    Controller that enforces a constant time step.
+
+    >>> from numpy import float64
+    >>> ctrl = FixedStepController(precision=float64, dt=0.01)
+    >>> ctrl.is_adaptive
+    False
+
+See Also
+--------
+:class:`~cubie.integrators.step_control.base_step_controller.BaseStepController`
+    Abstract base class for all controllers.
+:class:`~cubie.integrators.step_control.base_step_controller.BaseStepControllerConfig`
+    Base configuration class.
+"""
 
 from attrs import define, field
 from numba import cuda, int32
 from cubie.cuda_simsafe import compile_kwargs
+from cubie.result_codes import CUBIE_RESULT_CODES
 
-from cubie._utils import PrecisionDType, getype_validator, build_config
+from cubie._utils import getype_validator
 from cubie.integrators.step_control.base_step_controller import (
     BaseStepControllerConfig,
     BaseStepController,
     ControllerCache,
 )
+
 
 @define
 class FixedStepControlConfig(BaseStepControllerConfig):
@@ -23,18 +50,16 @@ class FixedStepControlConfig(BaseStepControllerConfig):
     n
         Number of state variables controlled per step.
     """
-    _dt: float = field(
-        default=1e-3, validator=getype_validator(float, 0)
-    )
+
+    _dt: float = field(default=1e-3, validator=getype_validator(float, 0))
 
     def __attrs_post_init__(self) -> None:
         """Validate configuration after initialisation."""
+        super().__attrs_post_init__()
         self._validate_config()
 
     def _validate_config(self) -> None:
         """Confirm that the configuration is internally consistent."""
-
-        return True
 
     @property
     def dt(self) -> float:
@@ -50,10 +75,6 @@ class FixedStepControlConfig(BaseStepControllerConfig):
     def dt_max(self) -> float:
         """Return the maximum step size."""
         return self.dt
-    @property
-    def dt0(self) -> float:
-        """Return the initial step size used at loop start."""
-        return self.dt
 
     @property
     def is_adaptive(self) -> bool:
@@ -64,59 +85,57 @@ class FixedStepControlConfig(BaseStepControllerConfig):
     def settings_dict(self) -> dict[str, object]:
         """Return the configuration as a dictionary."""
         settings_dict = super().settings_dict
-        settings_dict.update({'dt': self.dt})
+        settings_dict.update({"dt": self.dt})
         return settings_dict
+
 
 class FixedStepController(BaseStepController):
     """Controller that enforces a constant time step."""
 
-    def __init__(
-        self,
-        precision: PrecisionDType,
-        dt: float,
-        n: int = 1,
-        **kwargs,
-    ) -> None:
-        """Initialise the fixed step controller.
+    _config_class = FixedStepControlConfig
+
+    def _resolve_step_params(self, dt: float, kwargs: dict) -> None:
+        """Collapse dt_min/dt_max to dt for fixed-step control.
 
         Parameters
         ----------
-        precision
-            Precision used for controller calculations.
         dt
-            Fixed step size to apply on every iteration.
-        n
-            Number of state variables advanced by the integrator.
-        **kwargs
-            Optional parameters passed to FixedStepControlConfig. See
-            FixedStepControlConfig for available parameters. None values
-            are ignored.
+            Fixed step size, or None if not provided.
+        kwargs
+            Mutable dict of keyword arguments. Modified in place.
         """
-        super().__init__()
-        config = build_config(
-            FixedStepControlConfig,
-            required={'precision': precision, 'n': n, 'dt': dt},
-            **kwargs
-        )
-        self.setup_compile_settings(config)
-        self.register_buffers()
+        dt_min = kwargs.pop("dt_min", None)
+        dt_max = kwargs.pop("dt_max", None)
+
+        resolved = dt or dt_min or dt_max
+        if resolved is not None:
+            self._user_step_params["dt"] = resolved
+            kwargs["dt"] = resolved
 
     def build(self) -> ControllerCache:
         """Return a device function that always accepts with fixed step.
 
         Returns
         -------
-        Callable
-            CUDA device function that keeps the step size constant.
+        ControllerCache
+            Cache containing the compiled fixed-step device function.
         """
+        success = int32(CUBIE_RESULT_CODES.SUCCESS)
+
         @cuda.jit(
             device=True,
             inline=True,
             **compile_kwargs,
         )
         def controller_fixed_step(
-            dt, state, state_prev, error, niters, accept_out,
-            shared_scratch, persistent_local
+            dt,
+            state,
+            state_prev,
+            error,
+            niters,
+            accept_out,
+            shared_scratch,
+            persistent_local,
         ):  # pragma: no cover - CUDA
             """Fixed-step controller device function.
 
@@ -145,17 +164,6 @@ class FixedStepController(BaseStepController):
                 Zero, indicating that the current step size should be kept.
             """
             accept_out[0] = int32(1)
-            return int32(0)
+            return success
 
         return ControllerCache(device_function=controller_fixed_step)
-
-    @property
-    def local_memory_elements(self) -> int:
-        """Amount of local memory required by the controller."""
-        return 0
-
-    @property
-    def dt(self) -> float:
-        """Return the fixed step size used by the controller."""
-
-        return self.compile_settings.dt

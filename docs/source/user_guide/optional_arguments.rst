@@ -1,5 +1,5 @@
 Optional Arguments Reference
-===========================
+============================
 
 CuBIE uses a cascading configuration system where optional parameters flow
 through to underlying components. When you call ``solver.solve()`` or create
@@ -39,20 +39,23 @@ The solver works in two layers: an outer Newton loop that handles
 nonlinearity, and an inner Krylov loop that solves the linear system at each
 Newton step.
 
-**newton_tolerance**
-    The residual threshold for the Newton solver to exit. In each implicit
-    step, the Newton-Krylov solver runs a loop trying to converge onto a
-    state that minimises the difference between the proposed state and the
-    expected state from the integration formula. When the sum of squared
-    differences falls below this tolerance, the loop exits. The Newton
-    tolerance differs from ``atol`` and ``rtol`` used to calculate step size
-    and accept/reject steps — the Newton tolerance checks how closely the
-    proposed state matches expectations for a given step, while the
-    step-size tolerances check the estimated truncation error due to the
-    order of the algorithm itself.
+**newton_atol**
+    The absolute tolerance for the Newton solver convergence check. Together
+    with ``newton_rtol``, this defines when the Newton loop exits. The scaled
+    norm of the residual must fall below 1 (where the norm uses these
+    tolerances for scaling) for convergence. Use tighter tolerances for more
+    accurate implicit solves.
 
-    - Default: ``1e-3``
-    - Type: ``float`` (must be positive)
+    - Default: ``1e-6``
+    - Type: ``float`` or ``ndarray`` (must be positive)
+
+**newton_rtol**
+    The relative tolerance for the Newton solver convergence check. Works
+    together with ``newton_atol`` to scale the residual norm. The relative
+    tolerance scales based on the magnitude of the current solution.
+
+    - Default: ``1e-6``
+    - Type: ``float`` or ``ndarray`` (must be positive)
 
 **max_newton_iters**
     Maximum number of Newton iterations before the solver gives up. If the
@@ -82,14 +85,21 @@ Newton step.
     - Default: ``8``
     - Type: ``int`` (1 to 32767)
 
-**krylov_tolerance**
-    The squared residual norm threshold for the linear solver to exit. The
-    inner Krylov loop solves a linear system at each Newton step, and exits
-    when the residual falls below this value squared. Tighter tolerances
-    give more accurate Newton directions but require more iterations.
+**krylov_atol**
+    The absolute tolerance for the linear solver convergence check. Together
+    with ``krylov_rtol``, this defines when the Krylov loop exits. The inner
+    Krylov loop solves a linear system at each Newton step and exits when
+    the scaled residual norm falls below 1.
 
     - Default: ``1e-6``
-    - Type: ``float`` (must be positive)
+    - Type: ``float`` or ``ndarray`` (must be positive)
+
+**krylov_rtol**
+    The relative tolerance for the linear solver convergence check. Works
+    together with ``krylov_atol`` to scale the residual norm.
+
+    - Default: ``1e-6``
+    - Type: ``float`` or ``ndarray`` (must be positive)
 
 **max_linear_iters**
     Maximum number of linear solver iterations per Newton step. If the
@@ -131,31 +141,43 @@ Implicit Algorithm Applicability
      - DIRK
      - FIRK
      - Rosenbrock-W
-   * - newton_tolerance
+   * - newton_atol
      - ✓
      - ✓
      - ✓
      - ✓
+     - ✗
+   * - newton_rtol
      - ✓
+     - ✓
+     - ✓
+     - ✓
+     - ✗
    * - max_newton_iters
      - ✓
      - ✓
      - ✓
      - ✓
-     - ✓
+     - ✗
    * - newton_damping
      - ✓
      - ✓
      - ✓
      - ✓
-     - ✓
+     - ✗
    * - newton_max_backtracks
      - ✓
      - ✓
      - ✓
      - ✓
+     - ✗
+   * - krylov_atol
      - ✓
-   * - krylov_tolerance
+     - ✓
+     - ✓
+     - ✓
+     - ✓
+   * - krylov_rtol
      - ✓
      - ✓
      - ✓
@@ -241,7 +263,7 @@ Gustafsson).
     this limit, even if the error estimate suggests a larger step would be
     acceptable. Set this to prevent jumping over important dynamics.
 
-    - Default: ``dt_min * 100`` (if not specified)
+    - Default: ``1.0`` (or derived from ``dt`` if provided; see :doc:`timing`)
     - Type: ``float`` (must be greater than ``dt_min``)
 
 **algorithm_order**
@@ -468,33 +490,36 @@ Loop Options
 ------------
 
 Loop parameters control the overall integration process, including timing,
-initial conditions, and output cadence.
+initial conditions, and output cadence. See :doc:`timing` for detailed
+coverage of how timing parameters interact.
 
 Timing Parameters
 ~~~~~~~~~~~~~~~~~
 
-**dt0**
+**dt**
     Initial step size at the start of integration. For adaptive controllers,
     this is used only for the first step; subsequent steps are determined
-    by the controller. For fixed stepping, this is ignored (``dt`` is used).
+    by the controller. If not specified, computed as ``sqrt(dt_min * dt_max)``.
+    When you provide ``dt`` alone, ``dt_min`` and ``dt_max`` are derived from
+    it. See :doc:`timing` for the full derivation rules.
 
-    - Default: computed as ``sqrt(dt_min * dt_max)`` for adaptive
+    - Default: ``sqrt(dt_min * dt_max)`` for adaptive, ``1e-3`` for fixed
     - Type: ``float`` (must be positive)
 
-**dt_save**
+**save_every**
     Time interval between saved output samples. Determines how often state
     and observable values are recorded to the output arrays. Smaller values
     give higher resolution output but require more memory.
 
-    - Default: ``0.1``
+    - Default: If not set, saves only initial and final states
     - Type: ``float`` (must be positive)
 
-**dt_summarise**
-    Time interval between summary statistic calculations. Summary metrics
-    (mean, max, RMS, etc.) are accumulated over this interval before being
-    written to output. Should be at least as large as ``dt_save``.
+**summarise_every**
+    Window length for summary statistics. At the end of each window,
+    metrics (mean, max, RMS, etc.) are computed and the accumulator resets.
+    Uses fixed, non-overlapping windows.
 
-    - Default: ``1.0``
+    - Default: ``duration`` (one summary over the entire integration)
     - Type: ``float`` (must be positive)
 
 Output Options
@@ -563,13 +588,14 @@ memory. These options affect performance but not correctness.
 
 **Buffer location parameters** (e.g., ``state_location``,
 ``preconditioned_vec_location``, etc.)
-    Control whether a buffer is allocated in local memory (``"local"``) or
-    shared memory (``"shared"``). Local memory is private to each thread and
-    larger; shared memory is faster but limited and shared across a thread
-    block. The defaults are tuned for typical use cases.
 
-    - Default: ``"local"`` for most buffers
-    - Type: ``str`` (``"local"`` or ``"shared"``)
+Control whether a buffer is allocated in local memory (``"local"``) or
+shared memory (``"shared"``). Local memory is private to each thread and
+larger; shared memory is faster but limited and shared across a thread
+block. The defaults are tuned for typical use cases.
+
+- Default: ``"local"`` for most buffers
+- Type: ``str`` (``"local"`` or ``"shared"``)
 
 These parameters are primarily useful for performance tuning on specific GPU
 architectures and can generally be left at their defaults.

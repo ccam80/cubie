@@ -1,34 +1,46 @@
-"""Fully implicit Runge--Kutta integration step implementation.
+"""Fully implicit Runge–Kutta integration step implementation.
 
-This module provides the :class:`FIRKStep` class, which implements fully
-implicit Runge--Kutta (FIRK) methods using configurable Butcher tableaus.
-Unlike DIRK methods, FIRK methods have a fully dense coefficient matrix,
-requiring all stages to be solved simultaneously as a coupled system.
+Published Classes
+-----------------
+:class:`FIRKStepConfig`
+    Configuration container for the FIRK step.
 
-Key Features
-------------
-- Configurable tableaus via :class:`FIRKTableau`
-- Automatic controller defaults selection based on error estimate capability
-- Matrix-free Newton-Krylov solvers for coupled implicit stages
-- Support for high-order implicit methods (e.g., Gauss-Legendre)
+:class:`FIRKStep`
+    Multi-stage fully implicit step solving all stages as a coupled
+    nonlinear system. Uses Kahan summation for output accumulation.
+
+Constants
+---------
+:data:`FIRK_ADAPTIVE_DEFAULTS`
+    Default PID controller settings for adaptive tableaus.
+
+:data:`FIRK_FIXED_DEFAULTS`
+    Default fixed-step settings for errorless tableaus.
 
 Notes
 -----
-The module defines two sets of default step controller settings:
+The step controller defaults are selected dynamically based on whether
+the tableau has an embedded error estimate. FIRK methods require
+solving a coupled system of all stages simultaneously, which is more
+expensive than DIRK methods but can achieve higher orders for stiff
+systems.
 
-- :data:`FIRK_ADAPTIVE_DEFAULTS`: Used when the tableau has an embedded
-  error estimate. Defaults to PI controller with adaptive stepping.
-- :data:`FIRK_FIXED_DEFAULTS`: Used when the tableau lacks an error
-  estimate. Defaults to fixed-step controller.
-
-This dynamic selection ensures that users cannot accidentally pair an
-errorless tableau with an adaptive controller, which would fail at runtime.
+See Also
+--------
+:class:`~cubie.integrators.algorithms.ode_implicitstep.ODEImplicitStep`
+    Abstract parent managing the Newton–Krylov solver lifecycle.
+:class:`~cubie.integrators.algorithms.generic_firk_tableaus.FIRKTableau`
+    Tableau class describing FIRK coefficients.
+:class:`FIRKStepConfig`
+    Configuration for this step.
 """
 
 from typing import Callable, Optional
 
 from attrs import define, field, validators
 from numba import cuda, int32
+
+from cubie.result_codes import CUBIE_RESULT_CODES
 from numpy import eye
 
 from cubie._utils import PrecisionDType, build_config
@@ -47,14 +59,9 @@ from cubie.integrators.algorithms.ode_implicitstep import (
 from cubie.buffer_registry import buffer_registry
 
 
-
-
-
 FIRK_ADAPTIVE_DEFAULTS = StepControlDefaults(
     step_controller={
         "step_controller": "pid",
-        "dt_min": 1e-6,
-        "dt_max": 1e-1,
         "kp": 0.6,
         "ki": -0.4,
         "deadband_min": 1.0,
@@ -82,7 +89,6 @@ explicitly specifying step controller parameters.
 FIRK_FIXED_DEFAULTS = StepControlDefaults(
     step_controller={
         "step_controller": "fixed",
-        "dt": 1e-3,
     }
 )
 """Default step controller settings for errorless FIRK tableaus.
@@ -93,12 +99,6 @@ estimate (``tableau.has_error_estimate == False``).
 Fixed-step controllers maintain a constant step size throughout the
 integration. This is the only valid choice for errorless tableaus since
 adaptive stepping requires an error estimate to adjust the step size.
-
-Notes
------
-These defaults are applied automatically when creating a :class:`FIRKStep`
-with an errorless tableau. Users can override the step size ``dt`` by
-explicitly specifying it in the step controller settings.
 """
 
 
@@ -110,16 +110,13 @@ class FIRKStepConfig(ImplicitStepConfig):
         default=DEFAULT_FIRK_TABLEAU,
     )
     stage_increment_location: str = field(
-        default='local',
-        validator=validators.in_(['local', 'shared'])
+        default="local", validator=validators.in_(["local", "shared"])
     )
     stage_driver_stack_location: str = field(
-        default='local',
-        validator=validators.in_(['local', 'shared'])
+        default="local", validator=validators.in_(["local", "shared"])
     )
     stage_state_location: str = field(
-        default='local',
-        validator=validators.in_(['local', 'shared'])
+        default="local", validator=validators.in_(["local", "shared"])
     )
 
     @property
@@ -142,9 +139,9 @@ class FIRKStep(ODEImplicitStep):
         self,
         precision: PrecisionDType,
         n: int,
-        dxdt_function: Optional[Callable] = None,
-        observables_function: Optional[Callable] = None,
-        driver_function: Optional[Callable] = None,
+        evaluate_f: Optional[Callable] = None,
+        evaluate_observables: Optional[Callable] = None,
+        evaluate_driver_at_t: Optional[Callable] = None,
         get_solver_helper_fn: Optional[Callable] = None,
         tableau: FIRKTableau = DEFAULT_FIRK_TABLEAU,
         n_drivers: int = 0,
@@ -164,13 +161,12 @@ class FIRKStep(ODEImplicitStep):
             Floating-point precision for CUDA computations.
         n
             Number of state variables in the ODE system.
-        dxdt_function
-            Compiled CUDA device function computing state derivatives.
-        observables_function
-            Optional compiled CUDA device function computing observables.
-        driver_function
-            Optional compiled CUDA device function computing time-varying
-            drivers.
+        evaluate_f
+            Device function for evaluating f(t, y) right-hand side.
+        evaluate_observables
+            Device function computing system observables.
+        evaluate_driver_at_t
+            Optional device function evaluating drivers at arbitrary times.
         get_solver_helper_fn
             Factory function returning solver helper for Jacobian operations.
         tableau
@@ -204,19 +200,19 @@ class FIRKStep(ODEImplicitStep):
         config = build_config(
             FIRKStepConfig,
             required={
-                'precision': precision,
-                'n': n,
-                'n_drivers': n_drivers,
-                'dxdt_function': dxdt_function,
-                'observables_function': observables_function,
-                'driver_function': driver_function,
-                'get_solver_helper_fn': get_solver_helper_fn,
-                'tableau': tableau,
-                'beta': 1.0,
-                'gamma': 1.0,
-                'M': mass,
+                "precision": precision,
+                "n": n,
+                "n_drivers": n_drivers,
+                "evaluate_f": evaluate_f,
+                "evaluate_observables": evaluate_observables,
+                "evaluate_driver_at_t": evaluate_driver_at_t,
+                "get_solver_helper_fn": get_solver_helper_fn,
+                "tableau": tableau,
+                "beta": 1.0,
+                "gamma": 1.0,
+                "M": mass,
             },
-            **kwargs
+            **kwargs,
         )
 
         # Select defaults based on error estimate
@@ -227,7 +223,7 @@ class FIRKStep(ODEImplicitStep):
 
         super().__init__(config, controller_defaults, **kwargs)
 
-        self.solver.update(n=self.tableau.stage_count * n)
+        self.solver.update(n=config.all_stages_n)
         self.register_buffers()
 
     def register_buffers(self) -> None:
@@ -241,31 +237,35 @@ class FIRKStep(ODEImplicitStep):
         all_stages_n = tableau.stage_count * n
         stage_driver_stack_elements = tableau.stage_count * config.n_drivers
 
-        _,_ = buffer_registry.get_child_allocators(
-                self,
-                self.solver,
-                name='solver'
+        _, _ = buffer_registry.get_child_allocators(
+            self, self.solver, name="solver"
         )
         buffer_registry.register(
-            'stage_increment',
+            "stage_increment",
             self,
             all_stages_n,
             config.stage_increment_location,
             persistent=True,
-            precision=precision
+            precision=precision,
         )
         buffer_registry.register(
-            'stage_driver_stack', self, stage_driver_stack_elements,
-            config.stage_driver_stack_location, precision=precision
+            "stage_driver_stack",
+            self,
+            stage_driver_stack_elements,
+            config.stage_driver_stack_location,
+            precision=precision,
         )
         buffer_registry.register(
-            'stage_state', self, n, config.stage_state_location,
-            precision=precision
+            "stage_state",
+            self,
+            n,
+            config.stage_state_location,
+            precision=precision,
         )
 
     def build_implicit_helpers(
         self,
-    ) -> Callable:
+    ) -> None:
         """Construct the nonlinear solver chain used by implicit methods."""
 
         config = self.compile_settings
@@ -311,18 +311,18 @@ class FIRKStep(ODEImplicitStep):
             operator_apply=operator,
             preconditioner=preconditioner,
             residual_function=residual,
-            n=tableau.stage_count * config.n
+            n=config.all_stages_n,
         )
 
         self.update_compile_settings(
-                {'solver_function':self.solver.device_function}
+            {"solver_function": self.solver.device_function}
         )
 
     def build_step(
         self,
-        dxdt_fn: Callable,
-        observables_function: Callable,
-        driver_function: Optional[Callable],
+        evaluate_f: Callable,
+        evaluate_observables: Callable,
+        evaluate_driver_at_t: Optional[Callable],
         solver_function: Callable,
         numba_precision: type,
         n: int,
@@ -339,12 +339,13 @@ class FIRKStep(ODEImplicitStep):
         n_drivers = int32(n_drivers)
         stage_count = int32(self.stage_count)
 
-        has_driver_function = driver_function is not None
+        has_evaluate_driver_at_t = evaluate_driver_at_t is not None
         has_error = self.is_adaptive
 
         stage_rhs_coeffs = tableau.a_flat(numba_precision)
         solution_weights = tableau.typed_vector(tableau.b, numba_precision)
         typed_zero = numba_precision(0.0)
+        success = int32(CUBIE_RESULT_CODES.SUCCESS)
         error_weights = tableau.error_weights(numba_precision)
         if error_weights is None or not has_error:
             error_weights = tuple(typed_zero for _ in range(stage_count))
@@ -365,14 +366,15 @@ class FIRKStep(ODEImplicitStep):
 
         # Get allocators from buffer registry
         getalloc = buffer_registry.get_allocator
-        alloc_stage_increment = getalloc('stage_increment', self)
-        alloc_stage_driver_stack = getalloc('stage_driver_stack', self)
-        alloc_stage_state = getalloc('stage_state', self)
+        alloc_stage_increment = getalloc("stage_increment", self)
+        alloc_stage_driver_stack = getalloc("stage_driver_stack", self)
+        alloc_stage_state = getalloc("stage_state", self)
 
         # Get child allocators for Newton solver
         alloc_solver_shared, alloc_solver_persistent = (
             buffer_registry.get_child_allocators(self, nonlinear_solver)
         )
+
         # no cover: start
         @cuda.jit(
             # (
@@ -414,22 +416,24 @@ class FIRKStep(ODEImplicitStep):
             persistent_local,
             counters,
         ):
-
             # ----------------------------------------------------------- #
             # Selective allocation from local or shared memory
             # ----------------------------------------------------------- #
             stage_state = alloc_stage_state(shared, persistent_local)
             solver_shared = alloc_solver_shared(shared, persistent_local)
-            solver_persistent = alloc_solver_persistent(shared, persistent_local)
+            solver_persistent = alloc_solver_persistent(
+                shared, persistent_local
+            )
             stage_increment = alloc_stage_increment(shared, persistent_local)
-            stage_driver_stack = alloc_stage_driver_stack(shared, persistent_local)
+            stage_driver_stack = alloc_stage_driver_stack(
+                shared, persistent_local
+            )
 
             # ----------------------------------------------------------- #
 
-
             current_time = time_scalar
             end_time = current_time + dt_scalar
-            status_code = int32(0)
+            status_code = success
 
             for idx in range(n):
                 if accumulates_output:
@@ -438,7 +442,7 @@ class FIRKStep(ODEImplicitStep):
                     error[idx] = typed_zero
 
             # Fill stage_drivers_stack if driver arrays provided
-            if has_driver_function:
+            if has_evaluate_driver_at_t:
                 for stage_idx in range(stage_count):
                     stage_time = (
                         current_time
@@ -446,9 +450,11 @@ class FIRKStep(ODEImplicitStep):
                     )
                     driver_offset = stage_idx * n_drivers
                     driver_slice = stage_driver_stack[
-                        driver_offset:driver_offset + n_drivers
+                        driver_offset : driver_offset + n_drivers
                     ]
-                    driver_function(stage_time, driver_coeffs, driver_slice)
+                    evaluate_driver_at_t(
+                        stage_time, driver_coeffs, driver_slice
+                    )
 
             # Solve n-stage nonlinear problem for all stages
             solver_status = nonlinear_solver(
@@ -466,10 +472,12 @@ class FIRKStep(ODEImplicitStep):
             status_code = int32(status_code | solver_status)
 
             for stage_idx in range(stage_count):
-                if has_driver_function:
+                if has_evaluate_driver_at_t:
                     stage_base = stage_idx * n_drivers
-                    for idx in range (n_drivers):
-                        proposed_drivers[idx] = stage_driver_stack[stage_base + idx]
+                    for idx in range(n_drivers):
+                        proposed_drivers[idx] = stage_driver_stack[
+                            stage_base + idx
+                        ]
 
                 for idx in range(n):
                     value = state[idx]
@@ -478,7 +486,9 @@ class FIRKStep(ODEImplicitStep):
                         increment_idx = contrib_idx * n
                         coeff = stage_rhs_coeffs[flat_idx]
                         if coeff != typed_zero:
-                            value += coeff * stage_increment[increment_idx + idx]
+                            value += (
+                                coeff * stage_increment[increment_idx + idx]
+                            )
                     stage_state[idx] = value
 
                 # Capture precalculated outputs if tableau allows
@@ -523,14 +533,14 @@ class FIRKStep(ODEImplicitStep):
                     error[idx] = error_acc
 
             if not ends_at_one:
-                if has_driver_function:
-                    driver_function(
+                if has_evaluate_driver_at_t:
+                    evaluate_driver_at_t(
                         end_time,
                         driver_coeffs,
                         proposed_drivers,
                     )
 
-            observables_function(
+            evaluate_observables(
                 proposed_state,
                 parameters,
                 proposed_drivers,

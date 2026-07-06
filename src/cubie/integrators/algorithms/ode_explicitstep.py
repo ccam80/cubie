@@ -1,4 +1,24 @@
-"""Infrastructure for explicit integration step implementations."""
+"""Infrastructure for explicit integration step implementations.
+
+Published Classes
+-----------------
+:class:`ExplicitStepConfig`
+    Configuration container for explicit ODE integration algorithms.
+    Inherits all fields from :class:`BaseStepConfig` without additions.
+
+:class:`ODEExplicitStep`
+    Abstract base for explicit algorithms. Provides :meth:`build` which
+    unpacks configuration and delegates to :meth:`build_step`.
+
+See Also
+--------
+:class:`~cubie.integrators.algorithms.base_algorithm_step.BaseAlgorithmStep`
+    Parent factory class.
+:class:`~cubie.integrators.algorithms.base_algorithm_step.BaseStepConfig`
+    Parent configuration class.
+:class:`~cubie.integrators.algorithms.ode_implicitstep.ODEImplicitStep`
+    Implicit counterpart.
+"""
 
 from abc import abstractmethod
 from typing import Callable, Optional
@@ -31,16 +51,16 @@ class ODEExplicitStep(BaseAlgorithmStep):
         """
 
         config = self.compile_settings
-        dxdt_function = config.dxdt_function
+        evaluate_f = config.evaluate_f
         numba_precision = config.numba_precision
         n = config.n
-        observables_function = config.observables_function
-        driver_function = config.driver_function
+        evaluate_observables = config.evaluate_observables
+        evaluate_driver_at_t = config.evaluate_driver_at_t
         n_drivers = config.n_drivers
         return self.build_step(
-            dxdt_function,
-            observables_function,
-            driver_function,
+            evaluate_f,
+            evaluate_observables,
+            evaluate_driver_at_t,
             numba_precision,
             n,
             n_drivers,
@@ -49,9 +69,9 @@ class ODEExplicitStep(BaseAlgorithmStep):
     @abstractmethod
     def build_step(
         self,
-        dxdt_function: Callable,
-        observables_function: Callable,
-        driver_function: Optional[Callable],
+        evaluate_f: Callable,
+        evaluate_observables: Callable,
+        evaluate_driver_at_t: Optional[Callable],
         numba_precision: type,
         n: int,
         n_drivers: int,
@@ -60,11 +80,11 @@ class ODEExplicitStep(BaseAlgorithmStep):
 
         Parameters
         ----------
-        dxdt_function
-            Device derivative function for the ODE system.
-        observables_function
+        evaluate_f
+            Device function for evaluating the ODE right-hand side f(t, y).
+        evaluate_observables
             Device helper that computes observables for the system.
-        driver_function
+        evaluate_driver_at_t
             Optional device function evaluating drivers at arbitrary times.
         numba_precision
             Numba precision for compiled device buffers.

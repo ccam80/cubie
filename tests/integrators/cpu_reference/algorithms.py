@@ -478,8 +478,8 @@ class CPUStep:
         return self._preconditioner_order
 
     @property
-    def newton_tolerance(self) -> np.floating:
-        """Return the Newton iteration convergence tolerance."""
+    def newton_atol(self) -> np.floating:
+        """Return the Newton iteration absolute tolerance."""
 
         return self._newton_tol
 

@@ -14,8 +14,6 @@ Output handling
    output_functions
    output_config
    output_compile_flags
-   summaries_buffer_sizes
-   loop_buffer_sizes
    output_array_heights
    single_run_output_sizes
    batch_input_sizes
@@ -55,8 +53,6 @@ Configuration
 Sizing utilities
 ----------------
 
-* :doc:`SummariesBufferSizes <summaries_buffer_sizes>` – computes summary buffer dimensions.
-* :doc:`LoopBufferSizes <loop_buffer_sizes>` – describes per-loop buffer heights and widths.
 * :doc:`OutputArrayHeights <output_array_heights>` – calculates height metadata for output arrays.
 * :doc:`SingleRunOutputSizes <single_run_output_sizes>` – shapes for single-run solver outputs.
 * :doc:`BatchInputSizes <batch_input_sizes>` – input buffer sizes for batch runs.

@@ -82,9 +82,9 @@
 #         state_order_3 = system3.states.get_indices(state_order)
 #
 #         # Get device functions
-#         dxdt1 = system1.dxdt_function
-#         dxdt2 = system2.dxdt_function
-#         dxdt3 = system3.dxdt_function
+#         dxdt1 = system1.evaluate_f
+#         dxdt2 = system2.evaluate_f
+#         dxdt3 = system3.evaluate_f
 #
 #
 #         @cuda.jit()

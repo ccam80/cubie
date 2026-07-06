@@ -1,43 +1,170 @@
-"""Interfaces for step-size controller configuration and factories.
+"""Abstract interfaces for step-size controller configuration and
+factories.
+
+Published Classes
+-----------------
+:class:`ControllerCache`
+    Cache container for compiled controller device functions.
+
+:class:`BaseStepControllerConfig`
+    Abstract attrs configuration shared by all controllers.
+
+:class:`BaseStepController`
+    Abstract factory base compiling CUDA step-size controllers.
+
+Constants
+---------
+:data:`ALL_STEP_CONTROLLER_PARAMETERS`
+    Union of all keyword arguments accepted across controller types.
 
 Notes
 -----
-The abstract configuration and factory interfaces defined here encapsulate
-shared behaviour for fixed and adaptive step controllers. Concrete
-controllers extend these classes to compile CUDA device functions that
-implement specific control strategies.
+Concrete controllers extend these classes to compile CUDA device
+functions that implement specific control strategies. Fixed and
+adaptive controllers share the configuration and buffer registration
+interfaces defined here.
+
+See Also
+--------
+:class:`~cubie.CUDAFactory.CUDAFactory`
+    Parent factory providing compilation and cache management.
+:mod:`cubie.integrators.step_control`
+    Package-level entry point and controller registry.
 """
 
 from abc import ABC, abstractmethod
 from typing import Callable, Optional, Union
 import warnings
 
-from numpy import float32
-from numba import from_dtype
 from attrs import define, field, validators
 
-from cubie.CUDAFactory import CUDAFactory, CUDAFunctionCache
-from cubie._utils import PrecisionDType, getype_validator, precision_converter, \
-    precision_validator
+from cubie.CUDAFactory import (
+    CUDAFactory,
+    CUDAFactoryConfig,
+    CUDADispatcherCache,
+)
+from cubie._utils import (
+    getype_validator,
+    opt_getype_validator,
+    build_config,
+    PrecisionDType,
+)
 from cubie.buffer_registry import buffer_registry
-from cubie.cuda_simsafe import from_dtype as simsafe_dtype
 
-# Define all possible step controller parameters across all controller types
 ALL_STEP_CONTROLLER_PARAMETERS = {
-    'precision', 'n', 'step_controller', 'dt',
-    'dt_min', 'dt_max', 'atol', 'rtol', 'algorithm_order',
-    'min_gain', 'max_gain', 'safety',
-    'kp', 'ki', 'kd', 'deadband_min', 'deadband_max',
-    'gamma', 'max_newton_iters',
-    'timestep_memory_location'
+    "precision",
+    "n",
+    "step_controller",
+    "dt",
+    "dt_min",
+    "dt_max",
+    "atol",
+    "rtol",
+    "algorithm_order",
+    "min_gain",
+    "max_gain",
+    "safety",
+    "kp",
+    "ki",
+    "kd",
+    "deadband_min",
+    "deadband_max",
+    "gamma",
+    "newton_max_iters",
+    "timestep_memory_location",
 }
+"""All keyword arguments accepted by step controllers.
+
+These parameters can be passed as keyword arguments to any step
+controller constructor or to :func:`get_controller`. The set is used
+by parent components to filter kwargs before forwarding them.
+
+.. list-table:: Parameter Summary
+   :header-rows: 1
+
+   * - Parameter
+     - Accepted By
+     - Description
+   * - ``precision``
+     - :class:`BaseStepControllerConfig`
+     - Floating-point dtype for controller computations.
+   * - ``n``
+     - :class:`BaseStepControllerConfig`
+     - Number of state variables controlled per step.
+   * - ``step_controller``
+     - :func:`~cubie.integrators.step_control.get_controller`
+     - Controller type string (``'fixed'``, ``'i'``, ``'pi'``,
+       ``'pid'``, ``'gustafsson'``).
+   * - ``dt``
+     - :class:`~cubie.integrators.step_control.fixed_step_controller.FixedStepControlConfig`
+     - Fixed step size.
+   * - ``dt_min``
+     - :class:`~cubie.integrators.step_control.adaptive_step_controller.AdaptiveStepControlConfig`
+     - Minimum permissible step size.
+   * - ``dt_max``
+     - :class:`~cubie.integrators.step_control.adaptive_step_controller.AdaptiveStepControlConfig`
+     - Maximum permissible step size.
+   * - ``atol``
+     - :class:`~cubie.integrators.step_control.adaptive_step_controller.AdaptiveStepControlConfig`
+     - Absolute tolerance vector.
+   * - ``rtol``
+     - :class:`~cubie.integrators.step_control.adaptive_step_controller.AdaptiveStepControlConfig`
+     - Relative tolerance vector.
+   * - ``algorithm_order``
+     - :class:`~cubie.integrators.step_control.adaptive_step_controller.AdaptiveStepControlConfig`
+     - Order of the integration algorithm.
+   * - ``min_gain``
+     - :class:`~cubie.integrators.step_control.adaptive_step_controller.AdaptiveStepControlConfig`
+     - Minimum allowed gain factor.
+   * - ``max_gain``
+     - :class:`~cubie.integrators.step_control.adaptive_step_controller.AdaptiveStepControlConfig`
+     - Maximum allowed gain factor.
+   * - ``safety``
+     - :class:`~cubie.integrators.step_control.adaptive_step_controller.AdaptiveStepControlConfig`
+     - Safety scaling factor for step-size proposals.
+   * - ``kp``
+     - :class:`~cubie.integrators.step_control.adaptive_PI_controller.PIStepControlConfig`
+     - Proportional gain.
+   * - ``ki``
+     - :class:`~cubie.integrators.step_control.adaptive_PI_controller.PIStepControlConfig`
+     - Integral gain.
+   * - ``kd``
+     - :class:`~cubie.integrators.step_control.adaptive_PID_controller.PIDStepControlConfig`
+     - Derivative gain.
+   * - ``deadband_min``
+     - :class:`~cubie.integrators.step_control.adaptive_step_controller.AdaptiveStepControlConfig`
+     - Lower gain threshold for the unity deadband.
+   * - ``deadband_max``
+     - :class:`~cubie.integrators.step_control.adaptive_step_controller.AdaptiveStepControlConfig`
+     - Upper gain threshold for the unity deadband.
+   * - ``gamma``
+     - :class:`~cubie.integrators.step_control.gustafsson_controller.GustafssonStepControlConfig`
+     - Damping factor for the Gustafsson predictor.
+   * - ``newton_max_iters``
+     - :class:`~cubie.integrators.step_control.gustafsson_controller.GustafssonStepControlConfig`
+     - Maximum Newton iterations considered by the predictor.
+   * - ``timestep_memory_location``
+     - :class:`BaseStepControllerConfig`
+     - Memory location for the timestep buffer (``'local'`` or
+       ``'shared'``).
+"""
+
 
 @define
-class ControllerCache(CUDAFunctionCache):
+class ControllerCache(CUDADispatcherCache):
+    """Cache container for compiled step-controller device functions.
+
+    Attributes
+    ----------
+    device_function
+        Compiled CUDA device function, or ``-1`` before compilation.
+    """
+
     device_function: Union[Callable, int] = field(default=-1)
 
+
 @define
-class BaseStepControllerConfig(ABC):
+class BaseStepControllerConfig(CUDAFactoryConfig, ABC):
     """Configuration interface for step-size controllers.
 
     Attributes
@@ -48,27 +175,16 @@ class BaseStepControllerConfig(ABC):
         Number of state variables controlled per step.
     """
 
-    precision: PrecisionDType = field(
-        default=float32,
-        converter=precision_converter,
-        validator=precision_validator,
-    )
     n: int = field(default=1, validator=getype_validator(int, 0))
+    _dt: Optional[float] = field(
+        default=None, validator=opt_getype_validator(float, 0)
+    )
     timestep_memory_location: str = field(
-        default='local',
-        validator=validators.in_(['local', 'shared'])
+        default="local", validator=validators.in_(["local", "shared"])
     )
 
-    @property
-    def numba_precision(self) -> type:
-        """Return the Numba compatible precision object."""
-
-        return from_dtype(self.precision)
-
-    @property
-    def simsafe_precision(self) -> type:
-        """Return the simulator compatible precision object."""
-        return simsafe_dtype(self.precision)
+    def __attrs_post_init__(self):
+        super().__attrs_post_init__()
 
     @property
     @abstractmethod
@@ -82,7 +198,7 @@ class BaseStepControllerConfig(ABC):
 
     @property
     @abstractmethod
-    def dt0(self) -> float:
+    def dt(self) -> float:
         """Return the initial step size used when integration starts."""
 
     @property
@@ -96,67 +212,105 @@ class BaseStepControllerConfig(ABC):
         """Return a dictionary of configuration settings."""
 
         return {
-            'n': self.n,
+            "n": self.n,
         }
 
 
 class BaseStepController(CUDAFactory):
     """Factory interface for compiling CUDA step-size controllers."""
 
-    def __init__(self) -> None:
-        """Initialise the base controller factory."""
+    _config_class = None  # Subclasses must override
+    _timestep_buffer_elements = 0  # History slots; overridden per controller
 
+    def __init__(
+        self,
+        precision: PrecisionDType,
+        dt: float = None,
+        n: int = 1,
+        **kwargs,
+    ) -> None:
+        """Initialise the step controller.
+
+        Parameters
+        ----------
+        precision
+            Precision used for controller calculations.
+        dt
+            Step size or initial step size.
+        n
+            Number of state variables.
+        **kwargs
+            Additional parameters passed to the config class.
+        """
         super().__init__()
+        self._user_step_params = {}
+        self._resolve_step_params(dt, kwargs)
+        config = build_config(
+            self._config_class,
+            required={"precision": precision, "n": n},
+            **kwargs,
+        )
+        self.setup_compile_settings(config)
+        self._ensure_sane_bounds()
+        self.register_buffers()
+
+    def _resolve_step_params(self, dt: float, kwargs: dict) -> None:
+        """Resolve step parameters and track user-provided values.
+
+        Subclasses override to implement controller-specific translation
+        and set entries in ``self._user_step_params`` for user-provided
+        values.
+
+        Parameters
+        ----------
+        dt
+            Step size, or None if not provided.
+        kwargs
+            Mutable dict of keyword arguments. Modified in place.
+        """
+        pass
+
+    def _ensure_sane_bounds(self) -> None:
+        """Ensure step bounds satisfy constraints.
+
+        Called during __init__ and after update(). Subclasses override
+        to validate bounds and fix constraint violations on
+        non-user-provided parameters.
+        """
+        pass
 
     def register_buffers(self) -> None:
         """Register controller buffers with the central buffer registry.
 
-        Registers the timestep_buffer using size from local_memory_elements
-        and location from compile_settings.timestep_memory. Controllers
-        with zero buffer requirements still register to maintain consistent
-        interface.
+        Registers the ``timestep_buffer`` at ``_timestep_buffer_elements``
+        history slots in the location given by
+        ``compile_settings.timestep_memory_location``. Controllers that keep
+        no history (``_timestep_buffer_elements == 0``) register nothing, so
+        the registry owns the size like every other buffer-registered class.
         """
-        config = self.compile_settings
-        precision = config.precision
-        size = self.local_memory_elements
+        size = self._timestep_buffer_elements
+        if size == 0:
+            return
 
-        # Register timestep buffer
+        config = self.compile_settings
         buffer_registry.register(
-            'timestep_buffer',
+            "timestep_buffer",
             self,
             size,
             config.timestep_memory_location,
             persistent=True,
-            precision=precision
+            precision=config.precision,
         )
 
     @abstractmethod
-    def build(self) -> Callable:
+    def build(self) -> ControllerCache:
         """Compile and return the CUDA device controller.
 
         Returns
         -------
-        Callable
-            Device function implementing the controller policy.
+        ControllerCache
+            Cache containing the compiled controller device function.
         """
-
-    @property
-    def precision(self) -> PrecisionDType:
-        """Return the host precision used for computations."""
-
-        return self.compile_settings.precision
-
-    @property
-    def numba_precision(self) -> type:
-        """Return the Numba precision used for compilation."""
-
-        return self.compile_settings.numba_precision
-
-    @property
-    def simsafe_precision(self) -> type:
-        """Return the simulator compatible precision."""
-
-        return self.compile_settings.simsafe_precision
 
     @property
     def n(self) -> int:
@@ -177,23 +331,16 @@ class BaseStepController(CUDAFactory):
         return self.compile_settings.dt_max
 
     @property
-    def dt0(self) -> float:
+    def dt(self) -> float:
         """Return the initial step size."""
 
-        return self.compile_settings.dt0
+        return self.compile_settings.dt
 
     @property
     def is_adaptive(self) -> bool:
         """Return ``True`` if the controller is adaptive."""
 
         return self.compile_settings.is_adaptive
-
-    @property
-    @abstractmethod
-    def local_memory_elements(self) -> int:
-        """Return the number of local scratch elements required."""
-
-        return 0
 
     @property
     def settings_dict(self) -> dict[str, object]:
@@ -232,10 +379,14 @@ class BaseStepController(CUDAFactory):
         if updates_dict is None:
             updates_dict = {}
         updates_dict = updates_dict.copy()
-        if kwargs:
-            updates_dict.update(kwargs)
+        updates_dict.update(kwargs)
         if updates_dict == {}:
             return set()
+
+        # Track newly user-set step params
+        for key in ("dt", "dt_min", "dt_max"):
+            if key in updates_dict:
+                self._user_step_params[key] = updates_dict[key]
 
         recognised = self.update_compile_settings(updates_dict, silent=True)
         unrecognised = set(updates_dict.keys()) - recognised
@@ -267,4 +418,5 @@ class BaseStepController(CUDAFactory):
                 "These parameters were not updated.",
             )
 
+        self._ensure_sane_bounds()
         return recognised

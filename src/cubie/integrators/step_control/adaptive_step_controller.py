@@ -1,10 +1,31 @@
-"""Shared infrastructure for adaptive step-size controllers."""
+"""Shared infrastructure for adaptive step-size controllers.
+
+Published Classes
+-----------------
+:class:`AdaptiveStepControlConfig`
+    Attrs configuration shared by all adaptive controllers.
+
+    >>> from numpy import float64
+    >>> config = AdaptiveStepControlConfig(precision=float64)
+    >>> config.is_adaptive
+    True
+
+:class:`BaseAdaptiveStepController`
+    Abstract factory base for adaptive controllers.
+
+See Also
+--------
+:class:`~cubie.integrators.step_control.base_step_controller.BaseStepController`
+    Abstract base class for all controllers.
+:class:`~cubie.integrators.step_control.base_step_controller.BaseStepControllerConfig`
+    Base configuration class.
+"""
 
 from abc import abstractmethod
-from typing import Callable, Optional, Union
+from typing import Callable, Optional
 from warnings import warn
 
-from numpy import asarray, full, isscalar, ndarray, sqrt
+from numpy import asarray, ndarray, sqrt
 from attrs import Converter, define, field
 from numpy.typing import ArrayLike
 
@@ -14,45 +35,14 @@ from cubie._utils import (
     float_array_validator,
     getype_validator,
     inrangetype_validator,
+    opt_getype_validator,
+    tol_converter,
 )
 from cubie.integrators.step_control.base_step_controller import (
-    BaseStepController, BaseStepControllerConfig, ControllerCache)
-
-
-def tol_converter(
-    value: Union[float, ArrayLike],
-    self_: "AdaptiveStepControlConfig",
-) -> ndarray:
-    """Convert tolerance input into an array with controller precision.
-
-    Parameters
-    ----------
-    value
-        Scalar or array-like tolerance specification.
-    self_
-        Configuration instance providing precision and dimension information.
-
-    Returns
-    -------
-    numpy.ndarray
-        Tolerance array with one value per state variable.
-
-    Raises
-    ------
-    ValueError
-        Raised when ``value`` cannot be broadcast to the expected shape.
-    """
-
-    if isscalar(value):
-        tol = full(self_.n, value, dtype=self_.precision)
-    else:
-        tol = asarray(value, dtype=self_.precision)
-        # Broadcast single-element arrays to shape (n,)
-        if tol.shape[0] == 1 and self_.n > 1:
-            tol = full(self_.n, tol[0], dtype=self_.precision)
-        elif tol.shape[0] != self_.n:
-            raise ValueError("tol must have shape (n,).")
-    return tol
+    BaseStepController,
+    BaseStepControllerConfig,
+    ControllerCache,
+)
 
 
 @define
@@ -72,12 +62,12 @@ class AdaptiveStepControlConfig(BaseStepControllerConfig):
     atol: ndarray = field(
         default=asarray([1e-6]),
         validator=float_array_validator,
-        converter=Converter(tol_converter, takes_self=True)
+        converter=Converter(tol_converter, takes_self=True),
     )
     rtol: ndarray = field(
         default=asarray([1e-6]),
         validator=float_array_validator,
-        converter=Converter(tol_converter, takes_self=True)
+        converter=Converter(tol_converter, takes_self=True),
     )
     algorithm_order: int = field(default=1, validator=getype_validator(int, 1))
     _min_gain: float = field(
@@ -103,24 +93,12 @@ class AdaptiveStepControlConfig(BaseStepControllerConfig):
 
     def __attrs_post_init__(self) -> None:
         """Ensure step limits are coherent after initialisation."""
-
-        if self._dt_max is None:
-            self._dt_max = self._dt_min * 100
-        elif self._dt_max < self._dt_min:
-            warn(
-                (
-                    f"dt_max ({self._dt_max}) < dt_min ({self._dt_min}). "
-                    "Setting dt_max = dt_min * 100"
-                )
-            )
-            self._dt_max = self._dt_min * 100
-
+        super().__attrs_post_init__()
         if self._deadband_min > self._deadband_max:
             self._deadband_min, self._deadband_max = (
                 self._deadband_max,
                 self._deadband_min,
             )
-
 
     @property
     def dt_min(self) -> float:
@@ -130,15 +108,18 @@ class AdaptiveStepControlConfig(BaseStepControllerConfig):
     @property
     def dt_max(self) -> float:
         """Return the maximum permissible step size."""
-        value = self._dt_max
-        if value is None:
-            value = self._dt_min * 100
-        return self.precision(value)
+        return self.precision(self._dt_max)
 
     @property
-    def dt0(self) -> float:
-        """Return the initial step size."""
-        return self.precision(sqrt(self.dt_min * self.dt_max))
+    def dt(self) -> float:
+        """Return the initial step size.
+
+        When the user has not provided an explicit dt, returns the
+        geometric mean of dt_min and dt_max.
+        """
+        if self._dt is not None:
+            return self.precision(self._dt)
+        return self.precision(sqrt(self._dt_min * self._dt_max))
 
     @property
     def is_adaptive(self) -> bool:
@@ -178,46 +159,116 @@ class AdaptiveStepControlConfig(BaseStepControllerConfig):
         settings_dict = super().settings_dict
         settings_dict.update(
             {
-                'dt_min': self.dt_min,
-                'dt_max': self.dt_max,
-                'atol': self.atol,
-                'rtol': self.rtol,
-                'algorithm_order': self.algorithm_order,
-                'min_gain': self.min_gain,
-                'max_gain': self.max_gain,
-                'safety': self.safety,
-                'deadband_min': self.deadband_min,
-                'deadband_max': self.deadband_max,
-                'dt': self.dt0,
+                "dt_min": self.dt_min,
+                "dt_max": self.dt_max,
+                "atol": self.atol,
+                "rtol": self.rtol,
+                "algorithm_order": self.algorithm_order,
+                "min_gain": self.min_gain,
+                "max_gain": self.max_gain,
+                "safety": self.safety,
+                "deadband_min": self.deadband_min,
+                "deadband_max": self.deadband_max,
+                "dt": self.dt,
             }
         )
         return settings_dict
 
+
 class BaseAdaptiveStepController(BaseStepController):
     """Base class for adaptive step-size controllers."""
 
-    def __init__(
-        self,
-        config: AdaptiveStepControlConfig,
-    ) -> None:
-        """Initialise the adaptive controller.
+    _config_class = AdaptiveStepControlConfig
+
+    def _resolve_step_params(self, dt: float, kwargs: dict) -> None:
+        """Derive bounds from dt and track user-provided values.
 
         Parameters
         ----------
-        config
-            Configuration for the controller.
+        dt
+            Initial step size, or None if not provided.
+        kwargs
+            Mutable dict of keyword arguments. Modified in place.
         """
-        super().__init__()
-        self.setup_compile_settings(config)
-        self.register_buffers()
+        # Track user-provided values BEFORE derivation
+        if dt is not None:
+            self._user_step_params["dt"] = dt
+        if "dt_min" in kwargs:
+            self._user_step_params["dt_min"] = kwargs["dt_min"]
+        if "dt_max" in kwargs:
+            self._user_step_params["dt_max"] = kwargs["dt_max"]
+
+        # Derive missing values
+        if dt is not None:
+            kwargs.setdefault("dt_min", dt / 100)
+            kwargs.setdefault("dt_max", dt * 100)
+            kwargs["dt"] = dt
+        else:
+            # dt not provided; derive from bounds if both present
+            dt_min = kwargs.get("dt_min")
+            dt_max = kwargs.get("dt_max")
+            if dt_min is not None and dt_max is not None:
+                kwargs["dt"] = sqrt(dt_min * dt_max)
+
+    def _ensure_sane_bounds(self) -> None:
+        """Validate step bounds; fix only non-user-provided parameters.
+
+        Raises
+        ------
+        ValueError
+            If user-provided bounds are inverted (dt_max < dt_min) or if
+            dt falls outside a user-provided bound.
+        """
+        dt = self.dt
+        dt_min = self.dt_min
+        dt_max = self.dt_max
+
+        dt_min_user = self._user_step_params.get("dt_min") is not None
+        dt_max_user = self._user_step_params.get("dt_max") is not None
+
+        # Inverted bounds: error only if both user-provided
+        if dt_max < dt_min and dt_min_user and dt_max_user:
+            raise ValueError(
+                f"dt_max ({dt_max}) < dt_min ({dt_min}). "
+                f"Provide compatible bounds."
+            )
+
+        # dt outside user-provided bounds is an error
+        if dt < dt_min and dt_min_user:
+            raise ValueError(
+                f"dt ({dt}) < dt_min ({dt_min}). "
+                f"Provide a compatible dt or adjust dt_min."
+            )
+        if dt > dt_max and dt_max_user:
+            raise ValueError(
+                f"dt ({dt}) > dt_max ({dt_max}). "
+                f"Provide a compatible dt or adjust dt_max."
+            )
+
+        # Auto-fix non-user-provided parameters
+        fixes = {}
+        if dt_max < dt_min and not dt_max_user:
+            # Inverted bounds with auto-derived dt_max: fix dt_max
+            fixes["dt_max"] = dt_min * 100
+        if dt_max < dt_min and not dt_min_user:
+            # Inverted bounds with auto-derived dt_min: fix dt_min
+            fixes["dt_min"] = dt_max / 100
+        if dt < dt_min and not dt_min_user:
+            fixes["dt_min"] = dt / 100
+        if dt > dt_max and not dt_max_user:
+            fixes["dt_max"] = dt * 100
+
+        if fixes:
+            self.update_compile_settings(fixes, silent=True)
 
     def build(self) -> ControllerCache:
         """Construct the device function implementing the controller.
 
         Returns
         -------
-        Callable
-            Compiled CUDA device function for adaptive control.
+        ControllerCache
+            Cache containing the compiled adaptive controller device
+            function.
         """
         return self.build_controller(
             precision=self.precision,
@@ -277,20 +328,10 @@ class BaseAdaptiveStepController(BaseStepController):
 
         Returns
         -------
-        Callable
-            CUDA device function implementing the controller policy.
+        ControllerCache
+            Cache containing the compiled controller device function.
         """
         raise NotImplementedError
-
-    # @property
-    # def kp(self) -> float:
-    #     """Returns proportional gain."""
-    #     return self.compile_settings.kp
-    #
-    # @property
-    # def ki(self) -> float:
-    #     """Returns integral gain."""
-    #     return self.compile_settings.ki
 
     @property
     def min_gain(self) -> float:
@@ -337,10 +378,4 @@ class BaseAdaptiveStepController(BaseStepController):
     def rtol(self) -> ndarray:
         """Return relative tolerance."""
         return self.compile_settings.rtol
-
-    @property
-    @abstractmethod
-    def local_memory_elements(self) -> int:
-        """Return number of floats required for controller local memory."""
-        raise NotImplementedError
 

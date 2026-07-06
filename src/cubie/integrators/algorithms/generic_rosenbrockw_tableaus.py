@@ -1,4 +1,35 @@
-"""Rosenbrock-W method tableaus and registry utilities."""
+"""Rosenbrock-W method tableaus and registry utilities.
+
+Published Classes
+-----------------
+:class:`RosenbrockTableau`
+    Extends :class:`~base_algorithm_step.ButcherTableau` with ``C``,
+    ``gamma``, and ``gamma_stages`` fields and typed accessors.
+
+Constants
+---------
+:data:`ROS3P_TABLEAU`
+    Three-stage, third-order ROS3P tableau (Rang & Angermann 2005).
+
+:data:`RODAS3P_TABLEAU`
+    Five-stage, third-order RODAS3P tableau (Kaps–Rentrop).
+
+:data:`ROSENBROCK_23_SCIML_TABLEAU`
+    Three-stage, third-order SciML Rosenbrock-23 variant.
+
+:data:`ROSENBROCK_TABLEAUS`
+    Name → tableau mapping for alias-based lookup.
+
+:data:`DEFAULT_ROSENBROCK_TABLEAU`
+    Default tableau (ROS3P).
+
+See Also
+--------
+:class:`~cubie.integrators.algorithms.generic_rosenbrock_w.GenericRosenbrockWStep`
+    Step factory consuming these tableaus.
+:class:`~cubie.integrators.algorithms.base_algorithm_step.ButcherTableau`
+    Parent tableau class.
+"""
 
 from math import sqrt
 from typing import Dict, Tuple
@@ -8,7 +39,7 @@ import attrs
 from cubie.integrators.algorithms.base_algorithm_step import ButcherTableau
 
 
-@attrs.define(frozen=True)
+@attrs.define
 class RosenbrockTableau(ButcherTableau):
     """Coefficient tableau describing a Rosenbrock-W integration scheme.
 
@@ -45,12 +76,6 @@ class RosenbrockTableau(ButcherTableau):
 
         return self.typed_vector(self.gamma_stages, numba_precision)
 
-    def C_flat(self, precision):
-        typed_rows = self.typed_rows(self.C, precision)
-        flat_list: list = []
-        for row in typed_rows:
-            flat_list.extend(row)
-        return tuple(precision(value) for value in flat_list)
 
 # --------------------------------------------------------------------------
 # ROS3P (Rang & Angermann 2005), constants and structure cross-checked with:
@@ -71,7 +96,7 @@ def _ros3p_tableau() -> RosenbrockTableau:
     igamma = 1.0 / gamma
     c_matrix = (
         (0.0, 0.0, 0.0),
-        (-igamma**2, 0.0, 0.0),
+        (-(igamma**2), 0.0, 0.0),
         (
             -igamma * (1.0 + igamma * (2.0 - 0.5 * igamma)),
             -igamma * (2.0 - 0.5 * igamma),
@@ -120,20 +145,20 @@ def _rodas3p_tableau() -> RosenbrockTableau:
     gamma = 1.0 / 3.0
 
     a = (
-        (0.0, 0.0, 0.0, 0.0, 0.0),                  # 1
-        (4.0 / 3.0, 0.0, 0.0, 0.0, 0.0),            # 2
-        (0.0, 0.0, 0.0, 0.0, 0.0),                  # 3
-        (2.90625, 3.375, 0.40625, 0.0, 0.0),        # 4
-        (2.90625, 3.375, 0.40625, 0.0, 0.0),        # 5
+        (0.0, 0.0, 0.0, 0.0, 0.0),  # 1
+        (4.0 / 3.0, 0.0, 0.0, 0.0, 0.0),  # 2
+        (0.0, 0.0, 0.0, 0.0, 0.0),  # 3
+        (2.90625, 3.375, 0.40625, 0.0, 0.0),  # 4
+        (2.90625, 3.375, 0.40625, 0.0, 0.0),  # 5
     )
 
     # Full lower-triangular (padded to 5x5).
     C = (
-        (0.0, 0.0, 0.0, 0.0, 0.0),                  # 1
-        (-4.0, 0.0, 0.0, 0.0, 0.0),                 # 2
-        (8.25, 6.75, 0.0, 0.0, 0.0),                # 3
-        (1.21875, -5.0625, -1.96875, 0.0, 0.0),     # 4
-        (4.03125, -15.1875, -4.03125, 6.0, 0.0),    # 5
+        (0.0, 0.0, 0.0, 0.0, 0.0),  # 1
+        (-4.0, 0.0, 0.0, 0.0, 0.0),  # 2
+        (8.25, 6.75, 0.0, 0.0, 0.0),  # 3
+        (1.21875, -5.0625, -1.96875, 0.0, 0.0),  # 4
+        (4.03125, -15.1875, -4.03125, 6.0, 0.0),  # 5
     )
 
     # Final (p=3): u_{n+1} = (u_n + a41*k1 + a42*k2 + a43*k3) + k5
@@ -159,7 +184,7 @@ def _rodas3p_tableau() -> RosenbrockTableau:
 
 RODAS3P_TABLEAU = _rodas3p_tableau()
 
-#RODAS4P and RODAS5P don't have step-end embedded weights - architectural
+# RODAS4P and RODAS5P don't have step-end embedded weights - architectural
 # rework would be required to implement these.
 # --------------------------------------------------------------------------
 # RODAS4P (p=4)
@@ -379,7 +404,7 @@ ROSENBROCK_TABLEAUS: Dict[str, RosenbrockTableau] = {
     "rodas3p": RODAS3P_TABLEAU,
     # "rodas4p": RODAS4P_TABLEAU,
     # "rodas5p": RODAS5P_TABLEAU,
-    "rosenbrock23": ROSENBROCK_23_SCIML_TABLEAU,         # MATLAB ode23s 2(3)
+    "rosenbrock23": ROSENBROCK_23_SCIML_TABLEAU,  # MATLAB ode23s 2(3)
     "ode23s": ROSENBROCK_23_SCIML_TABLEAU,
     "rosenbrock23_sciml": ROSENBROCK_23_SCIML_TABLEAU,  # 3-stage SciML variant
 }

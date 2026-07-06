@@ -1,4 +1,26 @@
-"""Code generation helpers for nonlinear residual functions."""
+"""Emit CUDA factory code for nonlinear stage residual functions.
+
+Published Functions
+-------------------
+:func:`generate_residual_code`
+    Emit a factory computing the nonlinear residual
+    ``F(Y) = Y - y_n - h * sum(a_ij * f(Y_j))``.
+
+:func:`generate_stage_residual_code`
+    Emit a single-stage residual factory for SDIRK/ESDIRK methods.
+
+:func:`generate_n_stage_residual_code`
+    Emit a flattened multi-stage residual factory for FIRK methods.
+
+See Also
+--------
+:mod:`cubie.odesystems.symbolic.codegen.linear_operators`
+    Companion linear operator code generators.
+:mod:`cubie.odesystems.symbolic.codegen.preconditioners`
+    Companion preconditioner code generators.
+:mod:`cubie.odesystems.symbolic.codegen._stage_utils`
+    Shared FIRK stage metadata helpers.
+"""
 
 from typing import Iterable, List, Optional, Sequence, Tuple, Union
 
@@ -35,13 +57,12 @@ default_timelogger.register_event("codegen_generate_n_stage_residual_code",
 RESIDUAL_TEMPLATE = (
     "\n"
     "# AUTO-GENERATED NONLINEAR RESIDUAL FACTORY\n"
-    "def {func_name}(constants, precision, beta=1.0, gamma=1.0, order=None):\n"
+    "def {func_name}(constants, precision, beta=1.0, gamma=1.0):\n"
     '    """Auto-generated nonlinear residual for implicit updates.\n'
     "    Computes beta * M * u - gamma * h * f(t, base_state + a_ij * u).\n"
-    "    Order is ignored, included for compatibility with preconditioner API.\n"
     '    """\n'
-    "    beta = precision(beta)\n"
-    "    gamma = precision(gamma)\n"
+    "    _cubie_codegen_beta = precision(beta)\n"
+    "    _cubie_codegen_gamma = precision(gamma)\n"
     "{const_lines}"
     "    @cuda.jit(\n"
     "        # (precision[::1],\n"
@@ -63,13 +84,12 @@ RESIDUAL_TEMPLATE = (
 N_STAGE_RESIDUAL_TEMPLATE = (
     "\n"
     "# AUTO-GENERATED N-STAGE RESIDUAL FACTORY\n"
-    "def {func_name}(constants, precision, beta=1.0, gamma=1.0, order=None):\n"
+    "def {func_name}(constants, precision, beta=1.0, gamma=1.0):\n"
     '    """Auto-generated FIRK residual for flattened stage increments.\n'
     "    Handles {stage_count} stages with ``s * n`` unknowns.\n"
-    "    Order is ignored, included for compatibility with preconditioner API.\n"
     '    """\n'
-    "    beta = precision(beta)\n"
-    "    gamma = precision(gamma)\n"
+    "    _cubie_codegen_beta = precision(beta)\n"
+    "    _cubie_codegen_gamma = precision(gamma)\n"
     "{const_lines}"
     "{metadata_lines}"
     "    @cuda.jit(\n"
@@ -101,8 +121,10 @@ def _build_residual_lines(
 
     n = len(index_map.states.index_map)
 
-    beta_sym = sp.Symbol("beta")
-    gamma_sym = sp.Symbol("gamma")
+    # Use _cubie_codegen_ prefix to avoid conflicts with user-defined
+    # variables named beta or gamma (issue #373)
+    beta_sym = sp.Symbol("_cubie_codegen_beta")
+    gamma_sym = sp.Symbol("_cubie_codegen_gamma")
     h_sym = sp.Symbol("h")
     aij_sym = sp.Symbol("a_ij")
     u = sp.IndexedBase("u", shape=(n,))
@@ -141,8 +163,8 @@ def _build_residual_lines(
     symbol_map = dict(index_map.all_arrayrefs)
     symbol_map.update(
         {
-            "beta": beta_sym,
-            "gamma": gamma_sym,
+            "_cubie_codegen_beta": beta_sym,
+            "_cubie_codegen_gamma": gamma_sym,
             "h": h_sym,
             "a_ij": aij_sym,
             "u": u,
@@ -198,8 +220,8 @@ def _build_n_stage_residual_lines(
     state_count = len(state_symbols)
     stage_count = stage_coefficients.rows
 
-    beta_sym = sp.Symbol("beta")
-    gamma_sym = sp.Symbol("gamma")
+    beta_sym = sp.Symbol("_cubie_codegen_beta")
+    gamma_sym = sp.Symbol("_cubie_codegen_gamma")
     h_sym = sp.Symbol("h")
     time_arg = sp.Symbol("t")
     total_states = sp.Integer(stage_count * state_count)
@@ -286,8 +308,8 @@ def _build_n_stage_residual_lines(
             "u": u,
             "base_state": base_state,
             "out": out,
-            "beta": beta_sym,
-            "gamma": gamma_sym,
+            "_cubie_codegen_beta": beta_sym,
+            "_cubie_codegen_gamma": gamma_sym,
             "h": h_sym,
             "t": time_arg,
         }

@@ -2,7 +2,7 @@
 
 This example constructs a compact driver sequence sampled from ``t = 0.5`` to
 ``t = 1.5`` seconds and evaluates it with both the CUDA
-:class:`cubie.integrators.array_interpolator.ArrayInterpolator` factory and the
+:class:`cubie.array_interpolator.ArrayInterpolator` factory and the
 CPU reference
 :class:`tests.integrators.cpu_reference.cpu_utils.DriverEvaluator`.
 
@@ -19,7 +19,7 @@ import matplotlib.pyplot as plt
 import numpy as np
 from numpy.typing import NDArray
 
-from cubie.integrators.array_interpolator import ArrayInterpolator
+from cubie.array_interpolator import ArrayInterpolator
 from tests.integrators.cpu_reference.cpu_utils import DriverEvaluator
 
 

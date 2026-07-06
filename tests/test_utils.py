@@ -1,28 +1,19 @@
-from unittest.mock import patch
-
 import attrs
 import numpy as np
 import pytest
 from numba import cuda
-from numba.cuda.random import create_xoroshiro128p_states
 from numpy import float32
 
 from cubie._utils import (
     build_config,
     clamp_factory,
-    get_noise_32,
-    get_noise_64,
-    get_readonly_view,
+    ensure_nonzero_size,
     in_attr,
-    is_attrs_class,
-    is_devfunc,
-    split_applicable_settings,
-    round_list_sf,
-    round_sf,
     slice_variable_dimension,
-    timing,
+    tol_converter,
     unpack_dict_values,
 )
+from cubie.cuda_simsafe import is_devfunc
 
 
 def clamp_tester(fn, value, low_clip, high_clip, precision):
@@ -113,89 +104,6 @@ def test_clamp_kernel_float32():
     assert out[0] == -0.5
 
 
-def noise_tester_64(sigmas):
-    precision = np.float64
-    """Test helper for get_noise_64 function."""
-    n_elements = len(sigmas)
-    noise_array = cuda.device_array(n_elements, dtype=precision)
-    noise_array[:] = 0.0
-    d_sigmas = cuda.to_device(np.array(sigmas, dtype=precision))
-
-    # Create RNG state
-    rng_states = create_xoroshiro128p_states(n_elements, seed=42)
-
-    @cuda.jit()
-    def noise_test_kernel(noise_arr, sig_arr, rng):
-        idx = cuda.grid(1)
-        if idx > n_elements:
-            return
-        if idx < noise_arr.size:
-            get_noise_64(noise_arr, sig_arr, idx, rng)
-
-    noise_test_kernel[1, 1](noise_array, d_sigmas, rng_states)
-    return noise_array.copy_to_host()
-
-
-def noise_tester_32(sigmas):
-    """Test helper for get_noise_32 function."""
-    precision=float32
-    n_elements = len(sigmas)
-    noise_array = cuda.device_array(n_elements, dtype=precision)
-    noise_array[:] = 0.0
-    d_sigmas = cuda.to_device(np.array(sigmas, dtype=precision))
-
-    # Create RNG state
-    rng_states = create_xoroshiro128p_states(n_elements, seed=42)
-
-    @cuda.jit()
-    def noise_test_kernel(noise_arr, sig_arr, rng):
-        idx = cuda.grid(1)
-        if idx > n_elements:
-            return
-        if idx < noise_arr.size:
-            get_noise_32(noise_arr, sig_arr, idx, rng)
-
-    noise_test_kernel[1, n_elements](noise_array, d_sigmas, rng_states)
-    return noise_array.copy_to_host()
-
-
-def test_get_noise_64():
-    """Test get_noise_64 CUDA device function."""
-    # Test with non-zero sigmas
-    sigmas = [1.0, 2.0, 0.5]
-    result = noise_tester_64(sigmas)
-    assert len(result) == 3
-    # Results should be different (random) but finite
-    assert all(np.isfinite(result))
-
-    # Test with zero sigma
-    sigmas_zero = [0.0, 1.0, 0.0]
-    result_zero = noise_tester_64(sigmas_zero)
-    assert result_zero[0] == 0.0  # Should be exactly zero
-    assert result_zero[2] == 0.0  # Should be exactly zero
-    assert result_zero[1] != 0.0  # Should be non-zero
-
-
-def test_get_noise_32():
-    """Test get_noise_32 CUDA device function."""
-    # Test with non-zero sigmas
-    sigmas = [1.0, 2.0, 0.5]
-    result = noise_tester_32(sigmas)
-    assert len(result) == 3
-    # Results should be different (random) but finite
-    assert all(np.isfinite(result))
-
-    # Test with zero sigma
-    sigmas_zero = [0.0, 1.0, 0.0]
-    result_zero = noise_tester_32(sigmas_zero)
-    assert result_zero[0] == 0.0  # Should be exactly zero
-    assert result_zero[2] == 0.0  # Should be exactly zero
-    assert result_zero[1] != 0.0  # Should be non-zero
-
-
-# Tests for regular Python functions
-
-
 def test_slice_variable_dimension():
     """Test slice_variable_dimension function."""
     # Test basic functionality
@@ -231,11 +139,6 @@ class AttrsClasstest:
     _field2: str
 
 
-class RegularClasstest:
-    def __init__(self):
-        self.field1 = 1
-
-
 def test_in_attr():
     """Test in_attr function."""
     attrs_instance = AttrsClasstest(1, "test")
@@ -249,141 +152,6 @@ def test_in_attr():
 
     # Test non-existing field
     assert in_attr("nonexistent", attrs_instance) == False
-
-
-def test_is_attrs_class():
-    """Test is_attrs_class function."""
-    attrs_instance = AttrsClasstest(1, "test")
-    regular_instance = RegularClasstest()
-
-    assert is_attrs_class(attrs_instance) == True
-    assert is_attrs_class(regular_instance) == False
-    assert is_attrs_class("string") == False
-    assert is_attrs_class(42) == False
-
-
-def test_split_applicable_settings_with_class():
-    class Example:
-        def __init__(self, required, optional=0):
-            self.required = required
-            self.optional = optional
-    with pytest.warns(UserWarning):
-        filtered, missing, unused = split_applicable_settings(
-            Example,
-            {"required": 1, "optional": 2, "ignored": 3},
-        )
-    assert filtered == {"required": 1, "optional": 2}
-    assert missing == set()
-    assert unused == {"ignored"}
-
-
-def test_split_applicable_settings_with_function():
-    def example(required, other=0):
-        return required + other
-    with pytest.warns(UserWarning):
-        filtered, missing, unused = split_applicable_settings(
-            example,
-            {"other": 4, "extra": 5},
-        )
-    assert filtered == {"other": 4}
-    assert missing == {"required"}
-    assert unused == {"extra"}
-
-
-def test_split_applicable_settings_filters_none_values():
-    """Verify split_applicable_settings filters out None values."""
-    class Example:
-        def __init__(self, required, optional=0, another=1):
-            self.required = required
-            self.optional = optional
-            self.another = another
-
-    filtered, missing, unused = split_applicable_settings(
-        Example,
-        {"required": 1, "optional": None, "another": 5},
-        warn_on_unused=False,
-    )
-    # None value for 'optional' should be filtered out
-    assert filtered == {"required": 1, "another": 5}
-    assert "optional" not in filtered
-    assert missing == set()
-
-
-def dummy_function():
-    """Dummy function for timing tests."""
-    return 42
-
-
-def test_timing_decorator():
-    """Test timing decorator."""
-    # Test with default nruns
-    with patch("builtins.print") as mock_print:
-        decorated_func = timing(dummy_function)
-        result = decorated_func()
-        assert result == 42
-        mock_print.assert_called_once()
-        call_args = mock_print.call_args[0][0]
-        assert "dummy_function" in call_args
-        assert "took:" in call_args
-
-    # Test with specified nruns
-    with patch("builtins.print") as mock_print:
-        decorated_func = timing(nruns=3)(dummy_function)
-        result = decorated_func()
-        assert result == 42
-        mock_print.assert_called_once()
-        call_args = mock_print.call_args[0][0]
-        assert "over 3 runs" in call_args
-
-
-def test_round_sf():
-    """Test round_sf function."""
-    # Test normal cases
-    assert round_sf(123.456, 3) == 123.0
-    assert round_sf(0.00123456, 3) == 0.00123
-    assert round_sf(1234.56, 3) == 1230.0
-
-    # Test edge cases
-    assert round_sf(0.0, 3) == 0.0
-    assert round_sf(-123.456, 3) == -123.0
-
-    # Test single significant figure
-    assert round_sf(123.456, 1) == 100.0
-
-
-def test_round_list_sf():
-    """Test round_list_sf function."""
-    input_list = [123.456, 0.00123456, 1234.56, 0.0]
-    result = round_list_sf(input_list, 3)
-    expected = [123.0, 0.00123, 1230.0, 0.0]
-    assert result == expected
-
-    # Test empty list
-    assert round_list_sf([], 3) == []
-
-
-def test_get_readonly_view():
-    """Test get_readonly_view function."""
-    original = np.array([1, 2, 3, 4, 5])
-    readonly = get_readonly_view(original)
-
-    # Should be a view of the same data
-    assert np.array_equal(readonly, original)
-    assert readonly.base is original
-
-    # Should be read-only
-    assert not readonly.flags.writeable
-
-    # Should raise error when trying to modify
-    with pytest.raises(
-        ValueError, match="assignment destination is read-only"
-    ):
-        readonly[0] = 10
-
-    # Original should still be writable
-    assert original.flags.writeable
-    original[0] = 10
-    assert original[0] == 10
 
 
 def test_is_devfnc():
@@ -718,3 +486,137 @@ class TestBuildConfig:
         )
         assert config.value == 42
         assert config.name == 'test'
+
+
+# =============================================================================
+# Tests for tol_converter helper function
+# =============================================================================
+
+
+class MockConfig:
+    """Mock configuration object for tol_converter tests."""
+
+    def __init__(self, n, precision):
+        self.n = n
+        self.precision = precision
+
+
+def test_tol_converter_scalar_to_array():
+    """Verify scalar input is broadcast to array of shape (n,)."""
+    config = MockConfig(n=5, precision=np.float32)
+    result = tol_converter(1e-6, config)
+
+    assert isinstance(result, np.ndarray)
+    assert result.shape == (5,)
+    assert result.dtype == np.float32
+    assert np.allclose(result, 1e-6)
+
+
+def test_tol_converter_single_element_broadcast():
+    """Verify single-element array is broadcast when n > 1."""
+    config = MockConfig(n=4, precision=np.float64)
+    result = tol_converter(np.array([0.001]), config)
+
+    assert isinstance(result, np.ndarray)
+    assert result.shape == (4,)
+    assert result.dtype == np.float64
+    assert np.allclose(result, 0.001)
+
+
+def test_tol_converter_full_array_passthrough():
+    """Verify full array (n,) passes through with dtype conversion."""
+    config = MockConfig(n=3, precision=np.float32)
+    input_array = np.array([1e-3, 2e-3, 3e-3], dtype=np.float64)
+    result = tol_converter(input_array, config)
+
+    assert isinstance(result, np.ndarray)
+    assert result.shape == (3,)
+    assert result.dtype == np.float32
+    assert np.allclose(result, [1e-3, 2e-3, 3e-3])
+
+
+def test_tol_converter_wrong_size_raises():
+    """Verify ValueError raised for wrong size array."""
+    config = MockConfig(n=5, precision=np.float32)
+
+    with pytest.raises(ValueError, match="tol must have shape"):
+        tol_converter(np.array([1e-3, 2e-3]), config)
+
+
+# =============================================================================
+# Tests for ensure_nonzero_size helper function
+# =============================================================================
+
+
+class TestEnsureNonzeroSize:
+    """Tests for ensure_nonzero_size utility function."""
+
+    def test_single_zero_means_all_ones(self):
+        """Test that single zero causes entire tuple to become all 1s."""
+        result = ensure_nonzero_size((2, 0, 2))
+        assert result == (1, 1, 1)
+
+    def test_multiple_zeros_all_ones(self):
+        """Test that multiple zeros cause entire tuple to become all 1s."""
+        result = ensure_nonzero_size((0, 2, 0))
+        assert result == (1, 1, 1)
+
+    def test_all_zeros_replaced(self):
+        """Test that all zeros are replaced with all 1s."""
+        result = ensure_nonzero_size((0, 0, 0))
+        assert result == (1, 1, 1)
+
+    def test_no_zeros_unchanged(self):
+        """Test that tuple with no zeros is unchanged."""
+        result = ensure_nonzero_size((2, 3, 4))
+        assert result == (2, 3, 4)
+
+    def test_integer_zero(self):
+        """Test that integer zero becomes 1."""
+        result = ensure_nonzero_size(0)
+        assert result == 1
+
+    def test_integer_nonzero(self):
+        """Test that nonzero integer is unchanged."""
+        result = ensure_nonzero_size(5)
+        assert result == 5
+
+    def test_first_element_zero_all_ones(self):
+        """Test zero in first position causes all 1s."""
+        result = ensure_nonzero_size((0, 3, 4))
+        assert result == (1, 1, 1)
+
+    def test_last_element_zero_all_ones(self):
+        """Test zero in last position causes all 1s."""
+        result = ensure_nonzero_size((2, 3, 0))
+        assert result == (1, 1, 1)
+
+    def test_string_tuple_passthrough(self):
+        """Test that tuple of strings is passed through unchanged."""
+        result = ensure_nonzero_size(("time", "variable", "run"))
+        assert result == ("time", "variable", "run")
+
+    def test_mixed_type_tuple_with_zero(self):
+        """Test tuple with mixed numeric and non-numeric values with zero."""
+        result = ensure_nonzero_size((0, "label", 2))
+        assert result == (1, 1, 1)
+
+    def test_mixed_type_tuple_no_zero(self):
+        """Test tuple with mixed numeric and non-numeric values, no zero."""
+        result = ensure_nonzero_size((3, "label", 2))
+        assert result == (3, "label", 2)
+
+    def test_none_treated_as_zero(self):
+        """Test that None values in tuple cause all 1s."""
+        result = ensure_nonzero_size((5, None, 3))
+        assert result == (1, 1, 1)
+
+    def test_two_element_tuple_with_zero(self):
+        """Test two-element tuple with zero becomes (1, 1)."""
+        result = ensure_nonzero_size((0, 5))
+        assert result == (1, 1)
+
+    def test_two_element_tuple_no_zero(self):
+        """Test two-element tuple without zero is unchanged."""
+        result = ensure_nonzero_size((3, 5))
+        assert result == (3, 5)

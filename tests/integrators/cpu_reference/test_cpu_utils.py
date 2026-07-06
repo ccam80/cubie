@@ -1,7 +1,7 @@
 import numpy as np
 import pytest
 
-from cubie.integrators.array_interpolator import ArrayInterpolator
+from cubie.array_interpolator import ArrayInterpolator
 from tests.integrators.cpu_reference.cpu_utils import DriverEvaluator
 
 

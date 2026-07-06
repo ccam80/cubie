@@ -1,4 +1,24 @@
-"""Utilities that emit CUDA ``dx/dt`` factories from SymPy expressions."""
+"""Emit CUDA ``dxdt`` and observables factory code from SymPy expressions.
+
+Published Functions
+-------------------
+:func:`generate_dxdt_fac_code`
+    Return a string containing the ``dxdt_factory`` function definition
+    ready for disk caching and import.
+
+:func:`generate_observables_fac_code`
+    Return a string containing the ``observables_factory`` function
+    definition.
+
+See Also
+--------
+:class:`~cubie.odesystems.symbolic.symbolicODE.SymbolicODE`
+    Calls these generators inside :meth:`SymbolicODE.build`.
+:mod:`cubie.odesystems.symbolic.codegen.numba_cuda_printer`
+    Printer used to render SymPy assignments as CUDA code.
+:class:`~cubie.odesystems.symbolic.odefile.ODEFile`
+    Disk cache that stores and imports the generated code.
+"""
 
 from typing import Optional
 

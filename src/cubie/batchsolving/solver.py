@@ -3,14 +3,42 @@
 This module exposes the user-facing :class:`Solver` class and a convenience
 wrapper :func:`solve_ivp` for solving batches of initial value problems on the
 GPU.
+
+Published Classes
+-----------------
+:class:`Solver`
+    User-facing class for configuring and executing batch ODE solves.
+
+Module-Level Functions
+----------------------
+:func:`solve_ivp`
+    Convenience wrapper that creates a :class:`Solver` and executes a single
+    batch solve in one call.
+
+Notes
+-----
+When GPU memory is insufficient for the full batch, arrays are automatically
+chunked along the run axis. Chunking is transparent to the user and requires
+no configuration.
+
+See Also
+--------
+:class:`~cubie.batchsolving.solveresult.SolveResult`
+    Result container returned by :meth:`Solver.solve`.
+:class:`~cubie.batchsolving.BatchSolverKernel.BatchSolverKernel`
+    Kernel factory used internally by the solver.
+:class:`~cubie.batchsolving.BatchInputHandler.BatchInputHandler`
+    Grid builder used for dict-based inputs.
 """
 
+from pathlib import Path
 from typing import Any, Dict, List, Optional, Set, Tuple, Union
 
 from numpy import ndarray, zeros as np_zeros
 
 from cubie.outputhandling.output_config import OutputCompileFlags
 from cubie._utils import PrecisionDType
+from cubie.result_codes import decode_status_codes
 from cubie.batchsolving.BatchSolverConfig import ActiveOutputs
 from cubie.batchsolving.BatchInputHandler import BatchInputHandler
 from cubie.batchsolving.BatchSolverKernel import BatchSolverKernel
@@ -18,7 +46,7 @@ from cubie.batchsolving.solveresult import SolveResult, SolveSpec
 from cubie.batchsolving.SystemInterface import SystemInterface
 from cubie.memory.mem_manager import ALL_MEMORY_MANAGER_PARAMETERS
 from cubie.odesystems.baseODE import BaseODE
-from cubie.integrators.array_interpolator import ArrayInterpolator
+from cubie.array_interpolator import ArrayInterpolator
 from cubie.integrators.algorithms.base_algorithm_step import (
     ALL_ALGORITHM_STEP_PARAMETERS,
 )
@@ -33,19 +61,15 @@ from cubie.outputhandling.output_functions import (
     ALL_OUTPUT_FUNCTION_PARAMETERS,
 )
 from cubie.time_logger import default_timelogger
+from cubie.cubie_cache import ALL_CACHE_PARAMETERS
 
 # Register module-level events
 default_timelogger.register_event(
-    "solve_ivp",
-    "runtime",
-    "Wall-clock time for solve_ivp()"
+    "solve_ivp", "runtime", "Wall-clock time for solve_ivp()"
 )
 default_timelogger.register_event(
-    "solver_solve",
-    "runtime",
-    "Wall-clock time for Solver.solve()"
+    "solver_solve", "runtime", "Wall-clock time for Solver.solve()"
 )
-
 
 
 def solve_ivp(
@@ -218,6 +242,7 @@ class Solver:
         loop_settings: Optional[Dict[str, object]] = None,
         strict: bool = False,
         time_logging_level: Optional[str] = None,
+        cache: Union[bool, str, Path] = True,
         **kwargs: Any,
     ) -> None:
         if output_settings is None:
@@ -236,6 +261,7 @@ class Solver:
 
         super().__init__()
         precision = system.precision
+        kwargs["precision"] = precision
         interface = SystemInterface.from_system(system)
         self.system_interface = interface
         self.driver_interpolator = ArrayInterpolator(
@@ -251,27 +277,48 @@ class Solver:
         recognized_kwargs: set[str] = set()
 
         output_settings, output_recognized = merge_kwargs_into_settings(
-            kwargs=kwargs, valid_keys=ALL_OUTPUT_FUNCTION_PARAMETERS,
-            user_settings=output_settings)
+            kwargs=kwargs,
+            valid_keys=ALL_OUTPUT_FUNCTION_PARAMETERS,
+            user_settings=output_settings,
+        )
         self.convert_output_labels(output_settings)
 
         memory_settings, memory_recognized = merge_kwargs_into_settings(
-            kwargs=kwargs, valid_keys=ALL_MEMORY_MANAGER_PARAMETERS,
-            user_settings=memory_settings)
+            kwargs=kwargs,
+            valid_keys=ALL_MEMORY_MANAGER_PARAMETERS,
+            user_settings=memory_settings,
+        )
 
         step_settings, step_recognized = merge_kwargs_into_settings(
-            kwargs=kwargs, valid_keys=ALL_STEP_CONTROLLER_PARAMETERS,
-            user_settings=step_control_settings)
+            kwargs=kwargs,
+            valid_keys=ALL_STEP_CONTROLLER_PARAMETERS,
+            user_settings=step_control_settings,
+        )
         algorithm_settings, algorithm_recognized = merge_kwargs_into_settings(
-            kwargs=kwargs, valid_keys=ALL_ALGORITHM_STEP_PARAMETERS,
-            user_settings=algorithm_settings)
+            kwargs=kwargs,
+            valid_keys=ALL_ALGORITHM_STEP_PARAMETERS,
+            user_settings=algorithm_settings,
+        )
         algorithm_settings["algorithm"] = algorithm
         loop_settings, loop_recognized = merge_kwargs_into_settings(
-            kwargs=kwargs, valid_keys=ALL_LOOP_SETTINGS,
-            user_settings=loop_settings)
-        recognized_kwargs = (step_recognized | algorithm_recognized
-                             | output_recognized | memory_recognized
-                             | loop_recognized)
+            kwargs=kwargs,
+            valid_keys=ALL_LOOP_SETTINGS,
+            user_settings=loop_settings,
+        )
+        # Merge cache settings from kwargs
+        cache_settings, cache_recognized = merge_kwargs_into_settings(
+            kwargs=kwargs,
+            valid_keys=ALL_CACHE_PARAMETERS,
+            user_settings={},
+        )
+        recognized_kwargs = (
+            step_recognized
+            | algorithm_recognized
+            | output_recognized
+            | memory_recognized
+            | loop_recognized
+            | cache_recognized
+        )
 
         self.kernel = BatchSolverKernel(
             system,
@@ -281,6 +328,8 @@ class Solver:
             algorithm_settings=algorithm_settings,
             output_settings=output_settings,
             memory_settings=memory_settings,
+            cache=cache,
+            cache_settings=cache_settings,
         )
 
         if strict:
@@ -304,18 +353,12 @@ class Solver:
             ``saved_observable_indices``, ``summarised_state_indices``,
             and ``summarised_observable_indices``.
 
-        Returns
-        -------
-        None
-            Modifies ``output_settings`` in-place.
-
         Raises
         ------
         ValueError
             If variable labels are not recognized by the system.
         """
         self.system_interface.merge_variable_labels_and_idxs(output_settings)
-
 
     def solve(
         self,
@@ -327,7 +370,6 @@ class Solver:
         t0: float = 0.0,
         blocksize: int = 256,
         stream: Any = None,
-        chunk_axis: str = "run",
         grid_type: str = "verbatim",
         results_type: str = "full",
         nan_error_trajectories: bool = True,
@@ -348,7 +390,7 @@ class Solver:
             in (n_params, n_runs) format.
         drivers
             Driver samples or configuration matching
-            :class:`cubie.integrators.array_interpolator.ArrayInterpolator`.
+            :class:`cubie.array_interpolator.ArrayInterpolator`.
         duration
             Total integration time. Default is ``1.0``.
         settling_time
@@ -360,9 +402,6 @@ class Solver:
         stream
             Stream on which to execute the kernel. ``None`` uses the solver's
             default stream.
-        chunk_axis
-            Dimension along which to chunk when memory is limited. Default is
-            ``"run"``.
         grid_type
             Strategy for constructing the integration grid from inputs.
             Only used when dict inputs trigger grid construction.
@@ -392,6 +431,9 @@ class Solver:
           construction for improved performance
         - Device arrays receive minimal processing before kernel
           execution
+
+        When GPU memory is insufficient for the full batch, arrays are
+        automatically chunked along the run axis.
         """
         if kwargs:
             self.update(kwargs, silent=True)
@@ -411,8 +453,10 @@ class Solver:
             fn_changed = self.driver_interpolator.update_from_dict(drivers)
         if fn_changed:
             self.update(
-                {"driver_function": self.driver_interpolator.evaluation_function,
-                 "driver_del_t": self.driver_interpolator.driver_del_t}
+                {
+                    "evaluate_driver_at_t": self.driver_interpolator.evaluation_function,
+                    "driver_del_t": self.driver_interpolator.driver_del_t,
+                }
             )
 
         self.kernel.run(
@@ -424,25 +468,30 @@ class Solver:
             t0=t0,
             blocksize=blocksize,
             stream=stream,
-            chunk_axis=chunk_axis,
         )
-        self.memory_manager.sync_stream(self.kernel)
 
-        # Stop wall-clock timing and print all timing summaries
-        # (CUDA events retrieved automatically by print_summary)
+        # Synchronize stream, wait until arrays written in "chunked" mode.
+        self.memory_manager.sync_stream(self.kernel)
+        self.kernel.wait_for_writeback()
+
+        # Stop wall-clock timing for solve
         default_timelogger.stop_event("solver_solve")
         default_timelogger.print_summary()
 
         return SolveResult.from_solver(
             self,
             results_type=results_type,
-            nan_error_trajectories=nan_error_trajectories
+            nan_error_trajectories=nan_error_trajectories,
         )
 
     def build_grid(
         self,
-        initial_values: Union[ndarray, Dict[str, Union[float, ndarray]]],
-        parameters: Union[ndarray, Dict[str, Union[float, ndarray]]],
+        initial_values: Union[
+            ndarray, Dict[str, Union[float, ndarray]]
+        ] = None,
+        parameters: Union[
+            None, ndarray, Dict[str, Union[float, ndarray]]
+        ] = None,
         grid_type: str = "verbatim",
     ) -> Tuple[ndarray, ndarray]:
         """Build parameter and state grids for external use.
@@ -471,8 +520,7 @@ class Solver:
         Examples
         --------
         >>> inits, params = solver.build_grid(
-        ...     {"x": [1, 2, 3]}, {"p": [0.1, 0.2]},
-        ...     grid_type="combinatorial"
+        ...     {"x": [1, 2, 3]}, {"p": [0.1, 0.2]}, grid_type="combinatorial"
         ... )
         >>> result = solver.solve(inits, params)  # Uses fast path
         """
@@ -524,14 +572,13 @@ class Solver:
         driver_recognised = self.driver_interpolator.update(
             updates_dict, silent=True
         )
-        if driver_recognised:
-            updates_dict["driver_function"] = (
+        if driver_recognised and self.kernel.n_drivers > 0:
+            updates_dict["evaluate_driver_at_t"] = (
                 self.driver_interpolator.evaluation_function
             )
             updates_dict["driver_del_t"] = (
                 self.driver_interpolator.driver_del_t
             )
-
 
         recognised = set()
         all_unrecognized = set(updates_dict.keys())
@@ -606,7 +653,7 @@ class Solver:
             recognised.add("mem_proportion")
         if "allocator" in updates_dict:
             self.memory_manager.set_allocator(
-                self.kernel, updates_dict["allocator"]
+                updates_dict["allocator"]
             )
             recognised.add("allocator")
 
@@ -618,37 +665,15 @@ class Solver:
         return recognised
 
     def enable_profiling(self) -> None:
-        """Enable CUDA profiling for the solver.
-
-        Returns
-        -------
-        None
-            This method alters kernel profiling configuration in-place.
-        """
+        """Enable CUDA profiling for the solver."""
         # Consider disabling optimisation and enabling debug and line info
         # for profiling
         self.kernel.enable_profiling()
 
     def disable_profiling(self) -> None:
-        """Disable CUDA profiling for the solver.
-
-        Returns
-        -------
-        None
-            This method alters kernel profiling configuration in-place.
-        """
+        """Disable CUDA profiling for the solver."""
         self.kernel.disable_profiling()
 
-    def set_stride_order(self, order: Tuple[str]) -> None:
-        """Set the stride order for device arrays.
-
-        Parameters
-        ----------
-        order
-            Tuple of labels in ["time", "run", "variable"]. The last string in
-            this order is the contiguous dimension on chip.
-        """
-        self.kernel.set_stride_order(order)
     def get_state_indices(
         self, state_labels: Optional[List[str]] = None
     ) -> ndarray:
@@ -708,11 +733,6 @@ class Solver:
     def output_array_heights(self):
         """Expose output array heights from the kernel."""
         return self.kernel.output_array_heights
-
-    @property
-    def summaries_buffer_sizes(self):
-        """Expose summary buffer sizes."""
-        return self.kernel.summaries_buffer_sizes
 
     @property
     def num_runs(self):
@@ -786,11 +806,6 @@ class Solver:
         )
 
     @property
-    def active_outputs(self) -> ActiveOutputs:
-        """Expose active output array containers."""
-        return self.kernel.active_outputs
-
-    @property
     def state(self):
         """Expose latest state outputs."""
         return self.kernel.state
@@ -821,6 +836,19 @@ class Solver:
         return self.kernel.status_codes
 
     @property
+    def status_messages(self):
+        """Decode nonzero run status codes into named result flags.
+
+        Returns
+        -------
+        dict[int, list[str]]
+            Mapping from run index to the ``CUBIE_RESULT_CODES`` member
+            names set in that run's status word; successful runs are
+            omitted.
+        """
+        return decode_status_codes(self.status_codes)
+
+    @property
     def parameters(self):
         """Expose parameter array used in the last run."""
         return self.kernel.parameters
@@ -846,11 +874,6 @@ class Solver:
         return self.kernel.output_types
 
     @property
-    def state_stride_order(self) -> Tuple[str, ...]:
-        """Describe the stride order of state arrays."""
-        return self.kernel.state_stride_order
-
-    @property
     def input_variables(self) -> List[str]:
         """List all input variable labels."""
         return self.system_interface.all_input_labels
@@ -859,11 +882,6 @@ class Solver:
     def output_variables(self) -> List[str]:
         """List all output variable labels."""
         return self.system_interface.all_output_labels
-
-    @property
-    def chunk_axis(self) -> str:
-        """Return the axis used for chunking large runs."""
-        return self.kernel.chunk_axis
 
     @property
     def chunks(self):
@@ -879,6 +897,11 @@ class Solver:
     def stream_group(self):
         """Return the CUDA stream group assigned to this solver."""
         return self.kernel.stream_group
+
+    @property
+    def stream(self):
+        """Return the CUDA stream used by this solver."""
+        return self.kernel.stream
 
     @property
     def mem_proportion(self):
@@ -951,16 +974,45 @@ class Solver:
     def algorithm(self):
         """Return the configured algorithm name."""
         return self.kernel.algorithm
-    
+
+    @property
+    def cache_enabled(self) -> bool:
+        """Whether file-based caching is enabled."""
+        return self.kernel.cache_config.cache_enabled
+
+    @property
+    def cache_mode(self) -> str:
+        """Current caching mode ('hash' or 'flush_on_change')."""
+        return self.kernel.cache_config.cache_mode
+
+    @property
+    def cache_dir(self) -> Optional[Path]:
+        """Custom cache directory, or None for default location."""
+        return self.kernel.cache_config.cache_dir
+
+    def set_cache_dir(self, path: Union[str, Path]) -> None:
+        """Set a custom cache directory for compiled kernels.
+
+        Parameters
+        ----------
+        path
+            New cache directory path. Can be absolute or relative.
+
+        Notes
+        -----
+        Invalidates the current cache, causing a rebuild on next access.
+        """
+        self.kernel.set_cache_dir(path)
+
     def set_verbosity(self, verbosity: Optional[str]) -> None:
         """Set the time logging verbosity level.
-        
+
         Parameters
         ----------
         verbosity : str or None
             New verbosity level. Options are 'default', 'verbose',
             'debug', None, or 'None'.
-        
+
         Notes
         -----
         Updates the global time logger verbosity. This affects all

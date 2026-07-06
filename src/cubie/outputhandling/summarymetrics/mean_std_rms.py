@@ -1,10 +1,16 @@
-"""
-Composite metric for mean, standard deviation, and RMS calculations.
+"""Combined mean, standard deviation, and RMS from shared running sums.
 
-This module implements a composite summary metric that efficiently computes
-mean, standard deviation, and RMS from a single pass over the data using
-shared running sums. This is more efficient than computing each separately
-when all three metrics are needed.
+Published Classes
+-----------------
+:class:`MeanStdRms`
+    Combined mean, standard deviation, and RMS from shared running sums.
+
+See Also
+--------
+:class:`~cubie.outputhandling.summarymetrics.metrics.SummaryMetric`
+    Abstract base class for summary metrics.
+:data:`~cubie.outputhandling.summarymetrics.summary_metrics`
+    Global registry where this metric is registered.
 """
 
 from numba import cuda

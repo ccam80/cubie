@@ -1,5 +1,46 @@
-"""Symbolic ODE system built from :mod:`sympy` expressions."""
+"""Symbolic ODE system built from :mod:`sympy` expressions.
 
+Published Classes
+-----------------
+:class:`SymbolicODE`
+    Concrete :class:`~cubie.odesystems.baseODE.BaseODE` subclass that
+    generates CUDA device functions from SymPy equations. Handles
+    codegen caching, solver helper generation, and constant/parameter
+    conversion.
+
+    >>> from cubie.odesystems.symbolic.symbolicODE import (
+    ...     create_ODE_system,
+    ... )
+    >>> ode = create_ODE_system(
+    ...     dxdt="dx = -k * x",
+    ...     states={"x": 1.0},
+    ...     parameters={"k": 0.5},
+    ... )
+    >>> ode.num_states
+    1
+
+Published Functions
+-------------------
+:func:`create_ODE_system`
+    Convenience wrapper around :meth:`SymbolicODE.create`.
+
+    >>> ode = create_ODE_system("dx = -x", states={"x": 1.0})
+    >>> ode.num_states
+    1
+
+See Also
+--------
+:class:`~cubie.odesystems.baseODE.BaseODE`
+    Abstract parent providing cache management and value containers.
+:class:`~cubie.odesystems.symbolic.odefile.ODEFile`
+    Disk-backed cache for generated factory functions.
+:mod:`cubie.odesystems.symbolic.parsing.parser`
+    Parses string or SymPy equations into structured components.
+:mod:`cubie.odesystems.symbolic.codegen`
+    Code generation modules invoked by :meth:`SymbolicODE.get_solver_helper`.
+"""
+
+import inspect
 from typing import (
     Any,
     Callable,
@@ -12,7 +53,7 @@ from typing import (
 
 from numpy import float32, ndarray
 import sympy as sp
-from cubie.integrators.array_interpolator import ArrayInterpolator
+from cubie.array_interpolator import ArrayInterpolator
 from cubie.odesystems.symbolic.codegen.dxdt import (
     generate_dxdt_fac_code,
     generate_observables_fac_code,
@@ -30,6 +71,11 @@ from cubie.odesystems.symbolic.codegen import (
     generate_stage_residual_code,
 )
 from cubie.odesystems.symbolic.codegen.jacobian import generate_analytical_jvp
+from cubie.odesystems.symbolic.codegen.neumann_convergence import (
+    NeumannRHSEvaluator,
+    build_rhs_evaluator,
+    check_neumann_convergence,
+)
 from cubie.odesystems.symbolic.odefile import ODEFile
 from cubie.odesystems.symbolic.parsing import (
     IndexedBases,
@@ -45,8 +91,17 @@ from cubie.odesystems.baseODE import BaseODE, ODECache
 from cubie._utils import PrecisionDType
 from cubie.time_logger import default_timelogger
 
+# Neumann preconditioner helper types checked by the convergence
+# diagnostic before code generation.
+_NEUMANN_PRECONDITIONER_TYPES = frozenset((
+    "neumann_preconditioner",
+    "neumann_preconditioner_cached",
+    "n_stage_neumann_preconditioner",
+))
+
+
 def create_ODE_system(
-    dxdt: Union[str, Iterable[str]],
+    dxdt: Union[str, Iterable[str], Callable],
     precision: PrecisionDType = float32,
     states: Optional[Union[dict[str, float], Iterable[str]]] = None,
     observables: Optional[Iterable[str]] = None,
@@ -62,8 +117,14 @@ def create_ODE_system(
     Parameters
     ----------
     dxdt
-        System equations defined as either a single string or an iterable of
-        equation strings in ``lhs = rhs`` form.
+        System equations defined as a single string, an iterable of equation
+        strings in ``lhs = rhs`` form, or a Python callable. When a callable
+        is provided its signature must be ``f(t, y, ...)`` where ``t`` is
+        time, ``y`` is the state vector, and additional arguments map to
+        parameters or constants. State access patterns supported:
+        ``y[0]`` (positional), ``y["name"]`` (string), ``y.name``
+        (attribute). The return value must be a list, tuple, or dict of
+        derivative expressions.
     states
         State labels either as an iterable or as a mapping to default initial
         values.
@@ -109,6 +170,7 @@ def create_ODE_system(
     )
     return symbolic_ode
 
+
 class SymbolicODE(BaseODE):
     """Symbolic representation of an ODE system.
 
@@ -143,7 +205,7 @@ class SymbolicODE(BaseODE):
         precision: PrecisionDType,
         all_indexed_bases: IndexedBases,
         all_symbols: Optional[dict[str, sp.Symbol]] = None,
-        fn_hash: Optional[int] = None,
+        fn_hash: Optional[str] = None,
         user_functions: Optional[dict[str, Callable]] = None,
         name: Optional[str] = None,
     ):
@@ -167,21 +229,18 @@ class SymbolicODE(BaseODE):
             Runtime callables referenced within the symbolic expressions.
         name
             Identifier used for generated modules.
-
-        Returns
-        -------
-        None
-            ``None``.
         """
         if all_symbols is None:
             all_symbols = all_indexed_bases.all_symbols
         self.all_symbols = all_symbols
 
         if fn_hash is None:
-            dxdt_str = [f"{lhs}={str(rhs)}" for lhs, rhs
-                        in equations]
             constants = all_indexed_bases.constants.default_values
-            fn_hash = hash_system_definition(dxdt_str, constants)
+            fn_hash = hash_system_definition(
+                equations,
+                constants,
+                observable_labels=all_indexed_bases.observables.ref_map.keys(),
+            )
         if name is None:
             name = fn_hash
 
@@ -203,10 +262,11 @@ class SymbolicODE(BaseODE):
             observables=all_indexed_bases.observable_names,
             precision=precision,
             num_drivers=ndriv,
-            name=name
+            name=name,
         )
         self._jacobian_aux_count: Optional[int] = None
         self._jvp_exprs: Optional[JVPEquations] = None
+        self._neumann_rhs_evaluator: Optional[NeumannRHSEvaluator] = None
 
     @classmethod
     def create(
@@ -224,7 +284,9 @@ class SymbolicODE(BaseODE):
         state_units: Optional[Union[dict[str, str], Iterable[str]]] = None,
         parameter_units: Optional[Union[dict[str, str], Iterable[str]]] = None,
         constant_units: Optional[Union[dict[str, str], Iterable[str]]] = None,
-        observable_units: Optional[Union[dict[str, str], Iterable[str]]] = None,
+        observable_units: Optional[
+            Union[dict[str, str], Iterable[str]]
+        ] = None,
         driver_units: Optional[Union[dict[str, str], Iterable[str]]] = None,
     ) -> "SymbolicODE":
         """Parse user inputs and instantiate a :class:`SymbolicODE`.
@@ -281,8 +343,11 @@ class SymbolicODE(BaseODE):
             ArrayInterpolator(precision=precision, drivers_dict=drivers)
 
         # Register timing event for parsing (one-time registration)
-        default_timelogger.register_event("symbolic_ode_parsing", "codegen",
-                                           "Codegen time for symbolic ODE parsing")
+        default_timelogger.register_event(
+            "symbolic_ode_parsing",
+            "codegen",
+            "Codegen time for symbolic ODE parsing",
+        )
 
         # Start timing for parsing operation
         default_timelogger.start_event("symbolic_ode_parsing")
@@ -302,16 +367,17 @@ class SymbolicODE(BaseODE):
             driver_units=driver_units,
         )
         index_map, all_symbols, functions, equations, fn_hash = sys_components
-        symbolic_ode = cls(equations=equations,
-                           all_indexed_bases=index_map,
-                           all_symbols=all_symbols,
-                           name=name,
-                           fn_hash=int(fn_hash),
-                           user_functions = functions,
-                           precision=precision)
+        symbolic_ode = cls(
+            equations=equations,
+            all_indexed_bases=index_map,
+            all_symbols=all_symbols,
+            name=name,
+            fn_hash=fn_hash,
+            user_functions=functions,
+            precision=precision,
+        )
         default_timelogger.stop_event("symbolic_ode_parsing")
         return symbolic_ode
-
 
     @property
     def jacobian_aux_count(self) -> Optional[int]:
@@ -357,6 +423,19 @@ class SymbolicODE(BaseODE):
             )
         return self._jvp_exprs
 
+    def _get_neumann_evaluator(self) -> NeumannRHSEvaluator:
+        """Return the cached finite-difference Jacobian evaluator.
+
+        The evaluator compiles the guarded right-hand side once; the
+        Neumann convergence diagnostic reuses it on every call and only
+        re-runs the cheap numeric spectral-radius check.
+        """
+        if self._neumann_rhs_evaluator is None:
+            self._neumann_rhs_evaluator = build_rhs_evaluator(
+                self.equations, self.indices
+            )
+        return self._neumann_rhs_evaluator
+
     def build(self) -> ODECache:
         """Compile the ``dxdt`` factory and refresh the cache.
 
@@ -369,31 +448,39 @@ class SymbolicODE(BaseODE):
         constants = self.constants.values_dict
         self._jacobian_aux_count = None
         new_hash = hash_system_definition(
-            self.equations, self.indices.constants.default_values
+            self.equations,
+            self.indices.constants.default_values,
+            observable_labels=self.indices.observables.ref_map.keys(),
         )
         if new_hash != self.fn_hash:
             self.gen_file = ODEFile(self.name, new_hash)
             self.fn_hash = new_hash
 
-        dxdt_code = generate_dxdt_fac_code(
-            self.equations, self.indices, "dxdt_factory"
+        dxdt_code = None
+        if not self.gen_file.function_is_cached("dxdt_factory"):
+            dxdt_code = generate_dxdt_fac_code(
+                self.equations, self.indices, "dxdt_factory"
+            )
+        dxdt_factory, _ = self.gen_file.import_function(
+            "dxdt_factory", dxdt_code
         )
-        dxdt_factory = self.gen_file.import_function("dxdt_factory", dxdt_code)
         dxdt_func = dxdt_factory(constants, numba_precision)
 
-        observables_code = generate_observables_fac_code(
-            self.equations, self.indices, func_name="observables_factory"
+        obs_code = None
+        if not self.gen_file.function_is_cached("observables_factory"):
+            obs_code = generate_observables_fac_code(
+                self.equations, self.indices,
+                func_name="observables_factory",
+            )
+        observables_factory, _ = self.gen_file.import_function(
+            "observables_factory", obs_code
         )
-        observables_factory = self.gen_file.import_function(
-            "observables_factory", observables_code
-        )
-        observables_func = observables_factory(constants, numba_precision)
+        evaluate_observables = observables_factory(constants, numba_precision)
 
         return ODECache(
             dxdt=dxdt_func,
-            observables=observables_func,
+            observables=evaluate_observables,
         )
-
 
     def set_constants(
         self,
@@ -423,9 +510,209 @@ class SymbolicODE(BaseODE):
         to :meth:`BaseODE.set_constants` for cache management.
         """
         self.indices.update_constants(updates_dict, **kwargs)
-        recognized = super().set_constants(updates_dict,
-                                 silent=silent)
+        recognized = super().set_constants(updates_dict, silent=silent)
         return recognized
+
+    def make_parameter(self, name: str) -> None:
+        """Convert a constant to a swept parameter.
+
+        The constant becomes a parameter that can be varied at runtime without
+        recompilation. The current value becomes the parameter's default value.
+
+        Parameters
+        ----------
+        name
+            Name of the constant to convert.
+
+        Raises
+        ------
+        KeyError
+            If the name is not found in constants.
+        """
+        value = self.constants.values_dict.get(name, 0.0)
+        self.indices.constant_to_parameter(name)
+
+        self.compile_settings.constants.remove_entry(name)
+        self.compile_settings.parameters.add_entry(name, value)
+
+        self._invalidate_cache()
+
+    def make_constant(self, name: str) -> None:
+        """Convert a parameter to a compile-time constant.
+
+        The parameter becomes a constant that is embedded into compiled kernels.
+        The current value becomes the constant's value.
+
+        Parameters
+        ----------
+        name
+            Name of the parameter to convert.
+
+        Raises
+        ------
+        KeyError
+            If the name is not found in parameters.
+        """
+        value = self.parameters.values_dict.get(name, 0.0)
+        self.indices.parameter_to_constant(name)
+
+        self.compile_settings.parameters.remove_entry(name)
+        self.compile_settings.constants.add_entry(name, value)
+
+        self._invalidate_cache()
+
+    def set_constant_value(self, name: str, value: float) -> None:
+        """Set the value of a constant.
+
+        Parameters
+        ----------
+        name
+            Name of the constant.
+        value
+            New value for the constant.
+
+        Raises
+        ------
+        KeyError
+            If the name is not found in constants.
+        """
+        self.set_constants({name: value})
+
+    def set_parameter_value(self, name: str, value: float) -> None:
+        """Set the default value of a parameter.
+
+        Parameters
+        ----------
+        name
+            Name of the parameter.
+        value
+            New default value for the parameter.
+
+        Raises
+        ------
+        KeyError
+            If the name is not found in parameters.
+        """
+        self.parameters[name] = value
+        self.indices.parameters.update_values({name: value})
+
+    def set_initial_value(self, name: str, value: float) -> None:
+        """Set the initial value of a state variable.
+
+        Parameters
+        ----------
+        name
+            Name of the state variable.
+        value
+            New initial value.
+
+        Raises
+        ------
+        KeyError
+            If the name is not found in states.
+        """
+        self.initial_values[name] = value
+        self.indices.states.update_values({name: value})
+
+    def get_constants_info(self) -> list[dict]:
+        """Return information about all constants.
+
+        Returns
+        -------
+        list of dict
+            Each dict contains 'name', 'value', and 'unit' keys.
+        """
+        result = []
+        for name in self.indices.constant_names:
+            result.append({
+                'name': name,
+                'value': self.constants.values_dict.get(name, 0.0),
+                'unit': self.constant_units.get(name, 'dimensionless'),
+            })
+        return result
+
+    def get_parameters_info(self) -> list[dict]:
+        """Return information about all parameters.
+
+        Returns
+        -------
+        list of dict
+            Each dict contains 'name', 'value', and 'unit' keys.
+        """
+        result = []
+        for name in self.indices.parameter_names:
+            result.append({
+                'name': name,
+                'value': self.parameters.values_dict.get(name, 0.0),
+                'unit': self.parameter_units.get(name, 'dimensionless'),
+            })
+        return result
+
+    def get_states_info(self) -> list[dict]:
+        """Return information about all state variables.
+
+        Returns
+        -------
+        list of dict
+            Each dict contains 'name', 'value', and 'unit' keys.
+        """
+        result = []
+        for name in self.indices.state_names:
+            result.append({
+                'name': name,
+                'value': self.initial_values.values_dict.get(name, 0.0),
+                'unit': self.state_units.get(name, 'dimensionless'),
+            })
+        return result
+
+    def constants_gui(self, blocking: bool = True) -> None:
+        """Launch a Qt GUI for editing constants and parameters.
+
+        The GUI displays all constants and parameters with their values and
+        units. Users can convert between constants and parameters using a
+        checkbox, and edit values directly.
+
+        Parameters
+        ----------
+        blocking
+            If True (default), block until the dialog is closed.
+            If False, return immediately with the dialog still open.
+
+        Notes
+        -----
+        Requires a Qt binding (PyQt6, PyQt5, PySide6, or PySide2).
+
+        Example
+        -------
+        >>> ode = load_cellml_model("model.cellml")
+        >>> ode.constants_gui()  # Opens editor dialog
+        """
+        from cubie.gui.constants_editor import show_constants_editor
+        show_constants_editor(self, blocking=blocking)
+
+    def states_gui(self, blocking: bool = True) -> None:
+        """Launch a Qt GUI for editing initial state values.
+
+        The GUI displays all state variables with their initial values and
+        units. Users can edit the initial values directly.
+
+        Parameters
+        ----------
+        blocking
+            If True (default), block until the dialog is closed.
+            If False, return immediately with the dialog still open.
+
+        Notes
+        -----
+        Requires a Qt binding (PyQt6, PyQt5, PySide6, or PySide2).
+
+        Example
+        -------
+        >>> ode = load_cellml_model("model.cellml")
+        >>> ode.states_gui()  # Opens editor dialog
+        """
+        from cubie.gui.states_editor import show_states_editor
+        show_states_editor(self, blocking=blocking)
 
     def get_solver_helper(
         self,
@@ -490,8 +777,11 @@ class SymbolicODE(BaseODE):
         event_name = f"solver_helper_{func_type}"
 
         if event_name not in self.registered_helper_events:
-            default_timelogger.register_event(event_name, "codegen",
-                                               f"Codegen time for solver helper {func_type}")
+            default_timelogger.register_event(
+                event_name,
+                "codegen",
+                f"Codegen time for solver helper {func_type}",
+            )
             self.registered_helper_events.add(event_name)
 
         try:
@@ -500,162 +790,163 @@ class SymbolicODE(BaseODE):
         except NotImplementedError:
             pass
 
-        # Start timing for helper generation
-        default_timelogger.start_event(event_name)
+        # Determine factory_name for n_stage helpers (needed to check cache)
+        if func_type == "n_stage_residual":
+            factory_name = f"n_stage_residual_{len(stage_nodes)}"
+        elif func_type == "n_stage_linear_operator":
+            factory_name = f"n_stage_linear_operator_{len(stage_nodes)}"
+        elif func_type == "n_stage_neumann_preconditioner":
+            factory_name = f"n_stage_neumann_preconditioner_{len(stage_nodes)}"
+        else:
+            factory_name = func_type
+
+        # Handle cached_aux_count specially - it doesn't generate code
+        # and doesn't depend on whether other functions are cached
+        if func_type == "cached_aux_count":
+            default_timelogger.start_event(event_name, skipped=True)
+            if self._jacobian_aux_count is None:
+                self.get_solver_helper("prepare_jac")
+            default_timelogger.stop_event(event_name)
+            return self._jacobian_aux_count
+
+        # Neumann preconditioner convergence diagnostic. Runs whenever a
+        # Neumann helper is requested (even on cache hits) so the warning
+        # surfaces for reused code as well as freshly generated code.
+        if func_type in _NEUMANN_PRECONDITIONER_TYPES:
+            check_neumann_convergence(
+                self.equations,
+                self.indices,
+                evaluator=self._get_neumann_evaluator(),
+                stage_coefficients=stage_coefficients,
+                stage_nodes=stage_nodes,
+                beta=beta,
+                gamma=gamma,
+            )
+
+        # Check if function is already in file cache (skipped if so)
+        is_cached = self.gen_file.function_is_cached(factory_name)
+
+        # Start timing for helper generation, marking as skipped if cached
+        default_timelogger.start_event(event_name, skipped=is_cached)
         numba_precision = self.numba_precision
         constants = self.constants.values_dict
 
         factory_kwargs = {
             "constants": constants,
             "precision": numba_precision,
+            "beta": beta,
+            "gamma": gamma,
+            "order": preconditioner_order,
         }
-        factory_name = func_type
-        if func_type == "linear_operator":
-            code = generate_operator_apply_code(
-                self.equations,
-                self.indices,
-                M=mass,
-                func_name=func_type,
-                jvp_equations=self._get_jvp_exprs(),
-            )
-            factory_kwargs.update(
-                beta=beta,
-                gamma=gamma,
-                order=preconditioner_order,
-            )
-        elif func_type == "linear_operator_cached":
-            code = generate_cached_operator_apply_code(
-                self.equations,
-                self.indices,
-                M=mass,
-                func_name=func_type,
-                jvp_equations=self._get_jvp_exprs(),
-            )
-            factory_kwargs.update(
-                beta=beta,
-                gamma=gamma,
-                order=preconditioner_order,
-            )
-        elif func_type == "prepare_jac":
-            code, aux_count = generate_prepare_jac_code(
-                self.equations,
-                self.indices,
-                func_name=func_type,
-                jvp_equations=self._get_jvp_exprs(),
-            )
-            self._jacobian_aux_count = aux_count
-        elif func_type == "cached_aux_count":
-            if self._jacobian_aux_count is None:
-                self.get_solver_helper("prepare_jac")
-            default_timelogger.stop_event(event_name)
-            return self._jacobian_aux_count
-        elif func_type == "calculate_cached_jvp":
-            code = generate_cached_jvp_code(
-                self.equations,
-                self.indices,
-                func_name=func_type,
-                jvp_equations=self._get_jvp_exprs(),
-            )
-        elif func_type == "neumann_preconditioner":
-            code = generate_neumann_preconditioner_code(
-                self.equations,
-                self.indices,
-                func_type,
-                jvp_equations=self._get_jvp_exprs(),
-            )
-            factory_kwargs.update(
-                beta=beta,
-                gamma=gamma,
-                order=preconditioner_order,
-            )
-        elif func_type == "neumann_preconditioner_cached":
-            code = generate_neumann_preconditioner_cached_code(
-                self.equations,
-                self.indices,
-                func_type,
-                jvp_equations=self._get_jvp_exprs(),
-            )
-            factory_kwargs.update(
-                beta=beta,
-                gamma=gamma,
-                order=preconditioner_order,
-            )
-        elif func_type == "stage_residual":
-            code = generate_stage_residual_code(
-                self.equations,
-                self.indices,
-                M=mass,
-                func_name="stage_residual",
-            )
-            factory_kwargs.update(
-                beta=beta,
-                gamma=gamma,
-                order=preconditioner_order,
-            )
-        elif func_type == "time_derivative_rhs":
-            code = generate_time_derivative_fac_code(
-                self.equations,
-                self.indices,
-                func_name=func_type,
-            )
-        elif func_type == "n_stage_residual":
-            helper_name = f"n_stage_residual_{len(stage_nodes)}"
-            code = generate_n_stage_residual_code(
-                equations=self.equations,
-                index_map=self.indices,
-                stage_coefficients=stage_coefficients,
-                stage_nodes=stage_nodes,
-                M=mass,
-                func_name=helper_name,
-            )
-            factory_kwargs.update(
-                beta=beta,
-                gamma=gamma,
-                order=preconditioner_order,
-            )
-            factory_name = helper_name
-        elif func_type == "n_stage_linear_operator":
-            helper_name = f"n_stage_linear_operator_{len(stage_nodes)}"
-            code = generate_n_stage_linear_operator_code(
-                equations=self.equations,
-                index_map=self.indices,
-                stage_coefficients=stage_coefficients,
-                stage_nodes=stage_nodes,
-                M=mass,
-                func_name=helper_name,
-                jvp_equations=self._get_jvp_exprs(),
-            )
-            factory_kwargs.update(
-                beta=beta,
-                gamma=gamma,
-                order=preconditioner_order,
-            )
-            factory_name = helper_name
-        elif func_type == "n_stage_neumann_preconditioner":
-            helper_name = (
-                f"n_stage_neumann_preconditioner_{len(stage_nodes)}"
-            )
-            code = generate_n_stage_neumann_preconditioner_code(
-                equations=self.equations,
-                index_map=self.indices,
-                stage_coefficients=stage_coefficients,
-                stage_nodes=stage_nodes,
-                func_name=helper_name,
-                jvp_equations=self._get_jvp_exprs(),
-            )
-            factory_kwargs.update(
-                beta=beta,
-                gamma=gamma,
-                order=preconditioner_order,
-            )
-            factory_name = helper_name
-        else:
-            raise NotImplementedError(
-                f"Solver helper '{func_type}' is not implemented."
-            )
 
-        factory = self.gen_file.import_function(factory_name, code)
-        func = factory(**factory_kwargs)
+        # Skip expensive code generation when function is already cached
+        code = None
+        if not is_cached:
+            # factory_name already set above based on func_type
+            if func_type == "linear_operator":
+                code = generate_operator_apply_code(
+                    self.equations,
+                    self.indices,
+                    M=mass,
+                    func_name=factory_name,
+                    jvp_equations=self._get_jvp_exprs(),
+                )
+            elif func_type == "linear_operator_cached":
+                code = generate_cached_operator_apply_code(
+                    self.equations,
+                    self.indices,
+                    M=mass,
+                    func_name=factory_name,
+                    jvp_equations=self._get_jvp_exprs(),
+                )
+            elif func_type == "prepare_jac":
+                code, aux_count = generate_prepare_jac_code(
+                    self.equations,
+                    self.indices,
+                    func_name=factory_name,
+                    jvp_equations=self._get_jvp_exprs(),
+                )
+                self._jacobian_aux_count = aux_count
+            elif func_type == "calculate_cached_jvp":
+                code = generate_cached_jvp_code(
+                    self.equations,
+                    self.indices,
+                    func_name=factory_name,
+                    jvp_equations=self._get_jvp_exprs(),
+                )
+            elif func_type == "neumann_preconditioner":
+                code = generate_neumann_preconditioner_code(
+                    self.equations,
+                    self.indices,
+                    factory_name,
+                    jvp_equations=self._get_jvp_exprs(),
+                )
+            elif func_type == "neumann_preconditioner_cached":
+                code = generate_neumann_preconditioner_cached_code(
+                    self.equations,
+                    self.indices,
+                    factory_name,
+                    jvp_equations=self._get_jvp_exprs(),
+                )
+            elif func_type == "stage_residual":
+                code = generate_stage_residual_code(
+                    self.equations,
+                    self.indices,
+                    M=mass,
+                    func_name=factory_name,
+                )
+            elif func_type == "time_derivative_rhs":
+                code = generate_time_derivative_fac_code(
+                    self.equations,
+                    self.indices,
+                    func_name=factory_name,
+                )
+            elif func_type == "n_stage_residual":
+                code = generate_n_stage_residual_code(
+                    equations=self.equations,
+                    index_map=self.indices,
+                    stage_coefficients=stage_coefficients,
+                    stage_nodes=stage_nodes,
+                    M=mass,
+                    func_name=factory_name,
+                )
+            elif func_type == "n_stage_linear_operator":
+                code = generate_n_stage_linear_operator_code(
+                    equations=self.equations,
+                    index_map=self.indices,
+                    stage_coefficients=stage_coefficients,
+                    stage_nodes=stage_nodes,
+                    M=mass,
+                    func_name=factory_name,
+                    jvp_equations=self._get_jvp_exprs(),
+                )
+            elif func_type == "n_stage_neumann_preconditioner":
+                code = generate_n_stage_neumann_preconditioner_code(
+                    equations=self.equations,
+                    index_map=self.indices,
+                    stage_coefficients=stage_coefficients,
+                    stage_nodes=stage_nodes,
+                    func_name=factory_name,
+                    jvp_equations=self._get_jvp_exprs(),
+                )
+            else:
+                raise NotImplementedError(
+                    f"Solver helper '{func_type}' is not implemented."
+                )
+
+        factory, was_cached = self.gen_file.import_function(factory_name, code)
+
+        # For prepare_jac, retrieve aux_count from cached factory if needed
+        if func_type == "prepare_jac" and self._jacobian_aux_count is None:
+            self._jacobian_aux_count = getattr(factory, 'aux_count', 0)
+
+        # Pass only the kwargs each factory declares; beta/gamma reach the
+        # operators/residuals/preconditioners and order reaches only the
+        # preconditioners, per each factory's own signature.
+        accepted = inspect.signature(factory).parameters
+        func = factory(
+            **{k: v for k, v in factory_kwargs.items() if k in accepted}
+        )
         setattr(self._cache, func_type, func)
         default_timelogger.stop_event(event_name)
 

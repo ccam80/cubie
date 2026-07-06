@@ -1,20 +1,27 @@
-"""Factories that build CUDA device functions to accumulate summary metrics.
+"""Factory for CUDA device functions that accumulate summary metrics.
 
-This module chains summary metric update functions into a single callable that
-is specialised for the requested metrics and tracked variables.
+Published Functions
+-------------------
+:func:`update_summary_factory`
+    Build a CUDA device function that accumulates summary metrics
+    from the current state sample into working buffers.
+
+:func:`chain_metrics`
+    Recursively compose metric update functions into a single
+    callable (internal).
+
+See Also
+--------
+:func:`~cubie.outputhandling.save_summaries.save_summary_factory`
+    Companion factory that persists accumulated metrics.
+:class:`~cubie.outputhandling.output_functions.OutputFunctions`
+    Caller that invokes this factory during compilation.
 
 Notes
 -----
-This implementation is based on the "chain" approach by sklam from
-https://github.com/numba/numba/issues/3405. The approach allows dynamic
-compilation of only the summary metrics that are actually requested, avoiding
-wasted space in working arrays.
-
-The process consists of:
-1. A recursive ``chain_metrics`` function that builds a chain of update
-   functions.
-2. An ``update_summary_factory`` that applies the chained functions to each
-   variable.
+Based on the recursive chain approach by sklam
+(https://github.com/numba/numba/issues/3405) for composing
+JIT-compiled functions without passing them as an iterable.
 """
 
 from typing import Callable, Sequence, Union
@@ -47,16 +54,10 @@ def do_nothing(
     current_step
         Integer or scalar step identifier (unused).
 
-    Returns
-    -------
-    None
-        The device function intentionally performs no operations.
-
     Notes
     -----
-    This function serves as the base case for the recursive chain when no
-    summary metrics are configured or as the initial ``inner_chain`` function
-    for update operations.
+    Base case for the recursive chain when no summary metrics are
+    configured.
     """
     pass
 

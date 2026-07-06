@@ -60,3 +60,13 @@ generated/
 /scripts/
 /docs/api/
 nvprof/
+
+# Cache
+*.nbi
+*.nbc
+
+# AI
+.claude/
+
+# Working notes / specs (local only)
+spec/

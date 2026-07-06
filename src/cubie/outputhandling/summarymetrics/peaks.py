@@ -1,8 +1,16 @@
-"""
-Peak detection summary metric for CUDA-accelerated batch integration.
+"""Peak (local maximum) detection over a summary interval.
 
-This module implements a summary metric that detects and records the timing
-of local maxima (peaks) in variable values during integration.
+Published Classes
+-----------------
+:class:`Peaks`
+    Peak (local maximum) detection over a summary interval.
+
+See Also
+--------
+:class:`~cubie.outputhandling.summarymetrics.metrics.SummaryMetric`
+    Abstract base class for summary metrics.
+:data:`~cubie.outputhandling.summarymetrics.summary_metrics`
+    Global registry where this metric is registered.
 """
 
 from numba import cuda, int32

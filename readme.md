@@ -14,11 +14,10 @@ of writing CUDA code. It is designed to have a reasonably MATLAB- or SciPy-like 
 running without having to figure out the intricacies of the internal mechanics.
 
 The batch solving interface is not yet completely stable, and some parameters/arguments are likely to change further through to v1.0.
-The core (per-parameter-set) machinery is reasonably stable. As of v0.0.6, you can:
+The core (per-parameter-set) machinery is reasonably stable. As of v0.0.7, you can:
 
 - Set up and solve large parameter/initial condition sweeps of a system defined by a set of ODEs, entered either as:
   - A string or list of strings containing the equations of the system
-  - A python function (not well tested yet)
   - A CellML model (tested on a subset of models in the CellML library so far)
 - Use any of a large set of explicit or implicit runge-kutta or rosenbrock methods to integrate the problem.
 - Extract the solution for any variable or ``observable`` at any time point, or extract summary statistics only to speed 
@@ -27,19 +26,13 @@ The core (per-parameter-set) machinery is reasonably stable. As of v0.0.6, you c
   system to interpolate.
 - Select from a handful of step-size control algorithms when using an adaptive-step algorithm like RK45 or RadauIIA5.
 
-v0.0.6 also includes a few major milestones, the most significant of which is numerical validation of the methods against
-results from the OrdinaryDiffEq suite of solvers. All algorithms are now validated and have been partially optimized to compete
-with the really fast solvers in Julia DiffEqGPU.jl and some other GPU-accelerated packages that are either written in a 
-tricky language or use some pretty rigid interfaces. Other changes are largely internal, but all contribute to a more cohesive
-and abuse-tolerant package. I intend to publish some comparisons moving forward, watch this space.
+
 
 ### Roadmap:
-- v0.0.7: API improvements. This version should be stable enough for use in research - I will be using it in mine.
-  - Remove the distinction between 'observables' and 'state' from the user-facing arguments requesting variable saving.
-  - Separate summary variable timing from save timing.
-  - Add time-logging for user visibility of codegen-compile-run times.
-- v0.1.0: Documentation to match the API, organised in the sane way that a robot does not.
+- v0.1.0: 
+  - Documentation to match the API, organised in the sane way that a robot does not.
   - User guide brought up-to-date with API, tracing an example through a few integration scenarios.
+  - Accept a python function as a system definition, to match Scipy and MATLAB interfaces.
 
 
 ## Documentation:
@@ -54,7 +47,8 @@ so installing it in it's own environment will avoid downgrading your system-wide
 python -m venv cubie_env
 ./cubie_env/Scripts/activate # Windows
 # source cubie_env/bin/activate # Linux/Mac
-pip install cubie
+pip install cubie[cuda12]  # CUDA 12 toolkit
+# pip install cubie[cuda13]  # CUDA 13 toolkit
 ```
 
 Then, when you fire up your Cubie project, run
@@ -68,13 +62,13 @@ as the project's interpreter so you don't have to worry about it.
 
 ## System Requirements:
 - Python 3.10 or later
-- CUDA Toolkit 12.9 or later
+- Up-to-date NVIDIA driver
 - NVIDIA GPU with compute capability 6.0 or higher (i.e. GTX10-series or newer)
 
 ## Python Requirements
 
 * Python >= 3.10
-* NumPy==1.26.4
+* NumPy>=2.0
 * Numba
 * Numba-CUDA
 * attrs
@@ -84,8 +78,9 @@ as the project's interpreter so you don't have to worry about it.
 
 Install these using `pip install cubie[optional]`
 
-* Cupy-cu12x: For pool-based memory management (if you're doing a lot of
-  consecutive batches of different sizes)
+* CuPy: For pool-based memory management (if you're doing a lot of
+  consecutive batches of different sizes). Install via `pip install
+  cubie[cupy12]` or `pip install cubie[cupy13]` to match your toolkit.
 * Pandas: For DataFrame output support
 * Matplotlib: For plotting support. Only used to plot an interpolated driver function for sanity-checks (see
   :doc:`Drivers <user_guide/drivers>`), but generally useful for visualizing results.
@@ -93,8 +88,7 @@ Install these using `pip install cubie[optional]`
 
 ## Contributing:
 Pull requests are very, very welcome! Please open an issue if you would like to discuss a feature or bug before doing a 
-bunch of work on it, as I may have already partially implemented it or at least figured out where it might fit. For v0.1.0 I
-will get some more descriptive documentation of the architecture in place.
+bunch of work on it, as I may have already partially implemented it or at least figured out where it might fit. 
 
 ## Project Goals:
 

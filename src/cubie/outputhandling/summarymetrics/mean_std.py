@@ -1,10 +1,16 @@
-"""
-Composite metric for mean and standard deviation calculations.
+"""Combined mean and standard deviation from shared running sums.
 
-This module implements a composite summary metric that efficiently computes
-mean and standard deviation from a single pass over the data using shared
-running sums. This is more efficient than computing each separately when
-both metrics are needed.
+Published Classes
+-----------------
+:class:`MeanStd`
+    Combined mean and standard deviation from shared running sums.
+
+See Also
+--------
+:class:`~cubie.outputhandling.summarymetrics.metrics.SummaryMetric`
+    Abstract base class for summary metrics.
+:data:`~cubie.outputhandling.summarymetrics.summary_metrics`
+    Global registry where this metric is registered.
 """
 
 from numba import cuda

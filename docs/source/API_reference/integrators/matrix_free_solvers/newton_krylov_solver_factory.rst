@@ -1,6 +1,16 @@
-newton_krylov_solver_factory
-============================
+NewtonKrylov
+============
 
-.. currentmodule:: cubie.integrators
+.. currentmodule:: cubie.integrators.matrix_free_solvers
 
-.. autofunction:: newton_krylov_solver_factory
+.. autoclass:: NewtonKrylov
+    :members:
+    :show-inheritance:
+
+.. autoclass:: NewtonKrylovConfig
+    :members:
+    :show-inheritance:
+
+.. autoclass:: NewtonKrylovCache
+    :members:
+    :show-inheritance:

@@ -8,10 +8,11 @@ from numba import cuda, int32, from_dtype
 
 from cubie._utils import is_device_validator
 from cubie.buffer_registry import buffer_registry
-from cubie.CUDAFactory import CUDAFunctionCache
+from cubie.CUDAFactory import CUDADispatcherCache
 from cubie.cuda_simsafe import (
     activemask, all_sync, selp, any_sync, compile_kwargs
 )
+from cubie.result_codes import CUBIE_RESULT_CODES
 from cubie.integrators.matrix_free_solvers.linear_solver import (
     LinearSolver,
 )
@@ -21,7 +22,7 @@ from cubie.integrators.matrix_free_solvers.newton_krylov import (
 
 
 @attrs.define
-class InstrumentedLinearSolverCache(CUDAFunctionCache):
+class InstrumentedLinearSolverCache(CUDADispatcherCache):
     """Cache container for InstrumentedLinearSolver outputs.
     
     Attributes
@@ -80,8 +81,7 @@ class InstrumentedLinearSolver(LinearSolver):
         preconditioner = config.preconditioner
         n = config.n
         linear_correction_type = config.linear_correction_type
-        krylov_tolerance = config.krylov_tolerance
-        max_linear_iters = config.max_linear_iters
+        max_iters = config.max_iters
         precision = config.precision
         use_cached_auxiliaries = config.use_cached_auxiliaries
         
@@ -89,13 +89,20 @@ class InstrumentedLinearSolver(LinearSolver):
         sd_flag = linear_correction_type == "steepest_descent"
         mr_flag = linear_correction_type == "minimal_residual"
         preconditioned = preconditioner is not None
-        
+
+        # Get scaled norm device function from config
+        scaled_norm_fn = config.norm_device_function
+
         # Convert types for device function
         n_val = int32(n)
-        max_iters_val = int32(max_linear_iters)
+        max_iters_val = int32(max_iters)
         precision_numba = from_dtype(np.dtype(precision))
         typed_zero = precision_numba(0.0)
-        tol_squared = precision_numba(krylov_tolerance * krylov_tolerance)
+        success = int32(CUBIE_RESULT_CODES.SUCCESS)
+        max_linear_iters_exceeded = int32(
+            CUBIE_RESULT_CODES.MAX_LINEAR_ITERATIONS_EXCEEDED
+        )
+        typed_one = precision_numba(1.0)
         
         # Get allocators from buffer_registry using production buffer names
         # (registered by parent LinearSolver.register_buffers)
@@ -145,13 +152,11 @@ class InstrumentedLinearSolver(LinearSolver):
                     state, parameters, drivers, cached_aux, base_state,
                     t, h, a_ij, x, temp
                 )
-                acc = typed_zero
                 for i in range(n_val):
-                    residual_value = rhs[i] - temp[i]
-                    rhs[i] = residual_value
-                    acc += residual_value * residual_value
+                    rhs[i] = rhs[i] - temp[i]
+                acc = scaled_norm_fn(rhs, x)
                 mask = activemask()
-                converged = acc <= tol_squared
+                converged = acc <= typed_one
                 
                 # Log initial guess
                 log_slot = int32(slot_index)
@@ -212,19 +217,13 @@ class InstrumentedLinearSolver(LinearSolver):
                     else:
                         alpha = typed_zero
 
-                    acc = typed_zero
                     if not converged:
                         for i in range(n_val):
                             x[i] += alpha * preconditioned_vec[i]
                             rhs[i] -= alpha * temp[i]
-                            residual_value = rhs[i]
-                            acc += residual_value * residual_value
-                    else:
-                        for i in range(n_val):
-                            residual_value = rhs[i]
-                            acc += residual_value * residual_value
+                    acc = scaled_norm_fn(rhs, x)
 
-                    converged = converged or (acc <= tol_squared)
+                    converged = converged or (acc <= typed_one)
                     
                     # Log iteration state (uses 0-based indexing)
                     log_iter = iteration - int32(1)
@@ -237,7 +236,9 @@ class InstrumentedLinearSolver(LinearSolver):
                     linear_squared_norms[log_slot, log_iter] = acc
                 
                 # Log "exceeded linear iters" status if still not converged
-                final_status = selp(converged, int32(0), int32(4))
+                final_status = selp(
+                    converged, success, max_linear_iters_exceeded
+                )
                 krylov_iters_out[0] = iteration
                 return final_status
             
@@ -285,13 +286,11 @@ class InstrumentedLinearSolver(LinearSolver):
                     state, parameters, drivers, base_state, t, h, a_ij, x,
                         temp
                 )
-                acc = typed_zero
                 for i in range(n_val):
-                    residual_value = rhs[i] - temp[i]
-                    rhs[i] = residual_value
-                    acc += residual_value * residual_value
+                    rhs[i] = rhs[i] - temp[i]
+                acc = scaled_norm_fn(rhs, x)
                 mask = activemask()
-                converged = acc <= tol_squared
+                converged = acc <= typed_one
                 
                 # Log initial guess
                 log_slot = int32(slot_index)
@@ -354,13 +353,11 @@ class InstrumentedLinearSolver(LinearSolver):
                         converged, precision_numba(0.0), alpha
                     )
                     
-                    acc = typed_zero
                     for i in range(n_val):
                         x[i] += alpha_effective * preconditioned_vec[i]
                         rhs[i] -= alpha_effective * temp[i]
-                        residual_value = rhs[i]
-                        acc += residual_value * residual_value
-                    converged = converged or (acc <= tol_squared)
+                    acc = scaled_norm_fn(rhs, x)
+                    converged = converged or (acc <= typed_one)
                     
                     # Log iteration state (uses 0-based indexing)
                     log_iter = iteration - int32(1)
@@ -373,7 +370,9 @@ class InstrumentedLinearSolver(LinearSolver):
                     linear_squared_norms[log_slot, log_iter] = acc
                 
                 # Log "exceeded linear iters" status if still not converged
-                final_status = selp(converged, int32(0), int32(4))
+                final_status = selp(
+                    converged, success, max_linear_iters_exceeded
+                )
                 krylov_iters_out[0] = iteration
                 return final_status
             
@@ -385,7 +384,7 @@ class InstrumentedLinearSolver(LinearSolver):
         return self.get_cached_output('linear_solver')
 
 @attrs.define
-class InstrumentedNewtonKrylovCache(CUDAFunctionCache):
+class InstrumentedNewtonKrylovCache(CUDADispatcherCache):
     """Cache container for InstrumentedNewtonKrylov outputs.
     
     Attributes
@@ -433,13 +432,13 @@ class InstrumentedNewtonKrylov(NewtonKrylov):
             Records alpha scaling factor at each Newton iteration.
         linear_initial_guesses : array[total_linear_slots, n]
             Records initial guess x values for embedded linear solves.
-        linear_iteration_guesses : array[total_linear_slots, max_linear_iters, n]
+        linear_iteration_guesses : array[total_linear_slots, max_iters, n]
             Records x values at each linear solver iteration.
-        linear_residuals : array[total_linear_slots, max_linear_iters, n]
+        linear_residuals : array[total_linear_slots, max_iters, n]
             Records residual values at each linear solver iteration.
-        linear_squared_norms : array[total_linear_slots, max_linear_iters]
+        linear_squared_norms : array[total_linear_slots, max_iters]
             Records squared residual norms at each linear solver iteration.
-        linear_preconditioned_vectors : array[total_linear_slots, max_linear_iters, n]
+        linear_preconditioned_vectors : array[total_linear_slots, max_iters, n]
             Records preconditioned search direction at each linear iteration.
         
         Raises
@@ -457,22 +456,30 @@ class InstrumentedNewtonKrylov(NewtonKrylov):
         linear_solver_fn = config.linear_solver_function
 
         n = config.n
-        tolerance = config.newton_tolerance
-        max_iters = config.max_newton_iters
+        max_iters = config.max_iters
         damping = config.newton_damping
-        max_backtracks = config.newton_max_backtracks
+        newton_max_backtracks = config.newton_max_backtracks
         precision = config.precision
+
+        # Get scaled norm device function from config
+        scaled_norm_fn = config.norm_device_function
 
         # Convert types for device function
         precision_dtype = np.dtype(precision)
         numba_precision = from_dtype(precision_dtype)
-        tol_squared = numba_precision(tolerance * tolerance)
         typed_zero = numba_precision(0.0)
+        success = int32(CUBIE_RESULT_CODES.SUCCESS)
+        max_newton_iters_exceeded = int32(
+            CUBIE_RESULT_CODES.MAX_NEWTON_ITERATIONS_EXCEEDED
+        )
+        newton_backtracking_failed = int32(
+            CUBIE_RESULT_CODES.NEWTON_BACKTRACKING_NO_SUITABLE_STEP
+        )
         typed_one = numba_precision(1.0)
         typed_damping = numba_precision(damping)
         n_val = int32(n)
         max_iters_val = int32(max_iters)
-        max_backtracks_val = int32(max_backtracks + 1)
+        newton_max_backtracks_val = int32(newton_max_backtracks + 1)
         
         # Get allocators from buffer_registry using production buffer names
         # (registered by parent NewtonKrylov.register_buffers)
@@ -526,11 +533,11 @@ class InstrumentedNewtonKrylov(NewtonKrylov):
             """Solve a nonlinear system with damped Newton-Krylov and logging."""
             
             # Allocate buffers from registry
-            delta = alloc_delta(shared_scratch, shared_scratch)
-            residual = alloc_residual(shared_scratch, shared_scratch)
-            residual_temp = alloc_residual_temp(shared_scratch, shared_scratch)
-            stage_base_bt = alloc_stage_base_bt(shared_scratch, shared_scratch)
-            lin_shared = alloc_lin_shared(shared_scratch, shared_scratch)
+            delta = alloc_delta(shared_scratch, persistent_scratch)
+            residual = alloc_residual(shared_scratch, persistent_scratch)
+            residual_temp = alloc_residual_temp(shared_scratch, persistent_scratch)
+            stage_base_bt = alloc_stage_base_bt(shared_scratch, persistent_scratch)
+            lin_shared = alloc_lin_shared(shared_scratch, persistent_scratch)
             lin_persistent = alloc_lin_persistent(shared_scratch, persistent_scratch)
             
             # Evaluate initial residual
@@ -545,14 +552,15 @@ class InstrumentedNewtonKrylov(NewtonKrylov):
                 residual,
             )
             
-            norm2_prev = typed_zero
             linear_slot_base = int32(stage_index * max_iters_val)
             log_index = int32(0)
             residual_copy = cuda.local.array(n, numba_precision)
 
+            # Compute norm BEFORE negation for correct scaling
+            norm2_prev = scaled_norm_fn(residual, stage_increment)
+
             for i in range(n_val):
                 residual_value = residual[i]
-                norm2_prev += residual_value * residual_value
                 delta[i] = typed_zero
                 residual[i] = -residual_value
                 residual_copy[i] = residual_value
@@ -567,9 +575,9 @@ class InstrumentedNewtonKrylov(NewtonKrylov):
             newton_squared_norms[stage_index, log_index] = norm2_prev
             log_index += int32(1)
             
-            converged = norm2_prev <= tol_squared
+            converged = norm2_prev <= typed_one
             has_error = False
-            final_status = int32(0)
+            final_status = success
             
             krylov_iters_local = alloc_krylov_iters_local(
                 shared_scratch, persistent_scratch
@@ -632,7 +640,7 @@ class InstrumentedNewtonKrylov(NewtonKrylov):
                 found_step = False
                 snapshot_ready = False
                 
-                for _ in range(max_backtracks_val):
+                for _ in range(newton_max_backtracks_val):
                     active_bt = active and (not found_step) and (not converged)
                     if not any_sync(mask, active_bt):
                         break
@@ -654,15 +662,13 @@ class InstrumentedNewtonKrylov(NewtonKrylov):
                             residual_temp,
                         )
                         
-                        norm2_new = typed_zero
+                        norm2_new = scaled_norm_fn(residual_temp, stage_increment)
                         for i in range(n_val):
-                            residual_value = residual_temp[i]
-                            norm2_new += residual_value * residual_value
                             stage_increment_snapshot[i] = stage_increment[i]
-                            residual_snapshot[i] = residual_value
+                            residual_snapshot[i] = residual_temp[i]
                         snapshot_ready = True
                         
-                        if norm2_new <= tol_squared:
+                        if norm2_new <= typed_one:
                             converged = True
                             found_step = True
                         
@@ -678,7 +684,7 @@ class InstrumentedNewtonKrylov(NewtonKrylov):
                 has_error = has_error or backtrack_failed
                 final_status = selp(
                     backtrack_failed,
-                    int32(final_status | int32(1)),
+                    int32(final_status | newton_backtracking_failed),
                     final_status
                 )
                 
@@ -705,7 +711,7 @@ class InstrumentedNewtonKrylov(NewtonKrylov):
             max_iters_exceeded = (not converged) and (not has_error)
             final_status = selp(
                 max_iters_exceeded,
-                int32(final_status | int32(2)),
+                int32(final_status | max_newton_iters_exceeded),
                 final_status
             )
             

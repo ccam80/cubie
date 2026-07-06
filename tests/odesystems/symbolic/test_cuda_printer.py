@@ -46,42 +46,42 @@ class TestCUDAPrinter:
         printer = CUDAPrinter()
         expr_str = "x**2"
         result = printer._replace_square_powers(expr_str)
-        assert result == "x*x"
+        assert result == "(x*x)"
 
     def test_replace_square_powers_indexed(self):
         """Test replacement of indexed variable powers."""
         printer = CUDAPrinter()
         expr_str = "arr[0]**2"
         result = printer._replace_square_powers(expr_str)
-        assert result == "arr[0]*arr[0]"
+        assert result == "(arr[0]*arr[0])"
 
     def test_replace_square_powers_multiple(self):
         """Test replacement of multiple square powers."""
         printer = CUDAPrinter()
         expr_str = "x**2 + y**2"
         result = printer._replace_square_powers(expr_str)
-        assert result == "x*x + y*y"
+        assert result == "(x*x) + (y*y)"
 
     def test_replace_cube_powers_simple(self):
         """Test replacement of x**3 with x*x*x."""
         printer = CUDAPrinter()
         expr_str = "x**3"
         result = printer._replace_cube_powers(expr_str)
-        assert result == "x*x*x"
+        assert result == "(x*x*x)"
 
     def test_replace_cube_powers_indexed(self):
         """Test replacement of indexed variable cube powers."""
         printer = CUDAPrinter()
         expr_str = "arr[0]**3"
         result = printer._replace_cube_powers(expr_str)
-        assert result == "arr[0]*arr[0]*arr[0]"
+        assert result == "(arr[0]*arr[0]*arr[0])"
 
     def test_replace_powers_with_multiplication(self):
         """Test combined power replacements."""
         printer = CUDAPrinter()
         expr_str = "x**2 + y**3 + z**2"
         result = printer._replace_powers_with_multiplication(expr_str)
-        assert result == "x*x + y*y*y + z*z"
+        assert result == "(x*x) + (y*y*y) + (z*z)"
 
     def test_replace_powers_ignores_higher_powers(self):
         """Test that higher powers are not replaced."""
@@ -89,6 +89,46 @@ class TestCUDAPrinter:
         expr_str = "x**4 + y**5"
         result = printer._replace_powers_with_multiplication(expr_str)
         assert result == "x**4 + y**5"
+
+    def test_replace_powers_ignores_fractional_exponents(self):
+        """Test that non-integer exponents are not replaced."""
+        printer = CUDAPrinter()
+        expr_str = "x**2.5 + y**3.5"
+        result = printer._replace_powers_with_multiplication(expr_str)
+        assert result == "x**2.5 + y**3.5"
+
+    def test_replace_square_powers_in_denominator(self):
+        """Test that a/x**2 rewrites to a/(x*x), not a/x*x."""
+        printer = CUDAPrinter()
+        result = printer._replace_square_powers("a/_cse0**2")
+        assert result == "a/(_cse0*_cse0)"
+        assert eval(result, {"a": 3.0, "_cse0": 2.0}) == 0.75
+
+    def test_replace_cube_powers_in_denominator(self):
+        """Test that a/x**3 rewrites to a/(x*x*x), not a/x*x*x."""
+        printer = CUDAPrinter()
+        result = printer._replace_cube_powers("a/_cse0**3")
+        assert result == "a/(_cse0*_cse0*_cse0)"
+        assert eval(result, {"a": 16.0, "_cse0": 2.0}) == 2.0
+
+    def test_replace_paren_powers_in_denominator(self):
+        """Test that a/(x + y)**2 keeps the squared denominator."""
+        printer = CUDAPrinter()
+        result = printer._replace_square_powers("a/(x + y)**2")
+        assert result == "a/((x + y)*(x + y))"
+        assert eval(result, {"a": 9.0, "x": 1.0, "y": 2.0}) == 1.0
+
+    def test_printed_division_by_square_evaluates_correctly(self):
+        """Test the full print path for x/c**2.
+
+        The printed string must divide by the squared denominator;
+        the unparenthesized rewrite cancelled it in generated
+        operator and preconditioner bodies.
+        """
+        x, c = sp.symbols("x _cse0")
+        result = print_cuda(x / c**2)
+        value = eval(result, {"x": 3.0, "_cse0": 2.0, "precision": float})
+        assert value == 0.75
 
     def test_doprint_simple_expression(self):
         """Test doprint with simple expression."""
@@ -108,19 +148,6 @@ class TestCUDAPrinter:
         result = printer.doprint(expr)
         assert "arr[0]*arr[0]" in result
 
-    def test_ifelse_to_selp(self):
-        """Test if-else to select conversion."""
-        printer = CUDAPrinter()
-        expr_str = "  a if x > 0 else b"
-        result = printer._ifelse_to_selp(expr_str)
-        assert result == "selp(x > 0, a, b)"
-
-    def test_ifelse_to_selp_complex(self):
-        """Test complex if-else to select conversion."""
-        printer = CUDAPrinter()
-        expr_str = "  x + 1 if y < z else x - 1"
-        result = printer._ifelse_to_selp(expr_str)
-        assert result == "selp(y < z, x + 1, x - 1)"
 
 
 class TestPrintCudaFunction:
@@ -202,7 +229,7 @@ class TestEdgeCases:
         expr_str = "x **2 + y** 3"
         # Should now replace despite whitespace
         result = printer._replace_powers_with_multiplication(expr_str)
-        assert result == "x*x + y*y*y"
+        assert result == "(x*x) + (y*y*y)"
 
     def test_power_replacement_with_tabs(self):
         """Test power replacement handles tabs correctly."""
@@ -210,14 +237,14 @@ class TestEdgeCases:
         expr_str = "x\t**\t2 + y **\t3"
         # Should replace despite tabs
         result = printer._replace_powers_with_multiplication(expr_str)
-        assert result == "x*x + y*y*y"
+        assert result == "(x*x) + (y*y*y)"
 
     def test_power_replacement_mixed_whitespace(self):
         """Test power replacement with mixed spaces and tabs."""
         printer = CUDAPrinter()
         expr_str = "arr[0] \t** \t2 + var **  3"
         result = printer._replace_powers_with_multiplication(expr_str)
-        assert result == "arr[0]*arr[0] + var*var*var"
+        assert result == "(arr[0]*arr[0]) + (var*var*var)"
 
     def test_nested_indexed_variables(self):
         """Test handling of nested indexed variables."""
@@ -385,13 +412,13 @@ class TestNumericPrecisionWrapping:
         # Test integer exponent (optimizable to x*x)
         expr1 = x ** sp.Float(2.0)
         result1 = printer.doprint(expr1)
-        assert result1 == "x*x"  # Power replacement works
+        assert result1 == "(x*x)"  # Power replacement works
         assert "precision" not in result1
-        
+
         # Test cube exponent (optimizable to x*x*x)
         expr2 = x ** sp.Integer(3)
         result2 = printer.doprint(expr2)
-        assert result2 == "x*x*x"  # Power replacement works
+        assert result2 == "(x*x*x)"  # Power replacement works
         assert "precision" not in result2
         
     def test_indexed_with_literal_expression(self):

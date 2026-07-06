@@ -1,133 +1,168 @@
+"""Tests for cubie.memory.stream_groups."""
+
+from __future__ import annotations
+
 import pytest
+
 from cubie.memory.stream_groups import StreamGroups
 
-from cubie.cuda_simsafe import Stream
+
+# ── __attrs_post_init__ ───────────────────────────────────────── #
+
+def test_default_group_created_when_none():
+    """Passing groups=None triggers post_init to create default group."""
+    sg = StreamGroups(groups=None)
+    assert "default" in sg.groups
 
 
-class DummyClass:
-    def __init__(self, proportion=None, invalidate_all_hook=None):
-        self.proportion = proportion
-        self.invalidate_all_hook = invalidate_all_hook
+def test_empty_dict_default_no_post_init():
+    """Default Factory(dict) produces empty dict; post_init skips it.
+
+    This is a source defect: __attrs_post_init__ checks ``is None``
+    but the default is an empty dict, so the "default" group is NOT
+    auto-created when using default construction.
+    """
+    sg = StreamGroups()
+    # Source defect: default group NOT created with empty-dict default
+    assert "default" not in sg.groups
 
 
-@pytest.fixture(scope="function")
-def stream_groups(array_request_settings):
-    return StreamGroups()
+# ── add_instance ──────────────────────────────────────────────── #
+
+def test_add_instance_with_int():
+    """add_instance accepts int identifiers."""
+    sg = StreamGroups()
+    sg.add_instance(42, "g1")
+    assert 42 in sg.groups["g1"]
 
 
-class TestStreamGroups:
-    @pytest.mark.nocudasim
-    def test_add_instance(self, stream_groups):
-        inst = DummyClass()
-        stream_groups.add_instance(inst, "group1")
-        assert "group1" in stream_groups.groups
-        assert id(inst) in stream_groups.groups["group1"]
-        assert isinstance(stream_groups.streams["group1"], Stream)
-        with pytest.raises(ValueError):
-            stream_groups.add_instance(inst, "group2")
+def test_add_instance_with_object():
+    """add_instance uses id() for non-int objects."""
+    sg = StreamGroups()
+    obj = object()
+    sg.add_instance(obj, "g1")
+    assert id(obj) in sg.groups["g1"]
 
-        inst2 = DummyClass()
-        stream_groups.add_instance(inst2, "group2")
-        assert id(inst2) in stream_groups.groups["group2"]
-        assert id(inst) not in stream_groups.groups["group2"]
-        assert id(inst2) not in stream_groups.groups["group1"]
 
-    def test_get_group(self, stream_groups):
-        """Test that get_group returns the correct group for an instance"""
-        inst = DummyClass()
-        stream_groups.add_instance(inst, "group1")
-        assert stream_groups.get_group(inst) == "group1"
-        with pytest.raises(ValueError):
-            assert stream_groups.get_group(DummyClass()) is None
-        inst1 = DummyClass()
-        stream_groups.add_instance(inst1, "group2")
-        assert stream_groups.get_group(inst1) == "group2"
-        assert stream_groups.get_group(inst) != "group2"
+def test_add_instance_raises_if_already_registered():
+    """add_instance raises ValueError for duplicate instance."""
+    sg = StreamGroups()
+    sg.add_instance(99, "g1")
+    with pytest.raises(ValueError, match="already in a stream group"):
+        sg.add_instance(99, "g2")
 
-    @pytest.mark.nocudasim
-    def test_change_group(self, stream_groups):
-        """Test that change_group removes the instance from the old group,
-        adds it to the new one, and that the instances stream has changed"""
-        inst = DummyClass()
-        stream_groups.add_instance(inst, "group1")
-        old_stream = stream_groups.get_stream(inst)
-        # move to new group
-        stream_groups.change_group(inst, "group2")
-        assert id(inst) not in stream_groups.groups["group1"]
-        assert id(inst) in stream_groups.groups["group2"]
-        new_stream = stream_groups.get_stream(inst)
-        assert int(new_stream.handle.value) != int(old_stream.handle.value)
-        # error when instance not in any group
-        with pytest.raises(ValueError):
-            stream_groups.change_group(DummyClass(), "groupX")
 
-    @pytest.mark.nocudasim
-    def test_get_stream(self, stream_groups):
-        inst = DummyClass()
-        stream_groups.add_instance(inst, "group1")
-        stream1 = int(stream_groups.get_stream(inst).handle.value)
-        stream2 = int(stream_groups.get_stream(inst).handle.value)
-        assert stream1 == stream2
-        assert stream1 != stream_groups.streams["group1"]
+def test_add_instance_creates_new_group():
+    """add_instance creates a new group with stream when group missing."""
+    sg = StreamGroups()
+    sg.add_instance(10, "new_group")
+    assert "new_group" in sg.groups
+    assert "new_group" in sg.streams
 
-        inst2 = DummyClass()
-        stream_groups.add_instance(inst2, "group2")
-        stream3 = int(stream_groups.get_stream(inst2).handle.value)
-        assert stream3 != stream1
-        assert stream3 != stream2
-        assert stream3 != stream_groups.streams["group1"]
-        assert stream3 != stream_groups.streams["group2"]
 
-    @pytest.mark.nocudasim
-    def test_reinit_streams(self, stream_groups):
-        """test that two instances have different streams in different
-        groups, then reinit, and check that streams don't match old ones or
-        each other."""
-        inst1 = DummyClass()
-        inst2 = DummyClass()
-        stream_groups.add_instance(inst1, "g1")
-        stream_groups.add_instance(inst2, "g2")
-        # ensure different initial streams
-        s1_old = stream_groups.get_stream(inst1)
-        s2_old = stream_groups.get_stream(inst2)
-        assert s1_old != s2_old
-        # reinitialize streams
-        stream_groups.reinit_streams()
-        s1_new = stream_groups.get_stream(inst1)
-        s2_new = stream_groups.get_stream(inst2)
-        assert s1_new != s1_old
-        assert s2_new != s2_old
-        assert s1_new != s2_new
+def test_add_instance_appends_to_existing():
+    """add_instance appends to existing group list."""
+    sg = StreamGroups()
+    sg.add_instance(1, "g1")
+    sg.add_instance(2, "g1")
+    assert sg.groups["g1"] == [1, 2]
 
-    def test_get_instances_in_group(self, stream_groups):
-        """Test get_instances_in_group returns correct instance IDs for a group."""
-        inst1 = DummyClass()
-        inst2 = DummyClass()
-        inst3 = DummyClass()
 
-        # Add instances to different groups
-        stream_groups.add_instance(inst1, "group1")
-        stream_groups.add_instance(inst2, "group1")
-        stream_groups.add_instance(inst3, "group2")
+# ── get_group ─────────────────────────────────────────────────── #
 
-        # Test group1 has correct instances
-        group1_instances = stream_groups.get_instances_in_group("group1")
-        assert len(group1_instances) == 2
-        assert id(inst1) in group1_instances
-        assert id(inst2) in group1_instances
-        assert id(inst3) not in group1_instances
+def test_get_group_returns_correct_group():
+    """get_group returns the name of the group containing the instance."""
+    sg = StreamGroups()
+    sg.add_instance(7, "alpha")
+    assert sg.get_group(7) == "alpha"
 
-        # Test group2 has correct instances
-        group2_instances = stream_groups.get_instances_in_group("group2")
-        assert len(group2_instances) == 1
-        assert id(inst3) in group2_instances
-        assert id(inst1) not in group2_instances
-        assert id(inst2) not in group2_instances
 
-        # Test non-existent group returns empty list
-        empty_group = stream_groups.get_instances_in_group("nonexistent")
-        assert empty_group == []
+def test_get_group_raises_for_unknown():
+    """get_group raises ValueError for unregistered instance."""
+    sg = StreamGroups()
+    with pytest.raises(ValueError, match="not in any stream groups"):
+        sg.get_group(999)
 
-        # Test default group behavior
-        default_instances = stream_groups.get_instances_in_group("default")
-        assert default_instances == []  # Should be empty initially
+
+def test_get_group_handles_object():
+    """get_group resolves non-int instances via id()."""
+    sg = StreamGroups()
+    obj = object()
+    sg.add_instance(obj, "beta")
+    assert sg.get_group(obj) == "beta"
+
+
+# ── get_stream ────────────────────────────────────────────────── #
+
+def test_get_stream_returns_group_stream():
+    """get_stream returns the stream associated with the instance's group."""
+    sg = StreamGroups()
+    sg.add_instance(5, "g1")
+    stream = sg.get_stream(5)
+    assert stream is sg.streams["g1"]
+
+
+# ── get_instances_in_group ────────────────────────────────────── #
+
+def test_get_instances_in_group_existing():
+    """get_instances_in_group returns instance ids for existing group."""
+    sg = StreamGroups()
+    sg.add_instance(1, "g1")
+    sg.add_instance(2, "g1")
+    result = sg.get_instances_in_group("g1")
+    assert result == [1, 2]
+
+
+def test_get_instances_in_group_nonexistent():
+    """get_instances_in_group returns empty list for unknown group."""
+    sg = StreamGroups()
+    assert sg.get_instances_in_group("no_such") == []
+
+
+# ── change_group ──────────────────────────────────────────────── #
+
+def test_change_group_moves_instance():
+    """change_group removes from old group and adds to new."""
+    sg = StreamGroups()
+    sg.add_instance(10, "src")
+    sg.change_group(10, "dst")
+    assert 10 not in sg.groups["src"]
+    assert 10 in sg.groups["dst"]
+
+
+def test_change_group_creates_target_if_missing():
+    """change_group creates new group with stream when target missing."""
+    sg = StreamGroups()
+    sg.add_instance(10, "src")
+    sg.change_group(10, "brand_new")
+    assert "brand_new" in sg.groups
+    assert "brand_new" in sg.streams
+    assert 10 in sg.groups["brand_new"]
+
+
+def test_change_group_handles_object():
+    """change_group works with non-int instances."""
+    sg = StreamGroups()
+    obj = object()
+    sg.add_instance(obj, "a")
+    sg.change_group(obj, "b")
+    assert id(obj) in sg.groups["b"]
+    assert id(obj) not in sg.groups["a"]
+
+
+# ── reinit_streams ────────────────────────────────────────────── #
+
+def test_reinit_streams_replaces_all():
+    """reinit_streams creates fresh streams for every group."""
+    sg = StreamGroups()
+    sg.add_instance(1, "g1")
+    sg.add_instance(2, "g2")
+    old_g1 = sg.streams["g1"]
+    old_g2 = sg.streams["g2"]
+    sg.reinit_streams()
+    # All streams should be replaced (different objects)
+    assert sg.streams["g1"] is not old_g1
+    assert sg.streams["g2"] is not old_g2
+    # Groups should still exist
+    assert 1 in sg.groups["g1"]
+    assert 2 in sg.groups["g2"]

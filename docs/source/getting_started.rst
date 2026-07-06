@@ -8,11 +8,12 @@ many different parameter sets, or both, cubie don't care.
 Installation
 ------------
 
-Install cubie using pip:
+Install cubie using pip, selecting the toolkit that matches your setup:
 
 .. code-block:: bash
 
-   pip install cubie
+   pip install cubie[cuda12]  # CUDA 12 toolkit
+   # pip install cubie[cuda13]  # CUDA 13 toolkit
 
 Basic Usage
 -----------
@@ -59,7 +60,7 @@ Requirements
 ------------
 
 * Python >= 3.10
-* NumPy==1.26.4
+* NumPy>=2.0
 * Numba
 * Numba-CUDA
 * attrs
@@ -78,5 +79,4 @@ GPU Requirements
 ~~~~~~~~~~~~~~~~
 
 cubie requires an NVIDIA GPU with compute capability 6.0 or higher (see nvidia's
-documentation for details). You must have CUDA toolkit installed. Currently,
-only CUDA toolkit versions 12.7 - 12.9 are tested.
+documentation for details) and an up-to-date NVIDIA driver.

@@ -1,6 +1,16 @@
-linear_solver_factory
-=====================
+LinearSolver
+============
 
-.. currentmodule:: cubie.integrators
+.. currentmodule:: cubie.integrators.matrix_free_solvers
 
-.. autofunction:: linear_solver_factory
+.. autoclass:: LinearSolver
+    :members:
+    :show-inheritance:
+
+.. autoclass:: LinearSolverConfig
+    :members:
+    :show-inheritance:
+
+.. autoclass:: LinearSolverCache
+    :members:
+    :show-inheritance:

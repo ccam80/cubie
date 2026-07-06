@@ -1,4 +1,44 @@
-"""Tableaus for diagonally implicit Runge--Kutta (DIRK) methods."""
+"""Tableaus for diagonally implicit Runge–Kutta (DIRK) methods.
+
+Published Classes
+-----------------
+:class:`DIRKTableau`
+    Extends :class:`~base_algorithm_step.ButcherTableau` with a
+    ``diagonal()`` accessor for the :math:`A` matrix diagonal.
+
+Constants
+---------
+:data:`IMPLICIT_MIDPOINT_TABLEAU`
+    Single-stage, second-order symplectic method.
+
+:data:`TRAPEZOIDAL_DIRK_TABLEAU`
+    Two-stage ESDIRK Crank–Nicolson (trapezoidal) rule.
+
+:data:`LOBATTO_IIIC_3_TABLEAU`
+    Three-stage, fourth-order Lobatto IIIC scheme.
+
+:data:`SDIRK_2_2_TABLEAU`
+    Two-stage, second-order L-stable SDIRK by Alexander.
+
+:data:`L_STABLE_DIRK3_TABLEAU`
+    Three-stage, third-order L-stable stiffly-accurate DIRK.
+
+:data:`L_STABLE_SDIRK4_TABLEAU`
+    Five-stage, fourth-order Hairer–Wanner L-stable SDIRK.
+
+:data:`DIRK_TABLEAU_REGISTRY`
+    Name → tableau mapping for alias-based lookup.
+
+:data:`DEFAULT_DIRK_TABLEAU`
+    Default tableau (Lobatto IIIC 3-stage).
+
+See Also
+--------
+:class:`~cubie.integrators.algorithms.generic_dirk.DIRKStep`
+    Step factory consuming these tableaus.
+:class:`~cubie.integrators.algorithms.base_algorithm_step.ButcherTableau`
+    Parent tableau class.
+"""
 
 from typing import Dict, Tuple
 
@@ -8,7 +48,7 @@ import math
 from cubie.integrators.algorithms.base_algorithm_step import ButcherTableau
 
 
-@attrs.define(frozen=True)
+@attrs.define
 class DIRKTableau(ButcherTableau):
     """Coefficient tableau describing a diagonally implicit RK scheme.
 
@@ -29,6 +69,11 @@ class DIRKTableau(ButcherTableau):
     Springer.
     """
 
+    def __attrs_post_init__(self) -> None:
+        """Validate structure and Runge--Kutta weight sums."""
+        super().__attrs_post_init__()
+        self._validate_weight_sums()
+
     def diagonal(self, precision: type) -> Tuple[float, ...]:
         """Return the diagonal entries of the tableau."""
 
@@ -36,6 +81,7 @@ class DIRKTableau(ButcherTableau):
             self.a[idx][idx] for idx in range(self.stage_count)
         )
         return self.typed_vector(diagonal_entries, precision)
+
 
 IMPLICIT_MIDPOINT_TABLEAU = DIRKTableau(
     a=((0.5,),),
@@ -101,7 +147,7 @@ Hairer, E., Lubich, C., & Wanner, G. (2006). *Geometric Numerical
 Integration* (2nd ed.). Springer.
 """
 
-SQRT2 = 2 ** 0.5
+SQRT2 = 2**0.5
 SDIRK2_GAMMA = (2 - SQRT2) / 2.0
 SDIRK_2_2_TABLEAU = DIRKTableau(
     a=(
@@ -127,7 +173,7 @@ stiff ODEs. *SIAM Journal on Numerical Analysis*, 14(6), 1006-1021.
 Further cited with embedded weights in NASA's review: 
 https://ntrs.nasa.gov/api/citations/20160005923/downloads/20160005923.pdf
 """
-SQRT6 = 6 ** 0.5
+SQRT6 = 6**0.5
 ARCTAN_TERM = math.atan(SQRT2 / 4.0) / 3.0
 L_STABLE_DIRK3_GAMMA = (
     -SQRT2 * math.cos(ARCTAN_TERM) / 2.0
@@ -140,32 +186,20 @@ L_STABLE_DIRK3_TABLEAU = DIRKTableau(
         ((1.0 - L_STABLE_DIRK3_GAMMA) / 2.0, L_STABLE_DIRK3_GAMMA, 0.0),
         (
             (
-                -6.0 * L_STABLE_DIRK3_GAMMA ** 2
+                -6.0 * L_STABLE_DIRK3_GAMMA**2
                 + 16.0 * L_STABLE_DIRK3_GAMMA
                 - 1.0
             )
             / 4.0,
-            (
-                6.0 * L_STABLE_DIRK3_GAMMA ** 2
-                - 20.0 * L_STABLE_DIRK3_GAMMA
-                + 5.0
-            )
+            (6.0 * L_STABLE_DIRK3_GAMMA**2 - 20.0 * L_STABLE_DIRK3_GAMMA + 5.0)
             / 4.0,
             L_STABLE_DIRK3_GAMMA,
         ),
     ),
     b=(
-        (
-            -6.0 * L_STABLE_DIRK3_GAMMA ** 2
-            + 16.0 * L_STABLE_DIRK3_GAMMA
-            - 1.0
-        )
+        (-6.0 * L_STABLE_DIRK3_GAMMA**2 + 16.0 * L_STABLE_DIRK3_GAMMA - 1.0)
         / 4.0,
-        (
-            6.0 * L_STABLE_DIRK3_GAMMA ** 2
-            - 20.0 * L_STABLE_DIRK3_GAMMA
-            + 5.0
-        )
+        (6.0 * L_STABLE_DIRK3_GAMMA**2 - 20.0 * L_STABLE_DIRK3_GAMMA + 5.0)
         / 4.0,
         L_STABLE_DIRK3_GAMMA,
     ),
@@ -218,13 +252,7 @@ L_STABLE_SDIRK4_TABLEAU = DIRKTableau(
         -85.0 / 12.0,
         QUARTER,
     ),
-    b_hat=(
-        59.0 / 48.0,
-        -17.0 / 96.0,
-        225.0 / 32.0,
-        -85.0 / 12.0,
-        0.0
-    ),
+    b_hat=(59.0 / 48.0, -17.0 / 96.0, 225.0 / 32.0, -85.0 / 12.0, 0.0),
     c=(
         QUARTER,
         3.0 / 4.0,

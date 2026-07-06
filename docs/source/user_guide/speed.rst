@@ -56,6 +56,49 @@ the scarce fast memory that needs to be able to change often, they go into
 the compiled program itself. This means they require no memory traffic, and
 they free up more space to run more runs at once!
 
+Profiling with TimeLogger
+-------------------------
+
+CuBIE includes a built-in profiler that logs the time spent in each
+phase of a solve.  Enable it by passing ``time_logging_level`` to
+:func:`~cubie.solve_ivp` or the :class:`~cubie.Solver`:
+
+.. code-block:: python
+
+   result = qb.solve_ivp(
+       system, y0=y0, parameters=params,
+       method="dormand_prince_54", duration=10.0,
+       time_logging_level="default",
+   )
+
+Levels: ``"default"`` (high-level phases), ``"verbose"`` (sub-phases),
+``"debug"`` (everything).  After the solve, the logger prints a summary
+table to stdout.
+
+You can also access the logger programmatically:
+
+.. code-block:: python
+
+   from cubie.time_logger import default_timelogger
+   default_timelogger.print_summary()
+
+Precision Trade-offs
+--------------------
+
+CuBIE supports ``float32`` and ``float64``.  Single precision uses half
+the memory per value, allowing larger batches and faster memory transfers.
+However, it provides roughly 7 decimal digits of accuracy versus 15 for
+double precision.  For problems where tolerances tighter than ~1e-6 are
+needed, use ``float64``.
+
+Buffer Location Tuning
+----------------------
+
+Working arrays can be placed in shared memory (fast, limited) or local
+memory (slower, larger).  CuBIE assigns locations automatically, but you
+can override them through ``optional_arguments`` for specific buffers.
+See :doc:`optional_arguments` for details.
+
 Reusing Solvers
 ---------------
 Cubie uses Numba to just-in-time compile your system of ODEs and chosen

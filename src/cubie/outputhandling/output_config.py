@@ -1,23 +1,53 @@
-"""
-Output configuration management system for flexible, user-controlled output
-selection.
+"""Output configuration for solver output selection and validation.
 
-This module provides configuration classes for managing output settings in
-CUDA batch solvers, including validation of indices and output types,
-and automatic configuration from user-specified parameters.
+Published Classes
+-----------------
+:class:`OutputCompileFlags`
+    Boolean compile-time controls for CUDA output features.
+
+    >>> flags = OutputCompileFlags(save_state=True, summarise=True)
+    >>> flags.save_state
+    True
+
+:class:`OutputConfig`
+    Validated configuration for solver outputs and summaries.
+
+    >>> from numpy import float32, array, int_
+    >>> config = OutputConfig(
+    ...     max_states=3, max_observables=2,
+    ...     output_types=["state"], precision=float32,
+    ... )
+    >>> config.save_state
+    True
+
+Module-Level Functions
+----------------------
+:func:`_indices_validator`
+    Validate index arrays for bounds and duplication (internal).
+
+See Also
+--------
+:class:`~cubie.outputhandling.output_functions.OutputFunctions`
+    Factory that compiles CUDA callables from this configuration.
+:class:`~cubie.CUDAFactory.CUDAFactoryConfig`
+    Parent class providing precision and hashing.
 """
 
 from typing import List, Tuple, Union, Optional, Sequence
 from warnings import warn
 
-from attrs import cmp_using as attrs_cmp_using, define, Factory as attrsFactory, field
+from attrs import (
+    cmp_using as attrs_cmp_using,
+    define,
+    Factory as attrsFactory,
+    field,
+)
 from attrs.validators import instance_of as attrsval_instance_of
 from numpy import (
     any as np_any,
     arange as np_arange,
     array_equal as np_array_equal,
     asarray as np_asarray,
-    floating as np_floating,
     int_ as np_int,
     ndarray,
     unique as np_unique,
@@ -27,9 +57,8 @@ from numpy.typing import NDArray
 from cubie._utils import (
     opt_gttype_validator,
     PrecisionDType,
-    precision_converter,
-    precision_validator,
 )
+from cubie.CUDAFactory import CUDAFactoryConfig, _CubieConfigBase
 from cubie.outputhandling.summarymetrics import summary_metrics
 
 
@@ -44,11 +73,6 @@ def _indices_validator(
         Array of indices to validate.
     max_index
         Maximum allowed index value (exclusive).
-
-    Returns
-    -------
-    None
-        Returns ``None``.
 
     Raises
     ------
@@ -71,7 +95,7 @@ def _indices_validator(
 
 
 @define
-class OutputCompileFlags:
+class OutputCompileFlags(_CubieConfigBase):
     """Boolean compile-time controls for CUDA output features.
 
     Attributes
@@ -110,9 +134,12 @@ class OutputCompileFlags:
         default=False, validator=attrsval_instance_of(bool)
     )
 
+    def __attrs_post_init__(self):
+        super().__attrs_post_init__()
+
 
 @define
-class OutputConfig:
+class OutputConfig(CUDAFactoryConfig):
     """Validated configuration for solver outputs and summaries.
 
     Parameters
@@ -148,31 +175,26 @@ class OutputConfig:
     post-initialisation hook applies default indices, validates bounds, and
     ensures at least one output path is active.
     """
-    _precision: PrecisionDType = field(
-        converter=precision_converter,
-        validator=precision_validator,
-    )
+
     # System dimensions, used to validate indices
     _max_states: int = field(validator=attrsval_instance_of(int))
-    _max_observables: int = field(
-        validator=attrsval_instance_of(int)
-    )
+    _max_observables: int = field(validator=attrsval_instance_of(int))
 
     _saved_state_indices: Optional[Union[List[int], NDArray[np_int]]] = field(
         default=attrsFactory(list),
         eq=attrs_cmp_using(eq=np_array_equal),
     )
-    _saved_observable_indices: Optional[
-        Union[List[int], NDArray[np_int]]
-    ] = field(
-        default=attrsFactory(list),
-        eq=attrs_cmp_using(eq=np_array_equal),
+    _saved_observable_indices: Optional[Union[List[int], NDArray[np_int]]] = (
+        field(
+            default=attrsFactory(list),
+            eq=attrs_cmp_using(eq=np_array_equal),
+        )
     )
-    _summarised_state_indices: Optional[
-        Union[List[int], NDArray[np_int]]
-    ] = field(
-        default=attrsFactory(list),
-        eq=attrs_cmp_using(eq=np_array_equal),
+    _summarised_state_indices: Optional[Union[List[int], NDArray[np_int]]] = (
+        field(
+            default=attrsFactory(list),
+            eq=attrs_cmp_using(eq=np_array_equal),
+        )
     )
     _summarised_observable_indices: Optional[
         Union[List[int], NDArray[np_int]]
@@ -190,22 +212,25 @@ class OutputConfig:
         default=attrsFactory(tuple), init=False
     )
     _sample_summaries_every: Optional[float] = field(
-        default=None,
-        validator=opt_gttype_validator(float, 0.0)
+        default=None, validator=opt_gttype_validator(float, 0.0)
     )
 
     def __attrs_post_init__(self) -> None:
         """Perform post-initialisation validation and setup.
 
-        Returns
-        -------
-        None
-            Returns ``None``.
-
         Notes
         -----
         Runs after object creation to populate default arrays, validate
         indices, and confirm that at least one output path is enabled.
+        """
+        super().__attrs_post_init__()
+        self.validation_passes()
+
+    def validation_passes(self) -> None:
+        """Run all validation checks on the current configuration.
+
+        Applies default indices, validates bounds, and ensures at least
+        one output path is active.
         """
         self.update_from_outputs_list(self._output_types)
         self._check_saved_indices()
@@ -215,11 +240,6 @@ class OutputConfig:
 
     def _validate_index_arrays(self) -> None:
         """Validate all index arrays for bounds and duplication.
-
-        Returns
-        -------
-        None
-            Returns ``None``.
 
         Notes
         -----
@@ -244,11 +264,6 @@ class OutputConfig:
     def _check_for_no_outputs(self) -> None:
         """Ensure that at least one output type is requested.
 
-        Returns
-        -------
-        None
-            Returns ``None``.
-
         Raises
         ------
         ValueError
@@ -270,11 +285,6 @@ class OutputConfig:
     def _check_saved_indices(self) -> None:
         """Convert saved indices to numpy arrays.
 
-        Returns
-        -------
-        None
-            Returns ``None``.
-
         Notes
         -----
         Converts index collections to numpy int arrays.
@@ -288,11 +298,6 @@ class OutputConfig:
 
     def _check_summarised_indices(self) -> None:
         """Convert summarised indices to numpy arrays.
-
-        Returns
-        -------
-        None
-            Returns ``None``.
 
         Notes
         -----
@@ -318,11 +323,6 @@ class OutputConfig:
         ----------
         value
             New maximum number of states.
-
-        Returns
-        -------
-        None
-            Returns ``None``.
 
         Notes
         -----
@@ -350,11 +350,6 @@ class OutputConfig:
         ----------
         value
             New maximum number of observables.
-
-        Returns
-        -------
-        None
-            Returns ``None``.
 
         Notes
         -----
@@ -442,11 +437,6 @@ class OutputConfig:
         ----------
         value
             State indices to save.
-
-        Returns
-        -------
-        None
-            Returns ``None``.
         """
         self._saved_state_indices = np_asarray(value, dtype=np_int)
         self._validate_index_arrays()
@@ -469,11 +459,6 @@ class OutputConfig:
         ----------
         value
             Observable indices to save.
-
-        Returns
-        -------
-        None
-            Returns ``None``.
         """
         self._saved_observable_indices = np_asarray(value, dtype=np_int)
         self._validate_index_arrays()
@@ -496,11 +481,6 @@ class OutputConfig:
         ----------
         value
             State indices for summary calculations.
-
-        Returns
-        -------
-        None
-            Returns ``None``.
         """
         self._summarised_state_indices = np_asarray(value, dtype=np_int)
         self._validate_index_arrays()
@@ -523,11 +503,6 @@ class OutputConfig:
         ----------
         value
             Observable indices for summary calculations.
-
-        Returns
-        -------
-        None
-            Returns ``None``.
         """
         self._summarised_observable_indices = np_asarray(value, dtype=np_int)
         self._validate_index_arrays()
@@ -634,31 +609,16 @@ class OutputConfig:
         """
         if not self._summary_types:
             return {}
-        unit_mod_tuple = summary_metrics.unit_modifications(self._summary_types)
+        unit_mod_tuple = summary_metrics.unit_modifications(
+            self._summary_types
+        )
         unit_mod_dict = dict(zip(range(len(unit_mod_tuple)), unit_mod_tuple))
         return unit_mod_dict
-
-    @property
-    def summary_parameters(self) -> dict[str, object]:
-        """Collect parameters required by the registered summary metrics.
-
-        Returns
-        -------
-        dict[str, object]
-            Dictionary of metric-specific keyword arguments needed during
-            compilation.
-        """
-        return summary_metrics.params(list(self._summary_types))
 
     @property
     def sample_summaries_every(self) -> Optional[float]:
         """Time interval between summary metric samples."""
         return self._sample_summaries_every
-
-    @property
-    def precision(self) -> type[np_floating]:
-        """Numerical precision for output calculations."""
-        return self._precision
 
     @property
     def summaries_buffer_height_per_var(self) -> int:
@@ -769,20 +729,18 @@ class OutputConfig:
 
     @property
     def buffer_sizes_dict(self) -> dict[str, int]:
-        """ Returns a dict of buffer sizes to update other objects' settings"""
+        """Returns a dict of buffer sizes to update other objects' settings"""
         return {
-            'n_saved_states': self.n_saved_states,
-            'n_saved_observables': self.n_saved_observables,
-            'n_summarised_states': self.n_summarised_states,
-            'n_summarised_observables': self.n_summarised_observables,
-            'state_summaries_buffer_height': self.state_summaries_buffer_height,
-            'observable_summaries_buffer_height':
-               self.observable_summaries_buffer_height,
-            'total_summary_buffer_size': self.total_summary_buffer_size,
-            'state_summaries_output_height': self.state_summaries_output_height,
-            'observable_summaries_output_height':
-              self.observable_summaries_output_height,
-            'compile_flags': self.compile_flags
+            "n_saved_states": self.n_saved_states,
+            "n_saved_observables": self.n_saved_observables,
+            "n_summarised_states": self.n_summarised_states,
+            "n_summarised_observables": self.n_summarised_observables,
+            "state_summaries_buffer_height": self.state_summaries_buffer_height,
+            "observable_summaries_buffer_height": self.observable_summaries_buffer_height,
+            "total_summary_buffer_size": self.total_summary_buffer_size,
+            "state_summaries_output_height": self.state_summaries_output_height,
+            "observable_summaries_output_height": self.observable_summaries_output_height,
+            "compile_flags": self.compile_flags,
         }
 
     @property
@@ -798,11 +756,6 @@ class OutputConfig:
         ----------
         value
             Output types to configure. Accepts a list, tuple, or single string.
-
-        Returns
-        -------
-        None
-            Returns ``None``.
 
         Raises
         ------
@@ -832,11 +785,6 @@ class OutputConfig:
         ----------
         output_types
             Output type names to configure.
-
-        Returns
-        -------
-        None
-            Returns ``None``.
 
         Notes
         -----
@@ -868,7 +816,12 @@ class OutputConfig:
                     )
                 ):
                     summary_types.append(output_type)
-                elif output_type in ["state", "observables", "time", "iteration_counters"]:
+                elif output_type in [
+                    "state",
+                    "observables",
+                    "time",
+                    "iteration_counters",
+                ]:
                     continue
                 else:
                     warn(
@@ -885,10 +838,18 @@ class OutputConfig:
         cls,
         output_types: List[str],
         precision: PrecisionDType,
-        saved_state_indices: Union[Sequence[int], NDArray[np_int], None] = None,
-        saved_observable_indices: Union[Sequence[int], NDArray[np_int], None] = None,
-        summarised_state_indices: Union[Sequence[int], NDArray[np_int], None] = None,
-        summarised_observable_indices: Union[Sequence[int], NDArray[np_int], None] = None,
+        saved_state_indices: Union[
+            Sequence[int], NDArray[np_int], None
+        ] = None,
+        saved_observable_indices: Union[
+            Sequence[int], NDArray[np_int], None
+        ] = None,
+        summarised_state_indices: Union[
+            Sequence[int], NDArray[np_int], None
+        ] = None,
+        summarised_observable_indices: Union[
+            Sequence[int], NDArray[np_int], None
+        ] = None,
         max_states: int = 0,
         max_observables: int = 0,
         sample_summaries_every: Optional[float] = 0.01,
@@ -919,8 +880,7 @@ class OutputConfig:
             Time interval between summary metric samples. Used by derivative
             metrics to scale finite differences. Defaults to ``0.01``.
         precision
-            Numerical precision for output calculations. Defaults to
-            ``np.float32`` if not provided.
+            Numerical precision for output calculations.
 
         Returns
         -------

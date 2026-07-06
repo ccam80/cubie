@@ -19,16 +19,18 @@ class InstrumentedBackwardsEulerStep(InstrumentedODEImplicitStep):
         self,
         precision: PrecisionDType,
         n: int,
-        dxdt_function: Optional[Callable] = None,
-        observables_function: Optional[Callable] = None,
-        driver_function: Optional[Callable] = None,
+        evaluate_f: Optional[Callable] = None,
+        evaluate_observables: Optional[Callable] = None,
+        evaluate_driver_at_t: Optional[Callable] = None,
         get_solver_helper_fn: Optional[Callable] = None,
         preconditioner_order: Optional[int] = None,
-        krylov_tolerance: Optional[float] = None,
-        max_linear_iters: Optional[int] = None,
+        krylov_atol: Optional[float] = None,
+        krylov_rtol: Optional[float] = None,
+        krylov_max_iters: Optional[int] = None,
         linear_correction_type: Optional[str] = None,
-        newton_tolerance: Optional[float] = None,
-        max_newton_iters: Optional[int] = None,
+        newton_atol: Optional[float] = None,
+        newton_rtol: Optional[float] = None,
+        newton_max_iters: Optional[int] = None,
         newton_damping: Optional[float] = None,
         newton_max_backtracks: Optional[int] = None,
         increment_cache_location: Optional[str] = None,
@@ -42,30 +44,36 @@ class InstrumentedBackwardsEulerStep(InstrumentedODEImplicitStep):
             Precision applied to device buffers.
         n
             Number of state entries advanced per step.
-        dxdt_function
-            Device derivative function evaluating ``dx/dt``.
-        observables_function
+        evaluate_f
+            Device function for evaluating f(t, y) right-hand side.
+        evaluate_observables
             Device function computing system observables.
-        driver_function
+        evaluate_driver_at_t
             Optional device function evaluating drivers at arbitrary times.
         get_solver_helper_fn
             Callable returning device helpers used by the nonlinear solver.
         preconditioner_order
             Order of the truncated Neumann preconditioner. If None, uses
             default from ImplicitStepConfig.
-        krylov_tolerance
-            Tolerance used by the linear solver. If None, uses default from
-            LinearSolverConfig.
-        max_linear_iters
+        krylov_atol
+            Absolute tolerance used by the linear solver. If None, uses default
+            from LinearSolverConfig.
+        krylov_rtol
+            Relative tolerance used by the linear solver. If None, uses default
+            from LinearSolverConfig.
+        krylov_max_iters
             Maximum iterations permitted for the linear solver. If None, uses
             default from LinearSolverConfig.
         linear_correction_type
             Identifier for the linear correction strategy. If None, uses
             default from LinearSolverConfig.
-        newton_tolerance
-            Convergence tolerance for the Newton iteration. If None, uses
+        newton_atol
+            Absolute tolerance for the Newton iteration. If None, uses
             default from NewtonKrylovConfig.
-        max_newton_iters
+        newton_rtol
+            Relative tolerance for the Newton iteration. If None, uses
+            default from NewtonKrylovConfig.
+        newton_max_iters
             Maximum iterations permitted for the Newton solver. If None, uses
             default from NewtonKrylovConfig.
         newton_damping
@@ -89,9 +97,9 @@ class InstrumentedBackwardsEulerStep(InstrumentedODEImplicitStep):
             "M": M,
             "n": n,
             "preconditioner_order": preconditioner_order,
-            "dxdt_function": dxdt_function,
-            "observables_function": observables_function,
-            "driver_function": driver_function,
+            "evaluate_f": evaluate_f,
+            "evaluate_observables": evaluate_observables,
+            "evaluate_driver_at_t": evaluate_driver_at_t,
             "precision": precision,
         }
         if increment_cache_location is not None:
@@ -102,16 +110,20 @@ class InstrumentedBackwardsEulerStep(InstrumentedODEImplicitStep):
         config = BackwardsEulerStepConfig(**config_kwargs)
 
         solver_kwargs = {}
-        if krylov_tolerance is not None:
-            solver_kwargs["krylov_tolerance"] = krylov_tolerance
-        if max_linear_iters is not None:
-            solver_kwargs["max_linear_iters"] = max_linear_iters
+        if krylov_atol is not None:
+            solver_kwargs["krylov_atol"] = krylov_atol
+        if krylov_rtol is not None:
+            solver_kwargs["krylov_rtol"] = krylov_rtol
+        if krylov_max_iters is not None:
+            solver_kwargs["krylov_max_iters"] = krylov_max_iters
         if linear_correction_type is not None:
             solver_kwargs["linear_correction_type"] = linear_correction_type
-        if newton_tolerance is not None:
-            solver_kwargs["newton_tolerance"] = newton_tolerance
-        if max_newton_iters is not None:
-            solver_kwargs["max_newton_iters"] = max_newton_iters
+        if newton_atol is not None:
+            solver_kwargs["newton_atol"] = newton_atol
+        if newton_rtol is not None:
+            solver_kwargs["newton_rtol"] = newton_rtol
+        if newton_max_iters is not None:
+            solver_kwargs["newton_max_iters"] = newton_max_iters
         if newton_damping is not None:
             solver_kwargs["newton_damping"] = newton_damping
         if newton_max_backtracks is not None:
@@ -141,9 +153,9 @@ class InstrumentedBackwardsEulerStep(InstrumentedODEImplicitStep):
 
     def build_step(
         self,
-        dxdt_fn: Callable,
-        observables_function: Callable,
-        driver_function: Optional[Callable],
+        evaluate_f: Callable,
+        evaluate_observables: Callable,
+        evaluate_driver_at_t: Optional[Callable],
         solver_function: Callable,
         numba_precision: type,
         n: int,
@@ -153,29 +165,29 @@ class InstrumentedBackwardsEulerStep(InstrumentedODEImplicitStep):
 
         Parameters
         ----------
-        dxdt_fn
-            Device derivative function for the ODE system.
-        observables_function
-            Device observable computation helper.
-        driver_function
-            Optional device function evaluating drivers at arbitrary times.
+        evaluate_f
+            Device function for evaluating f(t, y).
+        evaluate_observables
+            Device function for computing observables.
+        evaluate_driver_at_t
+            Optional device function for evaluating drivers at time t.
         solver_function
             Device function for the Newton-Krylov nonlinear solver.
         numba_precision
-            Numba precision corresponding to the configured precision.
+            Numba type for device buffers.
         n
-            Dimension of the state vector.
+            State vector dimension.
         n_drivers
-            Number of driver signals provided to the system.
+            Number of driver signals.
 
         Returns
         -------
         StepCache
-            Container holding the compiled step function and solver.
+            Compiled step function and solver.
         """
         a_ij = numba_precision(1.0)
-        has_driver_function = driver_function is not None
-        driver_function = driver_function
+        has_evaluate_driver_at_t = evaluate_driver_at_t is not None
+        evaluate_driver_at_t = evaluate_driver_at_t
         n = int32(n)
         
         # Get child allocators for Newton solver (already registered in register_buffers)
@@ -327,8 +339,8 @@ class InstrumentedBackwardsEulerStep(InstrumentedODEImplicitStep):
                 stage_drivers[0, driver_idx] = typed_zero
 
             next_time = time_scalar + dt_scalar
-            if has_driver_function:
-                driver_function(
+            if has_evaluate_driver_at_t:
+                evaluate_driver_at_t(
                     next_time,
                     driver_coefficients,
                     proposed_drivers,
@@ -369,7 +381,7 @@ class InstrumentedBackwardsEulerStep(InstrumentedODEImplicitStep):
                 stage_increments[0, i] = proposed_state[i]
                 stage_states[0, i] = proposed_state[i]
 
-            observables_function(
+            evaluate_observables(
                 proposed_state,
                 parameters,
                 proposed_drivers,
@@ -381,7 +393,7 @@ class InstrumentedBackwardsEulerStep(InstrumentedODEImplicitStep):
             for obs_idx in range(observable_count):
                 stage_observables[0, obs_idx] = proposed_observables[obs_idx]
 
-            dxdt_fn(
+            evaluate_f(
                 proposed_state,
                 parameters,
                 proposed_drivers,
@@ -429,10 +441,10 @@ class InstrumentedBackwardsEulerStep(InstrumentedODEImplicitStep):
         return 1
 
     @property
-    def dxdt_function(self) -> Optional[Callable]:
+    def evaluate_f(self) -> Optional[Callable]:
         """Return the derivative device function."""
 
-        return self.compile_settings.dxdt_function
+        return self.compile_settings.evaluate_f
 
     @property
     def identifier(self) -> str:

@@ -5,11 +5,31 @@ This module provides :class:`SystemInterface`, which wraps
 observables. It exposes helper methods for converting between user-facing
 labels or indices and internal representations.
 
+Published Classes
+-----------------
+:class:`SystemInterface`
+    Wrapper providing label-to-index resolution and value updates for
+    parameters, states, and observables.
+
+    >>> from cubie.batchsolving.SystemInterface import SystemInterface
+    >>> interface = SystemInterface.from_system(system)
+    >>> interface.state_indices(["x", "y"])
+    array([0, 1], dtype=int32)
+
 Notes
 -----
 The interface allows updating default state or parameter values without
 navigating the full system hierarchy, providing a simplified entry point for
 common operations.
+
+See Also
+--------
+:class:`~cubie.odesystems.SystemValues.SystemValues`
+    Underlying keyed parameter container.
+:class:`~cubie.odesystems.baseODE.BaseODE`
+    ODE system base class from which interfaces are created.
+:class:`~cubie.batchsolving.solver.Solver`
+    Primary consumer of this interface.
 """
 
 from typing import Any, Dict, List, Optional, Set, Tuple, Union
@@ -171,7 +191,7 @@ class SystemInterface:
 
     def observable_indices(
         self,
-        keys_or_indices: Union[List[Union[str, int]], str, int],
+        keys_or_indices: Optional[Union[List[Union[str, int]], str, int]] = None,
         silent: bool = False,
     ) -> ndarray:
         """Convert observable labels or indices to a numeric array.
@@ -271,9 +291,7 @@ class SystemInterface:
             return self.observables.names
         return self.get_labels(self.observables, indices)
 
-    def parameter_labels(
-        self, indices: Optional[ndarray] = None
-    ) -> List[str]:
+    def parameter_labels(self, indices: Optional[ndarray] = None) -> List[str]:
         """Return parameter labels corresponding to the provided indices.
 
         Parameters
@@ -397,10 +415,10 @@ class SystemInterface:
             )
 
         arrays_to_merge = {
-            'state_from_labels': resolved_state,
-            'obs_from_labels': resolved_obs,
-            'state_from_indices': state_indices,
-            'obs_from_indices': observable_indices
+            "state_from_labels": resolved_state,
+            "obs_from_labels": resolved_obs,
+            "state_from_indices": state_indices,
+            "obs_from_indices": observable_indices,
         }
 
         for key, input in arrays_to_merge.items():
@@ -409,19 +427,18 @@ class SystemInterface:
 
         # Compute union of resolved label indices with provided indices
         final_state = np_union1d(
-            arrays_to_merge['state_from_labels'],
-            arrays_to_merge['state_from_indices']
+            arrays_to_merge["state_from_labels"],
+            arrays_to_merge["state_from_indices"],
         )
         final_obs = np_union1d(
-            arrays_to_merge['obs_from_labels'],
-            arrays_to_merge['obs_from_indices']
+            arrays_to_merge["obs_from_labels"],
+            arrays_to_merge["obs_from_indices"],
         )
 
         return final_state, final_obs
 
     def merge_variable_labels_and_idxs(
-        self,
-        output_settings: Dict[str, Any]
+        self, output_settings: Dict[str, Any]
     ) -> None:
         """Convert variable label settings to index arrays in-place.
 
@@ -431,11 +448,6 @@ class SystemInterface:
             Settings dict containing ``save_variables``,
             ``summarise_variables``, and their index counterparts.
             Modified in-place.
-
-        Returns
-        -------
-        None
-            Modifies output_settings in-place.
 
         Raises
         ------
@@ -463,9 +475,7 @@ class SystemInterface:
 
         # Extract summarise_variables and related indices
         summarise_vars = output_settings.pop("summarise_variables", None)
-        summ_state_idxs = output_settings.get(
-            "summarised_state_indices", None
-        )
+        summ_state_idxs = output_settings.get("summarised_state_indices", None)
         summ_obs_idxs = output_settings.get(
             "summarised_observable_indices", None
         )

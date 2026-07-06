@@ -1,22 +1,53 @@
-"""Gustafsson predictive step controller."""
-from typing import Callable, Optional, Union
+"""Gustafsson predictive step-size controller.
+
+Published Classes
+-----------------
+:class:`GustafssonStepControlConfig`
+    Configuration for the Gustafsson controller, extending
+    :class:`~cubie.integrators.step_control.adaptive_step_controller.AdaptiveStepControlConfig`
+    with damping and Newton iteration parameters.
+
+    >>> from numpy import float64
+    >>> config = GustafssonStepControlConfig(precision=float64)
+    >>> config.gamma
+    0.9
+
+:class:`GustafssonController`
+    Adaptive controller using Gustafsson acceleration for implicit
+    integrators.
+
+    >>> from numpy import float64
+    >>> ctrl = GustafssonController(precision=float64, n=4)
+    >>> ctrl.is_adaptive
+    True
+
+See Also
+--------
+:class:`~cubie.integrators.step_control.adaptive_step_controller.BaseAdaptiveStepController`
+    Abstract base class for adaptive controllers.
+:class:`~cubie.integrators.step_control.adaptive_step_controller.AdaptiveStepControlConfig`
+    Parent configuration class.
+"""
+
+from typing import Callable
 
 from numpy import ndarray
 from numba import cuda, int32
-from numpy._typing import ArrayLike
 from attrs import define, field
+from math import isnan, isinf
 
 from cubie.buffer_registry import buffer_registry
 from cubie.integrators.step_control.adaptive_step_controller import (
-    BaseAdaptiveStepController, AdaptiveStepControlConfig
+    BaseAdaptiveStepController,
+    AdaptiveStepControlConfig,
 )
 from cubie._utils import (
     PrecisionDType,
     getype_validator,
     inrangetype_validator,
-    build_config,
 )
 from cubie.cuda_simsafe import compile_kwargs, selp
+from cubie.result_codes import CUBIE_RESULT_CODES
 from cubie.integrators.step_control.base_step_controller import ControllerCache
 
 
@@ -29,14 +60,18 @@ class GustafssonStepControlConfig(AdaptiveStepControlConfig):
     Includes damping and Newton iteration limits used by Gustafsson's
     predictor for implicit integrators.
     """
+
     _gamma: float = field(
         default=0.9,
         validator=inrangetype_validator(float, 0, 1),
     )
-    _max_newton_iters: int = field(
+    _newton_max_iters: int = field(
         default=20,
         validator=getype_validator(int, 0),
     )
+
+    def __attrs_post_init__(self):
+        super().__attrs_post_init__()
 
     @property
     def gamma(self) -> float:
@@ -45,49 +80,24 @@ class GustafssonStepControlConfig(AdaptiveStepControlConfig):
         return self.precision(self._gamma)
 
     @property
-    def max_newton_iters(self) -> int:
+    def newton_max_iters(self) -> int:
         """Return the maximum number of Newton iterations considered."""
-        return int(self._max_newton_iters)
+        return int(self._newton_max_iters)
 
     @property
     def settings_dict(self) -> dict[str, object]:
         """Return the configuration as a dictionary."""
         settings_dict = super().settings_dict
-        settings_dict.update({'gamma': self.gamma,
-                              'max_newton_iters': self.max_newton_iters})
+        settings_dict.update(
+            {"gamma": self.gamma, "newton_max_iters": self.newton_max_iters}
+        )
         return settings_dict
+
 
 class GustafssonController(BaseAdaptiveStepController):
     """Adaptive controller using Gustafsson acceleration."""
 
-    def __init__(
-        self,
-        precision: PrecisionDType,
-        n: int = 1,
-        **kwargs,
-    ) -> None:
-        """Initialise a Gustafsson predictive controller.
-
-        Parameters
-        ----------
-        precision
-            Precision used for controller calculations.
-        n
-            Number of state variables.
-        **kwargs
-            Optional parameters passed to GustafssonStepControlConfig. See
-            GustafssonStepControlConfig for available parameters including
-            dt_min, dt_max, atol, rtol, algorithm_order, min_gain, max_gain,
-            gamma, max_newton_iters, deadband_min, deadband_max. None values
-            are ignored.
-        """
-        config = build_config(
-            GustafssonStepControlConfig,
-            required={'precision': precision, 'n': n},
-            **kwargs
-        )
-
-        super().__init__(config)
+    _config_class = GustafssonStepControlConfig
 
     @property
     def gamma(self) -> float:
@@ -96,16 +106,12 @@ class GustafssonController(BaseAdaptiveStepController):
         return self.compile_settings.gamma
 
     @property
-    def max_newton_iters(self) -> int:
+    def newton_max_iters(self) -> int:
         """Return the maximum number of Newton iterations considered."""
 
-        return self.compile_settings.max_newton_iters
+        return self.compile_settings.newton_max_iters
 
-    @property
-    def local_memory_elements(self) -> int:
-        """Return the number of local memory slots required."""
-
-        return 2
+    _timestep_buffer_elements = 2  # previous dt and error norm
 
     def build_controller(
         self,
@@ -154,13 +160,13 @@ class GustafssonController(BaseAdaptiveStepController):
             CUDA device function implementing the Gustafsson controller.
         """
         alloc_timestep_buffer = buffer_registry.get_allocator(
-            'timestep_buffer', self
+            "timestep_buffer", self
         )
 
         expo = precision(1.0 / (2 * (algorithm_order + 1)))
         gamma = precision(self.gamma)
-        max_newton_iters = int(self.max_newton_iters)
-        gain_numerator = precision((1 + 2 * max_newton_iters)) * gamma
+        newton_max_iters = int(self.newton_max_iters)
+        gain_numerator = precision((1 + 2 * newton_max_iters)) * gamma
         typed_one = precision(1.0)
         typed_zero = precision(0.0)
         deadband_min = precision(self.deadband_min)
@@ -168,11 +174,15 @@ class GustafssonController(BaseAdaptiveStepController):
         min_gain = precision(min_gain)
         max_gain = precision(max_gain)
         deadband_disabled = (deadband_min == typed_one) and (
-                deadband_max == typed_one
+            deadband_max == typed_one
         )
         numba_precision = self.compile_settings.numba_precision
         n = int32(n)
         inv_n = precision(1.0 / n)
+        typed_large = precision(1e16)
+        success = int32(CUBIE_RESULT_CODES.SUCCESS)
+        step_too_small = int32(CUBIE_RESULT_CODES.STEP_TOO_SMALL)
+
         # step sizes and norms can be approximate - fastmath is fine
         @cuda.jit(
             device=True,
@@ -180,8 +190,14 @@ class GustafssonController(BaseAdaptiveStepController):
             **compile_kwargs,
         )
         def controller_gustafsson(
-            dt, state, state_prev, error, niters, accept_out,
-            shared_scratch, persistent_local
+            dt,
+            state,
+            state_prev,
+            error,
+            niters,
+            accept_out,
+            shared_scratch,
+            persistent_local,
         ):  # pragma: no cover - CUDA
             """Gustafsson accept/step controller.
 
@@ -219,7 +235,7 @@ class GustafssonController(BaseAdaptiveStepController):
 
             nrm2 = typed_zero
             for i in range(n):
-                error_i = max(abs(error[i]), precision(1e-12))
+                error_i = max(abs(error[i]), precision(1e-16))
                 tol = atol[i] + rtol[i] * max(
                     abs(state[i]), abs(state_prev[i])
                 )
@@ -227,26 +243,31 @@ class GustafssonController(BaseAdaptiveStepController):
                 nrm2 += ratio * ratio
 
             nrm2 = nrm2 * inv_n
+            nrm2 = typed_large if (isnan(nrm2) or isinf(nrm2)) else nrm2
+
             accept = nrm2 <= typed_one
             accept_out[0] = int32(1) if accept else int32(0)
 
-            denom = precision(niters + 2 * max_newton_iters)
+            denom = precision(niters + 2 * newton_max_iters)
             tmp = gain_numerator / denom
             fac = gamma if gamma < tmp else tmp
             gain_basic = precision(fac * (nrm2 ** (-expo)))
 
-            ratio = nrm2 * nrm2  / err_prev
-            gain_gus = precision(safety * (dt[0] /dt_prev) * (ratio ** -expo) *
-                                 gamma)
+            ratio = nrm2 * nrm2 / err_prev
+            gain_gus = precision(
+                safety * (dt[0] / dt_prev) * (ratio**-expo) * gamma
+            )
             gain = gain_gus if gain_gus < gain_basic else gain_basic
-            gain = gain if (accept and dt_prev > precision(1e-16)) else (
-                gain_basic)
+            gain = (
+                gain
+                if (accept and dt_prev > precision(1e-16))
+                else (gain_basic)
+            )
 
             gain = clamp(gain, min_gain, max_gain)
             if not deadband_disabled:
-                within_deadband = (
-                    (gain >= deadband_min)
-                    and (gain <= deadband_max)
+                within_deadband = (gain >= deadband_min) and (
+                    gain <= deadband_max
                 )
                 gain = selp(within_deadband, typed_one, gain)
             dt_new_raw = current_dt * gain
@@ -254,7 +275,7 @@ class GustafssonController(BaseAdaptiveStepController):
 
             timestep_buffer[0] = current_dt
             timestep_buffer[1] = nrm2
-            ret = int32(0) if dt_new_raw > dt_min else int32(8)
+            ret = success if dt_new_raw > dt_min else step_too_small
             return ret
 
         return ControllerCache(device_function=controller_gustafsson)

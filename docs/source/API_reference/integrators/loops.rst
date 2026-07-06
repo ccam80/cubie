@@ -18,8 +18,6 @@ shared and persistent local memory layouts expected during kernel launches.
 
    loops/ivp_loop
    loops/ode_loop_config
-   loops/loop_shared_indices
-   loops/loop_local_indices
 
 Loop factory
 ------------
@@ -30,8 +28,6 @@ Configuration helpers
 ---------------------
 
 * :doc:`ODELoopConfig <loops/ode_loop_config>` – captures metadata describing loop memory layout and dimensions.
-* :doc:`LoopSharedIndices <loops/loop_shared_indices>` – describes offsets for shared-memory buffers.
-* :doc:`LoopLocalIndices <loops/loop_local_indices>` – indexes persistent local buffers and device scratch space.
 
 Dependencies
 ------------

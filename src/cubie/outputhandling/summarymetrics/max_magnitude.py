@@ -1,8 +1,16 @@
-"""
-Maximum magnitude summary metric for CUDA-accelerated batch integration.
+"""Maximum absolute value over a summary interval.
 
-This module implements a summary metric that tracks the maximum absolute value
-encountered during integration for each variable.
+Published Classes
+-----------------
+:class:`MaxMagnitude`
+    Maximum absolute value over a summary interval.
+
+See Also
+--------
+:class:`~cubie.outputhandling.summarymetrics.metrics.SummaryMetric`
+    Abstract base class for summary metrics.
+:data:`~cubie.outputhandling.summarymetrics.summary_metrics`
+    Global registry where this metric is registered.
 """
 
 from numba import cuda

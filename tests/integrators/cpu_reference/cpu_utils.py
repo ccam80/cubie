@@ -8,7 +8,7 @@ import numpy as np
 from numba import njit
 from numpy.typing import NDArray
 
-from cubie.integrators import IntegratorReturnCodes
+from cubie.integrators import CUBIE_RESULT_CODES
 
 
 Array = NDArray[np.floating]
@@ -572,9 +572,9 @@ def _encode_solver_status(converged: bool, niters: int) -> int:
     """Return a solver status word with the Newton iteration count encoded."""
 
     base_code = (
-        IntegratorReturnCodes.SUCCESS
+        CUBIE_RESULT_CODES.SUCCESS
         if converged
-        else IntegratorReturnCodes.MAX_NEWTON_ITERATIONS_EXCEEDED
+        else CUBIE_RESULT_CODES.MAX_NEWTON_ITERATIONS_EXCEEDED
     )
     iter_count = max(0, min(int(niters) + 1, STATUS_MASK))
     return (iter_count << 16) | (int(base_code) & STATUS_MASK)

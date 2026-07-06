@@ -3,10 +3,9 @@
 This module centralises the symbolic ODE problems used by the test fixtures so
 that integrator tests, CPU reference implementations, and batch solver tests
 operate on the same definitions.  Each system exposes lightweight NumPy helper
-functions for evaluating derivatives and Jacobians, plus a
-``correct_answer_python`` implementation bound to the generated symbolic
-system.  These helpers provide fast reference evaluations that mirror the
-behaviour of the compiled device functions.
+functions for evaluating derivatives and Jacobians.  These helpers provide
+fast reference evaluations that mirror the behaviour of the compiled device
+functions.
 """
 
 from typing import Sequence, Union
