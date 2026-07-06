@@ -113,54 +113,54 @@ def test_newton_krylov_placeholder(placeholder_system, precision, tolerance):
     ],
     indirect=True,
 )
-@pytest.mark.parametrize("precond_order", [0, 1, 2])
+@pytest.mark.parametrize(
+    "solver_settings_override",
+    [
+        {
+            "linear_correction_type": "minimal_residual",
+            "krylov_atol": 1e-6,
+            "krylov_rtol": 1e-6,
+            "krylov_max_iters": 1000,
+            "newton_atol": 1e-6,
+            "newton_rtol": 1e-6,
+            "newton_max_iters": 1000,
+        },
+        {
+            "linear_correction_type": "bicgstab",
+            "krylov_atol": 1e-6,
+            "krylov_rtol": 1e-6,
+            "krylov_max_iters": 200,
+            "newton_atol": 1e-6,
+            "newton_rtol": 1e-6,
+            "newton_max_iters": 1000,
+        },
+    ],
+    ids=["minimal_residual", "bicgstab"],
+    indirect=True,
+)
+@pytest.mark.parametrize(
+    "solver_settings_override2",
+    [
+        {"preconditioner_order": 0},
+        {"preconditioner_order": 1},
+        {"preconditioner_order": 2},
+    ],
+    ids=["order0", "order1", "order2"],
+    indirect=True,
+)
 def test_newton_krylov_symbolic(
-    system_setup, precision, precond_order, tolerance
+    system_setup, newton_solver_instance, precision, tolerance
 ):
-    """Solve a symbolic system with optional preconditioning provided by fixture."""
+    """Newton with each configured inner solver reaches the reference."""
     sym_system = system_setup["sym_system"]
     n = sym_system.num_states
-    operator = system_setup["operator"]
-    residual_func = system_setup["residual"]
     base_state = system_setup["base_state"]
     expected = system_setup["nk_expected"]
     h = system_setup["h"]
 
-    precond = (
-        None
-        if precond_order == 0
-        else system_setup["preconditioner"](precond_order)
-    )
-    # Use tighter tolerances to ensure full convergence regardless of norm
-    # type used internally. This makes final results independent of whether
-    # L2 or scaled norm is used for convergence checks.
-    krylov_tol = 1e-10 if precision == np.float64 else 1e-6
-    newton_tol = 1e-10 if precision == np.float64 else 1e-6
-    linear_solver_instance = MRLinearSolver(
-        precision=precision,
-        n=n,
-        linear_correction_type="minimal_residual",
-        krylov_atol=krylov_tol,
-        krylov_rtol=krylov_tol,
-        krylov_max_iters=1000,
-    )
-    linear_solver_instance.update(
-        operator_apply=operator, preconditioner=precond
-    )
+    solver = newton_solver_instance.device_function
 
-    newton_instance = NewtonKrylov(
-        precision=precision,
-        n=n,
-        linear_solver=linear_solver_instance,
-        newton_atol=newton_tol,
-        newton_rtol=newton_tol,
-        newton_max_iters=1000,
-    )
-
-    newton_instance.update(residual_function=residual_func)
-    solver = newton_instance.device_function
-
-    scratch_len = 2 * n
+    scratch_len = 6 * n
 
     @cuda.jit
     def kernel(state, base, flag, h):

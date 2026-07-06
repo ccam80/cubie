@@ -122,45 +122,16 @@ def test_linear_solver_placeholder(
     )
 
 
-@pytest.mark.parametrize(
-    "system_setup", ["linear", "coupled_linear"], indirect=True
-)
-@pytest.mark.parametrize(
-    "linear_correction_type", ["steepest_descent", "minimal_residual"]
-)
-@pytest.mark.parametrize("precond_order", [0, 1, 2])
-def test_linear_solver_symbolic(
-    system_setup,
-    solver_kernel,
-    precision,
-    linear_correction_type,
-    precond_order,
-    tolerance,
+def _run_symbolic_linear_solve(
+    system_setup, linear_solver_instance, solver_kernel, precision, tolerance
 ):
-    """Solve systems built from symbolic expressions."""
-
+    """Solve the fixture system and compare against the direct solution."""
     n = system_setup["n"]
-    operator = system_setup["operator"]
     rhs_vec = system_setup["mr_rhs"]
     expected = system_setup["mr_expected"]
     h = system_setup["h"]
-    precond = (
-        None
-        if precond_order == 0
-        else system_setup["preconditioner"](precond_order)
-    )
 
-    solver = MRLinearSolver(
-        precision=precision,
-        n=n,
-        linear_correction_type=linear_correction_type,
-        krylov_atol=1e-8,
-        krylov_rtol=1e-8,
-        krylov_max_iters=1000,
-    )
-    solver.update(operator_apply=operator, preconditioner=precond)
-    solver = solver.device_function
-
+    solver = linear_solver_instance.device_function
     kernel = solver_kernel(solver, n, h, precision)
     state = system_setup["state_init"]
     rhs_dev = cuda.to_device(rhs_vec)
@@ -175,6 +146,101 @@ def test_linear_solver_symbolic(
         expected,
         rtol=tolerance.rel_loose,
         atol=tolerance.abs_loose,
+    )
+
+
+@pytest.mark.parametrize(
+    "system_setup", ["linear", "coupled_linear"], indirect=True
+)
+@pytest.mark.parametrize(
+    "solver_settings_override",
+    [
+        {
+            "linear_correction_type": "steepest_descent",
+            "krylov_atol": 1e-8,
+            "krylov_rtol": 1e-8,
+            "krylov_max_iters": 1000,
+        },
+        {
+            "linear_correction_type": "minimal_residual",
+            "krylov_atol": 1e-8,
+            "krylov_rtol": 1e-8,
+            "krylov_max_iters": 1000,
+        },
+        {
+            "linear_correction_type": "bicgstab",
+            "krylov_atol": 1e-8,
+            "krylov_rtol": 1e-8,
+            "krylov_max_iters": 200,
+        },
+    ],
+    ids=["steepest_descent", "minimal_residual", "bicgstab"],
+    indirect=True,
+)
+@pytest.mark.parametrize(
+    "solver_settings_override2",
+    [
+        {"preconditioner_order": 0},
+        {"preconditioner_order": 1},
+        {"preconditioner_order": 2},
+    ],
+    ids=["order0", "order1", "order2"],
+    indirect=True,
+)
+def test_linear_solver_symbolic(
+    system_setup,
+    linear_solver_instance,
+    solver_kernel,
+    precision,
+    tolerance,
+):
+    """Each configured solver drives systems built from symbolics."""
+    _run_symbolic_linear_solve(
+        system_setup,
+        linear_solver_instance,
+        solver_kernel,
+        precision,
+        tolerance,
+    )
+
+
+@pytest.mark.parametrize("system_setup", ["stiff"], indirect=True)
+@pytest.mark.parametrize(
+    "solver_settings_override",
+    [
+        {
+            "linear_correction_type": "bicgstab",
+            "krylov_atol": 1e-8,
+            "krylov_rtol": 1e-8,
+            "krylov_max_iters": 200,
+        },
+    ],
+    ids=["bicgstab"],
+    indirect=True,
+)
+@pytest.mark.parametrize(
+    "solver_settings_override2",
+    [
+        {"preconditioner_order": 1},
+        {"preconditioner_order": 2},
+    ],
+    ids=["order1", "order2"],
+    indirect=True,
+)
+def test_linear_solver_stiff(
+    system_setup,
+    linear_solver_instance,
+    solver_kernel,
+    precision,
+    tolerance,
+):
+    """BiCGSTAB converges on the moderately ill-conditioned system."""
+    _run_symbolic_linear_solve(
+        system_setup,
+        linear_solver_instance,
+        solver_kernel,
+        precision,
+        tolerance,
     )
 
 
