@@ -1,49 +1,10 @@
 import os
 import pytest
-from pathlib import Path
 import numpy as np
 
 from cubie import solve_ivp, SolveResult
 from cubie.odesystems.symbolic.parsing.cellml import load_cellml_model
 from cubie._utils import is_devfunc
-
-
-@pytest.fixture(scope="session")
-def cellml_fixtures_dir():
-    """Return path to cellml test fixtures directory."""
-    return Path(__file__).parent.parent.parent / "fixtures" / "cellml"
-
-
-@pytest.fixture(scope="session")
-def cellml_overrides(request):
-    if hasattr(request, "param"):
-        return request.param if request.param else {}
-    return {}
-
-
-@pytest.fixture(scope="session")
-def cellml_import_settings(cellml_overrides):
-    """Return path to basic ODE CellML model."""
-    defaults = {}
-    defaults.update(cellml_overrides)
-    return defaults
-
-
-@pytest.fixture(scope="session")
-def basic_model(cellml_fixtures_dir, cellml_import_settings):
-    """Return imported basic ODE CellML model."""
-    ode_system = load_cellml_model(
-        str(cellml_fixtures_dir / "basic_ode.cellml"), **cellml_import_settings
-    )
-    return ode_system
-
-
-@pytest.fixture(scope="session")
-def beeler_reuter_model(cellml_fixtures_dir, cellml_import_settings):
-    """Return imported Beeler-Reuter CellML model."""
-    br_path = cellml_fixtures_dir / "beeler_reuter_model_1977.cellml"
-    ode_system = load_cellml_model(str(br_path), **cellml_import_settings)
-    return ode_system
 
 
 def test_load_simple_cellml_model(basic_model):
@@ -58,34 +19,23 @@ def test_load_complex_cellml_model(beeler_reuter_model):
     assert is_devfunc(beeler_reuter_model.evaluate_f)
 
 
-@pytest.mark.parametrize(
-    "cellml_overrides",
-    [
-        {
-            "observables": [
-                "sodium_current_i_Na",
-                "sodium_current_m_gate_alpha_m",
-            ]
-        }
-    ],
-    indirect=True,
-    ids=[""],
-)
-def test_algebraic_equations_as_observables(
-    beeler_reuter_model, cellml_overrides
-):
+def test_algebraic_equations_as_observables(cellml_fixtures_dir):
     """Verify algebraic equations can be assigned as observables."""
-    # Load with specific observables (sanitized names from the model)
-    observable_names = cellml_overrides["observables"]
+    observable_names = [
+        "sodium_current_i_Na",
+        "sodium_current_m_gate_alpha_m",
+    ]
+    br_path = cellml_fixtures_dir / "beeler_reuter_model_1977.cellml"
+    model = load_cellml_model(
+        str(br_path),
+        observables=observable_names,
+        fix_singularities=False,
+    )
 
-    # Verify the observables were assigned
-    obs_map = beeler_reuter_model.indices.observables.index_map
-    assert len(obs_map) > 0
-
-    # Check that the requested observables are present
-    # Keys are symbols, so we need to compare names
-    obs_symbol_names = [str(k) for k in obs_map.keys()]
+    # Keys are symbols, so we compare names
+    obs_map = model.indices.observables.index_map
     assert len(obs_map) == 2
+    obs_symbol_names = [str(k) for k in obs_map.keys()]
     for obs_name in observable_names:
         assert obs_name in obs_symbol_names
 
@@ -119,20 +69,24 @@ def test_invalid_extension():
         os.unlink(temp_path)
 
 
-@pytest.mark.parametrize(
-    "cellml_overrides", [{"precision": np.float64}], indirect=True, ids=[""]
-)
-def test_custom_precision(basic_model):
+def test_custom_precision(cellml_fixtures_dir):
     """Verify custom precision can be specified."""
-    assert basic_model.precision == np.float64
+    model = load_cellml_model(
+        str(cellml_fixtures_dir / "basic_ode.cellml"),
+        precision=np.float64,
+        fix_singularities=False,
+    )
+    assert model.precision == np.float64
 
 
-@pytest.mark.parametrize(
-    "cellml_overrides", [{"name": "custom_model"}], indirect=True, ids=[""]
-)
-def test_custom_name(basic_model):
+def test_custom_name(cellml_fixtures_dir):
     """Verify custom name can be specified."""
-    assert basic_model.name == "custom_model"
+    model = load_cellml_model(
+        str(cellml_fixtures_dir / "basic_ode.cellml"),
+        name="custom_model",
+        fix_singularities=False,
+    )
+    assert model.name == "custom_model"
 
 
 def test_integration_with_solve_ivp(basic_model):
@@ -246,43 +200,46 @@ def test_numeric_assignments_become_constants(basic_model):
     assert constants_defaults["main_a"] == 0.5
 
 
-@pytest.mark.parametrize(
-    "cellml_overrides", [{"parameters": ["main_a"]}], indirect=True, ids=[""]
-)
-def test_numeric_assignments_as_parameters(basic_model):
+def test_numeric_assignments_as_parameters(cellml_fixtures_dir):
     """Verify variables with numeric assignments become parameters if specified."""
+    model = load_cellml_model(
+        str(cellml_fixtures_dir / "basic_ode.cellml"),
+        name="basic_ode",
+        parameters=["main_a"],
+        fix_singularities=False,
+    )
 
     # 'main_a' should now be a parameter instead of a constant
-    parameters_map = basic_model.indices.parameters.index_map
+    parameters_map = model.indices.parameters.index_map
     parameter_names = [str(k) for k in parameters_map.keys()]
     assert "main_a" in parameter_names
 
     # Check that the default value is correct
-    parameters_defaults = basic_model.indices.parameters.defaults
+    parameters_defaults = model.indices.parameters.defaults
     assert parameters_defaults is not None
     assert "main_a" in parameters_defaults
     assert parameters_defaults["main_a"] == 0.5
 
     # Should not be in constants
-    constants_map = basic_model.indices.constants.index_map
+    constants_map = model.indices.constants.index_map
     constant_names = [str(k) for k in constants_map.keys()]
     assert "main_a" not in constant_names
 
 
-@pytest.mark.parametrize(
-    "cellml_overrides",
-    [{"parameters": {"main_a": 1.0}}],
-    indirect=True,
-    ids=[""],
-)
-def test_parameters_dict_preserves_numeric_values(basic_model):
+def test_parameters_dict_preserves_numeric_values(cellml_fixtures_dir):
     """Verify numeric values are preserved when parameters is a dict."""
     # User can provide parameters as dict with custom default values
     # But if the CellML has a numeric value, it should be preserved
+    model = load_cellml_model(
+        str(cellml_fixtures_dir / "basic_ode.cellml"),
+        name="basic_ode",
+        parameters={"main_a": 1.0},
+        fix_singularities=False,
+    )
 
     # The user-provided value doesnt take precedence - users can override
     # these per run.
-    parameters_defaults = basic_model.indices.parameters.defaults
+    parameters_defaults = model.indices.parameters.defaults
     assert parameters_defaults is not None
     assert "main_a" in parameters_defaults
     assert parameters_defaults["main_a"] == 0.5
@@ -342,7 +299,9 @@ def test_cache_used_on_reload(cellml_fixtures_dir, tmp_path):
         os.chdir(tmp_path)
 
         # First load - creates cache
-        ode1 = load_cellml_model(str(tmp_cellml), name="basic_ode")
+        ode1 = load_cellml_model(
+            str(tmp_cellml), name="basic_ode", fix_singularities=False
+        )
 
         # Verify cache manifest created (LRU cache uses manifest file)
         manifest_file = (
@@ -353,7 +312,9 @@ def test_cache_used_on_reload(cellml_fixtures_dir, tmp_path):
         )
 
         # Second load - should use cache
-        ode2 = load_cellml_model(str(tmp_cellml), name="basic_ode")
+        ode2 = load_cellml_model(
+            str(tmp_cellml), name="basic_ode", fix_singularities=False
+        )
 
         # Verify both ODEs are equivalent
         assert ode1.num_states == ode2.num_states
@@ -379,7 +340,9 @@ def test_cache_invalidated_on_file_change(cellml_fixtures_dir, tmp_path):
         os.chdir(tmp_path)
 
         # First load - creates cache
-        load_cellml_model(str(tmp_cellml), name="basic_ode")
+        load_cellml_model(
+            str(tmp_cellml), name="basic_ode", fix_singularities=False
+        )
         manifest_file = (
             tmp_path / "generated" / "basic_ode" / "cellml_cache_manifest.json"
         )
@@ -396,19 +359,21 @@ def test_cache_invalidated_on_file_change(cellml_fixtures_dir, tmp_path):
         cache = CellMLCache("basic_ode", str(tmp_cellml))
         # Compute args_hash for default arguments (precision=np.float32)
         args_hash = cache.compute_cache_key(
-            None, None, np.float32, "basic_ode"
+            None, None, np.float32, "basic_ode", fix_singularities=False
         )
         assert not cache.cache_valid(args_hash), (
             "Cache should be invalid after file change"
         )
 
         # Load again - should re-parse and update cache
-        load_cellml_model(str(tmp_cellml), name="basic_ode")
+        load_cellml_model(
+            str(tmp_cellml), name="basic_ode", fix_singularities=False
+        )
 
         # Verify new cache is valid (need fresh CellMLCache for updated file hash)
         cache2 = CellMLCache("basic_ode", str(tmp_cellml))
         args_hash2 = cache2.compute_cache_key(
-            None, None, np.float32, "basic_ode"
+            None, None, np.float32, "basic_ode", fix_singularities=False
         )
         assert cache2.cache_valid(args_hash2), (
             "Cache should be valid after re-parse"
@@ -435,7 +400,9 @@ def test_cache_isolated_per_model(cellml_fixtures_dir, tmp_path):
         os.chdir(tmp_path)
 
         # Load both models
-        ode_basic = load_cellml_model(str(tmp_basic), name="basic_ode")
+        ode_basic = load_cellml_model(
+            str(tmp_basic), name="basic_ode", fix_singularities=False
+        )
         ode_br = load_cellml_model(
             str(tmp_br), name="beeler_reuter_model_1977"
         )
