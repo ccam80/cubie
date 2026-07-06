@@ -288,10 +288,12 @@ class Solver:
             user_settings=output_settings,
         )
         # Label kwargs are converted to index settings, not forwarded.
-        for key in ("save_variables", "summarise_variables"):
-            if key in kwargs:
-                output_settings.setdefault(key, kwargs[key])
-                output_recognized.add(key)
+        output_settings, label_recognized = merge_kwargs_into_settings(
+            kwargs=kwargs,
+            valid_keys=("save_variables", "summarise_variables"),
+            user_settings=output_settings,
+        )
+        output_recognized |= label_recognized
         self.convert_output_labels(output_settings)
 
         memory_settings, memory_recognized = merge_kwargs_into_settings(
