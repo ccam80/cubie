@@ -249,10 +249,10 @@ def solver_kernel():
 
 @pytest.fixture(scope="function")
 def linear_solver_instance(request, system_setup, precision):
-    """Instantiate LinearSolver with settings from system_setup."""
+    """Instantiate MRLinearSolver with settings from system_setup."""
     from cubie.integrators.matrix_free_solvers.linear_solver import (
-        LinearSolver,
-        LinearSolverConfig,
+        MRLinearSolver,
+        MRLinearSolverConfig,
     )
     
     n = system_setup['n']
@@ -275,13 +275,13 @@ def linear_solver_instance(request, system_setup, precision):
         'max_iters': overrides.get('max_iters', 1000),
     }
     
-    config = LinearSolverConfig(**config_dict)
-    return LinearSolver(config)
+    config = MRLinearSolverConfig(**config_dict)
+    return MRLinearSolver(config)
 
 
 @pytest.fixture(scope="function")
 def newton_solver_instance(request, linear_solver_instance, system_setup, precision):
-    """Instantiate NewtonKrylov with LinearSolver and settings."""
+    """Instantiate NewtonKrylov with MRLinearSolver and settings."""
     from cubie.integrators.matrix_free_solvers.newton_krylov import (
         NewtonKrylov,
         NewtonKrylovConfig,

@@ -18,8 +18,10 @@ Published Classes
 
 See Also
 --------
-:class:`~cubie.integrators.matrix_free_solvers.linear_solver.LinearSolver`
-    Concrete linear solver subclass.
+:class:`~cubie.integrators.matrix_free_solvers.linear_solver.MRLinearSolver`
+    Concrete MR/SD linear solver subclass.
+:class:`~cubie.integrators.matrix_free_solvers.bicgstab_solver.BiCGSTABSolver`
+    Concrete BiCGSTAB linear solver subclass.
 :class:`~cubie.integrators.matrix_free_solvers.newton_krylov.NewtonKrylov`
     Concrete Newton--Krylov solver subclass.
 :class:`~cubie.CUDAFactory.MultipleInstanceCUDAFactory`
@@ -47,7 +49,7 @@ from cubie.integrators.norms import ScaledNorm
 class MatrixFreeSolverConfig(MultipleInstanceCUDAFactoryConfig):
     """Base configuration for matrix-free solver factories.
 
-    Provides common attributes shared by LinearSolverConfig and
+    Provides common attributes shared by LinearSolverBaseConfig and
     NewtonKrylovConfig including precision, vector size, iteration
     limits, and Numba/CUDA type accessors.
 

@@ -12,9 +12,13 @@ from cubie.integrators.matrix_free_solvers import CUBIE_RESULT_CODES
 
 _EXPECTED_EXPORTS = [
     ("MatrixFreeSolverConfig", "cubie.integrators.matrix_free_solvers"),
-    ("LinearSolver", "cubie.integrators.matrix_free_solvers"),
-    ("LinearSolverConfig", "cubie.integrators.matrix_free_solvers"),
+    ("LinearSolverBase", "cubie.integrators.matrix_free_solvers"),
+    ("LinearSolverBaseConfig", "cubie.integrators.matrix_free_solvers"),
     ("LinearSolverCache", "cubie.integrators.matrix_free_solvers"),
+    ("MRLinearSolver", "cubie.integrators.matrix_free_solvers"),
+    ("MRLinearSolverConfig", "cubie.integrators.matrix_free_solvers"),
+    ("BiCGSTABSolver", "cubie.integrators.matrix_free_solvers"),
+    ("BiCGSTABSolverConfig", "cubie.integrators.matrix_free_solvers"),
     ("NewtonKrylov", "cubie.integrators.matrix_free_solvers"),
     ("NewtonKrylovConfig", "cubie.integrators.matrix_free_solvers"),
     ("NewtonKrylovCache", "cubie.integrators.matrix_free_solvers"),
@@ -37,6 +41,7 @@ def test_reexport_available(name, mod_prefix):
         ("NEWTON_BACKTRACKING_NO_SUITABLE_STEP", 1),
         ("MAX_NEWTON_ITERATIONS_EXCEEDED", 2),
         ("MAX_LINEAR_ITERATIONS_EXCEEDED", 4),
+        ("BICGSTAB_BREAKDOWN", 128),
     ],
 )
 def test_solver_ret_code_values(member, value):

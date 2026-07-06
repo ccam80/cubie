@@ -11,7 +11,7 @@ Published Classes
     Abstract base for implicit algorithms. Owns a
     :class:`~cubie.integrators.matrix_free_solvers.newton_krylov.NewtonKrylov`
     or
-    :class:`~cubie.integrators.matrix_free_solvers.linear_solver.LinearSolver`
+    :class:`~cubie.integrators.matrix_free_solvers.linear_solver_base.LinearSolverBase`
     instance and delegates solver parameter updates.
 
 See Also
@@ -33,7 +33,10 @@ import sympy as sp
 
 from cubie._utils import inrangetype_validator, is_device_validator
 from cubie.integrators.matrix_free_solvers.linear_solver import (
-    LinearSolver,
+    MRLinearSolver,
+)
+from cubie.integrators.matrix_free_solvers.bicgstab_solver import (
+    BiCGSTABSolver,
 )
 from cubie.integrators.matrix_free_solvers.newton_krylov import (
     NewtonKrylov,
@@ -107,15 +110,24 @@ class ImplicitStepConfig(BaseStepConfig):
 class ODEImplicitStep(BaseAlgorithmStep):
     """Base helper for implicit integration algorithms."""
 
-    # Parameters accepted by LinearSolver
+    # Union of parameters accepted by all linear solver types.
+    # Params not applicable to the chosen solver are silently
+    # ignored during construction.
     _LINEAR_SOLVER_PARAMS = frozenset(
         {
             "linear_correction_type",
             "krylov_atol",
             "krylov_rtol",
             "krylov_max_iters",
+            # MR buffer locations
             "preconditioned_vec_location",
             "temp_location",
+            # BiCGSTAB buffer locations
+            "r0_hat_location",
+            "p_location",
+            "v_location",
+            "tmp_location",
+            "s_hat_location",
         }
     )
 
@@ -175,11 +187,23 @@ class ODEImplicitStep(BaseAlgorithmStep):
             if k in self._NEWTON_KRYLOV_PARAMS and v is not None
         }
 
-        linear_solver = LinearSolver(
-            precision=config.precision,
-            n=config.n,
-            **linear_kwargs,
+        correction_type = linear_kwargs.pop(
+            "linear_correction_type", "minimal_residual"
         )
+
+        if correction_type == "bicgstab":
+            linear_solver = BiCGSTABSolver(
+                precision=config.precision,
+                n=config.n,
+                **linear_kwargs,
+            )
+        else:
+            linear_solver = MRLinearSolver(
+                precision=config.precision,
+                n=config.n,
+                linear_correction_type=correction_type,
+                **linear_kwargs,
+            )
 
         if solver_type == "newton":
             self.solver = NewtonKrylov(
@@ -442,7 +466,7 @@ class ODEImplicitStep(BaseAlgorithmStep):
             - Implicit step settings (beta, gamma, M, preconditioner_order,
               get_solver_helper_fn) from ImplicitStepConfig
             - Solver settings (newton_atol, krylov_rtol, etc.)
-              from NewtonKrylov or LinearSolver
+              from NewtonKrylov or LinearSolverBase
             - All buffer location parameters from solver hierarchy
         """
         settings = super().settings_dict

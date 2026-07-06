@@ -14,7 +14,7 @@ from cubie.cuda_simsafe import (
 )
 from cubie.result_codes import CUBIE_RESULT_CODES
 from cubie.integrators.matrix_free_solvers.linear_solver import (
-    LinearSolver,
+    MRLinearSolver,
 )
 from cubie.integrators.matrix_free_solvers.newton_krylov import (
     NewtonKrylov,
@@ -22,8 +22,8 @@ from cubie.integrators.matrix_free_solvers.newton_krylov import (
 
 
 @attrs.define
-class InstrumentedLinearSolverCache(CUDADispatcherCache):
-    """Cache container for InstrumentedLinearSolver outputs.
+class InstrumentedMRLinearSolverCache(CUDADispatcherCache):
+    """Cache container for InstrumentedMRLinearSolver outputs.
     
     Attributes
     ----------
@@ -36,21 +36,21 @@ class InstrumentedLinearSolverCache(CUDADispatcherCache):
     )
 
 
-class InstrumentedLinearSolver(LinearSolver):
+class InstrumentedMRLinearSolver(MRLinearSolver):
     """Factory for instrumented linear solver device functions.
     
-    Inherits from LinearSolver and adds iteration logging to device function.
+    Inherits from MRLinearSolver and adds iteration logging to device function.
     Logging arrays are passed as device function parameters and populated
     during iteration. Uses buffer_registry for production buffers
     (preconditioned_vec, temp) but logging arrays are caller-allocated.
     """
     
-    def build(self) -> InstrumentedLinearSolverCache:
+    def build(self) -> InstrumentedMRLinearSolverCache:
         """Compile instrumented linear solver device function.
         
         Returns
         -------
-        InstrumentedLinearSolverCache
+        InstrumentedMRLinearSolverCache
             Container with compiled linear_solver device function including
             logging parameters.
         
@@ -105,7 +105,7 @@ class InstrumentedLinearSolver(LinearSolver):
         typed_one = precision_numba(1.0)
         
         # Get allocators from buffer_registry using production buffer names
-        # (registered by parent LinearSolver.register_buffers)
+        # (registered by parent MRLinearSolver.register_buffers)
         get_alloc = buffer_registry.get_allocator
         alloc_precond = get_alloc('preconditioned_vec', self)
         alloc_temp = get_alloc('temp', self)
@@ -243,7 +243,7 @@ class InstrumentedLinearSolver(LinearSolver):
                 return final_status
             
             # no cover: end
-            return InstrumentedLinearSolverCache(
+            return InstrumentedMRLinearSolverCache(
                 linear_solver=linear_solver_cached
             )
         else:
@@ -377,7 +377,7 @@ class InstrumentedLinearSolver(LinearSolver):
                 return final_status
             
             # no cover: end
-            return InstrumentedLinearSolverCache(linear_solver=linear_solver)
+            return InstrumentedMRLinearSolverCache(linear_solver=linear_solver)
 
     @property
     def device_function(self) -> Callable:
@@ -403,7 +403,7 @@ class InstrumentedNewtonKrylov(NewtonKrylov):
     
     Inherits from NewtonKrylov and adds iteration logging to device function.
     Logging arrays are passed as device function parameters and populated
-    during Newton iteration. Embeds InstrumentedLinearSolver for nested
+    during Newton iteration. Embeds InstrumentedMRLinearSolver for nested
     linear solve logging.
     """
     
@@ -447,7 +447,7 @@ class InstrumentedNewtonKrylov(NewtonKrylov):
             If residual_function or linear_solver is None when build() is
             called.
         TypeError
-            If linear_solver is not InstrumentedLinearSolver instance.
+            If linear_solver is not InstrumentedMRLinearSolver instance.
         """
         config = self.compile_settings
         
@@ -731,8 +731,8 @@ class InstrumentedNewtonKrylov(NewtonKrylov):
 
 
 __all__ = [
-    "InstrumentedLinearSolver",
-    "InstrumentedLinearSolverCache",
+    "InstrumentedMRLinearSolver",
+    "InstrumentedMRLinearSolverCache",
     "InstrumentedNewtonKrylov",
     "InstrumentedNewtonKrylovCache",
 ]

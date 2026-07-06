@@ -107,16 +107,16 @@ class InstrumentedFIRKStep(InstrumentedODEImplicitStep):
             default value of 2.
         krylov_atol
             Absolute tolerance for the Krylov linear solver. If None, uses
-            default from LinearSolverConfig.
+            default from LinearSolverBaseConfig.
         krylov_rtol
             Relative tolerance for the Krylov linear solver. If None, uses
-            default from LinearSolverConfig.
+            default from LinearSolverBaseConfig.
         krylov_max_iters
             Maximum iterations allowed for the Krylov solver. If None, uses
-            default from LinearSolverConfig.
+            default from LinearSolverBaseConfig.
         linear_correction_type
             Type of Krylov correction. If None, uses default from
-            LinearSolverConfig.
+            LinearSolverBaseConfig.
         newton_atol
             Absolute tolerance for the Newton iteration. If None, uses
             default from NewtonKrylovConfig.

@@ -93,9 +93,15 @@ ALL_ALGORITHM_STEP_PARAMETERS = {
     "increment_cache_location",
     # CrankNicolson buffer location parameters
     "dxdt_location",
-    # Solver buffer location parameters
+    # MR/SD solver buffer location parameters
     "preconditioned_vec_location",
     "temp_location",
+    # BiCGSTAB solver buffer location parameters
+    "r0_hat_location",
+    "p_location",
+    "v_location",
+    "tmp_location",
+    "s_hat_location",
     "delta_location",
     "residual_location",
     "residual_temp_location",
@@ -159,16 +165,16 @@ components use this set to filter kwargs before forwarding.
      - :class:`ImplicitStepConfig`
      - Order of the truncated Neumann preconditioner.
    * - ``krylov_atol``
-     - :class:`LinearSolverConfig`
+     - :class:`LinearSolverBaseConfig`
      - Absolute tolerance for the linear solver.
    * - ``krylov_rtol``
-     - :class:`LinearSolverConfig`
+     - :class:`LinearSolverBaseConfig`
      - Relative tolerance for the linear solver.
    * - ``krylov_max_iters``
-     - :class:`LinearSolverConfig`
+     - :class:`LinearSolverBaseConfig`
      - Maximum linear solver iterations.
    * - ``linear_correction_type``
-     - :class:`LinearSolverConfig`
+     - :class:`LinearSolverBaseConfig`
      - Correction strategy identifier.
    * - ``newton_atol``
      - :class:`NewtonKrylovConfig`

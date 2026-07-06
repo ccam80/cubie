@@ -78,16 +78,16 @@ class InstrumentedRosenbrockWStep(InstrumentedODEImplicitStep):
             preconditioner. If None, uses default value of 2.
         krylov_atol
             Absolute tolerance for the Krylov linear solver. If None, uses
-            default from LinearSolverConfig.
+            default from LinearSolverBaseConfig.
         krylov_rtol
             Relative tolerance for the Krylov linear solver. If None, uses
-            default from LinearSolverConfig.
+            default from LinearSolverBaseConfig.
         krylov_max_iters
             Maximum iterations allowed for the Krylov solver. If None, uses
-            default from LinearSolverConfig.
+            default from LinearSolverBaseConfig.
         linear_correction_type
             Type of Krylov correction ("minimal_residual" or other). If None,
-            uses default from LinearSolverConfig.
+            uses default from LinearSolverBaseConfig.
         tableau
             Rosenbrock tableau describing the coefficients and gamma values.
             Defaults to :data:`DEFAULT_ROSENBROCK_TABLEAU`.

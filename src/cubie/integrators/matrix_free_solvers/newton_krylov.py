@@ -1,7 +1,7 @@
 """Newton--Krylov solver factories for matrix-free integrators.
 
-This module wraps the linear solver provided by
-:mod:`cubie.integrators.matrix_free_solvers.linear_solver` to build
+This module wraps a linear solver provided by
+:mod:`cubie.integrators.matrix_free_solvers.linear_solver_base` to build
 damped Newton iterations suitable for CUDA device execution.
 
 Published Classes
@@ -15,13 +15,13 @@ Published Classes
 
 :class:`NewtonKrylov`
     CUDAFactory subclass that compiles a damped Newton--Krylov
-    solver wrapping a :class:`~cubie.integrators.matrix_free_solvers.linear_solver.LinearSolver`.
+    solver wrapping a :class:`~cubie.integrators.matrix_free_solvers.linear_solver_base.LinearSolverBase`.
 
 See Also
 --------
 :class:`~cubie.integrators.matrix_free_solvers.base_solver.MatrixFreeSolver`
     Parent factory providing norm and tolerance management.
-:class:`~cubie.integrators.matrix_free_solvers.linear_solver.LinearSolver`
+:class:`~cubie.integrators.matrix_free_solvers.linear_solver_base.LinearSolverBase`
     Inner linear solver used for the Newton correction equation.
 :mod:`cubie.integrators.algorithms.ode_implicitstep`
     Implicit step base class that creates :class:`NewtonKrylov`
@@ -56,7 +56,9 @@ from cubie.cuda_simsafe import (
 )
 from cubie.result_codes import CUBIE_RESULT_CODES
 
-from cubie.integrators.matrix_free_solvers.linear_solver import LinearSolver
+from cubie.integrators.matrix_free_solvers.linear_solver_base import (
+    LinearSolverBase,
+)
 
 
 @define
@@ -189,8 +191,8 @@ class NewtonKrylov(MatrixFreeSolver):
         Numerical precision for computations.
     n : int
         Size of state vectors.
-    linear_solver : LinearSolver
-        :class:`~cubie.integrators.matrix_free_solvers.linear_solver.LinearSolver`
+    linear_solver : LinearSolverBase
+        :class:`~cubie.integrators.matrix_free_solvers.linear_solver_base.LinearSolverBase`
         instance for solving linear systems.
     **kwargs
         Forwarded to :class:`NewtonKrylovConfig` and the norm
@@ -203,7 +205,7 @@ class NewtonKrylov(MatrixFreeSolver):
         Configuration container for this factory.
     :class:`~cubie.integrators.matrix_free_solvers.base_solver.MatrixFreeSolver`
         Parent class providing norm and tolerance management.
-    :class:`~cubie.integrators.matrix_free_solvers.linear_solver.LinearSolver`
+    :class:`~cubie.integrators.matrix_free_solvers.linear_solver_base.LinearSolverBase`
         Inner linear solver used for the Newton correction equation.
     """
 
@@ -211,7 +213,7 @@ class NewtonKrylov(MatrixFreeSolver):
         self,
         precision: PrecisionDType,
         n: int,
-        linear_solver: LinearSolver,
+        linear_solver: LinearSolverBase,
         **kwargs,
     ) -> None:
         """Initialize NewtonKrylov with parameters.
@@ -222,8 +224,8 @@ class NewtonKrylov(MatrixFreeSolver):
             Numerical precision for computations.
         n : int
             Size of state vectors.
-        linear_solver : LinearSolver
-            LinearSolver instance for solving linear systems.
+        linear_solver : LinearSolverBase
+            LinearSolverBase instance for solving linear systems.
         **kwargs
             Optional parameters passed to NewtonKrylovConfig. See
             NewtonKrylovConfig for available parameters. Tolerance
@@ -619,12 +621,12 @@ class NewtonKrylov(MatrixFreeSolver):
 
     @property
     def krylov_atol(self) -> ndarray:
-        """Return the Krylov absolute tolerance array from nested LinearSolver."""
+        """Return the Krylov absolute tolerance array from nested linear solver."""
         return self.linear_solver.atol
 
     @property
     def krylov_rtol(self) -> ndarray:
-        """Return the Krylov relative tolerance array from nested LinearSolver."""
+        """Return the Krylov relative tolerance array from nested linear solver."""
         return self.linear_solver.rtol
 
     @property
