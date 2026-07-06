@@ -103,6 +103,23 @@ BICGSTAB_STEP_CASES = [
             },
             id="dirk-jacobi",
         ),
+        pytest.param(
+            {
+                "algorithm": "backwards_euler",
+                "step_controller": "fixed",
+                "linear_correction_type": "bicgstab",
+                "preconditioner_type": ["neumann", "jacobi"],
+            },
+            id="backwards_euler-bicgstab-chained",
+        ),
+        pytest.param(
+            {
+                "algorithm": "rosenbrock",
+                "step_controller": "i",
+                "preconditioner_type": ["neumann", "jacobi"],
+            },
+            id="rosenbrock-chained",
+        ),
     ]
 ]
 

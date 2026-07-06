@@ -1422,12 +1422,14 @@ def test_chained_preconditioner_composition(
         drivers = cuda.local.array(1, precision)
         jvp = cuda.local.array(n, precision)
         scratch = cuda.local.array(n, precision)
+        chain_scratch = cuda.local.array(n, precision)
         intermediate = cuda.local.array(n, precision)
         for idx in range(n):
             state[idx] = precision(0.0)
         chained(
             state, parameters, drivers, base_state,
             t, h, a_ij, vec, out_chained, jvp, scratch,
+            chain_scratch,
         )
         neumann(
             state, parameters, drivers, base_state,

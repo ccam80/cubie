@@ -311,6 +311,9 @@ class FIRKStep(ODEImplicitStep):
         self.solver.update(
             operator_apply=operator,
             preconditioner=preconditioner,
+            preconditioner_is_chained=(
+                config.preconditioner_is_chained
+            ),
             residual_function=residual,
             n=config.all_stages_n,
         )

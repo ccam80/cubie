@@ -85,6 +85,19 @@ class ImplicitStepConfig(BaseStepConfig):
     )
 
     @property
+    def preconditioner_is_chained(self) -> bool:
+        """Return whether the preconditioner resolves to a chain.
+
+        Single strings and one-element lists resolve to a bare
+        preconditioner; two-element lists compose as ``P1(P0(v))``
+        with the chained (``chain_scratch``-carrying) signature.
+        """
+        return (
+            isinstance(self.preconditioner_type, (list, tuple))
+            and len(self.preconditioner_type) == 2
+        )
+
+    @property
     def beta(self) -> float:
         """Return the implicit integration beta coefficient."""
         return self.precision(self._beta)
@@ -371,6 +384,9 @@ class ODEImplicitStep(BaseAlgorithmStep):
         self.solver.update(
             operator_apply=operator,
             preconditioner=preconditioner,
+            preconditioner_is_chained=(
+                config.preconditioner_is_chained
+            ),
             residual_function=residual,
             n=self.compile_settings.n,
         )

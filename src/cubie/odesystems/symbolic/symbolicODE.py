@@ -1174,13 +1174,14 @@ def _chain_two_preconditioners(p0, p1, cached=False):
 
     Notes
     -----
-    ``p0`` receives ``scratch`` as both its output and its scratch
-    argument (out = P1(P0(v)) needs an intermediate, and the fixed
-    signature offers no fourth buffer). This aliasing is safe only
-    because the generated Neumann and Jacobi preconditioners never
-    write to ``scratch``; a preconditioner that uses its scratch
-    buffer must not be chained without introducing a separate
-    intermediate buffer here.
+    The chained signature carries a trailing ``chain_scratch``
+    buffer in addition to the standard ``scratch``: ``scratch``
+    holds the intermediate P0 result, so P0 borrows ``out`` (dead
+    until P1 writes it) as its scratch slot and P1 receives
+    ``chain_scratch``. Every buffer each stage sees is therefore
+    distinct, so chained preconditioners may freely use their
+    scratch arguments. Solvers allocate ``chain_scratch`` from the
+    buffer registry when ``preconditioner_is_chained`` is set.
     """
     from numba import cuda
 
@@ -1189,32 +1190,32 @@ def _chain_two_preconditioners(p0, p1, cached=False):
     if cached:
         @cuda.jit(device=True, inline=True, **compile_kwargs)
         def chained_cached(
-            state, parameters, drivers, cached_aux,
-            base_state, t, h, a_ij, v, out, jvp, scratch,
+            state, parameters, drivers, cached_aux, base_state,
+            t, h, a_ij, v, out, jvp, scratch, chain_scratch,
         ):
             p0(
                 state, parameters, drivers, cached_aux,
                 base_state, t, h, a_ij,
-                v, scratch, jvp, scratch,
+                v, scratch, jvp, out,
             )
             p1(
                 state, parameters, drivers, cached_aux,
                 base_state, t, h, a_ij,
-                scratch, out, jvp, scratch,
+                scratch, out, jvp, chain_scratch,
             )
         return chained_cached
     else:
         @cuda.jit(device=True, inline=True, **compile_kwargs)
         def chained(
             state, parameters, drivers, base_state,
-            t, h, a_ij, v, out, jvp, scratch,
+            t, h, a_ij, v, out, jvp, scratch, chain_scratch,
         ):
             p0(
                 state, parameters, drivers, base_state,
-                t, h, a_ij, v, scratch, jvp, scratch,
+                t, h, a_ij, v, scratch, jvp, out,
             )
             p1(
                 state, parameters, drivers, base_state,
-                t, h, a_ij, scratch, out, jvp, scratch,
+                t, h, a_ij, scratch, out, jvp, chain_scratch,
             )
         return chained

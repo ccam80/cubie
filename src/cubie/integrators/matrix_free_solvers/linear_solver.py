@@ -141,6 +141,13 @@ class MRLinearSolver(LinearSolverBase):
             "local",
             precision=config.precision,
         )
+        buffer_registry.register(
+            "mr_chain_scratch",
+            self,
+            config.n,
+            "local",
+            precision=config.precision,
+        )
 
     @property
     def linear_correction_type(self) -> str:
@@ -173,6 +180,7 @@ class MRLinearSolver(LinearSolverBase):
         sd_flag = linear_correction_type == "steepest_descent"
         mr_flag = linear_correction_type == "minimal_residual"
         preconditioned = preconditioner is not None
+        chained_precond = config.preconditioner_is_chained
 
         # Convert types for device function
         n_val = int32(n)
@@ -190,6 +198,7 @@ class MRLinearSolver(LinearSolverBase):
         alloc_precond = get_alloc("preconditioned_vec", self)
         alloc_temp = get_alloc("temp", self)
         alloc_precond_scratch = get_alloc("mr_precond_scratch", self)
+        alloc_chain_scratch = get_alloc("mr_chain_scratch", self)
 
         # Build device function based on cached auxiliaries flag
         if use_cached_auxiliaries:
@@ -258,6 +267,12 @@ class MRLinearSolver(LinearSolverBase):
                 precond_scratch = alloc_precond_scratch(
                     shared, persistent_local
                 )
+                if chained_precond:
+                    chain_scratch = alloc_chain_scratch(
+                        shared, persistent_local
+                    )
+                else:
+                    chain_scratch = precond_scratch
 
                 operator_apply(
                     state,
@@ -285,20 +300,37 @@ class MRLinearSolver(LinearSolverBase):
 
                     iter_count += int32(1)
                     if preconditioned:
-                        preconditioner(
-                            state,
-                            parameters,
-                            drivers,
-                            cached_aux,
-                            base_state,
-                            t,
-                            h,
-                            a_ij,
-                            rhs,
-                            preconditioned_vec,
-                            temp,
-                            precond_scratch,
-                        )
+                        if chained_precond:
+                            preconditioner(
+                                state,
+                                parameters,
+                                drivers,
+                                cached_aux,
+                                base_state,
+                                t,
+                                h,
+                                a_ij,
+                                rhs,
+                                preconditioned_vec,
+                                temp,
+                                precond_scratch,
+                                chain_scratch,
+                            )
+                        else:
+                            preconditioner(
+                                state,
+                                parameters,
+                                drivers,
+                                cached_aux,
+                                base_state,
+                                t,
+                                h,
+                                a_ij,
+                                rhs,
+                                preconditioned_vec,
+                                temp,
+                                precond_scratch,
+                            )
                     else:
                         for i in range(n_val):
                             preconditioned_vec[i] = rhs[i]
@@ -425,6 +457,12 @@ class MRLinearSolver(LinearSolverBase):
                 precond_scratch = alloc_precond_scratch(
                     shared, persistent_local
                 )
+                if chained_precond:
+                    chain_scratch = alloc_chain_scratch(
+                        shared, persistent_local
+                    )
+                else:
+                    chain_scratch = precond_scratch
 
                 operator_apply(
                     state, parameters, drivers, base_state, t, h, a_ij, x, temp
@@ -443,19 +481,35 @@ class MRLinearSolver(LinearSolverBase):
 
                     iter_count += int32(1)
                     if preconditioned:
-                        preconditioner(
-                            state,
-                            parameters,
-                            drivers,
-                            base_state,
-                            t,
-                            h,
-                            a_ij,
-                            rhs,
-                            preconditioned_vec,
-                            temp,
-                            precond_scratch,
-                        )
+                        if chained_precond:
+                            preconditioner(
+                                state,
+                                parameters,
+                                drivers,
+                                base_state,
+                                t,
+                                h,
+                                a_ij,
+                                rhs,
+                                preconditioned_vec,
+                                temp,
+                                precond_scratch,
+                                chain_scratch,
+                            )
+                        else:
+                            preconditioner(
+                                state,
+                                parameters,
+                                drivers,
+                                base_state,
+                                t,
+                                h,
+                                a_ij,
+                                rhs,
+                                preconditioned_vec,
+                                temp,
+                                precond_scratch,
+                            )
                     else:
                         for i in range(n_val):
                             preconditioned_vec[i] = rhs[i]

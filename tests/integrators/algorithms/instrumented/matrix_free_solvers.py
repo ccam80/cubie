@@ -89,6 +89,7 @@ class InstrumentedMRLinearSolver(MRLinearSolver):
         sd_flag = linear_correction_type == "steepest_descent"
         mr_flag = linear_correction_type == "minimal_residual"
         preconditioned = preconditioner is not None
+        chained_precond = config.preconditioner_is_chained
 
         # Get scaled norm device function from config
         scaled_norm_fn = config.norm_device_function
@@ -110,6 +111,7 @@ class InstrumentedMRLinearSolver(MRLinearSolver):
         alloc_precond = get_alloc('preconditioned_vec', self)
         alloc_temp = get_alloc('temp', self)
         alloc_precond_scratch = get_alloc('mr_precond_scratch', self)
+        alloc_chain_scratch = get_alloc('mr_chain_scratch', self)
         
         # Branch on use_cached_auxiliaries flag
         if use_cached_auxiliaries:
@@ -150,6 +152,12 @@ class InstrumentedMRLinearSolver(MRLinearSolver):
                 precond_scratch = alloc_precond_scratch(
                     shared, persistent_local
                 )
+                if chained_precond:
+                    chain_scratch = alloc_chain_scratch(
+                        shared, persistent_local
+                    )
+                else:
+                    chain_scratch = precond_scratch
 
                 # Evaluate operator and compute initial residual
                 operator_apply(
@@ -174,20 +182,37 @@ class InstrumentedMRLinearSolver(MRLinearSolver):
                     
                     iteration += int32(1)
                     if preconditioned:
-                        preconditioner(
-                            state,
-                            parameters,
-                            drivers,
-                            cached_aux,
-                            base_state,
-                            t,
-                            h,
-                            a_ij,
-                            rhs,
-                            preconditioned_vec,
-                            temp,
-                            precond_scratch,
-                        )
+                        if chained_precond:
+                            preconditioner(
+                                state,
+                                parameters,
+                                drivers,
+                                cached_aux,
+                                base_state,
+                                t,
+                                h,
+                                a_ij,
+                                rhs,
+                                preconditioned_vec,
+                                temp,
+                                precond_scratch,
+                                chain_scratch,
+                            )
+                        else:
+                            preconditioner(
+                                state,
+                                parameters,
+                                drivers,
+                                cached_aux,
+                                base_state,
+                                t,
+                                h,
+                                a_ij,
+                                rhs,
+                                preconditioned_vec,
+                                temp,
+                                precond_scratch,
+                            )
                     else:
                         for i in range(n_val):
                             preconditioned_vec[i] = rhs[i]
@@ -288,6 +313,12 @@ class InstrumentedMRLinearSolver(MRLinearSolver):
                 precond_scratch = alloc_precond_scratch(
                     shared, persistent_local
                 )
+                if chained_precond:
+                    chain_scratch = alloc_chain_scratch(
+                        shared, persistent_local
+                    )
+                else:
+                    chain_scratch = precond_scratch
 
                 # Evaluate operator and compute initial residual
                 operator_apply(
@@ -312,19 +343,35 @@ class InstrumentedMRLinearSolver(MRLinearSolver):
                     
                     iteration += int32(1)
                     if preconditioned:
-                        preconditioner(
-                            state,
-                            parameters,
-                            drivers,
-                            base_state,
-                            t,
-                            h,
-                            a_ij,
-                            rhs,
-                            preconditioned_vec,
-                            temp,
-                            precond_scratch,
-                        )
+                        if chained_precond:
+                            preconditioner(
+                                state,
+                                parameters,
+                                drivers,
+                                base_state,
+                                t,
+                                h,
+                                a_ij,
+                                rhs,
+                                preconditioned_vec,
+                                temp,
+                                precond_scratch,
+                                chain_scratch,
+                            )
+                        else:
+                            preconditioner(
+                                state,
+                                parameters,
+                                drivers,
+                                base_state,
+                                t,
+                                h,
+                                a_ij,
+                                rhs,
+                                preconditioned_vec,
+                                temp,
+                                precond_scratch,
+                            )
                     else:
                         for i in range(n_val):
                             preconditioned_vec[i] = rhs[i]

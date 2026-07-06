@@ -57,6 +57,9 @@ class LinearSolverBaseConfig(MatrixFreeSolverConfig):
         Device function for approximate inverse preconditioner.
     use_cached_auxiliaries : bool
         Whether to use cached auxiliary arrays (determines signature).
+    preconditioner_is_chained : bool
+        Whether ``preconditioner`` is a chained composite, which takes
+        a trailing ``chain_scratch`` buffer (determines signature).
     """
 
     operator_apply: Optional[Callable] = field(
@@ -70,6 +73,7 @@ class LinearSolverBaseConfig(MatrixFreeSolverConfig):
         eq=False,
     )
     use_cached_auxiliaries: bool = field(default=False)
+    preconditioner_is_chained: bool = field(default=False)
 
 
 @define
