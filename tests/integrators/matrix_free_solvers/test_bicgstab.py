@@ -471,7 +471,7 @@ def test_bicgstab_cached_auxiliaries(precision, tolerance, with_precond):
 
     kernel[1, 1](state, rhs_dev, base, aux, x_dev, flag)
 
-    assert (flag.copy_to_host()[0] & 0xFF) == SolverRetCodes.SUCCESS
+    assert (flag.copy_to_host()[0] & 0xFF) == CUBIE_RESULT_CODES.SUCCESS
     assert_allclose(
         x_dev.copy_to_host(),
         rhs / diag,
