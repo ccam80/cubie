@@ -15,6 +15,8 @@ from math import cos  # noqa: F401 — used inside the ODE function
 
 import numpy as np
 
+import pytest
+
 from cubie import CUBIE_RESULT_CODES, create_ODE_system, solve_ivp
 
 
@@ -32,7 +34,15 @@ def _stiff_nonlinear(t, y, p):
 
 
 def _build_system():
-    """Build the stiff two-state system used by both tests."""
+    """Build the moderately stiff two-state system for the recovery test.
+
+    The recovery scenario needs an oversized first step to exhaust a
+    two-iteration Krylov budget while reduced steps converge.  The
+    shared fixture systems sit outside that window: the nonlinear and
+    three-chamber systems converge even at the initial step (no
+    transient failure to observe) and the very stiff system never
+    converges under the budget (no recovery).
+    """
     return create_ODE_system(
         dxdt=_stiff_nonlinear,
         states={"x0": 1.0, "x1": 0.0},
@@ -84,7 +94,12 @@ def test_recovered_transient_failure_reports_success():
     assert np.isfinite(tda).all(), "recovered trajectory was NaN-masked"
 
 
-def test_irrecoverable_failure_preserves_fatal_flags():
+@pytest.mark.parametrize(
+    "solver_settings_override",
+    [{"system_type": "stiff"}],
+    indirect=True,
+)
+def test_irrecoverable_failure_preserves_fatal_flags(system):
     """A run driven to ``dt_min`` reports the fatal iteration's flags.
 
     With ``dt_min`` pinned just below ``dt_max`` and tolerances too tight to
@@ -95,13 +110,18 @@ def test_irrecoverable_failure_preserves_fatal_flags():
     demonstrating that the accumulated bits are committed on an
     irrecoverable end rather than discarded.
     """
-    system = _build_system()
     duration = 1.0
+    initial_values = {
+        name: np.array([value], dtype=np.float64)
+        for name, value in zip(
+            system.initial_values.names,
+            system.initial_values.values_array,
+        )
+    }
     result = solve_ivp(
         system=system,
-        y0={"x0": np.array([1.0], dtype=np.float64),
-            "x1": np.array([0.0], dtype=np.float64)},
-        parameters={"k": np.array([500.0], dtype=np.float64)},
+        y0=initial_values,
+        parameters={},
         method="rodas3p",
         duration=duration,
         dt=0.5,
