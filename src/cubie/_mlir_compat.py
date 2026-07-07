@@ -76,6 +76,7 @@ from numba_cuda_mlir.lowering_utilities.type_conversions import (
 )
 from numba_cuda_mlir.lowering import builtins as _lowering_builtins
 from numba_cuda_mlir.lowering import cuda as _lowering_cuda
+from numba_cuda_mlir.lowering import math as _lowering_math
 from numba_cuda_mlir.lowering import numpy as _lowering_numpy
 from numba_cuda_mlir.lowering.numpy import registry as _np_registry
 from numba_cuda_mlir.lowering.math import (
@@ -174,24 +175,94 @@ _COMPARISON_CGS = {
 }
 
 
+def _bin_op_cg_boolean_unsigned(op, builder, target, args, kwargs):
+    """Copy of upstream ``_bin_op_cg`` with Boolean-aware signedness.
+
+    Booleans lower to signless i1 and must select unsigned operations,
+    otherwise True (all-ones, -1) orders below False in ordering
+    comparisons. Mirrors the ``_is_unsigned_operand`` change on the
+    fix-boolean-comparison-lowering branch; the body is otherwise
+    identical to upstream.
+    """
+
+    assert not kwargs, "add_cg does not accept any keyword arguments"
+    assert len(args) == 2, "add_cg expects 2 arguments"
+    lhs, rhs = args
+    target_type, lhs_type, rhs_type = (
+        builder.get_numba_type(target.name),
+        builder.get_numba_type(lhs.name),
+        builder.get_numba_type(rhs.name),
+    )
+    target_mlir_type = builder.get_mlir_type(target_type)
+
+    def _is_unsigned_operand(operand_type):
+        if isinstance(operand_type, types.Boolean):
+            return True
+        return (
+            isinstance(operand_type, types.Integer)
+            and not operand_type.signed
+        )
+
+    is_unsigned = (
+        _is_unsigned_operand(lhs_type) and _is_unsigned_operand(rhs_type)
+    )
+
+    lhs, rhs = builder.load_var(lhs), builder.load_var(rhs)
+
+    # Handle cases where load_var returns Python/numpy scalars instead
+    # of MLIR values (module-level constants).
+    if not isinstance(lhs, _ir.Value):
+        if hasattr(lhs, "item"):
+            lhs = lhs.item()
+        lhs = lowering_utilities.constant(lhs, target_mlir_type)
+    if not isinstance(rhs, _ir.Value):
+        if hasattr(rhs, "item"):
+            rhs = rhs.item()
+        rhs = lowering_utilities.constant(rhs, target_mlir_type)
+
+    unified_type = lowering_utilities.numpy_implicit_type_promotion(
+        lhs.type, rhs.type
+    )
+
+    if found_op := _lowering_math._get_operation_for_op_and_type(
+        op, unified_type, is_unsigned
+    ):
+        info, op = found_op
+        assert op is not None, "Expected operation"
+        if info.cast_to_return_type:
+            lhs = lowering_utilities.convert(lhs, target_mlir_type)
+            rhs = lowering_utilities.convert(rhs, target_mlir_type)
+        else:
+            lhs, rhs = (
+                lowering_utilities.coerce_numpy_scalars_for_binary_op(
+                    lhs, rhs
+                )
+            )
+        res = op(lhs, rhs)
+    else:
+        raise ValueError(
+            f"No operation found for {op=} and {target_mlir_type=}"
+        )
+
+    res = builder.mlir_convert(res, target_mlir_type)
+    builder.store_var(target, res)
+
+
 def register_boolean_comparison_lowerings() -> None:
-    """Register comparisons on Boolean operands.
+    """Register comparisons on Boolean operands with unsigned semantics.
 
     Upstream registers eq/ne/lt/le/gt/ge for ``(Number, Number)``
     only; Boolean operands raise ``NotImplementedError`` during
-    lowering. Route the same code generators through the Boolean
-    signatures, mirroring upstream's own Boolean registrations for
-    ``sub`` and ``mul``.
+    lowering. Matching the fix-boolean-comparison-lowering branch:
+    the shared ``_bin_op_cg`` is replaced so Boolean operands select
+    unsigned operations (the code generators resolve it as a module
+    global at call time), and the six comparison code generators gain
+    ``(Boolean, Boolean)`` signatures.
     """
 
-    signatures = (
-        (types.Boolean, types.Boolean),
-        (types.Boolean, types.Number),
-        (types.Number, types.Boolean),
-    )
+    _lowering_math._bin_op_cg = _bin_op_cg_boolean_unsigned
     for op, cg in _COMPARISON_CGS.items():
-        for lhs_type, rhs_type in signatures:
-            _math_registry.lower(op, lhs_type, rhs_type)(cg)
+        _math_registry.lower(op, types.Boolean, types.Boolean)(cg)
 
 
 register_boolean_comparison_lowerings()
@@ -285,69 +356,163 @@ def _unverified_convert_numpy_scalar(value, target_type, *, signed=False):
     )
 
 
-_original_tuple_getitem = _lowering_numpy.lower_uni_tuple_getitem
+_original_lower_global_assign = _mlir_lowering.MLIRLower.lower_global_assign
+
+
+def _lower_global_assign_numpy(self, target, glob):
+    """Convert numpy scalar globals before global-assign lowering.
+
+    ``lower_global_assign`` gates on ``isinstance(value, (bool, int,
+    float, np.number))``, but ``numpy.bool_`` is not ``np.number``,
+    so module-level numpy bool globals referenced in kernels fall
+    through to the unsupported-global path. Normalise to Python
+    scalars first, matching the widened gate on the
+    fix-numpy-scalar-constants branch.
+    """
+
+    if isinstance(glob.value, numpy.generic):
+        glob = copy.copy(glob)
+        glob.value = glob.value.item()
+    return _original_lower_global_assign(self, target, glob)
+
+
+_mlir_lowering.MLIRLower.lower_global_assign = _lower_global_assign_numpy
+
+
+_original_lower_literal_if_needed = (
+    _mlir_lowering.MLIRLower.lower_literal_if_needed
+)
+
+
+def _lower_literal_if_needed_numpy(self, value, numba_type=None):
+    """Normalise ``numpy.bool_`` literals before literal lowering.
+
+    ``lower_literal_if_needed`` matches ``np.number()`` literals, but
+    ``numpy.bool_`` is not an ``np.number`` and falls through to
+    ``NotImplementedError``. Convert to a Python bool, which lowers
+    to the same i1 constant the fix-numpy-scalar-constants branch
+    emits through its widened match case.
+    """
+
+    if isinstance(value, numpy.bool_):
+        value = value.item()
+    return _original_lower_literal_if_needed(self, value, numba_type)
+
+
+_mlir_lowering.MLIRLower.lower_literal_if_needed = (
+    _lower_literal_if_needed_numpy
+)
 
 
 def _lower_tuple_getitem_nested(builder, target, args, kwargs):
-    """Support dynamic getitem on tuples whose elements are tuples.
+    """Dynamic tuple getitem with nested decomposition and bounds check.
 
-    Upstream's tuple getitem emits a single-result
-    ``scf.index_switch``, which requires a scalar MLIR result type;
-    tuple-of-tuple elements (Butcher tableau rows) crash it. Decompose
-    the row selection into one scalar switch per column and store the
-    resulting Python tuple of values, matching the varmap convention
-    that tuples are always Python tuples.
+    Port of ``lower_uni_tuple_getitem`` from the
+    fix-nested-tuple-dynamic-getitem branch. ``scf.index_switch``
+    results must be scalar MLIR types, so when the selected element is
+    itself a tuple (e.g. indexing a tuple of coefficient rows with a
+    loop variable) the selection is decomposed recursively into one
+    switch per leaf position and the result is stored as a Python
+    tuple of switch results. A dedicated zero-result switch sets the
+    kernel ``IndexError`` code for out-of-range dynamic indices, so
+    selections with no leaf switches (empty-tuple elements) are still
+    checked.
     """
     from numba_cuda_mlir._mlir import ir
+    from numba_cuda_mlir.errors import InternalCompilerError
+    from numba_cuda_mlir.lowering.numpy import (
+        KERNEL_ERROR_CODES,
+        set_error_code_if_zero,
+    )
     from numba_cuda_mlir.lowering_utilities import convert, index_of
     from numba_cuda_mlir.mlir.dialect_exts import scf
     from numba_cuda_mlir.numba_cuda.core import ir as numba_ir
 
     target_type = builder.get_numba_type(target.name)
-    if not isinstance(target_type, types.BaseTuple):
-        return _original_tuple_getitem(builder, target, args, kwargs)
-
     tup = builder.load_var(args[0])
     index = (
         builder.load_var(args[1])
         if isinstance(args[1], numba_ir.Var)
         else args[1]
     )
-    if not isinstance(index, ir.Value):
-        builder.store_var(target, tup[int(index)])
-        return
+    assert isinstance(tup, tuple), f"Expected Python tuple, got {type(tup)}"
+    match tup, index:
+        case tuple(), ir.Value():
+            tup = builder.lower_literal_if_needed(tup)
+            index = index_of(index)
+            error_memref = builder._get_or_create_error_global()
+            cases = ir.DenseI64ArrayAttr.get(range(len(tup)))
 
-    tup = builder.lower_literal_if_needed(tup)
-    index = index_of(index)
-    element_types = (
-        [target_type.dtype] * target_type.count
-        if isinstance(target_type, types.UniTuple)
-        else list(target_type.types)
-    )
-    cases = ir.DenseI64ArrayAttr.get(range(len(tup)))
-    selected = []
-    for column, element_type in enumerate(element_types):
-        column_mlir_type = builder.get_mlir_type(element_type)
+            if error_memref is not None:
+                # The bounds check lives in its own zero-result switch
+                # so that selections with no leaf switches (empty-tuple
+                # elements) are still checked; the leaf switches below
+                # only select.
+                def oob_default(op):
+                    set_error_code_if_zero(
+                        error_memref, KERNEL_ERROR_CODES[IndexError]
+                    )
+                    scf.yield_([])
 
-        def default(op, _column=column, _type=column_mlir_type):
-            scf.yield_([convert(tup[0][_column], _type)])
+                def oob_case(op, case_index, case_value):
+                    scf.yield_([])
 
-        def case_builder(
-            op, case_index, case_value, _column=column,
-            _type=column_mlir_type,
-        ):
-            scf.yield_([convert(tup[case_value][_column], _type)])
+                scf.index_switch(
+                    results=[],
+                    arg=index,
+                    cases=cases,
+                    default_body_builder=oob_default,
+                    case_body_builder=oob_case,
+                )
 
-        selected.append(
-            scf.index_switch(
-                results=[column_mlir_type],
-                arg=index,
-                cases=cases,
-                default_body_builder=default,
-                case_body_builder=case_builder,
+            def select(candidates, element_type):
+                # candidates[i] is the value this selection yields when
+                # the runtime index equals i.
+                if isinstance(element_type, types.BaseTuple):
+                    sub_types = (
+                        [element_type.dtype] * element_type.count
+                        if isinstance(element_type, types.UniTuple)
+                        else list(element_type.types)
+                    )
+                    return tuple(
+                        select(
+                            [candidate[i] for candidate in candidates],
+                            sub_type,
+                        )
+                        for i, sub_type in enumerate(sub_types)
+                    )
+
+                result_type = builder.get_mlir_type(element_type)
+
+                def default(op):
+                    scf.yield_([convert(candidates[0], result_type)])
+
+                def case_builder(op, case_index, case_value):
+                    scf.yield_(
+                        [convert(candidates[case_value], result_type)]
+                    )
+
+                return scf.index_switch(
+                    results=[result_type],
+                    arg=index,
+                    cases=cases,
+                    default_body_builder=default,
+                    case_body_builder=case_builder,
+                )
+
+            result = select(list(tup), target_type)
+            builder.store_var(target, result)
+            if isinstance(result, ir.Value):
+                builder.incref(target_type, result)
+        case tuple(), int() as index:
+            val = tup[index]
+            builder.store_var(target, val)
+            if isinstance(val, ir.Value):
+                builder.incref(target_type, val)
+        case _:
+            raise InternalCompilerError(
+                f"Tuple index must be an integer, got {type(args[1])}"
             )
-        )
-    builder.store_var(target, tuple(selected))
 
 
 def register_nested_tuple_getitem_lowering() -> None:
@@ -595,8 +760,8 @@ def _lower_array_literal_shim(self, value):
     array's raw bytes are emitted instead as an internal constant
     ``llvm.mlir.global`` (the encoding string constants use, since
     dense-attribute initializers are dropped by the LLVM-7
-    translation backend) wrapped in a memref descriptor with the
-    same strided type the upstream lowering produced. Dtypes whose
+    translation backend) wrapped in a memref descriptor with an
+    identity-layout memref type. Dtypes whose
     storage width differs from the numpy itemsize, and rank-0
     arrays, keep the upstream lowering.
     """
@@ -634,12 +799,11 @@ def _lower_array_literal_shim(self, value):
     for dim in reversed(contiguous.shape):
         strides.insert(0, running)
         running *= dim
-    dynamic = _ir.MemRefType.get_dynamic_stride_or_offset()
-    layout = _ir.StridedLayoutAttr.get(
-        offset=dynamic, strides=[dynamic] * ndim
-    )
+    # The memref type must use the identity layout: memref.copy of a
+    # memref whose layout carries symbolic strides lowers to a call to
+    # the memrefCopy runtime function, which does not exist on device.
     memref_type = _ir.MemRefType.get(
-        shape=contiguous.shape, element_type=dtype, layout=layout
+        shape=contiguous.shape, element_type=dtype
     )
     struct_type = _ir.Type.parse(
         f"!llvm.struct<(ptr, ptr, i64, array<{ndim} x i64>,"
@@ -697,17 +861,17 @@ register_array_literal_shim()
 # The shims below rebind the compiler-frontend performance changes
 # carried on the cubie_patch branch of the ccam80/numba-cuda-mlir
 # fork so they apply to the stock wheel: lazy PostProcessor liveness,
-# string-only error markup, the per-class TargetConfig hash, SSA
-# sweeps restricted to def/use blocks, memoised callee IR with a
-# structural clone (including the preserve_ir form of inline_ir),
-# CallConstraint re-resolution skipping, and bitset liveness fix
-# points. All are behaviour-preserving; only compile time changes.
+# string-only error markup, SSA sweeps restricted to def/use blocks,
+# memoised callee IR with a structural clone (including the
+# preserve_ir form of inline_ir), and bitset liveness fix points.
+# All are behaviour-preserving; only compile time changes.
 # Each group feature-detects the installed package and no-ops when
 # the change is already present (a patched build, or a future release
-# that merged it). Fork feature branches: perf-lazy-postproc-liveness,
-# perf-lazy-error-markup, perf-targetconfig-hash-cache,
-# perf-ssa-restricted-sweeps, perf-inline-callee-ir-cache (stacked on
-# inline-ir-preserve), perf-callconstraint-memo, perf-liveness-bitsets.
+# that merged it). Upstream PRs: perf-lazy-postproc-liveness (#200),
+# perf-lazy-error-markup (#201), perf-ssa-restricted-sweeps (#199),
+# perf-inline-callee-ir-cache (#197), perf-liveness-bitsets (#198).
+# The former targetconfig-hash and callconstraint-memo groups were
+# removed: no measurable effect.
 # The numba-cuda lowering-side patches (call-type cache, linear
 # singly-assigned scan) have no analogue here: MLIRBackend replaces
 # the LLVM lowering entirely. The NumbaError double-highlight fix is
@@ -715,11 +879,9 @@ register_array_literal_shim()
 # directly, so no base class re-highlights the message.
 
 import inspect
-import itertools
 import weakref
 from collections import defaultdict
 
-from numba_cuda_mlir.numba_cuda import types as _nb_types
 from numba_cuda_mlir.numba_cuda.core import (
     analysis as _nb_analysis,
     errors as _nb_errors,
@@ -728,9 +890,7 @@ from numba_cuda_mlir.numba_cuda.core import (
     ir_utils as _nb_ir_utils,
     postproc as _nb_postproc,
     ssa as _nb_ssa,
-    targetconfig as _nb_targetconfig,
     transforms as _nb_transforms,
-    typeinfer as _nb_typeinfer,
 )
 
 
@@ -915,36 +1075,6 @@ def _patch_error_markup():
     scheme_cls._markup = _markup
 
 
-def _patch_targetconfig_hash():
-    cfg_cls = _nb_targetconfig.TargetConfig
-    if hasattr(cfg_cls, "_precomputed_hash"):
-        return
-
-    def _set_hash(cls):
-        cls._precomputed_hash = hash(tuple(sorted(cls.options)))
-        for sub in cls.__subclasses__():
-            _set_hash(sub)
-
-    _set_hash(cfg_cls)
-
-    meta = type(cfg_cls)
-    orig_meta_init = meta.__init__
-
-    def meta_init(cls, name, bases, dct):
-        orig_meta_init(cls, name, bases, dct)
-        cls._precomputed_hash = hash(tuple(sorted(cls.options)))
-
-    meta.__init__ = meta_init
-
-    def __hash__(self):
-        # Equal to hash(tuple(sorted(self.values()))): sorting the
-        # values() mapping iterates option names only, so the hash is
-        # the per-class constant precomputed above.
-        return self._precomputed_hash
-
-    cfg_cls.__hash__ = __hash__
-
-
 def _ssa_find_defs_violators(blocks, cfg):
     """
     Returns
@@ -1106,11 +1236,7 @@ def _clone_callee_ir(func_ir):
 
     def clone_value(value):
         if isinstance(value, _nb_ir.Var):
-            new_var = varmap.get(value.name)
-            if new_var is None:
-                new_var = new_scope.define(value.name, value.loc)
-                varmap[value.name] = new_var
-            return new_var
+            return varmap[value.name]
         if isinstance(value, _nb_ir.Expr):
             new_expr = copy.copy(value)
             new_expr._kws = {
@@ -1303,11 +1429,7 @@ def _patch_inline_worker():
         nested inline='always' functions otherwise recompile their
         whole subtree at every transitive call site.
         """
-        try:
-            per_func = _callee_ir_cache.setdefault(function, {})
-        except TypeError:
-            # Function is not weak-referenceable; skip caching.
-            return self.run_untyped_passes(function, enable_ssa)
+        per_func = _callee_ir_cache.setdefault(function, {})
         key = (str(self.flags), enable_ssa)
         canonical_ir = per_func.get(key)
         if canonical_ir is None:
@@ -1319,165 +1441,12 @@ def _patch_inline_worker():
     worker._fresh_callee_ir = _fresh_callee_ir
 
 
-def _patch_callconstraint():
-    constraint = _nb_typeinfer.CallConstraint
-    if "_resolved_key" in inspect.getsource(constraint.resolve):
-        return
-
-    orig_init = constraint.__init__
-
-    def __init__(self, target, func, args, kws, vararg, loc):
-        orig_init(self, target, func, args, kws, vararg, loc)
-        # Input types of the last successful resolution, when that
-        # resolution is provably repeatable (see resolve). The
-        # propagation fix-point re-executes every constraint each
-        # round; when the inputs are unchanged the resolution result
-        # is identical, so the (expensive) template matching can be
-        # skipped.
-        self._resolved_key = None
-
-    def resolve(self, typeinfer, typevars, fnty):
-        assert fnty
-        context = typeinfer.context
-
-        r = _nb_typeinfer.fold_arg_vars(
-            typevars, self.args, self.vararg, self.kws
-        )
-        if r is None:
-            # Cannot resolve call type until all argument types are
-            # known
-            return
-        pos_args, kw_args = r
-
-        # Check argument to be precise
-        for a in itertools.chain(pos_args, kw_args.values()):
-            # Forbids imprecise type except array of undefined dtype
-            if not a.is_precise() and not isinstance(a, _nb_types.Array):
-                return
-
-        # Resolve call type
-        if isinstance(fnty, _nb_types.TypeRef):
-            # Unwrap TypeRef
-            fnty = fnty.instance_type
-
-        resolve_key = (fnty, pos_args, tuple(sorted(kw_args.items())))
-        if resolve_key == self._resolved_key:
-            # Same inputs as the last successful resolution and that
-            # resolution was repeatable: the signature, the target
-            # type addition and the refinement bookkeeping would all
-            # be identical, so there is nothing new to compute.
-            return
-
-        try:
-            sig = typeinfer.resolve_call(fnty, pos_args, kw_args)
-        except _nb_typeinfer.ForceLiteralArg as e:
-            # Adjust for bound methods
-            folding_args = (
-                (fnty.this,) + tuple(self.args)
-                if isinstance(fnty, _nb_types.BoundFunction)
-                else self.args
-            )
-            folded = e.fold_arguments(folding_args, self.kws)
-            requested = set()
-            unsatisfied = set()
-            for idx in e.requested_args:
-                maybe_arg = typeinfer.func_ir.get_definition(folded[idx])
-                if isinstance(maybe_arg, _nb_ir.Arg):
-                    requested.add(maybe_arg.index)
-                else:
-                    unsatisfied.add(idx)
-            if unsatisfied:
-                raise _nb_typeinfer.TypingError(
-                    "Cannot request literal type.", loc=self.loc
-                )
-            elif requested:
-                raise _nb_typeinfer.ForceLiteralArg(requested, loc=self.loc)
-        if sig is None:
-            # Note: duplicated error checking.
-            #       See types.BaseFunction.get_call_type
-            # Arguments are invalid => explain why
-            headtemp = "Invalid use of {0} with parameters ({1})"
-            args = [str(a) for a in pos_args]
-            args += ["%s=%s" % (k, v) for k, v in sorted(kw_args.items())]
-            head = headtemp.format(fnty, ", ".join(map(str, args)))
-            desc = context.explain_function_type(fnty)
-            msg = "\n".join([head, desc])
-            raise _nb_typeinfer.TypingError(msg)
-
-        typeinfer.add_type(self.target, sig.return_type, loc=self.loc)
-
-        # If the function is a bound function and its receiver type
-        # was refined, propagate it.
-        if (
-            isinstance(fnty, _nb_types.BoundFunction)
-            and sig.recvr is not None
-            and sig.recvr != fnty.this
-        ):
-            refined_this = context.unify_pairs(sig.recvr, fnty.this)
-            if (
-                refined_this is None
-                and fnty.this.is_precise()
-                and sig.recvr.is_precise()
-            ):
-                msg = "Cannot refine type {} to {}".format(
-                    sig.recvr,
-                    fnty.this,
-                )
-                raise _nb_typeinfer.TypingError(msg, loc=self.loc)
-            if refined_this is not None and refined_this.is_precise():
-                refined_fnty = fnty.copy(this=refined_this)
-                typeinfer.propagate_refined_type(self.func, refined_fnty)
-
-        # If the return type is imprecise but can be unified with the
-        # target variable's inferred type, use the latter.
-        # Useful for code such as::
-        #    s = set()
-        #    s.add(1)
-        # (the set() call must be typed as int64(), not undefined())
-        if not sig.return_type.is_precise():
-            target = typevars[self.target]
-            if target.defined:
-                targetty = target.getone()
-                if (
-                    context.unify_pairs(targetty, sig.return_type)
-                    == targetty
-                ):
-                    sig = sig.replace(return_type=targetty)
-
-        self.signature = sig
-        self._add_refine_map(typeinfer, typevars, sig)
-
-        # Mark this resolution as repeatable only when re-running it
-        # with identical inputs could not produce a different
-        # outcome: a template-based BaseFunction resolves purely from
-        # its registered templates (unlike e.g. a Dispatcher, whose
-        # resolution consults the callee's still-refining inference
-        # state during recursion), a precise return type skips the
-        # target-unification branch, a non-BoundFunction skips
-        # receiver refinement, and absence from the refine map means
-        # no later refinement will call back into this constraint.
-        if (
-            isinstance(fnty, _nb_types.BaseFunction)
-            and not isinstance(fnty, _nb_types.BoundFunction)
-            and sig.return_type.is_precise()
-            and typeinfer.refine_map.get(self.target) is not self
-        ):
-            self._resolved_key = resolve_key
-        else:
-            self._resolved_key = None
-
-    constraint.__init__ = __init__
-    constraint.resolve = resolve
-
-
 _PERF_PATCH_GROUPS = {
     "liveness": _patch_live_map,
     "postproc": _patch_postproc,
     "errors": _patch_error_markup,
-    "targetconfig": _patch_targetconfig_hash,
     "ssa": _patch_ssa,
     "inline": _patch_inline_worker,
-    "callconstraint": _patch_callconstraint,
 }
 
 
@@ -1487,8 +1456,8 @@ def apply_compiler_perf_patches() -> None:
     Set CUBIE_DISABLE_NUMBA_PERF_PATCHES=1 to skip every group, for
     A/B benchmarking and for isolating suspected patch regressions.
     Set CUBIE_NUMBA_PERF_PATCH_GROUPS to a comma-separated subset of
-    liveness, postproc, errors, targetconfig, ssa, inline,
-    callconstraint to apply only those groups (per-feature A/B).
+    liveness, postproc, errors, ssa, inline to apply only those
+    groups (per-feature A/B).
     """
     import os
 
