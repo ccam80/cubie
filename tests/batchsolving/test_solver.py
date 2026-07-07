@@ -1008,3 +1008,45 @@ def test_solve_ivp_passes_cache_kwargs(
     )
 
     assert isinstance(result, SolveResult)
+
+
+def test_inner_tolerances_derived_through_solver(system):
+    """Unset inner tolerances reach the solver as controller tol / 10."""
+    solver = Solver(
+        system,
+        algorithm="crank_nicolson",
+        step_controller="pid",
+        atol=1e-8,
+        rtol=1e-8,
+        dt_min=1e-10,
+        dt_max=0.1,
+    )
+    integrator = solver.kernel.single_integrator
+    controller = integrator._step_controller
+    algo = integrator._algo_step
+
+    assert controller.is_adaptive
+    expected_atol = np.asarray(controller.atol) / 10.0
+    expected_rtol = np.asarray(controller.rtol) / 10.0
+    assert np.allclose(expected_atol, 1e-9)
+    assert np.allclose(algo.krylov_atol, expected_atol)
+    assert np.allclose(algo.krylov_rtol, expected_rtol)
+    assert np.allclose(algo.newton_atol, expected_atol)
+    assert np.allclose(algo.newton_rtol, expected_rtol)
+
+
+def test_explicit_inner_tolerance_wins_through_solver(system):
+    """An explicit krylov tolerance passed to Solver is not overwritten."""
+    solver = Solver(
+        system,
+        algorithm="crank_nicolson",
+        step_controller="pid",
+        atol=1e-8,
+        rtol=1e-8,
+        dt_min=1e-10,
+        dt_max=0.1,
+        krylov_atol=4e-5,
+    )
+    algo = solver.kernel.single_integrator._algo_step
+    assert np.allclose(algo.krylov_atol, 4e-5)
+    assert np.allclose(algo.newton_atol, 1e-9)
