@@ -1,4 +1,4 @@
-"""Matrix-free preconditioned linear solver.
+"""Matrix-free preconditioned MR/SD linear solver.
 
 This module builds CUDA device functions that implement
 steepest-descent or minimal-residual iterations without forming
@@ -7,93 +7,55 @@ operator and preconditioner callbacks.
 
 Published Classes
 -----------------
-:class:`LinearSolverConfig`
-    Attrs configuration for the linear solver factory.
+:class:`MRLinearSolverConfig`
+    Attrs configuration for the MR linear solver factory.
 
-:class:`LinearSolverCache`
-    Cache container holding the compiled linear solver device function.
-
-:class:`LinearSolver`
+:class:`MRLinearSolver`
     CUDAFactory subclass that compiles a preconditioned iterative
     linear solver for use inside Newton--Krylov iterations or
     Rosenbrock-W methods.
 
 See Also
 --------
-:class:`~cubie.integrators.matrix_free_solvers.base_solver.MatrixFreeSolver`
-    Parent factory providing norm and tolerance management.
+:class:`~cubie.integrators.matrix_free_solvers.linear_solver_base.LinearSolverBase`
+    Abstract parent providing shared infrastructure.
 :class:`~cubie.integrators.matrix_free_solvers.newton_krylov.NewtonKrylov`
-    Newton--Krylov solver that wraps a :class:`LinearSolver`.
+    Newton--Krylov solver that wraps a linear solver.
 :mod:`cubie.integrators.algorithms.ode_implicitstep`
-    Implicit step base class that creates :class:`LinearSolver`
-    instances.
+    Implicit step base class that creates linear solver instances.
 """
 
-from typing import Callable, Optional, Set, Dict, Any
+from typing import Dict, Any
 
 from attrs import define, field, validators
 from numba import cuda, int32, from_dtype
-from numpy import dtype as np_dtype, ndarray
+from numpy import dtype as np_dtype
 
-from cubie._utils import (
-    PrecisionDType,
-    build_config,
-    is_device_validator,
-)
-from cubie.integrators.matrix_free_solvers.base_solver import (
-    MatrixFreeSolverConfig,
-    MatrixFreeSolver,
+from cubie._utils import PrecisionDType
+from cubie.integrators.matrix_free_solvers.linear_solver_base import (
+    LinearSolverBaseConfig,
+    LinearSolverBase,
+    LinearSolverCache,
 )
 from cubie.buffer_registry import buffer_registry
-from cubie.CUDAFactory import CUDADispatcherCache
 from cubie.cuda_simsafe import activemask, all_sync, compile_kwargs, selp
 from cubie.result_codes import CUBIE_RESULT_CODES
 
 
 @define
-class LinearSolverConfig(MatrixFreeSolverConfig):
-    """Configuration for LinearSolver compilation.
+class MRLinearSolverConfig(LinearSolverBaseConfig):
+    """Configuration for MRLinearSolver compilation.
 
     Attributes
     ----------
-    precision : PrecisionDType
-        Numerical precision for computations.
-    n : int
-        Length of residual and search-direction vectors.
-    max_iters : int
-        Maximum solver iterations permitted.
-    norm_device_function : Optional[Callable]
-        Compiled norm function for convergence checks.
-    operator_apply : Optional[Callable]
-        Device function applying operator F @ v.
-    preconditioner : Optional[Callable]
-        Device function for approximate inverse preconditioner.
     linear_correction_type : str
         Line-search strategy ('steepest_descent' or 'minimal_residual').
     preconditioned_vec_location : str
-        Memory location for preconditioned_vec buffer ('local' or 'shared').
+        Memory location for preconditioned_vec buffer.
     temp_location : str
-        Memory location for temp buffer ('local' or 'shared').
-    use_cached_auxiliaries : bool
-        Whether to use cached auxiliary arrays (determines signature).
-
-    Notes
-    -----
-    Tolerance arrays (krylov_atol, krylov_rtol) are managed by the solver's
-    norm factory and accessed via LinearSolver.krylov_atol/krylov_rtol
-    properties.
+        Memory location for temp buffer.
     """
 
-    operator_apply: Optional[Callable] = field(
-        default=None,
-        validator=validators.optional(is_device_validator),
-        eq=False,
-    )
-    preconditioner: Optional[Callable] = field(
-        default=None,
-        validator=validators.optional(is_device_validator),
-        eq=False,
-    )
     linear_correction_type: str = field(
         default="minimal_residual",
         validator=validators.in_(["steepest_descent", "minimal_residual"]),
@@ -104,7 +66,6 @@ class LinearSolverConfig(MatrixFreeSolverConfig):
     temp_location: str = field(
         default="local", validator=validators.in_(["local", "shared"])
     )
-    use_cached_auxiliaries: bool = field(default=False)
 
     def __attrs_post_init__(self):
         super().__attrs_post_init__()
@@ -116,10 +77,7 @@ class LinearSolverConfig(MatrixFreeSolverConfig):
         Returns
         -------
         dict
-            Configuration dictionary. Note: krylov_atol and krylov_rtol
-            are not included here; access them via solver.krylov_atol
-            and solver.krylov_rtol properties which delegate to the
-            norm factory.
+            Configuration dictionary.
         """
         return {
             "krylov_max_iters": self.max_iters,
@@ -129,21 +87,8 @@ class LinearSolverConfig(MatrixFreeSolverConfig):
         }
 
 
-@define
-class LinearSolverCache(CUDADispatcherCache):
-    """Cache container for LinearSolver outputs.
-
-    Attributes
-    ----------
-    linear_solver : Callable
-        Compiled CUDA device function for linear solving.
-    """
-
-    linear_solver: Callable = field(validator=is_device_validator)
-
-
-class LinearSolver(MatrixFreeSolver):
-    """Factory for linear solver device functions.
+class MRLinearSolver(LinearSolverBase):
+    """Factory for MR/SD linear solver device functions.
 
     Implements steepest-descent or minimal-residual iterations
     for solving linear systems without forming Jacobian matrices.
@@ -155,18 +100,8 @@ class LinearSolver(MatrixFreeSolver):
     n : int
         Length of residual and search-direction vectors.
     **kwargs
-        Forwarded to :class:`LinearSolverConfig` and the norm
-        factory. Includes prefixed tolerance parameters
-        (``krylov_atol``, ``krylov_rtol``).
-
-    See Also
-    --------
-    :class:`LinearSolverConfig`
-        Configuration container for this factory.
-    :class:`~cubie.integrators.matrix_free_solvers.base_solver.MatrixFreeSolver`
-        Parent class providing norm and tolerance management.
-    :class:`~cubie.integrators.matrix_free_solvers.newton_krylov.NewtonKrylov`
-        Newton--Krylov solver that owns a :class:`LinearSolver`.
+        Forwarded to :class:`MRLinearSolverConfig` and the norm
+        factory.
     """
 
     def __init__(
@@ -175,43 +110,15 @@ class LinearSolver(MatrixFreeSolver):
         n: int,
         **kwargs,
     ) -> None:
-        """Initialize LinearSolver with parameters.
-
-        Parameters
-        ----------
-        precision : PrecisionDType
-            Numerical precision for computations.
-        n : int
-            Length of residual and search-direction vectors.
-        **kwargs
-            Optional parameters passed to LinearSolverConfig. See
-            LinearSolverConfig for available parameters. Tolerance
-            parameters (krylov_atol, krylov_rtol) are passed to the
-            norm factory. None values are ignored.
-        """
-        config = build_config(
-            LinearSolverConfig,
-            required={
-                "precision": precision,
-                "n": n,
-            },
-            instance_label="krylov",
-            **kwargs,
-        )
-
         super().__init__(
+            config_class=MRLinearSolverConfig,
             precision=precision,
-            solver_type="krylov",
             n=n,
             **kwargs,
         )
 
-        self.setup_compile_settings(config)
-        self.register_buffers()
-
     def register_buffers(self) -> None:
         """Register device buffers with buffer_registry."""
-
         config = self.compile_settings
         buffer_registry.register(
             "preconditioned_vec",
@@ -227,6 +134,25 @@ class LinearSolver(MatrixFreeSolver):
             config.temp_location,
             precision=config.precision,
         )
+        buffer_registry.register(
+            "mr_precond_scratch",
+            self,
+            config.n,
+            "local",
+            precision=config.precision,
+        )
+        buffer_registry.register(
+            "mr_chain_scratch",
+            self,
+            config.n,
+            "local",
+            precision=config.precision,
+        )
+
+    @property
+    def linear_correction_type(self) -> str:
+        """Return correction strategy."""
+        return self.compile_settings.linear_correction_type
 
     def build(self) -> LinearSolverCache:
         """Compile linear solver device function.
@@ -235,11 +161,6 @@ class LinearSolver(MatrixFreeSolver):
         -------
         LinearSolverCache
             Container with compiled linear_solver device function.
-
-        Raises
-        ------
-        ValueError
-            If operator_apply is None when build() is called.
         """
         config = self.compile_settings
 
@@ -259,6 +180,7 @@ class LinearSolver(MatrixFreeSolver):
         sd_flag = linear_correction_type == "steepest_descent"
         mr_flag = linear_correction_type == "minimal_residual"
         preconditioned = preconditioner is not None
+        chained_precond = config.preconditioner_is_chained
 
         # Convert types for device function
         n_val = int32(n)
@@ -275,6 +197,8 @@ class LinearSolver(MatrixFreeSolver):
         get_alloc = buffer_registry.get_allocator
         alloc_precond = get_alloc("preconditioned_vec", self)
         alloc_temp = get_alloc("temp", self)
+        alloc_precond_scratch = get_alloc("mr_precond_scratch", self)
+        alloc_chain_scratch = get_alloc("mr_chain_scratch", self)
 
         # Build device function based on cached auxiliaries flag
         if use_cached_auxiliaries:
@@ -340,6 +264,15 @@ class LinearSolver(MatrixFreeSolver):
                 # Allocate buffers from registry
                 preconditioned_vec = alloc_precond(shared, persistent_local)
                 temp = alloc_temp(shared, persistent_local)
+                precond_scratch = alloc_precond_scratch(
+                    shared, persistent_local
+                )
+                if chained_precond:
+                    chain_scratch = alloc_chain_scratch(
+                        shared, persistent_local
+                    )
+                else:
+                    chain_scratch = precond_scratch
 
                 operator_apply(
                     state,
@@ -367,19 +300,37 @@ class LinearSolver(MatrixFreeSolver):
 
                     iter_count += int32(1)
                     if preconditioned:
-                        preconditioner(
-                            state,
-                            parameters,
-                            drivers,
-                            cached_aux,
-                            base_state,
-                            t,
-                            h,
-                            a_ij,
-                            rhs,
-                            preconditioned_vec,
-                            temp,
-                        )
+                        if chained_precond:
+                            preconditioner(
+                                state,
+                                parameters,
+                                drivers,
+                                cached_aux,
+                                base_state,
+                                t,
+                                h,
+                                a_ij,
+                                rhs,
+                                preconditioned_vec,
+                                temp,
+                                precond_scratch,
+                                chain_scratch,
+                            )
+                        else:
+                            preconditioner(
+                                state,
+                                parameters,
+                                drivers,
+                                cached_aux,
+                                base_state,
+                                t,
+                                h,
+                                a_ij,
+                                rhs,
+                                preconditioned_vec,
+                                temp,
+                                precond_scratch,
+                            )
                     else:
                         for i in range(n_val):
                             preconditioned_vec[i] = rhs[i]
@@ -503,6 +454,15 @@ class LinearSolver(MatrixFreeSolver):
                 # Allocate buffers from registry
                 preconditioned_vec = alloc_precond(shared, persistent_local)
                 temp = alloc_temp(shared, persistent_local)
+                precond_scratch = alloc_precond_scratch(
+                    shared, persistent_local
+                )
+                if chained_precond:
+                    chain_scratch = alloc_chain_scratch(
+                        shared, persistent_local
+                    )
+                else:
+                    chain_scratch = precond_scratch
 
                 operator_apply(
                     state, parameters, drivers, base_state, t, h, a_ij, x, temp
@@ -521,18 +481,35 @@ class LinearSolver(MatrixFreeSolver):
 
                     iter_count += int32(1)
                     if preconditioned:
-                        preconditioner(
-                            state,
-                            parameters,
-                            drivers,
-                            base_state,
-                            t,
-                            h,
-                            a_ij,
-                            rhs,
-                            preconditioned_vec,
-                            temp,
-                        )
+                        if chained_precond:
+                            preconditioner(
+                                state,
+                                parameters,
+                                drivers,
+                                base_state,
+                                t,
+                                h,
+                                a_ij,
+                                rhs,
+                                preconditioned_vec,
+                                temp,
+                                precond_scratch,
+                                chain_scratch,
+                            )
+                        else:
+                            preconditioner(
+                                state,
+                                parameters,
+                                drivers,
+                                base_state,
+                                t,
+                                h,
+                                a_ij,
+                                rhs,
+                                preconditioned_vec,
+                                temp,
+                                precond_scratch,
+                            )
                     else:
                         for i in range(n_val):
                             preconditioned_vec[i] = rhs[i]
@@ -583,91 +560,3 @@ class LinearSolver(MatrixFreeSolver):
 
             # no cover: end
             return LinearSolverCache(linear_solver=linear_solver)
-
-    def update(
-        self,
-        updates_dict: Optional[Dict[str, Any]] = None,
-        silent: bool = False,
-        **kwargs,
-    ) -> Set[str]:
-        """Update compile settings and invalidate cache if changed.
-
-        Parameters
-        ----------
-        updates_dict : dict, optional
-            Dictionary of settings to update.
-        silent : bool, default False
-            If True, suppress warnings about unrecognized keys.
-        **kwargs
-            Additional settings as keyword arguments.
-
-        Returns
-        -------
-        set
-            Set of recognized parameter names that were updated.
-        """
-        all_updates = {}
-        if updates_dict:
-            all_updates.update(updates_dict)
-        all_updates.update(kwargs)
-
-        if not all_updates:
-            return set()
-
-        # Delegate tolerance extraction and compile settings to base class
-        recognized = super().update(all_updates, silent=True)
-
-        # Buffer locations handled by registry
-        recognized |= buffer_registry.update(
-            self, updates_dict=all_updates, silent=True
-        )
-        self.register_buffers()
-
-        return recognized
-
-    @property
-    def device_function(self) -> Callable:
-        """Return cached linear solver device function."""
-        return self.get_cached_output("linear_solver")
-
-    @property
-    def linear_correction_type(self) -> str:
-        """Return correction strategy."""
-        return self.compile_settings.linear_correction_type
-
-    @property
-    def krylov_atol(self) -> ndarray:
-        """Return absolute tolerance array."""
-        return self.atol
-
-    @property
-    def krylov_rtol(self) -> ndarray:
-        """Return relative tolerance array."""
-        return self.rtol
-
-    @property
-    def krylov_max_iters(self) -> int:
-        """Return maximum iterations."""
-        return self.max_iters
-
-    @property
-    def use_cached_auxiliaries(self) -> bool:
-        """Return whether cached auxiliaries are used."""
-        return self.compile_settings.use_cached_auxiliaries
-
-    @property
-    def settings_dict(self) -> Dict[str, Any]:
-        """Return linear solver configuration as dictionary.
-
-        Combines config settings with tolerance arrays from norm factory.
-
-        Returns
-        -------
-        dict
-            Configuration dictionary including krylov_atol and krylov_rtol
-            from the norm factory.
-        """
-        result = dict(self.compile_settings.settings_dict)
-        result["krylov_atol"] = self.krylov_atol
-        result["krylov_rtol"] = self.krylov_rtol
-        return result

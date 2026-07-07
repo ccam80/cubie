@@ -285,7 +285,8 @@ class DIRKStep(ODEImplicitStep):
         get_fn = config.get_solver_helper_fn
 
         preconditioner = get_fn(
-            "neumann_preconditioner",
+            "preconditioner",
+            preconditioner_type=config.preconditioner_type,
             beta=beta,
             gamma=gamma,
             mass=mass,
@@ -312,6 +313,9 @@ class DIRKStep(ODEImplicitStep):
         self.solver.update(
             operator_apply=operator,
             preconditioner=preconditioner,
+            preconditioner_is_chained=(
+                config.preconditioner_is_chained
+            ),
             residual_function=residual,
         )
 

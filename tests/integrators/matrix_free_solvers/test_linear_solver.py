@@ -4,7 +4,7 @@ from numba import cuda
 from numpy.testing import assert_allclose
 
 from cubie.integrators.matrix_free_solvers.linear_solver import (
-    LinearSolver,
+    MRLinearSolver,
 )
 from cubie.integrators.matrix_free_solvers import CUBIE_RESULT_CODES
 
@@ -72,7 +72,7 @@ def test_neumann_preconditioner(
 def solver_device(request, placeholder_operator, precision):
     """Return solver device for the requested correction type."""
 
-    solver = LinearSolver(
+    solver = MRLinearSolver(
         precision=precision,
         n=3,
         linear_correction_type=request.param,
@@ -122,45 +122,16 @@ def test_linear_solver_placeholder(
     )
 
 
-@pytest.mark.parametrize(
-    "system_setup", ["linear", "coupled_linear"], indirect=True
-)
-@pytest.mark.parametrize(
-    "linear_correction_type", ["steepest_descent", "minimal_residual"]
-)
-@pytest.mark.parametrize("precond_order", [0, 1, 2])
-def test_linear_solver_symbolic(
-    system_setup,
-    solver_kernel,
-    precision,
-    linear_correction_type,
-    precond_order,
-    tolerance,
+def _run_symbolic_linear_solve(
+    system_setup, linear_solver_instance, solver_kernel, precision, tolerance
 ):
-    """Solve systems built from symbolic expressions."""
-
+    """Solve the fixture system and compare against the direct solution."""
     n = system_setup["n"]
-    operator = system_setup["operator"]
     rhs_vec = system_setup["mr_rhs"]
     expected = system_setup["mr_expected"]
     h = system_setup["h"]
-    precond = (
-        None
-        if precond_order == 0
-        else system_setup["preconditioner"](precond_order)
-    )
 
-    solver = LinearSolver(
-        precision=precision,
-        n=n,
-        linear_correction_type=linear_correction_type,
-        krylov_atol=1e-8,
-        krylov_rtol=1e-8,
-        krylov_max_iters=1000,
-    )
-    solver.update(operator_apply=operator, preconditioner=precond)
-    solver = solver.device_function
-
+    solver = linear_solver_instance.device_function
     kernel = solver_kernel(solver, n, h, precision)
     state = system_setup["state_init"]
     rhs_dev = cuda.to_device(rhs_vec)
@@ -178,6 +149,101 @@ def test_linear_solver_symbolic(
     )
 
 
+@pytest.mark.parametrize(
+    "system_setup", ["linear", "coupled_linear"], indirect=True
+)
+@pytest.mark.parametrize(
+    "solver_settings_override",
+    [
+        {
+            "linear_correction_type": "steepest_descent",
+            "krylov_atol": 1e-8,
+            "krylov_rtol": 1e-8,
+            "krylov_max_iters": 1000,
+        },
+        {
+            "linear_correction_type": "minimal_residual",
+            "krylov_atol": 1e-8,
+            "krylov_rtol": 1e-8,
+            "krylov_max_iters": 1000,
+        },
+        {
+            "linear_correction_type": "bicgstab",
+            "krylov_atol": 1e-8,
+            "krylov_rtol": 1e-8,
+            "krylov_max_iters": 200,
+        },
+    ],
+    ids=["steepest_descent", "minimal_residual", "bicgstab"],
+    indirect=True,
+)
+@pytest.mark.parametrize(
+    "solver_settings_override2",
+    [
+        {"preconditioner_order": 0},
+        {"preconditioner_order": 1},
+        {"preconditioner_order": 2},
+    ],
+    ids=["order0", "order1", "order2"],
+    indirect=True,
+)
+def test_linear_solver_symbolic(
+    system_setup,
+    linear_solver_instance,
+    solver_kernel,
+    precision,
+    tolerance,
+):
+    """Each configured solver drives systems built from symbolics."""
+    _run_symbolic_linear_solve(
+        system_setup,
+        linear_solver_instance,
+        solver_kernel,
+        precision,
+        tolerance,
+    )
+
+
+@pytest.mark.parametrize("system_setup", ["stiff"], indirect=True)
+@pytest.mark.parametrize(
+    "solver_settings_override",
+    [
+        {
+            "linear_correction_type": "bicgstab",
+            "krylov_atol": 1e-8,
+            "krylov_rtol": 1e-8,
+            "krylov_max_iters": 200,
+        },
+    ],
+    ids=["bicgstab"],
+    indirect=True,
+)
+@pytest.mark.parametrize(
+    "solver_settings_override2",
+    [
+        {"preconditioner_order": 1},
+        {"preconditioner_order": 2},
+    ],
+    ids=["order1", "order2"],
+    indirect=True,
+)
+def test_linear_solver_stiff(
+    system_setup,
+    linear_solver_instance,
+    solver_kernel,
+    precision,
+    tolerance,
+):
+    """BiCGSTAB converges on the moderately ill-conditioned system."""
+    _run_symbolic_linear_solve(
+        system_setup,
+        linear_solver_instance,
+        solver_kernel,
+        precision,
+        tolerance,
+    )
+
+
 def test_linear_solver_max_iters_exceeded(solver_kernel, precision):
     """Linear solver returns MAX_LINEAR_ITERATIONS_EXCEEDED when operator is zero."""
 
@@ -190,7 +256,7 @@ def test_linear_solver_max_iters_exceeded(solver_kernel, precision):
             out[i] = precision(0.0)
 
     n = 3
-    solver = LinearSolver(
+    solver = MRLinearSolver(
         precision=precision,
         n=n,
         linear_correction_type="minimal_residual",
@@ -216,7 +282,7 @@ def test_linear_solver_max_iters_exceeded(solver_kernel, precision):
 def test_linear_solver_config_scalar_tolerance_broadcast(precision):
     """Verify scalar krylov_atol/rtol broadcasts to array of length n."""
     n = 5
-    solver = LinearSolver(
+    solver = MRLinearSolver(
         precision=precision,
         n=n,
         krylov_atol=1e-6,
@@ -233,7 +299,7 @@ def test_linear_solver_config_array_tolerance_accepted(precision):
     n = 3
     atol = np.array([1e-6, 1e-8, 1e-4], dtype=precision)
     rtol = np.array([1e-3, 1e-5, 1e-2], dtype=precision)
-    solver = LinearSolver(
+    solver = MRLinearSolver(
         precision=precision,
         n=n,
         krylov_atol=atol,
@@ -248,7 +314,7 @@ def test_linear_solver_config_wrong_length_raises(precision):
     n = 3
     wrong_atol = np.array([1e-6, 1e-8], dtype=precision)  # length 2
     with pytest.raises(ValueError, match="tol must have shape"):
-        LinearSolver(
+        MRLinearSolver(
             precision=precision,
             n=n,
             krylov_atol=wrong_atol,
@@ -297,11 +363,11 @@ def test_linear_solver_scaled_tolerance_converges(
 
 
 def test_linear_solver_uses_scaled_norm(precision):
-    """Verify LinearSolver creates and uses ScaledNorm for convergence."""
+    """Verify MRLinearSolver creates and uses ScaledNorm for convergence."""
     from cubie.integrators.norms import ScaledNorm
 
     n = 3
-    solver = LinearSolver(
+    solver = MRLinearSolver(
         precision=precision,
         n=n,
         krylov_atol=1e-6,
@@ -320,7 +386,7 @@ def test_linear_solver_uses_scaled_norm(precision):
 def test_linear_solver_tolerance_update_propagates(precision):
     """Verify krylov_atol/krylov_rtol updates propagate to norm factory."""
     n = 3
-    solver = LinearSolver(
+    solver = MRLinearSolver(
         precision=precision,
         n=n,
         krylov_atol=1e-6,
@@ -344,12 +410,12 @@ def test_linear_solver_tolerance_update_propagates(precision):
 
 
 def test_linear_solver_config_no_tolerance_fields(precision):
-    """Verify LinearSolverConfig no longer has krylov_atol/krylov_rtol fields."""
+    """Verify MRLinearSolverConfig no longer has krylov_atol/krylov_rtol fields."""
     from cubie.integrators.matrix_free_solvers.linear_solver import (
-        LinearSolverConfig,
+        MRLinearSolverConfig,
     )
 
-    config = LinearSolverConfig(precision=precision, n=3)
+    config = MRLinearSolverConfig(precision=precision, n=3)
 
     # These fields should no longer exist on the config
     assert not hasattr(config, "krylov_atol")
@@ -364,10 +430,10 @@ def test_linear_solver_config_settings_dict_excludes_tolerance_arrays(
 ):
     """Verify settings_dict does not include tolerance arrays."""
     from cubie.integrators.matrix_free_solvers.linear_solver import (
-        LinearSolverConfig,
+        MRLinearSolverConfig,
     )
 
-    config = LinearSolverConfig(precision=precision, n=3)
+    config = MRLinearSolverConfig(precision=precision, n=3)
     settings = config.settings_dict
 
     # Tolerance arrays should not be in settings_dict
@@ -385,12 +451,12 @@ def test_linear_solver_config_settings_dict_excludes_tolerance_arrays(
 
 
 def test_linear_solver_inherits_from_matrix_free_solver(precision):
-    """Verify LinearSolver is instance of MatrixFreeSolver."""
+    """Verify MRLinearSolver is instance of MatrixFreeSolver."""
     from cubie.integrators.matrix_free_solvers.base_solver import (
         MatrixFreeSolver,
     )
 
-    solver = LinearSolver(
+    solver = MRLinearSolver(
         precision=precision,
         n=3,
     )
@@ -401,7 +467,7 @@ def test_linear_solver_inherits_from_matrix_free_solver(precision):
 
 def test_linear_solver_update_preserves_original_dict(precision):
     """Verify update() does not modify the input updates_dict."""
-    solver = LinearSolver(
+    solver = MRLinearSolver(
         precision=precision,
         n=3,
     )
@@ -424,7 +490,7 @@ def test_linear_solver_update_preserves_original_dict(precision):
 
 def test_linear_solver_no_manual_cache_invalidation(precision):
     """Verify cache invalidation happens through config update, not manual."""
-    solver = LinearSolver(
+    solver = MRLinearSolver(
         precision=precision,
         n=3,
         krylov_atol=1e-6,
@@ -454,7 +520,7 @@ def test_linear_solver_settings_dict_includes_tolerance_arrays(precision):
     n = 3
     atol = np.array([1e-6, 1e-8, 1e-4], dtype=precision)
     rtol = np.array([1e-3, 1e-5, 1e-2], dtype=precision)
-    solver = LinearSolver(
+    solver = MRLinearSolver(
         precision=precision,
         n=n,
         krylov_atol=atol,
@@ -476,7 +542,7 @@ def test_linear_solver_settings_dict_includes_tolerance_arrays(precision):
 
 
 def test_linear_solver_init_with_krylov_prefixed_kwargs(precision):
-    """Verify LinearSolver accepts krylov_* kwargs at init via build_config.
+    """Verify MRLinearSolver accepts krylov_* kwargs at init via build_config.
 
     The enhanced build_config with instance_label="krylov" should transform
     krylov_atol/krylov_rtol to atol/rtol for the underlying ScaledNormConfig.
@@ -485,14 +551,14 @@ def test_linear_solver_init_with_krylov_prefixed_kwargs(precision):
     krylov_atol = np.array([1e-10, 1e-9, 1e-8], dtype=precision)
     krylov_rtol = np.array([1e-5, 1e-4, 1e-3], dtype=precision)
 
-    solver = LinearSolver(
+    solver = MRLinearSolver(
         precision=precision,
         n=n,
         krylov_atol=krylov_atol,
         krylov_rtol=krylov_rtol,
     )
 
-    # Verify tolerances reached LinearSolver's properties
+    # Verify tolerances reached MRLinearSolver's properties
     assert np.allclose(solver.krylov_atol, krylov_atol)
     assert np.allclose(solver.krylov_rtol, krylov_rtol)
 
@@ -502,16 +568,16 @@ def test_linear_solver_init_with_krylov_prefixed_kwargs(precision):
 
 
 def test_linear_solver_forwards_kwargs_to_norm(precision):
-    """Verify kwargs passed to LinearSolver reach the nested ScaledNorm.
+    """Verify kwargs passed to MRLinearSolver reach the nested ScaledNorm.
 
-    LinearSolver's __init__ now forwards all kwargs to the parent
+    MRLinearSolver's __init__ now forwards all kwargs to the parent
     MatrixFreeSolver, which creates ScaledNorm with those kwargs.
     """
     n = 3
     atol = np.array([1e-8, 1e-7, 1e-6], dtype=precision)
     rtol = np.array([1e-4, 1e-3, 1e-2], dtype=precision)
 
-    solver = LinearSolver(
+    solver = MRLinearSolver(
         precision=precision,
         n=n,
         krylov_atol=atol,

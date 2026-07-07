@@ -6,10 +6,18 @@ solvers that are consumed by modules in :mod:`cubie.integrators`.
 
 from cubie.result_codes import CUBIE_RESULT_CODES
 from .base_solver import MatrixFreeSolverConfig
-from .linear_solver import (
-    LinearSolver,
-    LinearSolverConfig,
+from .linear_solver_base import (
+    LinearSolverBase,
+    LinearSolverBaseConfig,
     LinearSolverCache,
+)
+from .linear_solver import (
+    MRLinearSolver,
+    MRLinearSolverConfig,
+)
+from .bicgstab_solver import (
+    BiCGSTABSolver,
+    BiCGSTABSolverConfig,
 )
 from .newton_krylov import (
     NewtonKrylov,
@@ -19,9 +27,13 @@ from .newton_krylov import (
 
 
 __all__ = [
-    "LinearSolver",
-    "LinearSolverConfig",
+    "LinearSolverBase",
+    "LinearSolverBaseConfig",
     "LinearSolverCache",
+    "MRLinearSolver",
+    "MRLinearSolverConfig",
+    "BiCGSTABSolver",
+    "BiCGSTABSolverConfig",
     "MatrixFreeSolverConfig",
     "NewtonKrylov",
     "NewtonKrylovConfig",

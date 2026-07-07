@@ -85,9 +85,11 @@ class CPUStep:
         if correction not in {
             "steepest_descent",
             "minimal_residual",
+            "bicgstab",
         }:
             raise ValueError(
-                "Correction type must be 'steepest_descent' or 'minimal_residual'."
+                "Correction type must be 'steepest_descent', "
+                "'minimal_residual', or 'bicgstab'."
             )
         self._linear_correction_type = correction
         self._preconditioner_order = int(preconditioner_order)

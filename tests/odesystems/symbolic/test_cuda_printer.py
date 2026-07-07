@@ -130,6 +130,51 @@ class TestCUDAPrinter:
         value = eval(result, {"x": 3.0, "_cse0": 2.0, "precision": float})
         assert value == 0.75
 
+    def test_reciprocal_power_prints_cast_numerator(self):
+        """Test that x**-1 prints as a precision-cast reciprocal.
+
+        A raw integer exponent promotes float32 bases to float64 in
+        numba (rcp.rn.f64 in the emitted PTX), so standalone
+        CSE-extracted reciprocals must print as precision(1)/x.
+        """
+        c = sp.Symbol("_cse0")
+        result = print_cuda(sp.Pow(c, -1, evaluate=False))
+        assert "**" not in result
+        assert "precision(1)/" in result
+        value = eval(result, {"_cse0": 4.0, "precision": float})
+        assert value == 0.25
+
+    def test_negative_square_power_prints_cast_reciprocal(self):
+        """Test that x**-2 prints as precision(1) over the square."""
+        c = sp.Symbol("_cse0")
+        result = print_cuda(sp.Pow(c, -2, evaluate=False))
+        assert "precision(1)/" in result
+        assert "**" not in result
+        value = eval(result, {"_cse0": 2.0, "precision": float})
+        assert value == 0.25
+
+    def test_higher_integer_power_wraps_exponent(self):
+        """Test that x**4 wraps its exponent with precision()."""
+        x = sp.Symbol("x")
+        result = print_cuda(x**4)
+        assert result == "x**precision(4)"
+        value = eval(result, {"x": 2.0, "precision": float})
+        assert value == 16.0
+
+    def test_no_raw_integer_exponents_survive(self):
+        """Test that no printed integer exponent escapes uncast.
+
+        Exponents 2 and 3 are consumed by the multiplication rewrite;
+        anything else must be precision-wrapped or rewritten as a
+        reciprocal so float32 kernels never promote through float64.
+        """
+        x = sp.Symbol("x")
+        for exponent in (-3, -2, -1, 2, 3, 4, 5):
+            printed = print_cuda(sp.Pow(x, exponent, evaluate=False))
+            assert not re.search(r"\*\*-?\d", printed), (
+                f"exponent {exponent} printed as {printed}"
+            )
+
     def test_doprint_simple_expression(self):
         """Test doprint with simple expression."""
         printer = CUDAPrinter()
