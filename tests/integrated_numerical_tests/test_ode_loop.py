@@ -452,10 +452,9 @@ def test_firk_with_shared_solver_buffer_matches_reference(
 ):
     """FIRK with a shared-located linear-solver buffer runs correctly.
 
-    Regression test for issue #520: stale child-size snapshots
-    undersized the shared memory pool whenever a nested solver buffer
-    lived in shared memory, so the kernel indexed past the pool
-    (CUDA_ERROR_ILLEGAL_ADDRESS) or corrupted its own state.
+    Verifies that placing the linear-solver buffer in shared memory
+    produces a correctly sized pool and that the integration result
+    matches the CPU reference within loose tolerances (issue #520).
     """
     assert_integration_outputs(
         cpu_loop_outputs,
