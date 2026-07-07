@@ -107,25 +107,49 @@ an example of how to do this:
         sys,
         y0={"x": np.array([0.0])},
         parameters={"amplitude": np.linspace(0.1, 2.0, 100)},
-        drivers={"drive_signal": (t_driver, signal)},
-        method="dormand_prince_54",
+        drivers={"drive_signal": signal, "time": t_driver},
+        method="dormand-prince-54",
         duration=1.0,
     )
 
-Boundary Conditions
--------------------
+The ``drivers`` dictionary maps each driver name to a 1-D array of
+sampled values.  The sample times are supplied alongside them, either
+as a ``"time"`` array of the same length, or as scalar ``"dt"`` (and
+optionally ``"t0"``) keys when the samples are evenly spaced.
 
-You have several options for how the driver behaves at and beyond the
-edges of the provided data:
+Interpolation Options
+---------------------
 
-**Wrap**
-   The signal repeats periodically.  Useful for periodic forcing.
+The remaining keys of the ``drivers`` dictionary control how CuBIE
+interpolates between your samples:
 
-**Zero-pad**
-   The signal is set to zero outside the provided time range.  By
-   default, CuBIE fits a smooth spline from the last data point down to
-   zero over one sample interval, avoiding a discontinuous jump.
+**order** (default ``3``)
+   Polynomial degree of the spline fitted over each sample segment.
+   The default cubic is smooth enough for most signals.
 
-**Spline endpoints**
-   Custom endpoint handling using spline interpolation for smooth
-   transitions at the boundaries.
+**wrap** (default ``True``)
+   What happens outside the sampled time range.  With ``wrap=True``
+   the signal repeats periodically — useful for periodic forcing.
+   With ``wrap=False`` the signal is zero outside the sampled range;
+   CuBIE adds a smooth spline segment from the last data point down to
+   zero (and up from zero to the first point) so there is no
+   discontinuous jump.
+
+**boundary_condition**
+   End-point condition for the spline fit: one of ``"natural"``,
+   ``"periodic"``, ``"clamped"``, or ``"not-a-knot"`` (the scipy
+   ``CubicSpline`` conventions).  If you don't set it, CuBIE picks
+   ``"periodic"`` when ``wrap=True`` and ``"clamped"`` when
+   ``wrap=False``.
+
+.. code-block:: python
+
+    drivers={
+        "drive_signal": signal,
+        "time": t_driver,
+        "order": 3,
+        "wrap": True,
+    }
+
+A worked example, including a sanity-check plot of the interpolated
+driver, lives in ``docs/source/examples/array_interpolation_example.py``.

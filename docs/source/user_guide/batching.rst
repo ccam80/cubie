@@ -33,7 +33,7 @@ every combination of the supplied parameter arrays is solved.
            "b": np.linspace(0.01, 0.05, 50),
            "d": np.linspace(0.005, 0.02, 40),
        },
-       method="dormand_prince_54",
+       method="dormand-prince-54",
        duration=100.0,
        grid_type="combinatorial",
    )
@@ -49,7 +49,7 @@ parameter arrays must have the same length and are paired element-wise:
 
 .. code-block:: python
 
-   solver = qb.Solver(LV, algorithm="dormand_prince_54")
+   solver = qb.Solver(LV, algorithm="dormand-prince-54")
 
    b_vals = np.random.uniform(0.01, 0.05, 2000)
    d_vals = np.random.uniform(0.005, 0.02, 2000)

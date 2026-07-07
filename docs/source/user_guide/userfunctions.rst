@@ -90,9 +90,17 @@ Example:
 
   .. code-block:: python
 
-     code = generate_jvp_code(eqs, index_map)
-     # The code will contain calls to myfunc_grad(..., argindex) in the Jacobian
-     # terms.
+     from cubie.odesystems.symbolic.codegen.linear_operators import (
+         generate_cached_jvp_code,
+     )
+
+     code = generate_cached_jvp_code(eqs, index_map)
+     # The code will contain calls to myfunc_grad(..., argindex) in the
+     # Jacobian terms.
+
+  (This is internal plumbing — when you solve through
+  :func:`~cubie.solve_ivp` or :class:`~cubie.Solver`, the JVP code is
+  generated for you.)
 
 Name collisions with SymPy
 --------------------------
