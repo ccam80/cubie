@@ -22,9 +22,16 @@ def test_default_hash_is_memoised():
 
 
 def test_hash_is_deterministic_for_directory(tmp_path):
-    _make_package(tmp_path, {"a.py": "x = 1\n", "sub/b.py": "y = 2\n"})
-    first = package_source_hash(tmp_path)
+    package_a = tmp_path / "a"
+    package_b = tmp_path / "b"
+    files = {"a.py": "x = 1\n", "sub/b.py": "y = 2\n"}
+    _make_package(package_a, files)
+    _make_package(package_b, files)
+    first = package_source_hash(package_a)
     assert re.fullmatch(r"[0-9a-f]{64}", first)
+    # Identical content at a different resolved path hashes the same,
+    # so the digest is content-driven rather than path- or run-local.
+    assert package_source_hash(package_b) == first
 
 
 def test_hash_changes_when_content_changes(tmp_path):
