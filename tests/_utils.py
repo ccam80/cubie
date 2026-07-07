@@ -1020,26 +1020,150 @@ def assert_integration_outputs(
         )
 
     if flags.summarise_state:
-        assert_allclose(
+        assert_summaries_close(
             device.state_summaries,
             reference.state_summaries,
+            samples=state_ref,
+            output_functions=output_functions,
             rtol=rtol,
             atol=atol,
-            err_msg="state summaries mismatch.\n"
-            f"device: {device.state_summaries}\n"
-            f"reference: {reference.state_summaries}",
+            label="state summaries",
         )
 
     if flags.summarise_observables:
-        assert_allclose(
+        assert_summaries_close(
             device.observable_summaries,
             reference.observable_summaries,
+            samples=observables_ref,
+            output_functions=output_functions,
             rtol=rtol,
             atol=atol,
-            err_msg="observable summary mismatch.\n"
-            f"device: {device.observable_summaries}\n"
-            f"reference: {reference.observable_summaries}",
+            label="observable summaries",
         )
+
+
+def summary_atol_per_column(
+    output_functions: OutputFunctions,
+    amplitude: float,
+    base_atol: float,
+    eps: float,
+) -> Array:
+    """Per-column absolute tolerances for a summaries array.
+
+    Derivative metrics amplify sample-level rounding noise: a
+    perturbation of one ulp in one sample shifts a first difference by
+    up to 2*eps*amplitude and a second difference (stencil coefficients
+    1, -2, 1) by up to 4*eps*amplitude, and the metrics scale by
+    1/sample_summaries_every and 1/sample_summaries_every**2
+    respectively. Columns belonging to dxdt/d2xdt2 metrics therefore
+    get ``base_atol`` plus that amplification floor; all other columns
+    keep ``base_atol``.
+
+    Parameters
+    ----------
+    output_functions
+        Configured output functions; supplies the per-variable summary
+        legend and ``sample_summaries_every``.
+    amplitude
+        Maximum absolute sample value feeding the summaries.
+    base_atol
+        Absolute tolerance for non-derivative columns.
+    eps
+        Machine epsilon of the comparison precision.
+
+    Returns
+    -------
+    Array
+        Absolute tolerance for each per-variable summary column.
+    """
+    legend = output_functions.summary_legend_per_variable
+    sample_every = float(
+        output_functions.compile_settings.sample_summaries_every
+    )
+    tolerances = []
+    for index in range(len(legend)):
+        name = legend[index]
+        if name.startswith("d2xdt2"):
+            tolerance = base_atol + (
+                4.0 * eps * amplitude / (sample_every * sample_every)
+            )
+        elif name.startswith("dxdt"):
+            tolerance = base_atol + 2.0 * eps * amplitude / sample_every
+        else:
+            tolerance = base_atol
+        tolerances.append(tolerance)
+    return np.asarray(tolerances)
+
+
+def assert_summaries_close(
+    device_summaries,
+    reference_summaries,
+    samples,
+    output_functions: OutputFunctions,
+    rtol: float,
+    atol: float,
+    label: str,
+) -> None:
+    """Compare summary arrays with metric-type-scaled tolerances.
+
+    The last axis of the summary arrays is laid out as
+    ``variable_index * per_variable_height + metric_column``; the
+    per-variable tolerance vector from :func:`summary_atol_per_column`
+    is tiled across variables and applied elementwise as
+    ``|device - reference| <= atol_column + rtol * |reference|``.
+
+    Parameters
+    ----------
+    device_summaries
+        Summary array produced on the device.
+    reference_summaries
+        Summary array produced by the CPU reference.
+    samples
+        Sampled values the summaries were computed from (used for the
+        amplitude in the derivative-metric tolerance floor). ``None``
+        or empty falls back to an amplitude of 1.0.
+    output_functions
+        Configured output functions for legend and timing metadata.
+    rtol
+        Relative tolerance applied against the reference magnitude.
+    atol
+        Base absolute tolerance for non-derivative columns.
+    label
+        Array description used in the failure message.
+    """
+    device_summaries = np.asarray(device_summaries)
+    reference_summaries = np.asarray(reference_summaries)
+    eps = float(np.finfo(reference_summaries.dtype).eps)
+    if samples is not None and np.asarray(samples).size > 0:
+        amplitude = float(np.max(np.abs(samples)))
+    else:
+        amplitude = 1.0
+    per_variable = summary_atol_per_column(
+        output_functions, amplitude, atol, eps
+    )
+    n_columns = device_summaries.shape[-1]
+    if n_columns % len(per_variable) != 0:
+        raise AssertionError(
+            f"{label}: last axis ({n_columns}) is not a multiple of the "
+            f"per-variable summary height ({len(per_variable)})"
+        )
+    atol_columns = np.tile(per_variable, n_columns // len(per_variable))
+    difference = np.abs(
+        device_summaries.astype(np.float64)
+        - reference_summaries.astype(np.float64)
+    )
+    allowed = atol_columns + rtol * np.abs(
+        reference_summaries.astype(np.float64)
+    )
+    both_nan = np.isnan(device_summaries) & np.isnan(reference_summaries)
+    violations = (difference > allowed) & ~both_nan
+    assert not np.any(violations), (
+        f"{label} mismatch at {np.argwhere(violations).tolist()}.\n"
+        f"device: {device_summaries}\n"
+        f"reference: {reference_summaries}\n"
+        f"difference: {difference}\n"
+        f"allowed: {np.broadcast_to(allowed, difference.shape)}"
+    )
 
 
 def extract_state_and_time(

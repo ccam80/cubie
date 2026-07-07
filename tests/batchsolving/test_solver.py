@@ -208,13 +208,13 @@ def test_solve_info_property(
 
 
 def test_solve_basic(
-    solver,
+    solver_mutable,
     simple_initial_values,
     simple_parameters,
     driver_settings,
 ):
     """Test basic solve functionality."""
-    result = solver.solve(
+    result = solver_mutable.solve(
         initial_values=simple_initial_values,
         parameters=simple_parameters,
         drivers=driver_settings,
@@ -233,14 +233,14 @@ def test_solve_basic(
 
 
 def test_solve_with_different_grid_types(
-    solver,
+    solver_mutable,
     simple_initial_values,
     simple_parameters,
     driver_settings,
 ):
     """Test solve with different grid types."""
     # Test combinatorial grid
-    result_comb = solver.solve(
+    result_comb = solver_mutable.solve(
         initial_values=simple_initial_values,
         parameters=simple_parameters,
         drivers=driver_settings,
@@ -265,7 +265,7 @@ def test_solve_with_different_grid_types(
         param_names[0]: [1.0, 2.0],
         param_names[1]: [0.5, 1.5],
     }
-    result_verb = solver.solve(
+    result_verb = solver_mutable.solve(
         initial_values=verbatim_initial_values,
         parameters=verbatim_parameters,
         drivers=driver_settings,
@@ -279,7 +279,7 @@ def test_solve_with_different_grid_types(
 
 
 def test_solve_with_different_result_types(
-    solver,
+    solver_mutable,
     simple_initial_values,
     simple_parameters,
     driver_settings,
@@ -288,7 +288,7 @@ def test_solve_with_different_result_types(
     result_types = ["full", "numpy"]
 
     for result_type in result_types:
-        result = solver.solve(
+        result = solver_mutable.solve(
             initial_values=simple_initial_values,
             parameters=simple_parameters,
             drivers=driver_settings,
@@ -664,11 +664,12 @@ def test_build_grid_precision(
 
 
 def test_solve_array_path_matches_dict_path(
-    solver, simple_initial_values, simple_parameters, driver_settings
+    solver_mutable, simple_initial_values, simple_parameters,
+    driver_settings
 ):
     """Test that array fast path produces same results as dict path."""
     # Solve with dict inputs
-    result_dict = solver.solve(
+    result_dict = solver_mutable.solve(
         initial_values=simple_initial_values,
         parameters=simple_parameters,
         drivers=driver_settings,
@@ -679,10 +680,10 @@ def test_solve_array_path_matches_dict_path(
     )
 
     # Build grid and solve with arrays
-    inits, params = solver.build_grid(
+    inits, params = solver_mutable.build_grid(
         simple_initial_values, simple_parameters, grid_type="verbatim"
     )
-    result_array = solver.solve(
+    result_array = solver_mutable.solve(
         initial_values=inits,
         parameters=params,
         drivers=driver_settings,
@@ -952,11 +953,13 @@ def test_solve_ivp_with_save_variables(system):
     assert result.time_domain_array.shape[1] == len(state_names)
 
 
-def test_solver_solve_with_save_variables(solver, system, driver_settings):
+def test_solver_solve_with_save_variables(
+    solver_mutable, system, driver_settings
+):
     """Test Solver.solve accepts save_variables parameter."""
     state_names = list(system.initial_values.names)[:1]
 
-    result = solver.solve(
+    result = solver_mutable.solve(
         initial_values={state_names[0]: [1.0, 2.0]},
         parameters={list(system.parameters.names)[0]: [0.1, 0.2]},
         drivers=driver_settings,
