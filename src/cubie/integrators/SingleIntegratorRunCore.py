@@ -685,10 +685,9 @@ class SingleIntegratorRunCore(CUDAFactory):
             return set()
         precision = updates_dict.get('precision', self.precision)
 
-        buffer_registry.reset()
-
         new_algo = updates_dict.get("algorithm").lower()
         if new_algo != self.compile_settings.algorithm:
+            buffer_registry.reset()
             old_settings = self._algo_step.settings_dict
             old_settings["algorithm"] = new_algo
             self._algo_step = get_algorithm_step(
@@ -725,10 +724,10 @@ class SingleIntegratorRunCore(CUDAFactory):
             return set()
         precision = updates_dict.get('precision', self.precision)
 
-        buffer_registry.reset()
         new_controller = updates_dict.get("step_controller").lower()
 
         if new_controller != self.compile_settings.step_controller:
+            buffer_registry.reset()
             old_settings = self._step_controller.settings_dict
             old_settings["step_controller"] = new_controller
             old_settings["algorithm_order"] = updates_dict.get(
