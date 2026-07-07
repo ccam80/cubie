@@ -948,25 +948,16 @@ def test_cubic_interpolation_matches_analytic(cubic_inputs, precision, tolerance
         )
 
 
-def _two_driver_system(precision) -> SymbolicODE:
-    """Two-state system whose derivatives track distinct drivers."""
-
-    return SymbolicODE.create(
-        dxdt=["du0 = d_a", "du1 = d_b"],
-        states={"u0": precision(0.0), "u1": precision(0.0)},
-        drivers=["d_a", "d_b"],
-        precision=precision,
-        strict=True,
-        name="two_driver_order_lockin",
-    )
-
-
+@pytest.mark.parametrize(
+    "solver_settings_override",
+    [{"system_type": "two_driver"}],
+    indirect=True,
+)
 def test_check_against_system_drivers_orders_by_declared_order(
-    precision,
+    system, precision
 ) -> None:
     """Driver entries are reordered to the system's declared order."""
 
-    system = _two_driver_system(precision)
     samples_a = np.full(6, 2.0, dtype=precision)
     samples_b = np.full(6, 5.0, dtype=precision)
     shuffled = {
@@ -985,12 +976,16 @@ def test_check_against_system_drivers_orders_by_declared_order(
     assert ordered["wrap"] is False
 
 
+@pytest.mark.parametrize(
+    "solver_settings_override",
+    [{"system_type": "two_driver"}],
+    indirect=True,
+)
 def test_interpolator_columns_track_declared_driver_order(
-    precision,
+    system, precision
 ) -> None:
     """Coefficient columns align with declared drivers for any key order."""
 
-    system = _two_driver_system(precision)
     samples_a = np.full(6, 2.0, dtype=precision)
     samples_b = np.full(6, 5.0, dtype=precision)
 

@@ -311,7 +311,40 @@ def build_three_state_constant_deriv_system(precision: np_dtype) -> BaseODE:
     return system
 
 
+# ---------------------------------------------------------------------------
+# Two-driver linear system
+# ---------------------------------------------------------------------------
+
+TWO_DRIVER_EQUATIONS = [
+    "du0 = d_a",
+    "du1 = d_b",
+]
+
+TWO_DRIVER_STATES = {"u0": 0.0, "u1": 0.0}
+TWO_DRIVER_DRIVERS = ["d_a", "d_b"]
+
+
+def build_two_driver_system(precision: np_dtype) -> BaseODE:
+    """Return the symbolic two-driver linear system.
+
+    Each state derivative tracks a distinct driver, so driver-to-column
+    alignment is observable directly in the trajectories.
+    """
+
+    system = create_ODE_system(
+        dxdt=TWO_DRIVER_EQUATIONS,
+        states=TWO_DRIVER_STATES,
+        drivers=TWO_DRIVER_DRIVERS,
+        precision=precision,
+        name="two_driver_linear",
+        strict=True,
+    )
+
+    return system
+
+
 __all__ = [
+    "build_two_driver_system",
     "build_three_state_linear_system",
     "build_three_state_nonlinear_system",
     "build_three_chamber_system",
