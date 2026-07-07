@@ -3,6 +3,9 @@
 import numpy as np
 import pytest
 
+from cubie.integrators.step_control.adaptive_step_controller import (
+    AdaptiveStepControlConfig,
+)
 from cubie.integrators.step_control.gustafsson_controller import (
     GustafssonStepControlConfig,
 )
@@ -61,9 +64,7 @@ def test_config_settings_dict_extends_parent():
     assert settings["gamma"] == pytest.approx(0.85)
     assert settings["newton_max_iters"] == 11
     parent_keys = set(
-        GustafssonStepControlConfig.__mro__[1](
-            precision=np.float64
-        ).settings_dict
+        AdaptiveStepControlConfig(precision=np.float64).settings_dict
     )
     assert parent_keys <= set(settings)
 
