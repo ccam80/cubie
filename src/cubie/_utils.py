@@ -414,11 +414,13 @@ def tol_converter(
         tol = full(self_.n, value, dtype=self_.precision)
     else:
         tol = asarray(value, dtype=self_.precision)
-        # Broadcast single-element arrays to shape (n,)
-        if tol.shape[0] == 1 and self_.n > 1:
-            tol = full(self_.n, tol[0], dtype=self_.precision)
-        elif tol.shape[0] != self_.n:
-            raise ValueError("tol must have shape (n,).")
+        if tol.shape[0] != self_.n:
+            # A uniform array is a scalar specification: broadcast it
+            # to the configured length, as resize_tolerances does.
+            if all(tol == tol[0]):
+                tol = full(self_.n, tol[0], dtype=self_.precision)
+            else:
+                raise ValueError("tol must have shape (n,).")
     return tol
 
 
