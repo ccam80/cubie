@@ -87,7 +87,8 @@ class DxdtMin(SummaryMetric):
             buffer
                 device array. Storage for [prev_value, min_unscaled].
             current_index
-                int. Current integration step index (unused).
+                int. Monotonic summary-sample counter; gates the first
+                update until one previous value exists.
             customisable_variable
                 int. Metric parameter placeholder (unused).
 
@@ -95,10 +96,14 @@ class DxdtMin(SummaryMetric):
             -----
             Computes unscaled derivative as (value - buffer[0]) and updates
             buffer[1] if smaller. Uses predicated commit pattern to avoid
-            warp divergence.
+            warp divergence. The current_index guard skips the sample with
+            no history rather than testing the value against zero, so
+            exact-zero samples are handled correctly.
             """
             derivative_unscaled = value - buffer[0]
-            update_flag = (derivative_unscaled < buffer[1]) and (buffer[0] != precision(0.0))
+            update_flag = (derivative_unscaled < buffer[1]) and (
+                current_index >= 1
+            )
             buffer[1] = selp(update_flag, derivative_unscaled, buffer[1])
             buffer[0] = value
 
