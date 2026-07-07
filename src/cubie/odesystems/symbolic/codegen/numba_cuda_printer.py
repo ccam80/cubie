@@ -137,7 +137,7 @@ class CUDAPrinter(PythonCodePrinter):
         """
         super().__init__(*args, **kwargs)
         self.symbol_map: Dict[sp.Symbol, Any] = symbol_map or {}
-        self.constant_names: frozenset = frozenset(constant_names or ())
+        self.constant_names: frozenset[str] = frozenset(constant_names or ())
         self.cuda_functions: Dict[str, str] = CUDA_FUNCTIONS
         # User function alias mapping: underscored symbolic name -> original printable name
         self.func_aliases: Dict[str, str] = {}
