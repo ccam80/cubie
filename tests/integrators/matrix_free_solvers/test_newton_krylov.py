@@ -102,6 +102,28 @@ def test_newton_krylov_placeholder(placeholder_system, precision, tolerance):
     )
 
 
+_NEWTON_SOLVER_SETTINGS = {
+    "minimal_residual": {
+        "linear_correction_type": "minimal_residual",
+        "krylov_atol": 1e-6,
+        "krylov_rtol": 1e-6,
+        "krylov_max_iters": 1000,
+        "newton_atol": 1e-6,
+        "newton_rtol": 1e-6,
+        "newton_max_iters": 1000,
+    },
+    "bicgstab": {
+        "linear_correction_type": "bicgstab",
+        "krylov_atol": 1e-6,
+        "krylov_rtol": 1e-6,
+        "krylov_max_iters": 200,
+        "newton_atol": 1e-6,
+        "newton_rtol": 1e-6,
+        "newton_max_iters": 1000,
+    },
+}
+
+
 @pytest.mark.parametrize(
     "system_setup",
     [
@@ -116,36 +138,15 @@ def test_newton_krylov_placeholder(placeholder_system, precision, tolerance):
 @pytest.mark.parametrize(
     "solver_settings_override",
     [
-        {
-            "linear_correction_type": "minimal_residual",
-            "krylov_atol": 1e-6,
-            "krylov_rtol": 1e-6,
-            "krylov_max_iters": 1000,
-            "newton_atol": 1e-6,
-            "newton_rtol": 1e-6,
-            "newton_max_iters": 1000,
-        },
-        {
-            "linear_correction_type": "bicgstab",
-            "krylov_atol": 1e-6,
-            "krylov_rtol": 1e-6,
-            "krylov_max_iters": 200,
-            "newton_atol": 1e-6,
-            "newton_rtol": 1e-6,
-            "newton_max_iters": 1000,
-        },
+        dict(settings, preconditioner_order=order)
+        for settings in _NEWTON_SOLVER_SETTINGS.values()
+        for order in (0, 1, 2)
     ],
-    ids=["minimal_residual", "bicgstab"],
-    indirect=True,
-)
-@pytest.mark.parametrize(
-    "solver_settings_override2",
-    [
-        {"preconditioner_order": 0},
-        {"preconditioner_order": 1},
-        {"preconditioner_order": 2},
+    ids=[
+        f"{name}-order{order}"
+        for name in _NEWTON_SOLVER_SETTINGS
+        for order in (0, 1, 2)
     ],
-    ids=["order0", "order1", "order2"],
     indirect=True,
 )
 def test_newton_krylov_symbolic(

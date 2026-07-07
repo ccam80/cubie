@@ -764,13 +764,10 @@ class SingleIntegratorRunCore(CUDAFactory):
         #Build algorithm fn after change made
         self._algo_step.update(compiled_fns_dict)
 
-        # Re-register algo and controller buffers to refresh sizing in loop
-        buffer_registry.get_child_allocators(
-                self._loop, self._algo_step, name='algorithm'
-        )
-        buffer_registry.get_child_allocators(
-                self._loop, self._step_controller, name='controller'
-        )
+        # Building the step and controller functions must precede the
+        # child-buffer registration below: an implicit step refreshes
+        # its nested solver buffer sizes during build_step, so a size
+        # snapshot taken before the build undersizes the loop's pool.
         compiled_functions = {
             'save_state_fn': self._output_functions.save_state_func,
             'update_summaries_fn': self._output_functions.update_summaries_func,
@@ -778,6 +775,14 @@ class SingleIntegratorRunCore(CUDAFactory):
             'step_controller_fn': self._step_controller.device_function,
             'step_function': self._algo_step.step_function,
             'evaluate_observables': evaluate_observables}
+
+        # Re-register algo and controller buffers to refresh sizing in loop
+        buffer_registry.get_child_allocators(
+                self._loop, self._algo_step, name='algorithm'
+        )
+        buffer_registry.get_child_allocators(
+                self._loop, self._step_controller, name='controller'
+        )
 
         self._loop.update(compiled_functions)
         loop_fn = self._loop.device_function

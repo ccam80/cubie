@@ -88,7 +88,8 @@ class D2xdt2Extrema(SummaryMetric):
                 device array. Storage for [prev_value, prev_prev_value,
                 max_unscaled, min_unscaled].
             current_index
-                int. Current integration step index (unused).
+                int. Monotonic summary-sample counter; gates updates until
+                two previous values exist.
             customisable_variable
                 int. Metric parameter placeholder (unused).
 
@@ -97,12 +98,18 @@ class D2xdt2Extrema(SummaryMetric):
             Computes unscaled second derivative using central difference formula
             (value - 2*buffer[0] + buffer[1]) and updates buffer[2] if larger
             and buffer[3] if smaller. Uses predicated commit pattern to avoid
-            warp divergence. Guard on buffer[1] ensures two previous values
-            are available.
+            warp divergence. The current_index guard skips samples with
+            incomplete history rather than testing buffer[1] against zero,
+            so exact-zero samples are handled correctly.
             """
             second_derivative_unscaled = value - precision(2.0) * buffer[0] + buffer[1]
-            update_max = (second_derivative_unscaled > buffer[2]) and (buffer[1] != precision(0.0))
-            update_min = (second_derivative_unscaled < buffer[3]) and (buffer[1] != precision(0.0))
+            history_primed = current_index >= 2
+            update_max = (
+                second_derivative_unscaled > buffer[2]
+            ) and history_primed
+            update_min = (
+                second_derivative_unscaled < buffer[3]
+            ) and history_primed
             buffer[2] = selp(update_max, second_derivative_unscaled, buffer[2])
             buffer[3] = selp(update_min, second_derivative_unscaled, buffer[3])
             buffer[1] = buffer[0]

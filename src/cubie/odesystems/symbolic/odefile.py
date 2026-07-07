@@ -30,10 +30,21 @@ from os import getcwd
 from pathlib import Path
 from typing import Callable, Optional, Tuple
 
+from cubie._utils import package_source_hash
 from cubie.time_logger import default_timelogger
 
 cwd = getcwd()
 GENERATED_DIR = Path(cwd) / "generated"
+
+
+def _salted_hash(fn_hash) -> str:
+    """Combine a system definition hash with the package source hash.
+
+    The stored file hash carries both, so generated source is
+    regenerated when the codegen machinery changes, not only when the
+    system definition does.
+    """
+    return f"{fn_hash}-{package_source_hash()[:16]}"
 
 HEADER = ("\n# This file was generated automatically by Cubie. Don't make "
           "changes in here - they'll just be overwritten! Instead, modify "
@@ -80,7 +91,7 @@ class ODEFile:
         """
         if not self.cached_file_valid(fn_hash):
             with open(self.file_path, "w", encoding="utf-8") as f:
-                f.write(f"#{fn_hash}")
+                f.write(f"#{_salted_hash(fn_hash)}")
                 f.write("\n")
                 f.write(HEADER)
             return True
@@ -97,12 +108,13 @@ class ODEFile:
         Returns
         -------
         bool
-            ``True`` when the stored hash matches ``fn_hash``.
+            ``True`` when the stored hash matches ``fn_hash`` combined
+            with the current package source hash.
         """
         if self.file_path.exists():
             with open(self.file_path, "r", encoding="utf-8") as f:
                 existing_hash = f.readline().strip().lstrip("#")
-                if existing_hash == str(fn_hash):
+                if existing_hash == _salted_hash(fn_hash):
                     return True
         return False
 

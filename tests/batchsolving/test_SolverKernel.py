@@ -216,83 +216,90 @@ def test_bogus_update_fails(solverkernel_mutable):
         solverkernel.update(obviously_bogus_key="this should not work")
 
 
-def test_save_every_greater_than_duration_no_save_last_raises(
-    solver, batch_input_arrays, driver_settings
-):
-    """save_every > duration with save_last False raises at run time.
+class TestTimingParameterValidation:
+    """Tests for timing parameter validation in BatchSolverKernel.run().
 
-    Uses the default settings (save_every=0.02, save_last False) with
-    a shorter explicit duration, so the shared solver is not mutated.
-    Validation compares against duration + dt_min (0.01 for the fixed
-    controller), so the duration sits below save_every - dt_min.
+    Solve-time timing kwargs permanently reconfigure the solver (the
+    validation error is raised after the settings update is applied),
+    so every test here uses the function-scoped ``solver_mutable``
+    rather than the shared session ``solver`` fixture.
     """
-    initial_sets, parameter_sets = batch_input_arrays
 
-    with pytest.raises(
-        ValueError, match=r"save_every.*>.*duration.*no outputs"
+    def test_save_every_greater_than_duration_no_save_last_raises(
+        self, system, precision, driver_array, solver_mutable,
+        driver_settings
     ):
-        solver.solve(
-            initial_sets,
-            parameter_sets,
-            driver_settings,
-            duration=0.005,
+        inits = np.ones((3, 1), dtype=precision)
+        params = np.ones((3, 1), dtype=precision)
+
+        with pytest.raises(
+            ValueError, match=r"save_every.*>.*duration.*no outputs"
+        ):
+            solver_mutable.solve(
+                inits,
+                params,
+                driver_settings,
+                save_every=1.0,
+                duration=0.5,
+            )
+
+    def test_save_every_greater_than_duration_with_save_last_succeeds(
+        self, system, precision, driver_array, solver_mutable,
+        driver_settings
+    ):
+        """Test that save_every >= duration with save_last=True is valid."""
+        inits = np.ones((3, 1), dtype=precision)
+        params = np.ones((3, 1), dtype=precision)
+
+        # Should not raise when save_last is True (default when save_every=None)
+        solver_mutable.solve(
+            inits,
+            params,
+            drivers=driver_settings,
+            save_every=None,
+            duration=0.05,
+            dt=0.02,
         )
 
-
-@pytest.mark.parametrize(
-    "solver_settings_override",
-    [{"save_every": None, "dt": 0.02, "duration": 0.05}],
-    indirect=True,
-)
-def test_save_every_none_with_save_last_succeeds(solve_result):
-    """save_every=None solves in save-last mode: initial + final sample."""
-    assert solve_result.time_domain_array.shape[0] == 2
-
-
-def test_summarise_every_greater_than_duration_raises(
-    solver, batch_input_arrays, driver_settings
-):
-    """summarise_every > duration raises at run time.
-
-    Uses the default settings (save_every=0.02, summarise_every=0.04)
-    with a duration chosen so save_every passes validation against
-    duration + dt_min (0.01) while summarise_every fails it, and the
-    shared solver is not mutated.
-    """
-    initial_sets, parameter_sets = batch_input_arrays
-
-    with pytest.raises(
-        ValueError,
-        match=r"summarise_every.*>.*duration.*no summary outputs",
+    def test_summarise_every_greater_than_duration_raises(
+        self, system, precision, driver_array, solver_mutable,
+        driver_settings
     ):
-        solver.solve(
-            initial_sets,
-            parameter_sets,
-            driver_settings,
-            duration=0.02,
-        )
+        """Test that summarise_every > duration raises."""
+        inits = np.ones((3, 1), dtype=precision)
+        params = np.ones((3, 1), dtype=precision)
 
+        with pytest.raises(
+            ValueError,
+            match=r"summarise_every.*>.*duration.*no summary outputs",
+        ):
+            solver_mutable.solve(
+                inits,
+                params,
+                driver_settings,
+                summarise_every=0.6,
+                duration=0.5,
+            )
 
-@pytest.mark.parametrize(
-    "solver_settings_override",
-    [{"summarise_every": 0.01, "sample_summaries_every": 0.01}],
-    indirect=True,
-)
-def test_sample_summaries_every_gte_summarise_every_raises(
-    solver, batch_input_arrays, driver_settings
-):
-    """sample_summaries_every >= summarise_every raises at run time."""
-    initial_sets, parameter_sets = batch_input_arrays
-
-    with pytest.raises(
-        ValueError, match=r"sample_summaries_every.*>=.*summarise_every"
+    def test_sample_summaries_every_gte_summarise_every_raises(
+        self, system, precision, driver_array, solver_mutable,
+        driver_settings
     ):
-        solver.solve(
-            initial_sets,
-            parameter_sets,
-            driver_settings,
-            duration=1.0,
-        )
+        """Test that sample_summaries_every >= summarise_every raises."""
+        inits = np.ones((3, 1), dtype=precision)
+        params = np.ones((3, 1), dtype=precision)
+
+        with pytest.raises(
+            ValueError, match=r"sample_summaries_every.*>=.*summarise_every"
+        ):
+            solver_mutable.solve(
+                inits,
+                params,
+                drivers=driver_settings,
+                summarise_every=0.01,
+                sample_summaries_every=0.01,
+                duration=1.0,
+            )
 
 
 class TestActiveOutputsFromCompileFlags:

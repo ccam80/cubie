@@ -17,6 +17,7 @@ from cubie.cubie_cache import (
     ALL_CACHE_PARAMETERS,
     environment_hash,
 )
+from cubie._utils import package_source_hash
 
 
 # --- Test fixtures (attrs classes for testing) ---
@@ -251,12 +252,13 @@ def test_cubie_cache_index_key():
 
     key = cache._index_key(sig, codegen)
 
-    # Key should be tuple of (sig, magic_tuple, system_hash, config_hash)
-    assert len(key) == 4
+    # Key is (sig, magic_tuple, system_hash, config_hash, package_hash)
+    assert len(key) == 5
     assert key[0] == sig
     assert key[1] == ("magic", "tuple")
     assert key[2] == "abc123"
     assert key[3] == config_hash
+    assert key[4] == package_source_hash()
 
 
 def test_cubie_cache_path():

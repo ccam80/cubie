@@ -28,10 +28,13 @@ Published Functions
     64
 
 :func:`render_constant_assignments`
-    Emit Python assignment lines that load constants into local scope.
+    Emit Python assignment lines that load constants into local scope,
+    plus an integer-exponent alias per constant (see the function
+    docstring).
 
-    >>> render_constant_assignments(["g", "k"])
-    "    g = precision(constants['g'])\\n    k = precision(constants['k'])\\n"
+    >>> print(render_constant_assignments(["g"]), end="")
+        g = precision(constants['g'])
+        _cubie_codegen_iexp_g = int(g) if float(g).is_integer() and abs(float(g)) < 9.2e18 else g
 
 :func:`prune_unused_assignments`
     Remove assignments that do not contribute to output symbols.
@@ -64,6 +67,13 @@ import sympy as sp
 
 if TYPE_CHECKING:
     from cubie.odesystems.symbolic.parsing import ParsedEquations
+
+# Prefix for the per-constant integer-exponent aliases emitted by
+# render_constant_assignments and referenced by the CUDA printer when a
+# constant appears as a power exponent. Underscored and namespaced so it
+# cannot collide with user-defined symbols (same scheme as the
+# _cubie_codegen_beta/_cubie_codegen_gamma renames).
+EXPONENT_ALIAS_PREFIX = "_cubie_codegen_iexp_"
 
 
 def topological_sort(
@@ -294,13 +304,29 @@ def render_constant_assignments(
     str
         Newline-joined assignment block, or empty string when
         ``constant_names`` is empty.
+
+    Notes
+    -----
+    Each constant also receives an integer-exponent alias
+    (``EXPONENT_ALIAS_PREFIX + name``) holding ``int(value)`` when the
+    value is integral and within int64 range, and the precision-cast
+    value otherwise. The printer emits the alias wherever the constant
+    appears as a power exponent: Numba lowers a frozen integer
+    exponent to a multiplication chain in the working precision, while
+    a float exponent compiles to a full ``pow`` call. The alias is
+    computed at factory run time, so the generated source stays
+    independent of constant values.
     """
 
     prefix = " " * indent
-    lines = [
-        f"{prefix}{name} = precision(constants['{name}'])"
-        for name in constant_names
-    ]
+    lines = []
+    for name in constant_names:
+        lines.append(f"{prefix}{name} = precision(constants['{name}'])")
+        lines.append(
+            f"{prefix}{EXPONENT_ALIAS_PREFIX}{name} = int({name}) if "
+            f"float({name}).is_integer() and abs(float({name})) < 9.2e18 "
+            f"else {name}"
+        )
     return "\n".join(lines) + ("\n" if lines else "")
 
 

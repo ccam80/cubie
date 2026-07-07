@@ -32,7 +32,16 @@ See Also
 """
 
 from pathlib import Path
-from typing import Any, Dict, List, Optional, Set, Tuple, Union
+from typing import (
+    Any,
+    Dict,
+    Iterable,
+    List,
+    Optional,
+    Set,
+    Tuple,
+    Union,
+)
 
 from numpy import ndarray, zeros as np_zeros
 
@@ -61,6 +70,7 @@ from cubie.outputhandling.output_functions import (
     ALL_OUTPUT_FUNCTION_PARAMETERS,
 )
 from cubie.time_logger import default_timelogger
+from cubie.batchsolving.BatchSolverConfig import ALL_KERNEL_PARAMETERS
 from cubie.cubie_cache import ALL_CACHE_PARAMETERS
 
 # Register module-level events
@@ -70,6 +80,37 @@ default_timelogger.register_event(
 default_timelogger.register_event(
     "solver_solve", "runtime", "Wall-clock time for Solver.solve()"
 )
+
+
+RENAMED_TIMING_KWARGS = {
+    "dt_save": "save_every",
+    "dt_summarise": "summarise_every",
+    "dt_update_summaries": "sample_summaries_every",
+}
+"""Legacy timing keyword spellings mapped to their current names."""
+
+
+def _check_renamed_kwargs(keys: Iterable[str]) -> None:
+    """Raise ``KeyError`` for legacy keyword spellings with rename hints.
+
+    Parameters
+    ----------
+    keys
+        Keyword-argument names supplied by the caller.
+
+    Raises
+    ------
+    KeyError
+        If any key is a legacy spelling listed in
+        :data:`RENAMED_TIMING_KWARGS`.
+    """
+    renamed = [key for key in keys if key in RENAMED_TIMING_KWARGS]
+    if renamed:
+        hints = ", ".join(
+            f"'{key}' is now '{RENAMED_TIMING_KWARGS[key]}'"
+            for key in renamed
+        )
+        raise KeyError(f"Renamed keyword argument(s): {hints}.")
 
 
 def solve_ivp(
@@ -213,8 +254,6 @@ class Solver:
         Explicit loop configuration overriding solver defaults. Keys such as
         ``save_every`` and ``summarise_every`` may also be supplied as loose
         keyword arguments.
-    strict
-        If ``True`` unknown keyword arguments raise ``KeyError``.
     time_logging_level : str or None, default='default'
         Time logging verbosity level. Options are 'default', 'verbose',
         'debug', None, or 'None' to disable timing.
@@ -246,7 +285,6 @@ class Solver:
         output_settings: Optional[Dict[str, object]] = None,
         memory_settings: Optional[Dict[str, object]] = None,
         loop_settings: Optional[Dict[str, object]] = None,
-        strict: bool = False,
         time_logging_level: Optional[str] = None,
         cache: Union[bool, str, Path] = True,
         **kwargs: Any,
@@ -261,6 +299,8 @@ class Solver:
             algorithm_settings = {}
         if loop_settings is None:
             loop_settings = {}
+
+        _check_renamed_kwargs(kwargs)
 
         # Set global time logging level
         default_timelogger.set_verbosity(time_logging_level)
@@ -324,6 +364,11 @@ class Solver:
             valid_keys=ALL_CACHE_PARAMETERS,
             user_settings={},
         )
+        kernel_settings, kernel_recognized = merge_kwargs_into_settings(
+            kwargs=kwargs,
+            valid_keys=ALL_KERNEL_PARAMETERS,
+            user_settings={},
+        )
         recognized_kwargs = (
             step_recognized
             | algorithm_recognized
@@ -331,6 +376,7 @@ class Solver:
             | memory_recognized
             | loop_recognized
             | cache_recognized
+            | kernel_recognized
         )
 
         self.kernel = BatchSolverKernel(
@@ -343,14 +389,14 @@ class Solver:
             memory_settings=memory_settings,
             cache=cache,
             cache_settings=cache_settings,
+            kernel_settings=kernel_settings,
         )
 
-        if strict:
-            if set(kwargs) - recognized_kwargs:
-                raise KeyError(
-                    "Unrecognized keyword arguments: "
-                    f"{set(kwargs) - recognized_kwargs}"
-                )
+        if set(kwargs) - recognized_kwargs:
+            raise KeyError(
+                "Unrecognized keyword arguments: "
+                f"{set(kwargs) - recognized_kwargs}"
+            )
 
     def convert_output_labels(
         self,
@@ -449,7 +495,7 @@ class Solver:
         automatically chunked along the run axis.
         """
         if kwargs:
-            self.update(kwargs, silent=True)
+            self.update(kwargs)
 
         # Start wall-clock timing for solve
         default_timelogger.start_event("solver_solve")
@@ -576,6 +622,8 @@ class Solver:
             updates_dict.update(kwargs)
         if updates_dict == {}:
             return set()
+
+        _check_renamed_kwargs(updates_dict)
 
         # Only convert output labels if variable-related keys are present
         variable_keys = {"save_variables", "summarise_variables"}

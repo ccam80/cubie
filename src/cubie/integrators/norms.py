@@ -31,8 +31,8 @@ from attrs import define, field, Converter
 from cubie._utils import (
     PrecisionDType,
     build_config,
-    float_array_validator,
     getype_validator,
+    nonnegative_float_array_validator,
     is_device_validator,
     tol_converter,
 )
@@ -104,13 +104,13 @@ class ScaledNormConfig(MultipleInstanceCUDAFactoryConfig):
     )
     atol: ndarray = field(
         default=asarray([1e-6]),
-        validator=float_array_validator,
+        validator=nonnegative_float_array_validator,
         converter=Converter(tol_converter, takes_self=True),
         metadata={"prefixed": True},
     )
     rtol: ndarray = field(
         default=asarray([1e-6]),
-        validator=float_array_validator,
+        validator=nonnegative_float_array_validator,
         converter=Converter(tol_converter, takes_self=True),
         metadata={"prefixed": True},
     )

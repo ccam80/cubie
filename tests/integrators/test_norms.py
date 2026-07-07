@@ -53,6 +53,26 @@ def test_config_scalar_tolerance_broadcast():
     assert_allclose(cfg.rtol, np.full(4, 1e-4))
 
 
+def test_config_negative_atol_rejected():
+    """atol rejects arrays containing negative values."""
+    with pytest.raises(ValueError):
+        ScaledNormConfig(precision=np.float64, n=2, atol=-1e-6)
+
+
+def test_config_negative_rtol_rejected():
+    """rtol rejects arrays containing negative elements."""
+    rtol = np.array([1e-4, -1e-4], dtype=np.float64)
+    with pytest.raises(ValueError):
+        ScaledNormConfig(precision=np.float64, n=2, rtol=rtol)
+
+
+def test_config_zero_tolerances_accepted():
+    """Zero tolerances are valid; tol_floor guards the division."""
+    cfg = ScaledNormConfig(precision=np.float64, n=2, atol=0.0, rtol=0.0)
+    assert_allclose(cfg.atol, np.zeros(2))
+    assert_allclose(cfg.rtol, np.zeros(2))
+
+
 def test_config_inv_n():
     """inv_n returns precision(1.0/n)."""
     cfg = ScaledNormConfig(precision=np.float32, n=5)

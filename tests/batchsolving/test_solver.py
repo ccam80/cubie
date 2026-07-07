@@ -208,13 +208,13 @@ def test_solve_info_property(
 
 
 def test_solve_basic(
-    solver,
+    solver_mutable,
     simple_initial_values,
     simple_parameters,
     driver_settings,
 ):
     """Test basic solve functionality."""
-    result = solver.solve(
+    result = solver_mutable.solve(
         initial_values=simple_initial_values,
         parameters=simple_parameters,
         drivers=driver_settings,
@@ -233,14 +233,14 @@ def test_solve_basic(
 
 
 def test_solve_with_different_grid_types(
-    solver,
+    solver_mutable,
     simple_initial_values,
     simple_parameters,
     driver_settings,
 ):
     """Test solve with different grid types."""
     # Test combinatorial grid
-    result_comb = solver.solve(
+    result_comb = solver_mutable.solve(
         initial_values=simple_initial_values,
         parameters=simple_parameters,
         drivers=driver_settings,
@@ -265,7 +265,7 @@ def test_solve_with_different_grid_types(
         param_names[0]: [1.0, 2.0],
         param_names[1]: [0.5, 1.5],
     }
-    result_verb = solver.solve(
+    result_verb = solver_mutable.solve(
         initial_values=verbatim_initial_values,
         parameters=verbatim_parameters,
         drivers=driver_settings,
@@ -279,7 +279,7 @@ def test_solve_with_different_grid_types(
 
 
 def test_solve_with_different_result_types(
-    solver,
+    solver_mutable,
     simple_initial_values,
     simple_parameters,
     driver_settings,
@@ -288,7 +288,7 @@ def test_solve_with_different_result_types(
     result_types = ["full", "numpy"]
 
     for result_type in result_types:
-        result = solver.solve(
+        result = solver_mutable.solve(
             initial_values=simple_initial_values,
             parameters=simple_parameters,
             drivers=driver_settings,
@@ -664,11 +664,12 @@ def test_build_grid_precision(
 
 
 def test_solve_array_path_matches_dict_path(
-    solver, simple_initial_values, simple_parameters, driver_settings
+    solver_mutable, simple_initial_values, simple_parameters,
+    driver_settings
 ):
     """Test that array fast path produces same results as dict path."""
     # Solve with dict inputs
-    result_dict = solver.solve(
+    result_dict = solver_mutable.solve(
         initial_values=simple_initial_values,
         parameters=simple_parameters,
         drivers=driver_settings,
@@ -679,10 +680,10 @@ def test_solve_array_path_matches_dict_path(
     )
 
     # Build grid and solve with arrays
-    inits, params = solver.build_grid(
+    inits, params = solver_mutable.build_grid(
         simple_initial_values, simple_parameters, grid_type="verbatim"
     )
-    result_array = solver.solve(
+    result_array = solver_mutable.solve(
         initial_values=inits,
         parameters=params,
         drivers=driver_settings,
@@ -952,11 +953,13 @@ def test_solve_ivp_with_save_variables(system):
     assert result.time_domain_array.shape[1] == len(state_names)
 
 
-def test_solver_solve_with_save_variables(solver, system, driver_settings):
+def test_solver_solve_with_save_variables(
+    solver_mutable, system, driver_settings
+):
     """Test Solver.solve accepts save_variables parameter."""
     state_names = list(system.initial_values.names)[:1]
 
-    result = solver.solve(
+    result = solver_mutable.solve(
         initial_values={state_names[0]: [1.0, 2.0]},
         parameters={list(system.parameters.names)[0]: [0.1, 0.2]},
         drivers=driver_settings,
@@ -1023,7 +1026,6 @@ def test_solver_accepts_cache_mode_kwarg(system, solver_settings):
         memory_manager=solver_settings["memory_manager"],
         stream_group=solver_settings["stream_group"],
         cache_mode="flush_on_change",
-        strict=True,
     )
 
     assert solver.kernel.cache_handler.config.cache_mode == "flush_on_change"
@@ -1037,10 +1039,22 @@ def test_solver_accepts_max_cache_entries_kwarg(system, solver_settings):
         memory_manager=solver_settings["memory_manager"],
         stream_group=solver_settings["stream_group"],
         max_cache_entries=5,
-        strict=True,
     )
 
     assert solver.kernel.cache_handler.config.max_cache_entries == 5
+
+
+def test_solver_accepts_max_registers_kwarg(system, solver_settings):
+    """Verify Solver(system, max_registers=128) is recognized."""
+    solver = Solver(
+        system,
+        algorithm=solver_settings["algorithm"],
+        memory_manager=solver_settings["memory_manager"],
+        stream_group=solver_settings["stream_group"],
+        max_registers=128,
+    )
+
+    assert solver.kernel.compile_settings.max_registers == 128
 
 
 def test_solve_ivp_passes_cache_kwargs(
@@ -1102,3 +1116,175 @@ def test_explicit_inner_tolerance_wins_through_solver(system):
     algo = solver.kernel.single_integrator._algo_step
     assert np.allclose(algo.krylov_atol, 4e-5)
     assert np.allclose(algo.newton_atol, 1e-9)
+
+
+# ============================================================================
+# Unrecognized / renamed keyword argument tests
+# ============================================================================
+
+
+def test_solver_unknown_kwarg_raises(system, solver_settings):
+    """An unconsumed keyword argument raises at construction."""
+    with pytest.raises(KeyError, match="Unrecognized"):
+        Solver(
+            system,
+            algorithm=solver_settings["algorithm"],
+            memory_manager=solver_settings["memory_manager"],
+            stream_group=solver_settings["stream_group"],
+            not_a_real_setting=1.0,
+        )
+
+
+def test_solver_dt_save_raises_with_rename_hint(system, solver_settings):
+    """The legacy dt_save spelling raises and names save_every."""
+    with pytest.raises(KeyError, match="save_every"):
+        Solver(
+            system,
+            algorithm=solver_settings["algorithm"],
+            memory_manager=solver_settings["memory_manager"],
+            stream_group=solver_settings["stream_group"],
+            dt_save=1.0,
+        )
+
+
+def test_solve_dt_save_raises_with_rename_hint(
+    solver_mutable, simple_initial_values, simple_parameters, driver_settings
+):
+    """The legacy dt_save spelling raises from solve-time kwargs."""
+    with pytest.raises(KeyError, match="save_every"):
+        solver_mutable.solve(
+            initial_values=simple_initial_values,
+            parameters=simple_parameters,
+            drivers=driver_settings,
+            duration=0.1,
+            dt_save=0.05,
+        )
+
+
+def test_solve_unknown_kwarg_raises(
+    solver_mutable, simple_initial_values, simple_parameters, driver_settings
+):
+    """An unconsumed solve-time keyword argument raises."""
+    with pytest.raises(KeyError, match="Unrecognized"):
+        solver_mutable.solve(
+            initial_values=simple_initial_values,
+            parameters=simple_parameters,
+            drivers=driver_settings,
+            duration=0.1,
+            not_a_real_setting=1.0,
+        )
+
+
+# ============================================================================
+# Final-save scheduling tests
+# ============================================================================
+
+
+@pytest.mark.parametrize(
+    "solver_settings_override",
+    [
+        {
+            "save_every": None,
+            "summarise_every": None,
+            "sample_summaries_every": None,
+            "output_types": ["state", "time"],
+            "algorithm": "euler",
+            "step_controller": "fixed",
+            "dt": 0.0625,
+        }
+    ],
+    indirect=True,
+)
+def test_save_last_written_when_duration_is_step_multiple(
+    solver, simple_initial_values, simple_parameters, driver_settings
+):
+    """save_last fires when the fixed step lands exactly on t_end."""
+    duration = 0.25
+    result = solver.solve(
+        initial_values=simple_initial_values,
+        parameters=simple_parameters,
+        drivers=driver_settings,
+        duration=duration,
+        grid_type="verbatim",
+        nan_error_trajectories=False,
+    )
+    times = np.asarray(result.time)
+    if times.ndim > 1:
+        times = times[:, 0]
+    states = np.asarray(result.time_domain_array)
+    assert times.shape[0] == 2
+    assert times[0] == pytest.approx(0.0)
+    assert times[1] == pytest.approx(duration, rel=1e-6)
+    final_states = states[-1, : len(simple_initial_values), :]
+    assert np.all(np.isfinite(final_states))
+    assert np.any(final_states != 0.0)
+
+
+@pytest.mark.parametrize(
+    "solver_settings_override",
+    [
+        {
+            "save_every": 0.1,
+            "summarise_every": None,
+            "sample_summaries_every": None,
+            "output_types": ["state", "time"],
+            "algorithm": "euler",
+            "step_controller": "fixed",
+            "dt": 0.01,
+        },
+        {
+            "save_every": 0.04,
+            "summarise_every": None,
+            "sample_summaries_every": None,
+            "output_types": ["state", "time"],
+            "algorithm": "euler",
+            "step_controller": "fixed",
+            "dt": 0.01,
+        },
+        {
+            "save_every": 0.07,
+            "summarise_every": None,
+            "sample_summaries_every": None,
+            "output_types": ["state", "time"],
+            "algorithm": "euler",
+            "step_controller": "fixed",
+            "dt": 0.01,
+        },
+    ],
+    indirect=True,
+)
+def test_regular_saves_fill_allocation_at_fp_endpoints(
+    solver,
+    solver_settings,
+    simple_initial_values,
+    simple_parameters,
+    driver_settings,
+):
+    """Every allocated output row is written when save_every does not
+    divide the duration exactly in the working precision."""
+    duration = 0.2
+    save_every = float(solver_settings["save_every"])
+    result = solver.solve(
+        initial_values=simple_initial_values,
+        parameters=simple_parameters,
+        drivers=driver_settings,
+        duration=duration,
+        grid_type="verbatim",
+        nan_error_trajectories=False,
+    )
+    times = np.asarray(result.time)
+    if times.ndim > 1:
+        times = times[:, 0]
+    precision = solver.precision
+    expected_saves = np.floor(
+        precision(duration) / precision(save_every)
+    )
+    assert np.all(np.diff(times) > 0.0)
+    assert times[0] == pytest.approx(0.0)
+    assert times[-1] == pytest.approx(
+        expected_saves * save_every, rel=1e-5
+    )
+    states = np.asarray(result.time_domain_array)
+    final_states = states[-1, : len(simple_initial_values), :]
+    assert np.all(np.isfinite(final_states))
+    assert np.any(final_states != 0.0)

@@ -3,11 +3,15 @@
 from __future__ import annotations
 
 import uuid
-from pathlib import Path
 
 import pytest
 
-from cubie.odesystems.symbolic.odefile import HEADER, ODEFile
+from cubie.odesystems.symbolic.odefile import (
+    HEADER,
+    ODEFile,
+    _salted_hash,
+)
+from cubie._utils import package_source_hash
 
 
 def _simple_code(func_name: str) -> str:
@@ -39,12 +43,26 @@ def test_init_sets_file_path(codegen_dir):
 
 
 def test_init_calls_init_file(codegen_dir):
-    """__init__ writes the file with hash and header."""
+    """__init__ writes the file with the salted hash and header."""
     name = f"test_{uuid.uuid4().hex}"
     odf = ODEFile(name, 42)
     text = odf.file_path.read_text(encoding="utf-8")
-    assert text.startswith("#42")
+    assert text.startswith(f"#{_salted_hash(42)}\n")
     assert "# This file was generated automatically" in text
+
+
+def test_salted_hash_includes_package_source_hash():
+    """The stored hash combines fn_hash with the package source hash."""
+    assert _salted_hash(42) == f"42-{package_source_hash()[:16]}"
+
+
+def test_cached_file_valid_false_on_stale_package_salt(codegen_dir):
+    """A file written under different package source is invalid."""
+    name = f"test_{uuid.uuid4().hex}"
+    odf = ODEFile(name, 777)
+    stale = f"#777-{'0' * 16}\n{HEADER}"
+    odf.file_path.write_text(stale, encoding="utf-8")
+    assert odf.cached_file_valid(777) is False
 
 
 # ── _init_file ────────────────────────────────────────────────── #

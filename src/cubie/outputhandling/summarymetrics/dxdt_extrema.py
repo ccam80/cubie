@@ -86,7 +86,8 @@ class DxdtExtrema(SummaryMetric):
             buffer
                 device array. Storage for [prev_value, max_unscaled, min_unscaled].
             current_index
-                int. Current integration step index (unused).
+                int. Monotonic summary-sample counter; gates the first
+                update until one previous value exists.
             customisable_variable
                 int. Metric parameter placeholder (unused).
 
@@ -94,11 +95,19 @@ class DxdtExtrema(SummaryMetric):
             -----
             Computes unscaled derivative as (value - buffer[0]) and updates
             buffer[1] if larger and buffer[2] if smaller. Uses predicated
-            commit pattern to avoid warp divergence.
+            commit pattern to avoid warp divergence. The current_index
+            guard skips the sample with no history rather than testing the
+            value against zero, so exact-zero samples are handled
+            correctly.
             """
             derivative_unscaled = value - buffer[0]
-            update_max = (derivative_unscaled > buffer[1]) and (buffer[0] != precision(0.0))
-            update_min = (derivative_unscaled < buffer[2]) and (buffer[0] != precision(0.0))
+            history_primed = current_index >= 1
+            update_max = (
+                derivative_unscaled > buffer[1]
+            ) and history_primed
+            update_min = (
+                derivative_unscaled < buffer[2]
+            ) and history_primed
             buffer[1] = selp(update_max, derivative_unscaled, buffer[1])
             buffer[2] = selp(update_min, derivative_unscaled, buffer[2])
             buffer[0] = value

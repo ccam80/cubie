@@ -4,11 +4,10 @@ Compares device controller outputs against CPU reference for single
 steps, multi-step sequences, and rejection bookkeeping.
 """
 
-from __future__ import annotations
-
 import numpy as np
 import pytest
-from numba_cuda_mlir import cuda
+
+from tests._utils import StepResult, run_controller_device_step
 from cubie.integrators.step_control.adaptive_PI_controller import (
     AdaptivePIController,
 )
@@ -27,80 +26,6 @@ class ControllerTrace:
         self.accepted = []
         self.dt = []
         self.local_memory = []
-
-
-class StepResult:
-    """Lightweight return container mirroring GPU kernel outputs."""
-
-    def __init__(self, dt, accepted, local_mem):
-        self.dt = dt
-        self.accepted = accepted
-        self.local_mem = local_mem
-
-
-def _run_device_step(
-    device_func,
-    precision,
-    dt0,
-    error,
-    *,
-    local_mem=None,
-    state=None,
-    state_prev=None,
-    niters=1,
-):
-    """Execute a controller device function once."""
-
-    err = np.asarray(error, dtype=precision)
-    state_arr = (
-        np.asarray(state, dtype=precision)
-        if state is not None
-        else np.zeros_like(err)
-    )
-    state_prev_arr = (
-        np.asarray(state_prev, dtype=precision)
-        if state_prev is not None
-        else np.zeros_like(err)
-    )
-
-    dt = np.asarray([dt0], dtype=precision)
-    accept = np.zeros(1, dtype=np.int32)
-    niters_val = np.int32(niters)
-    shared_scratch = np.zeros(1, dtype=precision)
-    if local_mem is not None:
-        persistent_local = np.asarray(local_mem, dtype=precision)
-    else:
-        persistent_local = np.zeros(2, dtype=precision)
-
-    @cuda.jit
-    def kernel(
-        dt_val,
-        state_val,
-        state_prev_val,
-        err_val,
-        niters_val,
-        accept_val,
-        shared_val,
-        persistent_val,
-    ):
-        device_func(
-            dt_val,
-            state_val,
-            state_prev_val,
-            err_val,
-            niters_val,
-            accept_val,
-            shared_val,
-            persistent_val,
-        )
-
-    kernel[1, 1](
-        dt, state_arr, state_prev_arr, err, niters_val, accept,
-        shared_scratch, persistent_local,
-    )
-    return StepResult(
-        precision(dt[0]), int(accept[0]), persistent_local.copy()
-    )
 
 
 def _sequence_inputs(
@@ -137,38 +62,6 @@ def _sequence_inputs(
 
 # ── Single-step CPU-vs-device comparisons ─────────────────── #
 # (extracted from test_controllers.py)
-
-
-@pytest.fixture(scope='function')
-def step_setup(request, precision, system):
-    n = system.sizes.states
-    setup_dict = {
-        'dt0': 0.05,
-        'error': np.asarray(
-            [0.01] * system.sizes.states, dtype=precision
-        ),
-        'state': np.ones(n, dtype=precision),
-        'state_prev': np.ones(n, dtype=precision),
-        'local_mem': np.zeros(2, dtype=precision),
-    }
-    if hasattr(request, 'param'):
-        for key, value in request.param.items():
-            if key in setup_dict:
-                setup_dict[key] = value
-    return setup_dict
-
-
-@pytest.fixture(scope='function')
-def device_step_results(step_controller, precision, step_setup):
-    return _run_device_step(
-        step_controller.device_function,
-        precision,
-        step_setup['dt0'],
-        step_setup['error'],
-        state=step_setup['state'],
-        state_prev=step_setup['state_prev'],
-        local_mem=step_setup['local_mem'],
-    )
 
 
 @pytest.fixture(scope='function')
@@ -224,7 +117,7 @@ def cpu_step_results(cpu_step_controller, precision, step_setup):
 
 
 @pytest.mark.parametrize(
-    "solver_settings_override2",
+    "solver_settings_override",
     [
         ({"step_controller": "i", 'atol': 1e-3, 'rtol': 0.0}),
         ({"step_controller": "pi", 'atol': 1e-3, 'rtol': 0.0}),
@@ -357,7 +250,7 @@ class TestControllerNumerical:
             )
             dt_cpu = float(cpu_controller.dt)
 
-            device_result = _run_device_step(
+            device_result = run_controller_device_step(
                 step_controller.device_function,
                 dtype,
                 dtype(current_dt_gpu),
@@ -551,7 +444,7 @@ class TestControllerEquivalence:
                 mem_cpu = np.zeros(0, dtype=dtype)
             cpu_trace.local_memory.append(mem_cpu)
 
-            device_result = _run_device_step(
+            device_result = run_controller_device_step(
                 step_controller.device_function,
                 dtype,
                 dtype(current_dt_device),
@@ -626,7 +519,7 @@ class TestControllerEquivalence:
             new_state=new_state,
             niters=3,
         )
-        device_result = _run_device_step(
+        device_result = run_controller_device_step(
             step_controller_mutable.device_function,
             dtype,
             dtype(step_controller_mutable.dt),

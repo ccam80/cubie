@@ -375,9 +375,14 @@ class FIRKStep(ODEImplicitStep):
         alloc_stage_driver_stack = getalloc("stage_driver_stack", self)
         alloc_stage_state = getalloc("stage_state", self)
 
-        # Get child allocators for Newton solver
+        # Re-register the solver child under the same name as
+        # register_buffers so the size snapshot reflects the solver's
+        # fully built buffer group (the instance owns the group; the
+        # compiled device function does not).
         alloc_solver_shared, alloc_solver_persistent = (
-            buffer_registry.get_child_allocators(self, nonlinear_solver)
+            buffer_registry.get_child_allocators(
+                self, self.solver, name="solver"
+            )
         )
 
         # no cover: start

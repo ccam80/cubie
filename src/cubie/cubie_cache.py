@@ -36,6 +36,7 @@ from numba_cuda_mlir.numba_cuda.core.caching import (  # noqa: F401
 
 from cubie.odesystems.symbolic.odefile import GENERATED_DIR
 from cubie.time_logger import default_timelogger
+from cubie._utils import package_source_hash
 
 # Register compile timing event with custom messages
 default_timelogger.register_event(
@@ -377,13 +378,16 @@ class CUBIECache(MLIRCache):
         Returns
         -------
         tuple
-            Composite cache key.
+            Composite cache key. Includes the cubie package source
+            hash so package edits invalidate cached kernels compiled
+            from earlier source.
         """
         return (
             sig,
             codegen.magic_tuple(),
             self._system_hash,
             self._compile_settings_hash,
+            package_source_hash(),
         )
 
     def load_overload(self, sig, target_context):
