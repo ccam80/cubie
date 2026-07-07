@@ -669,6 +669,7 @@ class IVPLoop(CUDAFactory):
                     )
 
             status = success
+            iteration_status = int32(0)
             dt[0] = initial_dt
             dt_raw = initial_dt
             accept_step[0] = int32(0)
@@ -776,7 +777,7 @@ class IVPLoop(CUDAFactory):
 
                     first_step_flag = False
                     niters = proposed_counters[0]
-                    status = int32(status | step_status)
+                    iteration_status = int32(iteration_status | step_status)
 
                     # A nonzero step status indicates step failure (e.g., solver
                     # convergence failure). In adaptive mode this should reject the
@@ -804,7 +805,9 @@ class IVPLoop(CUDAFactory):
 
                         accept = bool_(accept_step[0] != int32(0))
                         accept = bool_(accept and (not step_failed))
-                        status = int32(status | controller_status)
+                        iteration_status = int32(
+                            iteration_status | controller_status
+                        )
 
                         # Controller may signal irrecoverable error via status bit
                         irrecoverable = bool_(
@@ -841,10 +844,28 @@ class IVPLoop(CUDAFactory):
                         stagnant_counts = int32(0)
 
                     stagnant = bool_(stagnant_counts >= int32(2))
-                    status = selp(
-                        stagnant, int32(status | stagnation), status
+                    iteration_status = selp(
+                        stagnant,
+                        int32(iteration_status | stagnation),
+                        iteration_status,
                     )
                     irrecoverable = bool_(irrecoverable or stagnant)
+
+                    # Fold the iteration's accumulated status bits into the
+                    # persistent status word only when the run ends
+                    # irrecoverably.  The accumulator is cleared whenever a
+                    # step is accepted, so a save event (which requires an
+                    # accepted step) delivers the cleared value and transient
+                    # bits from rejected-then-recovered attempts never reach
+                    # the persistent word.  The fatal iteration's bits are
+                    # committed before the reset, preserving diagnosability.
+                    status = selp(
+                        irrecoverable,
+                        int32(status | iteration_status),
+                        status,
+                    )
+                    if accept:
+                        iteration_status = int32(0)
 
                     t = selp(accept, t_proposal, t)
                     t_prec = precision(t)
