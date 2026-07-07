@@ -81,7 +81,9 @@ CUDA_SIMULATION: bool = False
 # per-flag fastmath selection ({"nsz", "contract", "arcp"}) cannot be
 # expressed; leave fastmath at its default (off) rather than enable
 # the full set of approximations.
-compile_kwargs: dict[str, bool] = {}
+compile_kwargs: dict[str, bool] = {
+    # "lineinfo": True,
+}
 
 
 def current_mem_info() -> Tuple[int, int]:
@@ -184,12 +186,10 @@ def syncwarp(mask):
     **compile_kwargs,
 )
 def stwt(array, index, value):
-    # numba-cuda-mlir 0.4.0 lowers cache-hint stores (cuda.stwt)
-    # through a pointer computation that drops the offset of array
-    # views, corrupting output when writing through slices. Use a
-    # plain store until the upstream bug is fixed; this loses only
-    # the .wt cache hint, not the store semantics.
-    array[index] = value
+    # Requires the memref pointer-offset shim in cubie._mlir_compat
+    # (or a numba-cuda-mlir build carrying upstream #73): without it
+    # the cache-hint store lowering drops the offset of array views.
+    cuda.stwt(array, index, value)
 
 
 def is_cudasim_enabled() -> bool:

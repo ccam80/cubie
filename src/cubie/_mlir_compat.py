@@ -38,6 +38,15 @@ saved-index arrays — faulted with ``CUDA_ERROR_ILLEGAL_ADDRESS`` at
 production batch sizes. This module reroutes array literals to
 internal constant globals carrying the array's raw bytes.
 
+numba-cuda-mlir 0.4.0 also converts memrefs to raw LLVM pointers from
+the aligned allocation base, dropping the view offset and assuming
+dense row-major strides, so cache-hint stores (``cuda.stwt``) and
+aligned vector accesses through sliced views hit the wrong elements.
+This module reroutes the conversion through
+``memref.extract_strided_metadata``, mirroring the upstream fix
+"Preserve memref offsets in pointer casts" (#73); the shim no-ops on
+builds that already carry it.
+
 Import this module before compiling any kernel; registrations are
 picked up when the MLIR target context refreshes its registries.
 These are stop-gaps that belong upstream in numba-cuda-mlir; patch
@@ -258,9 +267,21 @@ def register_boolean_comparison_lowerings() -> None:
     unsigned operations (the code generators resolve it as a module
     global at call time), and the six comparison code generators gain
     ``(Boolean, Boolean)`` signatures.
+
+    Builds that already carry the operand-signedness rework expose a
+    two-parameter ``_get_operation_for_op_and_type(op, type)`` that
+    reads signedness off the MLIR type; the replacement body calls
+    the stock three-parameter form, so it is only installed when that
+    form is present.
     """
 
-    _lowering_math._bin_op_cg = _bin_op_cg_boolean_unsigned
+    import inspect
+
+    stock_params = inspect.signature(
+        _lowering_math._get_operation_for_op_and_type
+    ).parameters
+    if len(stock_params) >= 3:
+        _lowering_math._bin_op_cg = _bin_op_cg_boolean_unsigned
     for op, cg in _COMPARISON_CGS.items():
         _math_registry.lower(op, types.Boolean, types.Boolean)(cg)
 
@@ -845,6 +866,81 @@ def register_array_literal_shim() -> None:
 
 
 register_array_literal_shim()
+
+
+def _memref_to_llvm_ptr_strided(array, indices, element_type):
+    """Convert memref + indices to an LLVM pointer via strided metadata.
+
+    The stock 0.4.0 helper extracts the aligned base pointer and drops
+    the memref's offset, so cache-hint and vector accesses through
+    sliced views read and write relative to the allocation base
+    instead of the slice start. It also recomputes strides from dim
+    sizes assuming a dense row-major layout, corrupting genuinely
+    strided views. Mirrors the upstream fix (#73, merged 2026-06-15):
+    the element offset is the metadata offset plus the index-stride
+    products; a scalar index into a higher-rank memref stays a linear
+    element index.
+    """
+
+    gep_dynamic = getattr(
+        lowering_utilities, "GEP_DYNAMIC_INDEX", -2147483648
+    )
+    metadata = _memref.extract_strided_metadata(array)
+    rank = _ir.MemRefType(array.type).rank
+    base_ptr_idx = _memref.extract_aligned_pointer_as_index(array)
+    base_ptr = lowering_utilities.convert(
+        base_ptr_idx, _llvm.PointerType.get()
+    )
+
+    linear_idx = lowering_utilities.convert(metadata[1], _T.i64())
+    ndim = len(indices)
+    if ndim == 1 and rank != 1:
+        idx = lowering_utilities.convert(indices[0], _T.i64())
+        linear_idx = arith.addi(linear_idx, idx)
+    else:
+        if ndim != rank:
+            raise ValueError(
+                f"Expected either a scalar linear index or {rank} "
+                f"indices for {array.type}, got {ndim}"
+            )
+        for dim in range(ndim):
+            idx = lowering_utilities.convert(indices[dim], _T.i64())
+            stride = lowering_utilities.convert(
+                metadata[2 + rank + dim], _T.i64()
+            )
+            linear_idx = arith.addi(
+                linear_idx, arith.muli(idx, stride)
+            )
+    return _llvm.getelementptr(
+        _llvm.PointerType.get(),
+        base_ptr,
+        [linear_idx],
+        [gep_dynamic],
+        element_type,
+        None,
+    )
+
+
+def register_memref_pointer_offset_shim() -> None:
+    """Route memref-to-pointer conversion through strided metadata.
+
+    Rebinds ``memref_to_llvm_ptr`` in every module that imported it by
+    name (the cache-hint lowerings in ``lowering.cuda`` and the
+    aligned-vector lowerings in ``lowering.vector``). Builds that
+    already carry the upstream fix expose
+    ``memref_data_pointer_as_index``; the shim no-ops there.
+    """
+
+    if hasattr(lowering_utilities, "memref_data_pointer_as_index"):
+        return
+    from numba_cuda_mlir.lowering import vector as _lowering_vector
+
+    lowering_utilities.memref_to_llvm_ptr = _memref_to_llvm_ptr_strided
+    _lowering_cuda.memref_to_llvm_ptr = _memref_to_llvm_ptr_strided
+    _lowering_vector.memref_to_llvm_ptr = _memref_to_llvm_ptr_strided
+
+
+register_memref_pointer_offset_shim()
 
 
 # The dynamic-shared-memory shims above fix the store erasure that
