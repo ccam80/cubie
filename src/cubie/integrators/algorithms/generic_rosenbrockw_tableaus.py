@@ -335,49 +335,63 @@ RODAS3P_TABLEAU = _rodas3p_tableau()
 
 
 # --------------------------------------------------------------------------
-# Rosenbrock23 (3-stage, order 3) — SciML variant
-# Constants and structure inferred from:
+# Rosenbrock23 (3-stage, order 2 with order-3 error estimate) — SciML
+# variant. Untransformed coefficients from:
 # - SciML/OrdinaryDiffEq.jl (commit c174fbc1b07c252fe8ec8ad5b6e4d5fb9979c813)
 #   lib/OrdinaryDiffEqRosenbrock/src/rosenbrock_tableaus.jl (Rosenbrock23Tableau: c32=6+sqrt(2), d=1/(2+sqrt(2)))
 #   https://github.com/SciML/OrdinaryDiffEq.jl/blob/c174fbc1b07c252fe8ec8ad5b6e4d5fb9979c813/lib/OrdinaryDiffEqRosenbrock/src/rosenbrock_tableaus.jl
 # - Algorithm form and residuals:
 #   lib/OrdinaryDiffEqRosenbrock/src/rosenbrock_perform_step.jl (perform_step! for Rosenbrock23)
 #   https://github.com/SciML/OrdinaryDiffEq.jl/blob/c174fbc1b07c252fe8ec8ad5b6e4d5fb9979c813/lib/OrdinaryDiffEqRosenbrock/src/rosenbrock_perform_step.jl
+#
+# SciML expresses the method in gradient form (stage vectors k_i,
+# W k = f(...) with explicit -J k couplings). This module's step uses
+# the transformed increment form of Hairer & Wanner (Solving ODEs II,
+# section IV.7, eq. 7.17): K = Gamma @ k with
+# Gamma = d*[[1,0,0],[-1,1,0],[c32-2,-c32,1]], giving
+# a = alpha @ inv(Gamma), C = strict lower part of -inv(Gamma),
+# b = b_k @ inv(Gamma), b - b_hat = e_k @ inv(Gamma) for the SciML
+# alpha = [[0],[1/2],[0,1]], b_k = (0,1,0), e_k = (1/6,-1/3,1/6),
+# and per-stage time-derivative weights (d, 0, -d) — the row sums of
+# Gamma.
 # --------------------------------------------------------------------------
 def _rosenbrock_23_sciml_tableau() -> RosenbrockTableau:
-    """Return the SciML 3-stage Rosenbrock 23 tableau (order 3)."""
+    """Return the transformed 3-stage Rosenbrock 23 tableau (order 2)."""
 
     sqrt2 = sqrt(2.0)
     d = 1.0 / (2.0 + sqrt2)  # shift used in W
-    c32 = 6.0 + sqrt2
+    inv_d = 2.0 + sqrt2
 
-    # Stage coupling: u2 = u + (1/2) k1, u3 = u + 1*k2
+    # Stage coupling in increment form: Y_1 = u + K_0/(2d),
+    # Y_2 = u + (K_0 + K_1)/d
     a = (
         (0.0, 0.0, 0.0),
-        (0.5, 0.0, 0.0),
-        (0.0, 1.0, 0.0),
+        (0.5 * inv_d, 0.0, 0.0),
+        (inv_d, inv_d, 0.0),
     )
 
-    # C coefficients corrected for ROW formulation
-    # C_10 derived from constant-derivative condition: C_10 = (
-    # 1-gamma)/gamma^2 ≈ 8.243
-    C_10 = (1.0 - d) / (d * d)
     C = (
-        (0.0, 0.0, 0.0),  # Stage 0
-        (C_10, 0.0, 0.0),  # Stage 1
-        (0.0, 0.0, 0.0),  # Stage 2 not used (b[2] = 0)
+        (0.0, 0.0, 0.0),
+        (-inv_d, 0.0, 0.0),
+        (-2.0 * inv_d, -(14.0 + 8.0 * sqrt2), 0.0),
     )
 
-    # Final update uses only stage 1: y_new = y + b[1] * K_1
-    b = (0.0, 1.0, 0.0)
+    # y_new = y + (K_0 + K_1)/d equals the stage-2 base state, so the
+    # b-matches-a-row fast path applies.
+    b = (inv_d, inv_d, 0.0)
 
-    # Make b_hat consistent with utilde = (1/6)(k1 - 2k2 + k3): b - b_hat = (1/6, -1/3, 1/6)
-    b_hat = (-1.0 / 6.0, 4.0 / 3.0, -1.0 / 6.0)
+    # b - b_hat = e_k @ inv(Gamma) reproduces SciML's
+    # utilde = (dt/6)(k1 - 2k2 + k3) exactly through O(dt^3).
+    b_hat = (
+        5.0 * sqrt2 / 6.0 + 5.0 / 3.0,
+        1.0 / 3.0,
+        -1.0 / 3.0 - sqrt2 / 6.0,
+    )
 
     c = (0.0, 0.5, 1.0)
 
-    # Per-stage gamma choices - only first stage matters since b_0=b_2=0
-    gamma_stages = (d, d, d)
+    # Row sums of Gamma: stage time-derivative weights transform too.
+    gamma_stages = (d, 0.0, -d)
 
     return RosenbrockTableau(
         a=a,
@@ -385,7 +399,7 @@ def _rosenbrock_23_sciml_tableau() -> RosenbrockTableau:
         b=b,
         b_hat=b_hat,
         c=c,
-        order=3,
+        order=2,
         gamma=d,
         gamma_stages=gamma_stages,
     )
