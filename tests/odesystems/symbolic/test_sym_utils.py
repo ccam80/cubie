@@ -1,3 +1,4 @@
+import textwrap
 import warnings
 
 import pytest
@@ -6,6 +7,7 @@ import sympy as sp
 from cubie.odesystems.symbolic.sym_utils import (
     cse_and_stack,
     hash_system_definition,
+    render_constant_assignments,
     topological_sort,
 )
 
@@ -521,3 +523,46 @@ class TestHashSystemDefinition:
         assert hash_full != hash_diff_eqs
         assert hash_full != hash_diff_const
         assert hash_full != hash_diff_obs
+
+
+class TestRenderConstantAssignments:
+    """Constant blocks load values and integer-exponent aliases."""
+
+    def _exec_block(self, block, constants):
+        namespace = {"constants": constants, "precision": float}
+        exec(textwrap.dedent(block), namespace)
+        return namespace
+
+    def test_renders_load_and_alias_lines(self):
+        block = render_constant_assignments(["g"])
+        lines = block.splitlines()
+        assert lines[0] == "    g = precision(constants['g'])"
+        assert lines[1].startswith("    _cubie_codegen_iexp_g = ")
+
+    def test_alias_is_int_for_integral_value(self):
+        block = render_constant_assignments(["g"])
+        namespace = self._exec_block(block, {"g": 4.0})
+        alias = namespace["_cubie_codegen_iexp_g"]
+        assert alias == 4
+        assert isinstance(alias, int)
+
+    def test_alias_keeps_fractional_value(self):
+        block = render_constant_assignments(["g"])
+        namespace = self._exec_block(block, {"g": 4.5})
+        assert namespace["_cubie_codegen_iexp_g"] == 4.5
+
+    def test_alias_keeps_huge_integral_value(self):
+        block = render_constant_assignments(["g"])
+        namespace = self._exec_block(block, {"g": 1.0e300})
+        assert namespace["_cubie_codegen_iexp_g"] == 1.0e300
+        assert not isinstance(namespace["_cubie_codegen_iexp_g"], int)
+
+    def test_alias_negative_integral_value(self):
+        block = render_constant_assignments(["g"])
+        namespace = self._exec_block(block, {"g": -3.0})
+        alias = namespace["_cubie_codegen_iexp_g"]
+        assert alias == -3
+        assert isinstance(alias, int)
+
+    def test_empty_input_renders_empty_string(self):
+        assert render_constant_assignments([]) == ""

@@ -97,6 +97,13 @@ set.
   exponents — the `_in_index`/`_in_pow` context flags suppress wrapping (so indices stay integer
   and the `x**2`→`x*x` / `x**3`→`x*x*x` rewrite can match). Set/restore them in any new `_print_*`
   that recurses into indices or exponents.
+- A symbol exponent naming a factory-scope constant (passed via the printer's `constant_names`)
+  prints as its integer-exponent alias (`sym_utils.EXPONENT_ALIAS_PREFIX + name`);
+  `render_constant_assignments` emits the alias per constant (`int(value)` when integral and in
+  int64 range, else the precision-cast value), so integral constant exponents lower to
+  multiplication chains instead of `pow` calls while the generated source stays independent of
+  constant values. Generators pass `constant_names=index_map.constants.symbol_map` to
+  `print_cuda_multiple`.
 - Function resolution: `CUDA_FUNCTIONS` → `symbol_map["__function_aliases__"]` → `d_`-prefixed
   derivative passthrough → plain-call fallback; it never raises `PrintMethodNotImplementedError`.
 - `Piecewise` emits as nested ternaries; scalar symbols remap to array refs via `symbol_map`.

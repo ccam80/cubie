@@ -46,9 +46,11 @@ chunks), then loops chunks launching the compiled kernel. Results flow back thro
 `Solver.__init__` uses `merge_kwargs_into_settings` to split loose kwargs against the
 subcomponents' `ALL_*_PARAMETERS` sets (`ALL_OUTPUT_FUNCTION_PARAMETERS`,
 `ALL_MEMORY_MANAGER_PARAMETERS`, `ALL_STEP_CONTROLLER_PARAMETERS`,
-`ALL_ALGORITHM_STEP_PARAMETERS`, `ALL_LOOP_SETTINGS`, `ALL_CACHE_PARAMETERS`); `strict=True`
-raises `KeyError` on an unrecognised kwarg. Add a new result accessor on `kernel` and expose
-it as a `Solver` property.
+`ALL_ALGORITHM_STEP_PARAMETERS`, `ALL_LOOP_SETTINGS`, `ALL_CACHE_PARAMETERS`); a kwarg no
+set consumes raises `KeyError`, and legacy timing spellings (`RENAMED_TIMING_KWARGS`, e.g.
+`dt_save`) raise with a rename hint. Internal child `update` calls stay `silent=True` —
+siblings must ignore each other's keys; only the top-level entry points enforce. Add a new
+result accessor on `kernel` and expose it as a `Solver` property.
 
 ### Grids
 `BatchInputHandler` converts user dicts/arrays into `(variable, run)` arrays via the
