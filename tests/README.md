@@ -29,9 +29,10 @@ from `solver_settings`. This means:
   for that session.
 - Tests parametrize by overriding keys in `solver_settings` via
   `solver_settings_override` (indirect parametrization).
-- There is **one** override fixture: `solver_settings_override`. The legacy
-  two-tier system (`solver_settings_override` / `solver_settings_override2`)
-  should be consolidated into a single override.
+- There is **one** override fixture: `solver_settings_override`. Tests that
+  need the cross product of two parameter axes (e.g. solver type ×
+  preconditioner order) build the merged dicts in a single parametrize
+  list rather than stacking a second override fixture.
 
 ### 3. No mocks, no dummies
 

@@ -50,7 +50,11 @@ from tests.integrators.cpu_reference import (
     run_reference_loop,
 )
 
-from tests._utils import _driver_sequence, run_device_loop
+from tests._utils import (
+    _driver_sequence,
+    run_controller_device_step,
+    run_device_loop,
+)
 from numpy.typing import NDArray
 Array = NDArray[np.floating]
 from tests.system_fixtures import (
@@ -136,12 +140,8 @@ def codegen_dir():
 
 
 @pytest.fixture(scope="session")
-def precision(solver_settings_override, solver_settings_override2):
-    """Return precision from overrides, defaulting to float32.
-
-    Precedence: override2 (class-level) is checked first, then override
-    (method-level). This allows class-level precision to be overridden
-    by individual test methods.
+def precision(solver_settings_override):
+    """Return precision from the override, defaulting to float32.
 
     Usage:
     @pytest.mark.parametrize("solver_settings_override",
@@ -149,10 +149,8 @@ def precision(solver_settings_override, solver_settings_override2):
     def test_something(precision):
         # precision will be np.float64 here
     """
-    # Check override2 first (class-level), then override (method-level)
-    for override in [solver_settings_override2, solver_settings_override]:
-        if override and "precision" in override:
-            return override["precision"]
+    if solver_settings_override and "precision" in solver_settings_override:
+        return solver_settings_override["precision"]
     return np.float32
 
 
@@ -188,9 +186,7 @@ def tolerance(tolerance_override, precision):
 
 
 @pytest.fixture(scope="session")
-def system(
-    request, solver_settings_override, solver_settings_override2, precision
-):
+def system(request, solver_settings_override, precision):
     """Return the appropriate symbolic system, defaulting to nonlinear.
 
     Usage:
@@ -200,10 +196,10 @@ def system(
         # system will be the cardiovascular symbolic model here
     """
     model_type = "nonlinear"
-    for override in [solver_settings_override2, solver_settings_override]:
-        if override and "system_type" in override:
-            model_type = override["system_type"]
-            break
+    if solver_settings_override:
+        model_type = solver_settings_override.get(
+            "system_type", model_type
+        )
 
     if model_type == "linear":
         return build_three_state_linear_system(precision)
@@ -238,16 +234,7 @@ def solver_settings_override(request):
 
 
 @pytest.fixture(scope="session")
-def solver_settings_override2(request):
-    """Override for solver settings, if provided. A second one, so that we
-    can do a class-level and function-level override without conflicts."""
-    return request.param if hasattr(request, "param") else {}
-
-
-@pytest.fixture(scope="session")
-def solver_settings(
-    solver_settings_override, solver_settings_override2, system, precision
-):
+def solver_settings(solver_settings_override, system, precision):
     """Create LoopStepConfig with default solver configuration."""
     # Clear the buffer_registry singleton when we set up a new system
     buffer_registry.reset()
@@ -326,18 +313,17 @@ def solver_settings(
         "deadband_min",
         "deadband_max",
     }
-    for override in [solver_settings_override, solver_settings_override2]:
-        if override:
-            # Update defaults with any overrides provided
-            for key, value in override.items():
-                if key in float_keys:
-                    # Handle None values for optional float parameters
-                    if value is None:
-                        defaults[key] = None
-                    else:
-                        defaults[key] = precision(value)
+    if solver_settings_override:
+        # Update defaults with any overrides provided
+        for key, value in solver_settings_override.items():
+            if key in float_keys:
+                # Handle None values for optional float parameters
+                if value is None:
+                    defaults[key] = None
                 else:
-                    defaults[key] = value
+                    defaults[key] = precision(value)
+            else:
+                defaults[key] = value
 
     # Add derived metadata
     defaults["algorithm_order"] = _get_algorithm_order(defaults["algorithm"])
@@ -662,6 +648,40 @@ def step_controller_mutable(precision, step_controller_settings):
     """Return a fresh step controller for mutation-focused tests."""
 
     return get_controller(precision, step_controller_settings)
+
+
+@pytest.fixture(scope="function")
+def step_setup(request, precision, system):
+    """Inputs for a single controller device step, override via param."""
+    n = system.sizes.states
+    setup_dict = {
+        "dt0": 0.05,
+        "error": np.asarray(
+            [0.01] * system.sizes.states, dtype=precision
+        ),
+        "state": np.ones(n, dtype=precision),
+        "state_prev": np.ones(n, dtype=precision),
+        "local_mem": np.zeros(2, dtype=precision),
+    }
+    if hasattr(request, "param"):
+        for key, value in request.param.items():
+            if key in setup_dict:
+                setup_dict[key] = value
+    return setup_dict
+
+
+@pytest.fixture(scope="function")
+def device_step_results(step_controller, precision, step_setup):
+    """Run the session controller's device function one step."""
+    return run_controller_device_step(
+        step_controller.device_function,
+        precision,
+        step_setup["dt0"],
+        step_setup["error"],
+        state=step_setup["state"],
+        state_prev=step_setup["state_prev"],
+        local_mem=step_setup["local_mem"],
+    )
 
 
 @pytest.fixture(scope="session")
