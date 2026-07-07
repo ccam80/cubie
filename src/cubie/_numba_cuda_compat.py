@@ -22,10 +22,6 @@ Patch groups, each with its fork feature branch:
     Error markup builds strings without re-wrapping the terminal via
     colorama per call, and the numba.core base class no longer
     re-highlights already-highlighted messages.
-``feat/targetconfig-hash-cache``
-    ``TargetConfig.__hash__`` returns the per-class constant it
-    always was (``sorted`` of the values() mapping iterates option
-    names only) without rebuilding the options dict per call.
 ``feat/ssa-restricted-sweeps``
     SSA rewrite passes visit only blocks that define or use the
     variable being processed.
@@ -33,10 +29,6 @@ Patch groups, each with its fork feature branch:
     Callee IR for inlining is memoised per (function, flags) and each
     call site receives a fast structural clone; includes the
     ``preserve_ir`` form of ``InlineWorker.inline_ir``.
-``feat/callconstraint-memo``
-    ``CallConstraint`` skips re-resolution during the type-inference
-    fix point when its inputs are unchanged (template-based callables
-    only).
 ``feat/lowering-call-type-cache``
     Signatures resolved while lowering getitem/setitem/binop
     instructions are cached per function. (The delitem site inside
@@ -59,7 +51,6 @@ once the corresponding change lands upstream.
 
 import copy
 import inspect
-import itertools
 import operator
 import os
 import weakref
@@ -75,9 +66,7 @@ if os.environ.get("NUMBA_ENABLE_CUDASIM", "0") != "1":
         ir_utils as _ir_utils,
         postproc as _postproc,
         ssa as _ssa,
-        targetconfig as _targetconfig,
         transforms as _transforms,
-        typeinfer as _typeinfer,
     )
     from numba.cuda import lowering as _lowering
 
@@ -311,41 +300,6 @@ def _patch_error_markup():
 
 
 # ----------------------------------------------------------------- #
-# feat/targetconfig-hash-cache: per-class constant hash              #
-# ----------------------------------------------------------------- #
-
-
-def _patch_targetconfig_hash():
-    cfg_cls = _targetconfig.TargetConfig
-    if hasattr(cfg_cls, "_precomputed_hash"):
-        return
-
-    def _set_hash(cls):
-        cls._precomputed_hash = hash(tuple(sorted(cls.options)))
-        for sub in cls.__subclasses__():
-            _set_hash(sub)
-
-    _set_hash(cfg_cls)
-
-    meta = type(cfg_cls)
-    orig_meta_init = meta.__init__
-
-    def meta_init(cls, name, bases, dct):
-        orig_meta_init(cls, name, bases, dct)
-        cls._precomputed_hash = hash(tuple(sorted(cls.options)))
-
-    meta.__init__ = meta_init
-
-    def __hash__(self):
-        # Equal to hash(tuple(sorted(self.values()))): sorting the
-        # values() mapping iterates option names only, so the hash is
-        # the per-class constant precomputed above.
-        return self._precomputed_hash
-
-    cfg_cls.__hash__ = __hash__
-
-
-# ----------------------------------------------------------------- #
 # feat/ssa-restricted-sweeps: per-variable block restriction         #
 # ----------------------------------------------------------------- #
 
@@ -515,11 +469,7 @@ def _clone_callee_ir(func_ir):
 
     def clone_value(value):
         if isinstance(value, ir.var_types):
-            new_var = varmap.get(value.name)
-            if new_var is None:
-                new_var = new_scope.define(value.name, value.loc)
-                varmap[value.name] = new_var
-            return new_var
+            return varmap[value.name]
         if isinstance(value, ir.expr_types):
             new_expr = copy.copy(value)
             new_expr._kws = {
@@ -712,11 +662,7 @@ def _patch_inline_worker():
         nested inline='always' functions otherwise recompile their
         whole subtree at every transitive call site.
         """
-        try:
-            per_func = _callee_ir_cache.setdefault(function, {})
-        except TypeError:
-            # Function is not weak-referenceable; skip caching.
-            return self.run_untyped_passes(function, enable_ssa)
+        per_func = _callee_ir_cache.setdefault(function, {})
         key = (str(self.flags), enable_ssa)
         canonical_ir = per_func.get(key)
         if canonical_ir is None:
@@ -726,162 +672,6 @@ def _patch_inline_worker():
 
     worker.inline_function = inline_function
     worker._fresh_callee_ir = _fresh_callee_ir
-
-
-# ----------------------------------------------------------------- #
-# feat/callconstraint-memo: skip unchanged re-resolutions            #
-# ----------------------------------------------------------------- #
-
-
-def _patch_callconstraint():
-    constraint = _typeinfer.CallConstraint
-    if "_resolved_key" in inspect.getsource(constraint.resolve):
-        return
-
-    orig_init = constraint.__init__
-
-    def __init__(self, target, func, args, kws, vararg, loc):
-        orig_init(self, target, func, args, kws, vararg, loc)
-        # Input types of the last successful resolution, when that
-        # resolution is provably repeatable (see resolve). The
-        # propagation fix-point re-executes every constraint each
-        # round; when the inputs are unchanged the resolution result
-        # is identical, so the (expensive) template matching can be
-        # skipped.
-        self._resolved_key = None
-
-    def resolve(self, typeinfer, typevars, fnty):
-        assert fnty
-        context = typeinfer.context
-
-        r = _typeinfer.fold_arg_vars(
-            typevars, self.args, self.vararg, self.kws
-        )
-        if r is None:
-            # Cannot resolve call type until all argument types are
-            # known
-            return
-        pos_args, kw_args = r
-
-        # Check argument to be precise
-        for a in itertools.chain(pos_args, kw_args.values()):
-            # Forbids imprecise type except array of undefined dtype
-            if not a.is_precise() and not isinstance(a, types.Array):
-                return
-
-        # Resolve call type
-        if isinstance(fnty, types.TypeRef):
-            # Unwrap TypeRef
-            fnty = fnty.instance_type
-
-        resolve_key = (fnty, pos_args, tuple(sorted(kw_args.items())))
-        if resolve_key == self._resolved_key:
-            # Same inputs as the last successful resolution and that
-            # resolution was repeatable: the signature, the target
-            # type addition and the refinement bookkeeping would all
-            # be identical, so there is nothing new to compute.
-            return
-
-        try:
-            sig = typeinfer.resolve_call(fnty, pos_args, kw_args)
-        except _typeinfer.ForceLiteralArg as e:
-            # Adjust for bound methods
-            folding_args = (
-                (fnty.this,) + tuple(self.args)
-                if isinstance(fnty, types.BoundFunction)
-                else self.args
-            )
-            folded = e.fold_arguments(folding_args, self.kws)
-            requested = set()
-            unsatisfied = set()
-            for idx in e.requested_args:
-                maybe_arg = typeinfer.func_ir.get_definition(folded[idx])
-                if isinstance(maybe_arg, ir.arg_types):
-                    requested.add(maybe_arg.index)
-                else:
-                    unsatisfied.add(idx)
-            if unsatisfied:
-                raise _typeinfer.TypingError(
-                    "Cannot request literal type.", loc=self.loc
-                )
-            elif requested:
-                raise _typeinfer.ForceLiteralArg(requested, loc=self.loc)
-        if sig is None:
-            # Note: duplicated error checking.
-            #       See types.BaseFunction.get_call_type
-            # Arguments are invalid => explain why
-            headtemp = "Invalid use of {0} with parameters ({1})"
-            args = [str(a) for a in pos_args]
-            args += ["%s=%s" % (k, v) for k, v in sorted(kw_args.items())]
-            head = headtemp.format(fnty, ", ".join(map(str, args)))
-            desc = context.explain_function_type(fnty)
-            msg = "\n".join([head, desc])
-            raise _typeinfer.TypingError(msg)
-
-        typeinfer.add_type(self.target, sig.return_type, loc=self.loc)
-
-        # If the function is a bound function and its receiver type
-        # was refined, propagate it.
-        if (
-            isinstance(fnty, types.BoundFunction)
-            and sig.recvr is not None
-            and sig.recvr != fnty.this
-        ):
-            refined_this = context.unify_pairs(sig.recvr, fnty.this)
-            if (
-                refined_this is None
-                and fnty.this.is_precise()
-                and sig.recvr.is_precise()
-            ):
-                msg = "Cannot refine type {} to {}".format(
-                    sig.recvr,
-                    fnty.this,
-                )
-                raise _typeinfer.TypingError(msg, loc=self.loc)
-            if refined_this is not None and refined_this.is_precise():
-                refined_fnty = fnty.copy(this=refined_this)
-                typeinfer.propagate_refined_type(self.func, refined_fnty)
-
-        # If the return type is imprecise but can be unified with the
-        # target variable's inferred type, use the latter.
-        # Useful for code such as::
-        #    s = set()
-        #    s.add(1)
-        # (the set() call must be typed as int64(), not undefined())
-        if not sig.return_type.is_precise():
-            target = typevars[self.target]
-            if target.defined:
-                targetty = target.getone()
-                if (
-                    context.unify_pairs(targetty, sig.return_type)
-                    == targetty
-                ):
-                    sig = sig.replace(return_type=targetty)
-
-        self.signature = sig
-        self._add_refine_map(typeinfer, typevars, sig)
-
-        # Mark this resolution as repeatable only when re-running it
-        # with identical inputs could not produce a different
-        # outcome: a template-based BaseFunction resolves purely from
-        # its registered templates (unlike e.g. a Dispatcher, whose
-        # resolution consults the callee's still-refining inference
-        # state during recursion), a precise return type skips the
-        # target-unification branch, a non-BoundFunction skips
-        # receiver refinement, and absence from the refine map means
-        # no later refinement will call back into this constraint.
-        if (
-            isinstance(fnty, types.BaseFunction)
-            and not isinstance(fnty, types.BoundFunction)
-            and sig.return_type.is_precise()
-            and typeinfer.refine_map.get(self.target) is not self
-        ):
-            self._resolved_key = resolve_key
-        else:
-            self._resolved_key = None
-
-    constraint.__init__ = __init__
-    constraint.resolve = resolve
 
 
 # ----------------------------------------------------------------- #
@@ -1128,10 +918,8 @@ def apply_patches():
     _patch_live_map()
     _patch_postproc()
     _patch_error_markup()
-    _patch_targetconfig_hash()
     _patch_ssa()
     _patch_inline_worker()
-    _patch_callconstraint()
     _patch_lowering()
 
 
