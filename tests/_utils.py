@@ -1152,8 +1152,13 @@ def assert_summaries_close(
     allowed = atol_columns + rtol * np.abs(
         reference_summaries.astype(np.float64)
     )
-    both_nan = np.isnan(device_summaries) & np.isnan(reference_summaries)
-    violations = (difference > allowed) & ~both_nan
+    device_nan = np.isnan(device_summaries)
+    reference_nan = np.isnan(reference_summaries)
+    both_nan = device_nan & reference_nan
+    # One-sided NaN makes difference NaN, and NaN > allowed is False,
+    # so it must be flagged explicitly rather than fall through.
+    nan_mismatch = device_nan ^ reference_nan
+    violations = ((difference > allowed) & ~both_nan) | nan_mismatch
     assert not np.any(violations), (
         f"{label} mismatch at {np.argwhere(violations).tolist()}.\n"
         f"device: {device_summaries}\n"
