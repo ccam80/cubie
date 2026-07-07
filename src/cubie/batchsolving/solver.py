@@ -70,6 +70,7 @@ from cubie.outputhandling.output_functions import (
     ALL_OUTPUT_FUNCTION_PARAMETERS,
 )
 from cubie.time_logger import default_timelogger
+from cubie.batchsolving.BatchSolverConfig import ALL_KERNEL_PARAMETERS
 from cubie.cubie_cache import ALL_CACHE_PARAMETERS
 
 # Register module-level events
@@ -363,6 +364,11 @@ class Solver:
             valid_keys=ALL_CACHE_PARAMETERS,
             user_settings={},
         )
+        kernel_settings, kernel_recognized = merge_kwargs_into_settings(
+            kwargs=kwargs,
+            valid_keys=ALL_KERNEL_PARAMETERS,
+            user_settings={},
+        )
         recognized_kwargs = (
             step_recognized
             | algorithm_recognized
@@ -370,6 +376,7 @@ class Solver:
             | memory_recognized
             | loop_recognized
             | cache_recognized
+            | kernel_recognized
         )
 
         self.kernel = BatchSolverKernel(
@@ -382,6 +389,7 @@ class Solver:
             memory_settings=memory_settings,
             cache=cache,
             cache_settings=cache_settings,
+            kernel_settings=kernel_settings,
         )
 
         if set(kwargs) - recognized_kwargs:
