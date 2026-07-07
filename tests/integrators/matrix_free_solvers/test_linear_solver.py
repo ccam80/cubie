@@ -149,42 +149,43 @@ def _run_symbolic_linear_solve(
     )
 
 
+_LINEAR_SOLVER_SETTINGS = {
+    "steepest_descent": {
+        "linear_correction_type": "steepest_descent",
+        "krylov_atol": 1e-8,
+        "krylov_rtol": 1e-8,
+        "krylov_max_iters": 1000,
+    },
+    "minimal_residual": {
+        "linear_correction_type": "minimal_residual",
+        "krylov_atol": 1e-8,
+        "krylov_rtol": 1e-8,
+        "krylov_max_iters": 1000,
+    },
+    "bicgstab": {
+        "linear_correction_type": "bicgstab",
+        "krylov_atol": 1e-8,
+        "krylov_rtol": 1e-8,
+        "krylov_max_iters": 200,
+    },
+}
+
+
 @pytest.mark.parametrize(
     "system_setup", ["linear", "coupled_linear"], indirect=True
 )
 @pytest.mark.parametrize(
     "solver_settings_override",
     [
-        {
-            "linear_correction_type": "steepest_descent",
-            "krylov_atol": 1e-8,
-            "krylov_rtol": 1e-8,
-            "krylov_max_iters": 1000,
-        },
-        {
-            "linear_correction_type": "minimal_residual",
-            "krylov_atol": 1e-8,
-            "krylov_rtol": 1e-8,
-            "krylov_max_iters": 1000,
-        },
-        {
-            "linear_correction_type": "bicgstab",
-            "krylov_atol": 1e-8,
-            "krylov_rtol": 1e-8,
-            "krylov_max_iters": 200,
-        },
+        dict(settings, preconditioner_order=order)
+        for settings in _LINEAR_SOLVER_SETTINGS.values()
+        for order in (0, 1, 2)
     ],
-    ids=["steepest_descent", "minimal_residual", "bicgstab"],
-    indirect=True,
-)
-@pytest.mark.parametrize(
-    "solver_settings_override2",
-    [
-        {"preconditioner_order": 0},
-        {"preconditioner_order": 1},
-        {"preconditioner_order": 2},
+    ids=[
+        f"{name}-order{order}"
+        for name in _LINEAR_SOLVER_SETTINGS
+        for order in (0, 1, 2)
     ],
-    ids=["order0", "order1", "order2"],
     indirect=True,
 )
 def test_linear_solver_symbolic(
@@ -208,23 +209,10 @@ def test_linear_solver_symbolic(
 @pytest.mark.parametrize(
     "solver_settings_override",
     [
-        {
-            "linear_correction_type": "bicgstab",
-            "krylov_atol": 1e-8,
-            "krylov_rtol": 1e-8,
-            "krylov_max_iters": 200,
-        },
+        dict(_LINEAR_SOLVER_SETTINGS["bicgstab"], preconditioner_order=order)
+        for order in (1, 2)
     ],
-    ids=["bicgstab"],
-    indirect=True,
-)
-@pytest.mark.parametrize(
-    "solver_settings_override2",
-    [
-        {"preconditioner_order": 1},
-        {"preconditioner_order": 2},
-    ],
-    ids=["order1", "order2"],
+    ids=["bicgstab-order1", "bicgstab-order2"],
     indirect=True,
 )
 def test_linear_solver_stiff(

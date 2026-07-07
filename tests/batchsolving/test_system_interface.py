@@ -1,10 +1,10 @@
 """Tests for cubie.batchsolving.SystemInterface."""
 
-from __future__ import annotations
-
 import numpy as np
 import pytest
 from numpy.testing import assert_array_equal
+
+from cubie.batchsolving.SystemInterface import SystemInterface
 
 
 # ── __init__ and from_system ─────────────────────────────── #
@@ -14,6 +14,14 @@ def test_init_stores_system_values(system_interface, system):
     assert system_interface.parameters is system.parameters
     assert system_interface.states is system.initial_values
     assert system_interface.observables is system.observables
+
+
+def test_from_system_creates_interface(system):
+    """from_system wraps system.parameters, initial_values, observables."""
+    si = SystemInterface.from_system(system)
+    assert si.parameters is system.parameters
+    assert si.states is system.initial_values
+    assert si.observables is system.observables
 
 
 
@@ -36,6 +44,20 @@ def test_update_merges_kwargs(system_interface_mutable, system):
     name = system.initial_values.names[0]
     recognized = system_interface_mutable.update(None, **{name: 99.0})
     assert name in recognized
+
+
+def test_update_merges_kwargs_into_updates_dict(
+    system_interface_mutable, system
+):
+    """Merges kwargs into a provided updates dict and applies values."""
+    name = system.parameters.names[0]
+    original = system_interface_mutable.parameters.values_dict[name]
+    new_val = original + 1.0
+    recognized = system_interface_mutable.update({}, **{name: new_val})
+    assert name in recognized
+    assert (
+        system_interface_mutable.parameters.values_dict[name] == new_val
+    )
 
 
 def test_update_applies_to_parameters_and_states(
@@ -232,6 +254,17 @@ def test_merge_variable_inputs_replaces_none_with_empty(
         [], None, None
     )
     assert len(state_idx) == 0
+    assert len(obs_idx) == 0
+
+
+def test_merge_variable_inputs_indices_without_labels(
+    system_interface, system
+):
+    """Indices without labels bypass the all-None full-range path."""
+    state_idx, obs_idx = system_interface.merge_variable_inputs(
+        None, np.array([0], dtype=np.int32), None,
+    )
+    assert_array_equal(state_idx, np.array([0], dtype=np.int32))
     assert len(obs_idx) == 0
 
 

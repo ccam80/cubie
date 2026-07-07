@@ -868,11 +868,14 @@ def run_device_loop(
     d_counters_out = cuda.to_device(counters_output)
     d_status = cuda.to_device(status)
 
+    # Build before sizing: the build refreshes nested child buffer
+    # sizes in the loop's group, mirroring BatchSolverKernel.run().
+    loop_fn = singleintegratorrun.device_function
+
     shared_bytes = max(4, singleintegratorrun.shared_memory_bytes)
     shared_elements = max(1, singleintegratorrun.shared_memory_elements)
     persistent_required = max(1, singleintegratorrun.persistent_local_elements)
 
-    loop_fn = singleintegratorrun.device_function
     numba_precision = from_dtype(precision)
 
     @cuda.jit(
@@ -1343,3 +1346,77 @@ def setup_chunked_arrays(manager, num_runs, num_chunks):
             host_slot = manager.host.get_managed_array(name)
             host_slot.chunked_shape = chunked_shape
             host_slot.chunked_slice_fn = slice_fn
+
+
+class StepResult:
+    """Lightweight return container mirroring GPU kernel outputs."""
+
+    def __init__(self, dt, accepted, local_mem):
+        self.dt = dt
+        self.accepted = accepted
+        self.local_mem = local_mem
+
+
+def run_controller_device_step(
+    device_func,
+    precision,
+    dt0,
+    error,
+    *,
+    local_mem=None,
+    state=None,
+    state_prev=None,
+    niters=1,
+):
+    """Execute a step-controller device function once on the GPU."""
+
+    err = np.asarray(error, dtype=precision)
+    state_arr = (
+        np.asarray(state, dtype=precision)
+        if state is not None
+        else np.zeros_like(err)
+    )
+    state_prev_arr = (
+        np.asarray(state_prev, dtype=precision)
+        if state_prev is not None
+        else np.zeros_like(err)
+    )
+
+    dt = np.asarray([dt0], dtype=precision)
+    accept = np.zeros(1, dtype=np.int32)
+    niters_val = np.int32(niters)
+    shared_scratch = np.zeros(1, dtype=precision)
+    if local_mem is not None:
+        persistent_local = np.asarray(local_mem, dtype=precision)
+    else:
+        persistent_local = np.zeros(2, dtype=precision)
+
+    @cuda.jit
+    def kernel(
+        dt_val,
+        state_val,
+        state_prev_val,
+        err_val,
+        niters_val,
+        accept_val,
+        shared_val,
+        persistent_val,
+    ):
+        device_func(
+            dt_val,
+            state_val,
+            state_prev_val,
+            err_val,
+            niters_val,
+            accept_val,
+            shared_val,
+            persistent_val,
+        )
+
+    kernel[1, 1](
+        dt, state_arr, state_prev_arr, err, niters_val, accept,
+        shared_scratch, persistent_local,
+    )
+    return StepResult(
+        precision(dt[0]), int(accept[0]), persistent_local.copy()
+    )
