@@ -909,3 +909,191 @@ def test_update_controller_swap_builds(single_integrator_run_mutable):
     run.update({"step_controller": target})
     assert run.compile_settings.step_controller == target
     assert run.device_function is not None
+# ── Inner-solver tolerance defaults ─────────────────────────────────────── #
+
+# Adaptive implicit configuration with the inner-solver tolerances left
+# unset (``None`` marks them not-given), so they must default to the
+# controller atol/rtol divided by ten.
+_CN_ADAPTIVE_NOT_GIVEN = {
+    "algorithm": "crank_nicolson",
+    "step_controller": "pid",
+    "atol": 1e-8,
+    "rtol": 1e-8,
+    "dt_min": 1e-10,
+    "dt_max": 0.1,
+    "krylov_atol": None,
+    "krylov_rtol": None,
+    "newton_atol": None,
+    "newton_rtol": None,
+}
+
+
+@pytest.mark.parametrize(
+    "solver_settings_override", [_CN_ADAPTIVE_NOT_GIVEN], indirect=True
+)
+def test_inner_tolerances_default_to_controller_over_ten(
+    single_integrator_run,
+):
+    """Unset krylov/newton tolerances default to controller tol / 10."""
+    run = single_integrator_run
+    algo = run._algo_step
+    controller = run._step_controller
+    assert controller.is_adaptive
+    assert algo.is_implicit
+
+    expected_atol = np.asarray(controller.atol) / 10.0
+    expected_rtol = np.asarray(controller.rtol) / 10.0
+    assert np.allclose(algo.krylov_atol, expected_atol)
+    assert np.allclose(algo.krylov_rtol, expected_rtol)
+    assert np.allclose(algo.newton_atol, expected_atol)
+    assert np.allclose(algo.newton_rtol, expected_rtol)
+
+
+# Same adaptive implicit configuration but with an explicit ``krylov_atol``
+# that must survive untouched while the unset tolerances are still derived.
+_CN_ADAPTIVE_KRYLOV_GIVEN = {
+    "algorithm": "crank_nicolson",
+    "step_controller": "pid",
+    "atol": 1e-8,
+    "rtol": 1e-8,
+    "dt_min": 1e-10,
+    "dt_max": 0.1,
+    "krylov_atol": 3e-5,
+    "krylov_rtol": None,
+    "newton_atol": None,
+    "newton_rtol": None,
+}
+
+
+@pytest.mark.parametrize(
+    "solver_settings_override", [_CN_ADAPTIVE_KRYLOV_GIVEN], indirect=True
+)
+def test_explicit_inner_tolerance_survives(single_integrator_run):
+    """An explicitly given krylov_atol is not overwritten by the default."""
+    run = single_integrator_run
+    algo = run._algo_step
+    controller = run._step_controller
+
+    assert np.allclose(algo.krylov_atol, 3e-5)
+    # The unset tolerances still track the controller / 10.
+    expected_atol = np.asarray(controller.atol) / 10.0
+    expected_rtol = np.asarray(controller.rtol) / 10.0
+    assert not np.allclose(algo.krylov_atol, expected_atol)
+    assert np.allclose(algo.krylov_rtol, expected_rtol)
+    assert np.allclose(algo.newton_atol, expected_atol)
+    assert np.allclose(algo.newton_rtol, expected_rtol)
+
+
+# Rosenbrock uses a linear (Krylov-only) inner solver, so only the krylov
+# tolerances are derived and the newton tolerances stay unset (``None``).
+_ROS3P_ADAPTIVE_NOT_GIVEN = {
+    "algorithm": "ros3p",
+    "step_controller": "pid",
+    "atol": 1e-8,
+    "rtol": 1e-8,
+    "dt_min": 1e-10,
+    "dt_max": 0.1,
+    "krylov_atol": None,
+    "krylov_rtol": None,
+    "newton_atol": None,
+    "newton_rtol": None,
+}
+
+
+@pytest.mark.parametrize(
+    "solver_settings_override", [_ROS3P_ADAPTIVE_NOT_GIVEN], indirect=True
+)
+def test_linear_solver_only_derives_krylov(single_integrator_run):
+    """A linearly-implicit algorithm derives only the krylov tolerances."""
+    run = single_integrator_run
+    algo = run._algo_step
+    controller = run._step_controller
+
+    expected_atol = np.asarray(controller.atol) / 10.0
+    expected_rtol = np.asarray(controller.rtol) / 10.0
+    assert np.allclose(algo.krylov_atol, expected_atol)
+    assert np.allclose(algo.krylov_rtol, expected_rtol)
+    assert algo.newton_atol is None
+    assert algo.newton_rtol is None
+
+
+@pytest.mark.parametrize(
+    "solver_settings_override", [_CN_ADAPTIVE_NOT_GIVEN], indirect=True
+)
+def test_inner_tolerances_track_controller_update(
+    single_integrator_run_mutable,
+):
+    """Updating the controller atol re-derives the unset inner tolerances."""
+    run = single_integrator_run_mutable
+
+    # 2e-4 / 10 = 2e-5, which is not the 1e-6 ScaledNorm default, so a
+    # broken re-derivation cannot pass by coincidence.
+    run.update({"atol": 2e-4, "rtol": 2e-4})
+
+    expected_atol = np.asarray(run._step_controller.atol) / 10.0
+    expected_rtol = np.asarray(run._step_controller.rtol) / 10.0
+    assert np.allclose(expected_atol, 2e-5)
+    assert np.allclose(run._algo_step.krylov_atol, expected_atol)
+    assert np.allclose(run._algo_step.newton_atol, expected_atol)
+    assert np.allclose(run._algo_step.krylov_rtol, expected_rtol)
+    assert np.allclose(run._algo_step.newton_rtol, expected_rtol)
+
+
+@pytest.mark.parametrize(
+    "solver_settings_override", [_CN_ADAPTIVE_NOT_GIVEN], indirect=True
+)
+def test_user_set_inner_tolerance_sticks_across_update(
+    single_integrator_run_mutable,
+):
+    """A krylov_atol set via update is preserved when atol later changes."""
+    run = single_integrator_run_mutable
+
+    run.update({"krylov_atol": 7e-4})
+    run.update({"atol": 2e-4, "rtol": 2e-4})
+
+    # The explicitly set krylov_atol survives the later controller change.
+    assert np.allclose(run._algo_step.krylov_atol, 7e-4)
+    # Tolerances the user never set still track the controller / 10 (2e-5,
+    # distinct from both 7e-4 and the 1e-6 default).
+    expected_atol = np.asarray(run._step_controller.atol) / 10.0
+    assert np.allclose(expected_atol, 2e-5)
+    assert np.allclose(run._algo_step.newton_atol, expected_atol)
+
+
+# FIRK stage solvers work on the stacked stage vector, whose length
+# is stage_count * n_states, so the derived per-state tolerance array
+# reaches inner norms of a different length; the norm tolerance
+# converter broadcasts uniform arrays to its own length.
+_RADAU_ADAPTIVE_NOT_GIVEN = {
+    "algorithm": "radau_iia_5",
+    "step_controller": "pid",
+    "atol": 1e-8,
+    "rtol": 1e-8,
+    "dt_min": 1e-10,
+    "dt_max": 0.1,
+    "krylov_atol": None,
+    "krylov_rtol": None,
+    "newton_atol": None,
+    "newton_rtol": None,
+}
+
+
+@pytest.mark.parametrize(
+    "solver_settings_override", [_RADAU_ADAPTIVE_NOT_GIVEN], indirect=True
+)
+def test_inner_tolerance_defaults_with_stacked_stage_solver(
+    single_integrator_run,
+):
+    """Uniform tolerances broadcast onto the stacked stage vector."""
+    run = single_integrator_run
+    algo = run._algo_step
+    controller = run._step_controller
+
+    solver_n = int(algo.solver.compile_settings.n)
+    n_states = np.asarray(controller.atol).size
+    assert solver_n > n_states
+    assert np.asarray(algo.krylov_atol).shape[0] == solver_n
+    assert np.allclose(algo.krylov_atol, 1e-9)
+    assert np.allclose(algo.krylov_rtol, 1e-9)
+    assert np.allclose(algo.newton_atol, 1e-9)
+    assert np.allclose(algo.newton_rtol, 1e-9)
