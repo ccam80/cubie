@@ -193,7 +193,11 @@ def _build_residual_lines(
         eval_exprs = topological_sort(eval_exprs)
     eval_exprs = prune_unused_assignments(eval_exprs, outputsym_str='out')
 
-    lines = print_cuda_multiple(eval_exprs, symbol_map=symbol_map)
+    lines = print_cuda_multiple(
+        eval_exprs,
+        symbol_map=symbol_map,
+        constant_names=index_map.constants.symbol_map,
+    )
     if not lines:
         return "        pass"
     return "\n".join("        " + ln for ln in lines)
@@ -316,7 +320,11 @@ def _build_n_stage_residual_lines(
     )
 
     eval_exprs = prune_unused_assignments(eval_exprs, outputsym_str='out')
-    lines = print_cuda_multiple(eval_exprs, symbol_map=symbol_map)
+    lines = print_cuda_multiple(
+        eval_exprs,
+        symbol_map=symbol_map,
+        constant_names=index_map.constants.symbol_map,
+    )
     if not lines:
         return "        pass"
     return "\n".join("        " + ln for ln in lines)

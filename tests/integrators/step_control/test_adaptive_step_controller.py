@@ -39,6 +39,30 @@ def test_config_dt_min_validates_positive():
         AdaptiveStepControlConfig(precision=np.float64, dt_min=-1.0)
 
 
+def test_config_negative_atol_rejected():
+    """atol rejects arrays containing negative values."""
+    with pytest.raises(ValueError):
+        AdaptiveStepControlConfig(precision=np.float64, atol=-1e-6)
+
+
+def test_config_negative_rtol_rejected():
+    """rtol rejects arrays containing negative elements."""
+    with pytest.raises(ValueError):
+        AdaptiveStepControlConfig(
+            precision=np.float64,
+            rtol=np.asarray([1e-6, -1e-6]),
+        )
+
+
+def test_config_zero_tolerances_accepted():
+    """Zero tolerances are valid; the norm floors the combined value."""
+    cfg = AdaptiveStepControlConfig(
+        precision=np.float64, atol=0.0, rtol=0.0
+    )
+    assert_array_equal(cfg.atol, np.asarray([0.0]))
+    assert_array_equal(cfg.rtol, np.asarray([0.0]))
+
+
 def test_config_algorithm_order_validates_ge_1():
     """algorithm_order rejects values < 1."""
     with pytest.raises((ValueError, TypeError)):
