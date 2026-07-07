@@ -37,6 +37,8 @@ from typing import Any, Dict, Iterable, List, Optional, Tuple
 import sympy as sp
 from sympy.printing.pycode import PythonCodePrinter
 
+from cubie.odesystems.symbolic.sym_utils import EXPONENT_ALIAS_PREFIX
+
 __all__ = [
     "CUDAPrinter",
     "print_cuda",
@@ -112,6 +114,7 @@ class CUDAPrinter(PythonCodePrinter):
     def __init__(
         self,
         symbol_map: Optional[Dict[sp.Symbol, Any]] = None,
+        constant_names: Optional[Iterable[str]] = None,
         *args: Any,
         **kwargs: Any,
     ) -> None:
@@ -122,6 +125,11 @@ class CUDAPrinter(PythonCodePrinter):
         symbol_map
             Optional mapping from scalar symbols to indexed array references or
             other replacement nodes.
+        constant_names
+            Optional names of factory-scope constants. A constant used
+            as a power exponent prints as its integer-exponent alias
+            (``EXPONENT_ALIAS_PREFIX + name``) so integral values lower
+            to multiplication chains instead of ``pow`` calls.
         args
             Positional arguments forwarded to :class:`PythonCodePrinter`.
         kwargs
@@ -129,6 +137,7 @@ class CUDAPrinter(PythonCodePrinter):
         """
         super().__init__(*args, **kwargs)
         self.symbol_map: Dict[sp.Symbol, Any] = symbol_map or {}
+        self.constant_names: frozenset = frozenset(constant_names or ())
         self.cuda_functions: Dict[str, str] = CUDA_FUNCTIONS
         # User function alias mapping: underscored symbolic name -> original printable name
         self.func_aliases: Dict[str, str] = {}
@@ -265,6 +274,11 @@ class CUDAPrinter(PythonCodePrinter):
         remaining integer exponents are wrapped with precision() so
         the pow stays in the working precision.
 
+        A symbol exponent naming a factory-scope constant (listed in
+        ``constant_names``) prints as its integer-exponent alias so
+        integral constant values lower to multiplication chains
+        instead of pow calls (see render_constant_assignments).
+
         Parentheses are added around compound base expressions to ensure
         correct precedence (e.g., (a + b)**2 not a + b**2).
         """
@@ -287,6 +301,17 @@ class CUDAPrinter(PythonCodePrinter):
                 return f"(precision(1)/{denominator})"
             if exponent_value not in (2, 3):
                 return f"{base_str}**precision({exponent_value})"
+
+        if (
+            isinstance(exp_expr, sp.Symbol)
+            and exp_expr not in self.symbol_map
+            and exp_expr.name in self.constant_names
+        ):
+            # A constant exponent prints as its integer-exponent alias:
+            # integral values then lower to multiplication chains in the
+            # working precision instead of pow calls (see
+            # render_constant_assignments).
+            return f"{base_str}**{EXPONENT_ALIAS_PREFIX}{exp_expr.name}"
 
         # Let other print functions know we're in a power expression
         self._in_pow = True
