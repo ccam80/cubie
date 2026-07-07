@@ -1105,8 +1105,11 @@ def _build_enhanced_algorithm_settings(
 
 # Keys in the shared solver_settings dict that are not Solver
 # constructor settings: solve-time arguments, system-construction
-# options, and test-harness metadata. Solver rejects unconsumed
-# kwargs, so these are stripped before construction.
+# options (fix_singularities/voltage_variable feed
+# load_cellml_model), driver-interpolation settings (driverspline_*
+# are read by the conftest driver fixtures to configure the
+# ArrayInterpolator), and test-harness metadata. Solver rejects
+# unconsumed kwargs, so these are stripped before construction.
 NON_SOLVER_SETTINGS = {
     "duration",
     "warmup",
