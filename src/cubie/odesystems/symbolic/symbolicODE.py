@@ -41,6 +41,7 @@ See Also
 """
 
 import inspect
+from hashlib import sha256
 from typing import (
     Any,
     Callable,
@@ -61,9 +62,12 @@ from cubie.odesystems.symbolic.codegen.dxdt import (
 from cubie.odesystems.symbolic.codegen import (
     generate_cached_jvp_code,
     generate_cached_operator_apply_code,
+    generate_jacobi_preconditioner_cached_code,
+    generate_jacobi_preconditioner_code,
     generate_neumann_preconditioner_cached_code,
     generate_neumann_preconditioner_code,
     generate_n_stage_neumann_preconditioner_code,
+    generate_n_stage_jacobi_preconditioner_code,
     generate_n_stage_linear_operator_code,
     generate_n_stage_residual_code,
     generate_operator_apply_code,
@@ -98,6 +102,46 @@ _NEUMANN_PRECONDITIONER_TYPES = frozenset((
     "neumann_preconditioner_cached",
     "n_stage_neumann_preconditioner",
 ))
+
+
+# Helper types whose generated source bakes in mass-matrix entries.
+# Their disk-cache names must encode the mass matrix so different
+# matrices do not collide in the generated-code file.
+_MASS_CONSUMING_HELPERS = frozenset((
+    "linear_operator",
+    "linear_operator_cached",
+    "stage_residual",
+    "n_stage_residual",
+    "n_stage_linear_operator",
+    "jacobi_preconditioner",
+    "jacobi_preconditioner_cached",
+    "n_stage_jacobi_preconditioner",
+))
+
+
+def _mass_matrix_cache_tag(mass):
+    """Return a factory-name suffix identifying a mass matrix.
+
+    Parameters
+    ----------
+    mass
+        Mass matrix as an array-like or SymPy matrix, or ``None``.
+
+    Returns
+    -------
+    str
+        Empty string for an omitted or identity mass matrix (default
+        cache entries keep their unsuffixed names), otherwise
+        ``"_M<8-hex-digest>"`` derived from the matrix entries.
+    """
+    if mass is None:
+        return ""
+    mat = sp.Matrix(mass)
+    if mat.rows == mat.cols and mat == sp.eye(mat.rows):
+        return ""
+    entries = "|".join(str(entry) for entry in mat)
+    digest = sha256(entries.encode("utf-8")).hexdigest()[:8]
+    return f"_M{digest}"
 
 
 def create_ODE_system(
@@ -720,6 +764,7 @@ class SymbolicODE(BaseODE):
         beta: float = 1.0,
         gamma: float = 1.0,
         preconditioner_order: int = 2,
+        preconditioner_type: Union[str, list] = "neumann",
         mass: Optional[Union[ndarray, sp.Matrix]] = None,
         stage_coefficients: Optional[
             Sequence[Sequence[Union[float, sp.Expr]]]
@@ -733,10 +778,19 @@ class SymbolicODE(BaseODE):
         func_type
             Helper identifier. Supported values are ``"linear_operator"``,
             ``"linear_operator_cached"``, ``"neumann_preconditioner"``,
-            ``"neumann_preconditioner_cached"``, ``"stage_residual"``,
-            ``"n_stage_residual"``, ``"n_stage_linear_operator"`,
-            ``"n_stage_neumann_preconditioner"``, ``"prepare_jac"`,
+            ``"neumann_preconditioner_cached"``,
+            ``"jacobi_preconditioner"``,
+            ``"jacobi_preconditioner_cached"``, ``"stage_residual"``,
+            ``"n_stage_residual"``, ``"n_stage_linear_operator"``,
+            ``"n_stage_neumann_preconditioner"``,
+            ``"n_stage_jacobi_preconditioner"``, ``"prepare_jac"``,
             ``"cached_aux_count"`` and ``"calculate_cached_jvp"``.
+            The composite types ``"preconditioner"``,
+            ``"preconditioner_cached"``, and
+            ``"n_stage_preconditioner"`` resolve
+            ``preconditioner_type`` (a string or a two-element list
+            chained as ``P1(P0(v))``) to the matching concrete
+            helper(s).
         beta
             Shift parameter for the linear operator.
         gamma
@@ -784,6 +838,29 @@ class SymbolicODE(BaseODE):
             )
             self.registered_helper_events.add(event_name)
 
+        # Composite preconditioner types are virtual: they have no
+        # ODECache field (the cache lookup below would raise KeyError),
+        # so resolve the chain instead; the concrete helpers it calls
+        # cache individually.
+        if func_type in (
+            "preconditioner",
+            "n_stage_preconditioner",
+            "preconditioner_cached",
+        ):
+            default_timelogger.start_event(event_name)
+            func = self._build_preconditioner_chain(
+                preconditioner_type,
+                func_type,
+                beta=beta,
+                gamma=gamma,
+                mass=mass,
+                preconditioner_order=preconditioner_order,
+                stage_coefficients=stage_coefficients,
+                stage_nodes=stage_nodes,
+            )
+            default_timelogger.stop_event(event_name)
+            return func
+
         try:
             func = self.get_cached_output(func_type)
             return func
@@ -791,14 +868,44 @@ class SymbolicODE(BaseODE):
             pass
 
         # Determine factory_name for n_stage helpers (needed to check cache)
+        # Preconditioner names encode the order so that different
+        # orders get distinct cache entries and force re-codegen.
         if func_type == "n_stage_residual":
             factory_name = f"n_stage_residual_{len(stage_nodes)}"
         elif func_type == "n_stage_linear_operator":
             factory_name = f"n_stage_linear_operator_{len(stage_nodes)}"
         elif func_type == "n_stage_neumann_preconditioner":
-            factory_name = f"n_stage_neumann_preconditioner_{len(stage_nodes)}"
+            factory_name = (
+                f"n_stage_neumann_preconditioner"
+                f"_{len(stage_nodes)}"
+                f"_o{preconditioner_order}"
+            )
+        elif func_type == "n_stage_jacobi_preconditioner":
+            factory_name = (
+                f"n_stage_jacobi_preconditioner"
+                f"_{len(stage_nodes)}"
+            )
+        elif func_type == "neumann_preconditioner":
+            factory_name = (
+                f"neumann_preconditioner"
+                f"_o{preconditioner_order}"
+            )
+        elif func_type == "neumann_preconditioner_cached":
+            factory_name = (
+                f"neumann_preconditioner_cached"
+                f"_o{preconditioner_order}"
+            )
+        elif func_type == "jacobi_preconditioner":
+            factory_name = "jacobi_preconditioner"
+        elif func_type == "jacobi_preconditioner_cached":
+            factory_name = "jacobi_preconditioner_cached"
         else:
             factory_name = func_type
+
+        # Helpers that bake mass-matrix entries into their source get
+        # a mass-derived suffix so each matrix caches separately.
+        if func_type in _MASS_CONSUMING_HELPERS:
+            factory_name = f"{factory_name}{_mass_matrix_cache_tag(mass)}"
 
         # Handle cached_aux_count specially - it doesn't generate code
         # and doesn't depend on whether other functions are cached
@@ -888,6 +995,20 @@ class SymbolicODE(BaseODE):
                     factory_name,
                     jvp_equations=self._get_jvp_exprs(),
                 )
+            elif func_type == "jacobi_preconditioner":
+                code = generate_jacobi_preconditioner_code(
+                    self.equations,
+                    self.indices,
+                    factory_name,
+                    M=mass,
+                )
+            elif func_type == "jacobi_preconditioner_cached":
+                code = generate_jacobi_preconditioner_cached_code(
+                    self.equations,
+                    self.indices,
+                    factory_name,
+                    M=mass,
+                )
             elif func_type == "stage_residual":
                 code = generate_stage_residual_code(
                     self.equations,
@@ -929,6 +1050,15 @@ class SymbolicODE(BaseODE):
                     func_name=factory_name,
                     jvp_equations=self._get_jvp_exprs(),
                 )
+            elif func_type == "n_stage_jacobi_preconditioner":
+                code = generate_n_stage_jacobi_preconditioner_code(
+                    equations=self.equations,
+                    index_map=self.indices,
+                    stage_coefficients=stage_coefficients,
+                    stage_nodes=stage_nodes,
+                    func_name=factory_name,
+                    M=mass,
+                )
             else:
                 raise NotImplementedError(
                     f"Solver helper '{func_type}' is not implemented."
@@ -951,3 +1081,141 @@ class SymbolicODE(BaseODE):
         default_timelogger.stop_event(event_name)
 
         return func
+
+    def _build_preconditioner_chain(
+        self,
+        preconditioner_type: Union[str, list],
+        composite_type: str,
+        **kwargs,
+    ):
+        """Resolve preconditioner type(s) and chain if needed.
+
+        Parameters
+        ----------
+        preconditioner_type
+            Single type string or list of type strings.
+        composite_type
+            One of ``"preconditioner"``,
+            ``"n_stage_preconditioner"``, or
+            ``"preconditioner_cached"``.
+        **kwargs
+            Forwarded to individual ``get_solver_helper`` calls.
+
+        Returns
+        -------
+        Callable
+            Single or chained preconditioner device function.
+        """
+        if isinstance(preconditioner_type, str):
+            types = [preconditioner_type]
+        else:
+            types = list(preconditioner_type)
+
+        type_map = {
+            "preconditioner": {
+                "neumann": "neumann_preconditioner",
+                "jacobi": "jacobi_preconditioner",
+            },
+            "n_stage_preconditioner": {
+                "neumann": "n_stage_neumann_preconditioner",
+                "jacobi": "n_stage_jacobi_preconditioner",
+            },
+            "preconditioner_cached": {
+                "neumann": "neumann_preconditioner_cached",
+                "jacobi": "jacobi_preconditioner_cached",
+            },
+        }
+
+        mapping = type_map[composite_type]
+        fns = []
+        for t in types:
+            if t not in mapping:
+                raise ValueError(
+                    f"Unknown preconditioner type '{t}' for "
+                    f"variant '{composite_type}'"
+                )
+            helper_name = mapping[t]
+            fn = self.get_solver_helper(helper_name, **kwargs)
+            fns.append(fn)
+
+        if len(fns) == 1:
+            return fns[0]
+
+        if len(fns) != 2:
+            raise ValueError(
+                "Preconditioner chaining supports exactly "
+                "2 preconditioners, got "
+                f"{len(fns)}"
+            )
+
+        is_cached = composite_type == "preconditioner_cached"
+        return _chain_two_preconditioners(
+            fns[0], fns[1], cached=is_cached
+        )
+
+
+def _chain_two_preconditioners(p0, p1, cached=False):
+    """Build a device function chaining two preconditioners.
+
+    Parameters
+    ----------
+    p0
+        First preconditioner device function.
+    p1
+        Second preconditioner device function.
+    cached
+        When ``True`` use the cached signature (with
+        ``cached_aux``).
+
+    Returns
+    -------
+    Callable
+        Chained preconditioner device function.
+
+    Notes
+    -----
+    The chained signature carries a trailing ``chain_scratch``
+    buffer in addition to the standard ``scratch``: ``scratch``
+    holds the intermediate P0 result, so P0 borrows ``out`` (dead
+    until P1 writes it) as its scratch slot and P1 receives
+    ``chain_scratch``. Every buffer each stage sees is therefore
+    distinct, so chained preconditioners may freely use their
+    scratch arguments. Solvers allocate ``chain_scratch`` from the
+    buffer registry when ``preconditioner_is_chained`` is set.
+    """
+    from numba import cuda
+
+    from cubie.cuda_simsafe import compile_kwargs
+
+    if cached:
+        @cuda.jit(device=True, inline=True, **compile_kwargs)
+        def chained_cached(
+            state, parameters, drivers, cached_aux, base_state,
+            t, h, a_ij, v, out, jvp, scratch, chain_scratch,
+        ):
+            p0(
+                state, parameters, drivers, cached_aux,
+                base_state, t, h, a_ij,
+                v, scratch, jvp, out,
+            )
+            p1(
+                state, parameters, drivers, cached_aux,
+                base_state, t, h, a_ij,
+                scratch, out, jvp, chain_scratch,
+            )
+        return chained_cached
+    else:
+        @cuda.jit(device=True, inline=True, **compile_kwargs)
+        def chained(
+            state, parameters, drivers, base_state,
+            t, h, a_ij, v, out, jvp, scratch, chain_scratch,
+        ):
+            p0(
+                state, parameters, drivers, base_state,
+                t, h, a_ij, v, scratch, jvp, out,
+            )
+            p1(
+                state, parameters, drivers, base_state,
+                t, h, a_ij, scratch, out, jvp, chain_scratch,
+            )
+        return chained

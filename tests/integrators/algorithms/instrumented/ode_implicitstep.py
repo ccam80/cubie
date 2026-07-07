@@ -4,7 +4,7 @@ from typing import Optional
 
 from tests.integrators.algorithms.instrumented.matrix_free_solvers import(
     InstrumentedNewtonKrylov,
-    InstrumentedLinearSolver,
+    InstrumentedMRLinearSolver,
 )
 from cubie.integrators.algorithms.ode_implicitstep import (
     ODEImplicitStep,
@@ -49,10 +49,10 @@ class InstrumentedODEImplicitStep(ODEImplicitStep):
             )
 
             # Build instrumented solvers for use in place of production ones
-            linear_solver = InstrumentedLinearSolver(
+            linear_solver = InstrumentedMRLinearSolver(
                 precision=config.precision,
                 n=config.n,
-                correction_type=linear_correction_type,
+                linear_correction_type=linear_correction_type,
                 krylov_atol=krylov_atol,
                 krylov_rtol=krylov_rtol,
                 krylov_max_iters=krylov_max_iters,

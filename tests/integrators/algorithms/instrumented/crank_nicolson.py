@@ -62,16 +62,16 @@ class InstrumentedCrankNicolsonStep(InstrumentedODEImplicitStep):
             default from ImplicitStepConfig.
         krylov_atol
             Absolute tolerance used by the linear solver. If None, uses default
-            from LinearSolverConfig.
+            from LinearSolverBaseConfig.
         krylov_rtol
             Relative tolerance used by the linear solver. If None, uses default
-            from LinearSolverConfig.
+            from LinearSolverBaseConfig.
         krylov_max_iters
             Maximum iterations permitted for the linear solver. If None, uses
-            default from LinearSolverConfig.
+            default from LinearSolverBaseConfig.
         linear_correction_type
             Identifier for the linear correction strategy. If None, uses
-            default from LinearSolverConfig.
+            default from LinearSolverBaseConfig.
         newton_atol
             Absolute tolerance for the Newton iteration. If None, uses
             default from NewtonKrylovConfig.

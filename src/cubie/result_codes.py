@@ -41,6 +41,9 @@ class CUBIE_RESULT_CODES(IntFlag):
         Integration loop hit its maximum iteration count (reserved).
     STAGNATION
         Integration made no progress in ``t`` over consecutive steps.
+    BICGSTAB_BREAKDOWN
+        BiCGSTAB linear solve broke down (a recurrence scalar collapsed to
+        zero) before converging.
     """
 
     SUCCESS = 0
@@ -51,6 +54,7 @@ class CUBIE_RESULT_CODES(IntFlag):
     DT_EFF_EFFECTIVELY_ZERO = 16
     MAX_LOOP_ITERS_EXCEEDED = 32
     STAGNATION = 64
+    BICGSTAB_BREAKDOWN = 128
 
 
 def decode_status_codes(status_codes):

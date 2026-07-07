@@ -317,7 +317,8 @@ class GenericRosenbrockWStep(ODEImplicitStep):
 
         # Get device functions from ODE system
         preconditioner = get_fn(
-            "neumann_preconditioner_cached",
+            "preconditioner_cached",
+            preconditioner_type=config.preconditioner_type,
             beta=beta,
             gamma=gamma,
             mass=mass,
@@ -348,6 +349,9 @@ class GenericRosenbrockWStep(ODEImplicitStep):
         self.solver.update(
             operator_apply=operator,
             preconditioner=preconditioner,
+            preconditioner_is_chained=(
+                config.preconditioner_is_chained
+            ),
             use_cached_auxiliaries=True,
         )
 

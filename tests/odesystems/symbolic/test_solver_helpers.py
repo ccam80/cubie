@@ -6,6 +6,8 @@ from numba import cuda, from_dtype
 from cubie.odesystems.symbolic.codegen import (
     generate_cached_jvp_code,
     generate_cached_operator_apply_code,
+    generate_jacobi_preconditioner_cached_code,
+    generate_jacobi_preconditioner_code,
     generate_neumann_preconditioner_cached_code,
     generate_neumann_preconditioner_code,
     generate_operator_apply_code,
@@ -843,6 +845,7 @@ def neumann_kernel(precision):
             state = cuda.local.array(n, precision)
             parameters = cuda.local.array(1, precision)
             drivers = cuda.local.array(1, precision)
+            jvp = cuda.local.array(n, precision)
             scratch = cuda.local.array(n, precision)
             pre(
                 state,
@@ -854,6 +857,7 @@ def neumann_kernel(precision):
                 a_ij,
                 vec,
                 out,
+                jvp,
                 scratch,
             )
 
@@ -920,6 +924,7 @@ def neumann_cached_kernel(cached_system, precision):
             drivers = cuda.local.array(driver_len, precision)
             cached_aux = cuda.local.array(aux_len, precision)
             jvp = cuda.local.array(n_state, precision)
+            scratch = cuda.local.array(n_state, precision)
 
             for idx in range(n_state):
                 state[idx] = state_values[idx]
@@ -941,6 +946,7 @@ def neumann_cached_kernel(cached_system, precision):
                 vec,
                 out,
                 jvp,
+                scratch,
             )
 
         return kernel
@@ -1185,6 +1191,473 @@ def test_stage_residual(
     assert np.allclose(
         out,
         expected,
+        atol=tolerance.abs_tight,
+        rtol=tolerance.rel_tight,
+    )
+
+
+@pytest.fixture(scope="session")
+def jacobi_factory(cached_system, precision):
+    """Return a factory producing Jacobi preconditioner device functions."""
+
+    def factory(beta, gamma, M=None):
+        mass_tag = (
+            "eye" if M is None else f"{abs(hash(np.asarray(M).tobytes()))}"
+        )
+        fname = (
+            "jacobi_preconditioner_factory_"
+            f"{int(beta * 10)}_{int(gamma * 10)}_{mass_tag}"
+        )
+        code = generate_jacobi_preconditioner_code(
+            cached_system.equations,
+            cached_system.indices,
+            func_name=fname,
+            M=M,
+        )
+        pre_fac, was_cached = cached_system.gen_file.import_function(
+            fname, code
+        )
+        return pre_fac(
+            cached_system.constants.values_dict,
+            from_dtype(cached_system.precision),
+            beta=beta,
+            gamma=gamma,
+        )
+
+    return factory
+
+
+@pytest.fixture(scope="session")
+def jacobi_kernel(precision):
+    """Apply the Jacobi preconditioner to a vector."""
+
+    n = 2
+
+    def make_kernel(pre):
+        @cuda.jit
+        def kernel(t, h, a_ij, state_values, base_state, vec, out):
+            state = cuda.local.array(n, precision)
+            parameters = cuda.local.array(1, precision)
+            drivers = cuda.local.array(1, precision)
+            jvp = cuda.local.array(n, precision)
+            scratch = cuda.local.array(n, precision)
+            for idx in range(n):
+                state[idx] = state_values[idx]
+            pre(
+                state,
+                parameters,
+                drivers,
+                base_state,
+                t,
+                h,
+                a_ij,
+                vec,
+                out,
+                jvp,
+                scratch,
+            )
+
+        return kernel
+
+    return make_kernel
+
+
+def _cached_system_jacobian_diagonal(eval_point):
+    """Jacobian diagonal of the cached_system fixture equations.
+
+    dx0 = a*x0*x1 + b*sin(x0) -> J00 = a*x1 + b*cos(x0)
+    dx1 = c*x0*x1 + d*cos(x1) -> J11 = c*x0 - d*sin(x1)
+    with constants a=0.5, b=1.3, c=-0.7, d=0.9.
+    """
+    x0, x1 = eval_point
+    j00 = 0.5 * x1 + 1.3 * np.cos(x0)
+    j11 = -0.7 * x0 - 0.9 * np.sin(x1)
+    return np.array([j00, j11])
+
+
+@pytest.mark.parametrize(
+    "beta,gamma,h,a_ij",
+    [
+        (1.0, 1.0, 0.2, 0.5),
+        (0.5, 2.0, 0.1, 1.0),
+    ],
+)
+def test_jacobi_preconditioner_diagonal(
+    beta,
+    gamma,
+    h,
+    a_ij,
+    jacobi_factory,
+    jacobi_kernel,
+    precision,
+    tolerance,
+):
+    """Validate Jacobi output against the analytic Jacobian diagonal.
+
+    The preconditioner divides v elementwise by
+    ``beta - gamma*h*a_ij*J_ii`` with J evaluated at
+    ``base_state + a_ij*state``.
+    """
+    pre = jacobi_factory(beta, gamma)
+    kernel = jacobi_kernel(pre)
+
+    state = np.array([0.3, -0.6], dtype=precision)
+    base = np.array([0.1, 0.2], dtype=precision)
+    v = np.array([0.7, -1.3], dtype=precision)
+    out = np.zeros(2, dtype=precision)
+
+    kernel[1, 1](
+        precision(0.0), precision(h), precision(a_ij), state, base, v, out
+    )
+
+    diag_j = _cached_system_jacobian_diagonal(base + a_ij * state)
+    expected = v / (beta - gamma * h * a_ij * diag_j)
+
+    assert np.allclose(
+        out,
+        expected,
+        atol=tolerance.abs_tight,
+        rtol=tolerance.rel_tight,
+    )
+
+
+@pytest.fixture(scope="session")
+def jacobi_zero_diag_factory(operator_system, precision):
+    """Jacobi preconditioner for the constant-Jacobian system."""
+
+    fname = "jacobi_preconditioner_zero_diag"
+    code = generate_jacobi_preconditioner_code(
+        operator_system.equations,
+        operator_system.indices,
+        func_name=fname,
+    )
+    pre_fac, was_cached = operator_system.gen_file.import_function(
+        fname, code
+    )
+    return pre_fac(
+        operator_system.constants.values_dict,
+        from_dtype(operator_system.precision),
+        beta=1.0,
+        gamma=1.0,
+    )
+
+
+def test_jacobi_preconditioner_zero_diagonal_guard(
+    jacobi_zero_diag_factory,
+    jacobi_kernel,
+    precision,
+    tolerance,
+):
+    """A vanishing diagonal yields finite output, not inf/NaN.
+
+    operator_system has J = [[1, 2], [3, 4]]; with
+    beta = gamma = h = a_ij = 1 the first diagonal entry
+    ``1 - 1*1*1*J00 = 0`` exactly, so the division guard floors it.
+    The second entry ``1 - 4 = -3`` is untouched.
+    """
+    kernel = jacobi_kernel(jacobi_zero_diag_factory)
+
+    state = np.zeros(2, dtype=precision)
+    base = np.zeros(2, dtype=precision)
+    v = np.array([0.7, -1.3], dtype=precision)
+    out = np.zeros(2, dtype=precision)
+
+    kernel[1, 1](
+        precision(0.0),
+        precision(1.0),
+        precision(1.0),
+        state,
+        base,
+        v,
+        out,
+    )
+
+    assert np.all(np.isfinite(out))
+    assert np.isclose(
+        out[1],
+        v[1] / precision(-3.0),
+        atol=tolerance.abs_tight,
+        rtol=tolerance.rel_tight,
+    )
+
+
+def test_chained_preconditioner_composition(
+    operator_system,
+    precision,
+    tolerance,
+):
+    """Chained ["neumann", "jacobi"] equals jacobi(neumann(v)).
+
+    The composite helper feeds P0's output into P1, so the chained
+    device function must reproduce sequential application of the
+    individually generated preconditioners.
+    """
+    kwargs = {
+        "beta": 1.0,
+        "gamma": 1.0,
+        "preconditioner_order": 1,
+    }
+    chained = operator_system.get_solver_helper(
+        "preconditioner",
+        preconditioner_type=["neumann", "jacobi"],
+        **kwargs,
+    )
+    neumann = operator_system.get_solver_helper(
+        "preconditioner",
+        preconditioner_type="neumann",
+        **kwargs,
+    )
+    jacobi = operator_system.get_solver_helper(
+        "preconditioner",
+        preconditioner_type="jacobi",
+        **kwargs,
+    )
+
+    n = 2
+
+    @cuda.jit
+    def kernel(t, h, a_ij, vec, base_state, out_chained, out_seq):
+        state = cuda.local.array(n, precision)
+        parameters = cuda.local.array(1, precision)
+        drivers = cuda.local.array(1, precision)
+        jvp = cuda.local.array(n, precision)
+        scratch = cuda.local.array(n, precision)
+        chain_scratch = cuda.local.array(n, precision)
+        intermediate = cuda.local.array(n, precision)
+        for idx in range(n):
+            state[idx] = precision(0.0)
+        chained(
+            state, parameters, drivers, base_state,
+            t, h, a_ij, vec, out_chained, jvp, scratch,
+            chain_scratch,
+        )
+        neumann(
+            state, parameters, drivers, base_state,
+            t, h, a_ij, vec, intermediate, jvp, scratch,
+        )
+        jacobi(
+            state, parameters, drivers, base_state,
+            t, h, a_ij, intermediate, out_seq, jvp, scratch,
+        )
+
+    v = np.array([0.7, -1.3], dtype=precision)
+    base = np.zeros(2, dtype=precision)
+    out_chained = np.zeros(2, dtype=precision)
+    out_seq = np.zeros(2, dtype=precision)
+
+    kernel[1, 1](
+        precision(0.0),
+        precision(0.25),
+        precision(0.5),
+        v,
+        base,
+        out_chained,
+        out_seq,
+    )
+
+    assert np.allclose(
+        out_chained,
+        out_seq,
+        atol=tolerance.abs_tight,
+        rtol=tolerance.rel_tight,
+    )
+
+
+@pytest.fixture(scope="session")
+def jacobi_cached_factory(cached_system, precision):
+    """Return a factory producing cached Jacobi preconditioners."""
+
+    def factory(beta, gamma):
+        fname = (
+            "jacobi_cached_factory_"
+            f"{int(beta * 10)}_{int(gamma * 10)}"
+        )
+        code = generate_jacobi_preconditioner_cached_code(
+            cached_system.equations,
+            cached_system.indices,
+            func_name=fname,
+        )
+        pre_fac, was_cached = cached_system.gen_file.import_function(
+            fname, code
+        )
+        return pre_fac(
+            cached_system.constants.values_dict,
+            from_dtype(cached_system.precision),
+            beta=beta,
+            gamma=gamma,
+        )
+
+    return factory
+
+
+@pytest.mark.parametrize(
+    "beta,gamma,h,a_ij",
+    [
+        (1.0, 1.0, 0.2, 0.5),
+        (0.5, 2.0, 0.1, 1.0),
+    ],
+)
+def test_jacobi_preconditioner_cached_diagonal(
+    beta,
+    gamma,
+    h,
+    a_ij,
+    prepare_jac_factory,
+    jacobi_cached_factory,
+    neumann_cached_kernel,
+    precision,
+    tolerance,
+):
+    """Validate cached Jacobi output against the Jacobian diagonal.
+
+    The cached variant evaluates J at ``state`` directly (Rosenbrock
+    convention) rather than at ``base_state + a_ij*state``.
+    """
+    prepare, aux_count = prepare_jac_factory()
+    pre = jacobi_cached_factory(beta, gamma)
+    kernel = neumann_cached_kernel(prepare, pre, aux_count)
+
+    state = np.array([0.3, -0.6], dtype=precision)
+    params = np.zeros(1, dtype=precision)
+    drivers = np.zeros(1, dtype=precision)
+    base = np.zeros(2, dtype=precision)
+    v = np.array([0.7, -1.3], dtype=precision)
+    out = np.zeros(2, dtype=precision)
+
+    kernel[1, 1](
+        state,
+        params,
+        drivers,
+        precision(0.0),
+        precision(h),
+        precision(a_ij),
+        v,
+        base,
+        out,
+    )
+
+    diag_j = _cached_system_jacobian_diagonal(state)
+    expected = v / (beta - gamma * h * a_ij * diag_j)
+
+    assert np.allclose(
+        out,
+        expected,
+        atol=tolerance.abs_tight,
+        rtol=tolerance.rel_tight,
+    )
+
+
+def test_jacobi_preconditioner_mass_matrix(
+    jacobi_factory,
+    jacobi_kernel,
+    precision,
+    tolerance,
+):
+    """Jacobi divides by ``beta*M_ii - gamma*h*a_ij*J_ii``.
+
+    A diagonal mass matrix scales the beta term per component;
+    off-diagonal mass entries are ignored by the diagonal
+    preconditioner.
+    """
+    beta, gamma, h, a_ij = 1.0, 1.0, 0.2, 0.5
+    mass = np.diag([2.0, 3.0])
+    pre = jacobi_factory(beta, gamma, M=mass)
+    kernel = jacobi_kernel(pre)
+
+    state = np.array([0.3, -0.6], dtype=precision)
+    base = np.array([0.1, 0.2], dtype=precision)
+    v = np.array([0.7, -1.3], dtype=precision)
+    out = np.zeros(2, dtype=precision)
+
+    kernel[1, 1](
+        precision(0.0), precision(h), precision(a_ij), state, base, v, out
+    )
+
+    diag_j = _cached_system_jacobian_diagonal(base + a_ij * state)
+    expected = v / (
+        beta * np.diag(mass) - gamma * h * a_ij * diag_j
+    )
+
+    assert np.allclose(
+        out,
+        expected,
+        atol=tolerance.abs_tight,
+        rtol=tolerance.rel_tight,
+    )
+
+
+def test_mass_matrix_selects_distinct_cached_helpers(
+    jacobi_kernel,
+    precision,
+    tolerance,
+):
+    """Changing the mass matrix yields freshly generated helpers.
+
+    The generated source bakes mass entries in, so requesting the same
+    helper type with a different mass matrix must not return the
+    previously cached device function (in memory or from the
+    generated-code file on disk).
+    """
+    system = create_ODE_system(
+        [
+            "dx0 = -k0*x0 + x0*x1",
+            "dx1 = -k1*x1 + x0*x0",
+        ],
+        states=["x0", "x1"],
+        constants={"k0": 1.0, "k1": 2.0},
+        precision=precision,
+        name="mass_cache_key_sys",
+    )
+
+    h, a_ij = 0.2, 0.5
+    state = np.array([0.3, -0.6], dtype=precision)
+    base = np.array([0.1, 0.2], dtype=precision)
+    v = np.array([0.7, -1.3], dtype=precision)
+    eval_point = base + a_ij * state
+    # J00 = -k0 + x1, J11 = -k1 at the evaluation point
+    diag_j = np.array([-1.0 + eval_point[1], -2.0])
+
+    pre_eye = system.get_solver_helper(
+        "jacobi_preconditioner", beta=1.0, gamma=1.0
+    )
+    out_eye = np.zeros(2, dtype=precision)
+    jacobi_kernel(pre_eye)[1, 1](
+        precision(0.0),
+        precision(h),
+        precision(a_ij),
+        state,
+        base,
+        v,
+        out_eye,
+    )
+
+    mass = np.diag([2.0, 3.0])
+    pre_mass = system.get_solver_helper(
+        "jacobi_preconditioner", beta=1.0, gamma=1.0, mass=mass
+    )
+    out_mass = np.zeros(2, dtype=precision)
+    jacobi_kernel(pre_mass)[1, 1](
+        precision(0.0),
+        precision(h),
+        precision(a_ij),
+        state,
+        base,
+        v,
+        out_mass,
+    )
+
+    expected_eye = v / (1.0 - h * a_ij * diag_j)
+    expected_mass = v / (np.diag(mass) - h * a_ij * diag_j)
+
+    assert np.allclose(
+        out_eye,
+        expected_eye,
+        atol=tolerance.abs_tight,
+        rtol=tolerance.rel_tight,
+    )
+    assert np.allclose(
+        out_mass,
+        expected_mass,
         atol=tolerance.abs_tight,
         rtol=tolerance.rel_tight,
     )

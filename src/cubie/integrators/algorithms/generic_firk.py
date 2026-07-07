@@ -298,7 +298,8 @@ class FIRKStep(ODEImplicitStep):
         )
 
         preconditioner = get_fn(
-            "n_stage_neumann_preconditioner",
+            "n_stage_preconditioner",
+            preconditioner_type=config.preconditioner_type,
             beta=beta,
             gamma=gamma,
             preconditioner_order=config.preconditioner_order,
@@ -310,6 +311,9 @@ class FIRKStep(ODEImplicitStep):
         self.solver.update(
             operator_apply=operator,
             preconditioner=preconditioner,
+            preconditioner_is_chained=(
+                config.preconditioner_is_chained
+            ),
             residual_function=residual,
             n=config.all_stages_n,
         )

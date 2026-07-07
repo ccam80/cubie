@@ -61,10 +61,17 @@ class ODECache(CUDADispatcherCache):
     neumann_preconditioner_cached: Optional[Union[Callable, int]] = field(
         default=-1
     )
+    jacobi_preconditioner: Optional[Union[Callable, int]] = field(default=-1)
+    jacobi_preconditioner_cached: Optional[Union[Callable, int]] = field(
+        default=-1
+    )
     stage_residual: Optional[Union[Callable, int]] = field(default=-1)
     n_stage_residual: Optional[Union[Callable, int]] = field(default=-1)
     n_stage_linear_operator: Optional[Union[Callable, int]] = field(default=-1)
     n_stage_neumann_preconditioner: Optional[Union[Callable, int]] = field(
+        default=-1
+    )
+    n_stage_jacobi_preconditioner: Optional[Union[Callable, int]] = field(
         default=-1
     )
     observables: Optional[Union[Callable, int]] = field(default=-1)

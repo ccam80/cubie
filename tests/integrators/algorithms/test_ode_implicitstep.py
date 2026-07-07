@@ -59,7 +59,7 @@ def test_implicit_step_exposes_tolerance_properties(precision):
 
 
 def test_implicit_step_linear_solver_newton_atol_returns_none(precision):
-    """Verify newton_atol/rtol return None when solver is LinearSolver."""
+    """Verify newton_atol/rtol return None when solver is MRLinearSolver."""
     n = 3
 
     step = BackwardsEulerStep(
@@ -68,7 +68,7 @@ def test_implicit_step_linear_solver_newton_atol_returns_none(precision):
         solver_type='linear',
     )
 
-    # LinearSolver doesn't have newton_atol/rtol, so properties return None
+    # MRLinearSolver doesn't have newton_atol/rtol, so properties return None
     assert step.newton_atol is None
     assert step.newton_rtol is None
 

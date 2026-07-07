@@ -1,0 +1,251 @@
+"""Base class for matrix-free linear solvers.
+
+This module provides the abstract base class and shared configuration
+for iterative linear solvers (MR/SD and BiCGSTAB) that operate without
+forming Jacobian matrices explicitly.
+
+Published Classes
+-----------------
+:class:`LinearSolverBaseConfig`
+    Attrs configuration base for linear solver factories.
+
+:class:`LinearSolverCache`
+    Cache container holding the compiled linear solver device function.
+
+:class:`LinearSolverBase`
+    Abstract factory base providing shared infrastructure for all
+    linear solver variants.
+
+See Also
+--------
+:class:`~cubie.integrators.matrix_free_solvers.linear_solver.MRLinearSolver`
+    Minimal-residual / steepest-descent concrete subclass.
+:class:`~cubie.integrators.matrix_free_solvers.bicgstab_solver.BiCGSTABSolver`
+    BiCGSTAB concrete subclass.
+:class:`~cubie.integrators.matrix_free_solvers.base_solver.MatrixFreeSolver`
+    Parent factory providing norm and tolerance management.
+"""
+
+from abc import abstractmethod
+from typing import Callable, Dict, Any, Optional, Set
+
+from attrs import define, field, validators
+from numpy import ndarray
+
+from cubie._utils import (
+    PrecisionDType,
+    build_config,
+    is_device_validator,
+)
+from cubie.integrators.matrix_free_solvers.base_solver import (
+    MatrixFreeSolverConfig,
+    MatrixFreeSolver,
+)
+from cubie.buffer_registry import buffer_registry
+from cubie.CUDAFactory import CUDADispatcherCache
+
+
+@define
+class LinearSolverBaseConfig(MatrixFreeSolverConfig):
+    """Base configuration for linear solver compilation.
+
+    Attributes
+    ----------
+    operator_apply : Optional[Callable]
+        Device function applying operator F @ v.
+    preconditioner : Optional[Callable]
+        Device function for approximate inverse preconditioner.
+    use_cached_auxiliaries : bool
+        Whether to use cached auxiliary arrays (determines signature).
+    preconditioner_is_chained : bool
+        Whether ``preconditioner`` is a chained composite, which takes
+        a trailing ``chain_scratch`` buffer (determines signature).
+    """
+
+    operator_apply: Optional[Callable] = field(
+        default=None,
+        validator=validators.optional(is_device_validator),
+        eq=False,
+    )
+    preconditioner: Optional[Callable] = field(
+        default=None,
+        validator=validators.optional(is_device_validator),
+        eq=False,
+    )
+    use_cached_auxiliaries: bool = field(default=False)
+    preconditioner_is_chained: bool = field(default=False)
+
+
+@define
+class LinearSolverCache(CUDADispatcherCache):
+    """Cache container for linear solver outputs.
+
+    Attributes
+    ----------
+    linear_solver : Callable
+        Compiled CUDA device function for linear solving.
+    """
+
+    linear_solver: Callable = field(validator=is_device_validator)
+
+
+class LinearSolverBase(MatrixFreeSolver):
+    """Abstract factory base for linear solver device functions.
+
+    Provides shared infrastructure for iterative linear solvers
+    including buffer registration, update delegation, and tolerance
+    property forwarding.
+
+    Parameters
+    ----------
+    config_class : type
+        Attrs config class for the concrete solver variant.
+    precision : PrecisionDType
+        Numerical precision for computations.
+    n : int
+        Length of residual and search-direction vectors.
+    instance_label : str
+        Prefix for tolerance parameters.
+    **kwargs
+        Forwarded to config class and the norm factory.
+
+    See Also
+    --------
+    :class:`LinearSolverBaseConfig`
+        Base configuration for linear solvers.
+    :class:`~cubie.integrators.matrix_free_solvers.linear_solver.MRLinearSolver`
+        MR/SD concrete subclass.
+    :class:`~cubie.integrators.matrix_free_solvers.bicgstab_solver.BiCGSTABSolver`
+        BiCGSTAB concrete subclass.
+    """
+
+    def __init__(
+        self,
+        config_class: type,
+        precision: PrecisionDType,
+        n: int,
+        instance_label: str = "krylov",
+        **kwargs,
+    ) -> None:
+        config = build_config(
+            config_class,
+            required={
+                "precision": precision,
+                "n": n,
+            },
+            instance_label=instance_label,
+            **kwargs,
+        )
+
+        super().__init__(
+            precision=precision,
+            solver_type="krylov",
+            n=n,
+            **kwargs,
+        )
+
+        self.setup_compile_settings(config)
+        self.register_buffers()
+
+    @abstractmethod
+    def register_buffers(self) -> None:
+        """Register device buffers with buffer_registry."""
+        ...
+
+    @abstractmethod
+    def build(self) -> LinearSolverCache:
+        """Compile linear solver device function.
+
+        Returns
+        -------
+        LinearSolverCache
+            Container with compiled linear_solver device function.
+        """
+        ...
+
+    @property
+    @abstractmethod
+    def linear_correction_type(self) -> str:
+        """Return the correction strategy identifier."""
+        ...
+
+    def update(
+        self,
+        updates_dict: Optional[Dict[str, Any]] = None,
+        silent: bool = False,
+        **kwargs,
+    ) -> Set[str]:
+        """Update compile settings and invalidate cache if changed.
+
+        Parameters
+        ----------
+        updates_dict : dict, optional
+            Dictionary of settings to update.
+        silent : bool, default False
+            If True, suppress warnings about unrecognized keys.
+        **kwargs
+            Additional settings as keyword arguments.
+
+        Returns
+        -------
+        set
+            Set of recognized parameter names that were updated.
+        """
+        all_updates = {}
+        if updates_dict:
+            all_updates.update(updates_dict)
+        all_updates.update(kwargs)
+
+        if not all_updates:
+            return set()
+
+        recognized = super().update(all_updates, silent=True)
+
+        recognized |= buffer_registry.update(
+            self, updates_dict=all_updates, silent=True
+        )
+        self.register_buffers()
+
+        return recognized
+
+    @property
+    def device_function(self) -> Callable:
+        """Return cached linear solver device function."""
+        return self.get_cached_output("linear_solver")
+
+    @property
+    def krylov_atol(self) -> ndarray:
+        """Return absolute tolerance array."""
+        return self.atol
+
+    @property
+    def krylov_rtol(self) -> ndarray:
+        """Return relative tolerance array."""
+        return self.rtol
+
+    @property
+    def krylov_max_iters(self) -> int:
+        """Return maximum iterations."""
+        return self.max_iters
+
+    @property
+    def use_cached_auxiliaries(self) -> bool:
+        """Return whether cached auxiliaries are used."""
+        return self.compile_settings.use_cached_auxiliaries
+
+    @property
+    def settings_dict(self) -> Dict[str, Any]:
+        """Return linear solver configuration as dictionary.
+
+        Combines config settings with tolerance arrays from norm factory.
+
+        Returns
+        -------
+        dict
+            Configuration dictionary including krylov_atol and krylov_rtol
+            from the norm factory.
+        """
+        result = dict(self.compile_settings.settings_dict)
+        result["krylov_atol"] = self.krylov_atol
+        result["krylov_rtol"] = self.krylov_rtol
+        return result

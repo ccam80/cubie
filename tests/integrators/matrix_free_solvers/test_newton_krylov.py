@@ -4,7 +4,7 @@ from numba import cuda
 from numpy.testing import assert_allclose
 
 from cubie.integrators.matrix_free_solvers.linear_solver import (
-    LinearSolver,
+    MRLinearSolver,
 )
 from cubie.integrators.matrix_free_solvers.newton_krylov import (
     NewtonKrylov,
@@ -36,7 +36,7 @@ def test_newton_krylov_placeholder(placeholder_system, precision, tolerance):
     residual, operator, base_state = placeholder_system
     n = 1
 
-    linear_solver_instance = LinearSolver(
+    linear_solver_instance = MRLinearSolver(
         precision=precision,
         n=n,
         krylov_atol=1e-8,
@@ -113,54 +113,54 @@ def test_newton_krylov_placeholder(placeholder_system, precision, tolerance):
     ],
     indirect=True,
 )
-@pytest.mark.parametrize("precond_order", [0, 1, 2])
+@pytest.mark.parametrize(
+    "solver_settings_override",
+    [
+        {
+            "linear_correction_type": "minimal_residual",
+            "krylov_atol": 1e-6,
+            "krylov_rtol": 1e-6,
+            "krylov_max_iters": 1000,
+            "newton_atol": 1e-6,
+            "newton_rtol": 1e-6,
+            "newton_max_iters": 1000,
+        },
+        {
+            "linear_correction_type": "bicgstab",
+            "krylov_atol": 1e-6,
+            "krylov_rtol": 1e-6,
+            "krylov_max_iters": 200,
+            "newton_atol": 1e-6,
+            "newton_rtol": 1e-6,
+            "newton_max_iters": 1000,
+        },
+    ],
+    ids=["minimal_residual", "bicgstab"],
+    indirect=True,
+)
+@pytest.mark.parametrize(
+    "solver_settings_override2",
+    [
+        {"preconditioner_order": 0},
+        {"preconditioner_order": 1},
+        {"preconditioner_order": 2},
+    ],
+    ids=["order0", "order1", "order2"],
+    indirect=True,
+)
 def test_newton_krylov_symbolic(
-    system_setup, precision, precond_order, tolerance
+    system_setup, newton_solver_instance, precision, tolerance
 ):
-    """Solve a symbolic system with optional preconditioning provided by fixture."""
+    """Newton with each configured inner solver reaches the reference."""
     sym_system = system_setup["sym_system"]
     n = sym_system.num_states
-    operator = system_setup["operator"]
-    residual_func = system_setup["residual"]
     base_state = system_setup["base_state"]
     expected = system_setup["nk_expected"]
     h = system_setup["h"]
 
-    precond = (
-        None
-        if precond_order == 0
-        else system_setup["preconditioner"](precond_order)
-    )
-    # Use tighter tolerances to ensure full convergence regardless of norm
-    # type used internally. This makes final results independent of whether
-    # L2 or scaled norm is used for convergence checks.
-    krylov_tol = 1e-10 if precision == np.float64 else 1e-6
-    newton_tol = 1e-10 if precision == np.float64 else 1e-6
-    linear_solver_instance = LinearSolver(
-        precision=precision,
-        n=n,
-        linear_correction_type="minimal_residual",
-        krylov_atol=krylov_tol,
-        krylov_rtol=krylov_tol,
-        krylov_max_iters=1000,
-    )
-    linear_solver_instance.update(
-        operator_apply=operator, preconditioner=precond
-    )
+    solver = newton_solver_instance.device_function
 
-    newton_instance = NewtonKrylov(
-        precision=precision,
-        n=n,
-        linear_solver=linear_solver_instance,
-        newton_atol=newton_tol,
-        newton_rtol=newton_tol,
-        newton_max_iters=1000,
-    )
-
-    newton_instance.update(residual_function=residual_func)
-    solver = newton_instance.device_function
-
-    scratch_len = 2 * n
+    scratch_len = 6 * n
 
     @cuda.jit
     def kernel(state, base, flag, h):
@@ -219,7 +219,7 @@ def test_newton_krylov_failure(precision):
         out[0] = vec[0]
 
     n = 1
-    linear_solver_instance = LinearSolver(
+    linear_solver_instance = MRLinearSolver(
         precision=precision,
         n=n,
         krylov_atol=1e-12,
@@ -299,7 +299,7 @@ def test_newton_krylov_newton_max_iters_exceeded(
         out[0] = jac * vec[0]
 
     n = 1
-    linear_solver_instance = LinearSolver(
+    linear_solver_instance = MRLinearSolver(
         precision=precision,
         n=n,
         krylov_atol=1e-8,
@@ -371,7 +371,7 @@ def test_newton_krylov_linear_solver_failure_propagates(precision):
 
     # Inner linear solver will return MAX_LINEAR_ITERATIONS_EXCEEDED
     n = 1
-    linear_solver_instance = LinearSolver(
+    linear_solver_instance = MRLinearSolver(
         precision=precision,
         n=n,
         linear_correction_type="minimal_residual",
@@ -432,7 +432,7 @@ def test_newton_krylov_linear_solver_failure_propagates(precision):
 def test_newton_krylov_config_scalar_tolerance_broadcast(precision):
     """Verify scalar newton_atol/rtol broadcasts to array of length n."""
     n = 5
-    linear_solver = LinearSolver(precision=precision, n=n)
+    linear_solver = MRLinearSolver(precision=precision, n=n)
     newton = NewtonKrylov(
         precision=precision,
         n=n,
@@ -451,7 +451,7 @@ def test_newton_krylov_config_array_tolerance_accepted(precision):
     n = 3
     atol = np.array([1e-6, 1e-8, 1e-4], dtype=precision)
     rtol = np.array([1e-3, 1e-5, 1e-2], dtype=precision)
-    linear_solver = LinearSolver(precision=precision, n=n)
+    linear_solver = MRLinearSolver(precision=precision, n=n)
     newton = NewtonKrylov(
         precision=precision,
         n=n,
@@ -467,7 +467,7 @@ def test_newton_krylov_config_wrong_length_raises(precision):
     """Verify wrong-length tolerance array raises ValueError."""
     n = 3
     wrong_atol = np.array([1e-6, 1e-8], dtype=precision)  # length 2
-    linear_solver = LinearSolver(precision=precision, n=n)
+    linear_solver = MRLinearSolver(precision=precision, n=n)
     with pytest.raises(ValueError, match="tol must have shape"):
         NewtonKrylov(
             precision=precision,
@@ -490,7 +490,7 @@ def test_newton_krylov_scaled_tolerance_converges(precision, tolerance):
         out[0] = (precision(1.0) - h * a_ij) * vec[0]
 
     n = 1
-    linear_solver = LinearSolver(
+    linear_solver = MRLinearSolver(
         precision=precision,
         n=n,
         krylov_atol=1e-8,
@@ -561,7 +561,7 @@ def test_newton_krylov_uses_scaled_norm(precision):
     from cubie.integrators.norms import ScaledNorm
 
     n = 3
-    linear_solver = LinearSolver(precision=precision, n=n)
+    linear_solver = MRLinearSolver(precision=precision, n=n)
     newton = NewtonKrylov(
         precision=precision,
         n=n,
@@ -584,7 +584,7 @@ def test_newton_krylov_tolerance_update_propagates(precision):
     n = 3
     initial_atol = 1e-6
     initial_rtol = 1e-4
-    linear_solver = LinearSolver(precision=precision, n=n)
+    linear_solver = MRLinearSolver(precision=precision, n=n)
     newton = NewtonKrylov(
         precision=precision,
         n=n,
@@ -670,7 +670,7 @@ def test_newton_krylov_inherits_from_matrix_free_solver(precision):
     )
 
     n = 3
-    linear_solver = LinearSolver(precision=precision, n=n)
+    linear_solver = MRLinearSolver(precision=precision, n=n)
     newton = NewtonKrylov(
         precision=precision,
         n=n,
@@ -690,7 +690,7 @@ def test_newton_krylov_update_preserves_original_dict(precision):
         out[0] = state[0]
 
     n = 1
-    linear_solver = LinearSolver(precision=precision, n=n)
+    linear_solver = MRLinearSolver(precision=precision, n=n)
     newton = NewtonKrylov(
         precision=precision,
         n=n,
@@ -716,7 +716,7 @@ def test_newton_krylov_update_preserves_original_dict(precision):
 def test_newton_krylov_no_manual_cache_invalidation(precision):
     """Verify cache invalidation happens through config update."""
     n = 3
-    linear_solver = LinearSolver(precision=precision, n=n)
+    linear_solver = MRLinearSolver(precision=precision, n=n)
     newton = NewtonKrylov(
         precision=precision,
         n=n,
@@ -744,7 +744,7 @@ def test_newton_krylov_settings_dict_includes_tolerance_arrays(precision):
     n = 3
     newton_atol = np.array([1e-6, 1e-8, 1e-4], dtype=precision)
     newton_rtol = np.array([1e-3, 1e-5, 1e-2], dtype=precision)
-    linear_solver = LinearSolver(precision=precision, n=n)
+    linear_solver = MRLinearSolver(precision=precision, n=n)
     newton = NewtonKrylov(
         precision=precision,
         n=n,
@@ -781,7 +781,7 @@ def test_newton_krylov_init_with_newton_prefixed_kwargs(precision):
     newton_atol = np.array([1e-10, 1e-9, 1e-8], dtype=precision)
     newton_rtol = np.array([1e-5, 1e-4, 1e-3], dtype=precision)
 
-    linear_solver = LinearSolver(precision=precision, n=n)
+    linear_solver = MRLinearSolver(precision=precision, n=n)
     newton = NewtonKrylov(
         precision=precision,
         n=n,
@@ -803,13 +803,13 @@ def test_newton_krylov_init_with_newton_prefixed_kwargs(precision):
 
 def test_newton_krylov_forwards_krylov_kwargs_to_linear_solver(precision):
     """Verify krylov_* kwargs passed to NewtonKrylov reach the nested
-    LinearSolver via update chain.
+    MRLinearSolver via update chain.
     """
     n = 3
     krylov_atol = np.array([1e-12, 1e-11, 1e-10], dtype=precision)
     krylov_rtol = np.array([1e-6, 1e-5, 1e-4], dtype=precision)
 
-    linear_solver = LinearSolver(precision=precision, n=n)
+    linear_solver = MRLinearSolver(precision=precision, n=n)
     newton = NewtonKrylov(
         precision=precision,
         n=n,
@@ -819,7 +819,7 @@ def test_newton_krylov_forwards_krylov_kwargs_to_linear_solver(precision):
     # Update via newton with krylov-prefixed keys
     newton.update(krylov_atol=krylov_atol, krylov_rtol=krylov_rtol)
 
-    # Verify update reached nested LinearSolver and its norm
+    # Verify update reached nested MRLinearSolver and its norm
     assert np.allclose(newton.krylov_atol, krylov_atol)
     assert np.allclose(newton.linear_solver.krylov_atol, krylov_atol)
     assert np.allclose(newton.linear_solver.norm.atol, krylov_atol)
@@ -831,21 +831,21 @@ def test_newton_krylov_forwards_krylov_kwargs_to_linear_solver(precision):
 def test_nested_prefix_propagation_init(precision):
     """Verify prefixed params reach nested objects via init chain.
 
-    Tests that krylov_atol passed to LinearSolver constructor
+    Tests that krylov_atol passed to MRLinearSolver constructor
     reaches the nested ScaledNorm at init time.
     """
     n = 3
     krylov_atol = np.array([1e-10, 1e-9, 1e-8], dtype=precision)
     krylov_rtol = np.array([1e-5, 1e-4, 1e-3], dtype=precision)
 
-    linear_solver = LinearSolver(
+    linear_solver = MRLinearSolver(
         precision=precision,
         n=n,
         krylov_atol=krylov_atol,
         krylov_rtol=krylov_rtol,
     )
 
-    # Verify tolerances reached LinearSolver's norm
+    # Verify tolerances reached MRLinearSolver's norm
     assert np.allclose(linear_solver.krylov_atol, krylov_atol)
     assert np.allclose(linear_solver.krylov_rtol, krylov_rtol)
     assert np.allclose(linear_solver.norm.atol, krylov_atol)
@@ -856,10 +856,10 @@ def test_nested_prefix_propagation_update(precision):
     """Verify prefixed params reach nested objects via update chain.
 
     Tests that krylov_atol passed to NewtonKrylov.update()
-    reaches the nested LinearSolver's ScaledNorm.
+    reaches the nested MRLinearSolver's ScaledNorm.
     """
     n = 3
-    linear_solver = LinearSolver(precision=precision, n=n)
+    linear_solver = MRLinearSolver(precision=precision, n=n)
     newton = NewtonKrylov(
         precision=precision,
         n=n,
@@ -871,7 +871,7 @@ def test_nested_prefix_propagation_update(precision):
     # Update via newton with krylov-prefixed key
     newton.update(krylov_atol=new_krylov_atol)
 
-    # Verify update reached nested LinearSolver and its norm
+    # Verify update reached nested MRLinearSolver and its norm
     assert np.allclose(newton.krylov_atol, new_krylov_atol)
     assert np.allclose(newton.linear_solver.krylov_atol, new_krylov_atol)
     assert np.allclose(newton.linear_solver.norm.atol, new_krylov_atol)

@@ -11,7 +11,7 @@ Published Classes
     Abstract base for implicit algorithms. Owns a
     :class:`~cubie.integrators.matrix_free_solvers.newton_krylov.NewtonKrylov`
     or
-    :class:`~cubie.integrators.matrix_free_solvers.linear_solver.LinearSolver`
+    :class:`~cubie.integrators.matrix_free_solvers.linear_solver_base.LinearSolverBase`
     instance and delegates solver parameter updates.
 
 See Also
@@ -33,7 +33,10 @@ import sympy as sp
 
 from cubie._utils import inrangetype_validator, is_device_validator
 from cubie.integrators.matrix_free_solvers.linear_solver import (
-    LinearSolver,
+    MRLinearSolver,
+)
+from cubie.integrators.matrix_free_solvers.bicgstab_solver import (
+    BiCGSTABSolver,
 )
 from cubie.integrators.matrix_free_solvers.newton_krylov import (
     NewtonKrylov,
@@ -72,11 +75,27 @@ class ImplicitStepConfig(BaseStepConfig):
     preconditioner_order: int = field(
         default=2, validator=inrangetype_validator(int, 1, 32)
     )
+    preconditioner_type: Union[str, list] = field(
+        default="neumann",
+    )
     solver_function = field(
         default=None,
         validator=validators.optional(is_device_validator),
         eq=False,
     )
+
+    @property
+    def preconditioner_is_chained(self) -> bool:
+        """Return whether the preconditioner resolves to a chain.
+
+        Single strings and one-element lists resolve to a bare
+        preconditioner; two-element lists compose as ``P1(P0(v))``
+        with the chained (``chain_scratch``-carrying) signature.
+        """
+        return (
+            isinstance(self.preconditioner_type, (list, tuple))
+            and len(self.preconditioner_type) == 2
+        )
 
     @property
     def beta(self) -> float:
@@ -98,6 +117,7 @@ class ImplicitStepConfig(BaseStepConfig):
                 "gamma": self.gamma,
                 "M": self.M,
                 "preconditioner_order": self.preconditioner_order,
+                "preconditioner_type": self.preconditioner_type,
                 "get_solver_helper_fn": self.get_solver_helper_fn,
             }
         )
@@ -107,15 +127,24 @@ class ImplicitStepConfig(BaseStepConfig):
 class ODEImplicitStep(BaseAlgorithmStep):
     """Base helper for implicit integration algorithms."""
 
-    # Parameters accepted by LinearSolver
+    # Union of parameters accepted by all linear solver types.
+    # Params not applicable to the chosen solver are silently
+    # ignored during construction.
     _LINEAR_SOLVER_PARAMS = frozenset(
         {
             "linear_correction_type",
             "krylov_atol",
             "krylov_rtol",
             "krylov_max_iters",
+            # MR buffer locations
             "preconditioned_vec_location",
             "temp_location",
+            # BiCGSTAB buffer locations
+            "r0_hat_location",
+            "p_location",
+            "v_location",
+            "tmp_location",
+            "s_hat_location",
         }
     )
 
@@ -175,11 +204,23 @@ class ODEImplicitStep(BaseAlgorithmStep):
             if k in self._NEWTON_KRYLOV_PARAMS and v is not None
         }
 
-        linear_solver = LinearSolver(
-            precision=config.precision,
-            n=config.n,
-            **linear_kwargs,
+        correction_type = linear_kwargs.pop(
+            "linear_correction_type", "minimal_residual"
         )
+
+        if correction_type == "bicgstab":
+            linear_solver = BiCGSTABSolver(
+                precision=config.precision,
+                n=config.n,
+                **linear_kwargs,
+            )
+        else:
+            linear_solver = MRLinearSolver(
+                precision=config.precision,
+                n=config.n,
+                linear_correction_type=correction_type,
+                **linear_kwargs,
+            )
 
         if solver_type == "newton":
             self.solver = NewtonKrylov(
@@ -319,7 +360,8 @@ class ODEImplicitStep(BaseAlgorithmStep):
 
         # Get device functions from ODE system
         preconditioner = get_fn(
-            "neumann_preconditioner",
+            "preconditioner",
+            preconditioner_type=config.preconditioner_type,
             beta=beta,
             gamma=gamma,
             mass=mass,
@@ -343,6 +385,9 @@ class ODEImplicitStep(BaseAlgorithmStep):
         self.solver.update(
             operator_apply=operator,
             preconditioner=preconditioner,
+            preconditioner_is_chained=(
+                config.preconditioner_is_chained
+            ),
             residual_function=residual,
             n=self.compile_settings.n,
         )
@@ -379,6 +424,11 @@ class ODEImplicitStep(BaseAlgorithmStep):
         """Return the order of the Neumann preconditioner."""
 
         return int(self.compile_settings.preconditioner_order)
+
+    @property
+    def preconditioner_type(self) -> Union[str, list]:
+        """Return the type of preconditioner used by the linear solver."""
+        return self.compile_settings.preconditioner_type
 
     @property
     def krylov_atol(self) -> ndarray:
@@ -442,7 +492,7 @@ class ODEImplicitStep(BaseAlgorithmStep):
             - Implicit step settings (beta, gamma, M, preconditioner_order,
               get_solver_helper_fn) from ImplicitStepConfig
             - Solver settings (newton_atol, krylov_rtol, etc.)
-              from NewtonKrylov or LinearSolver
+              from NewtonKrylov or LinearSolverBase
             - All buffer location parameters from solver hierarchy
         """
         settings = super().settings_dict

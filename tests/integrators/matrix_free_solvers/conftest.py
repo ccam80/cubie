@@ -180,6 +180,7 @@ def neumann_kernel(precision):
                 state[i] = state_init[i]
             parameters = cuda.local.array(1, precision)
             drivers = cuda.local.array(1, precision)
+            temp = cuda.shared.array(scratch_size, dtype=precision)
             scratch = cuda.shared.array(scratch_size, dtype=precision)
             precond(
                 state,
@@ -191,6 +192,7 @@ def neumann_kernel(precision):
                 precision(1.0),
                 residual,
                 out,
+                temp,
                 scratch,
             )
 
@@ -248,59 +250,67 @@ def solver_kernel():
 
 
 @pytest.fixture(scope="function")
-def linear_solver_instance(request, system_setup, precision):
-    """Instantiate LinearSolver with settings from system_setup."""
-    from cubie.integrators.matrix_free_solvers.linear_solver import (
-        LinearSolver,
-        LinearSolverConfig,
+def linear_solver_instance(solver_settings, system_setup, precision):
+    """Build the linear solver selected by the central solver settings.
+
+    Routes ``linear_correction_type`` from the session ``solver_settings``
+    fixture to the matching solver class, so parameterizing
+    ``solver_settings_override`` with ``"bicgstab"`` exercises
+    :class:`BiCGSTABSolver` through the same tests as the
+    minimal-residual and steepest-descent solvers.
+    """
+    from cubie.integrators.matrix_free_solvers.bicgstab_solver import (
+        BiCGSTABSolver,
     )
-    
-    n = system_setup['n']
-    operator = system_setup['operator']
-    
-    overrides = getattr(request, 'param', {})
-    precond_order = overrides.get('preconditioner_order', 1)
-    if precond_order == 0:
+    from cubie.integrators.matrix_free_solvers.linear_solver import (
+        MRLinearSolver,
+    )
+
+    order = solver_settings["preconditioner_order"]
+    if order == 0:
         preconditioner = None
     else:
-        preconditioner = system_setup['preconditioner'](precond_order)
-    
-    config_dict = {
-        'precision': precision,
-        'n': n,
-        'operator_apply': operator,
-        'preconditioner': preconditioner,
-        'linear_correction_type': overrides.get('linear_correction_type', 'minimal_residual'),
-        'tolerance': overrides.get('tolerance', 1e-8),
-        'max_iters': overrides.get('max_iters', 1000),
+        preconditioner = system_setup["preconditioner"](order)
+
+    correction_type = solver_settings["linear_correction_type"]
+    common = {
+        "precision": precision,
+        "n": system_setup["n"],
+        "krylov_atol": solver_settings["krylov_atol"],
+        "krylov_rtol": solver_settings["krylov_rtol"],
+        "krylov_max_iters": solver_settings["krylov_max_iters"],
     }
-    
-    config = LinearSolverConfig(**config_dict)
-    return LinearSolver(config)
+    if correction_type == "bicgstab":
+        solver = BiCGSTABSolver(**common)
+    else:
+        solver = MRLinearSolver(
+            linear_correction_type=correction_type, **common
+        )
+    solver.update(
+        operator_apply=system_setup["operator"],
+        preconditioner=preconditioner,
+    )
+    return solver
 
 
 @pytest.fixture(scope="function")
-def newton_solver_instance(request, linear_solver_instance, system_setup, precision):
-    """Instantiate NewtonKrylov with LinearSolver and settings."""
+def newton_solver_instance(
+    solver_settings, linear_solver_instance, system_setup, precision
+):
+    """Wrap the configured linear solver in a NewtonKrylov instance."""
     from cubie.integrators.matrix_free_solvers.newton_krylov import (
         NewtonKrylov,
-        NewtonKrylovConfig,
     )
-    
-    n = system_setup['n']
-    residual = system_setup['residual']
-    
-    overrides = getattr(request, 'param', {})
-    
-    config = NewtonKrylovConfig(
+
+    solver = NewtonKrylov(
         precision=precision,
-        n=n,
-        residual_function=residual,
+        n=system_setup["n"],
         linear_solver=linear_solver_instance,
-        tolerance=overrides.get('tolerance', 1e-6),
-        max_iters=overrides.get('max_iters', 100),
-        damping=overrides.get('damping', 0.5),
-        max_backtracks=overrides.get('max_backtracks', 8),
+        newton_atol=solver_settings["newton_atol"],
+        newton_rtol=solver_settings["newton_rtol"],
+        newton_max_iters=solver_settings["newton_max_iters"],
+        newton_damping=solver_settings["newton_damping"],
+        newton_max_backtracks=solver_settings["newton_max_backtracks"],
     )
-    
-    return NewtonKrylov(config)
+    solver.update(residual_function=system_setup["residual"])
+    return solver
