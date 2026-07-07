@@ -71,6 +71,11 @@ from cubie.odesystems.symbolic.codegen import (
     generate_stage_residual_code,
 )
 from cubie.odesystems.symbolic.codegen.jacobian import generate_analytical_jvp
+from cubie.odesystems.symbolic.codegen.neumann_convergence import (
+    NeumannRHSEvaluator,
+    build_rhs_evaluator,
+    check_neumann_convergence,
+)
 from cubie.odesystems.symbolic.odefile import ODEFile
 from cubie.odesystems.symbolic.parsing import (
     IndexedBases,
@@ -85,6 +90,15 @@ from cubie.odesystems.symbolic.sym_utils import hash_system_definition
 from cubie.odesystems.baseODE import BaseODE, ODECache
 from cubie._utils import PrecisionDType
 from cubie.time_logger import default_timelogger
+
+# Neumann preconditioner helper types checked by the convergence
+# diagnostic before code generation.
+_NEUMANN_PRECONDITIONER_TYPES = frozenset((
+    "neumann_preconditioner",
+    "neumann_preconditioner_cached",
+    "n_stage_neumann_preconditioner",
+))
+
 
 def create_ODE_system(
     dxdt: Union[str, Iterable[str], Callable],
@@ -252,6 +266,7 @@ class SymbolicODE(BaseODE):
         )
         self._jacobian_aux_count: Optional[int] = None
         self._jvp_exprs: Optional[JVPEquations] = None
+        self._neumann_rhs_evaluator: Optional[NeumannRHSEvaluator] = None
 
     @classmethod
     def create(
@@ -407,6 +422,19 @@ class SymbolicODE(BaseODE):
                 cse=True,
             )
         return self._jvp_exprs
+
+    def _get_neumann_evaluator(self) -> NeumannRHSEvaluator:
+        """Return the cached finite-difference Jacobian evaluator.
+
+        The evaluator compiles the guarded right-hand side once; the
+        Neumann convergence diagnostic reuses it on every call and only
+        re-runs the cheap numeric spectral-radius check.
+        """
+        if self._neumann_rhs_evaluator is None:
+            self._neumann_rhs_evaluator = build_rhs_evaluator(
+                self.equations, self.indices
+            )
+        return self._neumann_rhs_evaluator
 
     def build(self) -> ODECache:
         """Compile the ``dxdt`` factory and refresh the cache.
@@ -780,6 +808,20 @@ class SymbolicODE(BaseODE):
                 self.get_solver_helper("prepare_jac")
             default_timelogger.stop_event(event_name)
             return self._jacobian_aux_count
+
+        # Neumann preconditioner convergence diagnostic. Runs whenever a
+        # Neumann helper is requested (even on cache hits) so the warning
+        # surfaces for reused code as well as freshly generated code.
+        if func_type in _NEUMANN_PRECONDITIONER_TYPES:
+            check_neumann_convergence(
+                self.equations,
+                self.indices,
+                evaluator=self._get_neumann_evaluator(),
+                stage_coefficients=stage_coefficients,
+                stage_nodes=stage_nodes,
+                beta=beta,
+                gamma=gamma,
+            )
 
         # Check if function is already in file cache (skipped if so)
         is_cached = self.gen_file.function_is_cached(factory_name)

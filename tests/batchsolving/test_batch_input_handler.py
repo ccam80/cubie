@@ -219,6 +219,17 @@ def test_extend_grid_all_swept(system):
     assert_array_equal(result, grid)
 
 
+def test_extend_grid_all_swept_permuted(system):
+    """Scatters rows to their variable indices when all swept."""
+    defaults = system.parameters.values_array
+    n = defaults.shape[0]
+    grid = np.arange(n * 3, dtype=float).reshape(n, 3)
+    indices = np.roll(np.arange(n), 1)
+    result = extend_grid_to_array(grid, indices, defaults)
+    for row, target in enumerate(indices):
+        assert_array_equal(result[target, :], grid[row, :])
+
+
 def test_extend_grid_partial_sweep(system):
     """Creates default array and overwrites swept indices."""
     defaults = system.parameters.values_array
@@ -298,6 +309,34 @@ def test_call_processes_inputs(input_handler, system):
         kind="combinatorial",
     )
     assert inits.shape[1] == params.shape[1] == 4
+
+
+def test_call_dict_order_independent(input_handler, system):
+    """Full dicts map by key name regardless of insertion order."""
+    state_names = list(system.initial_values.names)
+    param_names = list(system.parameters.names)
+    states = {
+        name: [float(i + 1)] for i, name in enumerate(state_names)
+    }
+    params = {
+        name: [10.0 * (i + 1)] for i, name in enumerate(param_names)
+    }
+    shuffled_states = {
+        name: states[name] for name in reversed(state_names)
+    }
+    shuffled_params = {
+        name: params[name] for name in reversed(param_names)
+    }
+    inits, param_arr = input_handler(states, params, "verbatim")
+    inits_s, params_s = input_handler(
+        shuffled_states, shuffled_params, "verbatim"
+    )
+    assert_array_equal(inits_s, inits)
+    assert_array_equal(params_s, param_arr)
+    expected_inits = np.arange(1.0, len(state_names) + 1.0)
+    expected_params = 10.0 * np.arange(1.0, len(param_names) + 1.0)
+    assert_array_equal(inits[:, 0], expected_inits)
+    assert_array_equal(param_arr[:, 0], expected_params)
 
 
 def test_call_aligns_run_counts(input_handler, system):
