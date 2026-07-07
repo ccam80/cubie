@@ -13,8 +13,9 @@ from cubie.CUDAFactory import CUDADispatcherCache
 from cubie.cuda_simsafe import (
     activemask, all_sync, selp, any_sync, compile_kwargs
 )
+from cubie.result_codes import CUBIE_RESULT_CODES
 from cubie.integrators.matrix_free_solvers.linear_solver import (
-    LinearSolver,
+    MRLinearSolver,
 )
 from cubie.integrators.matrix_free_solvers.newton_krylov import (
     NewtonKrylov,
@@ -22,8 +23,8 @@ from cubie.integrators.matrix_free_solvers.newton_krylov import (
 
 
 @attrs.define
-class InstrumentedLinearSolverCache(CUDADispatcherCache):
-    """Cache container for InstrumentedLinearSolver outputs.
+class InstrumentedMRLinearSolverCache(CUDADispatcherCache):
+    """Cache container for InstrumentedMRLinearSolver outputs.
     
     Attributes
     ----------
@@ -36,21 +37,21 @@ class InstrumentedLinearSolverCache(CUDADispatcherCache):
     )
 
 
-class InstrumentedLinearSolver(LinearSolver):
+class InstrumentedMRLinearSolver(MRLinearSolver):
     """Factory for instrumented linear solver device functions.
     
-    Inherits from LinearSolver and adds iteration logging to device function.
+    Inherits from MRLinearSolver and adds iteration logging to device function.
     Logging arrays are passed as device function parameters and populated
     during iteration. Uses buffer_registry for production buffers
     (preconditioned_vec, temp) but logging arrays are caller-allocated.
     """
     
-    def build(self) -> InstrumentedLinearSolverCache:
+    def build(self) -> InstrumentedMRLinearSolverCache:
         """Compile instrumented linear solver device function.
         
         Returns
         -------
-        InstrumentedLinearSolverCache
+        InstrumentedMRLinearSolverCache
             Container with compiled linear_solver device function including
             logging parameters.
         
@@ -89,6 +90,7 @@ class InstrumentedLinearSolver(LinearSolver):
         sd_flag = linear_correction_type == "steepest_descent"
         mr_flag = linear_correction_type == "minimal_residual"
         preconditioned = preconditioner is not None
+        chained_precond = config.preconditioner_is_chained
 
         # Get scaled norm device function from config
         scaled_norm_fn = config.norm_device_function
@@ -98,13 +100,19 @@ class InstrumentedLinearSolver(LinearSolver):
         max_iters_val = int32(max_iters)
         precision_numba = from_dtype(np.dtype(precision))
         typed_zero = precision_numba(0.0)
+        success = int32(CUBIE_RESULT_CODES.SUCCESS)
+        max_linear_iters_exceeded = int32(
+            CUBIE_RESULT_CODES.MAX_LINEAR_ITERATIONS_EXCEEDED
+        )
         typed_one = precision_numba(1.0)
         
         # Get allocators from buffer_registry using production buffer names
-        # (registered by parent LinearSolver.register_buffers)
+        # (registered by parent MRLinearSolver.register_buffers)
         get_alloc = buffer_registry.get_allocator
         alloc_precond = get_alloc('preconditioned_vec', self)
         alloc_temp = get_alloc('temp', self)
+        alloc_precond_scratch = get_alloc('mr_precond_scratch', self)
+        alloc_chain_scratch = get_alloc('mr_chain_scratch', self)
         
         # Branch on use_cached_auxiliaries flag
         if use_cached_auxiliaries:
@@ -142,7 +150,16 @@ class InstrumentedLinearSolver(LinearSolver):
                 # Allocate buffers from registry
                 preconditioned_vec = alloc_precond(shared, persistent_local)
                 temp = alloc_temp(shared, persistent_local)
-                
+                precond_scratch = alloc_precond_scratch(
+                    shared, persistent_local
+                )
+                if chained_precond:
+                    chain_scratch = alloc_chain_scratch(
+                        shared, persistent_local
+                    )
+                else:
+                    chain_scratch = precond_scratch
+
                 # Evaluate operator and compute initial residual
                 operator_apply(
                     state, parameters, drivers, cached_aux, base_state,
@@ -166,23 +183,41 @@ class InstrumentedLinearSolver(LinearSolver):
                     
                     iteration += int32(1)
                     if preconditioned:
-                        preconditioner(
-                            state,
-                            parameters,
-                            drivers,
-                            cached_aux,
-                            base_state,
-                            t,
-                            h,
-                            a_ij,
-                            rhs,
-                            preconditioned_vec,
-                            temp,
-                        )
+                        if chained_precond:
+                            preconditioner(
+                                state,
+                                parameters,
+                                drivers,
+                                cached_aux,
+                                base_state,
+                                t,
+                                h,
+                                a_ij,
+                                rhs,
+                                preconditioned_vec,
+                                temp,
+                                precond_scratch,
+                                chain_scratch,
+                            )
+                        else:
+                            preconditioner(
+                                state,
+                                parameters,
+                                drivers,
+                                cached_aux,
+                                base_state,
+                                t,
+                                h,
+                                a_ij,
+                                rhs,
+                                preconditioned_vec,
+                                temp,
+                                precond_scratch,
+                            )
                     else:
                         for i in range(n_val):
                             preconditioned_vec[i] = rhs[i]
-                    
+
                     operator_apply(
                         state,
                         parameters,
@@ -232,12 +267,14 @@ class InstrumentedLinearSolver(LinearSolver):
                     linear_squared_norms[log_slot, log_iter] = acc
                 
                 # Log "exceeded linear iters" status if still not converged
-                final_status = selp(converged, int32(0), int32(4))
+                final_status = selp(
+                    converged, success, max_linear_iters_exceeded
+                )
                 krylov_iters_out[0] = iteration
                 return final_status
             
             # no cover: end
-            return InstrumentedLinearSolverCache(
+            return InstrumentedMRLinearSolverCache(
                 linear_solver=linear_solver_cached
             )
         else:
@@ -274,7 +311,16 @@ class InstrumentedLinearSolver(LinearSolver):
                 # Allocate buffers from registry
                 preconditioned_vec = alloc_precond(shared, persistent_local)
                 temp = alloc_temp(shared, persistent_local)
-                
+                precond_scratch = alloc_precond_scratch(
+                    shared, persistent_local
+                )
+                if chained_precond:
+                    chain_scratch = alloc_chain_scratch(
+                        shared, persistent_local
+                    )
+                else:
+                    chain_scratch = precond_scratch
+
                 # Evaluate operator and compute initial residual
                 operator_apply(
                     state, parameters, drivers, base_state, t, h, a_ij, x,
@@ -298,22 +344,39 @@ class InstrumentedLinearSolver(LinearSolver):
                     
                     iteration += int32(1)
                     if preconditioned:
-                        preconditioner(
-                            state,
-                            parameters,
-                            drivers,
-                            base_state,
-                            t,
-                            h,
-                            a_ij,
-                            rhs,
-                            preconditioned_vec,
-                            temp,
-                        )
+                        if chained_precond:
+                            preconditioner(
+                                state,
+                                parameters,
+                                drivers,
+                                base_state,
+                                t,
+                                h,
+                                a_ij,
+                                rhs,
+                                preconditioned_vec,
+                                temp,
+                                precond_scratch,
+                                chain_scratch,
+                            )
+                        else:
+                            preconditioner(
+                                state,
+                                parameters,
+                                drivers,
+                                base_state,
+                                t,
+                                h,
+                                a_ij,
+                                rhs,
+                                preconditioned_vec,
+                                temp,
+                                precond_scratch,
+                            )
                     else:
                         for i in range(n_val):
                             preconditioned_vec[i] = rhs[i]
-                    
+
                     operator_apply(
                         state,
                         parameters,
@@ -364,12 +427,14 @@ class InstrumentedLinearSolver(LinearSolver):
                     linear_squared_norms[log_slot, log_iter] = acc
                 
                 # Log "exceeded linear iters" status if still not converged
-                final_status = selp(converged, int32(0), int32(4))
+                final_status = selp(
+                    converged, success, max_linear_iters_exceeded
+                )
                 krylov_iters_out[0] = iteration
                 return final_status
             
             # no cover: end
-            return InstrumentedLinearSolverCache(linear_solver=linear_solver)
+            return InstrumentedMRLinearSolverCache(linear_solver=linear_solver)
 
     @property
     def device_function(self) -> Callable:
@@ -395,7 +460,7 @@ class InstrumentedNewtonKrylov(NewtonKrylov):
     
     Inherits from NewtonKrylov and adds iteration logging to device function.
     Logging arrays are passed as device function parameters and populated
-    during Newton iteration. Embeds InstrumentedLinearSolver for nested
+    during Newton iteration. Embeds InstrumentedMRLinearSolver for nested
     linear solve logging.
     """
     
@@ -439,7 +504,7 @@ class InstrumentedNewtonKrylov(NewtonKrylov):
             If residual_function or linear_solver is None when build() is
             called.
         TypeError
-            If linear_solver is not InstrumentedLinearSolver instance.
+            If linear_solver is not InstrumentedMRLinearSolver instance.
         """
         config = self.compile_settings
         
@@ -460,6 +525,13 @@ class InstrumentedNewtonKrylov(NewtonKrylov):
         precision_dtype = np.dtype(precision)
         numba_precision = from_dtype(precision_dtype)
         typed_zero = numba_precision(0.0)
+        success = int32(CUBIE_RESULT_CODES.SUCCESS)
+        max_newton_iters_exceeded = int32(
+            CUBIE_RESULT_CODES.MAX_NEWTON_ITERATIONS_EXCEEDED
+        )
+        newton_backtracking_failed = int32(
+            CUBIE_RESULT_CODES.NEWTON_BACKTRACKING_NO_SUITABLE_STEP
+        )
         typed_one = numba_precision(1.0)
         typed_damping = numba_precision(damping)
         n_val = int32(n)
@@ -562,7 +634,7 @@ class InstrumentedNewtonKrylov(NewtonKrylov):
             
             converged = norm2_prev <= typed_one
             has_error = False
-            final_status = int32(0)
+            final_status = success
             
             krylov_iters_local = alloc_krylov_iters_local(
                 shared_scratch, persistent_scratch
@@ -669,7 +741,7 @@ class InstrumentedNewtonKrylov(NewtonKrylov):
                 has_error = has_error or backtrack_failed
                 final_status = selp(
                     backtrack_failed,
-                    int32(final_status | int32(1)),
+                    int32(final_status | newton_backtracking_failed),
                     final_status
                 )
                 
@@ -696,7 +768,7 @@ class InstrumentedNewtonKrylov(NewtonKrylov):
             max_iters_exceeded = (not converged) and (not has_error)
             final_status = selp(
                 max_iters_exceeded,
-                int32(final_status | int32(2)),
+                int32(final_status | max_newton_iters_exceeded),
                 final_status
             )
             
@@ -716,8 +788,8 @@ class InstrumentedNewtonKrylov(NewtonKrylov):
 
 
 __all__ = [
-    "InstrumentedLinearSolver",
-    "InstrumentedLinearSolverCache",
+    "InstrumentedMRLinearSolver",
+    "InstrumentedMRLinearSolverCache",
     "InstrumentedNewtonKrylov",
     "InstrumentedNewtonKrylovCache",
 ]

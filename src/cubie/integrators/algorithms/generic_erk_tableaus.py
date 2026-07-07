@@ -50,6 +50,11 @@ class ERKTableau(ButcherTableau):
         ``order`` fields.
     """
 
+    def __attrs_post_init__(self) -> None:
+        """Validate structure and Runge--Kutta weight sums."""
+        super().__attrs_post_init__()
+        self._validate_weight_sums()
+
 
 #: Heun's improved Euler method offering second-order accuracy.
 #: Heun, K. "Neue Methoden zur approximativen Integration der
@@ -490,8 +495,8 @@ DORMAND_PRINCE_853_TABLEAU = ERKTableau(
         -7.465581142465572,
         0.6614932157077936,
         -0.4863400683755336,
-        0.20136540080403035,
-        0.04471061572777259,
+        0.11944219431891464,
+        0.06706592359165888,
     ),
     c=(
         0.0,

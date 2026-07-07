@@ -7,6 +7,7 @@ from numba_cuda_mlir import cuda
 from numba_cuda_mlir.types import int32
 from cubie.buffer_registry import buffer_registry
 from cubie.cuda_simsafe import all_sync, activemask
+from cubie.result_codes import CUBIE_RESULT_CODES
 from cubie.integrators.algorithms.base_algorithm_step import (
     StepCache,
 )
@@ -36,6 +37,7 @@ class InstrumentedERKStep(ERKStep):
         n = int32(n)
         stage_count = int32(tableau.stage_count)
         stages_except_first = stage_count - int32(1)
+        success = int32(CUBIE_RESULT_CODES.SUCCESS)
 
         accumulator_length = (tableau.stage_count - 1) * n
 
@@ -345,7 +347,7 @@ class InstrumentedERKStep(ERKStep):
                     end_time,
             )
 
-            return int32(0)
+            return success
 
         return StepCache(step=step)
 

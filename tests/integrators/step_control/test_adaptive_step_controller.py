@@ -278,7 +278,7 @@ def test_controller_forwarding_arrays(step_controller, prop):
     )
 
 
-# ── build_controller abstract (item 70) / local_memory_elements ── #
+# ── build_controller abstract / persistent_local_buffer_size ── #
 
 
 @pytest.mark.parametrize(
@@ -286,9 +286,9 @@ def test_controller_forwarding_arrays(step_controller, prop):
     [pytest.param({"step_controller": "i"}, id="i-controller")],
     indirect=True,
 )
-def test_local_memory_elements_is_int(step_controller):
-    """local_memory_elements returns a positive int on concrete subclass."""
-    val = step_controller.local_memory_elements
+def test_persistent_local_buffer_size_is_int(step_controller):
+    """persistent_local_buffer_size returns a non-negative int."""
+    val = step_controller.persistent_local_buffer_size
     assert isinstance(val, int)
     assert val >= 0
 

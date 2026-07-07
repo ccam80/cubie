@@ -43,6 +43,7 @@ from numpy import eye
 
 from cubie._utils import PrecisionDType, build_config
 from cubie.cuda_simsafe import activemask, all_sync
+from cubie.result_codes import CUBIE_RESULT_CODES
 from cubie.integrators.algorithms.base_algorithm_step import (
     StepCache,
     StepControlDefaults,
@@ -285,7 +286,8 @@ class DIRKStep(ODEImplicitStep):
         get_fn = config.get_solver_helper_fn
 
         preconditioner = get_fn(
-            "neumann_preconditioner",
+            "preconditioner",
+            preconditioner_type=config.preconditioner_type,
             beta=beta,
             gamma=gamma,
             mass=mass,
@@ -312,6 +314,9 @@ class DIRKStep(ODEImplicitStep):
         self.solver.update(
             operator_apply=operator,
             preconditioner=preconditioner,
+            preconditioner_is_chained=(
+                config.preconditioner_is_chained
+            ),
             residual_function=residual,
         )
 
@@ -349,6 +354,7 @@ class DIRKStep(ODEImplicitStep):
         explicit_a_coeffs = tableau.explicit_terms(numba_precision)
         solution_weights = tableau.typed_vector(tableau.b, numba_precision)
         typed_zero = numba_precision(0.0)
+        success = int32(CUBIE_RESULT_CODES.SUCCESS)
         error_weights = tableau.error_weights(numba_precision)
         if error_weights is None or not has_error:
             error_weights = tuple(typed_zero for _ in range(stage_count))
@@ -445,7 +451,7 @@ class DIRKStep(ODEImplicitStep):
                 if has_error and accumulates_error:
                     error[idx] = typed_zero
 
-            status_code = int32(0)
+            status_code = success
             # --------------------------------------------------------------- #
             #            Stage 0: may reuse cached values                     #
             # --------------------------------------------------------------- #

@@ -5,7 +5,8 @@ from typing import Tuple
 import numpy as np
 import pytest
 from numba_cuda_mlir import cuda
-from cubie.integrators.array_interpolator import ArrayInterpolator
+
+from cubie.array_interpolator import ArrayInterpolator
 from cubie.odesystems.symbolic.symbolicODE import SymbolicODE
 from tests.integrators.cpu_reference.cpu_utils import DriverEvaluator
 
@@ -945,4 +946,81 @@ def test_cubic_interpolation_matches_analytic(cubic_inputs, precision, tolerance
             f"observed: {np.array2string(observed)}\n"
             f"expected: {np.array2string(expected)}")
         )
+
+
+@pytest.mark.parametrize(
+    "solver_settings_override",
+    [{"system_type": "two_driver"}],
+    indirect=True,
+)
+def test_check_against_system_drivers_orders_by_declared_order(
+    system, precision
+) -> None:
+    """Driver entries are reordered to the system's declared order."""
+
+    samples_a = np.full(6, 2.0, dtype=precision)
+    samples_b = np.full(6, 5.0, dtype=precision)
+    shuffled = {
+        "d_b": samples_b,
+        "d_a": samples_a,
+        "dt": precision(0.1),
+        "wrap": False,
+    }
+
+    ordered = ArrayInterpolator.check_against_system_drivers(shuffled, system)
+
+    driver_keys = [key for key in ordered if key in ("d_a", "d_b")]
+    assert driver_keys == list(system.indices.driver_names)
+    # Non-driver configuration/timing entries are preserved.
+    assert ordered["dt"] == precision(0.1)
+    assert ordered["wrap"] is False
+
+
+@pytest.mark.parametrize(
+    "solver_settings_override",
+    [{"system_type": "two_driver"}],
+    indirect=True,
+)
+def test_interpolator_columns_track_declared_driver_order(
+    system, precision
+) -> None:
+    """Coefficient columns align with declared drivers for any key order."""
+
+    samples_a = np.full(6, 2.0, dtype=precision)
+    samples_b = np.full(6, 5.0, dtype=precision)
+
+    forward = {
+        "d_a": samples_a,
+        "d_b": samples_b,
+        "dt": precision(0.1),
+    }
+    reversed_dict = {
+        "d_b": samples_b,
+        "d_a": samples_a,
+        "dt": precision(0.1),
+    }
+
+    forward_interp = ArrayInterpolator(
+        precision=precision,
+        input_dict=ArrayInterpolator.check_against_system_drivers(
+            forward, system
+        ),
+    )
+    reversed_interp = ArrayInterpolator(
+        precision=precision,
+        input_dict=ArrayInterpolator.check_against_system_drivers(
+            reversed_dict, system
+        ),
+    )
+
+    # Column 0 holds d_a (constant 2.0), column 1 holds d_b (constant 5.0)
+    # regardless of the caller's insertion order.
+    np.testing.assert_array_equal(
+        forward_interp.coefficients[0, :, 0],
+        np.array([2.0, 5.0], dtype=precision),
+    )
+    np.testing.assert_array_equal(
+        reversed_interp.coefficients[0, :, 0],
+        forward_interp.coefficients[0, :, 0],
+    )
 

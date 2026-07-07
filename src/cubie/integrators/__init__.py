@@ -27,14 +27,13 @@ step_control
 
 Notes
 -----
-``IntegratorReturnCodes`` encodes algorithm-level statuses. Matrix-free
-solver status codes remain available from
-``cubie.integrators.matrix_free_solvers`` and embed the Newton iteration
-count in the upper 16 bits when returned from implicit algorithms.
+``CUBIE_RESULT_CODES`` (re-exported here and from :mod:`cubie`) is the single
+status-code vocabulary; device functions OR its values into the per-run status
+word. Iteration counts are returned separately through the ``counters`` array,
+not packed into the status word.
 """
 
-from enum import IntEnum
-
+from cubie.result_codes import CUBIE_RESULT_CODES
 from cubie.integrators.SingleIntegratorRun import SingleIntegratorRun
 from cubie.integrators.algorithms import (
     BackwardsEulerPCStep,
@@ -47,9 +46,11 @@ from cubie.integrators.algorithms import (
 )
 from cubie.integrators.loops import IVPLoop
 from cubie.integrators.matrix_free_solvers import (
-    LinearSolver,
-    LinearSolverConfig,
+    MRLinearSolver,
+    MRLinearSolverConfig,
     LinearSolverCache,
+    BiCGSTABSolver,
+    BiCGSTABSolverConfig,
     NewtonKrylov,
     NewtonKrylovConfig,
     NewtonKrylovCache,
@@ -64,27 +65,9 @@ from cubie.integrators.step_control import (
 )
 
 
-class IntegratorReturnCodes(IntEnum):
-    """Enumerate outcomes returned by integrator kernels.
-
-    Notes
-    -----
-    Integer codes mirror the solver codes for compatibility, but
-    ``SUCCESS`` values differ between integrator and solver enumerations.
-    """
-
-    SUCCESS = 0
-    NEWTON_BACKTRACKING_NO_SUITABLE_STEP = 1
-    MAX_NEWTON_ITERATIONS_EXCEEDED = 2
-    MAX_LINEAR_ITERATIONS_EXCEEDED = 4
-    STEP_TOO_SMALL = 8
-    DT_EFF_EFFECTIVELY_ZERO = 16
-    MAX_LOOP_ITERS_EXCEEDED = 32
-
-
 __all__ = [
     "SingleIntegratorRun",
-    "IntegratorReturnCodes",
+    "CUBIE_RESULT_CODES",
     "get_algorithm_step",
     "ExplicitStepConfig",
     "ImplicitStepConfig",
@@ -93,9 +76,11 @@ __all__ = [
     "BackwardsEulerPCStep",
     "CrankNicolsonStep",
     "IVPLoop",
-    "LinearSolver",
-    "LinearSolverConfig",
+    "MRLinearSolver",
+    "MRLinearSolverConfig",
     "LinearSolverCache",
+    "BiCGSTABSolver",
+    "BiCGSTABSolverConfig",
     "NewtonKrylov",
     "NewtonKrylovConfig",
     "NewtonKrylovCache",

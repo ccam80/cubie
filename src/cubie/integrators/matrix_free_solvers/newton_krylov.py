@@ -1,7 +1,7 @@
 """Newton--Krylov solver factories for matrix-free integrators.
 
-This module wraps the linear solver provided by
-:mod:`cubie.integrators.matrix_free_solvers.linear_solver` to build
+This module wraps a linear solver provided by
+:mod:`cubie.integrators.matrix_free_solvers.linear_solver_base` to build
 damped Newton iterations suitable for CUDA device execution.
 
 Published Classes
@@ -15,13 +15,13 @@ Published Classes
 
 :class:`NewtonKrylov`
     CUDAFactory subclass that compiles a damped Newton--Krylov
-    solver wrapping a :class:`~cubie.integrators.matrix_free_solvers.linear_solver.LinearSolver`.
+    solver wrapping a :class:`~cubie.integrators.matrix_free_solvers.linear_solver_base.LinearSolverBase`.
 
 See Also
 --------
 :class:`~cubie.integrators.matrix_free_solvers.base_solver.MatrixFreeSolver`
     Parent factory providing norm and tolerance management.
-:class:`~cubie.integrators.matrix_free_solvers.linear_solver.LinearSolver`
+:class:`~cubie.integrators.matrix_free_solvers.linear_solver_base.LinearSolverBase`
     Inner linear solver used for the Newton correction equation.
 :mod:`cubie.integrators.algorithms.ode_implicitstep`
     Implicit step base class that creates :class:`NewtonKrylov`
@@ -55,8 +55,11 @@ from cubie.cuda_simsafe import (
     any_sync,
     compile_kwargs,
 )
+from cubie.result_codes import CUBIE_RESULT_CODES
 
-from cubie.integrators.matrix_free_solvers.linear_solver import LinearSolver
+from cubie.integrators.matrix_free_solvers.linear_solver_base import (
+    LinearSolverBase,
+)
 
 
 @define
@@ -189,8 +192,8 @@ class NewtonKrylov(MatrixFreeSolver):
         Numerical precision for computations.
     n : int
         Size of state vectors.
-    linear_solver : LinearSolver
-        :class:`~cubie.integrators.matrix_free_solvers.linear_solver.LinearSolver`
+    linear_solver : LinearSolverBase
+        :class:`~cubie.integrators.matrix_free_solvers.linear_solver_base.LinearSolverBase`
         instance for solving linear systems.
     **kwargs
         Forwarded to :class:`NewtonKrylovConfig` and the norm
@@ -203,7 +206,7 @@ class NewtonKrylov(MatrixFreeSolver):
         Configuration container for this factory.
     :class:`~cubie.integrators.matrix_free_solvers.base_solver.MatrixFreeSolver`
         Parent class providing norm and tolerance management.
-    :class:`~cubie.integrators.matrix_free_solvers.linear_solver.LinearSolver`
+    :class:`~cubie.integrators.matrix_free_solvers.linear_solver_base.LinearSolverBase`
         Inner linear solver used for the Newton correction equation.
     """
 
@@ -211,7 +214,7 @@ class NewtonKrylov(MatrixFreeSolver):
         self,
         precision: PrecisionDType,
         n: int,
-        linear_solver: LinearSolver,
+        linear_solver: LinearSolverBase,
         **kwargs,
     ) -> None:
         """Initialize NewtonKrylov with parameters.
@@ -222,8 +225,8 @@ class NewtonKrylov(MatrixFreeSolver):
             Numerical precision for computations.
         n : int
             Size of state vectors.
-        linear_solver : LinearSolver
-            LinearSolver instance for solving linear systems.
+        linear_solver : LinearSolverBase
+            LinearSolverBase instance for solving linear systems.
         **kwargs
             Optional parameters passed to NewtonKrylovConfig. See
             NewtonKrylovConfig for available parameters. Tolerance
@@ -318,6 +321,13 @@ class NewtonKrylov(MatrixFreeSolver):
 
         numba_precision = config.numba_precision
         typed_zero = numba_precision(0.0)
+        success = int32(CUBIE_RESULT_CODES.SUCCESS)
+        max_newton_iters_exceeded = int32(
+            CUBIE_RESULT_CODES.MAX_NEWTON_ITERATIONS_EXCEEDED
+        )
+        newton_backtracking_failed = int32(
+            CUBIE_RESULT_CODES.NEWTON_BACKTRACKING_NO_SUITABLE_STEP
+        )
         typed_one = numba_precision(1.0)
         typed_damping = numba_precision(newton_damping)
         n_val = int32(n)
@@ -411,14 +421,14 @@ class NewtonKrylov(MatrixFreeSolver):
                 delta[i] = typed_zero
 
             converged = norm2_prev <= typed_one
-            final_status = int32(0)
+            final_status = success
 
             krylov_iters_local = alloc_krylov_iters_local(
                 shared_scratch, persistent_scratch
             )
 
             # Track the latest active iteration's status signals.
-            last_lin_status = int32(0)
+            last_lin_status = success
             last_backtrack_failed = False
 
             iters_count = int32(0)
@@ -511,14 +521,14 @@ class NewtonKrylov(MatrixFreeSolver):
 
             # Compose status word on exit.
             if not converged:
-                final_status = int32(final_status | int32(2))
+                final_status = int32(final_status | max_newton_iters_exceeded)
                 final_status = selp(
                     last_backtrack_failed,
-                    int32(final_status | int32(1)),
+                    int32(final_status | newton_backtracking_failed),
                     final_status,
                 )
                 final_status = selp(
-                    last_lin_status != int32(0),
+                    last_lin_status != success,
                     int32(final_status | last_lin_status),
                     final_status,
                 )
@@ -612,12 +622,12 @@ class NewtonKrylov(MatrixFreeSolver):
 
     @property
     def krylov_atol(self) -> ndarray:
-        """Return the Krylov absolute tolerance array from nested LinearSolver."""
+        """Return the Krylov absolute tolerance array from nested linear solver."""
         return self.linear_solver.atol
 
     @property
     def krylov_rtol(self) -> ndarray:
-        """Return the Krylov relative tolerance array from nested LinearSolver."""
+        """Return the Krylov relative tolerance array from nested linear solver."""
         return self.linear_solver.rtol
 
     @property

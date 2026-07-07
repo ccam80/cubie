@@ -1,0 +1,51 @@
+<?xml version="1.0" encoding="utf-8"?>
+<model name="ghk_singularity" xmlns="http://www.cellml.org/cellml/1.0#">
+  <component name="membrane">
+    <variable name="time" units="dimensionless" public_interface="out"/>
+    <variable name="V" units="dimensionless" initial_value="-25.0"/>
+    <variable name="alpha" units="dimensionless"/>
+    <math xmlns="http://www.w3.org/1998/Math/MathML">
+      <apply>
+        <eq/>
+        <ci>alpha</ci>
+        <apply>
+          <divide/>
+          <apply>
+            <times/>
+            <cn cellml:units="dimensionless" xmlns:cellml="http://www.cellml.org/cellml/1.0#">0.1</cn>
+            <apply>
+              <plus/>
+              <ci>V</ci>
+              <cn cellml:units="dimensionless" xmlns:cellml="http://www.cellml.org/cellml/1.0#">25.0</cn>
+            </apply>
+          </apply>
+          <apply>
+            <minus/>
+            <apply>
+              <exp/>
+              <apply>
+                <divide/>
+                <apply>
+                  <plus/>
+                  <ci>V</ci>
+                  <cn cellml:units="dimensionless" xmlns:cellml="http://www.cellml.org/cellml/1.0#">25.0</cn>
+                </apply>
+                <cn cellml:units="dimensionless" xmlns:cellml="http://www.cellml.org/cellml/1.0#">10.0</cn>
+              </apply>
+            </apply>
+            <cn cellml:units="dimensionless" xmlns:cellml="http://www.cellml.org/cellml/1.0#">1.0</cn>
+          </apply>
+        </apply>
+      </apply>
+      <apply>
+        <eq/>
+        <apply>
+          <diff/>
+          <bvar><ci>time</ci></bvar>
+          <ci>V</ci>
+        </apply>
+        <ci>alpha</ci>
+      </apply>
+    </math>
+  </component>
+</model>

@@ -75,7 +75,7 @@ default_timelogger.register_event(
 CACHED_OPERATOR_APPLY_TEMPLATE = (
     "\n"
     "# AUTO-GENERATED CACHED LINEAR OPERATOR FACTORY\n"
-    "def {func_name}(constants, precision, beta=1.0, gamma=1.0, order=None):\n"
+    "def {func_name}(constants, precision, beta=1.0, gamma=1.0):\n"
     '    """Auto-generated cached linear operator.\n'
     "    Computes out = beta * (M @ v) - gamma * a_ij * h * (J @ v)\n"
     "    using cached auxiliary intermediates.\n"
@@ -83,8 +83,6 @@ CACHED_OPERATOR_APPLY_TEMPLATE = (
     "      operator_apply(\n"
     "          state, parameters, drivers, cached_aux, base_state, t, h, a_ij, v, out\n"
     "      )\n"
-    "    argument 'order' is ignored, included for compatibility with\n"
-    "    preconditioner API.\n"
     '    """\n'
     "    _cubie_codegen_beta = precision(beta)\n"
     "    _cubie_codegen_gamma = precision(gamma)\n"
@@ -113,13 +111,11 @@ CACHED_OPERATOR_APPLY_TEMPLATE = (
 OPERATOR_APPLY_TEMPLATE = (
     "\n"
     "# AUTO-GENERATED LINEAR OPERATOR FACTORY\n"
-    "def {func_name}(constants, precision, beta=1.0, gamma=1.0, order=None):\n"
+    "def {func_name}(constants, precision, beta=1.0, gamma=1.0):\n"
     '    """Auto-generated linear operator.\n'
     "    Computes out = beta * (M @ v) - gamma * a_ij * h * (J @ v)\n"
     "    Returns device function:\n"
     "      operator_apply(state, parameters, drivers, base_state, t, h, a_ij, v, out)\n"
-    "    argument 'order' is ignored, included for compatibility with\n"
-    "    preconditioner API.\n"
     '    """\n'
     "    _cubie_codegen_beta = precision(beta)\n"
     "    _cubie_codegen_gamma = precision(gamma)\n"
@@ -815,10 +811,9 @@ def generate_n_stage_linear_operator_code(
 N_STAGE_OPERATOR_TEMPLATE = (
     "\n"
     "# AUTO-GENERATED N-STAGE LINEAR OPERATOR FACTORY\n"
-    "def {func_name}(constants, precision, beta=1.0, gamma=1.0, order=None):\n"
+    "def {func_name}(constants, precision, beta=1.0, gamma=1.0):\n"
     '    """Auto-generated FIRK linear operator for flattened stages.\n'
     "    Handles {stage_count} stages with ``s * n`` unknowns.\n"
-    "    Order is ignored, included for compatibility with preconditioner API.\n"
     '    """\n'
     "{const_lines}"
     "    _cubie_codegen_gamma = precision(gamma)\n"

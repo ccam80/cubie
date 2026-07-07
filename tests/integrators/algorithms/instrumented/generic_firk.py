@@ -30,6 +30,9 @@ from typing import Callable, Optional
 import numpy as np
 from numba_cuda_mlir import cuda
 from numba_cuda_mlir.types import int32
+
+from cubie.result_codes import CUBIE_RESULT_CODES
+
 from cubie._utils import PrecisionDType
 from cubie.integrators.algorithms.base_algorithm_step import (
     StepCache,
@@ -105,16 +108,16 @@ class InstrumentedFIRKStep(InstrumentedODEImplicitStep):
             default value of 2.
         krylov_atol
             Absolute tolerance for the Krylov linear solver. If None, uses
-            default from LinearSolverConfig.
+            default from LinearSolverBaseConfig.
         krylov_rtol
             Relative tolerance for the Krylov linear solver. If None, uses
-            default from LinearSolverConfig.
+            default from LinearSolverBaseConfig.
         krylov_max_iters
             Maximum iterations allowed for the Krylov solver. If None, uses
-            default from LinearSolverConfig.
+            default from LinearSolverBaseConfig.
         linear_correction_type
             Type of Krylov correction. If None, uses default from
-            LinearSolverConfig.
+            LinearSolverBaseConfig.
         newton_atol
             Absolute tolerance for the Newton iteration. If None, uses
             default from NewtonKrylovConfig.
@@ -350,6 +353,7 @@ class InstrumentedFIRKStep(InstrumentedODEImplicitStep):
         stage_rhs_coeffs = tableau.a_flat(numba_precision)
         solution_weights = tableau.typed_vector(tableau.b, numba_precision)
         typed_zero = numba_precision(0.0)
+        success = int32(CUBIE_RESULT_CODES.SUCCESS)
         error_weights = tableau.error_weights(numba_precision)
         if error_weights is None or not has_error:
             error_weights = tuple(typed_zero for _ in range(stage_count))
@@ -468,7 +472,7 @@ class InstrumentedFIRKStep(InstrumentedODEImplicitStep):
 
             current_time = time_scalar
             end_time = current_time + dt_scalar
-            status_code = int32(0)
+            status_code = success
 
             for idx in range(n):
                 if accumulates_output:

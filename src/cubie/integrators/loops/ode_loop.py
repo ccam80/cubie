@@ -44,6 +44,7 @@ from numba_cuda_mlir.types import int32, float64
 from cubie.CUDAFactory import CUDAFactory, CUDADispatcherCache
 from cubie.buffer_registry import buffer_registry
 from cubie.cuda_simsafe import activemask, all_sync, compile_kwargs, selp
+from cubie.result_codes import CUBIE_RESULT_CODES
 from cubie._utils import PrecisionDType, unpack_dict_values, build_config
 from cubie.integrators.loops.ode_loop_config import ODELoopConfig
 from cubie.outputhandling import OutputCompileFlags
@@ -411,6 +412,10 @@ class IVPLoop(CUDAFactory):
 
         precision = config.numba_precision
 
+        success = int32(CUBIE_RESULT_CODES.SUCCESS)
+        step_too_small = int32(CUBIE_RESULT_CODES.STEP_TOO_SMALL)
+        stagnation = int32(CUBIE_RESULT_CODES.STAGNATION)
+
         save_state = config.save_state_fn
         update_summaries = config.update_summaries_fn
         save_summaries = config.save_summaries_fn
@@ -664,7 +669,8 @@ class IVPLoop(CUDAFactory):
                         samples_per_summary,
                     )
 
-            status = int32(0)
+            status = success
+            iteration_status = int32(0)
             dt[0] = initial_dt
             dt_raw = initial_dt
             accept_step[0] = int32(0)
@@ -772,7 +778,7 @@ class IVPLoop(CUDAFactory):
 
                     first_step_flag = False
                     niters = proposed_counters[0]
-                    status = int32(status | step_status)
+                    iteration_status = int32(iteration_status | step_status)
 
                     # A nonzero step status indicates step failure (e.g., solver
                     # convergence failure). In adaptive mode this should reject the
@@ -800,12 +806,15 @@ class IVPLoop(CUDAFactory):
 
                         accept = bool_(accept_step[0] != int32(0))
                         accept = bool_(accept and (not step_failed))
-                        status = int32(status | controller_status)
+                        iteration_status = int32(
+                            iteration_status | controller_status
+                        )
 
                         # Controller may signal irrecoverable error via status bit
                         irrecoverable = bool_(
                             irrecoverable
-                            or ((controller_status & 0x8) != int32(0))
+                            or ((controller_status & step_too_small)
+                                != success)
                         )
                     else:
                         accept = bool_(not step_failed)
@@ -836,10 +845,28 @@ class IVPLoop(CUDAFactory):
                         stagnant_counts = int32(0)
 
                     stagnant = bool_(stagnant_counts >= int32(2))
-                    status = selp(
-                        stagnant, int32(status | int32(0x40)), status
+                    iteration_status = selp(
+                        stagnant,
+                        int32(iteration_status | stagnation),
+                        iteration_status,
                     )
                     irrecoverable = bool_(irrecoverable or stagnant)
+
+                    # Fold the iteration's accumulated status bits into the
+                    # persistent status word only when the run ends
+                    # irrecoverably.  The accumulator is cleared whenever a
+                    # step is accepted, so a save event (which requires an
+                    # accepted step) delivers the cleared value and transient
+                    # bits from rejected-then-recovered attempts never reach
+                    # the persistent word.  The fatal iteration's bits are
+                    # committed before the reset, preserving diagnosability.
+                    status = selp(
+                        irrecoverable,
+                        int32(status | iteration_status),
+                        status,
+                    )
+                    if accept:
+                        iteration_status = int32(0)
 
                     t = selp(accept, t_proposal, t)
                     t_prec = precision(t)

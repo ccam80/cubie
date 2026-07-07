@@ -51,10 +51,6 @@ propagates a `precision` change to all four embedded `SystemValues` via
 because constants are captured into CUDA closures and so affect compiled output even though
 mutating a value doesn't trip the attrs equality check.
 
-### `_mass` is outside the cache key
-`ODEData._mass` is `eq=False`, so mass-matrix changes are invisible to the `CUDAFactory` cache;
-a subclass that uses mass must invalidate itself. (Tracked in `_CLEANUP.md`.)
-
 ### get_solver_helper at the base level
 `BaseODE.get_solver_helper(func_name, beta, gamma, mass, preconditioner_order)` ignores every
 argument except `func_name` — it just delegates to `get_cached_output(func_name)`. Only

@@ -38,6 +38,7 @@ from numpy import ndarray, zeros as np_zeros
 
 from cubie.outputhandling.output_config import OutputCompileFlags
 from cubie._utils import PrecisionDType
+from cubie.result_codes import decode_status_codes
 from cubie.batchsolving.BatchSolverConfig import ActiveOutputs
 from cubie.batchsolving.BatchInputHandler import BatchInputHandler
 from cubie.batchsolving.BatchSolverKernel import BatchSolverKernel
@@ -45,7 +46,7 @@ from cubie.batchsolving.solveresult import SolveResult, SolveSpec
 from cubie.batchsolving.SystemInterface import SystemInterface
 from cubie.memory.mem_manager import ALL_MEMORY_MANAGER_PARAMETERS
 from cubie.odesystems.baseODE import BaseODE
-from cubie.integrators.array_interpolator import ArrayInterpolator
+from cubie.array_interpolator import ArrayInterpolator
 from cubie.integrators.algorithms.base_algorithm_step import (
     ALL_ALGORITHM_STEP_PARAMETERS,
 )
@@ -150,6 +151,12 @@ def solve_ivp(
     if summarise_variables is not None:
         kwargs.setdefault("summarise_variables", summarise_variables)
 
+    # Solve-time options go to solve(); the rest configure the Solver.
+    solve_option_keys = ("blocksize", "stream", "results_type")
+    solve_options = {
+        key: kwargs.pop(key) for key in solve_option_keys if key in kwargs
+    }
+
     solver = Solver(
         system,
         algorithm=method,
@@ -166,11 +173,11 @@ def solve_ivp(
         parameters,
         drivers=drivers,
         duration=duration,
-        warmup=settling_time,
+        settling_time=settling_time,
         t0=t0,
         grid_type=grid_type,
         nan_error_trajectories=nan_error_trajectories,
-        **kwargs,
+        **solve_options,
     )
 
     # Stop wall-clock timing (summary printed by Solver.solve)
@@ -280,6 +287,13 @@ class Solver:
             valid_keys=ALL_OUTPUT_FUNCTION_PARAMETERS,
             user_settings=output_settings,
         )
+        # Label kwargs are converted to index settings, not forwarded.
+        output_settings, label_recognized = merge_kwargs_into_settings(
+            kwargs=kwargs,
+            valid_keys=("save_variables", "summarise_variables"),
+            user_settings=output_settings,
+        )
+        output_recognized |= label_recognized
         self.convert_output_labels(output_settings)
 
         memory_settings, memory_recognized = merge_kwargs_into_settings(
@@ -389,7 +403,7 @@ class Solver:
             in (n_params, n_runs) format.
         drivers
             Driver samples or configuration matching
-            :class:`cubie.integrators.array_interpolator.ArrayInterpolator`.
+            :class:`cubie.array_interpolator.ArrayInterpolator`.
         duration
             Total integration time. Default is ``1.0``.
         settling_time
@@ -446,7 +460,7 @@ class Solver:
 
         fn_changed = False
         if drivers is not None:
-            ArrayInterpolator.check_against_system_drivers(
+            drivers = ArrayInterpolator.check_against_system_drivers(
                 drivers, self.system
             )
             fn_changed = self.driver_interpolator.update_from_dict(drivers)
@@ -833,6 +847,19 @@ class Solver:
     def status_codes(self):
         """Expose integration status codes."""
         return self.kernel.status_codes
+
+    @property
+    def status_messages(self):
+        """Decode nonzero run status codes into named result flags.
+
+        Returns
+        -------
+        dict[int, list[str]]
+            Mapping from run index to the ``CUBIE_RESULT_CODES`` member
+            names set in that run's status word; successful runs are
+            omitted.
+        """
+        return decode_status_codes(self.status_codes)
 
     @property
     def parameters(self):

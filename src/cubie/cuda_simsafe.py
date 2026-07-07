@@ -198,6 +198,25 @@ def is_cudasim_enabled() -> bool:
     return CUDA_SIMULATION
 
 
+def max_shared_memory_per_block() -> int:
+    """Return the device's dynamic shared-memory limit per block.
+
+    Returns
+    -------
+    int
+        Per-block shared-memory limit in bytes. numba-cuda does not
+        set ``CU_FUNC_ATTRIBUTE_MAX_DYNAMIC_SHARED_SIZE_BYTES``, so
+        the default (non-opt-in) device limit applies to every
+        launch. Under CUDASIM the ubiquitous 48 kiB default is
+        returned.
+    """
+    if CUDA_SIMULATION:
+        return 49152
+    return int(
+        cuda.get_current_device().MAX_SHARED_MEMORY_PER_BLOCK
+    )
+
+
 __all__ = [
     "activemask",
     "all_sync",
@@ -213,6 +232,7 @@ __all__ = [
     "HostOnlyCUDAMemoryManager",
     "is_cuda_array",
     "is_cudasim_enabled",
+    "max_shared_memory_per_block",
     "is_devfunc",
     "MappedNDArray",
     "MemoryInfo",

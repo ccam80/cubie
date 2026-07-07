@@ -14,7 +14,7 @@ from cubie.integrators.SingleIntegratorRun import SingleIntegratorRun
 from cubie.odesystems.symbolic import SymbolicODE
 from cubie.batchsolving.solver import Solver
 from cubie.outputhandling import OutputFunctions
-from cubie.integrators.array_interpolator import ArrayInterpolator
+from cubie.array_interpolator import ArrayInterpolator
 from cubie.odesystems.baseODE import BaseODE
 from numpy.typing import NDArray
 from tests.integrators.cpu_reference import CPUAdaptiveController

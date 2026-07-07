@@ -32,7 +32,9 @@ from cubie.integrators.loops.ode_loop import ALL_LOOP_SETTINGS
 from cubie.integrators.step_control.base_step_controller import (
     ALL_STEP_CONTROLLER_PARAMETERS,
 )
-from cubie.integrators.array_interpolator import ArrayInterpolator
+from cubie.array_interpolator import ArrayInterpolator
+from cubie.odesystems.symbolic.parsing.cellml import load_cellml_model
+from cubie.vendored import cellmlmanip
 from cubie.memory import default_memmgr
 from cubie.memory.mem_manager import (
     ALL_MEMORY_MANAGER_PARAMETERS,
@@ -58,6 +60,7 @@ from tests.system_fixtures import (
     build_three_state_linear_system,
     build_three_state_nonlinear_system,
     build_three_state_very_stiff_system,
+    build_two_driver_system,
 )
 
 enable_tempdir = "1"
@@ -208,6 +211,8 @@ def system(
         return build_three_state_nonlinear_system(precision)
     if model_type in ["three_chamber", "threecm"]:
         return build_three_chamber_system(precision)
+    if model_type == "two_driver":
+        return build_two_driver_system(precision)
     if model_type == "stiff":
         return build_three_state_very_stiff_system(precision)
     if model_type == "large":
@@ -295,6 +300,8 @@ def solver_settings(
         "kd": precision(0.0),
         "deadband_min": precision(0.95),
         "deadband_max": precision(1.05),
+        "fix_singularities": True,
+        "voltage_variable": None,
     }
 
     float_keys = {
@@ -1117,4 +1124,66 @@ def cpu_batch_results(
             [r.observable_summaries for r in results], axis=2,
         ),
         status=0 if all(r.status == 0 for r in results) else 1,
+    )
+
+
+# ========================================
+# CELLML FIXTURES
+# ========================================
+
+
+@pytest.fixture(scope="session")
+def cellml_fixtures_dir():
+    """Return the path to the CellML test-fixture directory."""
+    return Path(__file__).parent / "fixtures" / "cellml"
+
+
+@pytest.fixture(scope="session")
+def basic_model(cellml_fixtures_dir):
+    """Return the imported basic ODE CellML model.
+
+    Pinned to ``fix_singularities=False``: basic_ode is a non-cardiac
+    toy model with no membrane voltage, so the GHK rewrite is
+    meaningless and would only emit a skip warning on every load.
+    """
+    return load_cellml_model(
+        str(cellml_fixtures_dir / "basic_ode.cellml"),
+        fix_singularities=False,
+    )
+
+
+@pytest.fixture(scope="session")
+def beeler_reuter_model(cellml_fixtures_dir, solver_settings):
+    """Return the imported Beeler-Reuter CellML model."""
+    br_path = cellml_fixtures_dir / "beeler_reuter_model_1977.cellml"
+    return load_cellml_model(
+        str(br_path),
+        fix_singularities=solver_settings["fix_singularities"],
+        voltage_variable=solver_settings["voltage_variable"],
+    )
+
+
+@pytest.fixture(scope="session")
+def ghk_singularity_model(cellml_fixtures_dir, solver_settings):
+    """Return the single-GHK-singularity model used to verify the fix."""
+    path = cellml_fixtures_dir / "ghk_singularity.cellml"
+    return load_cellml_model(
+        str(path),
+        fix_singularities=solver_settings["fix_singularities"],
+        voltage_variable=solver_settings["voltage_variable"],
+    )
+
+
+@pytest.fixture(scope="session")
+def beeler_reuter_raw(cellml_fixtures_dir):
+    """Raw cellmlmanip Beeler-Reuter model (read-only detection tests)."""
+    br_path = cellml_fixtures_dir / "beeler_reuter_model_1977.cellml"
+    return cellmlmanip.load_model(str(br_path))
+
+
+@pytest.fixture(scope="session")
+def basic_ode_raw(cellml_fixtures_dir):
+    """Raw cellmlmanip basic_ode model (no membrane-voltage state)."""
+    return cellmlmanip.load_model(
+        str(cellml_fixtures_dir / "basic_ode.cellml")
     )

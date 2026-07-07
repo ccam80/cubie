@@ -44,6 +44,7 @@ from cubie.integrators.step_control.adaptive_PI_controller import (
     PIStepControlConfig,
 )
 from cubie.cuda_simsafe import compile_kwargs, selp
+from cubie.result_codes import CUBIE_RESULT_CODES
 from cubie.integrators.step_control.base_step_controller import ControllerCache
 
 
@@ -85,11 +86,7 @@ class AdaptivePIDController(BaseAdaptiveStepController):
         """Return the derivative gain."""
         return self.compile_settings.kd
 
-    @property
-    def local_memory_elements(self) -> int:
-        """Return the number of local memory slots required."""
-
-        return 2
+    _timestep_buffer_elements = 2  # previous two error norms
 
     @property
     def settings_dict(self) -> dict[str, object]:
@@ -176,6 +173,8 @@ class AdaptivePIDController(BaseAdaptiveStepController):
         n = int32(n)
         inv_n = precision(1.0 / n)
         typed_large = precision(1e16)
+        success = int32(CUBIE_RESULT_CODES.SUCCESS)
+        step_too_small = int32(CUBIE_RESULT_CODES.STEP_TOO_SMALL)
         # step sizes and norms can be approximate - fastmath is fine
         @cuda.jit(
             device=True,
@@ -257,12 +256,16 @@ class AdaptivePIDController(BaseAdaptiveStepController):
                 )
                 gain = selp(within_deadband, typed_one, gain)
 
+            # A rejected step must shrink dt: cap the gain below one so
+            # repeated rejection always walks dt down to dt_min.
+            gain = selp(accept, gain, min(gain, safety))
+
             dt_new_raw = dt[0] * gain
             dt[0] = clamp(dt_new_raw, dt_min, dt_max)
             timestep_buffer[1] = err_prev
             timestep_buffer[0] = nrm2
 
-            ret = int32(0) if dt_new_raw > dt_min else int32(8)
+            ret = success if dt_new_raw > dt_min else step_too_small
             return ret
 
         return ControllerCache(device_function=controller_PID)

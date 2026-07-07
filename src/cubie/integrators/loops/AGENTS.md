@@ -83,8 +83,9 @@ regular grids are active at all (vs. `save_last`-only).
 - **Stagnation** counts consecutive no-progress steps (not wall-clock): one step that
   doesn't advance `t` (e.g. `dt_eff` rounding to zero at a save boundary) is tolerated;
   two in a row trips `irrecoverable` and sets `status |= 0x40`.
-- `0x8` is `IntegratorReturnCodes.STEP_TOO_SMALL` (the controller's reject-at-min); `0x40`
-  (stagnation) corresponds to no `IntegratorReturnCodes` value (the named codes are 8/16/32).
+- The `& 0x8` mask is `CUBIE_RESULT_CODES.STEP_TOO_SMALL` (the controller's reject-at-min);
+  the `0x40` OR'd on stagnation is `CUBIE_RESULT_CODES.STAGNATION`. Both are captured as
+  device closure constants from `cubie/result_codes.py`.
 
 ### Config & settings
 - `samples_per_summary` (on `ODELoopConfig`) raises `ValueError` if `summarise_every` is

@@ -12,7 +12,7 @@ exclude  = ["./tests/*"]
 
 [project]
 name = "cubie"
-version = "0.0.7"
+version = "0.0.8"
 description = "CUDA Batch Integration Engine."
 authors = [
     { name="Chris Cameron" }
@@ -42,7 +42,8 @@ Homepage = "https://github.com/ccam80/cubie.git"
 Issues = "https://github.com/ccam80/cubie/issues"
 
 [project.optional-dependencies]
-dev = [
+cupy = ["cupy-cuda12x"] # optional pool memory, matches the cu12 backend pin
+test = [
     "numba",  # CPU-reference implementations in tests use numba.njit
     "pytest",
     "pytest-cov",
@@ -50,14 +51,13 @@ dev = [
     "pytest-xdist[psutil]",
     "flake8",
     "ruff",
-    "cupy-cuda12x",
     "pandas",
     "matplotlib",
     "scipy",
 ]
-cupy = [
-    "cupy-cuda12x",
-]
+# dev pulls cupy so the cupy-marked tests run; the backend is pinned to
+# the CUDA 12 lane via numba-cuda-mlir[cu12] above.
+dev = ["cubie[cupy,test]"]
 optional = [
     "pandas",
     "matplotlib"
@@ -93,7 +93,12 @@ filterwarnings = [
 #source = ["cubie"]
 omit = [
     "*/tests/*",
-    "*/__pycache__/*"
+    "*/__pycache__/*",
+    # Vendored third-party code (cellmlmanip); not cubie's tested surface.
+    "*/vendored/cellmlmanip/*",
+    # Compile-time numba-cuda patches; covered by the pull requests
+    # submitted to numba-cuda-mlir.
+    "*/_numba_cuda_compat.py",
 ]
 relative_files = true
 

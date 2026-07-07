@@ -84,7 +84,10 @@ summarised defaults to saved when all summarise inputs are `None`.
 `SolveResult.from_solver(results_type=…)` builds the requested representation: `"raw"` returns a
 plain dict, `"full"` the `SolveResult` itself; the instance exposes `as_numpy`,
 `as_numpy_per_summary`, and `as_pandas` (lazy `pandas` import). Trajectories for runs that errored
-are NaN-masked. `SolveSpec` is an attrs snapshot of the solve configuration.
+(nonzero `status_codes`) are NaN-masked. `SolveResult.status_messages` (and the `Solver`
+pass-through) decodes the per-run status word into named `CUBIE_RESULT_CODES` flags via
+`cubie.result_codes.decode_status_codes`. `SolveSpec` is an attrs snapshot of the solve
+configuration.
 
 ### Testing
 `tests/batchsolving/` (`test_solver.py`, `test_BatchSolverKernel.py`, input-handler/result tests).
@@ -92,7 +95,8 @@ Prefer real system fixtures (`tests/system_fixtures.py`) over mocks.
 
 ## Dependencies
 ### Internal
-- `cubie.CUDAFactory`; `cubie.integrators` (`SingleIntegratorRun`, `ArrayInterpolator`);
+- `cubie.CUDAFactory`; `cubie.integrators` (`SingleIntegratorRun`);
+  `cubie.array_interpolator` (`ArrayInterpolator`);
   `cubie.memory` (`default_memmgr`, `MemoryManager`, `ArrayRequest`/`ArrayResponse`,
   `chunk_buffer_pool`) + `cubie.buffer_registry`; `cubie.outputhandling` (`OutputCompileFlags`,
   `output_sizes`, `summary_metrics`); `cubie.odesystems` (`BaseODE`, `SymbolicODE`,

@@ -20,7 +20,7 @@ is specific to the solvers.
 ## Key Files
 | File | Description |
 |------|-------------|
-| `__init__.py` | Re-exports factories/configs/caches; defines `SolverRetCodes(IntEnum)`. |
+| `__init__.py` | Re-exports factories/configs/caches; re-exports `CUBIE_RESULT_CODES` from `cubie.result_codes`. |
 | `base_solver.py` | `MatrixFreeSolver` / `MatrixFreeSolverConfig` base — holds the norm device function and the shared `n` / `max_iters` / tolerance plumbing. |
 | `linear_solver.py` | `LinearSolver` — matrix-free preconditioned steepest-descent / minimal-residual linear solve (cached and non-cached variants). |
 | `newton_krylov.py` | `NewtonKrylov` — damped backtracking Newton iteration that calls a `LinearSolver` for each correction. |
@@ -61,11 +61,12 @@ is specific to the solvers.
   `LinearSolver` via `buffer_registry.get_child_allocators(self, self.linear_solver)`.
 
 ### Status codes & convergence
-- `SolverRetCodes`: `SUCCESS=0`, `NEWTON_BACKTRACKING_NO_SUITABLE_STEP=1`,
-  `MAX_NEWTON_ITERATIONS_EXCEEDED=2`, `MAX_LINEAR_ITERATIONS_EXCEEDED=4`.
-  `newton_krylov_solver` OR-combines these into a **low-bits** status word — it does
-  NOT pack the iteration count into high bits (counts go to `counters`). Callers OR
-  this word into their own step status.
+- Status codes come from the package-central `CUBIE_RESULT_CODES` (`cubie/result_codes.py`,
+  re-exported from this package): `SUCCESS=0`, `NEWTON_BACKTRACKING_NO_SUITABLE_STEP=1`,
+  `MAX_NEWTON_ITERATIONS_EXCEEDED=2`, `MAX_LINEAR_ITERATIONS_EXCEEDED=4` (captured as device
+  closure constants). `newton_krylov_solver` OR-combines these into a **low-bits** status
+  word — it does NOT pack the iteration count into high bits (counts go to `counters`).
+  Callers OR this word into their own step status.
 - Convergence is tested with the solver's **norm device function** (a `Norm`
   CUDAFactory; see `cubie.integrators.norms`). The per-solver tolerances are the
   prefixed params `krylov_atol`/`krylov_rtol` (linear) and `newton_atol`/`newton_rtol`

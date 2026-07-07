@@ -3,6 +3,9 @@ from typing import Callable, Optional
 import numpy as np
 from numba_cuda_mlir import cuda
 from numba_cuda_mlir.types import int32
+
+from cubie.result_codes import CUBIE_RESULT_CODES
+
 from cubie._utils import PrecisionDType
 from cubie.integrators.algorithms.base_algorithm_step import (
     StepCache,
@@ -76,16 +79,16 @@ class InstrumentedRosenbrockWStep(InstrumentedODEImplicitStep):
             preconditioner. If None, uses default value of 2.
         krylov_atol
             Absolute tolerance for the Krylov linear solver. If None, uses
-            default from LinearSolverConfig.
+            default from LinearSolverBaseConfig.
         krylov_rtol
             Relative tolerance for the Krylov linear solver. If None, uses
-            default from LinearSolverConfig.
+            default from LinearSolverBaseConfig.
         krylov_max_iters
             Maximum iterations allowed for the Krylov solver. If None, uses
-            default from LinearSolverConfig.
+            default from LinearSolverBaseConfig.
         linear_correction_type
             Type of Krylov correction ("minimal_residual" or other). If None,
-            uses default from LinearSolverConfig.
+            uses default from LinearSolverBaseConfig.
         tableau
             Rosenbrock tableau describing the coefficients and gamma values.
             Defaults to :data:`DEFAULT_ROSENBROCK_TABLEAU`.
@@ -323,6 +326,7 @@ class InstrumentedRosenbrockWStep(InstrumentedODEImplicitStep):
         has_evaluate_driver_at_t = evaluate_driver_at_t is not None
         has_error = self.is_adaptive
         typed_zero = numba_precision(0.0)
+        success = int32(CUBIE_RESULT_CODES.SUCCESS)
 
         a_coeffs = tableau.typed_columns(tableau.a, numba_precision)
         C_coeffs = tableau.typed_columns(tableau.C, numba_precision)
@@ -473,7 +477,7 @@ class InstrumentedRosenbrockWStep(InstrumentedODEImplicitStep):
             for driver_idx in range(driver_count):
                 stage_drivers_out[0, driver_idx] = drivers_buffer[driver_idx]
 
-            status_code = int32(0)
+            status_code = success
             stage_time = current_time + dt_scalar * stage_time_fractions[0]
 
             # --------------------------------------------------------------- #

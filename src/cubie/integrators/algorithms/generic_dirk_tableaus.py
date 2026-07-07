@@ -69,6 +69,11 @@ class DIRKTableau(ButcherTableau):
     Springer.
     """
 
+    def __attrs_post_init__(self) -> None:
+        """Validate structure and Runge--Kutta weight sums."""
+        super().__attrs_post_init__()
+        self._validate_weight_sums()
+
     def diagonal(self, precision: type) -> Tuple[float, ...]:
         """Return the diagonal entries of the tableau."""
 

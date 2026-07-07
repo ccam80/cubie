@@ -13,7 +13,8 @@ optimisation conventions live in `src/cubie/writing_cuda_functions.md`.
 
 ## Setup
 - `pip install -e .[dev]` from the repo root (use a venv; some deps are version-pinned).
-- **Python 3.10–3.12**, **CUDA Toolkit 12.9+**, **NVIDIA GPU (compute capability ≥6.0)**.
+- **Python 3.10–3.14**, **CUDA 12 or 13** (via the `cuda12`/`cuda13` extras, or a system
+  toolkit), **NVIDIA GPU (compute capability ≥6.0)**.
 - CPU-only dev/test without a GPU: set `NUMBA_ENABLE_CUDASIM=1` (Numba's CUDA simulator).
 - Dev shell is **PowerShell on Windows** — chain with `;`, not `&&`. Staying Windows-compatible is
   a project goal; CI runs on Ubuntu (Python 3.10/3.11/3.12).
@@ -66,8 +67,11 @@ change — the full suite is slow (run it as a pre-commit check only, and only w
 - No backwards-compatibility burden — breaking changes are expected pre-1.0.
 
 ## Dependencies
-- **Core:** numpy==1.26.4 (pinned <2.0 by cellmlmanip), numba, numba-cuda[cu12], attrs,
-  sympy>=1.13.0, cellmlmanip.
-- **Optional:** cupy-cuda12x (pool memory), pandas (DataFrame output), matplotlib (driver plots).
+- **Core:** numpy>=2.0, numba, numba-cuda, attrs, sympy>=1.13.0. cellmlmanip is vendored under
+  `src/cubie/vendored/cellmlmanip` (its `lxml`/`networkx`/`Pint>=0.24`/`rdflib` runtime deps are core).
+- **CUDA toolkit:** supplied by the `cuda12`/`cuda13` extras (`numba-cuda[cu12]`/`[cu13]`) or an
+  existing system install; a bare `pip install cubie` uses whatever toolkit numba-cuda can find.
+- **Optional:** cupy via the `cupy12`/`cupy13` extras (pool memory), pandas (DataFrame output),
+  matplotlib (driver plots).
 - CI installs a patched `numba-cuda` fork (`ccam80/numba-cuda@cubie_patch`) for faster compile;
   stock `numba-cuda` works for local dev.

@@ -40,6 +40,8 @@ from typing import Callable, Optional
 from attrs import define, field, validators
 from numba_cuda_mlir import cuda
 from numba_cuda_mlir.types import int32
+
+from cubie.result_codes import CUBIE_RESULT_CODES
 from numpy import eye
 
 from cubie._utils import PrecisionDType, build_config
@@ -297,7 +299,8 @@ class FIRKStep(ODEImplicitStep):
         )
 
         preconditioner = get_fn(
-            "n_stage_neumann_preconditioner",
+            "n_stage_preconditioner",
+            preconditioner_type=config.preconditioner_type,
             beta=beta,
             gamma=gamma,
             preconditioner_order=config.preconditioner_order,
@@ -309,6 +312,9 @@ class FIRKStep(ODEImplicitStep):
         self.solver.update(
             operator_apply=operator,
             preconditioner=preconditioner,
+            preconditioner_is_chained=(
+                config.preconditioner_is_chained
+            ),
             residual_function=residual,
             n=config.all_stages_n,
         )
@@ -344,6 +350,7 @@ class FIRKStep(ODEImplicitStep):
         stage_rhs_coeffs = tableau.a_flat(numba_precision)
         solution_weights = tableau.typed_vector(tableau.b, numba_precision)
         typed_zero = numba_precision(0.0)
+        success = int32(CUBIE_RESULT_CODES.SUCCESS)
         error_weights = tableau.error_weights(numba_precision)
         if error_weights is None or not has_error:
             error_weights = tuple(typed_zero for _ in range(stage_count))
@@ -431,7 +438,7 @@ class FIRKStep(ODEImplicitStep):
 
             current_time = time_scalar
             end_time = current_time + dt_scalar
-            status_code = int32(0)
+            status_code = success
 
             for idx in range(n):
                 if accumulates_output:

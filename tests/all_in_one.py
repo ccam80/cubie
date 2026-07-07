@@ -35,7 +35,7 @@ from cubie.integrators.algorithms.generic_firk_tableaus import (
 from cubie.integrators.algorithms.generic_rosenbrockw_tableaus import (
     ROSENBROCK_TABLEAUS,
 )
-from cubie.integrators.array_interpolator import ArrayInterpolator
+from cubie.array_interpolator import ArrayInterpolator
 from cubie.outputhandling.summarymetrics import summary_metrics
 
 # =========================================================================

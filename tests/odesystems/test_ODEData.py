@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import numpy as np
 import pytest
+import sympy as sp
 
 from cubie.odesystems.ODEData import ODEData, SystemSizes
 from cubie.odesystems.SystemValues import SystemValues
@@ -116,6 +117,27 @@ def test_odedata_mass_returns_stored_value():
     """mass property returns the _mass field."""
     data = _make_odedata()
     assert data.mass is None
+
+
+def test_mass_change_alters_values_hash():
+    """A mass change moves values_hash (forcing recompilation) while an
+    equal mass leaves it unchanged, across None/ndarray/sympy.Matrix."""
+    data = _make_odedata()  # _mass defaults to None
+    baseline = data.values_hash
+
+    data.update({"mass": np.eye(2, dtype=np.float64)})
+    hash_identity = data.values_hash
+    assert hash_identity != baseline  # None -> ndarray recompiles
+
+    data.update({"mass": np.eye(2, dtype=np.float64)})
+    assert data.values_hash == hash_identity  # equal ndarray: no recompile
+
+    data.update({"mass": np.diag([1.0, 2.0])})
+    hash_diag = data.values_hash
+    assert hash_diag != hash_identity  # different ndarray recompiles
+
+    data.update({"mass": sp.Matrix([[1, 0], [0, 3]])})
+    assert data.values_hash != hash_diag  # sympy.Matrix participates
 
 
 # ── ODEData.from_BaseODE_initargs ─────────────────────────────── #

@@ -14,9 +14,12 @@ import os
 os.environ["NUMBA_CUDA_LOW_OCCUPANCY_WARNINGS"] = "0"
 
 # Register Boolean bitwise lowerings missing from numba-cuda-mlir
-# before any kernel compilation can occur.
+# before any kernel compilation can occur. The mlir compat shims also
+# carry the frontend perf patches, so the stock numba-cuda compat
+# module is not imported on this branch.
 import cubie._mlir_compat  # noqa: F401
 
+from cubie.result_codes import CUBIE_RESULT_CODES
 from cubie.batchsolving import *  # noqa
 from cubie.integrators import *  # noqa
 from cubie.outputhandling import *  # noqa
@@ -36,6 +39,7 @@ __all__ = [
     "TimeLogger",
     "default_timelogger",
     "load_cellml_model",
+    "CUBIE_RESULT_CODES",
 ]
 
 try:

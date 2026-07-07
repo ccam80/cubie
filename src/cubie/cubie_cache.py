@@ -15,6 +15,7 @@ follows the MLIR compile-result scheme (cubin/PTX payloads) provided
 by :class:`numba_cuda_mlir.caching.MLIRCacheImpl`.
 """
 
+import os
 from functools import cache
 from hashlib import sha256
 from importlib.metadata import distributions
@@ -341,6 +342,18 @@ class CUBIECache(MLIRCache):
             custom_cache_dir=custom_cache_dir,
         )
         self._cache_path = self._impl.locator.get_cache_path()
+
+        # numba-cuda's CUDACache gained launch-config state (PR #804):
+        # the dispatcher calls is_launch_config_sensitive() on cached
+        # launches. This __init__ intentionally does not chain to
+        # CUDACache.__init__, so replicate that state here for the
+        # inherited launch-config methods to work.
+        self._launch_config_key = None
+        self._launch_config_sensitive_flag = None
+        marker_name = f"{self._impl.filename_base}.lcs"
+        self._launch_config_marker_path = os.path.join(
+            self._cache_path, marker_name
+        )
 
         source_stamp = self._impl.locator.get_source_stamp()
         filename_base = self._impl.filename_base

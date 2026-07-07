@@ -7,8 +7,8 @@ Published Classes
 
     >>> from numpy import float64
     >>> config = PIStepControlConfig(precision=float64)
-    >>> config.kp  # doctest: +ELLIPSIS
-    0.055...
+    >>> float(config.kp)
+    0.7
 
 :class:`AdaptivePIController`
     Proportional--integral step-size controller.
@@ -42,6 +42,7 @@ from cubie.integrators.step_control.adaptive_step_controller import (
     BaseAdaptiveStepController,
 )
 from cubie.cuda_simsafe import compile_kwargs, selp
+from cubie.result_codes import CUBIE_RESULT_CODES
 from cubie.integrators.step_control.base_step_controller import ControllerCache
 
 
@@ -56,10 +57,10 @@ class PIStepControlConfig(AdaptiveStepControlConfig):
     """
 
     _kp: float = field(
-        default=1 / 18, validator=validators.instance_of(_expand_dtype(float))
+        default=0.7, validator=validators.instance_of(_expand_dtype(float))
     )
     _ki: float = field(
-        default=1 / 9, validator=validators.instance_of(_expand_dtype(float))
+        default=-0.4, validator=validators.instance_of(_expand_dtype(float))
     )
 
     def __attrs_post_init__(self):
@@ -91,10 +92,7 @@ class AdaptivePIController(BaseAdaptiveStepController):
         """Return the integral gain."""
         return self.compile_settings.ki
 
-    @property
-    def local_memory_elements(self) -> int:
-        """Return the number of local memory slots required."""
-        return 1
+    _timestep_buffer_elements = 1  # previous error norm
 
     @property
     def settings_dict(self) -> dict[str, object]:
@@ -169,6 +167,8 @@ class AdaptivePIController(BaseAdaptiveStepController):
         n = int32(n)
         inv_n = precision(1.0 / n)
         typed_large = precision(1e16)
+        success = int32(CUBIE_RESULT_CODES.SUCCESS)
+        step_too_small = int32(CUBIE_RESULT_CODES.STEP_TOO_SMALL)
 
         # step sizes and norms can be approximate - fastmath is fine
         @cuda.jit(
@@ -243,11 +243,15 @@ class AdaptivePIController(BaseAdaptiveStepController):
                 )
                 gain = selp(within_deadband, typed_one, gain)
 
+            # A rejected step must shrink dt: cap the gain below one so
+            # repeated rejection always walks dt down to dt_min.
+            gain = selp(accept, gain, min(gain, safety))
+
             dt_new_raw = dt[0] * gain
             dt[0] = clamp(dt_new_raw, dt_min, dt_max)
             timestep_buffer[0] = nrm2
 
-            ret = int32(0) if dt_new_raw > dt_min else int32(8)
+            ret = success if dt_new_raw > dt_min else step_too_small
             return ret
 
         return ControllerCache(device_function=controller_PI)

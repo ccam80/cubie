@@ -8,7 +8,7 @@ import numpy as np
 from numba import njit
 from numpy.typing import NDArray
 
-from cubie.integrators import IntegratorReturnCodes
+from cubie.integrators import CUBIE_RESULT_CODES
 
 
 Array = NDArray[np.floating]
@@ -323,6 +323,114 @@ def _krylov_solve_dense_impl(
     return solution, converged, iteration
 
 
+@njit(cache=True)
+def _bicgstab_solve_dense_impl(
+    rhs: Array,
+    operator_matrix: Array,
+    tolerance: np.floating,
+    max_iterations: int,
+    initial_guess: Array,
+    has_initial_guess: bool,
+    neumann_order: int,
+) -> tuple[Array, bool, int]:
+    """Return the BiCGSTAB solution for a dense operator matrix.
+
+    Mirrors the device solver's preconditioned recurrences: the
+    search direction and intermediate residual are preconditioned
+    before each operator application, and a vanished recurrence
+    scalar (pivot, omega, or rho) exits unconverged as breakdown.
+    """
+
+    dtype = operator_matrix.dtype
+    zero = dtype.type(0.0)
+    solution = np.empty_like(rhs)
+    if has_initial_guess:
+        solution[:] = initial_guess
+    else:
+        for index in range(solution.shape[0]):
+            solution[index] = zero
+
+    tol_squared = tolerance * tolerance
+
+    operator_buffer = np.empty_like(rhs)
+    residual = np.empty_like(rhs)
+    _matrix_vector_product(operator_matrix, solution, operator_buffer)
+    for index in range(residual.shape[0]):
+        residual[index] = rhs[index] - operator_buffer[index]
+    residual_squared = _dot_product_impl(residual, residual)
+    if residual_squared <= tol_squared:
+        return solution, True, 0
+
+    preconditioner_matrix = _compute_neumann_preconditioner(
+        operator_matrix,
+        neumann_order,
+    )
+
+    witness = residual.copy()
+    direction = residual.copy()
+    direction_hat = np.empty_like(rhs)
+    s_hat = np.empty_like(rhs)
+    v_vector = np.empty_like(rhs)
+    t_vector = np.empty_like(rhs)
+
+    rho_prev = _dot_product_impl(witness, residual)
+    converged = False
+    iteration = 0
+
+    while iteration < max_iterations:
+        iteration += 1
+
+        _matrix_vector_product(
+            preconditioner_matrix, direction, direction_hat
+        )
+        _matrix_vector_product(
+            operator_matrix, direction_hat, v_vector
+        )
+        pivot = _dot_product_impl(witness, v_vector)
+        if pivot == zero:
+            return solution, False, iteration
+        alpha = dtype.type(rho_prev / pivot)
+
+        for index in range(solution.shape[0]):
+            solution[index] = (
+                solution[index] + alpha * direction_hat[index]
+            )
+            residual[index] = residual[index] - alpha * v_vector[index]
+        residual_squared = _dot_product_impl(residual, residual)
+        if residual_squared <= tol_squared:
+            converged = True
+            break
+
+        _matrix_vector_product(preconditioner_matrix, residual, s_hat)
+        _matrix_vector_product(operator_matrix, s_hat, t_vector)
+        t_squared = _dot_product_impl(t_vector, t_vector)
+        if t_squared == zero:
+            return solution, False, iteration
+        omega = dtype.type(
+            _dot_product_impl(t_vector, residual) / t_squared
+        )
+
+        for index in range(solution.shape[0]):
+            solution[index] = solution[index] + omega * s_hat[index]
+            residual[index] = residual[index] - omega * t_vector[index]
+        residual_squared = _dot_product_impl(residual, residual)
+        if residual_squared <= tol_squared:
+            converged = True
+            break
+
+        rho_new = _dot_product_impl(witness, residual)
+        if rho_new == zero or omega == zero:
+            return solution, False, iteration
+        beta = dtype.type((rho_new / rho_prev) * (alpha / omega))
+        for index in range(solution.shape[0]):
+            direction[index] = residual[index] + beta * (
+                direction[index] - omega * v_vector[index]
+            )
+        rho_prev = rho_new
+
+    return solution, converged, iteration
+
+
 def newton_solve(
     initial_guess: Array,
     precision: np.dtype,
@@ -572,9 +680,9 @@ def _encode_solver_status(converged: bool, niters: int) -> int:
     """Return a solver status word with the Newton iteration count encoded."""
 
     base_code = (
-        IntegratorReturnCodes.SUCCESS
+        CUBIE_RESULT_CODES.SUCCESS
         if converged
-        else IntegratorReturnCodes.MAX_NEWTON_ITERATIONS_EXCEEDED
+        else CUBIE_RESULT_CODES.MAX_NEWTON_ITERATIONS_EXCEEDED
     )
     iter_count = max(0, min(int(niters) + 1, STATUS_MASK))
     return (iter_count << 16) | (int(base_code) & STATUS_MASK)
@@ -762,8 +870,9 @@ def krylov_solve(
     neumann_order
         Order of the truncated Neumann-series left preconditioner.
     correction_type
-        Descent update to apply. ``"steepest_descent"`` or
-        ``"minimal_residual"``.
+        Linear solve to apply. ``"steepest_descent"``,
+        ``"minimal_residual"``, or ``"bicgstab"``. The logging
+        arrays are only populated for the descent variants.
     initial_guess
         Optional starting iterate for the solve. Defaults to the zero vector.
     instrumented
@@ -793,9 +902,14 @@ def krylov_solve(
         Solution vector, convergence flag, and iteration count.
     """
 
-    if correction_type not in ("steepest_descent", "minimal_residual"):
+    if correction_type not in (
+        "steepest_descent",
+        "minimal_residual",
+        "bicgstab",
+    ):
         raise ValueError(
-            "Correction type must be 'steepest_descent' or 'minimal_residual'."
+            "Correction type must be 'steepest_descent', "
+            "'minimal_residual', or 'bicgstab'."
         )
 
     dtype, scalar_type = resolve_precision_signature(precision)
@@ -813,23 +927,34 @@ def krylov_solve(
         guess = np.asarray(initial_guess, dtype=dtype)
 
     initial_provided = initial_guess is not None
-    solution, converged, iteration = _krylov_solve_dense_impl(
-        vector,
-        matrix,
-        tol_value,
-        iteration_limit,
-        guess,
-        initial_provided,
-        order,
-        minimal_residual,
-        instrumented,
-        logging_initial_guess,
-        logging_iteration_guesses,
-        logging_residuals,
-        logging_squared_norms,
-        logging_preconditioned_vectors,
-        int(stage_index),
-    )
+    if correction_type == "bicgstab":
+        solution, converged, iteration = _bicgstab_solve_dense_impl(
+            vector,
+            matrix,
+            tol_value,
+            iteration_limit,
+            guess,
+            initial_provided,
+            order,
+        )
+    else:
+        solution, converged, iteration = _krylov_solve_dense_impl(
+            vector,
+            matrix,
+            tol_value,
+            iteration_limit,
+            guess,
+            initial_provided,
+            order,
+            minimal_residual,
+            instrumented,
+            logging_initial_guess,
+            logging_iteration_guesses,
+            logging_residuals,
+            logging_squared_norms,
+            logging_preconditioned_vectors,
+            int(stage_index),
+        )
     return (
         np.asarray(solution, dtype=dtype),
         bool(converged),

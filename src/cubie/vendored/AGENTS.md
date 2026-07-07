@@ -12,7 +12,7 @@ in the module docstring.
 | File | Description |
 |------|-------------|
 | `__init__.py` | Package docstring only; no exports. |
-| `numba_cuda_cache.py` | Snapshot from NVIDIA/numba-cuda (`numba_cuda/numba/cuda/core/caching.py`), 2026-01-11: `_Cache` (ABC), `Cache` (per-function compile cache over `IndexDataCacheFile`), `CUDACache` (overrides `load_overload` to run under `utils.numba_target_override()`). |
+| `numba_cuda_cache.py` | Snapshot from NVIDIA/numba-cuda, 2026-07-03: `_Cache`/`Cache` from `numba_cuda/numba/cuda/core/caching.py`; `CUDACache` from `numba_cuda/numba/cuda/dispatcher.py` (its `load_overload` override under `utils.numba_target_override()` plus the launch-config API — `is_launch_config_sensitive`/`mark_launch_config_sensitive`/`set_launch_config_key`/`flush`, added upstream in PR #804). |
 | `cellmlmanip/` | Vendored snapshot of cellmlmanip 0.3.6 (ModellingWebLab, BSD 3-Clause; `LICENSE` kept alongside). Parses CellML into SymPy via `load_model`. Consumed by `odesystems/symbolic/parsing/cellml.py`. |
 
 ## For AI Agents
@@ -21,6 +21,11 @@ in the module docstring.
   and adds the file-based caching; the vendored `CUDACache` leaves `_impl_class = None` and is
   never instantiated directly. `cuda_simsafe` selects this vendored base vs the real
   `numba.cuda.dispatcher.CUDACache` depending on CUDASIM.
+- **`CUBIECache.__init__` does not chain to `CUDACache.__init__`** (it takes system hashes, not a
+  `py_func`), so any per-instance state the base constructor sets must be replicated there. It
+  currently mirrors `CUDACache`'s launch-config init (`_launch_config_key`,
+  `_launch_config_sensitive_flag`, `_launch_config_marker_path`); the dispatcher reads these on
+  every cached launch, so re-check this when re-snapshotting a newer numba-cuda.
 - Only `_Cache`/`Cache`/`CUDACache` are vendored; the file imports live from
   `numba.cuda.core.caching`, `numba.cuda.serialize`, and `numba.cuda.utils`.
 - To update, replace it with a newer upstream snapshot and bump the date; extend behaviour in

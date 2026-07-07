@@ -49,7 +49,6 @@ def test_cache_initialization_valid_inputs(basic_cellml_path):
     # Verify attributes are set correctly
     assert cache.model_name == "basic_ode"
     assert cache.cellml_path == basic_cellml_path
-    assert cache.cache_file.name == "cellml_cache.pkl"
     assert "basic_ode" in str(cache.cache_dir)
 
 

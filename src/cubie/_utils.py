@@ -58,6 +58,7 @@ from warnings import warn
 
 from numpy import (
     all as np_all,
+    array_equal,
     asarray,
     dtype as np_dtype,
     float16 as np_float16,
@@ -413,11 +414,13 @@ def tol_converter(
         tol = full(self_.n, value, dtype=self_.precision)
     else:
         tol = asarray(value, dtype=self_.precision)
-        # Broadcast single-element arrays to shape (n,)
-        if tol.shape[0] == 1 and self_.n > 1:
-            tol = full(self_.n, tol[0], dtype=self_.precision)
-        elif tol.shape[0] != self_.n:
-            raise ValueError("tol must have shape (n,).")
+        if tol.shape[0] != self_.n:
+            # A uniform array is a scalar specification: broadcast it
+            # to the configured length, as resize_tolerances does.
+            if all(tol == tol[0]):
+                tol = full(self_.n, tol[0], dtype=self_.precision)
+            else:
+                raise ValueError("tol must have shape (n,).")
     return tol
 
 
@@ -484,6 +487,33 @@ def ensure_nonzero_size(
         return value
     else:
         return value
+
+
+def mass_equal(left, right) -> bool:
+    """Compare two ODE mass matrices for attrs equality.
+
+    A mass matrix (``ODEData._mass``) may be ``None``, a
+    :class:`numpy.ndarray`, or a :class:`sympy.Matrix`. Used as the ``eq``
+    comparator so a mass change participates in the config hash and forces
+    recompilation.
+
+    Parameters
+    ----------
+    left, right
+        Mass-matrix operands, each ``None``, an ``ndarray``, or a
+        ``sympy.Matrix``.
+
+    Returns
+    -------
+    bool
+        ``True`` only when both operands are the same kind and hold equal
+        entries.
+    """
+    if left is None or right is None:
+        return left is None and right is None
+    if isinstance(left, ndarray) or isinstance(right, ndarray):
+        return array_equal(asarray(left), asarray(right))
+    return bool(left == right)
 
 
 def unpack_dict_values(updates_dict: dict) -> Tuple[dict, Set[str]]:

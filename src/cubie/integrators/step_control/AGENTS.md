@@ -22,7 +22,7 @@ controllers.
 | `adaptive_step_controller.py` | `BaseAdaptiveStepController` + `AdaptiveStepControlConfig` (shared adaptive config: `dt_min/max`, `atol/rtol`, `algorithm_order`, gain limits, deadband, safety); `_ensure_sane_bounds`. |
 | `fixed_step_controller.py` | `FixedStepController` — unconditional accept, returns `0`; no history. |
 | `adaptive_I_controller.py` | `AdaptiveIController` — integral-only; gain `safety·norm^(-1/(2(1+order)))`; no history. |
-| `adaptive_PI_controller.py` | `AdaptivePIController` (`kp=1/18`, `ki=1/9`) — uses previous + current norm. |
+| `adaptive_PI_controller.py` | `AdaptivePIController` (`kp=0.7`, `ki=-0.4`) — uses previous + current norm. |
 | `adaptive_PID_controller.py` | `AdaptivePIDController` (`PIDStepControlConfig` extends PI with `kd=0.0`) — uses two previous norms. |
 | `gustafsson_controller.py` | `GustafssonController` (`gamma=0.9`, `newton_max_iters=20`) — min of a basic gain and a Newton-iteration-aware predictive gain; stores previous `dt` + norm. |
 
@@ -31,15 +31,22 @@ controllers.
 ### Device-function contract (the caller — `IVPLoop` — must match)
 - Signature, identical across all controllers:
   `(dt, state, state_prev, error, niters, accept_out, shared_scratch, persistent_local)`.
-- Writes `accept_out[0] = int32(1)` to accept the step, `int32(0)` to reject.
-- Returns `int32(0)` normally, or `int32(8)` when the proposed step would fall at/below
-  `dt_min` (reject-at-minimum-step — the loop uses this to stop adaptive retries).
+- Writes `accept_out[0] = int32(1)` to accept the step, `int32(0)` to reject (a plain
+  accept/reject flag, not a result code).
+- Returns `CUBIE_RESULT_CODES.SUCCESS` normally, or `CUBIE_RESULT_CODES.STEP_TOO_SMALL`
+  when the proposed step would fall at/below `dt_min` (reject-at-minimum-step — the loop
+  uses this to stop adaptive retries). Both are captured as device closure constants from
+  `cubie/result_codes.py`.
 
 ### History buffers
 - Controllers that keep per-trajectory history register a single `timestep_buffer`:
   PI stores the previous error norm, PID the previous two norms, and Gustafsson the
-  previous `dt` and norm (I and fixed keep no history). The buffer size comes from the
-  controller's `register_buffers()`.
+  previous `dt` and norm (I and fixed keep no history). The slot count is the
+  `_timestep_buffer_elements` class attribute (PI 1, PID/Gustafsson 2, fixed/I 0), which
+  the base `register_buffers()` uses to register the buffer — controllers with 0 register
+  nothing. There is **no** `local_memory_elements` property; query the size the same way
+  as any other buffer-registered factory, via the registry-derived
+  `persistent_local_buffer_size`.
 
 ### Controller specifics
 - **`_resolve_step_params`** differs by family: `FixedStepController` collapses

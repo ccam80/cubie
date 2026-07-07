@@ -89,7 +89,7 @@ Never import Qt or `cubie.gui` at module top level.
 ### Internal
 - `cubie.odesystems.baseODE` (`BaseODE`, `ODECache`); `cubie.odesystems.symbolic.codegen` (all
   source emitters); `cubie.odesystems.symbolic.parsing` (`parse_input`, `IndexedBases`,
-  `ParsedEquations`, `JVPEquations`); `cubie.integrators.array_interpolator.ArrayInterpolator`
+  `ParsedEquations`, `JVPEquations`); `cubie.array_interpolator.ArrayInterpolator`
   (driver-array setup); `cubie._utils` (`PrecisionDType`), `cubie.time_logger.default_timelogger`,
   `cubie.cuda_simsafe` (in the generated module header), `cubie.gui.*` (lazy, optional).
 ### External

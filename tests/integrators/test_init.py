@@ -5,7 +5,7 @@ from __future__ import annotations
 import pytest
 
 import cubie.integrators as integrators
-from cubie.integrators import IntegratorReturnCodes
+from cubie.integrators import CUBIE_RESULT_CODES
 
 
 # ── Re-exports ────────────────────────────────────────────── #
@@ -20,9 +20,11 @@ _EXPECTED_EXPORTS = [
     "ImplicitStepConfig",
     "get_algorithm_step",
     "IVPLoop",
-    "LinearSolver",
-    "LinearSolverConfig",
+    "MRLinearSolver",
+    "MRLinearSolverConfig",
     "LinearSolverCache",
+    "BiCGSTABSolver",
+    "BiCGSTABSolverConfig",
     "NewtonKrylov",
     "NewtonKrylovConfig",
     "NewtonKrylovCache",
@@ -43,7 +45,7 @@ def test_reexport_available(name):
     assert obj.__module__.startswith("cubie.integrators")
 
 
-# ── IntegratorReturnCodes ─────────────────────────────────── #
+# ── CUBIE_RESULT_CODES ────────────────────────────────────── #
 
 @pytest.mark.parametrize(
     "member, value",
@@ -55,9 +57,10 @@ def test_reexport_available(name):
         ("STEP_TOO_SMALL", 8),
         ("DT_EFF_EFFECTIVELY_ZERO", 16),
         ("MAX_LOOP_ITERS_EXCEEDED", 32),
+        ("STAGNATION", 64),
     ],
 )
 def test_return_code_values(member, value):
-    """IntegratorReturnCodes members have correct integer values."""
-    assert IntegratorReturnCodes[member] == value
-    assert int(IntegratorReturnCodes[member]) == value
+    """CUBIE_RESULT_CODES members have correct integer values."""
+    assert CUBIE_RESULT_CODES[member] == value
+    assert int(CUBIE_RESULT_CODES[member]) == value
