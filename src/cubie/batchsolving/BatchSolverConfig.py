@@ -147,9 +147,7 @@ class BatchSolverConfig(CUDAFactoryConfig):
     )
     max_registers: Optional[int] = attrs.field(
         default=None,
-        validator=attrs.validators.optional(
-            attrs.validators.instance_of(int)
-        ),
+        validator=attrs.validators.optional(getype_validator(int, 1)),
     )
 
     def __attrs_post_init__(self):

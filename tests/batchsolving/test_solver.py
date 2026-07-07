@@ -1049,7 +1049,6 @@ def test_solver_accepts_max_registers_kwarg(system, solver_settings):
         memory_manager=solver_settings["memory_manager"],
         stream_group=solver_settings["stream_group"],
         max_registers=128,
-        strict=True,
     )
 
     assert solver.kernel.compile_settings.max_registers == 128
