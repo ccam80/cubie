@@ -868,11 +868,14 @@ def run_device_loop(
     d_counters_out = cuda.to_device(counters_output)
     d_status = cuda.to_device(status)
 
+    # Build before sizing: the build refreshes nested child buffer
+    # sizes in the loop's group, mirroring BatchSolverKernel.run().
+    loop_fn = singleintegratorrun.device_function
+
     shared_bytes = max(4, singleintegratorrun.shared_memory_bytes)
     shared_elements = max(1, singleintegratorrun.shared_memory_elements)
     persistent_required = max(1, singleintegratorrun.persistent_local_elements)
 
-    loop_fn = singleintegratorrun.device_function
     numba_precision = from_dtype(precision)
 
     @cuda.jit(

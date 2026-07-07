@@ -427,3 +427,41 @@ def test_finish_check_no_float32_stagnation():
         solver_config=solver_config,
     )
     assert result.status == 0
+
+
+@pytest.mark.parametrize(
+    "solver_settings_override",
+    [
+        merge_dicts(
+            MID_RUN_PARAMS,
+            {
+                "algorithm": "firk",
+                "step_controller": "fixed",
+                "preconditioned_vec_location": "shared",
+            },
+        )
+    ],
+    ids=["firk-shared-solver-buffer"],
+    indirect=True,
+)
+def test_firk_with_shared_solver_buffer_matches_reference(
+    device_loop_outputs,
+    cpu_loop_outputs,
+    output_functions,
+    tolerance,
+):
+    """FIRK with a shared-located linear-solver buffer runs correctly.
+
+    Regression test for issue #520: stale child-size snapshots
+    undersized the shared memory pool whenever a nested solver buffer
+    lived in shared memory, so the kernel indexed past the pool
+    (CUDA_ERROR_ILLEGAL_ADDRESS) or corrupted its own state.
+    """
+    assert_integration_outputs(
+        cpu_loop_outputs,
+        device_loop_outputs,
+        output_functions,
+        rtol=tolerance.rel_loose,
+        atol=tolerance.abs_loose,
+    )
+    assert device_loop_outputs.status == 0
