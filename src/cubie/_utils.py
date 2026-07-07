@@ -53,7 +53,9 @@ See Also
     ``buffer_dtype_validator``.
 """
 
-from typing import Any, Tuple, Union, Optional, Iterable, Set
+from hashlib import sha256
+from pathlib import Path
+from typing import Any, Dict, Tuple, Union, Optional, Iterable, Set
 from warnings import warn
 
 from numpy import (
@@ -92,6 +94,48 @@ ALLOWED_PRECISIONS = {
     np_dtype(np_float32),
     np_dtype(np_float64),
 }
+
+_package_source_hashes: Dict[str, str] = {}
+
+
+def package_source_hash(package_dir: Optional[Path] = None) -> str:
+    """Content hash of every Python source file under a package.
+
+    Both cache layers fold this digest into their keys so that any
+    edit to the installed cubie source invalidates compiled kernels
+    and generated code, which are otherwise keyed only on
+    configuration values and the system definition.
+
+    Parameters
+    ----------
+    package_dir
+        Directory whose ``**/*.py`` files are hashed. Defaults to the
+        installed ``cubie`` package directory.
+
+    Returns
+    -------
+    str
+        64-character SHA256 hex digest over the sorted relative paths
+        and file contents. Memoised per directory for the lifetime of
+        the process.
+    """
+    if package_dir is None:
+        package_dir = Path(__file__).parent
+    package_dir = Path(package_dir).resolve()
+    key = str(package_dir)
+    cached = _package_source_hashes.get(key)
+    if cached is not None:
+        return cached
+    digest = sha256()
+    for source_path in sorted(package_dir.rglob("*.py")):
+        relative = source_path.relative_to(package_dir).as_posix()
+        digest.update(relative.encode("utf-8"))
+        digest.update(b"\x00")
+        digest.update(source_path.read_bytes())
+        digest.update(b"\x00")
+    result = digest.hexdigest()
+    _package_source_hashes[key] = result
+    return result
 
 ALLOWED_BUFFER_DTYPES = {
     np_dtype(np_float16),
@@ -300,6 +344,18 @@ def float_array_validator(instance, attribute, value):
         )
     if not np_all(np_isfinite(value)):
         raise ValueError(f"{attribute} must not contain NaNs or infinities.")
+
+
+def nonnegative_float_array_validator(instance, attribute, value):
+    """Validate a finite float array with no negative elements.
+
+    Applies :func:`float_array_validator`, then raises a ValueError if
+    any element is negative. Used for tolerance arrays, where negative
+    values would corrupt the scaled error norm.
+    """
+    float_array_validator(instance, attribute, value)
+    if not np_all(value >= 0):
+        raise ValueError(f"{attribute} must not contain negative values.")
 
 
 def inrangetype_validator(dtype, min_, max_):
