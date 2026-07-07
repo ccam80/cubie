@@ -60,6 +60,7 @@ from tests.system_fixtures import (
     build_three_state_linear_system,
     build_three_state_nonlinear_system,
     build_three_state_very_stiff_system,
+    build_two_driver_system,
 )
 
 enable_tempdir = "1"
@@ -210,6 +211,8 @@ def system(
         return build_three_state_nonlinear_system(precision)
     if model_type in ["three_chamber", "threecm"]:
         return build_three_chamber_system(precision)
+    if model_type == "two_driver":
+        return build_two_driver_system(precision)
     if model_type == "stiff":
         return build_three_state_very_stiff_system(precision)
     if model_type == "large":
