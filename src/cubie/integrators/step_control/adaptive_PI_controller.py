@@ -7,8 +7,8 @@ Published Classes
 
     >>> from numpy import float64
     >>> config = PIStepControlConfig(precision=float64)
-    >>> config.kp  # doctest: +ELLIPSIS
-    0.055...
+    >>> float(config.kp)
+    0.7
 
 :class:`AdaptivePIController`
     Proportional--integral step-size controller.
@@ -55,10 +55,10 @@ class PIStepControlConfig(AdaptiveStepControlConfig):
     """
 
     _kp: float = field(
-        default=1 / 18, validator=validators.instance_of(_expand_dtype(float))
+        default=0.7, validator=validators.instance_of(_expand_dtype(float))
     )
     _ki: float = field(
-        default=1 / 9, validator=validators.instance_of(_expand_dtype(float))
+        default=-0.4, validator=validators.instance_of(_expand_dtype(float))
     )
 
     def __attrs_post_init__(self):
