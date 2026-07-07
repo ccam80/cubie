@@ -131,7 +131,11 @@ def generate_dxdt_lines(
                                              output_symbols=index_map.dxdt.ref_map.keys())
         symbol_map = index_map.all_arrayrefs
 
-    dxdt_lines = print_cuda_multiple(processed, symbol_map=symbol_map)
+    dxdt_lines = print_cuda_multiple(
+        processed,
+        symbol_map=symbol_map,
+        constant_names=index_map.constants.symbol_map,
+    )
     if not dxdt_lines:
         dxdt_lines = ["pass"]
     return dxdt_lines
@@ -191,7 +195,9 @@ def generate_observables_lines(
     ]
     substituted = prune_unused_assignments(substituted, "observables")
     obs_lines = print_cuda_multiple(
-        substituted, symbol_map=index_map.all_arrayrefs
+        substituted,
+        symbol_map=index_map.all_arrayrefs,
+        constant_names=index_map.constants.symbol_map,
     )
     if not obs_lines:
         obs_lines = ["pass"]

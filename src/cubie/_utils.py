@@ -346,6 +346,18 @@ def float_array_validator(instance, attribute, value):
         raise ValueError(f"{attribute} must not contain NaNs or infinities.")
 
 
+def nonnegative_float_array_validator(instance, attribute, value):
+    """Validate a finite float array with no negative elements.
+
+    Applies :func:`float_array_validator`, then raises a ValueError if
+    any element is negative. Used for tolerance arrays, where negative
+    values would corrupt the scaled error norm.
+    """
+    float_array_validator(instance, attribute, value)
+    if not np_all(value >= 0):
+        raise ValueError(f"{attribute} must not contain negative values.")
+
+
 def inrangetype_validator(dtype, min_, max_):
     """Return a composite attrs validator for type and range checks.
 
