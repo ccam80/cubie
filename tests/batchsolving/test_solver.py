@@ -450,6 +450,58 @@ def test_solve_ivp_function(
     assert isinstance(result, SolveResult)
 
 
+def test_solve_ivp_adaptive_controller(
+    system, simple_initial_values, simple_parameters, driver_settings
+):
+    """solve_ivp with an adaptive controller solves and keeps settings."""
+    result = solve_ivp(
+        system=system,
+        y0=simple_initial_values,
+        parameters=simple_parameters,
+        drivers=driver_settings,
+        method="tsit5",
+        step_controller="pi",
+        atol=1e-6,
+        rtol=1e-6,
+        dt_min=1e-7,
+        dt_max=0.1,
+        save_every=0.02,
+        duration=0.05,
+        output_types=["state", "time"],
+    )
+
+    assert isinstance(result, SolveResult)
+    spec = result.solve_settings
+    assert spec.atol == pytest.approx(1e-6)
+    assert spec.rtol == pytest.approx(1e-6)
+    assert spec.save_every == pytest.approx(0.02)
+
+
+def test_solve_ivp_forwards_save_every_and_settling_time(
+    system, simple_initial_values, simple_parameters, driver_settings
+):
+    """solve_ivp applies save_every and settling_time to the solve."""
+    result = solve_ivp(
+        system=system,
+        y0=simple_initial_values,
+        parameters=simple_parameters,
+        drivers=driver_settings,
+        method="euler",
+        dt=1e-2,
+        save_every=0.04,
+        duration=0.08,
+        settling_time=0.04,
+        output_types=["state", "time"],
+    )
+
+    spec = result.solve_settings
+    assert spec.save_every == pytest.approx(0.04)
+    assert spec.warmup == pytest.approx(0.04)
+    times = np.asarray(result.time)
+    times = times.reshape(times.shape[0], -1)[:, 0]
+    assert np.diff(times) == pytest.approx(0.04)
+
+
 def test_solver_with_different_algorithms(system, solver_settings):
     """Test solver with different algorithms."""
     algorithms = ["euler", "backwards_euler_pc"]
@@ -1008,3 +1060,45 @@ def test_solve_ivp_passes_cache_kwargs(
     )
 
     assert isinstance(result, SolveResult)
+
+
+def test_inner_tolerances_derived_through_solver(system):
+    """Unset inner tolerances reach the solver as controller tol / 10."""
+    solver = Solver(
+        system,
+        algorithm="crank_nicolson",
+        step_controller="pid",
+        atol=1e-8,
+        rtol=1e-8,
+        dt_min=1e-10,
+        dt_max=0.1,
+    )
+    integrator = solver.kernel.single_integrator
+    controller = integrator._step_controller
+    algo = integrator._algo_step
+
+    assert controller.is_adaptive
+    expected_atol = np.asarray(controller.atol) / 10.0
+    expected_rtol = np.asarray(controller.rtol) / 10.0
+    assert np.allclose(expected_atol, 1e-9)
+    assert np.allclose(algo.krylov_atol, expected_atol)
+    assert np.allclose(algo.krylov_rtol, expected_rtol)
+    assert np.allclose(algo.newton_atol, expected_atol)
+    assert np.allclose(algo.newton_rtol, expected_rtol)
+
+
+def test_explicit_inner_tolerance_wins_through_solver(system):
+    """An explicit krylov tolerance passed to Solver is not overwritten."""
+    solver = Solver(
+        system,
+        algorithm="crank_nicolson",
+        step_controller="pid",
+        atol=1e-8,
+        rtol=1e-8,
+        dt_min=1e-10,
+        dt_max=0.1,
+        krylov_atol=4e-5,
+    )
+    algo = solver.kernel.single_integrator._algo_step
+    assert np.allclose(algo.krylov_atol, 4e-5)
+    assert np.allclose(algo.newton_atol, 1e-9)
