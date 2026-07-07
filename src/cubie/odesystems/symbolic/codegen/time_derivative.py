@@ -184,7 +184,11 @@ def generate_time_derivative_lines(
     symbol_map = dict(index_map.all_arrayrefs)
     symbol_map.update(final_symbol_map)
 
-    lines = print_cuda_multiple(processed, symbol_map=symbol_map)
+    lines = print_cuda_multiple(
+        processed,
+        symbol_map=symbol_map,
+        constant_names=index_map.constants.symbol_map,
+    )
     if not lines:
         lines = ["pass"]
     return lines
