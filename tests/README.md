@@ -29,9 +29,10 @@ from `solver_settings`. This means:
   for that session.
 - Tests parametrize by overriding keys in `solver_settings` via
   `solver_settings_override` (indirect parametrization).
-- There is **one** override fixture: `solver_settings_override`. The legacy
-  two-tier system (`solver_settings_override` / `solver_settings_override2`)
-  should be consolidated into a single override.
+- There is **one** override fixture: `solver_settings_override`. Tests that
+  need the cross product of two parameter axes (e.g. solver type ×
+  preconditioner order) build the merged dicts in a single parametrize
+  list rather than stacking a second override fixture.
 
 ### 3. No mocks, no dummies
 
@@ -89,6 +90,23 @@ a previous parameter set's session. For these modules:
 - This ensures each test gets a clean singleton instance, uncontaminated by
   prior test sessions.
 - This is one of the very few legitimate uses of module-level conftest files.
+
+#### Exception: sub-numerical unit fixtures
+
+Two further module-level conftests are sanctioned because they test layers
+below the numerical chain rather than duplicating it:
+
+- `tests/odesystems/symbolic/conftest.py` — SymPy symbols, `IndexedBases`,
+  and `ParsedEquations` fixtures for parser/codegen unit tests. These run
+  no device code; routing them through the `system` fixture would test the
+  wrong layer.
+- `tests/integrators/matrix_free_solvers/conftest.py` — bespoke
+  conditioning-controlled 3-state systems with algebraic reference
+  solutions (`mr_expected` via dense operator probing, `nk_expected` via
+  fixed-point iteration) for testing solver device functions in isolation.
+  Its `linear_solver_instance` / `newton_solver_instance` fixtures draw
+  their configuration from the central `solver_settings`, so solver
+  parametrization still flows through `solver_settings_override`.
 
 ### Fixture hierarchy
 

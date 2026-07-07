@@ -147,6 +147,71 @@ def test_all_summary_metrics_numerical_check(
     )
 
 
+zero_state_metric_cases = (
+    {"output_types": ["state", "time", "dxdt_max", "d2xdt2_max"]},
+    {
+        "output_types": [
+            "state",
+            "time",
+            "dxdt_max",
+            "dxdt_min",
+            "d2xdt2_max",
+            "d2xdt2_min",
+        ],
+    },
+)
+
+
+@pytest.mark.parametrize(
+    "solver_settings_override",
+    [
+        merge_dicts(
+            MID_RUN_PARAMS,
+            {
+                "system_type": "linear",
+                "summarised_state_indices": [0],
+                "summarised_observable_indices": [],
+            },
+            case,
+        )
+        for case in zero_state_metric_cases
+    ],
+    ids=["individual metrics", "combined extrema"],
+    indirect=True,
+)
+@pytest.mark.parametrize(
+    "initial_state", [[0.0, 1.0, 1.0]], indirect=True
+)
+def test_derivative_metrics_zero_valued_variable(
+    device_loop_outputs,
+    cpu_loop_outputs,
+    output_functions,
+    tolerance,
+):
+    """Derivative metrics of an identically zero variable are zero.
+
+    The linear system's ``dx0 = -x0`` keeps ``x0`` at exactly 0.0 from
+    a zero initial condition. The derivative metrics' history guard
+    must gate on the sample counter, not on a previous value being
+    nonzero: a value-based guard never primes on an all-zero
+    trajectory and the save step then emits the scaled tracking
+    sentinel (-1e30 / sample_summaries_every**k) instead of zero.
+    """
+    state_summaries = np.asarray(device_loop_outputs.state_summaries)
+    assert np.all(state_summaries == 0.0), (
+        "derivative metrics of an all-zero variable should be exactly "
+        f"zero, got:\n{state_summaries}"
+    )
+    assert_integration_outputs(
+        cpu_loop_outputs,
+        device_loop_outputs,
+        output_functions,
+        rtol=tolerance.rel_tight,
+        atol=tolerance.abs_tight,
+    )
+    assert device_loop_outputs.status == 0
+
+
 @pytest.mark.parametrize("solver_settings_override",
                          [{
                              'precision': np.float32,
