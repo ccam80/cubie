@@ -155,16 +155,16 @@ SDIRK_2_2_TABLEAU = DIRKTableau(
         (1.0 - SDIRK2_GAMMA, SDIRK2_GAMMA),
     ),
     b=(1 - SDIRK2_GAMMA, SDIRK2_GAMMA),
-    # b_hat=(1.0, 0.0),
     c=(SDIRK2_GAMMA, 1.0),
     order=2,
 )
 """Two-stage, second-order SDIRK tableau by Alexander.
 
 The tableau is L-stable and singly diagonally implicit with diagonal
-coefficient :math:`1 - \\tfrac{1}{\\sqrt{2}}`. The embedded weights provide
-an error estimate suitable for adaptive step controllers. No natural 
-embedded pair exists - other implementations use a divided difference approach.
+coefficient :math:`1 - \\tfrac{1}{\\sqrt{2}}`. No natural embedded pair
+exists, so the method carries no error estimate and requires a fixed
+step controller; other implementations derive an estimate via divided
+differences.
 
 References
 ----------
