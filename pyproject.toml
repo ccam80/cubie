@@ -100,7 +100,12 @@ filterwarnings = [
 #source = ["cubie"]
 omit = [
     "*/tests/*",
-    "*/__pycache__/*"
+    "*/__pycache__/*",
+    # Vendored third-party code (cellmlmanip); not cubie's tested surface.
+    "*/vendored/cellmlmanip/*",
+    # Compile-time numba-cuda patches; covered by the pull requests
+    # submitted to numba-cuda-mlir.
+    "*/_numba_cuda_compat.py",
 ]
 relative_files = true
 
