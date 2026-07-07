@@ -460,7 +460,7 @@ class Solver:
 
         fn_changed = False
         if drivers is not None:
-            ArrayInterpolator.check_against_system_drivers(
+            drivers = ArrayInterpolator.check_against_system_drivers(
                 drivers, self.system
             )
             fn_changed = self.driver_interpolator.update_from_dict(drivers)
