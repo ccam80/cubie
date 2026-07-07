@@ -74,7 +74,7 @@ Available Algorithms
      - No
      - The classical Runge--Kutta method.
    * - ``fehlberg-45``
-     - 4(5)
+     - 5(4)
      - Yes
      - Fehlberg's method.
    * - ``cash-karp-54``
