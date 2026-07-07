@@ -705,8 +705,10 @@ class IVPLoop(CUDAFactory):
                         summary_finished = bool_(next_update_summary > t_end)
                         finished &= summary_finished
                 else:
-                    # No scheduled outputs; finish when time exceeds t_end
-                    finished = bool_(end_of_step > t_end)
+                    # No scheduled outputs; finish when time reaches t_end.
+                    # >= keeps a step that lands exactly on t_end inside the
+                    # save_last window below.
+                    finished = bool_(end_of_step >= t_end)
 
                 if save_last:
                     # Save final state even if not aligned with save_every
