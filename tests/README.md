@@ -91,6 +91,23 @@ a previous parameter set's session. For these modules:
   prior test sessions.
 - This is one of the very few legitimate uses of module-level conftest files.
 
+#### Exception: sub-numerical unit fixtures
+
+Two further module-level conftests are sanctioned because they test layers
+below the numerical chain rather than duplicating it:
+
+- `tests/odesystems/symbolic/conftest.py` — SymPy symbols, `IndexedBases`,
+  and `ParsedEquations` fixtures for parser/codegen unit tests. These run
+  no device code; routing them through the `system` fixture would test the
+  wrong layer.
+- `tests/integrators/matrix_free_solvers/conftest.py` — bespoke
+  conditioning-controlled 3-state systems with algebraic reference
+  solutions (`mr_expected` via dense operator probing, `nk_expected` via
+  fixed-point iteration) for testing solver device functions in isolation.
+  Its `linear_solver_instance` / `newton_solver_instance` fixtures draw
+  their configuration from the central `solver_settings`, so solver
+  parametrization still flows through `solver_settings_override`.
+
 ### Fixture hierarchy
 
 The fixture tree flows from settings → objects → computed outputs:
