@@ -92,6 +92,13 @@ class SingleIntegratorRunCore(CUDAFactory):
         ``None`` the algorithm defaults are used.
     """
 
+    _INNER_TOLERANCE_KEYS = (
+        "krylov_atol",
+        "krylov_rtol",
+        "newton_atol",
+        "newton_rtol",
+    )
+
     def __init__(
         self,
         system: "BaseODE",
@@ -112,6 +119,14 @@ class SingleIntegratorRunCore(CUDAFactory):
             output_settings = {}
         if loop_settings is None:
             loop_settings = {}
+
+        # Track which inner-solver tolerances the user set explicitly so
+        # the derived controller-scaled defaults never overwrite them.
+        self._user_given_inner_tols = {
+            key
+            for key in self._INNER_TOLERANCE_KEYS
+            if algorithm_settings.get(key) is not None
+        }
 
         precision = system.precision
 
@@ -157,6 +172,9 @@ class SingleIntegratorRunCore(CUDAFactory):
             controller_settings["step_controller"],
             precision,
         )
+
+        # Default any unset inner-solver tolerances from the controller.
+        self._apply_inner_tolerance_defaults()
 
         loop_settings["dt"] = self._step_controller.dt
         loop_settings["dt_min"] = self._step_controller.dt_min
@@ -309,6 +327,50 @@ class SingleIntegratorRunCore(CUDAFactory):
             self._output_functions.update(
                 sample_summaries_every=sample_summaries_every,
             )
+
+    def _apply_inner_tolerance_defaults(self) -> set:
+        """Derive unset inner-solver tolerances from the controller.
+
+        Unset ``krylov_atol``/``krylov_rtol``/``newton_atol``/
+        ``newton_rtol`` default to the adaptive controller's
+        ``atol``/``rtol`` divided by ten, so every stage solve converges
+        tighter than the embedded error estimate it feeds.  Values the
+        user set explicitly (tracked in ``_user_given_inner_tols``) are
+        preserved.  The solver norms' tolerance converter broadcasts
+        uniform arrays to their own vector length; a non-uniform
+        per-state vector must match the solver vector exactly.
+
+        The defaults apply only when the controller is adaptive (it then
+        has ``atol``/``rtol``) and the algorithm is implicit (it then
+        owns inner solvers).
+
+        Returns
+        -------
+        set of str
+            The inner-tolerance keys forwarded to the algorithm step;
+            keys its solvers do not use are ignored there.
+        """
+        if not self._step_controller.is_adaptive:
+            return set()
+        if not self._algo_step.is_implicit:
+            return set()
+
+        atol = self._step_controller.atol / 10.0
+        rtol = self._step_controller.rtol / 10.0
+        derived_source = {
+            "krylov_atol": atol,
+            "newton_atol": atol,
+            "krylov_rtol": rtol,
+            "newton_rtol": rtol,
+        }
+        derived = {
+            key: value
+            for key, value in derived_source.items()
+            if key not in self._user_given_inner_tols
+        }
+        if derived:
+            self._algo_step.update(derived, silent=True)
+        return set(derived)
 
     @property
     def n_error(self) -> int:
@@ -562,6 +624,22 @@ class SingleIntegratorRunCore(CUDAFactory):
                 }
             )
 
+        # Record any inner-solver tolerances the user set explicitly so the
+        # derived defaults never overwrite them on this or a later update.
+        for key in self._INNER_TOLERANCE_KEYS:
+            if updates_dict.get(key) is not None:
+                self._user_given_inner_tols.add(key)
+
+        # Re-derive unset inner-solver tolerances when the controller
+        # tolerances change or the algorithm is swapped, so they keep
+        # tracking the controller atol/rtol divided by ten.
+        rederive = bool(
+            ctrl_rcgnzd & {"atol", "rtol", "step_controller"}
+            or "algorithm" in step_recognized
+        )
+        if rederive:
+            step_recognized |= self._apply_inner_tolerance_defaults()
+
         # Re-register algo and controller buffers to refresh sizing in loop
         buffer_registry.get_child_allocators(
                 self._loop, self._algo_step, name='algorithm'
@@ -607,10 +685,9 @@ class SingleIntegratorRunCore(CUDAFactory):
             return set()
         precision = updates_dict.get('precision', self.precision)
 
-        buffer_registry.reset()
-
         new_algo = updates_dict.get("algorithm").lower()
         if new_algo != self.compile_settings.algorithm:
+            buffer_registry.reset()
             old_settings = self._algo_step.settings_dict
             old_settings["algorithm"] = new_algo
             self._algo_step = get_algorithm_step(
@@ -647,10 +724,10 @@ class SingleIntegratorRunCore(CUDAFactory):
             return set()
         precision = updates_dict.get('precision', self.precision)
 
-        buffer_registry.reset()
         new_controller = updates_dict.get("step_controller").lower()
 
         if new_controller != self.compile_settings.step_controller:
+            buffer_registry.reset()
             old_settings = self._step_controller.settings_dict
             old_settings["step_controller"] = new_controller
             old_settings["algorithm_order"] = updates_dict.get(

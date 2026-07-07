@@ -400,7 +400,7 @@ class BaseStepController(CUDAFactory):
         # propagation
         recognised |= valid_but_inapplicable
 
-        if valid_but_inapplicable:
+        if valid_but_inapplicable and not silent:
             controller_type = self.__class__.__name__
             params_str = ", ".join(sorted(valid_but_inapplicable))
             warnings.warn(
