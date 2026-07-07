@@ -301,14 +301,6 @@ def calculate_expected_summaries(
         (summary_samples, obs_summaries_height), dtype=precision
     )
 
-    for output in output_types:
-        if output.startswith("peaks") or output.startswith("negative_peaks"):
-            n_peaks = (
-                int(output.split("[")[1].split("]")[0]) if "[" in output else 0
-            )
-        else:
-            n_peaks = 0
-
     for _input_array, _output_array in (
         (state, expected_state_summaries),
         (observables, expected_obs_summaries),
