@@ -346,13 +346,18 @@ class BufferGroup:
         Raises
         ------
         ValueError
-            If buffer name already registered for this group.
-        ValueError
             If aliases references non-existent buffer.
         ValueError
             If name is empty string.
         ValueError
             If buffer attempts to alias itself.
+
+        Notes
+        -----
+        Registering a name that already exists silently replaces the
+        entry and invalidates the layouts. Parents rely on this to
+        refresh child buffer sizes by re-registering after children
+        have built.
         """
         if not name:
             raise ValueError("Buffer name cannot be empty.")
@@ -590,8 +595,6 @@ class BufferRegistry:
         Raises
         ------
         ValueError
-            If buffer name already registered for this parent.
-        ValueError
             If aliases references non-existent buffer.
         ValueError
             If name is empty string.
@@ -599,6 +602,12 @@ class BufferRegistry:
             If buffer attempts to alias itself.
         ValueError
             If precision is not a supported NumPy floating-point type.
+
+        Notes
+        -----
+        Registering a name that already exists for the parent silently
+        replaces the entry; parents refresh child buffer sizes by
+        re-registering after children have built.
         """
         if parent not in self._groups:
             self._groups[parent] = BufferGroup(parent=parent)

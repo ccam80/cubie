@@ -927,3 +927,100 @@ def test_layout_deterministic_regardless_of_access_order(
     assert shared1 == shared2
     assert persistent1 == persistent2
     assert local1 == local2
+
+
+# ── get_child_allocators size snapshots ───────────────────── #
+
+
+def test_child_allocators_snapshot_unregistered_child_is_zero(
+    fresh_registry, step_controller, output_functions,
+):
+    """A child with no buffer group registers zero-size entries."""
+    fresh_registry.get_child_allocators(
+        step_controller, output_functions, name="solver"
+    )
+    entries = fresh_registry._groups[step_controller].entries
+    assert entries["solver_shared"].size == 0
+    assert entries["solver_persistent"].size == 0
+    fresh_registry.clear_parent(step_controller)
+
+
+def test_child_allocators_reregistration_refreshes_sizes(
+    fresh_registry, step_controller, output_functions,
+):
+    """Re-registering under the same name picks up late child buffers.
+
+    Parents snapshot child sizes at call time, so buffers a child
+    registers later (e.g. its own grandchildren during build) are
+    missed until the parent re-registers under the same name.
+    """
+    fresh_registry.register("x", output_functions, 4, "shared")
+    fresh_registry.get_child_allocators(
+        step_controller, output_functions, name="solver"
+    )
+    parent_entries = fresh_registry._groups[step_controller].entries
+    assert parent_entries["solver_shared"].size == 4
+
+    # Late grandchild-style registration on the child
+    fresh_registry.register("y", output_functions, 6, "shared")
+    assert parent_entries["solver_shared"].size == 4
+
+    fresh_registry.get_child_allocators(
+        step_controller, output_functions, name="solver"
+    )
+    parent_entries = fresh_registry._groups[step_controller].entries
+    assert parent_entries["solver_shared"].size == 10
+
+    fresh_registry.clear_parent(step_controller)
+    fresh_registry.clear_parent(output_functions)
+
+
+@pytest.mark.parametrize(
+    "solver_settings_override",
+    [
+        {
+            "algorithm": "firk",
+            "step_controller": "fixed",
+            "preconditioned_vec_location": "shared",
+        }
+    ],
+    indirect=True,
+)
+def test_nested_shared_solver_buffers_sized_through_chain(
+    single_integrator_run,
+):
+    """Loop pool sizing sees shared buffers of deeply nested children.
+
+    With a linear-solver buffer placed in shared memory, the size
+    chain loop -> algorithm -> newton_krylov -> linear_solver must be
+    consistent after build; stale snapshots undersize the shared pool
+    and the kernel indexes past its end (issue #520).
+    """
+    _ = single_integrator_run.device_function
+
+    loop = single_integrator_run._loop
+    algo = single_integrator_run._algo_step
+    newton = algo.solver
+    linear = newton.linear_solver
+
+    linear_entries = buffer_registry._groups[linear].entries
+    assert linear_entries["preconditioned_vec"].location == "shared"
+    linear_shared = buffer_registry.shared_buffer_size(linear)
+    assert linear_shared > 0
+
+    newton_entries = buffer_registry._groups[newton].entries
+    assert (
+        newton_entries["linear_solver_shared"].size == linear_shared
+    )
+
+    algo_entries = buffer_registry._groups[algo].entries
+    assert (
+        algo_entries["solver_shared"].size
+        == buffer_registry.shared_buffer_size(newton)
+    )
+
+    loop_entries = buffer_registry._groups[loop].entries
+    assert (
+        loop_entries["algorithm_shared"].size
+        == buffer_registry.shared_buffer_size(algo)
+    )
