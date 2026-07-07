@@ -534,3 +534,47 @@ class TestNumericPrecisionWrapping:
         assert result == "precision(2)*x + precision(1)"
         # Verify no int32() usage
         assert "int32" not in result
+
+
+class TestConstantExponentAlias:
+    """Constant exponents print as their integer-exponent alias."""
+
+    def test_constant_exponent_prints_alias(self):
+        """A constant-symbol exponent prints the iexp alias."""
+        x, n = sp.symbols("x n")
+        printer = CUDAPrinter(constant_names={"n"})
+        result = printer.doprint(sp.Pow(x, n, evaluate=False))
+        assert result == "x**_cubie_codegen_iexp_n"
+
+    def test_non_constant_symbol_exponent_unchanged(self):
+        """A runtime-symbol exponent prints its plain name."""
+        x, n = sp.symbols("x n")
+        printer = CUDAPrinter()
+        result = printer.doprint(sp.Pow(x, n, evaluate=False))
+        assert result == "x**n"
+
+    def test_mapped_symbol_exponent_not_aliased(self):
+        """An array-mapped exponent keeps its array reference."""
+        x, n = sp.symbols("x n")
+        arr = sp.IndexedBase("parameters")
+        printer = CUDAPrinter(
+            symbol_map={n: arr[0]}, constant_names={"n"}
+        )
+        result = printer.doprint(sp.Pow(x, n, evaluate=False))
+        assert result == "x**parameters[0]"
+
+    def test_constant_base_not_aliased(self):
+        """A constant appearing as a base is printed normally."""
+        x, n = sp.symbols("x n")
+        printer = CUDAPrinter(constant_names={"n"})
+        result = printer.doprint(sp.Pow(n, x, evaluate=False))
+        assert result == "n**x"
+
+    def test_alias_used_via_print_cuda_multiple(self):
+        """print_cuda_multiple forwards constant_names to the printer."""
+        x, n, out = sp.symbols("x n out")
+        lines = print_cuda_multiple(
+            [(out, sp.Pow(x, n, evaluate=False))],
+            constant_names={"n"},
+        )
+        assert lines == ["out = x**_cubie_codegen_iexp_n"]

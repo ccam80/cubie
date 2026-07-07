@@ -305,7 +305,11 @@ def _build_operator_body(
     exprs = mass_assigns + aux_assignments + out_updates
     exprs = prune_unused_assignments(exprs, outputsym_str='out')
 
-    lines = print_cuda_multiple(exprs, symbol_map=index_map.all_arrayrefs)
+    lines = print_cuda_multiple(
+        exprs,
+        symbol_map=index_map.all_arrayrefs,
+        constant_names=index_map.constants.symbol_map,
+    )
     if not lines:
         return "        pass"
     return "\n".join("        " + ln for ln in lines)
@@ -340,7 +344,11 @@ def _build_cached_jvp_body(
     exprs = aux_assignments + out_updates
     exprs = prune_unused_assignments(exprs, outputsym_str='out')
 
-    lines = print_cuda_multiple(exprs, symbol_map=index_map.all_arrayrefs)
+    lines = print_cuda_multiple(
+        exprs,
+        symbol_map=index_map.all_arrayrefs,
+        constant_names=index_map.constants.symbol_map,
+    )
     if not lines:
         return "        pass"
     return "\n".join("        " + ln for ln in lines)
@@ -368,7 +376,11 @@ def _build_prepare_body(
             exprs.append((cached[idx], lhs))
     exprs = prune_unused_assignments(exprs, outputsym_str='cached_aux')
 
-    lines = print_cuda_multiple(exprs, symbol_map=index_map.all_arrayrefs)
+    lines = print_cuda_multiple(
+        exprs,
+        symbol_map=index_map.all_arrayrefs,
+        constant_names=index_map.constants.symbol_map,
+    )
     if not lines:
         return "        pass"
     return "\n".join("        " + ln for ln in lines)
@@ -752,7 +764,11 @@ def _build_n_stage_operator_lines(
     eval_exprs = prune_unused_assignments(eval_exprs,
                                           outputsym_str='out')
 
-    lines = print_cuda_multiple(eval_exprs, symbol_map=symbol_map)
+    lines = print_cuda_multiple(
+        eval_exprs,
+        symbol_map=symbol_map,
+        constant_names=index_map.constants.symbol_map,
+    )
     if not lines:
         return "        pass"
     return "\n".join("        " + ln for ln in lines)
