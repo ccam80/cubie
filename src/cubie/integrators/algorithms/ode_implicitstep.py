@@ -117,6 +117,7 @@ class ImplicitStepConfig(BaseStepConfig):
                 "gamma": self.gamma,
                 "M": self.M,
                 "preconditioner_order": self.preconditioner_order,
+                "preconditioner_type": self.preconditioner_type,
                 "get_solver_helper_fn": self.get_solver_helper_fn,
             }
         )
