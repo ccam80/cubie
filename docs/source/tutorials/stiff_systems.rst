@@ -100,7 +100,10 @@ Step 4: Add a forcing signal (driver)
 
 Real experiments force their systems.  A *driver* is a time-dependent
 input; here we drive the oscillator with a sampled signal, as if
-replaying a measurement:
+replaying a measurement.  In the ``drivers`` dict, ``"time"`` is a
+reserved key holding the timestamps the signals are sampled at; every
+other entry names a driver whose array must match ``"time"`` in
+length:
 
 .. code-block:: python
 

@@ -72,7 +72,7 @@ holds a 3-D array indexed ``[time, variable, run]``:
 
    trajectories = result.time_domain_array
    print(trajectories.shape)        # (101, 2, 400)
-   print(result.time_domain_legend) # which variable is which column
+   print(result.time_domain_legend) # which variable is which index
 
    # Trajectory of prey (variable 0) in the very first run:
    prey_run0 = trajectories[:, 0, 0]

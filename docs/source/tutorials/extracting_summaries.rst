@@ -109,6 +109,10 @@ Two more levers cut memory and time further:
 ``save_variables``) restricts recording to the variables you name.
 ``settling_time`` integrates for 20 time-units *before* recording
 starts, so start-up transients don't pollute your statistics.
+Settling extends the run rather than eating into it — the solver
+integrates for ``settling_time + duration`` in total, so the recorded
+window is still the full 50 time-units and ``summarise_every=50.0``
+produces exactly one summary window per run.
 
 When to use which output
 ------------------------
