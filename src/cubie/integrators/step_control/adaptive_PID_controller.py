@@ -255,6 +255,10 @@ class AdaptivePIDController(BaseAdaptiveStepController):
                 )
                 gain = selp(within_deadband, typed_one, gain)
 
+            # A rejected step must shrink dt: cap the gain below one so
+            # repeated rejection always walks dt down to dt_min.
+            gain = selp(accept, gain, min(gain, safety))
+
             dt_new_raw = dt[0] * gain
             dt[0] = clamp(dt_new_raw, dt_min, dt_max)
             timestep_buffer[1] = err_prev

@@ -200,6 +200,9 @@ class CPUAdaptiveController:
         if not self._deadband_disabled:
             if self.deadband_min <= gain <= self.deadband_max:
                 gain = self.unity_gain
+        if not accept:
+            # A rejected step must shrink dt (mirrors device controllers).
+            gain = min(gain, self.safety)
         return precision(gain)
 
 
