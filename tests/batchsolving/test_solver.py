@@ -1044,6 +1044,19 @@ def test_solver_accepts_max_cache_entries_kwarg(system, solver_settings):
     assert solver.kernel.cache_handler.config.max_cache_entries == 5
 
 
+def test_solver_accepts_max_registers_kwarg(system, solver_settings):
+    """Verify Solver(system, max_registers=128) is recognized."""
+    solver = Solver(
+        system,
+        algorithm=solver_settings["algorithm"],
+        memory_manager=solver_settings["memory_manager"],
+        stream_group=solver_settings["stream_group"],
+        max_registers=128,
+    )
+
+    assert solver.kernel.compile_settings.max_registers == 128
+
+
 def test_solve_ivp_passes_cache_kwargs(
     system, simple_initial_values, simple_parameters, driver_settings
 ):

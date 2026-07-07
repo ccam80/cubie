@@ -231,6 +231,9 @@ class BatchSolverKernel(CUDAFactory):
         Cache mode control. ``True`` enables default caching, ``False``
         disables caching, or a string/``Path`` sets a custom cache
         directory.
+    kernel_settings
+        Kernel-level compile settings forwarded to
+        :class:`BatchSolverConfig` (currently ``max_registers``).
 
     Notes
     -----
@@ -253,6 +256,7 @@ class BatchSolverKernel(CUDAFactory):
         memory_settings: Optional[Dict[str, Any]] = None,
         cache_settings: Optional[Dict[str, Any]] = None,
         cache: Union[bool, str, Path] = True,
+        kernel_settings: Optional[Dict[str, Any]] = None,
     ) -> None:
         super().__init__()
         if memory_settings is None:
@@ -315,6 +319,7 @@ class BatchSolverKernel(CUDAFactory):
             precision=precision,
             loop_fn=None,
             compile_flags=self.single_integrator.output_compile_flags,
+            **(kernel_settings or {}),
         )
         self.setup_compile_settings(initial_config)
 
@@ -744,9 +749,13 @@ class BatchSolverKernel(CUDAFactory):
             buffer_registry.get_toplevel_allocators(self)
         )
 
+        jit_kwargs = dict(compile_kwargs)
+        if config.max_registers is not None and not is_cudasim_enabled():
+            jit_kwargs["max_registers"] = config.max_registers
+
         # no cover: start
         @cuda.jit(
-            **compile_kwargs,
+            **jit_kwargs,
         )
         def integration_kernel(
             inits,
