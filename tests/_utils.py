@@ -1119,9 +1119,10 @@ def assert_summaries_close(
     reference_summaries
         Summary array produced by the CPU reference.
     samples
-        Sampled values the summaries were computed from (used for the
-        amplitude in the derivative-metric tolerance floor). ``None``
-        or empty falls back to an amplitude of 1.0.
+        Sampled values the summaries were computed from; supplies the
+        amplitude and the machine epsilon for the derivative-metric
+        tolerance floor. ``None`` or empty falls back to an amplitude
+        of 1.0 and the summary dtype's epsilon.
     output_functions
         Configured output functions for legend and timing metadata.
     rtol
@@ -1133,11 +1134,15 @@ def assert_summaries_close(
     """
     device_summaries = np.asarray(device_summaries)
     reference_summaries = np.asarray(reference_summaries)
-    eps = float(np.finfo(reference_summaries.dtype).eps)
-    if samples is not None and np.asarray(samples).size > 0:
+    samples = np.asarray(samples) if samples is not None else None
+    if samples is not None and samples.size > 0:
+        # The ulp floor absorbs sample-level rounding differences, so
+        # eps belongs to the sample precision, not the summary dtype.
         amplitude = float(np.max(np.abs(samples)))
+        eps = float(np.finfo(samples.dtype).eps)
     else:
         amplitude = 1.0
+        eps = float(np.finfo(reference_summaries.dtype).eps)
     per_variable = summary_atol_per_column(
         output_functions, amplitude, atol, eps
     )
