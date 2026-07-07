@@ -88,7 +88,8 @@ class D2xdt2Min(SummaryMetric):
             buffer
                 device array. Storage for [prev_value, prev_prev_value, min_unscaled].
             current_index
-                int. Current integration step index (unused).
+                int. Monotonic summary-sample counter; gates updates until
+                two previous values exist.
             customisable_variable
                 int. Metric parameter placeholder (unused).
 
@@ -96,11 +97,15 @@ class D2xdt2Min(SummaryMetric):
             -----
             Computes unscaled second derivative using central difference formula
             (value - 2*buffer[0] + buffer[1]) and updates buffer[2] if smaller.
-            Uses predicated commit pattern to avoid warp divergence. Guard on
-            buffer[1] ensures two previous values are available.
+            Uses predicated commit pattern to avoid warp divergence. The
+            current_index guard skips samples with incomplete history
+            rather than testing buffer[1] against zero, so exact-zero
+            samples are handled correctly.
             """
             second_derivative_unscaled = value - precision(2.0) * buffer[0] + buffer[1]
-            update_flag = (second_derivative_unscaled < buffer[2]) and (buffer[1] != precision(0.0))
+            update_flag = (second_derivative_unscaled < buffer[2]) and (
+                current_index >= 2
+            )
             buffer[2] = selp(update_flag, second_derivative_unscaled, buffer[2])
             buffer[1] = buffer[0]
             buffer[0] = value
