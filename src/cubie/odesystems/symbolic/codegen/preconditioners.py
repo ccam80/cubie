@@ -237,7 +237,11 @@ def _build_neumann_body_with_state_subs(
         (lhs, rhs.subs(state_subs)) for lhs, rhs in assignments
     ]
 
-    lines = print_cuda_multiple(substituted_assignments, symbol_map=index_map.all_arrayrefs)
+    lines = print_cuda_multiple(
+        substituted_assignments,
+        symbol_map=index_map.all_arrayrefs,
+        constant_names=index_map.constants.symbol_map,
+    )
     if not lines:
         lines = ["pass"]
     else:
@@ -280,7 +284,11 @@ def _build_cached_neumann_body(
         exprs.append((sp.Symbol(f"jvp[{i}]"), rhs))
 
     exprs = prune_unused_assignments(exprs, outputsym_str='v')
-    lines = print_cuda_multiple(exprs, symbol_map=index_map.all_arrayrefs)
+    lines = print_cuda_multiple(
+        exprs,
+        symbol_map=index_map.all_arrayrefs,
+        constant_names=index_map.constants.symbol_map,
+    )
     if not lines:
         return "            pass"
     replaced = [ln.replace("v[", "out[") for ln in lines]
@@ -443,7 +451,11 @@ def _build_n_stage_neumann_lines(
     )
     eval_exprs = prune_unused_assignments(eval_exprs, outputsym_str='jvp')
 
-    lines = print_cuda_multiple(eval_exprs, symbol_map=symbol_map)
+    lines = print_cuda_multiple(
+        eval_exprs,
+        symbol_map=symbol_map,
+        constant_names=index_map.constants.symbol_map,
+    )
     if not lines:
         return "            pass"
     return "\n".join("            " + ln for ln in lines)
@@ -802,7 +814,11 @@ def _build_jacobi_body_with_state_subs(
     })
     eval_exprs = prune_unused_assignments(eval_exprs, outputsym_str='out')
 
-    lines = print_cuda_multiple(eval_exprs, symbol_map=symbol_map)
+    lines = print_cuda_multiple(
+        eval_exprs,
+        symbol_map=symbol_map,
+        constant_names=index_map.constants.symbol_map,
+    )
     if not lines:
         return "        pass"
     return "\n".join("        " + ln for ln in lines)
@@ -897,7 +913,11 @@ def _build_cached_jacobi_body(
     })
     eval_exprs = prune_unused_assignments(eval_exprs, outputsym_str='out')
 
-    lines = print_cuda_multiple(eval_exprs, symbol_map=symbol_map)
+    lines = print_cuda_multiple(
+        eval_exprs,
+        symbol_map=symbol_map,
+        constant_names=index_map.constants.symbol_map,
+    )
     if not lines:
         return "        pass"
     return "\n".join("        " + ln for ln in lines)
@@ -1234,7 +1254,9 @@ def _build_n_stage_jacobi_lines(
     )
 
     lines = print_cuda_multiple(
-        eval_exprs, symbol_map=symbol_map
+        eval_exprs,
+        symbol_map=symbol_map,
+        constant_names=index_map.constants.symbol_map,
     )
     if not lines:
         return "            pass"

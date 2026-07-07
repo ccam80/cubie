@@ -1224,6 +1224,31 @@ def _build_enhanced_algorithm_settings(
     return enhanced
 
 
+# Keys in the shared solver_settings dict that are not Solver
+# constructor settings: solve-time arguments, system-construction
+# options (fix_singularities/voltage_variable feed
+# load_cellml_model), driver-interpolation settings (driverspline_*
+# are read by the conftest driver fixtures to configure the
+# ArrayInterpolator), and test-harness metadata. Solver rejects
+# unconsumed kwargs, so these are stripped before construction.
+NON_SOLVER_SETTINGS = {
+    "duration",
+    "warmup",
+    "t0",
+    "blocksize",
+    "stream",
+    "system_type",
+    "n_states",
+    "n_parameters",
+    "n_observables",
+    "fix_singularities",
+    "voltage_variable",
+    "driverspline_order",
+    "driverspline_wrap",
+    "driverspline_boundary_condition",
+}
+
+
 def _build_solver_instance(
     system: SymbolicODE,
     solver_settings: Dict[str, Any],
@@ -1231,7 +1256,11 @@ def _build_solver_instance(
     memory_manager: Optional[Any] = None,
 ) -> Solver:
     """Instantiate :class:`Solver` configured with ``solver_settings``."""
-    settings = solver_settings.copy()
+    settings = {
+        key: value
+        for key, value in solver_settings.items()
+        if key not in NON_SOLVER_SETTINGS
+    }
     if memory_manager:
         settings.update(memory_manager=memory_manager)
     solver = Solver(system, **settings)
