@@ -32,8 +32,8 @@ from numpy.typing import ArrayLike
 from cubie._utils import (
     PrecisionDType,
     clamp_factory,
-    float_array_validator,
     getype_validator,
+    nonnegative_float_array_validator,
     inrangetype_validator,
     opt_getype_validator,
     tol_converter,
@@ -61,12 +61,12 @@ class AdaptiveStepControlConfig(BaseStepControllerConfig):
     )
     atol: ndarray = field(
         default=asarray([1e-6]),
-        validator=float_array_validator,
+        validator=nonnegative_float_array_validator,
         converter=Converter(tol_converter, takes_self=True),
     )
     rtol: ndarray = field(
         default=asarray([1e-6]),
-        validator=float_array_validator,
+        validator=nonnegative_float_array_validator,
         converter=Converter(tol_converter, takes_self=True),
     )
     algorithm_order: int = field(default=1, validator=getype_validator(int, 1))
