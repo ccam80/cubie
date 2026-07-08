@@ -1288,3 +1288,41 @@ def test_regular_saves_fill_allocation_at_fp_endpoints(
     final_states = states[-1, : len(simple_initial_values), :]
     assert np.all(np.isfinite(final_states))
     assert np.any(final_states != 0.0)
+
+
+@pytest.mark.nocudasim
+def test_save_boundary_zero_gap_run_completes():
+    """A driven stiff Rosenbrock run survives t rounding onto a save
+    boundary.
+
+    Float32 time accumulation can land the committed time exactly on
+    ``next_save`` without the save firing, because the pre-step save
+    prediction and the post-step time commit use different arithmetic.
+    The step clamped to that boundary then has length zero, which the
+    step function cannot integrate; the positive-gap-only clamp keeps
+    dt_raw instead, so the run completes (issue #548).
+    """
+    forced = create_ODE_system(
+        "dx = v\ndv = mu * (1 - x*x) * v - x + forcing",
+        parameters={"mu": 50.0},
+        states={"x": 2.0, "v": 0.0},
+        drivers=["forcing"],
+        precision=np.float32,
+        name="ForcedVanDerPol548",
+    )
+    time = np.linspace(0.0, 20.0, 400)
+    signal = 5.0 * np.sin(2.0 * np.pi * 0.25 * time)
+
+    result = solve_ivp(
+        forced,
+        y0={"x": np.array([2.0]), "v": np.array([0.0])},
+        parameters={"mu": np.array([64.0])},
+        drivers={"forcing": signal, "time": time},
+        method="rosenbrock",
+        duration=20.0,
+        save_every=0.05,
+    )
+
+    assert result.status_messages == {}
+    states = np.asarray(result.time_domain_array)
+    assert np.all(np.isfinite(states))
