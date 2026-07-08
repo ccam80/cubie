@@ -12,8 +12,10 @@ neither hangs the loop nor changes how many samples are saved:
   to zero or negative length, so the clamp only applies when the
   step would be positive);
 - every allocated output row is written, in increasing time order,
-  when the schedule reaches the final save slightly after the end
-  time.
+  whether the schedule reaches the final save slightly after the
+  end time or the duration/save_every division rounds just below a
+  whole number: the host allocation and the device stop time come
+  from the same count, so they cannot disagree.
 """
 
 import numpy as np
@@ -114,10 +116,22 @@ _DRIFTED_GRID = {
     "output_types": ["state", "time"],
 }
 
+_ROUNDED_DOWN_COUNT = {
+    "algorithm": "euler",
+    "step_controller": "fixed",
+    "dt": 0.0005,
+    "duration": 0.01,
+    "save_every": 0.001,
+    "output_types": ["state", "time"],
+}
+
 
 @pytest.mark.parametrize(
     "solver_settings_override",
-    [pytest.param(_DRIFTED_GRID, id="drifted_schedule")],
+    [
+        pytest.param(_DRIFTED_GRID, id="drifted_schedule"),
+        pytest.param(_ROUNDED_DOWN_COUNT, id="rounded_down_count"),
+    ],
     indirect=True,
 )
 def test_all_save_slots_written_on_inexact_grid(
@@ -125,12 +139,14 @@ def test_all_save_slots_written_on_inexact_grid(
 ):
     """Every allocated save row is written on an inexact float32 grid.
 
-    The settings request ten regular saves of an interval that is
-    not exactly representable in float32, so the accumulated
-    schedule reaches the final save slightly after the end time.
-    The host must allocate eleven rows (the initial state plus ten
-    saves) and the device must fill all of them, in increasing time
-    order, ending at the requested duration.
+    Both parameter sets request ten regular saves using values that
+    are not exactly representable in float32. In the first, the
+    accumulated device schedule reaches the final save slightly
+    after the end time. In the second, dividing duration by
+    save_every in float32 gives 9.9999993 rather than 10. Either
+    way the host must allocate eleven rows (the initial state plus
+    ten saves) and the device must fill all of them, in increasing
+    time order, ending at the requested duration.
     """
     initial_values, parameters = batch_input_arrays
     duration = float(solver_settings["duration"])

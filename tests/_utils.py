@@ -877,6 +877,12 @@ def run_device_loop(
     persistent_required = max(1, singleintegratorrun.persistent_local_elements)
 
     numba_precision = from_dtype(precision)
+    save_stop = precision(
+        singleintegratorrun.save_stop_time(duration, warmup, t0)
+    )
+    summary_stop = precision(
+        singleintegratorrun.summary_stop_time(duration, warmup, t0)
+    )
 
     @cuda.jit(
         # (
@@ -924,6 +930,8 @@ def run_device_loop(
             duration,
             warmup,
             t0,
+            save_stop,
+            summary_stop,
         )
 
     kernel[1, 1, 0, shared_bytes](
