@@ -726,8 +726,11 @@ class IVPLoop(CUDAFactory):
             mask = activemask()
             irrecoverable = False
             at_end = False
-            save_finished = False
-            summary_finished = False
+            # Event-updated completion flags: the counts change only
+            # when an event fires, so the per-iteration checks reduce
+            # to the stored predicates.
+            save_finished = bool_(save_idx >= saves_expected)
+            summary_finished = bool_(update_idx >= updates_expected)
             # --------------------------------------------------------------- #
             #                        Main Loop                                #
             # --------------------------------------------------------------- #
@@ -742,12 +745,8 @@ class IVPLoop(CUDAFactory):
                     # Loop continues until all scheduled outputs are complete
                     finished = True
                     if save_regularly:
-                        save_finished = bool_(save_idx >= saves_expected)
                         finished &= save_finished
                     if summarise_regularly:
-                        summary_finished = bool_(
-                            update_idx >= updates_expected
-                        )
                         finished &= summary_finished
                 else:
                     # No scheduled outputs; finish when time reaches t_end.
@@ -976,6 +975,10 @@ class IVPLoop(CUDAFactory):
                             ],
                         )
                         save_idx += int32(1)
+                        if save_regularly:
+                            save_finished = bool_(
+                                save_idx >= saves_expected
+                            )
 
                         # Reset iteration counters after save
                         if save_counters_bool:
@@ -1014,6 +1017,9 @@ class IVPLoop(CUDAFactory):
                                 update_idx,
                             )
                             update_idx += int32(1)
+                            summary_finished = bool_(
+                                update_idx >= updates_expected
+                            )
 
                             # Save summary when enough updates
                             # collected; the slot bound keeps rounding
