@@ -59,8 +59,7 @@ Remove the corresponding shim once each lands upstream. With the
 shared-memory shim in place LTO-link optimization is safe and runs
 at the upstream default (enabled); set
 NUMBA_CUDA_MLIR_DISABLE_LTO_OPT=1 to force opt_level=0 on the LTO
-link. The only known divergence with optimization enabled is
-FMA-level float variance in the second-derivative summary metrics.
+link.
 """
 
 import copy
@@ -266,7 +265,10 @@ def register_boolean_comparison_lowerings() -> None:
     the shared ``_bin_op_cg`` is replaced so Boolean operands select
     unsigned operations (the code generators resolve it as a module
     global at call time), and the six comparison code generators gain
-    ``(Boolean, Boolean)`` signatures.
+    ``(Boolean, Boolean)`` signatures. Mixed ``(Boolean, Number)`` /
+    ``(Number, Boolean)`` pairs are registered as well — Python
+    promotes ``bool`` to ``int`` in comparisons, and the shared code
+    generator already unifies operand types before comparing.
 
     Builds that already carry the operand-signedness rework expose a
     two-parameter ``_get_operation_for_op_and_type(op, type)`` that
@@ -284,6 +286,8 @@ def register_boolean_comparison_lowerings() -> None:
         _lowering_math._bin_op_cg = _bin_op_cg_boolean_unsigned
     for op, cg in _COMPARISON_CGS.items():
         _math_registry.lower(op, types.Boolean, types.Boolean)(cg)
+        _math_registry.lower(op, types.Boolean, types.Number)(cg)
+        _math_registry.lower(op, types.Number, types.Boolean)(cg)
 
 
 register_boolean_comparison_lowerings()
@@ -629,8 +633,8 @@ register_integer_division_lowerings()
 _original_static_shared = _lowering_cuda.cuda_static_shared_memory
 
 
-def _dynamic_region_shared_memory(lower, target, dtype):
-    """Lower ``cuda.shared.array(0)`` to the dynamic shared region.
+def _dynamic_region_view(lower, mr_type):
+    """Build a view of the whole dynamic shared region at offset 0.
 
     A private zero-length shared ``memref.global`` is undefined
     behaviour to index, so optimizers sink or delete stores staged
@@ -641,6 +645,27 @@ def _dynamic_region_shared_memory(lower, target, dtype):
     byte offset used by runtime-shaped shared arrays.
     """
 
+    with lower.alloca_insertion_point():
+        shm_base = lower._get_shared_memory_base()
+        zero = arith.constant(result=_T.index(), value=0)
+        element_bytes = arith.constant(
+            result=_T.index(),
+            value=mr_type.element_type.width // 8,
+        )
+        num_elements = arith.divui(
+            _memref.dim(shm_base, zero), element_bytes
+        )
+        return _memref.view(
+            result=mr_type,
+            source=shm_base,
+            byte_shift=zero,
+            sizes=[num_elements],
+        )
+
+
+def _dynamic_region_shared_memory(lower, target, dtype):
+    """Lower ``cuda.shared.array(0)`` to the dynamic shared region."""
+
     element_type = lower.get_storage_type(
         _lowering_cuda._resolve_numba_dtype(lower, dtype)
     )
@@ -649,22 +674,7 @@ def _dynamic_region_shared_memory(lower, target, dtype):
         element_type=element_type,
         memory_space=lower._get_shared_address_space(),
     )
-    with lower.alloca_insertion_point():
-        shm_base = lower._get_shared_memory_base()
-        zero = arith.constant(result=_T.index(), value=0)
-        element_bytes = arith.constant(
-            result=_T.index(), value=element_type.width // 8
-        )
-        num_elements = arith.divui(
-            _memref.dim(shm_base, zero), element_bytes
-        )
-        view = _memref.view(
-            result=mr_type,
-            source=shm_base,
-            byte_shift=zero,
-            sizes=[num_elements],
-        )
-    lower.store_var(target, view)
+    lower.store_var(target, _dynamic_region_view(lower, mr_type))
 
 
 def _static_shared_memory_shim(lower, target, static_shape, dtype, alignas):
@@ -717,6 +727,22 @@ def _request_shared_memory_shim(self, sizes, mr_type):
     return view
 
 
+def _request_dynamic_shared_memory_shim(self, mr_type):
+    """Emit the dynamic-region view at the current insertion point.
+
+    Upstream inserts at the end of the entry block, which raises an
+    insertion error once the block has a terminator (any
+    ``shared.array(0)`` lowered after control flow), offsets the
+    view by the running byte total, and consumes the whole region;
+    every zero-length shared array must instead alias the region
+    base at byte offset zero.
+    """
+
+    view = _dynamic_region_view(self, mr_type)
+    self._dynamic_shared_memory_values.append(view)
+    return view
+
+
 def _make_dynamic_shared_memory_external(module):
     """Rewrite ``__dynamic_shmem__*`` globals to external linkage.
 
@@ -758,6 +784,10 @@ def register_dynamic_shared_memory_shims() -> None:
     _mlir_lowering.MLIRLower._request_shared_memory = (
         _request_shared_memory_shim
     )
+    if hasattr(_mlir_lowering.MLIRLower, "_request_dynamic_shared_memory"):
+        _mlir_lowering.MLIRLower._request_dynamic_shared_memory = (
+            _request_dynamic_shared_memory_shim
+        )
     _mlir_optimization.run_pre_codegen_patterns = (
         _pre_codegen_with_external_shmem
     )
@@ -946,9 +976,7 @@ register_memref_pointer_offset_shim()
 # The dynamic-shared-memory shims above fix the store erasure that
 # previously made LTO-link optimization unsafe, so it runs at the
 # upstream default (enabled). Set NUMBA_CUDA_MLIR_DISABLE_LTO_OPT=1
-# to force opt_level=0 on the LTO link; the remaining difference at
-# opt>0 is FMA-level float variance in the second-derivative summary
-# metrics (their central difference is cancellation-prone).
+# to force opt_level=0 on the LTO link.
 
 
 # ------------------------------------------------------------------ #
