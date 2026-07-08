@@ -8,7 +8,10 @@ compilation, then ``timeit.repeat`` with garbage collection enabled
 and one solve per repeat. The headline number is the mean runtime
 over the repeats (the cross-package comparison scripts report the
 minimum); the minimum and sample standard deviation are printed
-alongside for reference.
+alongside for reference. Each config also reports a CUDA-event
+breakdown (kernel execution vs h2d/d2h transfer, per-chunk events
+recorded on the GPU timeline by ``BatchSolverKernel``) so host-side
+and transfer noise can be separated from kernel time.
 
 Usage::
 
@@ -25,6 +28,8 @@ compile from the tree under benchmark; the compile cost is absorbed
 by the warm-up solve, outside the timed region.
 """
 
+import contextlib
+import io
 import os
 import shutil
 import sys
@@ -39,7 +44,12 @@ from cubie.time_logger import default_timelogger
 shutil.rmtree(GENERATED_DIR, ignore_errors=True)
 os.makedirs(GENERATED_DIR, exist_ok=True)
 
-default_timelogger.set_verbosity(None)
+# CUDA events (kernel / h2d / d2h per chunk) are recorded only when
+# the time logger is armed. Solver construction resets the global
+# verbosity from its time_logging_level argument, so arming happens
+# through that argument below; solve's printed summaries are
+# swallowed by the stdout redirect inside the timed callable.
+default_timelogger.set_verbosity("default")
 
 n_runs = int(sys.argv[1]) if len(sys.argv) > 1 else 2**22
 repeats = int(sys.argv[2]) if len(sys.argv) > 2 else 100
@@ -69,7 +79,7 @@ fixed_solver = qb.Solver(
     save_every=1.0,
     step_controller="fixed",
     output_types=["state"],
-    time_logging_level=None,
+    time_logging_level="default",
 )
 
 adaptive_solver = qb.Solver(
@@ -87,7 +97,7 @@ adaptive_solver = qb.Solver(
     max_gain=5.0,
     min_gain=0.1,
     output_types=["state"],
-    time_logging_level=None,
+    time_logging_level="default",
 )
 
 initials_array, parameter_array = fixed_solver.build_grid(
@@ -95,19 +105,48 @@ initials_array, parameter_array = fixed_solver.build_grid(
 )
 
 
-def benchmark(label, solver):
-    """Time ``repeats`` solves after a warm-up and print the mean."""
+def collect_event_times(solver, sums):
+    """Append per-solve CUDA-event totals (ms) to ``sums`` by prefix.
 
-    def run():
-        return solver.solve(
-            initial_values=initials_array,
-            parameters=parameter_array,
-            blocksize=64,
-            results_type="raw",
-            duration=1.0,
+    Reads the kernel's per-chunk event objects after the solve has
+    synchronised the stream; the GPU-timeline elapsed times separate
+    kernel execution from host<->device transfer traffic.
+    """
+    events = solver.kernel._cuda_events
+    for prefix in sums:
+        sums[prefix].append(
+            sum(
+                event.elapsed_time_ms()
+                for event in events
+                if event.name.startswith(prefix)
+            )
         )
 
+
+def benchmark(label, solver):
+    """Time ``repeats`` solves after a warm-up and print the means.
+
+    Wall-clock timing wraps the whole ``solve`` call (the number the
+    cross-package comparisons use). The CUDA-event breakdown isolates
+    kernel execution from h2d/d2h transfers on the GPU timeline.
+    """
+    event_sums = {"kernel": [], "h2d": [], "d2h": []}
+
+    def run():
+        with contextlib.redirect_stdout(io.StringIO()):
+            solution = solver.solve(
+                initial_values=initials_array,
+                parameters=parameter_array,
+                blocksize=64,
+                results_type="raw",
+                duration=1.0,
+            )
+        collect_event_times(solver, event_sums)
+        return solution
+
     run()  # warm-up (JIT compilation)
+    for values in event_sums.values():
+        values.clear()
     res = timeit.repeat(run, setup="gc.enable()", repeat=repeats, number=1)
     times_ms = np.asarray(res) * 1000.0
     print(
@@ -115,6 +154,13 @@ def benchmark(label, solver):
         f"{n_runs} trajectories (std {times_ms.std(ddof=1):.2f} ms, "
         f"min {times_ms.min():.2f} ms)"
     )
+    for prefix, values in event_sums.items():
+        values_ms = np.asarray(values)
+        print(
+            f"{label}: {prefix} mean {values_ms.mean():.2f} ms "
+            f"(std {values_ms.std(ddof=1):.2f} ms, "
+            f"min {values_ms.min():.2f} ms)"
+        )
 
 
 benchmark("fixed (classical-rk4)", fixed_solver)
