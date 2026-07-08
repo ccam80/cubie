@@ -465,6 +465,7 @@ class IVPLoop(CUDAFactory):
         # Timing values
         initial_dt = precision(config.dt)
         save_every = config.save_every
+        summarise_every = config.summarise_every
         sample_summaries_every = config.sample_summaries_every
         samples_per_summary = int32(config.samples_per_summary)
 
@@ -505,9 +506,11 @@ class IVPLoop(CUDAFactory):
         ):  # pragma: no cover - CUDA fns not marked in coverage
             """Advance an integration using a compiled CUDA device loop.
 
-            The loop terminates when the time of the next saved sample
-            exceeds the end time (t0 + settling_time + duration), or when
-            the maximum number of iterations is reached.
+            The loop terminates when every scheduled output slot has
+            been written — the slot counts mirror the host allocation
+            arithmetic in
+            :meth:`SingleIntegratorRun.output_length` — or when the run
+            fails irrecoverably.
 
             Parameters
             ----------
@@ -543,9 +546,43 @@ class IVPLoop(CUDAFactory):
             int
                 Status code aggregating errors and iteration counts.
             """
+            # Timing arguments participate in loop-precision schedule
+            # arithmetic that must match the host allocation
+            # arithmetic, so loop-precision copies are taken regardless
+            # of what the caller passed.
+            duration_prec = precision(duration)
+            settling_prec = precision(settling_time)
+            t0_prec = precision(t0)
+            schedule_base = precision(settling_prec + t0_prec)
+
             t = float64(t0)
             t_prec = precision(t)
-            t_end = precision(settling_time + t0 + duration)
+            t_end = precision(schedule_base + duration_prec)
+
+            # Scheduled event counts mirror the host allocation
+            # arithmetic (SingleIntegratorRun.output_length and
+            # summaries_length, both floor(duration / interval) in the
+            # loop precision) so device writes and host array heights
+            # cannot diverge.
+            saves_expected = int32(0)
+            if save_regularly:
+                saves_expected = (
+                    int32(duration_prec / save_every) + int32(1)
+                )
+            updates_expected = int32(0)
+            summaries_expected = int32(0)
+            if summarise_regularly:
+                # Update events run until every host-allocated summary
+                # window is complete; a window closes every
+                # samples_per_summary updates, so partial-window
+                # updates beyond the last full window never surface in
+                # the output.
+                summaries_expected = int32(
+                    duration_prec / summarise_every
+                )
+                updates_expected = (
+                    summaries_expected * samples_per_summary
+                )
 
             # Clear inherited arrays on entry
             persistent_local[:] = precision(0.0)
@@ -606,8 +643,9 @@ class IVPLoop(CUDAFactory):
             save_idx = int32(0)
             summary_idx = int32(0)
             update_idx = int32(0)
-            next_save = precision(settling_time + t0)
-            next_update_summary = precision(settling_time + t0)
+            n_summary_bumps = int32(0)
+            next_save = schedule_base
+            next_update_summary = schedule_base
             # --------------------------------------------------------------- #
             #                       Seed t=0 values                           #
             # --------------------------------------------------------------- #
@@ -637,10 +675,18 @@ class IVPLoop(CUDAFactory):
             if settling_time == 0.0:
                 # Save initial state at t0, then advance to first interval save
                 if save_regularly:
-                    next_save = precision(next_save + save_every)
+                    next_save = precision(
+                        min(precision(next_save + save_every), t_end)
+                    )
                 if summarise_regularly:
+                    n_summary_bumps = int32(1)
                     next_update_summary = precision(
-                        sample_summaries_every + next_update_summary
+                        min(
+                            precision(
+                                sample_summaries_every + next_update_summary
+                            ),
+                            t_end,
+                        )
                     )
 
                 save_state(
@@ -699,10 +745,12 @@ class IVPLoop(CUDAFactory):
                     # Loop continues until all scheduled outputs are complete
                     finished = True
                     if save_regularly:
-                        save_finished = bool_(next_save > t_end)
+                        save_finished = bool_(save_idx >= saves_expected)
                         finished &= save_finished
                     if summarise_regularly:
-                        summary_finished = bool_(next_update_summary > t_end)
+                        summary_finished = bool_(
+                            update_idx >= updates_expected
+                        )
                         finished &= summary_finished
                 else:
                     # No scheduled outputs; finish when time reaches t_end.
@@ -899,9 +947,25 @@ class IVPLoop(CUDAFactory):
                     do_update_summary &= accept
 
                     if do_save:
-                        # Increment next_save if it's in use
                         if save_regularly:
-                            next_save += save_every
+                            # The next save time is recomputed from the
+                            # slot index: repeated addition of
+                            # save_every accumulates rounding error in
+                            # reduced precision, drifting the schedule
+                            # off the host-allocated grid in either
+                            # direction.  The clamp keeps the final
+                            # slot reachable when its grid point rounds
+                            # past t_end.
+                            next_save = precision(
+                                min(
+                                    precision(
+                                        schedule_base
+                                        + precision(save_idx + int32(1))
+                                        * save_every
+                                    ),
+                                    t_end,
+                                )
+                            )
 
                         save_state(
                             state_buffer,
@@ -923,7 +987,21 @@ class IVPLoop(CUDAFactory):
 
                     if do_update_summary:
                         if summarise_regularly:
-                            next_update_summary += sample_summaries_every
+                            # Same drift-free recomputation as
+                            # next_save; the bump counter tracks
+                            # schedule advances because update_idx
+                            # skips the settling-free t0 bump.
+                            n_summary_bumps += int32(1)
+                            next_update_summary = precision(
+                                min(
+                                    precision(
+                                        schedule_base
+                                        + precision(n_summary_bumps)
+                                        * sample_summaries_every
+                                    ),
+                                    t_end,
+                                )
+                            )
 
                         if summarise:
                             statesumm_idx = summary_idx * summarise_state_bool
@@ -937,8 +1015,16 @@ class IVPLoop(CUDAFactory):
                             )
                             update_idx += int32(1)
 
-                            # Save summary when enough updates collected
-                            if update_idx % samples_per_summary == int32(0):
+                            # Save summary when enough updates
+                            # collected; the slot bound keeps rounding
+                            # disagreements between the update and
+                            # window cadences from writing past the
+                            # host-allocated summary height.
+                            if (
+                                update_idx % samples_per_summary
+                                == int32(0)
+                                and summary_idx < summaries_expected
+                            ):
                                 save_summaries(
                                     state_summary_buffer,
                                     observable_summary_buffer,

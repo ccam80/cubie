@@ -152,35 +152,57 @@ def run_reference_loop(
         t32,
     )
 
+    end_time = precision(warmup + t0 + duration)
+
+    # Event counts and schedule recomputation mirror the device loop
+    # in ode_loop.py: floor(duration / interval) in the loop precision,
+    # with each next-event time recomputed from its event index and
+    # clamped to end_time rather than accumulated.
+    saves_expected = max_save_samples
+    summaries_expected = int(
+        precision(duration) / precision(summarise_every)
+    )
+    # Update events run until every summary window is complete; a
+    # window closes every samples_per_summary updates, so
+    # partial-window updates beyond the last full window never
+    # surface in the output.
+    updates_expected = summaries_expected * samples_per_summary
+    summary_sample_count = 0
+
     if warmup > np.float64(0.0):
         next_save_time = precision(warmup + t0)
         next_summary_sample_time = precision(warmup + t0)
         save_idx = 0
+        summary_bumps = 0
     else:
-        next_save_time = precision(warmup + t0 + save_every)
+        next_save_time = precision(
+            min(precision(warmup + t0 + save_every), end_time)
+        )
         next_summary_sample_time = precision(
-            warmup + t0 + sample_summaries_every
+            min(precision(warmup + t0 + sample_summaries_every), end_time)
         )
         state_history = [state.copy()]
         observable_history.append(observables.copy())
         time_history = [precision(t)]
         save_idx = 1
-
-    end_time = precision(warmup + t0 + duration)
+        summary_bumps = 1
 
     status_flags = 0
 
     # Track when we need to sample for summaries vs save for output
-    while next_save_time <= end_time or next_summary_sample_time <= end_time:
+    while save_idx < saves_expected or summary_sample_count < updates_expected:
         dt = controller.dt
         do_save = False
         do_summary_sample = False
 
-        # Determine next event time
+        # Determine next event time; exhausted schedules are excluded
+        # by their event counts.
         next_event_time = min(
-            next_save_time if next_save_time <= end_time else end_time + 1,
+            next_save_time
+            if save_idx < saves_expected
+            else end_time + 1,
             next_summary_sample_time
-            if next_summary_sample_time <= end_time
+            if summary_sample_count < updates_expected
             else end_time + 1,
         )
         if next_event_time > end_time:
@@ -221,15 +243,32 @@ def run_reference_loop(
                 state_history.append(result.state.copy())
                 observable_history.append(result.observables.copy())
                 time_history.append(precision(t32 - warmup))
-            next_save_time = next_save_time + save_every
+            next_save_time = precision(
+                min(
+                    precision(
+                        precision(warmup + t0)
+                        + precision(save_idx + 1) * save_every
+                    ),
+                    end_time,
+                )
+            )
             save_idx += 1
 
         if do_summary_sample:
             if len(summary_state_history) < max_summary_samples:
                 summary_state_history.append(result.state.copy())
                 summary_observable_history.append(result.observables.copy())
-            next_summary_sample_time = (
-                next_summary_sample_time + sample_summaries_every
+            summary_sample_count += 1
+            summary_bumps += 1
+            next_summary_sample_time = precision(
+                min(
+                    precision(
+                        precision(warmup + t0)
+                        + precision(summary_bumps)
+                        * sample_summaries_every
+                    ),
+                    end_time,
+                )
             )
 
     state_output = _collect_saved_outputs(
@@ -246,8 +285,6 @@ def run_reference_loop(
         precision,
     )
     if save_time:
-        if len(time_history) < state_output.shape[0]:
-            time_history.append(precision(0))
         state_output = np.column_stack(
             (state_output, np.asarray(time_history))
         )
