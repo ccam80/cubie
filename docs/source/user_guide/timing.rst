@@ -155,6 +155,9 @@ output, and the accumulator resets for the next window.
 
 - **Default**: If not specified but summary outputs are requested, defaults
   to ``duration`` (one summary window covering the entire integration).
+  This default is derived from the duration, so CuBIE emits a
+  ``UserWarning``: if ``duration`` changes on a later solve, the kernel
+  must recompile once.  Set ``summarise_every`` explicitly to avoid it.
 - **Type**: ``float`` (seconds of simulation time)
 
 .. code-block:: python
@@ -174,7 +177,9 @@ the current state/observable values are fed into the running accumulator
 (e.g., added to a running sum for mean calculation, compared against
 current max, etc.).
 
-- **Default**: ``summarise_every / 10`` (10 samples per window)
+- **Default**: ``summarise_every / 10`` (10 samples per window) when
+  you set ``summarise_every``.  When you set neither,
+  ``duration / 100`` (100 samples in the single whole-run window).
 - **Type**: ``float`` (seconds of simulation time)
 - **Constraint**: ``summarise_every`` must be an integer multiple of
   ``sample_summaries_every``

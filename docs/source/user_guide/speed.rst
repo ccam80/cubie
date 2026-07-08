@@ -67,7 +67,7 @@ phase of a solve.  Enable it by passing ``time_logging_level`` to
 
    result = qb.solve_ivp(
        system, y0=y0, parameters=params,
-       method="dormand_prince_54", duration=10.0,
+       method="dormand-prince-54", duration=10.0,
        time_logging_level="default",
    )
 

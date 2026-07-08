@@ -13,14 +13,6 @@ CUDA Not Found
 3. Install the correct Numba CUDA package:
    ``pip install numba-cuda[cu12]``.
 
-"Low Occupancy" Warnings
--------------------------
-
-Numba may warn about low occupancy when shared memory usage is high.
-This is informational, not an error.  CuBIE is designed to work at low
-occupancy for large ODE systems.  Performance is still dominated by the
-batch size.
-
 Newton Solver Not Converging
 -----------------------------
 
@@ -87,6 +79,7 @@ CuBIE uses ``attrs`` classes for configuration.  Common mistakes:
   expected, or vice versa.  CuBIE's validators are tolerant of NumPy
   dtypes, but passing a string where a number is expected will raise
   ``TypeError``.
-- **Negative tolerance:** ``atol`` and ``rtol`` must be positive.
+- **Negative tolerance:** ``atol`` and ``rtol`` must be non-negative;
+  a negative value raises ``ValueError``.
 - **Step size bounds:** ``dt_min`` must be less than ``dt_max``, and
   ``dt`` must be between them.

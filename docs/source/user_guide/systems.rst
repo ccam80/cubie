@@ -15,13 +15,13 @@ algorithms to use. This is the easiest way to create a system of ODEs. Here's an
 example of setting up the Lotka-Volterra predator-prey equations, a common
 example of a nonlinear ODE system:
 
-Symbolic solver helpers are retrieved through
-:meth:`SymbolicODE.get_solver_helper`. The available helpers include the linear
-operator (``"linear_operator"`` and ``"linear_operator_cached"``), Jacobian
-preparation (``"prepare_jac"``), cached Jacobian-vector products
-(``"calculate_cached_jvp"``), and the explicit time-derivative helper
-(``"time_derivative_rhs"``), which evaluates
-\(\partial_t F + \sum_i \partial_{d_i} F\,\dot{d}_i\).
+The integration algorithms retrieve system-specific device functions
+through :meth:`SymbolicODE.get_solver_helper` — linear operators,
+Jacobian preparation and Jacobian-vector products, Neumann and Jacobi
+preconditioners, stage residuals for implicit methods, and the
+explicit time-derivative helper.  You normally never call this
+yourself; the full list of helper names is documented on the method
+itself.
 
 ``BaseODE`` is the abstract interface, and ``SymbolicODE`` is currently its
 only concrete subclass.
