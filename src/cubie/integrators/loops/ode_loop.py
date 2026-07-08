@@ -464,6 +464,7 @@ class IVPLoop(CUDAFactory):
 
         # Timing values
         initial_dt = precision(config.dt)
+        typed_zero = precision(0.0)
         save_every = config.save_every
         sample_summaries_every = config.sample_summaries_every
         samples_per_summary = int32(config.samples_per_summary)
@@ -472,6 +473,20 @@ class IVPLoop(CUDAFactory):
         save_last = config.save_last
         save_regularly = config.save_regularly
         summarise_regularly = config.summarise_regularly
+
+        # Half-interval margins for the schedule-completion tests.
+        # Repeated float addition of an inexact interval drifts the
+        # accumulated schedule by ulps per event; comparing against
+        # t_end plus half an interval keeps the final host-allocated
+        # slot reachable without altering the schedule itself.
+        if save_regularly:
+            half_save_every = precision(0.5 * save_every)
+        else:
+            half_save_every = precision(0.0)
+        if summarise_regularly:
+            half_sample_every = precision(0.5 * sample_summaries_every)
+        else:
+            half_sample_every = precision(0.0)
 
         # Loop sizes from config (sizes also used for iteration bounds)
         n_states = int32(config.n_states)
@@ -546,6 +561,8 @@ class IVPLoop(CUDAFactory):
             t = float64(t0)
             t_prec = precision(t)
             t_end = precision(settling_time + t0 + duration)
+            save_stop = precision(t_end + half_save_every)
+            summary_stop = precision(t_end + half_sample_every)
 
             # Clear inherited arrays on entry
             persistent_local[:] = precision(0.0)
@@ -696,13 +713,19 @@ class IVPLoop(CUDAFactory):
                 # are constants, allowing Numba to eliminate dead branches
                 end_of_step = t_prec + dt_raw
                 if save_regularly or summarise_regularly:
-                    # Loop continues until all scheduled outputs are complete
+                    # Loop continues until all scheduled outputs are
+                    # complete. The half-interval margin on the stop
+                    # times tolerates upward accumulation drift, which
+                    # otherwise pushes the final scheduled event past
+                    # t_end and strands its host-allocated slot.
                     finished = True
                     if save_regularly:
-                        save_finished = bool_(next_save > t_end)
+                        save_finished = bool_(next_save > save_stop)
                         finished &= save_finished
                     if summarise_regularly:
-                        summary_finished = bool_(next_update_summary > t_end)
+                        summary_finished = bool_(
+                            next_update_summary > summary_stop
+                        )
                         finished &= summary_finished
                 else:
                     # No scheduled outputs; finish when time reaches t_end.
@@ -742,7 +765,12 @@ class IVPLoop(CUDAFactory):
                     if save_last:
                         do_save |= at_end
 
-                    # Adjust step size to hit output boundaries exactly
+                    # Adjust step size to hit output boundaries exactly.
+                    # Only positive gaps clamp the step: downward
+                    # accumulation drift or rounding can put the event
+                    # time at or behind t_prec, and a non-positive
+                    # dt_eff traps the loop. The due event fires at the
+                    # next accepted step instead.
                     dt_eff = dt_raw
                     if do_save or do_update_summary:
                         next_event = t_end
@@ -752,7 +780,8 @@ class IVPLoop(CUDAFactory):
                             next_event = precision(
                                 min(next_event, next_update_summary)
                             )
-                        dt_eff = precision(next_event - t_prec)
+                        gap = precision(next_event - t_prec)
+                        dt_eff = selp(gap > typed_zero, gap, dt_raw)
 
                     # ----------------------------------------------------------- #
                     # Take a step
