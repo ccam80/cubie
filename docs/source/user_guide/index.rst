@@ -11,6 +11,8 @@ value problems. The source code is available on `Github
 
    systems
    solving
+   coming_from_scipy
+   coming_from_matlab
    batching
    results
    drivers
