@@ -18,11 +18,20 @@ A/B comparison, and kernel runtime is the gate metric.
 Usage::
 
     python benchmarks/lorenz_mean_runtime.py [n_runs] [repeats]
+        [--ref-fixed MEAN STD] [--ref-adaptive MEAN STD]
 
 Defaults: ``2**22`` trajectories for the fixed config and ``2**24``
 for the adaptive config (the adaptive kernel is fast enough at
 ``2**22`` that launch effects blur small deltas); ``repeats = 100``.
 An explicit ``n_runs`` argument applies to both configs.
+
+For the B side of an A/B gate, pass the A side's printed mean and
+std per config via ``--ref-fixed`` / ``--ref-adaptive``. The script
+then also prints a Welch two-sample z statistic,
+``z = (mean - ref_mean) / sqrt(std**2/n + ref_std**2/n)``, and a
+verdict: ``|z| >= 3`` flags the means as different (a regression
+when positive). The textbook 95% bound is 1.96, but solve samples
+are mildly autocorrelated (thermal state), so the gate uses 3.
 
 The generated-code and compiled-kernel caches are cleared on every
 invocation. The kernel cache is keyed by config hash, which does not
@@ -33,11 +42,12 @@ compile from the tree under benchmark; the compile cost is absorbed
 by the warm-up solve, outside the timed region.
 """
 
+import argparse
 import contextlib
 import io
+import math
 import os
 import shutil
-import sys
 import timeit
 
 import numpy as np
@@ -56,13 +66,37 @@ os.makedirs(GENERATED_DIR, exist_ok=True)
 # swallowed by the stdout redirect inside the timed callable.
 default_timelogger.set_verbosity("default")
 
-if len(sys.argv) > 1:
-    n_fixed = n_adaptive = int(sys.argv[1])
+parser = argparse.ArgumentParser(
+    description="Kernel-runtime A/B gate benchmark (Lorenz ensemble)."
+)
+parser.add_argument("n_runs", nargs="?", type=int, default=None)
+parser.add_argument("repeats", nargs="?", type=int, default=100)
+parser.add_argument(
+    "--ref-fixed",
+    nargs=2,
+    type=float,
+    metavar=("MEAN", "STD"),
+    default=None,
+    help="A-side kernel mean and std (ms) for the fixed config.",
+)
+parser.add_argument(
+    "--ref-adaptive",
+    nargs=2,
+    type=float,
+    metavar=("MEAN", "STD"),
+    default=None,
+    help="A-side kernel mean and std (ms) for the adaptive config.",
+)
+args = parser.parse_args()
+
+if args.n_runs is not None:
+    n_fixed = n_adaptive = args.n_runs
 else:
     n_fixed = 2**22
     n_adaptive = 2**24
-repeats = int(sys.argv[2]) if len(sys.argv) > 2 else 100
+repeats = args.repeats
 discarded_solves = 20
+z_threshold = 3.0
 
 precision = np.float32
 
@@ -126,8 +160,12 @@ def collect_kernel_time(solver, kernel_ms):
     )
 
 
-def benchmark(label, solver, n_runs):
-    """Run ``repeats`` solves after a warm-up; print kernel runtime."""
+def benchmark(label, solver, n_runs, reference):
+    """Run ``repeats`` solves after a warm-up; print kernel runtime.
+
+    When ``reference`` holds the A side's (mean, std), a Welch
+    two-sample z statistic against it is printed with a verdict.
+    """
     parameters = {"rho": np.linspace(0.0, 21.0, n_runs)}
     initials_array, parameter_array = solver.build_grid(
         initial_values=initial_conditions, parameters=parameters
@@ -155,13 +193,26 @@ def benchmark(label, solver, n_runs):
         number=1,
     )
     kernel_arr = np.asarray(kernel_ms[discarded_solves:])
+    mean = kernel_arr.mean()
+    std = kernel_arr.std(ddof=1)
     print(
-        f"{label}: kernel mean {kernel_arr.mean():.2f} ms over {repeats} "
+        f"{label}: kernel mean {mean:.2f} ms over {repeats} "
         f"solves of {n_runs} trajectories "
-        f"(std {kernel_arr.std(ddof=1):.2f} ms, "
-        f"min {kernel_arr.min():.2f} ms)"
+        f"(std {std:.2f} ms, min {kernel_arr.min():.2f} ms)"
     )
+    if reference is not None:
+        ref_mean, ref_std = reference
+        z = (mean - ref_mean) / math.sqrt(
+            (std**2 + ref_std**2) / repeats
+        )
+        if z >= z_threshold:
+            verdict = "means differ - REGRESSION"
+        elif z <= -z_threshold:
+            verdict = "means differ - improvement"
+        else:
+            verdict = "no significant difference"
+        print(f"{label}: z = {z:+.2f} vs reference ({verdict})")
 
 
-benchmark("fixed (classical-rk4)", fixed_solver, n_fixed)
-benchmark("adaptive (tsit5)", adaptive_solver, n_adaptive)
+benchmark("fixed (classical-rk4)", fixed_solver, n_fixed, args.ref_fixed)
+benchmark("adaptive (tsit5)", adaptive_solver, n_adaptive, args.ref_adaptive)

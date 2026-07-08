@@ -60,7 +60,9 @@ change — the full suite is slow (run it as a pre-commit check only, and only w
   PR message. Script defaults are the gate settings. The script outputs kernel runtime only
   (CUDA-event); one invocation per side suffices — means repeat to ~0.1% — but an invocation
   where a config's std exceeds ~5% of its mean was contaminated by outside interference:
-  discard it and rerun. A mean shift outside the standard deviations indicates a regression.
+  discard it and rerun. Run A (`main`) first, then pass A's printed mean/std to the B run via
+  `--ref-fixed MEAN STD --ref-adaptive MEAN STD`; the script prints a Welch z per config and
+  the verdict (`|z| >= 3` = the means differ; positive z on the PR branch = regression).
 
 ## Cross-cutting code rules (details in `src/cubie/AGENTS.md`)
 - Never call a `CUDAFactory.build()` directly — access compiled functions via the cached properties.
