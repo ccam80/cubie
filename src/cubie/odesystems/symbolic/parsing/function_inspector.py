@@ -55,6 +55,11 @@ class FunctionInspection:
         Name of the state vector parameter (second positional arg).
     constant_params
         Names of constant/parameter arguments (third+ positional args).
+    scalar_params
+        Subset of ``constant_params`` never accessed as containers
+        (no subscript or attribute access); each is treated as a
+        scalar bound to the like-named declared symbol, matching
+        SciPy's ``args=`` convention.
     state_accesses
         List of dicts with keys ``base``, ``key``, ``pattern_type``.
     constant_accesses
@@ -80,10 +85,12 @@ class FunctionInspection:
         return_node: ast.Return,
         function_calls: Set[str],
         func_def: ast.FunctionDef,
+        scalar_params: Optional[List[str]] = None,
     ) -> None:
         self.param_names = param_names
         self.state_param = state_param
         self.constant_params = constant_params
+        self.scalar_params = scalar_params or []
         self.state_accesses = state_accesses
         self.constant_accesses = constant_accesses
         self.assignments = assignments
@@ -1033,6 +1040,21 @@ def inspect_ode_function(func: Callable) -> FunctionInspection:
         ]
         _validate_access_consistency(cp_accesses, cp)
 
+    # Extra args never accessed as containers but referenced by bare
+    # name are scalars bound to the like-named declared symbol
+    # (SciPy's args= convention). Unreferenced args are ignored.
+    container_bases = {a["base"] for a in visitor.constant_accesses}
+    used_names = {
+        node.id
+        for node in ast.walk(func_def)
+        if isinstance(node, ast.Name) and isinstance(node.ctx, ast.Load)
+    }
+    scalar_params = [
+        cp
+        for cp in constant_params
+        if cp not in container_bases and cp in used_names
+    ]
+
     return FunctionInspection(
         param_names=params,
         state_param=state_param,
@@ -1043,6 +1065,7 @@ def inspect_ode_function(func: Callable) -> FunctionInspection:
         return_node=visitor.return_nodes[0],
         function_calls=visitor.function_calls,
         func_def=func_def,
+        scalar_params=scalar_params,
     )
 
 

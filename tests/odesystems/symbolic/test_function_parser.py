@@ -601,6 +601,89 @@ class TestUserFunctions:
             parse_input(dxdt=f, states={"x": 1.0})
 
 
+class TestScalarArguments:
+    """Extra args used bare are scalars (SciPy args= convention)."""
+
+    def test_scalar_arg_resolves_declared_parameter(self):
+        """A bare extra arg binds to the like-named parameter."""
+        def f(t, y, mu):
+            return [y[1], mu * (1 - y[0] ** 2) * y[1] - y[0]]
+
+        index_map, _, _, eqs, _ = parse_input(
+            dxdt=f,
+            states={"x": 1.0, "v": 0.0},
+            parameters={"mu": 1.5},
+        )
+        mu = sp.Symbol("mu", real=True)
+        rhs_symbols = set()
+        for _, rhs in eqs.state_derivatives:
+            rhs_symbols |= rhs.free_symbols
+        assert mu in rhs_symbols
+
+    def test_scalar_arg_resolves_declared_driver(self):
+        """A bare extra arg binds to a like-named driver."""
+        def f(t, y, k, forcing):
+            return [-k * y[0] + forcing]
+
+        index_map, _, _, eqs, _ = parse_input(
+            dxdt=f,
+            states={"x": 1.0},
+            parameters={"k": 0.5},
+            drivers=["forcing"],
+        )
+        driver_sym = index_map.drivers.symbol_map["forcing"]
+        assert driver_sym in eqs.state_derivatives[0][1].free_symbols
+
+    def test_undeclared_scalar_arg_infers_parameter(self):
+        """An undeclared scalar arg infers a parameter and warns."""
+        def f(t, y, k_new):
+            return [-k_new * y[0]]
+
+        with pytest.warns(EquationWarning, match="k_new"):
+            index_map, _, _, _, _ = parse_input(
+                dxdt=f, states={"x": 1.0}
+            )
+        assert "k_new" in index_map.parameter_names
+
+    def test_undeclared_scalar_arg_strict_raises(self):
+        """strict=True forbids scalar-argument inference."""
+        def f(t, y, k_new):
+            return [-k_new * y[0]]
+
+        with pytest.raises(ValueError, match="strict"):
+            parse_input(dxdt=f, states={"x": 1.0}, strict=True)
+
+    def test_scalar_and_container_args_mix(self):
+        """Scalar and container extra args coexist."""
+        def f(t, y, mu, p):
+            return [-mu * y[0] + p.k]
+
+        _, _, _, eqs, _ = parse_input(
+            dxdt=f,
+            states={"x": 1.0},
+            parameters={"mu": 1.0, "k": 2.0},
+        )
+        mu = sp.Symbol("mu", real=True)
+        k = sp.Symbol("k", real=True)
+        assert {mu, k} <= eqs.state_derivatives[0][1].free_symbols
+
+    def test_unused_extra_arg_ignored(self):
+        """An extra arg never referenced infers nothing."""
+        def f(t, y, p):
+            return [-0.5 * y[0]]
+
+        index_map, _, _, _, _ = parse_input(dxdt=f, states={"x": 1.0})
+        assert "p" not in index_map.parameter_names
+
+    def test_scalar_arg_matching_state_raises(self):
+        """A scalar arg shadowing a state points at the state arg."""
+        def f(t, y, x):
+            return [-x * y[0]]
+
+        with pytest.raises(ValueError, match=r"y\.x"):
+            parse_input(dxdt=f, states={"x": 1.0})
+
+
 class TestDerivativeAliasReference:
     """Locals named after derivative outputs inline everywhere."""
 

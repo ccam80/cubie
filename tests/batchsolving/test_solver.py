@@ -502,6 +502,69 @@ def test_solve_ivp_forwards_save_every_and_settling_time(
     assert np.diff(times) == pytest.approx(0.04)
 
 
+def test_solve_ivp_accepts_callable():
+    """solve_ivp builds the system from a SciPy-style callable."""
+    def vdp(t, y, mu):
+        return [y[1], mu * (1 - y[0] ** 2) * y[1] - y[0]]
+
+    solve_kwargs = dict(
+        y0={"x": [1.0], "v": [0.0]},
+        parameters={"mu": [1.5]},
+        dt=1e-2,
+        duration=0.05,
+        save_every=0.01,
+        output_types=["state"],
+        method="euler",
+    )
+    result = solve_ivp(vdp, **solve_kwargs)
+    assert isinstance(result, SolveResult)
+    direct = np.asarray(result.as_numpy["time_domain_array"])
+    assert np.all(np.isfinite(direct))
+
+    from cubie import create_ODE_system
+
+    prebuilt = create_ODE_system(
+        vdp, states={"x": 1.0, "v": 0.0}, parameters={"mu": 1.5}
+    )
+    result_two_step = solve_ivp(prebuilt, **solve_kwargs)
+    two_step = np.asarray(
+        result_two_step.as_numpy["time_domain_array"]
+    )
+    assert np.array_equal(direct, two_step)
+
+
+def test_solve_ivp_accepts_equation_strings():
+    """solve_ivp builds the system from equation strings."""
+    result = solve_ivp(
+        ["dx = v", "dv = mu * (1 - x*x) * v - x"],
+        y0={"x": [1.0], "v": [0.0]},
+        parameters={"mu": [1.5]},
+        dt=1e-2,
+        duration=0.05,
+        save_every=0.01,
+        output_types=["state"],
+        method="euler",
+    )
+    assert isinstance(result, SolveResult)
+    values = np.asarray(result.as_numpy["time_domain_array"])
+    assert np.all(np.isfinite(values))
+
+
+def test_solve_ivp_raw_equations_reject_array_parameters():
+    """Raw-equation solve_ivp needs named parameters, not arrays."""
+    def decay(t, y, k):
+        return [-k * y[0]]
+
+    with pytest.raises(TypeError, match="dict"):
+        solve_ivp(
+            decay,
+            y0={"x": [1.0]},
+            parameters=np.array([[0.5]]),
+            duration=0.05,
+            method="euler",
+        )
+
+
 def test_solver_with_different_algorithms(system, solver_settings):
     """Test solver with different algorithms."""
     algorithms = ["euler", "backwards_euler_pc"]

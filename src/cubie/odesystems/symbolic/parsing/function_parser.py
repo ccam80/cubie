@@ -487,6 +487,45 @@ def _build_symbol_map(
                 )
         smap[lookup] = target_sym
 
+    # Scalar extra arguments bind to the like-named declared symbol
+    # (SciPy's args= convention: def f(t, y, mu, k) with mu, k
+    # declared as parameters, constants, or drivers).
+    for arg_name in inspection.scalar_params:
+        target_sym = None
+        for ibm in searched_maps:
+            if arg_name in ibm.symbol_map:
+                target_sym = ibm.symbol_map[arg_name]
+                break
+        if target_sym is None:
+            if arg_name in index_map.states.symbol_map:
+                raise ValueError(
+                    f"Scalar argument '{arg_name}' matches a declared "
+                    f"state. States are passed together in the second "
+                    f"argument; access '{arg_name}' as "
+                    f"'{inspection.state_param}.{arg_name}'."
+                )
+            if strict:
+                raise ValueError(
+                    f"Scalar argument '{arg_name}' does not match any "
+                    f"declared parameter, constant, or driver, and "
+                    f"strict=True forbids inference. Declare "
+                    f"'{arg_name}' or set strict=False."
+                )
+            if arg_name in inferred_params:
+                target_sym = inferred_params[arg_name]
+            else:
+                target_sym = sp.Symbol(arg_name, real=True)
+                inferred_params[arg_name] = target_sym
+                warnings.warn(
+                    f"Scalar argument '{arg_name}' does not match any "
+                    f"declared parameter, constant, or driver; it was "
+                    f"added as a parameter with a default value of "
+                    f"0.0.",
+                    EquationWarning,
+                    stacklevel=3,
+                )
+        smap[arg_name] = target_sym
+
     # Assignments that alias state accesses: map local name to state symbol
     for name, expr_node in inspection.assignments.items():
         sym = _resolve_alias(expr_node, inspection, smap)
