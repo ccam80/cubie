@@ -1301,6 +1301,11 @@ def test_save_boundary_zero_gap_run_completes():
     A step clamped to that boundary would have length zero, which the
     step function cannot integrate; the positive-gap-only clamp keeps
     dt_raw instead, so the run completes.
+
+    This test keeps its own system because landing the committed
+    time exactly on a save boundary needs this particular driven
+    stiff system with these solver settings; the shared fixture
+    systems do not reproduce the coincidence.
     """
     forced = create_ODE_system(
         "dx = v\ndv = mu * (1 - x*x) * v - x + forcing",
