@@ -2,16 +2,15 @@
 """Mean-runtime benchmark for a large Lorenz ensemble.
 
 Solves the same Lorenz ensemble as the GPUODEBenchmarks cubie runner
-(``GPU_ODE_CUBIE/bench_cubie.py``) with the same solver settings, and
-times ``Solver.solve`` the same way: one warm-up solve to absorb JIT
-compilation, then ``timeit.repeat`` with garbage collection enabled
-and one solve per repeat. The headline number is the mean runtime
-over the repeats (the cross-package comparison scripts report the
-minimum); the minimum and sample standard deviation are printed
-alongside for reference. Each config also reports a CUDA-event
-breakdown (kernel execution vs h2d/d2h transfer, per-chunk events
-recorded on the GPU timeline by ``BatchSolverKernel``) so host-side
-and transfer noise can be separated from kernel time.
+(``GPU_ODE_CUBIE/bench_cubie.py``) with the same solver settings and
+drive pattern: one warm-up solve to absorb JIT compilation, then
+``timeit.repeat`` with garbage collection enabled and one solve per
+repeat. The output is the **kernel runtime only** — the per-chunk
+``kernel_chunk_i`` CUDA events recorded on the GPU timeline by
+``BatchSolverKernel`` — as mean, sample standard deviation, and
+minimum over the repeats. Wall-clock and transfer times are not
+reported: per-process d2h/host-memory scatter makes them useless for
+A/B comparison, and kernel runtime is the gate metric.
 
 Usage::
 
@@ -105,32 +104,26 @@ initials_array, parameter_array = fixed_solver.build_grid(
 )
 
 
-def collect_event_times(solver, sums):
-    """Append per-solve CUDA-event totals (ms) to ``sums`` by prefix.
+def collect_kernel_time(solver, kernel_ms):
+    """Append one solve's kernel CUDA-event total (ms) to ``kernel_ms``.
 
-    Reads the kernel's per-chunk event objects after the solve has
-    synchronised the stream; the GPU-timeline elapsed times separate
-    kernel execution from host<->device transfer traffic.
+    Reads the kernel's per-chunk ``kernel_chunk_i`` event objects
+    after the solve has synchronised the stream; the GPU-timeline
+    elapsed times exclude host<->device transfer traffic.
     """
     events = solver.kernel._cuda_events
-    for prefix in sums:
-        sums[prefix].append(
-            sum(
-                event.elapsed_time_ms()
-                for event in events
-                if event.name.startswith(prefix)
-            )
+    kernel_ms.append(
+        sum(
+            event.elapsed_time_ms()
+            for event in events
+            if event.name.startswith("kernel_chunk")
         )
+    )
 
 
 def benchmark(label, solver):
-    """Time ``repeats`` solves after a warm-up and print the means.
-
-    Wall-clock timing wraps the whole ``solve`` call (the number the
-    cross-package comparisons use). The CUDA-event breakdown isolates
-    kernel execution from h2d/d2h transfers on the GPU timeline.
-    """
-    event_sums = {"kernel": [], "h2d": [], "d2h": []}
+    """Run ``repeats`` solves after a warm-up; print kernel runtime."""
+    kernel_ms = []
 
     def run():
         with contextlib.redirect_stdout(io.StringIO()):
@@ -141,26 +134,19 @@ def benchmark(label, solver):
                 results_type="raw",
                 duration=1.0,
             )
-        collect_event_times(solver, event_sums)
+        collect_kernel_time(solver, kernel_ms)
         return solution
 
     run()  # warm-up (JIT compilation)
-    for values in event_sums.values():
-        values.clear()
-    res = timeit.repeat(run, setup="gc.enable()", repeat=repeats, number=1)
-    times_ms = np.asarray(res) * 1000.0
+    kernel_ms.clear()
+    timeit.repeat(run, setup="gc.enable()", repeat=repeats, number=1)
+    kernel_arr = np.asarray(kernel_ms)
     print(
-        f"{label}: mean {times_ms.mean():.2f} ms over {repeats} solves of "
-        f"{n_runs} trajectories (std {times_ms.std(ddof=1):.2f} ms, "
-        f"min {times_ms.min():.2f} ms)"
+        f"{label}: kernel mean {kernel_arr.mean():.2f} ms over {repeats} "
+        f"solves of {n_runs} trajectories "
+        f"(std {kernel_arr.std(ddof=1):.2f} ms, "
+        f"min {kernel_arr.min():.2f} ms)"
     )
-    for prefix, values in event_sums.items():
-        values_ms = np.asarray(values)
-        print(
-            f"{label}: {prefix} mean {values_ms.mean():.2f} ms "
-            f"(std {values_ms.std(ddof=1):.2f} ms, "
-            f"min {values_ms.min():.2f} ms)"
-        )
 
 
 benchmark("fixed (classical-rk4)", fixed_solver)
