@@ -106,8 +106,8 @@ automatically. Explicitly pairing an adaptive controller with an
 estimate-free scheme falls back to fixed stepping with a
 ``UserWarning``.
 
-The adaptive family defaults all use a 1.0–1.1 deadband (step-size
-changes smaller than 10% are skipped). Every value can be overridden
+The adaptive family defaults all use a 1.0–1.2 deadband (step-size
+increases smaller than 20% are skipped; decreases always apply). Every value can be overridden
 per solve — see :doc:`/user_guide/configuration` for how kwargs
 reach the controller and :doc:`/user_guide/optional_arguments` for
 the full parameter list.

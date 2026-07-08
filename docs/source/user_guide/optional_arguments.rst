@@ -57,7 +57,7 @@ Newton step.
     - Default: ``1e-6``
     - Type: ``float`` or ``ndarray`` (must be positive)
 
-**max_newton_iters**
+**newton_max_iters**
     Maximum number of Newton iterations before the solver gives up. If the
     Newton loop hasn't converged after this many iterations, the step is
     marked as failed. Increase this if you have a very stiff system that
@@ -101,7 +101,7 @@ Newton step.
     - Default: ``1e-6``
     - Type: ``float`` or ``ndarray`` (must be positive)
 
-**max_linear_iters**
+**krylov_max_iters**
     Maximum number of linear solver iterations per Newton step. If the
     Krylov loop hasn't converged after this many iterations, it returns
     with its current best estimate. Increase for ill-conditioned systems.
@@ -153,7 +153,7 @@ Implicit Algorithm Applicability
      - ✓
      - ✓
      - ✗
-   * - max_newton_iters
+   * - newton_max_iters
      - ✓
      - ✓
      - ✓
@@ -183,7 +183,7 @@ Implicit Algorithm Applicability
      - ✓
      - ✓
      - ✓
-   * - max_linear_iters
+   * - krylov_max_iters
      - ✓
      - ✓
      - ✓
@@ -217,9 +217,9 @@ tableaus, and you can also define custom ones.
 
     - ERK defaults: ``dormand-prince-54`` (Dormand-Prince 5(4), adaptive)
     - DIRK defaults: ``lobatto_iiic_3`` (Lobatto IIIC, 3-stage, order 4,
-      adaptive)
+      fixed-step — no embedded error estimate)
     - FIRK defaults: ``firk_gauss_legendre_2`` (Gauss-Legendre, 2-stage,
-      order 4, adaptive)
+      order 4, fixed-step — no embedded error estimate)
     - Rosenbrock-W defaults: ``ros3p`` (ROS3P, 3-stage, order 3, stiff
       problems)
 
@@ -380,7 +380,7 @@ information about Newton iteration convergence.
     - Default: ``0.9``
     - Type: ``float`` (0 to 1)
 
-**max_newton_iters**
+**newton_max_iters**
     Expected maximum Newton iterations, used to scale the step size
     prediction. Should match or slightly exceed your actual Newton iteration
     limit.
@@ -491,7 +491,7 @@ Controller Applicability
      - ✗
      - ✗
      - ✓
-   * - max_newton_iters (ctrl)
+   * - newton_max_iters (ctrl)
      - ✗
      - ✗
      - ✗
