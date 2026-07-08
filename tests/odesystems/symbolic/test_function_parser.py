@@ -1,12 +1,13 @@
 """Tests for function_parser module and end-to-end callable integration."""
 
-import math
-
 import pytest
 import sympy as sp
 
+from cubie.odesystems.symbolic.codegen.linear_operators import (
+    generate_operator_apply_code,
+)
 from cubie.odesystems.symbolic.parsing.parser import (
-    ParsedEquations,
+    EquationWarning,
     parse_input,
 )
 from cubie.odesystems.symbolic.symbolicODE import create_ODE_system
@@ -286,3 +287,338 @@ class TestDetectInputType:
             _detect_input_type,
         )
         assert _detect_input_type("dx = -x") == "string"
+
+
+class TestDriverAccess:
+    """Drivers resolve through container arguments (issue #564)."""
+
+    def test_driver_via_parameter_container(self):
+        """p.<driver> resolves to the declared driver symbol."""
+        def f(t, y, p):
+            dx = y.v
+            dv = -y.x + p.forcing
+            return [dx, dv]
+
+        index_map, _, _, eqs, _ = parse_input(
+            dxdt=f,
+            states={"x": 1.0, "v": 0.0},
+            drivers=["forcing"],
+        )
+        driver_sym = index_map.drivers.symbol_map["forcing"]
+        rhs_symbols = set()
+        for _, rhs in eqs.state_derivatives:
+            rhs_symbols |= rhs.free_symbols
+        assert driver_sym in rhs_symbols
+        assert "forcing" not in index_map.parameter_names
+
+    def test_driver_via_dedicated_fourth_argument(self):
+        """A dedicated d argument reaches drivers the same way."""
+        def f(t, y, p, d):
+            dx = y.v
+            dv = -p.k * y.x + d.forcing
+            return [dx, dv]
+
+        index_map, _, _, eqs, _ = parse_input(
+            dxdt=f,
+            states={"x": 1.0, "v": 0.0},
+            parameters={"k": 2.0},
+            drivers=["forcing"],
+        )
+        driver_sym = index_map.drivers.symbol_map["forcing"]
+        rhs_symbols = set()
+        for _, rhs in eqs.state_derivatives:
+            rhs_symbols |= rhs.free_symbols
+        assert driver_sym in rhs_symbols
+
+    def test_driver_string_subscript(self):
+        """String subscript access reaches drivers."""
+        def f(t, y, p):
+            return [-y["x"] + p["forcing"]]
+
+        index_map, _, _, eqs, _ = parse_input(
+            dxdt=f,
+            states={"x": 1.0},
+            drivers=["forcing"],
+        )
+        driver_sym = index_map.drivers.symbol_map["forcing"]
+        assert driver_sym in eqs.state_derivatives[0][1].free_symbols
+
+    def test_bare_driver_name_warns_and_resolves(self):
+        """Bare-name driver references warn FutureWarning but work."""
+        def f(t, y, p):
+            return [-y.x + forcing]  # noqa: F821
+
+        with pytest.warns(FutureWarning, match="bare name"):
+            index_map, _, _, eqs, _ = parse_input(
+                dxdt=f,
+                states={"x": 1.0},
+                drivers=["forcing"],
+            )
+        driver_sym = index_map.drivers.symbol_map["forcing"]
+        assert driver_sym in eqs.state_derivatives[0][1].free_symbols
+
+
+class TestStateInference:
+    """states can be omitted in unambiguous cases (issue #565)."""
+
+    def test_dict_return_infers_names_and_order(self):
+        """Dict return keys supply state names and order."""
+        def f(t, y, p):
+            dx = -p.k * y.x
+            dv = y.x
+            return {"x": dx, "v": dv}
+
+        index_map, _, _, eqs, _ = parse_input(
+            dxdt=f,
+            parameters={"k": 0.5},
+        )
+        assert index_map.state_names == ["x", "v"]
+        assert len(eqs.state_derivatives) == 2
+        assert index_map.states.defaults == {"x": 0.0, "v": 0.0}
+
+    def test_positional_access_synthesizes_names(self):
+        """Pure positional access synthesizes indexed state names."""
+        def f(t, y):
+            return [-0.1 * y[0], y[0] - y[1]]
+
+        index_map, _, _, eqs, _ = parse_input(dxdt=f)
+        assert index_map.state_names == ["y0", "y1"]
+        assert len(eqs.state_derivatives) == 2
+
+    def test_single_expression_return_infers_one_state(self):
+        """A scalar return infers a single synthesized state."""
+        def f(t, y):
+            return -0.5 * y[0]
+
+        index_map, _, _, eqs, _ = parse_input(dxdt=f)
+        assert index_map.state_names == ["y0"]
+        assert len(eqs.state_derivatives) == 1
+
+    def test_list_return_with_named_access_raises(self):
+        """List return plus named access is ambiguous without states."""
+        def f(t, y):
+            return [-y.x, y.x - y.v]
+
+        with pytest.raises(ValueError, match="return a dict"):
+            parse_input(dxdt=f)
+
+    def test_strict_without_states_still_raises(self):
+        """strict=True keeps requiring explicit states."""
+        def f(t, y):
+            return [-0.1 * y[0]]
+
+        with pytest.raises(ValueError, match="No state symbols"):
+            parse_input(dxdt=f, strict=True)
+
+    def test_inferred_states_match_explicit_equations(self):
+        """Inferred dict-return system equals the explicit-states one."""
+        def f(t, y, p):
+            dx = -p.k * y.x
+            return {"x": dx}
+
+        _, _, _, eqs_inferred, _ = parse_input(
+            dxdt=f, parameters={"k": 0.5}
+        )
+        _, _, _, eqs_explicit, _ = parse_input(
+            dxdt=f, parameters={"k": 0.5}, states={"x": 0.0}
+        )
+        lhs_i, rhs_i = eqs_inferred.state_derivatives[0]
+        lhs_e, rhs_e = eqs_explicit.state_derivatives[0]
+        assert lhs_i == lhs_e
+        assert sp.simplify(rhs_i - rhs_e) == 0
+
+
+class TestUndeclaredSymbols:
+    """Undeclared symbols die or infer at parse time (issue #563)."""
+
+    def test_unknown_bare_name_raises(self):
+        """An undeclared bare name raises at parse time."""
+        def f(t, y, p):
+            dx = -k_leak * y.x  # noqa: F821
+            return [dx]
+
+        with pytest.raises(ValueError, match="k_leak"):
+            parse_input(dxdt=f, states={"x": 1.0})
+
+    def test_bare_declared_parameter_raises_with_hint(self):
+        """A declared parameter used bare names its container access."""
+        def f(t, y, p):
+            return [-mu * y.x]  # noqa: F821
+
+        with pytest.raises(ValueError, match=r"p\.mu"):
+            parse_input(
+                dxdt=f, states={"x": 1.0}, parameters={"mu": 2.0}
+            )
+
+    def test_container_access_infers_parameter(self):
+        """Undeclared container access infers a parameter and warns."""
+        def f(t, y, p):
+            return [-p.k_new * y.x]
+
+        with pytest.warns(EquationWarning, match="k_new"):
+            index_map, _, _, _, _ = parse_input(
+                dxdt=f, states={"x": 1.0}
+            )
+        assert "k_new" in index_map.parameter_names
+
+    def test_container_access_strict_raises(self):
+        """strict=True forbids container-access inference."""
+        def f(t, y, p):
+            return [-p.k_new * y.x]
+
+        with pytest.raises(ValueError, match="strict"):
+            parse_input(dxdt=f, states={"x": 1.0}, strict=True)
+
+    def test_unknown_state_attribute_raises(self):
+        """Accessing an undeclared state names the declared states."""
+        def f(t, y):
+            return [-y.z]
+
+        with pytest.raises(ValueError, match="Declared states"):
+            parse_input(dxdt=f, states={"x": 1.0})
+
+    def test_state_index_out_of_range_raises(self):
+        """Out-of-range positional state access raises."""
+        def f(t, y):
+            return [-y[3]]
+
+        with pytest.raises(ValueError, match="out of range"):
+            parse_input(dxdt=f, states={"x": 1.0})
+
+    def test_container_index_out_of_range_raises(self):
+        """Out-of-range positional container access raises."""
+        def f(t, y, p):
+            return [-p[4] * y[0]]
+
+        with pytest.raises(ValueError, match="out of range"):
+            parse_input(
+                dxdt=f, states={"x": 1.0}, parameters={"k": 1.0}
+            )
+
+    def test_state_accessed_via_container_raises(self):
+        """A state reached through p.* points back at the state arg."""
+        def f(t, y, p):
+            return [-p.x]
+
+        with pytest.raises(ValueError, match=r"y\.x"):
+            parse_input(dxdt=f, states={"x": 1.0})
+
+
+class TestUserFunctions:
+    """user_functions work in the callable form (issue #562)."""
+
+    def test_nondevice_function_inlined(self):
+        """Plain callables are inlined symbolically."""
+        def hill(conc, km):
+            return conc / (km + conc)
+
+        def f(t, y, p):
+            dx = -hill(y.x, p.km)
+            return [dx]
+
+        index_map, _, funcs, eqs, _ = parse_input(
+            dxdt=f,
+            states={"x": 1.0},
+            parameters={"km": 0.5},
+            user_functions={"hill": hill},
+        )
+        assert funcs["hill"] is hill
+        x = sp.Symbol("x", real=True)
+        km = sp.Symbol("km", real=True)
+        rhs = eqs.state_derivatives[0][1]
+        assert sp.simplify(rhs - (-x / (km + x))) == 0
+
+    def test_user_function_overrides_known_function(self):
+        """A user function shadows a KNOWN_FUNCTIONS entry."""
+        def f(t, y):
+            return [-exp(y[0])]  # noqa: F821
+
+        def my_exp(v):
+            return 2 * v
+
+        _, _, _, eqs, _ = parse_input(
+            dxdt=f,
+            states={"x": 1.0},
+            user_functions={"exp": my_exp},
+        )
+        x = sp.Symbol("x", real=True)
+        assert sp.simplify(eqs.state_derivatives[0][1] + 2 * x) == 0
+
+    def test_device_function_stays_symbolic(self):
+        """Device-like callables stay as symbolic calls."""
+        class MyFuncDevice:
+            targetoptions = {"device": True}
+
+            def __call__(self, *args, **kwargs):
+                return 0
+
+        def f(t, y):
+            dx = -myfunc(y.x, y.v)  # noqa: F821
+            return [dx, y.x]
+
+        index_map, _, _, eqs, _ = parse_input(
+            dxdt=f,
+            states={"x": 1.0, "v": 0.0},
+            user_functions={"myfunc": MyFuncDevice()},
+        )
+        rhs = eqs.state_derivatives[0][1]
+        applied = [
+            a for a in rhs.atoms(sp.Function)
+            if getattr(a.func, "__name__", "") == "myfunc"
+        ]
+        assert len(applied) == 1
+
+    def test_device_function_derivative_in_operator_code(self):
+        """Derivative helpers appear in generated operator code."""
+        class MyFuncDevice:
+            targetoptions = {"device": True}
+
+            def __call__(self, *args, **kwargs):
+                return 0
+
+        def myfunc_grad(a, b, index):
+            return 0
+
+        def f(t, y):
+            dx = -myfunc(y.x, y.v)  # noqa: F821
+            return [dx, y.x]
+
+        index_map, _, _, eqs, _ = parse_input(
+            dxdt=f,
+            states={"x": 1.0, "v": 0.0},
+            user_functions={"myfunc": MyFuncDevice()},
+            user_function_derivatives={"myfunc": myfunc_grad},
+        )
+        code = generate_operator_apply_code(
+            equations=eqs, index_map=index_map
+        )
+        assert "myfunc_grad(" in code
+
+    def test_unknown_call_still_raises(self):
+        """Calls that match nothing raise NotImplementedError."""
+        def f(t, y):
+            return [-mystery(y[0])]  # noqa: F821
+
+        with pytest.raises(NotImplementedError, match="mystery"):
+            parse_input(dxdt=f, states={"x": 1.0})
+
+
+class TestDerivativeAliasReference:
+    """Locals named after derivative outputs inline everywhere."""
+
+    def test_observable_referencing_dxdt_alias(self):
+        """An observable can reference a dx-named local."""
+        def f(t, y):
+            dx = -0.5 * y.x
+            flux = dx * 2.0  # noqa: F841
+            return [dx]
+
+        _, _, _, eqs, _ = parse_input(
+            dxdt=f,
+            states={"x": 1.0},
+            observables=["flux"],
+        )
+        assert len(eqs.observables) == 1
+        _, obs_rhs = eqs.observables[0]
+        x = sp.Symbol("x", real=True)
+        assert sp.simplify(obs_rhs - (-1.0 * x)) == 0

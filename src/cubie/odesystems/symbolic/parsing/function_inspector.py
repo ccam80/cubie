@@ -23,11 +23,11 @@ import copy
 import inspect
 import textwrap
 import warnings
-from typing import Any, Callable, Dict, List, Optional, Set, Tuple
+from typing import Any, Callable, Dict, List, Optional, Set
 
 import sympy as sp
 
-from .parser import KNOWN_FUNCTIONS, TIME_SYMBOL
+from .parser import KNOWN_FUNCTIONS
 
 # Map of module-qualified names to their bare equivalents
 _MODULE_PREFIXES = {"math", "np", "numpy", "cmath"}
@@ -642,10 +642,52 @@ class AstToSympyConverter:
     ----------
     symbol_map
         Mapping of variable names to SymPy symbols/expressions.
+    user_callables
+        Mapping of user-defined function names to their Python
+        implementations. Calls to these names take priority over
+        :data:`KNOWN_FUNCTIONS`.
+    user_function_classes
+        Mapping of user-defined function names to SymPy ``Function``
+        placeholders (or subclasses) applied when a call stays
+        symbolic.
+    symbolic_user_names
+        User-function names that must never be inlined (device
+        functions and functions with derivative helpers).
+    deprecated_names
+        Bare names that still resolve to a symbol but emit a
+        ``FutureWarning`` on use (declared drivers referenced by bare
+        name).
+    inline_assignments
+        Local assignment names whose AST expression is converted in
+        place of the bare name (derivative-output names such as
+        ``dx``).
+    strict_names
+        When ``True`` an unknown bare name raises ``ValueError``
+        instead of creating a dangling symbol.
+    name_hints
+        Mapping of known-but-unreachable names to the access spelling
+        the error message should suggest (e.g. ``{"mu": "p.mu"}``).
     """
 
-    def __init__(self, symbol_map: Dict[str, sp.Basic]) -> None:
+    def __init__(
+        self,
+        symbol_map: Dict[str, sp.Basic],
+        user_callables: Optional[Dict[str, Callable]] = None,
+        user_function_classes: Optional[Dict[str, Any]] = None,
+        symbolic_user_names: Optional[Set[str]] = None,
+        deprecated_names: Optional[Dict[str, sp.Basic]] = None,
+        inline_assignments: Optional[Dict[str, ast.expr]] = None,
+        strict_names: bool = False,
+        name_hints: Optional[Dict[str, str]] = None,
+    ) -> None:
         self.symbol_map = symbol_map
+        self.user_callables = user_callables or {}
+        self.user_function_classes = user_function_classes or {}
+        self.symbolic_user_names = symbolic_user_names or set()
+        self.deprecated_names = deprecated_names or {}
+        self.inline_assignments = inline_assignments or {}
+        self.strict_names = strict_names
+        self.name_hints = name_hints or {}
 
     def convert(self, node: ast.expr) -> sp.Expr:
         """Recursively convert an AST node to a SymPy expression.
@@ -719,6 +761,36 @@ class AstToSympyConverter:
         name = node.id
         if name in self.symbol_map:
             return self.symbol_map[name]
+        if name in self.inline_assignments:
+            return self.convert(self.inline_assignments[name])
+        if name in self.deprecated_names:
+            warnings.warn(
+                f"Referencing driver '{name}' by bare name is "
+                f"deprecated; access it through a container argument "
+                f"instead (e.g. 'p.{name}' or a dedicated drivers "
+                f"argument 'd.{name}').",
+                FutureWarning,
+                stacklevel=2,
+            )
+            sym = self.deprecated_names[name]
+            self.symbol_map[name] = sym
+            return sym
+        if self.strict_names:
+            if name in self.name_hints:
+                raise ValueError(
+                    f"Symbol '{name}' is declared but cannot be "
+                    f"referenced by bare name inside an ODE function. "
+                    f"Access it through its container argument: "
+                    f"'{self.name_hints[name]}'."
+                )
+            raise ValueError(
+                f"Unknown symbol '{name}' in ODE function body. Names "
+                f"must resolve to the time argument, a container "
+                f"access on the state or parameter arguments, a local "
+                f"assignment, or a declared observable. Declare "
+                f"'{name}' as a parameter, constant, or driver and "
+                f"access it through a container argument."
+            )
         # Create a real symbol for unknown names
         sym = sp.Symbol(name, real=True)
         self.symbol_map[name] = sym
@@ -767,10 +839,27 @@ class AstToSympyConverter:
                 "Only named function calls are supported"
             )
         name = _resolve_func_name(raw_name)
+        user_name = None
+        if raw_name in self.user_callables:
+            user_name = raw_name
+        elif name in self.user_callables:
+            user_name = name
+        if user_name is not None:
+            args = [self.convert(a) for a in node.args]
+            if user_name not in self.symbolic_user_names:
+                fn = self.user_callables[user_name]
+                try:
+                    val = fn(*args)
+                except Exception:
+                    val = None
+                if isinstance(val, sp.Expr):
+                    return val
+            return self.user_function_classes[user_name](*args)
         if name not in KNOWN_FUNCTIONS:
             raise NotImplementedError(
                 f"Unknown function '{raw_name}'. Supported: "
-                f"{sorted(KNOWN_FUNCTIONS.keys())}"
+                f"{sorted(KNOWN_FUNCTIONS.keys())}, plus any names "
+                f"supplied via the user_functions argument."
             )
         sp_func = KNOWN_FUNCTIONS[name]
         args = [self.convert(a) for a in node.args]
