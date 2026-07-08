@@ -56,92 +56,11 @@ import cubie as qb
 from cubie.odesystems.symbolic.odefile import GENERATED_DIR
 from cubie.time_logger import default_timelogger
 
-shutil.rmtree(GENERATED_DIR, ignore_errors=True)
-os.makedirs(GENERATED_DIR, exist_ok=True)
-
-# CUDA events (kernel / h2d / d2h per chunk) are recorded only when
-# the time logger is armed. Solver construction resets the global
-# verbosity from its time_logging_level argument, so arming happens
-# through that argument below; solve's printed summaries are
-# swallowed by the stdout redirect inside the timed callable.
-default_timelogger.set_verbosity("default")
-
-parser = argparse.ArgumentParser(
-    description="Kernel-runtime A/B gate benchmark (Lorenz ensemble)."
-)
-parser.add_argument("n_runs", nargs="?", type=int, default=None)
-parser.add_argument("repeats", nargs="?", type=int, default=100)
-parser.add_argument(
-    "--ref-fixed",
-    nargs=2,
-    type=float,
-    metavar=("MEAN", "STD"),
-    default=None,
-    help="A-side kernel mean and std (ms) for the fixed config.",
-)
-parser.add_argument(
-    "--ref-adaptive",
-    nargs=2,
-    type=float,
-    metavar=("MEAN", "STD"),
-    default=None,
-    help="A-side kernel mean and std (ms) for the adaptive config.",
-)
-args = parser.parse_args()
-
-if args.n_runs is not None:
-    n_fixed = n_adaptive = args.n_runs
-else:
-    n_fixed = 2**22
-    n_adaptive = 2**24
-repeats = args.repeats
 discarded_solves = 20
 z_threshold = 3.0
-
 precision = np.float32
-
-lorenz_system = qb.create_ODE_system(
-    """
-    dx = sigma * (y - x)
-    dy = x * (rho - z) - y
-    dz = x * y - beta * z
-    """,
-    states={"x": 1.0, "y": 0.0, "z": 0.0},
-    parameters={"rho": 21.0},
-    constants={"sigma": 10.0, "beta": 8.0 / 3.0},
-    name="Lorenz",
-    precision=precision,
-)
-
 initial_conditions = {"x": 1.0, "y": 0.0, "z": 0.0}
 
-fixed_solver = qb.Solver(
-    lorenz_system,
-    algorithm="classical-rk4",
-    dt=0.001,
-    save_every=1.0,
-    step_controller="fixed",
-    output_types=["state"],
-    time_logging_level="default",
-)
-
-adaptive_solver = qb.Solver(
-    lorenz_system,
-    algorithm="tsit5",
-    atol=1e-08,
-    rtol=1e-08,
-    save_every=1.0,
-    dt_min=1e-12,
-    dt_max=1e3,
-    step_controller="pid",
-    kp=6 / 5,
-    kd=0.0,
-    ki=0.0,
-    max_gain=5.0,
-    min_gain=0.1,
-    output_types=["state"],
-    time_logging_level="default",
-)
 
 def collect_kernel_time(solver, kernel_ms):
     """Append one solve's kernel CUDA-event total (ms) to ``kernel_ms``.
@@ -160,7 +79,7 @@ def collect_kernel_time(solver, kernel_ms):
     )
 
 
-def benchmark(label, solver, n_runs, reference):
+def benchmark(label, solver, n_runs, repeats, reference):
     """Run ``repeats`` solves after a warm-up; print kernel runtime.
 
     When ``reference`` holds the A side's (mean, std), a Welch
@@ -214,5 +133,104 @@ def benchmark(label, solver, n_runs, reference):
         print(f"{label}: z = {z:+.2f} vs reference ({verdict})")
 
 
-benchmark("fixed (classical-rk4)", fixed_solver, n_fixed, args.ref_fixed)
-benchmark("adaptive (tsit5)", adaptive_solver, n_adaptive, args.ref_adaptive)
+def main():
+    """Parse arguments, build the solvers, and run both configs."""
+    shutil.rmtree(GENERATED_DIR, ignore_errors=True)
+    os.makedirs(GENERATED_DIR, exist_ok=True)
+
+    # CUDA events (kernel / h2d / d2h per chunk) are recorded only
+    # when the time logger is armed. Solver construction resets the
+    # global verbosity from its time_logging_level argument, so
+    # arming happens through that argument below; solve's printed
+    # summaries are swallowed by the stdout redirect inside the
+    # timed callable.
+    default_timelogger.set_verbosity("default")
+
+    parser = argparse.ArgumentParser(
+        description="Kernel-runtime A/B gate benchmark (Lorenz ensemble)."
+    )
+    parser.add_argument("n_runs", nargs="?", type=int, default=None)
+    parser.add_argument("repeats", nargs="?", type=int, default=100)
+    parser.add_argument(
+        "--ref-fixed",
+        nargs=2,
+        type=float,
+        metavar=("MEAN", "STD"),
+        default=None,
+        help="A-side kernel mean and std (ms) for the fixed config.",
+    )
+    parser.add_argument(
+        "--ref-adaptive",
+        nargs=2,
+        type=float,
+        metavar=("MEAN", "STD"),
+        default=None,
+        help="A-side kernel mean and std (ms) for the adaptive config.",
+    )
+    args = parser.parse_args()
+
+    if args.n_runs is not None:
+        n_fixed = n_adaptive = args.n_runs
+    else:
+        n_fixed = 2**22
+        n_adaptive = 2**24
+
+    lorenz_system = qb.create_ODE_system(
+        """
+        dx = sigma * (y - x)
+        dy = x * (rho - z) - y
+        dz = x * y - beta * z
+        """,
+        states={"x": 1.0, "y": 0.0, "z": 0.0},
+        parameters={"rho": 21.0},
+        constants={"sigma": 10.0, "beta": 8.0 / 3.0},
+        name="Lorenz",
+        precision=precision,
+    )
+
+    fixed_solver = qb.Solver(
+        lorenz_system,
+        algorithm="classical-rk4",
+        dt=0.001,
+        save_every=1.0,
+        step_controller="fixed",
+        output_types=["state"],
+        time_logging_level="default",
+    )
+
+    adaptive_solver = qb.Solver(
+        lorenz_system,
+        algorithm="tsit5",
+        atol=1e-08,
+        rtol=1e-08,
+        save_every=1.0,
+        dt_min=1e-12,
+        dt_max=1e3,
+        step_controller="pid",
+        kp=6 / 5,
+        kd=0.0,
+        ki=0.0,
+        max_gain=5.0,
+        min_gain=0.1,
+        output_types=["state"],
+        time_logging_level="default",
+    )
+
+    benchmark(
+        "fixed (classical-rk4)",
+        fixed_solver,
+        n_fixed,
+        args.repeats,
+        args.ref_fixed,
+    )
+    benchmark(
+        "adaptive (tsit5)",
+        adaptive_solver,
+        n_adaptive,
+        args.repeats,
+        args.ref_adaptive,
+    )
+
+
+if __name__ == "__main__":
+    main()
