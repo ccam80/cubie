@@ -464,6 +464,7 @@ class IVPLoop(CUDAFactory):
 
         # Timing values
         initial_dt = precision(config.dt)
+        typed_zero = precision(0.0)
         save_every = config.save_every
         sample_summaries_every = config.sample_summaries_every
         samples_per_summary = int32(config.samples_per_summary)
@@ -742,8 +743,16 @@ class IVPLoop(CUDAFactory):
                     if save_last:
                         do_save |= at_end
 
-                    # Adjust step size to hit output boundaries exactly
+                    # Adjust step size to hit output boundaries exactly.
+                    # An accepted step can round t_prec onto an event
+                    # time without the event firing (the pre-step
+                    # prediction and the post-step time commit use
+                    # different arithmetic), leaving a zero-length gap
+                    # that no step can cross. When the gap is not
+                    # positive the event is already due: emit outputs
+                    # from the committed state without taking a step.
                     dt_eff = dt_raw
+                    event_due_now = False
                     if do_save or do_update_summary:
                         next_event = t_end
                         if do_save and save_regularly:
@@ -752,78 +761,91 @@ class IVPLoop(CUDAFactory):
                             next_event = precision(
                                 min(next_event, next_update_summary)
                             )
-                        dt_eff = precision(next_event - t_prec)
+                        gap = precision(next_event - t_prec)
+                        event_due_now = bool_(gap <= typed_zero)
+                        dt_eff = selp(event_due_now, typed_zero, gap)
 
                     # ----------------------------------------------------------- #
-                    # Take a step
-                    step_status = int32(
-                        step_function(
-                            state_buffer,
-                            state_proposal_buffer,
-                            parameters_buffer,
-                            driver_coefficients,
-                            drivers_buffer,
-                            drivers_proposal_buffer,
-                            observables_buffer,
-                            observables_proposal_buffer,
-                            error,
-                            dt_eff,
-                            t_prec,
-                            first_step_flag,
-                            prev_step_accepted_flag,
-                            algo_shared,
-                            algo_persistent,
-                            proposed_counters,
-                        )
-                    )
-
-                    first_step_flag = False
-                    niters = proposed_counters[0]
-                    iteration_status = int32(iteration_status | step_status)
-
-                    # A nonzero step status indicates step failure (e.g., solver
-                    # convergence failure). In adaptive mode this should reject the
-                    # step and trigger a timestep reduction; in fixed mode it is
-                    # irrecoverable.
-                    step_failed = bool_(step_status != int32(0))
-                    irrecoverable = bool_(
-                        irrecoverable or (fixed_mode and step_failed)
-                    )
-                    for i in range(n_error):
-                        error[i] = selp(step_failed, precision(1e16), error[i])
-
-                    # Adjust dt based on calculated error if adaptive
-                    if not fixed_mode:
-                        controller_status = step_controller(
-                            dt,
-                            state_proposal_buffer,
-                            state_buffer,
-                            error,
-                            niters,
-                            accept_step,
-                            ctrl_shared,
-                            ctrl_persistent,
+                    # Take a step. An already-due event skips the step:
+                    # the committed state is the boundary state, so the
+                    # iteration only emits outputs and advances the
+                    # event schedule.
+                    accept = True
+                    if not event_due_now:
+                        step_status = int32(
+                            step_function(
+                                state_buffer,
+                                state_proposal_buffer,
+                                parameters_buffer,
+                                driver_coefficients,
+                                drivers_buffer,
+                                drivers_proposal_buffer,
+                                observables_buffer,
+                                observables_proposal_buffer,
+                                error,
+                                dt_eff,
+                                t_prec,
+                                first_step_flag,
+                                prev_step_accepted_flag,
+                                algo_shared,
+                                algo_persistent,
+                                proposed_counters,
+                            )
                         )
 
-                        accept = bool_(accept_step[0] != int32(0))
-                        accept = bool_(accept and (not step_failed))
+                        first_step_flag = False
+                        niters = proposed_counters[0]
                         iteration_status = int32(
-                            iteration_status | controller_status
+                            iteration_status | step_status
                         )
 
-                        # Controller may signal irrecoverable error via status bit
+                        # A nonzero step status indicates step failure
+                        # (e.g., solver convergence failure). In adaptive
+                        # mode this should reject the step and trigger a
+                        # timestep reduction; in fixed mode it is
+                        # irrecoverable.
+                        step_failed = bool_(step_status != int32(0))
                         irrecoverable = bool_(
-                            irrecoverable
-                            or ((controller_status & step_too_small)
-                                != success)
+                            irrecoverable or (fixed_mode and step_failed)
                         )
-                    else:
-                        accept = bool_(not step_failed)
+                        for i in range(n_error):
+                            error[i] = selp(
+                                step_failed, precision(1e16), error[i]
+                            )
+
+                        # Adjust dt based on calculated error if adaptive
+                        if not fixed_mode:
+                            controller_status = step_controller(
+                                dt,
+                                state_proposal_buffer,
+                                state_buffer,
+                                error,
+                                niters,
+                                accept_step,
+                                ctrl_shared,
+                                ctrl_persistent,
+                            )
+
+                            accept = bool_(accept_step[0] != int32(0))
+                            accept = bool_(accept and (not step_failed))
+                            iteration_status = int32(
+                                iteration_status | controller_status
+                            )
+
+                            # Controller may signal irrecoverable error
+                            # via status bit
+                            irrecoverable = bool_(
+                                irrecoverable
+                                or ((controller_status & step_too_small)
+                                    != success)
+                            )
+                        else:
+                            accept = bool_(not step_failed)
 
                     dt_raw = dt[0]
 
                     # Accumulate iteration counters if active
-                    if save_counters_bool:
+                    if save_counters_bool and (not event_due_now):
                         for i in range(n_counters):
                             if i < int32(2):
                                 # Write newton, krylov iterations from buffer
@@ -840,10 +862,13 @@ class IVPLoop(CUDAFactory):
                     # test for stagnation - we might have one small step
                     # which doesn't nudge t if we're right up against a save
                     # boundary, so we call 2 stale t values in a row "stagnant"
-                    if t_proposal == t:
-                        stagnant_counts += int32(1)
-                    else:
-                        stagnant_counts = int32(0)
+                    # An output-only iteration is not a step attempt and
+                    # is excluded from the count.
+                    if not event_due_now:
+                        if t_proposal == t:
+                            stagnant_counts += int32(1)
+                        else:
+                            stagnant_counts = int32(0)
 
                     stagnant = bool_(stagnant_counts >= int32(2))
                     iteration_status = selp(
@@ -869,29 +894,37 @@ class IVPLoop(CUDAFactory):
                     if accept:
                         iteration_status = int32(0)
 
-                    t = selp(accept, t_proposal, t)
+                    # Commit only real accepted steps; an output-only
+                    # iteration has stale proposal buffers and no step
+                    # outcome to record.
+                    commit_step = bool_(accept and (not event_due_now))
+
+                    t = selp(commit_step, t_proposal, t)
                     t_prec = precision(t)
 
                     for i in range(n_states):
                         newv = state_proposal_buffer[i]
                         oldv = state_buffer[i]
-                        state_buffer[i] = selp(accept, newv, oldv)
+                        state_buffer[i] = selp(commit_step, newv, oldv)
 
                     for i in range(n_drivers):
                         new_drv = drivers_proposal_buffer[i]
                         old_drv = drivers_buffer[i]
-                        drivers_buffer[i] = selp(accept, new_drv, old_drv)
+                        drivers_buffer[i] = selp(commit_step, new_drv, old_drv)
 
                     for i in range(n_observables):
                         new_obs = observables_proposal_buffer[i]
                         old_obs = observables_buffer[i]
-                        observables_buffer[i] = selp(accept, new_obs, old_obs)
+                        observables_buffer[i] = selp(
+                            commit_step, new_obs, old_obs
+                        )
 
-                    prev_step_accepted_flag = selp(
-                        accept,
-                        int32(1),
-                        int32(0),
-                    )
+                    if not event_due_now:
+                        prev_step_accepted_flag = selp(
+                            accept,
+                            int32(1),
+                            int32(0),
+                        )
 
                     # Predicated output execution: only perform outputs
                     # if step was accepted (avoids warp divergence)
