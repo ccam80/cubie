@@ -57,7 +57,9 @@ change — the full suite is slow (run it as a pre-commit check only, and only w
   done and verified, commit, push the branch, and open a PR.
 - **Performance gate (every PR):** run `benchmarks/lorenz_mean_runtime.py` A/B — A on `main`,
   B on the PR branch (e.g. via `PYTHONPATH=<tree>/src`) — and include the results table in the
-  PR message. Defaults (2**22 trajectories, 100 repeats, mean runtime) are the gate settings.
+  PR message. Defaults (2**22 trajectories, 100 repeats) are the gate settings. **Compare the
+  kernel means** (CUDA-event, stable to <1% across invocations); wall-clock means carry
+  per-process d2h/host-memory scatter of ±10%+ and are context only.
 
 ## Cross-cutting code rules (details in `src/cubie/AGENTS.md`)
 - Never call a `CUDAFactory.build()` directly — access compiled functions via the cached properties.
