@@ -569,11 +569,10 @@ def solved_summary_only_solver(system, precision):
     """Solver run with a summary-only, fusing output configuration.
 
     No state or observable output is requested, and the requested
-    summary metrics (``mean``, ``max``, ``min``) fully cover the
-    ``extrema`` combined-metric substitution, so this fixture serves as
-    the regression case for both issue #546 (empty summaries legend on
-    summary-only solves) and issue #547 (fused metrics reporting under
-    ``extrema_1``/``extrema_2`` instead of their requested names).
+    summary metrics (``mean``, ``max``, ``min``) trigger the
+    ``extrema`` combined-metric substitution, so the result
+    exercises both the summary-only legend path and requested-name
+    reporting for fused metrics.
     """
     solver = Solver(system, save_every=0.01)
 
@@ -595,12 +594,12 @@ def solved_summary_only_solver(system, precision):
 
 
 class TestSummaryOnlyRegression:
-    """Regression coverage for issues #546 and #547."""
+    """Summary-only legends and fused-metric output naming."""
 
     def test_summary_only_solve_populates_legend(
         self, solved_summary_only_solver
     ):
-        """#546: a summary-only solve still produces a non-empty
+        """A summary-only solve produces a non-empty
         summaries_legend whose row count matches the variable dimension
         of summaries_array."""
         result = SolveResult.from_solver(solved_summary_only_solver)
@@ -615,7 +614,7 @@ class TestSummaryOnlyRegression:
     def test_fused_extrema_reports_requested_names(
         self, solved_summary_only_solver
     ):
-        """#547: the fused max/min metric reports its outputs under the
+        """The fused max/min metric reports its outputs under the
         requested names, not extrema_1/extrema_2, with max >= min
         elementwise."""
         per_summary = SolveResult.from_solver(

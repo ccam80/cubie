@@ -202,6 +202,16 @@ class SummaryMetric(CUDAFactory):
         self.output_size = output_size
         self.name = name
         self.unit_modification = unit_modification
+        if (
+            output_names is not None
+            and not callable(output_size)
+            and len(output_names) != output_size
+        ):
+            raise ValueError(
+                f"Metric '{name}': output_names has "
+                f"{len(output_names)} entries but output_size is "
+                f"{output_size}."
+            )
         self.output_names = output_names
 
         # Instantiate empty settings object for CUDAFactory compatibility
