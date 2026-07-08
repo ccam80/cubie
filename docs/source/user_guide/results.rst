@@ -127,6 +127,13 @@ Built-in Summary Metrics
    * - ``"mean_std_rms"``
      - Mean, standard deviation, and RMS combined.
 
+Requesting a full set of constituent metrics that share running sums
+(for example ``["max", "min"]`` or ``["mean", "std", "rms"]``) is
+automatically computed using the matching combined metric internally,
+but each result is still reported under its requested name (``"max"``,
+``"min"``, and so on) — the fusion is a transparent performance
+optimisation, not a change to the reported legend.
+
 Selecting Variables to Save
 ---------------------------
 

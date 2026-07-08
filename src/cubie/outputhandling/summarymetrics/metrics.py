@@ -137,6 +137,11 @@ class SummaryMetric(CUDAFactory):
         str. Identifier used in registries and configuration strings.
     unit_modification
         str. Format string for unit modification in legends.
+    output_names
+        Optional[list[str]]. Declared column headings for each output
+        element, in output order. ``None`` falls back to the registry's
+        default naming (the metric name for a single output, or
+        ``{name}_{i+1}`` for each element of a multi-output metric).
     update_device_func
         Callable. Compiled CUDA device update function for the metric.
     save_device_func
@@ -163,6 +168,7 @@ class SummaryMetric(CUDAFactory):
         precision: PrecisionDType,
         unit_modification: str = "[unit]",
         sample_summaries_every: float = 0.01,
+        output_names: Optional[list] = None,
     ) -> None:
         """Initialise core metadata for a summary metric.
 
@@ -185,6 +191,10 @@ class SummaryMetric(CUDAFactory):
         precision
             PrecisionDType. Numerical precision for metric calculations.
             Defaults to np.float32.
+        output_names
+            Optional[list[str]]. Column headings for each output element,
+            in output order. ``None`` (the default) falls back to the
+            registry's default naming.
         """
 
         super().__init__()
@@ -192,6 +202,7 @@ class SummaryMetric(CUDAFactory):
         self.output_size = output_size
         self.name = name
         self.unit_modification = unit_modification
+        self.output_names = output_names
 
         # Instantiate empty settings object for CUDAFactory compatibility
         self.setup_compile_settings(
@@ -268,6 +279,9 @@ class SummaryMetrics:
         dict[str, int | Callable]. Buffer size requirements keyed by name.
     _output_sizes
         dict[str, int | Callable]. Output size requirements keyed by name.
+    _output_names
+        dict[str, Optional[list[str]]]. Declared output column headings
+        keyed by name, or ``None`` when a metric uses default naming.
     _metric_objects
         dict[str, SummaryMetric]. Registered metric instances.
     _params
@@ -291,6 +305,11 @@ class SummaryMetrics:
         init=False,
     )
     _output_sizes: dict[str, Union[int, Callable]] = field(
+        validator=instance_of(dict),
+        factory=dict,
+        init=False,
+    )
+    _output_names: dict[str, Optional[list]] = field(
         validator=instance_of(dict),
         factory=dict,
         init=False,
@@ -375,6 +394,7 @@ class SummaryMetrics:
         self._names.append(metric.name)
         self._buffer_sizes[metric.name] = metric.buffer_size
         self._output_sizes[metric.name] = metric.output_size
+        self._output_names[metric.name] = metric.output_names
         self._metric_objects[metric.name] = metric
         self._params[metric.name] = 0
 
@@ -657,7 +677,9 @@ class SummaryMetrics:
 
         Notes
         -----
-        Metrics with multi-element outputs produce numbered headings such as
+        Metrics that declare ``output_names`` use those headings directly.
+        Otherwise, a single-element output uses the metric name, and a
+        multi-element output produces numbered headings such as
         ``{name}_1`` and ``{name}_2``.
         """
         parsed_request = self.preprocess_request(output_types_requested)
@@ -665,8 +687,11 @@ class SummaryMetrics:
 
         for metric in parsed_request:
             output_size = self._get_size(metric, self._output_sizes)
+            declared_names = self._output_names.get(metric)
 
-            if output_size == 1:
+            if declared_names is not None:
+                headings.extend(declared_names)
+            elif output_size == 1:
                 headings.append(metric)
             else:
                 for i in range(output_size):
