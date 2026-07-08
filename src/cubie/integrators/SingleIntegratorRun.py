@@ -162,18 +162,24 @@ class SingleIntegratorRun(SingleIntegratorRunCore):
         return self._loop.compile_settings.save_last
 
     def _regular_event_count(self, duration: float, interval: float) -> int:
-        """Count the scheduled output events of one kind in a duration.
+        """Count how many scheduled events fit inside a duration.
 
-        The float64 quotient of the precision-cast operands carries
-        the representation rounding of ``duration`` and
-        ``interval``, so a bare floor loses the end-time event
-        whenever an integer schedule rounds just below the integer.
-        A tolerance of a few working-precision ulps of the quotient
-        (capped below one half) restores those events without
-        admitting genuinely fractional schedules. The device stop
-        times are derived from this same count
-        (:meth:`save_stop_time` / :meth:`summary_stop_time`), so
-        device events and host rows agree by construction.
+        Casting ``duration`` and ``interval`` to the working
+        precision rounds each of them slightly, so the division can
+        land just below a whole number when the user asked for a
+        whole number of events: float32 turns 10.0 / 0.001 into
+        9999.9993, which would floor to 9999 and lose the event at
+        the end time. A small allowance is added before flooring so
+        a result this close to a whole number counts as that whole
+        number.
+
+        The allowance covers only the one-off rounding of the two
+        cast values. Drift that builds up on the device as it
+        repeatedly adds ``interval`` is handled separately, by the
+        half-interval margin in the stop times. The allocation and
+        the stop times both come from this count, so the host and
+        the device always agree with each other; see
+        :meth:`save_stop_time` and :meth:`summary_stop_time`.
 
         Parameters
         ----------
@@ -188,13 +194,23 @@ class SingleIntegratorRun(SingleIntegratorRunCore):
             Number of scheduled events, excluding the initial sample.
         """
         precision = self.precision
-        quotient = np_float64(precision(duration)) / np_float64(
+        total_events = np_float64(precision(duration)) / np_float64(
             precision(interval)
         )
-        tolerance = min(
-            4.0 * float(np_finfo(precision).eps) * quotient, 0.49
+        # Each cast moves its value by at most half a relative eps,
+        # so the ratio is off by at most about one eps of itself;
+        # allow four of them for headroom. The cap keeps the
+        # allowance below one half so a deliberately fractional
+        # duration (say 10.6 intervals) never gains an event. The
+        # cap engages beyond ~1e6 events in float32 (5e14 in
+        # float64), where the input rounding alone is worth a whole
+        # event and the count can be off by one in either
+        # direction; host and device still share whatever count
+        # this returns.
+        allowance = min(
+            4.0 * float(np_finfo(precision).eps) * total_events, 0.49
         )
-        return int(np_floor(quotient + tolerance))
+        return int(np_floor(total_events + allowance))
 
     def output_length(self, duration: float) -> int:
         """Calculate number of time-domain output samples for a duration.
@@ -223,13 +239,14 @@ class SingleIntegratorRun(SingleIntegratorRunCore):
     def save_stop_time(
         self, duration: float, settling_time: float, t0: float
     ) -> float:
-        """Return the completion time of the regular save schedule.
+        """Return the time when the regular save schedule is done.
 
-        The stop sits half an interval past the final scheduled
-        save event, so accumulation drift in either direction can
-        neither strand the final host-allocated row nor admit an
-        event past the requested duration. Without a regular save
-        schedule the stop is the end time.
+        The device stops saving once its accumulated schedule
+        passes this time. The stop sits half an interval past the
+        last counted save, so a device schedule running slightly
+        late still reaches its last save, and one running slightly
+        early cannot squeeze in an extra one. Without a regular
+        save schedule the stop is the end time.
 
         Parameters
         ----------
@@ -255,11 +272,13 @@ class SingleIntegratorRun(SingleIntegratorRunCore):
     def summary_stop_time(
         self, duration: float, settling_time: float, t0: float
     ) -> float:
-        """Return the completion time of the summary-update schedule.
+        """Return the time when the summary-update schedule is done.
 
-        The stop sits half a sample interval past the final
-        scheduled summary-update event. Without a summary schedule
-        the stop is the end time.
+        The device stops taking summary measurements once its
+        accumulated schedule passes this time. The stop sits half a
+        sampling interval past the last counted measurement, for
+        the same reasons as :meth:`save_stop_time`. Without a
+        summary schedule the stop is the end time.
 
         Parameters
         ----------
@@ -278,20 +297,21 @@ class SingleIntegratorRun(SingleIntegratorRunCore):
         start = np_float64(settling_time) + np_float64(t0)
         sample_every = self.sample_summaries_every
         if sample_every is None:
-            sample_every = self.summarise_every
-        if sample_every is None:
             return float(start + np_float64(self.precision(duration)))
         events = self._regular_event_count(duration, sample_every)
         return float(start + (events + 0.5) * np_float64(sample_every))
 
     def summaries_length(self, duration: float) -> int:
-        """Calculate number of summary output samples for a duration.
+        """Calculate number of summary output rows for a duration.
 
-        The device flushes one summary row per
-        ``samples_per_summary`` update events. Update events follow
-        the same representation-tolerant floor count as saves, and
-        the row count is the number of completed windows in that
-        update total.
+        The device writes one summary row after every
+        ``samples_per_summary`` summary measurements. The number of
+        measurements in a run follows the same counting rule as
+        saves (:meth:`_regular_event_count`), and only a complete
+        window produces a row, so the row count is the measurement
+        count divided by the measurements per window, rounded down.
+        The measurements-per-window value is read from the loop
+        configuration, the same place the device code gets it.
 
         Parameters
         ----------
@@ -301,23 +321,16 @@ class SingleIntegratorRun(SingleIntegratorRunCore):
         Returns
         -------
         int
-            Number of summary intervals.
+            Number of summary rows.
         """
         summarise_every = self.summarise_every
-        sample_every = self.sample_summaries_every
-        precision = self.precision
 
         regular_summaries = 0
         if summarise_every is not None:
-            if sample_every is None:
-                sample_every = summarise_every
+            sample_every = self.sample_summaries_every
             updates = self._regular_event_count(duration, sample_every)
-            samples_per_summary = int(
-                np_floor(
-                    np_float64(precision(summarise_every))
-                    / np_float64(precision(sample_every))
-                    + 0.5
-                )
+            samples_per_summary = (
+                self._loop.compile_settings.samples_per_summary
             )
             regular_summaries = updates // max(samples_per_summary, 1)
         return regular_summaries

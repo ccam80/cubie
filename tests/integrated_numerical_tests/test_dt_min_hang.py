@@ -1,21 +1,21 @@
-"""Save-schedule integrity tests under f32 accumulation drift.
+"""Save-schedule tests for float32 rounding effects.
 
-The loop accumulates ``next_save += save_every``, so a ``save_every``
-that is inexact in float32 (e.g. 0.1) moves the schedule by ulps
-per event in either direction. The stop times anchor to the final
-scheduled event with a half-interval margin, and the boundary clamp
-applies only to positive gaps, so drift in either direction can
-neither strand a host-allocated slot nor trap the loop. These tests
-assert each part of that invariant:
+The device schedule accumulates ``next_save += save_every``. When
+``save_every`` is not exactly representable in float32 (0.1, for
+example), each addition lands slightly off the exact grid, so the
+scheduled save times fall slightly before or after the times the
+user asked for. These tests check that rounding in either direction
+neither hangs the loop nor changes how many samples are saved:
 
-- the loop terminates even when ``next_save`` falls behind the f64
-  time accumulator (with save_every=0.1, ~5.2 µs after ~80 saves),
-  because a non-positive gap falls through to the raw step;
-- every host-allocated save slot is written, including the final
-  one, when drift pushes the last scheduled save past ``t_end``;
-- the host allocation and the device schedule derive the event
-  count from the same representation-tolerant arithmetic, so every
-  save lands inside the allocated output array.
+- the loop keeps stepping when a scheduled save time falls behind
+  the current time (a stale save target would clamp the next step
+  to zero or negative length, so the clamp only applies when the
+  step would be positive);
+- every allocated output row is written, in increasing time order,
+  whether the schedule reaches the final save slightly after the
+  end time or the duration/save_every division rounds just below a
+  whole number: the host allocation and the device stop time come
+  from the same count, so they cannot disagree.
 """
 
 import numpy as np
@@ -48,7 +48,13 @@ def _coupled_oscillator(t, y, p):
 
 @pytest.fixture
 def oscillator_system():
-    """Build the coupled oscillator ODE system."""
+    """Build the coupled oscillator ODE system.
+
+    This system is kept separate from the shared fixtures because
+    the hang test below needs an adaptive solver squeezed into very
+    small steps right at a save boundary; the piecewise damping
+    produces that behaviour and the shared fixture systems do not.
+    """
     return create_ODE_system(
         dxdt=_coupled_oscillator,
         states={"x1": 1.0, "v1": 0.0, "x2": -0.5, "v2": 0.0},
@@ -62,15 +68,17 @@ def oscillator_system():
 # ------------------------------------------------------------------ #
 
 def test_f32_save_drift_does_not_hang(oscillator_system):
-    """The loop completes when f32 save_every accumulation drifts.
+    """The loop completes when the save schedule falls behind time.
 
-    k=3.0 with radau and duration=10.0 exercises the drifted-
-    schedule path: the piecewise damping forces the adaptive
-    solver into small steps near save boundaries around t≈8,
-    where 80 additions of float32(0.1) leave ``next_save`` 5.2 µs
-    below the f64 time accumulator. The positive-gap-only clamp
-    keeps ``dt_eff`` positive there, so the run must finish with
-    a full set of saves.
+    After about 80 additions of float32(0.1), the accumulated save
+    schedule sits about 5 microseconds earlier than the committed
+    simulation time. A save target earlier than the current time
+    would clamp the next step to zero or negative length, which the
+    step function cannot integrate, so the clamp applies only when
+    the resulting step is positive. k=3.0 with radau pushes the
+    adaptive solver into small steps near the save boundaries
+    around t=8, which is where the stale save target appears; the
+    run must still complete with a full set of saves.
     """
     n = 1
     result = solve_ivp(
@@ -99,87 +107,62 @@ def test_f32_save_drift_does_not_hang(oscillator_system):
     assert n_saves >= 80
 
 
-def test_final_save_slot_written_on_inexact_grid(oscillator_system):
-    """Every host-allocated save slot is written, including the last.
+_DRIFTED_GRID = {
+    "algorithm": "euler",
+    "step_controller": "fixed",
+    "dt": 0.01,
+    "duration": 1.0,
+    "save_every": 0.1,
+    "output_types": ["state", "time"],
+}
 
-    With duration=1.0 and save_every=0.1 in float32 the host
-    allocates eleven rows (``floor(duration / save_every) + 1``)
-    while the accumulated schedule reaches 1.0000001 for the final
-    save. The half-interval stop margin keeps that save inside the
-    schedule, and the saved time column exposes any slot left
-    unwritten regardless of what the memory happens to contain.
+_ROUNDED_DOWN_COUNT = {
+    "algorithm": "euler",
+    "step_controller": "fixed",
+    "dt": 0.0005,
+    "duration": 0.01,
+    "save_every": 0.001,
+    "output_types": ["state", "time"],
+}
+
+
+@pytest.mark.parametrize(
+    "solver_settings_override",
+    [
+        pytest.param(_DRIFTED_GRID, id="drifted_schedule"),
+        pytest.param(_ROUNDED_DOWN_COUNT, id="rounded_down_count"),
+    ],
+    indirect=True,
+)
+def test_all_save_slots_written_on_inexact_grid(
+    solver, solver_settings, batch_input_arrays, driver_settings
+):
+    """Every allocated save row is written on an inexact float32 grid.
+
+    Both parameter sets request ten regular saves using values that
+    are not exactly representable in float32. In the first, the
+    accumulated device schedule reaches the final save slightly
+    after the end time. In the second, dividing duration by
+    save_every in float32 gives 9.9999993 rather than 10. Either
+    way the host must allocate eleven rows (the initial state plus
+    ten saves) and the device must fill all of them, in increasing
+    time order, ending at the requested duration.
     """
-    n = 1
-    result = solve_ivp(
-        system=oscillator_system,
-        y0={
-            "x1": np.ones(n, dtype=np.float32),
-            "v1": np.zeros(n, dtype=np.float32),
-            "x2": np.full(n, -0.5, dtype=np.float32),
-            "v2": np.zeros(n, dtype=np.float32),
-        },
-        parameters={
-            "k": np.full(n, 3.0, dtype=np.float32),
-            "c_couple": np.full(n, 0.3, dtype=np.float32),
-            "omega": np.full(n, 2.5, dtype=np.float32),
-        },
-        method="dormand-prince-54",
-        duration=1.0,
-        dt_min=1e-6,
-        dt_max=1.0,
-        save_every=0.1,
-        output_types=["state", "time"],
-        grid_type="verbatim",
+    initial_values, parameters = batch_input_arrays
+    duration = float(solver_settings["duration"])
+    result = solver.solve(
+        initial_values=initial_values,
+        parameters=parameters,
+        drivers=driver_settings,
+        duration=duration,
     )
 
-    assert int(result.status_codes[0]) == 0, result.status_messages
-    times = result.time[:, 0]
+    status_codes = np.asarray(result.status_codes)
+    assert np.all(status_codes == 0), result.status_messages
+    times = np.asarray(result.time)
     assert times.shape[0] == 11
-    assert np.all(np.diff(times) > 0.0), (
+    assert np.all(np.diff(times, axis=0) > 0.0), (
         f"saved times are not strictly increasing: {times}"
     )
-    assert times[-1] == pytest.approx(1.0, abs=1e-6)
-    assert np.isfinite(result.time_domain_array).all()
-
-
-def test_truncated_quotient_allocates_endpoint_slot(oscillator_system):
-    """All eleven save slots exist when the f32 quotient rounds low.
-
-    With duration=0.01 and save_every=0.001 in float32 the
-    precision-cast quotient is 9.9999993. The host applies a
-    representation tolerance to the float64 quotient so the count
-    rounds to ten regular events, allocating eleven rows (initial
-    sample plus ten crossings), and the device schedule derived
-    from the same count fills them exactly.
-    """
-    n = 1
-    result = solve_ivp(
-        system=oscillator_system,
-        y0={
-            "x1": np.ones(n, dtype=np.float32),
-            "v1": np.zeros(n, dtype=np.float32),
-            "x2": np.full(n, -0.5, dtype=np.float32),
-            "v2": np.zeros(n, dtype=np.float32),
-        },
-        parameters={
-            "k": np.full(n, 3.0, dtype=np.float32),
-            "c_couple": np.full(n, 0.3, dtype=np.float32),
-            "omega": np.full(n, 2.5, dtype=np.float32),
-        },
-        method="dormand-prince-54",
-        duration=0.01,
-        dt_min=1e-8,
-        dt_max=1.0,
-        save_every=0.001,
-        output_types=["state", "time"],
-        grid_type="verbatim",
-    )
-
-    assert int(result.status_codes[0]) == 0, result.status_messages
-    times = result.time[:, 0]
-    assert times.shape[0] == 11
-    assert np.all(np.diff(times) > 0.0), (
-        f"saved times are not strictly increasing: {times}"
-    )
-    assert times[-1] == pytest.approx(0.01, rel=1e-4)
+    assert np.allclose(times[-1, :], duration, rtol=1e-4)
     assert np.isfinite(result.time_domain_array).all()

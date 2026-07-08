@@ -712,11 +712,11 @@ class IVPLoop(CUDAFactory):
                 end_of_step = t_prec + dt_raw
                 if save_regularly or summarise_regularly:
                     # Loop continues until all scheduled outputs are
-                    # complete: each stop time sits half an interval
-                    # past that schedule's final event, so drift in
-                    # either direction can neither strand the final
-                    # host-allocated slot nor admit an event past
-                    # the requested duration.
+                    # complete. Each stop time sits half an interval
+                    # past that schedule's last event, so a schedule
+                    # running slightly late still fires its last
+                    # event, and one running slightly early cannot
+                    # fire an extra one.
                     finished = True
                     if save_regularly:
                         save_finished = bool_(next_save > save_stop)
