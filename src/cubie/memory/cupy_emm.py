@@ -131,7 +131,7 @@ class current_cupy_stream:
         exc_type: Optional[type[BaseException]],
         exc: Optional[BaseException],
         tb: Optional[TracebackType],
-    ) -> None:
+    ) -> Optional[bool]:
         """Exit the context and clean up the CuPy external stream.
 
         Parameters
@@ -142,7 +142,15 @@ class current_cupy_stream:
             Exception instance if an exception occurred.
         tb
             Traceback object if an exception occurred.
+
+        Returns
+        -------
+        Optional[bool]
+            The inner stream's suppression decision, or ``None``
+            when no external stream is active.
         """
         if self.cupy_ext_stream is not None:
-            self.cupy_ext_stream.__exit__(exc_type, exc, tb)
+            result = self.cupy_ext_stream.__exit__(exc_type, exc, tb)
             self.cupy_ext_stream = None
+            return result
+        return None
