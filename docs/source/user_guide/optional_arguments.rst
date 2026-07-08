@@ -125,7 +125,7 @@ Newton step.
     better preconditioning (faster convergence) but cost more per iteration.
     For most problems, order 1-3 works well.
 
-    - Default: ``1``
+    - Default: ``2``
     - Type: ``int`` (1 to 32)
 
 Implicit Algorithm Applicability
@@ -215,10 +215,13 @@ tableaus, and you can also define custom ones.
     cost. Tableaus with embedded error estimates enable adaptive stepping;
     tableaus without them require fixed stepping.
 
-    - ERK defaults: ``DOPRI54`` (Dormand-Prince 5(4), adaptive)
-    - DIRK defaults: ``ESDIRK32`` (3rd order, adaptive)
-    - FIRK defaults: ``RadauIIA`` (5th order, stiff problems)
-    - Rosenbrock-W defaults: ``ROS34PW2`` (4th order, stiff problems)
+    - ERK defaults: ``dormand-prince-54`` (Dormand-Prince 5(4), adaptive)
+    - DIRK defaults: ``lobatto_iiic_3`` (Lobatto IIIC, 3-stage, order 4,
+      adaptive)
+    - FIRK defaults: ``firk_gauss_legendre_2`` (Gauss-Legendre, 2-stage,
+      order 4, adaptive)
+    - Rosenbrock-W defaults: ``ros3p`` (ROS3P, 3-stage, order 3, stiff
+      problems)
 
 Controller Options
 ------------------
@@ -319,7 +322,7 @@ error estimates to calculate step size adjustments.
     estimate affects the step size. Higher values react more aggressively to
     the current error.
 
-    - Default: ``1/18``
+    - Default: ``0.7``
     - Type: ``float``
 
 **ki**
@@ -327,8 +330,17 @@ error estimates to calculate step size adjustments.
     history affects the step size. Higher values provide more smoothing but
     slower response.
 
-    - Default: ``1/9``
+    - Default: ``-0.4``
     - Type: ``float``
+
+    Individual algorithms may pass their own tuned ``kp``/``ki`` as
+    controller defaults (e.g. Rosenbrock-W and FIRK default to
+    ``kp=0.6``); see the "Defaults" section of each algorithm's page in
+    the API reference. The 1/18, 1/9 pairing quoted in some external
+    references is a *recommended tuning* (the H312PID row in
+    :doc:`the step-control API page
+    </API_reference/integrators/step_control>`), not the library
+    default.
 
 PID Controller Parameters
 ~~~~~~~~~~~~~~~~~~~~~~~~~
@@ -339,13 +351,13 @@ response to rapidly changing errors.
 **kp**
     Proportional gain coefficient (same as PI controller).
 
-    - Default: ``1/18``
+    - Default: ``0.7``
     - Type: ``float``
 
 **ki**
     Integral gain coefficient (same as PI controller).
 
-    - Default: ``1/9``
+    - Default: ``-0.4``
     - Type: ``float``
 
 **kd**

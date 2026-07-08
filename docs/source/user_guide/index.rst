@@ -11,6 +11,7 @@ value problems. The source code is available on `Github
 
    systems
    solving
+   configuration
    batching
    results
    drivers
