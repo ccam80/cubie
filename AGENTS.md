@@ -53,6 +53,8 @@ change — the full suite is slow (run it as a pre-commit check only, and only w
 - **Conventional Commit format**; description in **present-state changelog language** (describe the
   resulting state, e.g. "nested AGENTS.md files created…"). Types: `fix`, `feat` (rare), `test`,
   `docs`, `chore`.
+- **Agents:** every fix or feature is developed on its own branch off `main`. When the work is
+  done and verified, commit, push the branch, and open a PR.
 
 ## Cross-cutting code rules (details in `src/cubie/AGENTS.md`)
 - Never call a `CUDAFactory.build()` directly — access compiled functions via the cached properties.
