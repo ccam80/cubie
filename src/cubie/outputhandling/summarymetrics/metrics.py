@@ -40,7 +40,6 @@ from warnings import warn
 from abc import abstractmethod
 from attrs import define, field
 from attrs.validators import instance_of, optional as val_optional
-from numpy import floating
 
 from cubie._utils import (
     gttype_validator,
