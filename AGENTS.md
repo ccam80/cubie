@@ -57,9 +57,10 @@ change — the full suite is slow (run it as a pre-commit check only, and only w
   done and verified, commit, push the branch, and open a PR.
 - **Performance gate (every PR):** run `benchmarks/lorenz_mean_runtime.py` A/B — A on `main`,
   B on the PR branch (e.g. via `PYTHONPATH=<tree>/src`) — and include the results table in the
-  PR message. Defaults (2**22 trajectories, 100 repeats) are the gate settings. The script
-  outputs kernel runtime only (CUDA-event, stable to <1% across invocations); a mean shift
-  outside the standard deviations indicates a regression.
+  PR message. Script defaults are the gate settings. The script outputs kernel runtime only
+  (CUDA-event); one invocation per side suffices — means repeat to ~0.1% — but an invocation
+  where a config's std exceeds ~5% of its mean was contaminated by outside interference:
+  discard it and rerun. A mean shift outside the standard deviations indicates a regression.
 
 ## Cross-cutting code rules (details in `src/cubie/AGENTS.md`)
 - Never call a `CUDAFactory.build()` directly — access compiled functions via the cached properties.
