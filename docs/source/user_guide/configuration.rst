@@ -14,8 +14,8 @@ Entry-point signatures
 ``solve_ivp()``
 ~~~~~~~~~~~~~~~
 
-:func:`~cubie.solve_ivp` (``src/cubie/batchsolving/solver.py:116-131``)
-builds a :class:`~cubie.Solver` and runs a single batch solve.
+:func:`~cubie.solve_ivp` builds a :class:`~cubie.Solver` and runs a
+single batch solve.
 
 .. list-table::
    :header-rows: 1
@@ -63,8 +63,6 @@ Any other keyword argument is forwarded to :class:`~cubie.Solver`.
 ``Solver.__init__()``
 ~~~~~~~~~~~~~~~~~~~~~
 
-(``src/cubie/batchsolving/solver.py:278-291``)
-
 .. list-table::
    :header-rows: 1
    :widths: 20 15 65
@@ -94,8 +92,6 @@ loose keyword arguments (see "Kwarg routing" below).
 
 ``Solver.solve()``
 ~~~~~~~~~~~~~~~~~~
-
-(``src/cubie/batchsolving/solver.py:422-436``)
 
 .. list-table::
    :header-rows: 1
@@ -140,71 +136,76 @@ routing through the same six settings groups described next.
 Kwarg routing
 -------------
 
-Beyond the explicit parameters above, ``Solver`` accepts loose keyword
-arguments that are merged into six settings groups by
-``merge_kwargs_into_settings`` (``src/cubie/batchsolving/solver.py:325-399``):
+Beyond the explicit parameters above, ``Solver`` accepts loose
+keyword arguments and sorts them into settings groups. Any parameter
+below may be passed directly to :func:`~cubie.solve_ivp`,
+:class:`~cubie.Solver`, or :meth:`~cubie.Solver.update`:
 
 .. list-table::
    :header-rows: 1
-   :widths: 25 20 55
+   :widths: 18 52 30
 
    * - Group
-     - Recognised-key set
+     - Parameters
      - Deep-dive page
    * - Step control
-     - ``ALL_STEP_CONTROLLER_PARAMETERS``
+     - ``step_controller``, ``dt``, ``dt_min``, ``dt_max``,
+       ``atol``, ``rtol``, ``safety``, ``min_gain``, ``max_gain``,
+       ``kp``, ``ki``, ``kd``, ``deadband_min``, ``deadband_max``,
+       ``gamma``
      - :doc:`optional_arguments`
    * - Algorithm
-     - ``ALL_ALGORITHM_STEP_PARAMETERS``
+     - ``newton_atol``, ``newton_rtol``, ``newton_max_iters``,
+       ``newton_damping``, ``newton_max_backtracks``,
+       ``krylov_atol``, ``krylov_rtol``, ``krylov_max_iters``,
+       ``linear_correction_type``, ``preconditioner_type``,
+       ``preconditioner_order``
      - :doc:`optional_arguments`, :doc:`choosing_algorithms`
    * - Output
-     - ``ALL_OUTPUT_FUNCTION_PARAMETERS``
+     - ``output_types``, ``saved_state_indices``,
+       ``saved_observable_indices``, ``summarised_state_indices``,
+       ``summarised_observable_indices``
      - :doc:`results`
+   * - Timing / loop
+     - ``save_every``, ``summarise_every``,
+       ``sample_summaries_every``, ``save_last``, plus the
+       per-buffer ``*_location`` placement overrides
+     - :doc:`timing`, :doc:`speed`
    * - Memory
-     - ``ALL_MEMORY_MANAGER_PARAMETERS``
+     - ``mem_proportion``, ``stream_group``
      - :doc:`memory`
-   * - Loop
-     - ``ALL_LOOP_SETTINGS``
-     - :doc:`timing`
    * - Cache
-     - ``ALL_CACHE_PARAMETERS``
+     - ``cache`` (``True``/``False``, a cache-mode string, or a
+       ``Path``)
      - :doc:`caching`
    * - Kernel
-     - ``ALL_KERNEL_PARAMETERS``
+     - ``max_registers``
      - :doc:`speed`
 
-A kwarg matching none of the six sets raises ``KeyError`` at
-``Solver.__init__`` (``solver.py:395-399``). Legacy timing spellings
-(``dt_save``, ``dt_summarise``, ``dt_update_summaries``) also raise
-``KeyError`` with a rename hint rather than being silently accepted.
+A keyword argument that matches no group raises ``KeyError`` at
+construction rather than being silently ignored, and the legacy
+timing spellings (``dt_save``, ``dt_summarise``,
+``dt_update_summaries``) raise ``KeyError`` with a rename hint.
 
-Previously undocumented kwargs
--------------------------------
-
-**blocksize**
-    CUDA threads per block for the kernel launch, passed to
-    :meth:`Solver.solve`. Default ``256``.
-
-**max_registers**
-    Per-thread register cap forwarded to ``cuda.jit`` via
-    ``BatchSolverConfig`` (``src/cubie/batchsolving/BatchSolverConfig.py``,
-    part of ``ALL_KERNEL_PARAMETERS``). Default ``None``, which leaves
-    register allocation to ``ptxas``; capping trades spill traffic for
-    more resident warps. See :doc:`speed`.
+Notes on selected parameters
+----------------------------
 
 **step_controller**
     Selects the step-size controller by name: ``"fixed"``, ``"i"``,
-    ``"pi"``, ``"pid"``, or ``"gustafsson"``
-    (``src/cubie/integrators/step_control/base_step_controller.py:94-97``).
-    When omitted, the chosen algorithm's own default controller is used
-    (fixed for errorless tableaus, otherwise an algorithm-tuned PID — see
-    :doc:`choosing_algorithms` and the per-algorithm "Defaults" sections
-    in the API reference).
+    ``"pi"``, ``"pid"``, or ``"gustafsson"``. When omitted, the
+    chosen algorithm's own default controller is used — fixed for
+    schemes without an embedded error estimate, otherwise an
+    algorithm-tuned PID. See :doc:`choosing_algorithms` and the
+    algorithm defaults table in the API reference.
+
+**max_registers**
+    Per-thread register cap forwarded to ``cuda.jit``. Default
+    ``None`` leaves register allocation to ``ptxas``; capping trades
+    spill traffic for more resident warps. See :doc:`speed`.
 
 **mem_proportion**
-    Proportion of VRAM (0.0-1.0) reserved for this solver's allocations
-    (``src/cubie/memory/mem_manager.py:383,395-397``, part of
-    ``ALL_MEMORY_MANAGER_PARAMETERS``). Default ``None``, which places
-    the solver in the automatic pool and sizes its allocation from an
-    equal share of the VRAM remaining after manually-proportioned
-    instances are accounted for. See :doc:`memory`.
+    Proportion of VRAM (0.0–1.0) reserved for this solver's
+    allocations. Default ``None`` places the solver in the automatic
+    pool, which shares the VRAM remaining after manually-proportioned
+    solvers are accounted for equally between its members. See
+    :doc:`memory`.
