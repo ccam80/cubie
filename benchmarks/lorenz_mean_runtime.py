@@ -5,7 +5,10 @@ Solves the same Lorenz ensemble as the GPUODEBenchmarks cubie runner
 (``GPU_ODE_CUBIE/bench_cubie.py``) with the same solver settings and
 drive pattern: one warm-up solve to absorb JIT compilation, then
 ``timeit.repeat`` with garbage collection enabled and one solve per
-repeat. The output is the **kernel runtime only** — the per-chunk
+repeat. The first 20 post-warm-up solves are discarded — the GPU has
+not reached steady state and they run slow, inflating the standard
+deviation — and statistics cover the following ``repeats`` solves.
+The output is the **kernel runtime only** — the per-chunk
 ``kernel_chunk_i`` CUDA events recorded on the GPU timeline by
 ``BatchSolverKernel`` — as mean, sample standard deviation, and
 minimum over the repeats. Wall-clock and transfer times are not
@@ -52,6 +55,7 @@ default_timelogger.set_verbosity("default")
 
 n_runs = int(sys.argv[1]) if len(sys.argv) > 1 else 2**22
 repeats = int(sys.argv[2]) if len(sys.argv) > 2 else 100
+discarded_solves = 20
 
 precision = np.float32
 
@@ -139,8 +143,13 @@ def benchmark(label, solver):
 
     run()  # warm-up (JIT compilation)
     kernel_ms.clear()
-    timeit.repeat(run, setup="gc.enable()", repeat=repeats, number=1)
-    kernel_arr = np.asarray(kernel_ms)
+    timeit.repeat(
+        run,
+        setup="gc.enable()",
+        repeat=discarded_solves + repeats,
+        number=1,
+    )
+    kernel_arr = np.asarray(kernel_ms[discarded_solves:])
     print(
         f"{label}: kernel mean {kernel_arr.mean():.2f} ms over {repeats} "
         f"solves of {n_runs} trajectories "
