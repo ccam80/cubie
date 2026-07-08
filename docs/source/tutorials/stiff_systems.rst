@@ -1,19 +1,22 @@
 Tutorial 3: Stiff Systems, Implicit Methods, and Drivers
 ========================================================
 
-A *stiff* system mixes very fast and very slow dynamics.  Explicit
-methods must resolve the fastest timescale even after it has decayed
-away, so they crawl; implicit methods take large steps through the
-slow phase and only pay attention to the fast phase when it matters.
+A *stiff* system mixes fast and slow dynamics.  The trouble
+this causes is about stability rather than accuracy: an explicit
+method's step size is capped by the fastest timescale in the system
+even after that fast component has decayed away, because larger steps
+make the method unstable.  An implicit method stays stable at large
+steps, so its step size is set by the accuracy you asked for instead.
 This tutorial solves a stiff oscillator with an implicit method,
-tunes it, and adds a measured forcing signal.
+shows how to recognise and fix a failed solve, and adds a forcing
+signal.
 
 Step 1: A stiff test problem
 ----------------------------
 
-The Van der Pol oscillator with a large damping parameter ``mu`` is
-the classic stiff benchmark — it creeps along a slow branch, then
-relaxes almost instantaneously:
+The Van der Pol oscillator with a large damping parameter ``mu`` is a
+classic stiff benchmark.  It creeps along a slow branch, then relaxes
+almost instantaneously:
 
 .. code-block:: python
 
@@ -33,17 +36,17 @@ relaxes almost instantaneously:
 Step 2: Solve with an implicit method
 -------------------------------------
 
-Swapping to a stiff solver is one word.  ``"rosenbrock"`` selects the
-default Rosenbrock-W method (``ros3p``) — linearly implicit, adaptive,
-and a good first choice because it needs no Newton iteration:
+Swapping to a stiff solver is one word.  ``method="radau"`` selects
+Radau IIA of order 5, a fully implicit method that copes with the
+stiffest problems you are likely to meet:
 
 .. code-block:: python
 
    result = qb.solve_ivp(
        vdp,
-       y0={"x": np.array([2.0]), "v": np.array([0.0])},
+       y0={"x": 2.0, "v": 0.0},
        parameters={"mu": np.linspace(20.0, 80.0, 16)},
-       method="rosenbrock",
+       method="radau",
        duration=20.0,
        save_every=0.05,
        rtol=1e-5,
@@ -52,48 +55,65 @@ and a good first choice because it needs no Newton iteration:
    assert np.all(result.status_codes == 0), result.status_messages
 
 CuBIE derives the Jacobian your implicit solver needs symbolically
-from the equations — nothing extra to supply.
+from the equations, so there is nothing extra to supply.
 
-For *very* stiff or badly behaved problems, the fully implicit
-``method="radau_iia_5"`` is the heavy artillery; ``"crank_nicolson"``
-and the DIRK family sit in between (:doc:`/user_guide/choosing_algorithms`).
+This solve succeeds, but it also prints a warning that the default
+Neumann preconditioner may diverge for this system.  The solve above
+finished cleanly regardless (the status check confirms it), and
+passing ``preconditioner_type="jacobi"`` selects a preconditioner
+suited to systems like this one and silences the warning.
 
-Step 3: When the solver struggles
----------------------------------
+Radau is the big gun of the family, and its robustness costs
+iterations.  For mildly stiff problems, cheaper options include the
+linearly implicit Rosenbrock-W methods (``method="rosenbrock"``,
+which skip Newton iteration entirely), ``"crank_nicolson"``, and the
+DIRK family (:doc:`/user_guide/choosing_algorithms`).
 
-Newton-based implicit methods (everything except Rosenbrock-W) report
-their internal effort per run.  Check it before tuning blindly:
+Step 3: When the solver gives up
+--------------------------------
+
+An adaptive controller shrinks the step until the local error
+estimate meets your tolerances.  When the tolerances cannot be met at
+any allowed step size, the step collapses to the ``dt_min`` floor and
+the run exits early with the ``STEP_TOO_SMALL`` status.  You can
+provoke this by asking a single-precision solve for tighter accuracy
+than single-precision arithmetic can deliver:
 
 .. code-block:: python
 
    result = qb.solve_ivp(
        vdp,
-       y0={"x": np.array([2.0]), "v": np.array([0.0])},
+       y0={"x": 2.0, "v": 0.0},
        parameters={"mu": np.linspace(20.0, 80.0, 16)},
-       method="backwards_euler",
+       method="radau",
        duration=20.0,
-       dt=0.001,
-       output_types=["state", "iteration_counters"],
        save_every=0.05,
+       rtol=1e-10,
+       atol=1e-12,
    )
+   print(result.status_codes.max())  # nonzero: some runs bailed out
+   print(result.status_messages[0])  # decoded flags for run 0
 
-   newton_iters = result.iteration_counters[:, 0, :]
-   print("worst save interval:", newton_iters.max())
+Status codes are bit flags, so a failing run can report several
+conditions at once (a Newton failure and the step-size collapse it
+caused, for example).  The flag to look for here is
+``STEP_TOO_SMALL``.
 
-If runs fail (``result.status_codes != 0``) or iteration counts sit
-at the ceiling, the useful knobs, in the order worth trying:
+Two levers fix a ``STEP_TOO_SMALL`` exit:
 
-1. ``dt_max=...`` — cap the step size; overly ambitious steps start
-   Newton far from the solution.
-2. ``max_newton_iters=...`` (default 100) — allow more iterations for
-   slowly converging systems.
-3. ``preconditioner_order=3`` (default 2) — stronger preconditioning
-   speeds up the inner linear solves.
-4. Newton/Krylov tolerances default to a tenth of your ``atol``/
-   ``rtol``, which is usually right — tighten the outer tolerances
-   rather than the inner ones.
+1. Loosen ``atol`` and ``rtol`` to values the arithmetic and the
+   problem can deliver.  If your states span different magnitude
+   scales, pass a vector-valued ``atol`` with one entry per state
+   (``atol=np.array([1e-6, 1e-2])``) rather than tightening every
+   state to suit the smallest one.
+2. Lower ``dt_min`` (default ``1e-6``) when the dynamics genuinely
+   need steps smaller than the floor, for example when resolving a
+   relaxation spike at high ``mu``.
 
-The full list lives in :doc:`/user_guide/optional_arguments`.
+Failed runs are reported per run: ``result.status_codes`` holds one
+code per run and ``result.status_messages`` decodes them, so a batch
+where only the stiffest runs fail tells you which parameter values
+need attention.
 
 Step 4: Add a forcing signal (driver)
 -------------------------------------
@@ -123,31 +143,58 @@ length:
 
    result = qb.solve_ivp(
        forced,
-       y0={"x": np.array([2.0]), "v": np.array([0.0])},
+       y0={"x": 2.0, "v": 0.0},
        parameters={"mu": np.linspace(20.0, 80.0, 16)},
        drivers={"forcing": signal, "time": t_samples},
        method="rosenbrock",
        duration=20.0,
        save_every=0.05,
-       dt_max=0.05,
+       rtol=1e-5,
+       atol=1e-8,
    )
    assert np.all(result.status_codes == 0), result.status_messages
 
-Note the ``dt_max=0.05`` — knob 1 from Step 3 in action.  Without it,
-one of these forced runs overreaches on step size and fails its linear
-solves (``MAX_LINEAR_ITERATIONS_EXCEEDED``); capping the step at the
-forcing timescale fixes it.
+This example uses the linearly implicit Rosenbrock-W method from the
+quicker end of the stiff family, together with explicit tolerances.
+Stating your tolerances is a good habit in general: the defaults are
+not tuned to your problem, and the failure modes of Step 3 are
+easier to reason about when you know what accuracy you asked for.
 
 CuBIE fits a cubic spline through your samples so adaptive steppers
 can evaluate the forcing at any time point, not just your sample
 times.  Interpolation options (polynomial order, periodic wrapping,
 boundary conditions) are covered in :doc:`/user_guide/drivers`.
 
+A sine wave is not really a sampled signal, though.  When the forcing
+has a closed form, you can write it directly into the equations using
+the time symbol ``t``, and CuBIE substitutes the current simulation
+time as it integrates.  No driver arrays, no interpolation error:
+
+.. code-block:: python
+
+   driven = qb.create_ODE_system(
+       """
+       dx = v
+       dv = mu * (1 - x*x) * v - x + amp * sin(omega * t)
+       """,
+       constants={"amp": 5.0, "omega": 2.0 * np.pi * 0.25},
+       parameters={"mu": 50.0},
+       states={"x": 2.0, "v": 0.0},
+       name="SineDrivenVanDerPol",
+   )
+
+Reserve sampled drivers for signals that only exist as data, such as
+recorded measurements or stochastic inputs.
+
 Recap
 -----
 
-- Stiff system?  Start with ``method="rosenbrock"``.
-- Still failing?  Check ``status_messages`` and
-  ``iteration_counters`` before turning knobs.
+- Stiff system?  Reach for ``method="radau"``, and step down to
+  ``"rosenbrock"`` or a DIRK method if it proves more power than the
+  problem needs.
+- Runs failing with ``STEP_TOO_SMALL``?  Loosen ``atol``/``rtol``
+  (or supply a per-state ``atol`` vector), and lower ``dt_min`` if
+  the dynamics truly need smaller steps.
 - Forcing data?  Declare a driver and pass ``{"name": values,
-  "time": times}``.
+  "time": times}``.  Forcing with a formula?  Write it into the
+  equations with ``t``.
