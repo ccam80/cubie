@@ -210,6 +210,7 @@ def test_initialise_non_chunked_clears_overwrite_list(
     inits = np.ones((n_states, 1), dtype=precision)
     params = np.ones((n_params, 1), dtype=precision)
     ia.update(sk, inits, params, None)
+    ia._memory_manager.allocate_queue(ia)
     # Force non-chunked mode
     ia._chunks = 1
     ia.initialise(0)

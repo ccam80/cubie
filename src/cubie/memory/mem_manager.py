@@ -1032,7 +1032,7 @@ class MemoryManager:
         dtype
             Constructor returning the precision object for the array elements.
         memory_type
-            Type of memory: "device", "mapped", "pinned", or "managed".
+            Type of memory: "device" or "pinned".
         stream
             CUDA stream for the allocation. Defaults to 0.
 

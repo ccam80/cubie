@@ -670,10 +670,20 @@ class TestMemoryManager:
                 shape=(2, 2), dtype=np.float32, memory="device", total_runs=2
             ),
             "arr2": ArrayRequest(
-                shape=(3, 3), dtype=np.float64, memory="mapped", total_runs=3
+                shape=(3, 3), dtype=np.float64, memory="pinned", total_runs=3
             ),
         }
         mgr._check_requests(valid_requests)  # Should not raise
+
+        # Unsupported placements are rejected at request construction
+        with pytest.raises(ValueError):
+            ArrayRequest(
+                shape=(3, 3), dtype=np.float64, memory="mapped", total_runs=3
+            )
+        with pytest.raises(ValueError):
+            ArrayRequest(
+                shape=(3, 3), dtype=np.float64, memory="managed", total_runs=3
+            )
 
         # Invalid dict type should raise TypeError
         with pytest.raises(TypeError):

@@ -54,11 +54,11 @@ allocation). `to_device`/`from_device` use CuPy's `ndarray.set`/`ndarray.get`, w
 
 ### ArrayRequest / ArrayResponse
 - `ArrayRequest.dtype` is validated to exactly `float64`/`float32`/`int32`; `memory` ∈
-  `{device, mapped, pinned, managed}`; `chunk_axis_index` defaults to `2` (the run axis in the
-  3-D output layout — callers with other layouts pass their own index); `total_runs ≥ 1` (the
-  manager reads it from the first chunkable request to size chunks).
-- **`managed` allocation raises `NotImplementedError`** — the type validates but `allocate()`
-  doesn't implement it.
+  `{device, pinned}` — `mapped`/`managed` are rejected at construction with `ValueError`
+  (`ManagedArray.memory_type` likewise allows only `device`/`pinned`/`host`);
+  `chunk_axis_index` defaults to `2` (the run axis in the 3-D output layout — callers with
+  other layouts pass their own index); `total_runs ≥ 1` (the manager reads it from the first
+  chunkable request to size chunks).
 - `ArrayResponse` carries `arr` (label→device array), `chunks`, `chunk_length`, `chunked_shapes`.
 
 ### Stream groups
@@ -91,8 +91,9 @@ free); `clear` frees all (call on error paths). Thread-safe via a `Lock`. Under
 `tests/memory/` (`test_memmgmt.py`, `test_array_requests.py`, `test_stream_groups.py`,
 `test_chunk_buffer_pool.py`, `test_cupyemm.py` — needs the `cupy` marker + a real GPU with
 cupy installed). CuPy-returning-array assertions and the CuPy-stream-forwarding test are marked
-`nocudasim`; construction-time CuPy requirement and `NotImplementedError` paths for
-`"mapped"`/`"managed"` are exercised directly.
+`nocudasim`; construction-time CuPy requirement, the `ValueError` on
+`"mapped"`/`"managed"` requests, and `allocate()`'s `NotImplementedError` backstop for
+direct calls are exercised directly.
 
 ## Dependencies
 ### Internal
