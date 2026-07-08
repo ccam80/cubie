@@ -343,19 +343,17 @@ class TestDriverAccess:
         driver_sym = index_map.drivers.symbol_map["forcing"]
         assert driver_sym in eqs.state_derivatives[0][1].free_symbols
 
-    def test_bare_driver_name_warns_and_resolves(self):
-        """Bare-name driver references warn FutureWarning but work."""
+    def test_bare_driver_name_raises_with_hint(self):
+        """Bare-name driver references raise with the container hint."""
         def f(t, y, p):
             return [-y.x + forcing]  # noqa: F821
 
-        with pytest.warns(FutureWarning, match="bare name"):
-            index_map, _, _, eqs, _ = parse_input(
+        with pytest.raises(ValueError, match=r"p\.forcing"):
+            parse_input(
                 dxdt=f,
                 states={"x": 1.0},
                 drivers=["forcing"],
             )
-        driver_sym = index_map.drivers.symbol_map["forcing"]
-        assert driver_sym in eqs.state_derivatives[0][1].free_symbols
 
 
 class TestStateInference:

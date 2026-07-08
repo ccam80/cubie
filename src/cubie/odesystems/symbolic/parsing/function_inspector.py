@@ -653,10 +653,6 @@ class AstToSympyConverter:
     symbolic_user_names
         User-function names that must never be inlined (device
         functions and functions with derivative helpers).
-    deprecated_names
-        Bare names that still resolve to a symbol but emit a
-        ``FutureWarning`` on use (declared drivers referenced by bare
-        name).
     inline_assignments
         Local assignment names whose AST expression is converted in
         place of the bare name (derivative-output names such as
@@ -675,7 +671,6 @@ class AstToSympyConverter:
         user_callables: Optional[Dict[str, Callable]] = None,
         user_function_classes: Optional[Dict[str, Any]] = None,
         symbolic_user_names: Optional[Set[str]] = None,
-        deprecated_names: Optional[Dict[str, sp.Basic]] = None,
         inline_assignments: Optional[Dict[str, ast.expr]] = None,
         strict_names: bool = False,
         name_hints: Optional[Dict[str, str]] = None,
@@ -684,7 +679,6 @@ class AstToSympyConverter:
         self.user_callables = user_callables or {}
         self.user_function_classes = user_function_classes or {}
         self.symbolic_user_names = symbolic_user_names or set()
-        self.deprecated_names = deprecated_names or {}
         self.inline_assignments = inline_assignments or {}
         self.strict_names = strict_names
         self.name_hints = name_hints or {}
@@ -763,18 +757,6 @@ class AstToSympyConverter:
             return self.symbol_map[name]
         if name in self.inline_assignments:
             return self.convert(self.inline_assignments[name])
-        if name in self.deprecated_names:
-            warnings.warn(
-                f"Referencing driver '{name}' by bare name is "
-                f"deprecated; access it through a container argument "
-                f"instead (e.g. 'p.{name}' or a dedicated drivers "
-                f"argument 'd.{name}').",
-                FutureWarning,
-                stacklevel=2,
-            )
-            sym = self.deprecated_names[name]
-            self.symbol_map[name] = sym
-            return sym
         if self.strict_names:
             if name in self.name_hints:
                 raise ValueError(

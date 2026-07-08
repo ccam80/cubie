@@ -96,7 +96,6 @@ def parse_function_input(
         for name, node in inspection.assignments.items()
         if name in dxdt_alias_set
     }
-    deprecated_names = dict(index_map.drivers.symbol_map)
     name_hints = _build_name_hints(inspection, index_map)
 
     converter = AstToSympyConverter(
@@ -104,7 +103,6 @@ def parse_function_input(
         user_callables=user_functions or {},
         user_function_classes=parse_locals,
         symbolic_user_names=symbolic_user_names,
-        deprecated_names=deprecated_names,
         inline_assignments=inline_assignments,
         strict_names=True,
         name_hints=name_hints,
@@ -259,7 +257,11 @@ def _build_name_hints(
         if inspection.constant_params
         else "p"
     )
-    for ibm in (index_map.parameters, index_map.constants):
+    for ibm in (
+        index_map.parameters,
+        index_map.constants,
+        index_map.drivers,
+    ):
         for name in ibm.symbol_map:
             hints[name] = f"{container}.{name}"
     for name in index_map.states.symbol_map:
