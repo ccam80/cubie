@@ -21,7 +21,7 @@ memory pools that recycle allocations across calls:
 
 .. code-block:: python
 
-   solver = qb.Solver(system, algorithm="dormand_prince_54",
+   solver = qb.Solver(system, algorithm="dormand-prince-54",
                        memory_settings={"allocator": "cupy"})
 
 Available allocators:
@@ -47,7 +47,7 @@ can override the proportion of VRAM that CuBIE is allowed to use:
 
 .. code-block:: python
 
-   solver = qb.Solver(system, algorithm="dormand_prince_54",
+   solver = qb.Solver(system, algorithm="dormand-prince-54",
                        memory_settings={"mem_proportion": 0.7})
 
 Set a lower proportion if other processes share the GPU.

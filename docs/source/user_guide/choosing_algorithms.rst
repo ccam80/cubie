@@ -52,7 +52,7 @@ Available Algorithms
      - 3
      - No
      - Ralston's method.
-   * - ``dormand_prince_54`` / ``rk45``
+   * - ``dormand-prince-54`` / ``rk45``
      - 5(4)
      - Yes
      - Industry standard; good default.

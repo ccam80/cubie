@@ -52,7 +52,7 @@ On the :class:`~cubie.Solver`:
 
 .. code-block:: python
 
-   solver = qb.Solver(system, algorithm="dormand_prince_54",
+   solver = qb.Solver(system, algorithm="dormand-prince-54",
                        cache="/tmp/cubie_cache")
 
 Clearing Caches

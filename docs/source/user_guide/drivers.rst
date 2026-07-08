@@ -24,14 +24,16 @@ like this:
     beta = 0.1   # heater dissipation coefficient (how quickly the heat dissipates)
 
 
-    fns = [
-        "base_wiggle = sin(2 * pi * f * t)",
-        "f = 1e4 * t + 1e5",
-        "dT = alpha * (feedback_strength * x + feedback_offset) - beta * T",
-        "di = feedback_strength * x + feedback_offset",
-        "dx = v",
-        "dv = -k * x - c * v + alpha * T + base_wiggle",
-    ]
+    def cantilever(t, y, p):
+        f = 1e4 * t + 1e5
+        base_wiggle = np.sin(2 * p.pi * f * t)
+        dx = y.v
+        dv = -p.k * y.x - p.c * y.v + p.alpha * y.T + base_wiggle
+        dT = (p.alpha * (p.feedback_strength * y.x + p.feedback_offset)
+              - p.beta * y.T)
+        di = p.feedback_strength * y.x + p.feedback_offset
+        return {"x": dx, "v": dv, "T": dT, "i": di}
+
     constants = {
         "k": 0.1,
         "c": 0.01,
@@ -51,7 +53,7 @@ like this:
     }
 
     sys = qb.create_ODE_system(
-        fns,
+        cantilever,
         parameters=parameters,
         constants=constants,
         states=initial_conditions,
@@ -93,13 +95,16 @@ an example of how to do this:
     t_driver = np.linspace(0, 1.0, 1000)
     signal = np.sin(2 * np.pi * 5 * t_driver) * np.exp(-t_driver)
 
+    def driven(t, y, p):
+        dx = -p.k * y.x + p.amplitude * drive_signal
+        return [dx]
+
     sys = qb.create_ODE_system(
-        """
-        dx = -k * x + amplitude * drive_signal
-        """,
+        driven,
         constants={"k": 1.0},
         parameters={"amplitude": 1.0},
         states={"x": 0.0},
+        drivers=["drive_signal"],
         name="DrivenSystem",
     )
 
@@ -107,10 +112,14 @@ an example of how to do this:
         sys,
         y0={"x": np.array([0.0])},
         parameters={"amplitude": np.linspace(0.1, 2.0, 100)},
-        drivers={"drive_signal": (t_driver, signal)},
-        method="dormand_prince_54",
+        drivers={"drive_signal": signal, "time": t_driver},
+        method="dormand-prince-54",
         duration=1.0,
     )
+
+Note how the driver appears: it is declared in ``drivers`` when the
+system is created, and referenced by its bare name inside the function
+body, since drivers are not part of the state or parameter containers.
 
 Boundary Conditions
 -------------------
