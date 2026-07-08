@@ -19,7 +19,10 @@ Usage::
 
     python benchmarks/lorenz_mean_runtime.py [n_runs] [repeats]
 
-Defaults: ``n_runs = 2**22`` trajectories, ``repeats = 100``.
+Defaults: ``2**22`` trajectories for the fixed config and ``2**24``
+for the adaptive config (the adaptive kernel is fast enough at
+``2**22`` that launch effects blur small deltas); ``repeats = 100``.
+An explicit ``n_runs`` argument applies to both configs.
 
 The generated-code and compiled-kernel caches are cleared on every
 invocation. The kernel cache is keyed by config hash, which does not
@@ -53,7 +56,11 @@ os.makedirs(GENERATED_DIR, exist_ok=True)
 # swallowed by the stdout redirect inside the timed callable.
 default_timelogger.set_verbosity("default")
 
-n_runs = int(sys.argv[1]) if len(sys.argv) > 1 else 2**22
+if len(sys.argv) > 1:
+    n_fixed = n_adaptive = int(sys.argv[1])
+else:
+    n_fixed = 2**22
+    n_adaptive = 2**24
 repeats = int(sys.argv[2]) if len(sys.argv) > 2 else 100
 discarded_solves = 20
 
@@ -72,7 +79,6 @@ lorenz_system = qb.create_ODE_system(
     precision=precision,
 )
 
-parameters = {"rho": np.linspace(0.0, 21.0, n_runs)}
 initial_conditions = {"x": 1.0, "y": 0.0, "z": 0.0}
 
 fixed_solver = qb.Solver(
@@ -103,11 +109,6 @@ adaptive_solver = qb.Solver(
     time_logging_level="default",
 )
 
-initials_array, parameter_array = fixed_solver.build_grid(
-    initial_values=initial_conditions, parameters=parameters
-)
-
-
 def collect_kernel_time(solver, kernel_ms):
     """Append one solve's kernel CUDA-event total (ms) to ``kernel_ms``.
 
@@ -125,8 +126,12 @@ def collect_kernel_time(solver, kernel_ms):
     )
 
 
-def benchmark(label, solver):
+def benchmark(label, solver, n_runs):
     """Run ``repeats`` solves after a warm-up; print kernel runtime."""
+    parameters = {"rho": np.linspace(0.0, 21.0, n_runs)}
+    initials_array, parameter_array = solver.build_grid(
+        initial_values=initial_conditions, parameters=parameters
+    )
     kernel_ms = []
 
     def run():
@@ -158,5 +163,5 @@ def benchmark(label, solver):
     )
 
 
-benchmark("fixed (classical-rk4)", fixed_solver)
-benchmark("adaptive (tsit5)", adaptive_solver)
+benchmark("fixed (classical-rk4)", fixed_solver, n_fixed)
+benchmark("adaptive (tsit5)", adaptive_solver, n_adaptive)
