@@ -15,15 +15,29 @@ Usage::
     python benchmarks/lorenz_mean_runtime.py [n_runs] [repeats]
 
 Defaults: ``n_runs = 2**22`` trajectories, ``repeats = 100``.
+
+The generated-code and compiled-kernel caches are cleared on every
+invocation. The kernel cache is keyed by config hash, which does not
+include the package source, so a warm cache can serve kernels
+compiled from a different source tree — poisonous for A/B runs where
+only ``PYTHONPATH`` differs. Clearing forces each invocation to
+compile from the tree under benchmark; the compile cost is absorbed
+by the warm-up solve, outside the timed region.
 """
 
+import os
+import shutil
 import sys
 import timeit
 
 import numpy as np
 
 import cubie as qb
+from cubie.odesystems.symbolic.odefile import GENERATED_DIR
 from cubie.time_logger import default_timelogger
+
+shutil.rmtree(GENERATED_DIR, ignore_errors=True)
+os.makedirs(GENERATED_DIR, exist_ok=True)
 
 default_timelogger.set_verbosity(None)
 
