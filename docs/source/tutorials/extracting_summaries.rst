@@ -139,4 +139,5 @@ When to use which output
 - **Both at once** works too; the two records run at independent
   cadences (see :doc:`/user_guide/timing`).
 
-Next: :doc:`stiff_systems` for when your system fights back.
+The next tutorial, :doc:`stiff_systems`, covers systems that need
+implicit methods and time-dependent forcing.

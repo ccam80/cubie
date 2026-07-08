@@ -168,4 +168,5 @@ Where to go next
   parameters (:doc:`/user_guide/batching`).
 - Record statistics (mean, peaks, ...) instead of full trajectories
   to save memory: :doc:`extracting_summaries`.
-- Solving something stiff?  See :doc:`stiff_systems`.
+- :doc:`stiff_systems` covers implicit methods for systems that
+  mix fast and slow dynamics.

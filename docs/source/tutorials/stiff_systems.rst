@@ -36,9 +36,10 @@ almost instantaneously:
 Step 2: Solve with an implicit method
 -------------------------------------
 
-Swapping to a stiff solver is one word.  ``method="radau"`` selects
-Radau IIA of order 5, a fully implicit method that copes with the
-stiffest problems you are likely to meet:
+A stiff solver is selected through the same ``method`` keyword as
+any other.  ``method="radau"`` selects Radau IIA of order 5, a fully
+implicit method that copes with the stiffest problems you are likely
+to meet:
 
 .. code-block:: python
 
@@ -168,7 +169,8 @@ boundary conditions) are covered in :doc:`/user_guide/drivers`.
 A sine wave is not really a sampled signal, though.  When the forcing
 has a closed form, you can write it directly into the equations using
 the time symbol ``t``, and CuBIE substitutes the current simulation
-time as it integrates.  No driver arrays, no interpolation error:
+time as it integrates.  This form needs no driver arrays and
+introduces no interpolation error:
 
 .. code-block:: python
 
@@ -189,12 +191,12 @@ recorded measurements or stochastic inputs.
 Recap
 -----
 
-- Stiff system?  Reach for ``method="radau"``, and step down to
-  ``"rosenbrock"`` or a DIRK method if it proves more power than the
-  problem needs.
-- Runs failing with ``STEP_TOO_SMALL``?  Loosen ``atol``/``rtol``
-  (or supply a per-state ``atol`` vector), and lower ``dt_min`` if
-  the dynamics truly need smaller steps.
-- Forcing data?  Declare a driver and pass ``{"name": values,
-  "time": times}``.  Forcing with a formula?  Write it into the
-  equations with ``t``.
+- A stiff system is solved by passing ``method="radau"``; step down
+  to ``"rosenbrock"`` or a DIRK method if radau proves more power
+  than the problem needs.
+- Runs that fail with ``STEP_TOO_SMALL`` are fixed by loosening
+  ``atol``/``rtol`` (or supplying a per-state ``atol`` vector), and
+  by lowering ``dt_min`` if the dynamics truly need smaller steps.
+- Sampled forcing data enters as a driver, declared on the system
+  and passed as ``{"name": values, "time": times}``; forcing with a
+  closed form is written into the equations using ``t``.
