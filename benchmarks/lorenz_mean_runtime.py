@@ -14,7 +14,7 @@ Usage::
 
     python benchmarks/lorenz_mean_runtime.py [n_runs] [repeats]
 
-Defaults: ``n_runs = 2**24`` trajectories, ``repeats = 100``.
+Defaults: ``n_runs = 2**22`` trajectories, ``repeats = 100``.
 """
 
 import sys
@@ -27,7 +27,7 @@ from cubie.time_logger import default_timelogger
 
 default_timelogger.set_verbosity(None)
 
-n_runs = int(sys.argv[1]) if len(sys.argv) > 1 else 2**24
+n_runs = int(sys.argv[1]) if len(sys.argv) > 1 else 2**22
 repeats = int(sys.argv[2]) if len(sys.argv) > 2 else 100
 
 precision = np.float32
