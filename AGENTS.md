@@ -71,7 +71,10 @@ change — the full suite is slow (run it as a pre-commit check only, and only w
   `src/cubie/vendored/cellmlmanip` (its `lxml`/`networkx`/`Pint>=0.24`/`rdflib` runtime deps are core).
 - **CUDA toolkit:** supplied by the `cuda12`/`cuda13` extras (`numba-cuda[cu12]`/`[cu13]`) or an
   existing system install; a bare `pip install cubie` uses whatever toolkit numba-cuda can find.
-- **Optional:** cupy via the `cupy12`/`cupy13` extras (pool memory), pandas (DataFrame output),
-  matplotlib (driver plots).
+- **CuPy is required for real-GPU execution** — it is cubie's single device memory allocator
+  (no Numba-allocator fallback). The `cuda12`/`cuda13` extras pull in the matching cupy build
+  alongside the toolkit wheels; `cupy12`/`cupy13` remain as standalone aliases. Imported lazily,
+  so `import cubie` and the CUDA simulator (`NUMBA_ENABLE_CUDASIM=1`) never require it.
+- **Optional:** pandas (DataFrame output), matplotlib (driver plots).
 - CI installs a patched `numba-cuda` fork (`ccam80/numba-cuda@cubie_patch`) for faster compile;
   stock `numba-cuda` works for local dev.

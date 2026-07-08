@@ -1,5 +1,4 @@
 import pytest
-from numba import cuda
 
 from cubie.cuda_simsafe import (
     Stream,
@@ -196,7 +195,6 @@ class TestMemoryManager:
         assert mgr.totalmem == 8 * 1024**3
         assert mgr.registry == {}
         assert mgr._mode in ["passive", "active"]
-        assert mgr._allocator is not None
         assert isinstance(mgr.stream_groups, type(mgr.stream_groups))
 
     def test_register(self, registered_mgr, registered_instance):
@@ -213,29 +211,6 @@ class TestMemoryManager:
         assert group == "default"
         assert id(instance) in mgr.stream_groups.groups[group]
         assert mgr.stream_groups.get_stream(instance) is not None
-
-    # Can't recover from this - context stays stale. This doesn't reflect a
-    # real use case; reinstate if live memory manager switching is required
-    # @pytest.mark.cupy
-    # @pytest.mark.parametrize("manager_target",
-    #                          [("cupy_async", CuPyAsyncNumbaManager),
-    #                           ("cupy", CuPySyncNumbaManager),
-    #                           ("default", NumbaCUDAMemoryManager)
-    #                         ],
-    #                          ids=["cupy_async", "cupy", "default"])
-    # def test_set_allocator(self, manager_target, mem_manager_settings,
-    #                              registered_instance_settings):
-    #     """Test that set_allocator sets the allocator correctly
-    #     test each of "cupy_async", "cupy", "default", checking that
-    #     (self._allocator is CuPyAsyncNumbaManager, CuPySyncNumbaManager.
-    #      NumbaCudaMemoryManager, respectively)"""
-    #     label, cls = manager_target
-    #     regmgr, instance = registered_mgr_context_safe(
-    #             mem_manager_settings,
-    #             registered_instance_settings
-    #     )
-    #     regmgr.set_allocator(label)
-    #     assert regmgr._allocator == cls
 
     def test_set_limit_mode(self, mgr):
         """Test that set_limit_mode assigns the mode correctly,
@@ -488,20 +463,61 @@ class TestMemoryManager:
     @pytest.mark.nocudasim
     def test_allocate(self, mgr):
         """Test allocate returns correct array type and shape for each memory type."""
-        for mem_type in ["device", "mapped", "pinned"]:
+        for mem_type in ["device", "pinned"]:
             arr = mgr.allocate(
                 shape=(2, 2), dtype=np.float32, memory_type=mem_type
             )
-            if mem_type in ["device", "mapped"]:
+            if mem_type == "device":
                 assert hasattr(arr, "__cuda_array_interface__")
             else:
                 assert isinstance(arr, np.ndarray)
             assert arr.shape == (2, 2)
             assert arr.dtype == np.float32
         with pytest.raises(NotImplementedError):
+            mgr.allocate(shape=(1, 1), dtype=np.float32, memory_type="mapped")
+        with pytest.raises(NotImplementedError):
             mgr.allocate(shape=(1, 1), dtype=np.float32, memory_type="managed")
         with pytest.raises(ValueError):
             mgr.allocate(shape=(1, 1), dtype=np.float32, memory_type="invalid")
+
+    @pytest.mark.nocudasim
+    @pytest.mark.cupy
+    def test_allocate_device_returns_cupy_array(self, mgr):
+        """Test that a "device" allocation is a CuPy array on a real GPU.
+
+        CuPy is CuBIE's single device allocation provider; device
+        arrays are allocated straight from CuPy's memory pool rather
+        than through a Numba External Memory Manager plugin.
+        """
+        import cupy as cp
+
+        arr = mgr.allocate(
+            shape=(4, 4), dtype=np.float32, memory_type="device"
+        )
+        assert isinstance(arr, cp.ndarray)
+
+    @pytest.mark.nocudasim
+    def test_memory_manager_requires_cupy_on_real_gpu(self):
+        """Test that constructing a manager without CuPy raises clearly.
+
+        Only exercised meaningfully when CuPy is not importable; when
+        CuPy is installed (the normal real-GPU CI configuration) this
+        simply confirms construction succeeds. Uninstalling CuPy to
+        force the failure path is out of scope without a mock, and
+        mocks require an explicit user exception.
+        """
+        try:
+            import cupy  # noqa: F401
+
+            cupy_installed = True
+        except ImportError:
+            cupy_installed = False
+
+        if cupy_installed:
+            assert MemoryManager() is not None
+        else:
+            with pytest.raises(ImportError):
+                MemoryManager()
 
     def test_free(self, registered_mgr, registered_instance):
         """Test free removes allocation by key from all instances."""
@@ -855,8 +871,8 @@ class TestMemoryManager:
         stream.synchronize()
 
         # Copy back to host and verify values
-        result_arr1 = device_arrays["arr1"].copy_to_host()
-        result_arr2 = device_arrays["arr2"].copy_to_host()
+        result_arr1 = device_arrays["arr1"].get()
+        result_arr2 = device_arrays["arr2"].get()
 
         np.testing.assert_array_equal(result_arr1, host_arr1)
         np.testing.assert_array_equal(result_arr2, host_arr2)
@@ -885,9 +901,13 @@ class TestMemoryManager:
         host_source1 = np.arange(10, dtype=np.float32).reshape(2, 5) * 3.0
         host_source2 = np.arange(6, dtype=np.float64).reshape(3, 2) + 10.0
 
-        # Copy test data to device arrays using cuda.to_device directly
-        cuda.to_device(host_source1, stream=stream, to=device_arrays["arr1"])
-        cuda.to_device(host_source2, stream=stream, to=device_arrays["arr2"])
+        # Copy test data to device arrays using the manager's own
+        # to_device method (the sole allocation/transfer provider).
+        mgr.to_device(
+            instance,
+            [host_source1, host_source2],
+            [device_arrays["arr1"], device_arrays["arr2"]],
+        )
         stream.synchronize()
 
         # Create empty host arrays to receive the data

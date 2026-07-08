@@ -8,36 +8,17 @@ errors.
 Default Behaviour
 -----------------
 
-By default CuBIE uses the Numba CUDA allocator.  Each call to
+CuBIE allocates device memory through CuPy's memory pool, which recycles
+allocations across calls instead of freeing and reallocating GPU memory
+each time. Each call to
 :meth:`~cubie.batchsolving.solver.Solver.solve` allocates the required
 device arrays, runs the kernel, copies results back, then frees the
-memory.
+memory (returning it to the pool for reuse).
 
-CuPy Memory Pools
-------------------
-
-Repeatedly allocating and freeing GPU memory has overhead.  CuPy provides
-memory pools that recycle allocations across calls:
-
-.. code-block:: python
-
-   solver = qb.Solver(system, algorithm="dormand-prince-54",
-                       memory_settings={"allocator": "cupy"})
-
-Available allocators:
-
-``"default"``
-   Numba's built-in allocator.
-
-``"cupy"``
-   CuPy synchronous memory pool.  Reduces allocation overhead between
-   successive solves.
-
-``"cupy_async"``
-   CuPy asynchronous memory pool.  Can overlap allocation with
-   computation on supported hardware.
-
-CuPy must be installed separately (``pip install cupy-cuda12x``).
+CuPy is required to run on a real GPU (install it via the ``cuda12``/
+``cuda13`` extras, e.g. ``pip install cubie[cuda12]``, or directly with
+``pip install cupy-cuda12x``). It is not required to run under the CUDA
+simulator (``NUMBA_ENABLE_CUDASIM=1``), which never touches CuPy.
 
 VRAM Limits
 -----------

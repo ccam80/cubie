@@ -241,6 +241,5 @@ options across the loop, algorithm, and solver configs)
     hardware — these exist for performance experiments on specific
     GPU architectures and never affect results.
 
-Memory-manager settings (allocator choice, VRAM proportion, stream
-groups) are covered in :doc:`memory`, and compilation caching in
-:doc:`caching`.
+Memory-manager settings (VRAM proportion, stream groups) are covered in
+:doc:`memory`, and compilation caching in :doc:`caching`.

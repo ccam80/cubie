@@ -44,10 +44,13 @@ Homepage = "https://github.com/ccam80/cubie.git"
 Issues = "https://github.com/ccam80/cubie/issues"
 
 [project.optional-dependencies]
-cuda12 = ["numba-cuda[cu12]"] # CUDA 12 toolkit wheels
-cuda13 = ["numba-cuda[cu13]"] # CUDA 13 toolkit wheels
-cupy12 = ["cupy-cuda12x"] # optional pool memory, CUDA 12 build
-cupy13 = ["cupy-cuda13x"] # optional pool memory, CUDA 13 build
+# CuPy is cubie's single device memory allocator on a real GPU, so the
+# cuda12/cuda13 lanes pull in the matching cupy build alongside the
+# toolkit wheels. cupy12/cupy13 remain as standalone aliases.
+cuda12 = ["numba-cuda[cu12]", "cupy-cuda12x"] # CUDA 12 toolkit + CuPy
+cuda13 = ["numba-cuda[cu13]", "cupy-cuda13x"] # CUDA 13 toolkit + CuPy
+cupy12 = ["cupy-cuda12x"] # alias: CuPy alone, CUDA 12 build
+cupy13 = ["cupy-cuda13x"] # alias: CuPy alone, CUDA 13 build
 test = [
     "pytest",
     "pytest-cov",
