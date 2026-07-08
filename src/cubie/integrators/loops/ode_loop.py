@@ -570,18 +570,15 @@ class IVPLoop(CUDAFactory):
                     int32(duration_prec / save_every) + int32(1)
                 )
             updates_expected = int32(0)
-            summaries_expected = int32(0)
             if summarise_regularly:
                 # Update events run until every host-allocated summary
                 # window is complete; a window closes every
                 # samples_per_summary updates, so partial-window
                 # updates beyond the last full window never surface in
                 # the output.
-                summaries_expected = int32(
-                    duration_prec / summarise_every
-                )
                 updates_expected = (
-                    summaries_expected * samples_per_summary
+                    int32(duration_prec / summarise_every)
+                    * samples_per_summary
                 )
 
             # Clear inherited arrays on entry
@@ -643,7 +640,7 @@ class IVPLoop(CUDAFactory):
             save_idx = int32(0)
             summary_idx = int32(0)
             update_idx = int32(0)
-            n_summary_bumps = int32(0)
+            summary_bump_offset = int32(0)
             next_save = schedule_base
             next_update_summary = schedule_base
             # --------------------------------------------------------------- #
@@ -679,7 +676,7 @@ class IVPLoop(CUDAFactory):
                         min(precision(next_save + save_every), t_end)
                     )
                 if summarise_regularly:
-                    n_summary_bumps = int32(1)
+                    summary_bump_offset = int32(1)
                     next_update_summary = precision(
                         min(
                             precision(
@@ -988,15 +985,18 @@ class IVPLoop(CUDAFactory):
                     if do_update_summary:
                         if summarise_regularly:
                             # Same drift-free recomputation as
-                            # next_save; the bump counter tracks
-                            # schedule advances because update_idx
-                            # skips the settling-free t0 bump.
-                            n_summary_bumps += int32(1)
+                            # next_save; the loop-invariant offset
+                            # accounts for the settling-free t0 bump
+                            # that update_idx does not count.
                             next_update_summary = precision(
                                 min(
                                     precision(
                                         schedule_base
-                                        + precision(n_summary_bumps)
+                                        + precision(
+                                            update_idx
+                                            + int32(1)
+                                            + summary_bump_offset
+                                        )
                                         * sample_summaries_every
                                     ),
                                     t_end,
@@ -1019,11 +1019,14 @@ class IVPLoop(CUDAFactory):
                             # collected; the slot bound keeps rounding
                             # disagreements between the update and
                             # window cadences from writing past the
-                            # host-allocated summary height.
+                            # host-allocated summary height
+                            # (update_idx <= updates_expected is the
+                            # summary_idx bound scaled by
+                            # samples_per_summary).
                             if (
                                 update_idx % samples_per_summary
                                 == int32(0)
-                                and summary_idx < summaries_expected
+                                and update_idx <= updates_expected
                             ):
                                 save_summaries(
                                     state_summary_buffer,
