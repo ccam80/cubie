@@ -18,7 +18,12 @@ See Also
 
 from typing import TYPE_CHECKING, Any, Callable, Optional
 
-from numpy import dtype as np_dtype, floor as np_floor
+from numpy import (
+    dtype as np_dtype,
+    finfo as np_finfo,
+    float64 as np_float64,
+    floor as np_floor,
+)
 
 from cubie.integrators.SingleIntegratorRunCore import (
     SingleIntegratorRunCore,
@@ -156,6 +161,41 @@ class SingleIntegratorRun(SingleIntegratorRunCore):
         """Return True if end-of-run-only state saving is configured."""
         return self._loop.compile_settings.save_last
 
+    def _regular_event_count(self, duration: float, interval: float) -> int:
+        """Count the scheduled output events of one kind in a duration.
+
+        The float64 quotient of the precision-cast operands carries
+        the representation rounding of ``duration`` and
+        ``interval``, so a bare floor loses the end-time event
+        whenever an integer schedule rounds just below the integer.
+        A tolerance of a few working-precision ulps of the quotient
+        (capped below one half) restores those events without
+        admitting genuinely fractional schedules. The device stop
+        times are derived from this same count
+        (:meth:`save_stop_time` / :meth:`summary_stop_time`), so
+        device events and host rows agree by construction.
+
+        Parameters
+        ----------
+        duration
+            Integration duration in time units.
+        interval
+            Scheduling interval in time units.
+
+        Returns
+        -------
+        int
+            Number of scheduled events, excluding the initial sample.
+        """
+        precision = self.precision
+        quotient = np_float64(precision(duration)) / np_float64(
+            precision(interval)
+        )
+        tolerance = min(
+            4.0 * float(np_finfo(precision).eps) * quotient, 0.49
+        )
+        return int(np_floor(quotient + tolerance))
+
     def output_length(self, duration: float) -> int:
         """Calculate number of time-domain output samples for a duration.
 
@@ -170,18 +210,88 @@ class SingleIntegratorRun(SingleIntegratorRunCore):
             Number of output samples including initial and optionally final.
         """
         save_every = self.save_every
-        precision = self.precision
-        duration = precision(duration)
 
         regular_samples = 0
         final_samples = 1 if self.save_last else 0
         initial_sample = 1
         if save_every is not None:
-            regular_samples = int(np_floor(duration / save_every))
+            regular_samples = self._regular_event_count(
+                duration, save_every
+            )
         return regular_samples + initial_sample + final_samples
+
+    def save_stop_time(
+        self, duration: float, settling_time: float, t0: float
+    ) -> float:
+        """Return the completion time of the regular save schedule.
+
+        The stop sits half an interval past the final scheduled
+        save event, so accumulation drift in either direction can
+        neither strand the final host-allocated row nor admit an
+        event past the requested duration. Without a regular save
+        schedule the stop is the end time.
+
+        Parameters
+        ----------
+        duration
+            Integration duration in time units.
+        settling_time
+            Lead-in time before samples are collected.
+        t0
+            Initial integration time.
+
+        Returns
+        -------
+        float
+            Save-schedule stop time.
+        """
+        start = np_float64(settling_time) + np_float64(t0)
+        save_every = self.save_every
+        if save_every is None:
+            return float(start + np_float64(self.precision(duration)))
+        events = self._regular_event_count(duration, save_every)
+        return float(start + (events + 0.5) * np_float64(save_every))
+
+    def summary_stop_time(
+        self, duration: float, settling_time: float, t0: float
+    ) -> float:
+        """Return the completion time of the summary-update schedule.
+
+        The stop sits half a sample interval past the final
+        scheduled summary-update event. Without a summary schedule
+        the stop is the end time.
+
+        Parameters
+        ----------
+        duration
+            Integration duration in time units.
+        settling_time
+            Lead-in time before samples are collected.
+        t0
+            Initial integration time.
+
+        Returns
+        -------
+        float
+            Summary-schedule stop time.
+        """
+        start = np_float64(settling_time) + np_float64(t0)
+        sample_every = self.sample_summaries_every
+        if sample_every is None:
+            sample_every = self.summarise_every
+        if sample_every is None:
+            return float(start + np_float64(self.precision(duration)))
+        events = self._regular_event_count(duration, sample_every)
+        return float(start + (events + 0.5) * np_float64(sample_every))
 
     def summaries_length(self, duration: float) -> int:
         """Calculate number of summary output samples for a duration.
+
+        The device flushes one summary row per
+        ``samples_per_summary`` update events. Update events follow
+        the same representation-tolerant floor count as saves, and
+        the row count is the number of completed windows in that
+        update total.
 
         Parameters
         ----------
@@ -194,13 +304,22 @@ class SingleIntegratorRun(SingleIntegratorRunCore):
             Number of summary intervals.
         """
         summarise_every = self.summarise_every
+        sample_every = self.sample_summaries_every
         precision = self.precision
 
         regular_summaries = 0
         if summarise_every is not None:
-            regular_summaries = int(
-                precision(duration) / precision(summarise_every)
+            if sample_every is None:
+                sample_every = summarise_every
+            updates = self._regular_event_count(duration, sample_every)
+            samples_per_summary = int(
+                np_floor(
+                    np_float64(precision(summarise_every))
+                    / np_float64(precision(sample_every))
+                    + 0.5
+                )
             )
+            regular_summaries = updates // max(samples_per_summary, 1)
         return regular_summaries
 
     @property

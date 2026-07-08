@@ -14,7 +14,11 @@ guard both historical failure modes of accumulation drift:
 - upward drift pushed the final scheduled save past ``t_end``,
   leaving the last host-allocated slot unwritten so the run
   returned uninitialized memory as its final sample with a success
-  status (issue #554).
+  status (issue #554);
+- a truncating precision-width quotient in the host allocation
+  counted one sample fewer than the device schedule fires, so the
+  final save wrote one row past the allocated output array
+  (issue #554).
 """
 
 import numpy as np
@@ -140,4 +144,48 @@ def test_final_save_slot_written_on_inexact_grid(oscillator_system):
         f"saved times are not strictly increasing: {times}"
     )
     assert times[-1] == pytest.approx(1.0, abs=1e-6)
+    assert np.isfinite(result.time_domain_array).all()
+
+
+def test_truncated_quotient_allocates_endpoint_slot(oscillator_system):
+    """The end-time sample lost by a truncating quotient is allocated.
+
+    With duration=0.01 and save_every=0.001 in float32 the quotient
+    is 9.9999993: a precision-width truncating division counts ten
+    samples while the device schedule fires eleven saves (the
+    initial sample plus ten crossings, the last within the
+    half-interval margin), writing one row past the output array
+    (issue #554). The host now rounds the float64 quotient to
+    nearest, so all eleven rows are allocated and written.
+    """
+    n = 1
+    result = solve_ivp(
+        system=oscillator_system,
+        y0={
+            "x1": np.ones(n, dtype=np.float32),
+            "v1": np.zeros(n, dtype=np.float32),
+            "x2": np.full(n, -0.5, dtype=np.float32),
+            "v2": np.zeros(n, dtype=np.float32),
+        },
+        parameters={
+            "k": np.full(n, 3.0, dtype=np.float32),
+            "c_couple": np.full(n, 0.3, dtype=np.float32),
+            "omega": np.full(n, 2.5, dtype=np.float32),
+        },
+        method="dormand-prince-54",
+        duration=0.01,
+        dt_min=1e-8,
+        dt_max=1.0,
+        save_every=0.001,
+        output_types=["state", "time"],
+        grid_type="verbatim",
+    )
+
+    assert int(result.status_codes[0]) == 0, result.status_messages
+    times = result.time[:, 0]
+    assert times.shape[0] == 11
+    assert np.all(np.diff(times) > 0.0), (
+        f"saved times are not strictly increasing: {times}"
+    )
+    assert times[-1] == pytest.approx(0.01, rel=1e-4)
     assert np.isfinite(result.time_domain_array).all()

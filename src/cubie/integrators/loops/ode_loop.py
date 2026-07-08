@@ -474,20 +474,6 @@ class IVPLoop(CUDAFactory):
         save_regularly = config.save_regularly
         summarise_regularly = config.summarise_regularly
 
-        # Half-interval margins for the schedule-completion tests.
-        # Repeated float addition of an inexact interval drifts the
-        # accumulated schedule by ulps per event; comparing against
-        # t_end plus half an interval keeps the final host-allocated
-        # slot reachable without altering the schedule itself.
-        if save_regularly:
-            half_save_every = precision(0.5 * save_every)
-        else:
-            half_save_every = precision(0.0)
-        if summarise_regularly:
-            half_sample_every = precision(0.5 * sample_summaries_every)
-        else:
-            half_sample_every = precision(0.0)
-
         # Loop sizes from config (sizes also used for iteration bounds)
         n_states = int32(config.n_states)
         n_parameters = int32(config.n_parameters)
@@ -517,12 +503,14 @@ class IVPLoop(CUDAFactory):
             duration,
             settling_time,
             t0,
+            save_stop,
+            summary_stop,
         ):  # pragma: no cover - CUDA fns not marked in coverage
             """Advance an integration using a compiled CUDA device loop.
 
-            The loop terminates when the time of the next saved sample
-            exceeds the end time (t0 + settling_time + duration), or when
-            the maximum number of iterations is reached.
+            The loop terminates when every output schedule passes its
+            stop time, or when the maximum number of iterations is
+            reached.
 
             Parameters
             ----------
@@ -552,6 +540,18 @@ class IVPLoop(CUDAFactory):
                 Lead-in time before samples are collected.
             t0
                 Initial integration time.
+            save_stop
+                Time half a save interval past the final scheduled
+                save event; the save schedule is complete once
+                ``next_save`` exceeds it. Computed host-side with
+                the same arithmetic as the output allocation
+                (:meth:`SingleIntegratorRun.save_stop_time`).
+            summary_stop
+                Time half a sample interval past the final
+                scheduled summary-update event; the summary
+                schedule is complete once ``next_update_summary``
+                exceeds it
+                (:meth:`SingleIntegratorRun.summary_stop_time`).
 
             Returns
             -------
@@ -561,8 +561,6 @@ class IVPLoop(CUDAFactory):
             t = float64(t0)
             t_prec = precision(t)
             t_end = precision(settling_time + t0 + duration)
-            save_stop = precision(t_end + half_save_every)
-            summary_stop = precision(t_end + half_sample_every)
 
             # Clear inherited arrays on entry
             persistent_local[:] = precision(0.0)
@@ -714,10 +712,11 @@ class IVPLoop(CUDAFactory):
                 end_of_step = t_prec + dt_raw
                 if save_regularly or summarise_regularly:
                     # Loop continues until all scheduled outputs are
-                    # complete. The half-interval margin on the stop
-                    # times tolerates upward accumulation drift, which
-                    # otherwise pushes the final scheduled event past
-                    # t_end and strands its host-allocated slot.
+                    # complete: each stop time sits half an interval
+                    # past that schedule's final event, so drift in
+                    # either direction can neither strand the final
+                    # host-allocated slot nor admit an event past
+                    # the requested duration.
                     finished = True
                     if save_regularly:
                         save_finished = bool_(next_save > save_stop)
