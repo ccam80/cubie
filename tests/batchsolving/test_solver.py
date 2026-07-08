@@ -1298,9 +1298,9 @@ def test_save_boundary_zero_gap_run_completes():
     Float32 time accumulation can land the committed time exactly on
     ``next_save`` without the save firing, because the pre-step save
     prediction and the post-step time commit use different arithmetic.
-    The step clamped to that boundary then has length zero, which the
+    A step clamped to that boundary would have length zero, which the
     step function cannot integrate; the positive-gap-only clamp keeps
-    dt_raw instead, so the run completes (issue #548).
+    dt_raw instead, so the run completes.
     """
     forced = create_ODE_system(
         "dx = v\ndv = mu * (1 - x*x) * v - x + forcing",
