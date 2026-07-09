@@ -92,7 +92,7 @@ from cubie.odesystems.symbolic.codegen.time_derivative import (
 )
 from cubie.odesystems.symbolic.sym_utils import hash_system_definition
 from cubie.odesystems.baseODE import BaseODE, ODECache
-from cubie._utils import PrecisionDType
+from cubie._utils import PrecisionDType, is_devfunc
 from cubie.time_logger import default_timelogger
 
 # Neumann preconditioner helper types checked by the convergence
@@ -489,9 +489,44 @@ class SymbolicODE(BaseODE):
         """
         if self._neumann_rhs_evaluator is None:
             self._neumann_rhs_evaluator = build_rhs_evaluator(
-                self.equations, self.indices
+                self.equations,
+                self.indices,
+                user_functions=self._device_function_injections(),
             )
         return self._neumann_rhs_evaluator
+
+    def _device_function_injections(self) -> dict[str, Callable]:
+        """Collect device callables the generated module must resolve.
+
+        Generated factories call user device functions (and their
+        derivative helpers) by name, but the generated module is
+        imported standalone, so those callables are injected as module
+        attributes before the factory is compiled.
+
+        Returns
+        -------
+        dict[str, Callable]
+            Mapping from printed function name to device callable.
+        """
+        injections = {}
+        for name, func in (self.user_functions or {}).items():
+            if is_devfunc(func):
+                injections[name] = func
+        all_symbols = self.all_symbols or {}
+        for name, obj in all_symbols.items():
+            if name == "__function_aliases__":
+                continue
+            if is_devfunc(obj):
+                injections[name] = obj
+        # The string parser renames user functions (trailing
+        # underscore), and generated source prints the renamed symbol,
+        # so each device callable is injected under its alias too.
+        aliases = all_symbols.get("__function_aliases__", {}) or {}
+        for sym_name, orig_name in aliases.items():
+            func = (self.user_functions or {}).get(orig_name)
+            if func is not None and is_devfunc(func):
+                injections[sym_name] = func
+        return injections
 
     def build(self) -> ODECache:
         """Compile the ``dxdt`` factory and refresh the cache.
@@ -519,7 +554,9 @@ class SymbolicODE(BaseODE):
                 self.equations, self.indices, "dxdt_factory"
             )
         dxdt_factory, _ = self.gen_file.import_function(
-            "dxdt_factory", dxdt_code
+            "dxdt_factory",
+            dxdt_code,
+            injections=self._device_function_injections(),
         )
         dxdt_func = dxdt_factory(constants, numba_precision)
 
@@ -530,7 +567,9 @@ class SymbolicODE(BaseODE):
                 func_name="observables_factory",
             )
         observables_factory, _ = self.gen_file.import_function(
-            "observables_factory", obs_code
+            "observables_factory",
+            obs_code,
+            injections=self._device_function_injections(),
         )
         evaluate_observables = observables_factory(constants, numba_precision)
 
@@ -1077,7 +1116,11 @@ class SymbolicODE(BaseODE):
                     f"Solver helper '{func_type}' is not implemented."
                 )
 
-        factory, was_cached = self.gen_file.import_function(factory_name, code)
+        factory, was_cached = self.gen_file.import_function(
+            factory_name,
+            code,
+            injections=self._device_function_injections(),
+        )
 
         # For prepare_jac, retrieve aux_count from cached factory if needed
         if func_type == "prepare_jac" and self._jacobian_aux_count is None:

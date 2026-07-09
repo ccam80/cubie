@@ -145,9 +145,28 @@ class NeumannRHSEvaluator:
         return jacobian
 
 
+def _host_guarded(func):
+    """Wrap a user callable so host evaluation degrades to ``nan``.
+
+    User device functions are host-callable under the CUDA simulator
+    but raise when called from host code on a real GPU; the guard
+    turns that into a ``nan`` result so the convergence diagnostic is
+    skipped gracefully instead of raising.
+    """
+
+    def wrapped(*args):
+        try:
+            return float(func(*args))
+        except Exception:
+            return float("nan")
+
+    return wrapped
+
+
 def build_rhs_evaluator(
     equations: ParsedEquations,
     index_map: IndexedBases,
+    user_functions: Optional[Dict[str, object]] = None,
 ) -> NeumannRHSEvaluator:
     """Compile a finite-difference Jacobian evaluator for a system.
 
@@ -161,6 +180,10 @@ def build_rhs_evaluator(
         Parsed ODE equations (the same object passed to codegen).
     index_map
         Index maps (states, constants, drivers, ...) for the system.
+    user_functions
+        Callables resolving user function names appearing in the
+        right-hand side, keyed by the printed name. Each is wrapped so
+        a host-side call failure yields ``nan`` instead of raising.
 
     Returns
     -------
@@ -209,8 +232,15 @@ def build_rhs_evaluator(
     # Evaluate with the ``math`` module (scalar ternaries for Piecewise,
     # builtin min/max) rather than NumPy: the finite-difference stencil
     # feeds scalars, and NumPy's ``select`` requires array conditions.
+    guarded_functions = {
+        name: _host_guarded(func)
+        for name, func in (user_functions or {}).items()
+    }
     rhs_callable = sp.lambdify(
-        argument_symbols, rhs_vector, modules=["math"], cse=True
+        argument_symbols,
+        rhs_vector,
+        modules=[guarded_functions, "math"],
+        cse=True,
     )
     return NeumannRHSEvaluator(
         rhs_callable,
