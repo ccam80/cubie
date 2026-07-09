@@ -666,6 +666,27 @@ class SingleIntegratorRunCore(CUDAFactory):
         # Include unpacked dict keys in recognized set
         return recognized | unpacked_keys
 
+    @staticmethod
+    def _clear_component_buffers(component):
+        """Drop buffer registrations for a replaced component.
+
+        Clears the component's own buffer group and, for algorithm
+        steps that own a nonlinear solver, the groups of the solver
+        chain (e.g. NewtonKrylov and its inner LinearSolver). Buffer
+        groups belonging to surviving components (the loop, and the
+        component not being swapped) are left registered.
+
+        Parameters
+        ----------
+        component
+            Algorithm step or step controller about to be replaced.
+        """
+        buffer_registry.clear_parent(component)
+        child = getattr(component, "solver", None)
+        while child is not None:
+            buffer_registry.clear_parent(child)
+            child = getattr(child, "linear_solver", None)
+
     def _switch_algos(self, updates_dict):
         """Replace the algorithm step when ``updates_dict`` contains a
         new ``"algorithm"`` key and propagate defaults.
@@ -687,7 +708,7 @@ class SingleIntegratorRunCore(CUDAFactory):
 
         new_algo = updates_dict.get("algorithm").lower()
         if new_algo != self.compile_settings.algorithm:
-            buffer_registry.reset()
+            self._clear_component_buffers(self._algo_step)
             old_settings = self._algo_step.settings_dict
             old_settings["algorithm"] = new_algo
             self._algo_step = get_algorithm_step(
@@ -727,7 +748,7 @@ class SingleIntegratorRunCore(CUDAFactory):
         new_controller = updates_dict.get("step_controller").lower()
 
         if new_controller != self.compile_settings.step_controller:
-            buffer_registry.reset()
+            self._clear_component_buffers(self._step_controller)
             old_settings = self._step_controller.settings_dict
             old_settings["step_controller"] = new_controller
             old_settings["algorithm_order"] = updates_dict.get(

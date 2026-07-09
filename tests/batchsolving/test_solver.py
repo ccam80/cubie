@@ -232,6 +232,38 @@ def test_solve_basic(
     assert hasattr(result, "summaries_array")
 
 
+@pytest.mark.parametrize(
+    "solver_settings_override",
+    [{"algorithm": "tsit5", "step_controller": "pid"}],
+    indirect=True,
+)
+def test_algorithm_hot_swap_after_solve(
+    solver_mutable,
+    simple_initial_values,
+    simple_parameters,
+    driver_settings,
+):
+    """Swapping the algorithm after a solve leaves the solver usable."""
+    solve_kwargs = dict(
+        initial_values=simple_initial_values,
+        parameters=simple_parameters,
+        drivers=driver_settings,
+        duration=0.05,
+        save_every=0.02,
+        settling_time=0.0,
+        blocksize=32,
+        grid_type="combinatorial",
+        results_type="full",
+    )
+    first = solver_mutable.solve(**solve_kwargs)
+    assert not np.any(first.status_codes)
+
+    solver_mutable.update(algorithm="bogacki-shampine-32")
+    second = solver_mutable.solve(**solve_kwargs)
+    assert not np.any(second.status_codes)
+    assert np.all(np.isfinite(second.time_domain_array))
+
+
 def test_solve_with_different_grid_types(
     solver_mutable,
     simple_initial_values,
