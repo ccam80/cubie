@@ -146,6 +146,7 @@ class SingleIntegratorRunCore(CUDAFactory):
 
         dt = step_control_settings.get("dt", None)
         algorithm_settings["n"] = n
+        algorithm_settings["n_drivers"] = system_sizes.drivers
         if dt is not None:
             algorithm_settings["dt"] = dt
         algorithm_settings["evaluate_driver_at_t"] = evaluate_driver_at_t

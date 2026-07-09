@@ -31,6 +31,16 @@ def test_construction_minimal(system):
     assert core._output_functions is not None
 
 
+def test_algorithm_step_receives_driver_count(system):
+    """The algorithm step's config carries the system's driver count."""
+    core = SingleIntegratorRunCore(
+        system=system,
+        algorithm_settings={"algorithm": "firk"},
+    )
+    assert system.sizes.drivers > 0
+    assert core._algo_step.n_drivers == system.sizes.drivers
+
+
 @pytest.mark.parametrize(
     "solver_settings_override",
     [{
