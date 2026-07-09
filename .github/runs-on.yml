@@ -1,0 +1,35 @@
+# RunsOn (Flex) custom runner + image definitions.
+# https://runs-on.com/docs/runners/custom/
+#
+# Referenced by workflows via:
+#   runs-on: "runs-on=${{ github.run_id }}/runner=<name>"
+
+images:
+  # Custom Windows 2025 + NVIDIA T4 driver AMI, baked by
+  # .github/workflows/build-windows-gpu-ami.yml. RunsOn picks the most
+  # recent AMI matching `name` owned by `self` at launch.
+  cubie-win-gpu:
+    platform: windows
+    arch: x64
+    # `self` = the AWS account RunsOn is deployed in, which is where the AMI
+    # is baked. Avoids committing a literal account ID and works for forks.
+    owner: "self"
+    name: "cubie-win-gpu-*"
+
+runners:
+  # Linux GPU: RunsOn's managed image (driver + CUDA toolkit +
+  # container toolkit prebaked; rebuilt by RunsOn ~every 15 days).
+  gpu-linux:
+    family: ["g4dn.2xlarge"]
+    image: ubuntu24-gpu-x64
+
+  # Windows GPU: our baked AMI (driver already installed).
+  # NOTE: RunsOn's build config defines a stock `windows25-gpu-x64` image
+  # (built but, as of this writing, undocumented/unannounced -- the docs
+  # still say Windows GPU is unsupported). If it becomes available in your
+  # RunsOn version, you can delete the custom-AMI apparatus (packer/,
+  # build-windows-gpu-ami.yml, ci/tools/install_gpu_driver.ps1, the
+  # `images:` block above) and set `image: windows25-gpu-x64` here instead.
+  gpu-windows:
+    family: ["g4dn.2xlarge"]
+    image: cubie-win-gpu
