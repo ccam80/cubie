@@ -31,14 +31,13 @@ stream grouping), `ArrayRequest`/`ArrayResponse` (allocation metadata), `ChunkBu
 - Two limit modes (`_mode`, default `"passive"`): `"passive"` computes caps but doesn't enforce (returns raw free VRAM); `"active"` enforces per-instance caps. Switch via `set_limit_mode()`.
 
 ### Single allocation provider
-CuPy is the only device allocator; there is no `set_allocator`/allocator-selection API and no
-`"allocator"` key in `ALL_MEMORY_MANAGER_PARAMETERS`. `MemoryManager.__attrs_post_init__` raises
-a clear `ImportError` if CuPy is not importable on a real GPU (the CUDA simulator never needs
-it). `allocate()` routes `"device"` requests through `cupy.empty`, `"pinned"` requests through
-`cupyx.empty_pinned`, and raises `NotImplementedError` for `"mapped"`/`"managed"` (unsupported,
-matching Numba's own upcoming memory-API deprecation for `device_array`/`to_device`/pinned/mapped
-allocation). `to_device`/`from_device` use CuPy's `ndarray.set`/`ndarray.get`, wrapped in
-`current_cupy_stream` so the copy stays ordered on the instance's Numba stream.
+CuPy is the only device allocator; `cupy`/`cupyx` come from `cubie.cuda_simsafe`, which imports
+them at package import on a real GPU. `allocate()` routes `"device"` requests through
+`cupy.empty` and `"pinned"` requests through `cupyx.empty_pinned`; any other placement raises
+`ValueError`. `to_device`/`from_device` use CuPy's `ndarray.set`/`ndarray.get`, wrapped in
+`current_cupy_stream` so the copy stays ordered on the instance's Numba stream. Device arrays
+must be allocated (via `allocate_queue`) before `to_device` copies into them — the copy calls
+methods on the destination array itself.
 
 ### Queued / chunked allocation
 - `queue_request(instance, {label: ArrayRequest(...)})` per participating instance, then
@@ -53,8 +52,8 @@ allocation). `to_device`/`from_device` use CuPy's `ndarray.set`/`ndarray.get`, w
 
 ### ArrayRequest / ArrayResponse
 - `ArrayRequest.dtype` is validated to exactly `float64`/`float32`/`int32`; `memory` ∈
-  `{device, pinned}` — `mapped`/`managed` are rejected at construction with `ValueError`
-  (`ManagedArray.memory_type` likewise allows only `device`/`pinned`/`host`);
+  `{device, pinned}` (`ManagedArray.memory_type` allows `device`/`pinned`/`host`); any other
+  placement raises `ValueError` at construction;
   `chunk_axis_index` defaults to `2` (the run axis in the 3-D output layout — callers with
   other layouts pass their own index); `total_runs ≥ 1` (the manager reads it from the first
   chunkable request to size chunks).
@@ -86,11 +85,10 @@ free); `clear` frees all (call on error paths). Thread-safe via a `Lock`. Under
 
 ### Testing
 `tests/memory/` (`test_memmgmt.py`, `test_array_requests.py`, `test_stream_groups.py`,
-`test_chunk_buffer_pool.py`, `test_cupyemm.py` — needs the `cupy` marker + a real GPU with
+`test_chunk_buffer_pool.py`, `test_memmgmt.py` — needs the `cupy` marker + a real GPU with
 cupy installed). CuPy-returning-array assertions and the CuPy-stream-forwarding test are marked
-`nocudasim`; construction-time CuPy requirement, the `ValueError` on
-`"mapped"`/`"managed"` requests, and `allocate()`'s `NotImplementedError` backstop for
-direct calls are exercised directly.
+`nocudasim`; the `ValueError` on unsupported placements is exercised at both request
+construction and direct `allocate()` calls.
 
 ## Dependencies
 ### Internal

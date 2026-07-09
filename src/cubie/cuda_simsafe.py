@@ -34,9 +34,10 @@ See Also
 :mod:`cubie._utils`
     Imports ``compile_kwargs`` and ``is_devfunc`` from this module.
 :mod:`cubie.memory.mem_manager`
-    Uses the device-array stand-ins exported here. This module also
-    owns the single conditional import of ``cupy``/``cupyx``: both
-    are imported eagerly on a real GPU (CuPy is CuBIE's device
+    Uses the ``Stream`` stand-in, ``current_mem_info``, and the
+    ``cupy``/``cupyx`` imports exported here. This module owns the
+    single conditional import of ``cupy``/``cupyx``: both are
+    imported eagerly on a real GPU (CuPy is CuBIE's device
     allocation provider, so it is a hard requirement there) and are
     ``None`` under the CUDA simulator, which never touches device
     memory. Consumers import them from here rather than importing

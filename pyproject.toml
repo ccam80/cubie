@@ -46,11 +46,9 @@ Issues = "https://github.com/ccam80/cubie/issues"
 [project.optional-dependencies]
 # CuPy is cubie's single device memory allocator on a real GPU, so the
 # cuda12/cuda13 lanes pull in the matching cupy build alongside the
-# toolkit wheels. cupy12/cupy13 remain as standalone aliases.
+# toolkit wheels.
 cuda12 = ["numba-cuda[cu12]", "cupy-cuda12x"] # CUDA 12 toolkit + CuPy
 cuda13 = ["numba-cuda[cu13]", "cupy-cuda13x"] # CUDA 13 toolkit + CuPy
-cupy12 = ["cupy-cuda12x"] # alias: CuPy alone, CUDA 12 build
-cupy13 = ["cupy-cuda13x"] # alias: CuPy alone, CUDA 13 build
 test = [
     "pytest",
     "pytest-cov",
@@ -62,11 +60,10 @@ test = [
     "matplotlib",
     "scipy",
 ]
-# dev lanes pull cupy so the cupy-marked tests run against the matching
-# CUDA toolkit. dev defaults to the CUDA 12 lane; flip to dev13 once the
-# CUDA 13 matrix is verified.
-dev12 = ["cubie[cuda12,cupy12,test]"]
-dev13 = ["cubie[cuda13,cupy13,test]"]
+# dev defaults to the CUDA 12 lane; flip to dev13 once the CUDA 13
+# matrix is verified.
+dev12 = ["cubie[cuda12,test]"]
+dev13 = ["cubie[cuda13,test]"]
 dev = ["cubie[dev12]"]
 optional = [
     "pandas",

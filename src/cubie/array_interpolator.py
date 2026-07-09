@@ -640,9 +640,12 @@ class ArrayInterpolator(CUDAFactory):
         # no cover: end
 
         if CUDA_SIMULATION:
-            times_device = cuda.to_device(times)
-            coefficients_device = cuda.to_device(coefficients)
-            out_device = cuda.device_array(
+            # The simulator runs kernels on host memory: NumPy arrays
+            # pass straight in and the kernel writes the output array
+            # in place, so there is nothing to stage or copy back.
+            times_device = asarray(times)
+            coefficients_device = coefficients
+            out_device = empty(
                 (num_points, self.num_inputs),
                 dtype=self.precision,
             )
@@ -666,7 +669,7 @@ class ArrayInterpolator(CUDAFactory):
         cuda.synchronize()
 
         if CUDA_SIMULATION:
-            return out_device.copy_to_host()
+            return out_device
         return out_device.get()
 
     def plot_interpolated(

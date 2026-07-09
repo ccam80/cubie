@@ -68,7 +68,7 @@ change — the full suite is slow (run it as a pre-commit check only, and only w
 - Never call a `CUDAFactory.build()` directly — access compiled functions via the cached properties.
 - Never set/modify env vars in source (esp. `NUMBA_ENABLE_CUDASIM`); set them externally.
 - Module-scoped imports belong in the file header only; deliberate lazy imports of optional deps
-  (Qt, cellmlmanip) stay function-local. cupy/cupyx are required on a real GPU and imported
+  (Qt) stay function-local. cupy/cupyx are required on a real GPU and imported
   once, conditionally, in `cuda_simsafe` — import them from there (`from cubie.cuda_simsafe
   import cupy, cupyx`), never directly and never lazily.
 - In `CUDAFactory`/device-code files, use explicit imports with the project aliasing (`np_`,
@@ -83,10 +83,10 @@ change — the full suite is slow (run it as a pre-commit check only, and only w
   `src/cubie/vendored/cellmlmanip` (its `lxml`/`networkx`/`Pint>=0.24`/`rdflib` runtime deps are core).
 - **CUDA toolkit:** supplied by the `cuda12`/`cuda13` extras (`numba-cuda[cu12]`/`[cu13]`) or an
   existing system install; a bare `pip install cubie` uses whatever toolkit numba-cuda can find.
-- **CuPy is required for real-GPU execution** — it is cubie's single device memory allocator
-  (no Numba-allocator fallback). The `cuda12`/`cuda13` extras pull in the matching cupy build
-  alongside the toolkit wheels; `cupy12`/`cupy13` remain as standalone aliases. Imported lazily,
-  so `import cubie` and the CUDA simulator (`NUMBA_ENABLE_CUDASIM=1`) never require it.
+- **CuPy is required for real-GPU execution** — it is cubie's single device memory allocator.
+  The `cuda12`/`cuda13` extras pull in the matching cupy build alongside the toolkit wheels.
+  It is imported at `import cubie` through `cubie.cuda_simsafe`; the CUDA simulator
+  (`NUMBA_ENABLE_CUDASIM=1`) never requires it.
 - **Optional:** pandas (DataFrame output), matplotlib (driver plots).
 - CI installs a patched `numba-cuda` fork (`ccam80/numba-cuda@cubie_patch`) for faster compile;
   stock `numba-cuda` works for local dev.

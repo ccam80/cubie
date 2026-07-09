@@ -1117,9 +1117,7 @@ class MemoryManager:
         Raises
         ------
         ValueError
-            If memory_type is not recognized.
-        NotImplementedError
-            If memory_type is "mapped" or "managed" (not supported).
+            If memory_type is not "device" or "pinned".
         """
         _ensure_cuda_context()
         if memory_type == "device":
@@ -1129,10 +1127,6 @@ class MemoryManager:
                 return cupy.empty(shape, dtype=dtype)
         elif memory_type == "pinned":
             return _pinned_host_array(shape, dtype)
-        elif memory_type == "mapped":
-            raise NotImplementedError("Mapped memory not implemented")
-        elif memory_type == "managed":
-            raise NotImplementedError("Managed memory not implemented")
         else:
             raise ValueError(f"Invalid memory type: {memory_type}")
 

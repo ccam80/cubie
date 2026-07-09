@@ -477,12 +477,11 @@ class TestMemoryManager:
                 assert isinstance(arr, np.ndarray)
             assert arr.shape == (2, 2)
             assert arr.dtype == np.float32
-        with pytest.raises(NotImplementedError):
-            mgr.allocate(shape=(1, 1), dtype=np.float32, memory_type="mapped")
-        with pytest.raises(NotImplementedError):
-            mgr.allocate(shape=(1, 1), dtype=np.float32, memory_type="managed")
-        with pytest.raises(ValueError):
-            mgr.allocate(shape=(1, 1), dtype=np.float32, memory_type="invalid")
+        for unsupported in ["mapped", "managed", "invalid"]:
+            with pytest.raises(ValueError):
+                mgr.allocate(
+                    shape=(1, 1), dtype=np.float32, memory_type=unsupported
+                )
 
     @pytest.mark.nocudasim
     @pytest.mark.cupy
