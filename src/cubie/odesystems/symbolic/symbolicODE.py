@@ -153,6 +153,7 @@ def create_ODE_system(
     constants: Optional[Union[dict[str, float], Iterable[str]]] = None,
     drivers: Optional[Union[Iterable[str], dict[str, Any]]] = None,
     user_functions: Optional[dict[str, Callable]] = None,
+    user_function_derivatives: Optional[dict[str, Callable]] = None,
     name: Optional[str] = None,
     strict: bool = False,
 ) -> "SymbolicODE":
@@ -187,6 +188,10 @@ def create_ODE_system(
         entries.
     user_functions
         Custom callables referenced within ``dxdt`` expressions.
+    user_function_derivatives
+        Mapping of user-function names to callables evaluating their
+        analytic derivatives, used when generating Jacobian-based
+        solver helpers.
     name
         Identifier used for generated files. Defaults to the hash of the system
         definition.
@@ -208,6 +213,7 @@ def create_ODE_system(
         constants=constants,
         drivers=drivers,
         user_functions=user_functions,
+        user_function_derivatives=user_function_derivatives,
         name=name,
         precision=precision,
         strict=strict,
@@ -315,7 +321,7 @@ class SymbolicODE(BaseODE):
     @classmethod
     def create(
         cls,
-        dxdt: Union[str, Iterable[str]],
+        dxdt: Union[str, Iterable[str], Callable],
         precision: PrecisionDType,
         states: Optional[Union[dict[str, float], Iterable[str]]] = None,
         observables: Optional[Iterable[str]] = None,
@@ -323,6 +329,7 @@ class SymbolicODE(BaseODE):
         constants: Optional[Union[dict[str, float], Iterable[str]]] = None,
         drivers: Optional[Union[Iterable[str], dict[str, Any]]] = None,
         user_functions: Optional[dict[str, Callable]] = None,
+        user_function_derivatives: Optional[dict[str, Callable]] = None,
         name: Optional[str] = None,
         strict: bool = False,
         state_units: Optional[Union[dict[str, str], Iterable[str]]] = None,
@@ -338,8 +345,9 @@ class SymbolicODE(BaseODE):
         Parameters
         ----------
         dxdt
-            System equations defined as either a single string or an iterable
-            of equation strings in ``lhs = rhs`` form.
+            System equations defined as a single string, an iterable of
+            equation strings in ``lhs = rhs`` form, or a Python callable
+            with a ``(t, y, ...)`` signature.
         states
             State labels either as an iterable or as a mapping to default
             initial values.
@@ -357,6 +365,10 @@ class SymbolicODE(BaseODE):
             defaults or driver-array samples alongside configuration entries.
         user_functions
             Custom callables referenced within ``dxdt`` expressions.
+        user_function_derivatives
+            Mapping of user-function names to callables evaluating
+            their analytic derivatives, used when generating
+            Jacobian-based solver helpers.
         name
             Identifier used for generated files. Defaults to the hash of the
             system definition.
@@ -384,7 +396,7 @@ class SymbolicODE(BaseODE):
         if isinstance(drivers, dict) and (
             "time" in drivers or "dt" in drivers
         ):
-            ArrayInterpolator(precision=precision, drivers_dict=drivers)
+            ArrayInterpolator(precision=precision, input_dict=drivers)
 
         # Register timing event for parsing (one-time registration)
         default_timelogger.register_event(
@@ -402,6 +414,7 @@ class SymbolicODE(BaseODE):
             constants=constants,
             drivers=drivers,
             user_functions=user_functions,
+            user_function_derivatives=user_function_derivatives,
             dxdt=dxdt,
             strict=strict,
             state_units=state_units,

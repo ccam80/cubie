@@ -692,8 +692,8 @@ class SolveResult:
         """
         singlevar_legend = solver.summary_legend_per_variable
         unit_modifications = solver.summary_unit_modifications
-        state_labels = solver.saved_states
-        obs_labels = solver.saved_observables
+        state_labels = solver.summarised_states
+        obs_labels = solver.summarised_observables
         summaries_legend = {}
 
         state_units = {}

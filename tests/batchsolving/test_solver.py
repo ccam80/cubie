@@ -502,6 +502,74 @@ def test_solve_ivp_forwards_save_every_and_settling_time(
     assert np.diff(times) == pytest.approx(0.04)
 
 
+def test_solve_ivp_accepts_callable():
+    """solve_ivp builds the system from a SciPy-style callable."""
+    def vdp(t, y, mu):
+        return [y[1], mu * (1 - y[0] ** 2) * y[1] - y[0]]
+
+    solve_kwargs = dict(
+        y0={"x": [1.0], "v": [0.0]},
+        parameters={"mu": [1.5]},
+        dt=1e-2,
+        duration=0.05,
+        save_every=0.01,
+        output_types=["state"],
+        method="euler",
+    )
+    result = solve_ivp(vdp, **solve_kwargs)
+    assert isinstance(result, SolveResult)
+    direct = np.asarray(result.as_numpy["time_domain_array"])
+    assert np.all(np.isfinite(direct))
+
+    from cubie import create_ODE_system
+
+    prebuilt = create_ODE_system(
+        vdp, states={"x": 1.0, "v": 0.0}, parameters={"mu": 1.5}
+    )
+    result_two_step = solve_ivp(prebuilt, **solve_kwargs)
+    two_step = np.asarray(
+        result_two_step.as_numpy["time_domain_array"]
+    )
+    assert np.array_equal(direct, two_step)
+
+
+def test_solve_ivp_accepts_equation_strings():
+    """solve_ivp builds the system from equation strings."""
+    result = solve_ivp(
+        ["dx = v", "dv = mu * (1 - x*x) * v - x"],
+        y0={"x": [1.0], "v": [0.0]},
+        parameters={"mu": [1.5]},
+        dt=1e-2,
+        duration=0.05,
+        save_every=0.01,
+        output_types=["state"],
+        method="euler",
+    )
+    assert isinstance(result, SolveResult)
+    values = np.asarray(result.as_numpy["time_domain_array"])
+    assert np.all(np.isfinite(values))
+
+
+@pytest.mark.parametrize(
+    "bad_parameters",
+    [np.array([[0.5]]), [0.5], (0.5,)],
+    ids=["ndarray", "list", "tuple"],
+)
+def test_solve_ivp_raw_equations_reject_array_parameters(bad_parameters):
+    """Raw-equation solve_ivp needs named parameters, not sequences."""
+    def decay(t, y, k):
+        return [-k * y[0]]
+
+    with pytest.raises(TypeError, match="dict"):
+        solve_ivp(
+            decay,
+            y0={"x": [1.0]},
+            parameters=bad_parameters,
+            duration=0.05,
+            method="euler",
+        )
+
+
 def test_solver_with_different_algorithms(system, solver_settings):
     """Test solver with different algorithms."""
     algorithms = ["euler", "backwards_euler_pc"]
@@ -1288,3 +1356,46 @@ def test_regular_saves_fill_allocation_at_fp_endpoints(
     final_states = states[-1, : len(simple_initial_values), :]
     assert np.all(np.isfinite(final_states))
     assert np.any(final_states != 0.0)
+
+
+@pytest.mark.nocudasim
+def test_save_boundary_zero_gap_run_completes():
+    """A driven stiff Rosenbrock run survives t rounding onto a save
+    boundary.
+
+    Float32 time accumulation can land the committed time exactly on
+    ``next_save`` without the save firing, because the pre-step save
+    prediction and the post-step time commit use different arithmetic.
+    A step clamped to that boundary would have length zero, which the
+    step function cannot integrate; the positive-gap-only clamp keeps
+    dt_raw instead, so the run completes.
+
+    This test keeps its own system because landing the committed
+    time exactly on a save boundary needs this particular driven
+    stiff system with these solver settings; the shared fixture
+    systems do not reproduce the coincidence.
+    """
+    forced = create_ODE_system(
+        "dx = v\ndv = mu * (1 - x*x) * v - x + forcing",
+        parameters={"mu": 50.0},
+        states={"x": 2.0, "v": 0.0},
+        drivers=["forcing"],
+        precision=np.float32,
+        name="ForcedVanDerPol548",
+    )
+    time = np.linspace(0.0, 20.0, 400)
+    signal = 5.0 * np.sin(2.0 * np.pi * 0.25 * time)
+
+    result = solve_ivp(
+        forced,
+        y0={"x": np.array([2.0]), "v": np.array([0.0])},
+        parameters={"mu": np.array([64.0])},
+        drivers={"forcing": signal, "time": time},
+        method="rosenbrock",
+        duration=20.0,
+        save_every=0.05,
+    )
+
+    assert result.status_messages == {}
+    states = np.asarray(result.time_domain_array)
+    assert np.all(np.isfinite(states))

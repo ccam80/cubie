@@ -43,6 +43,7 @@ class D2xdt2Extrema(SummaryMetric):
             buffer_size=4,
             output_size=2,
             unit_modification="[unit]*s^-2",
+            output_names=["d2xdt2_max", "d2xdt2_min"],
         )
 
     def build(self) -> MetricFuncCache:

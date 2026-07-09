@@ -43,13 +43,6 @@ def expected_single_array(array_request_settings):
             array_request_settings["shape"],
             dtype=array_request_settings["dtype"],
         )
-    elif arr_request["memory"] == "mapped":
-        arr = cuda.mapped_array(
-            array_request_settings["shape"],
-            dtype=array_request_settings["dtype"],
-        )
-    elif arr_request["memory"] == "managed":
-        raise NotImplementedError("Managed memory not implemented")
     else:
         raise ValueError(f"Invalid memory type: {arr_request['memory']}")
     return arr

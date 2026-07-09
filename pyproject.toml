@@ -12,7 +12,7 @@ exclude  = ["./tests/*"]
 
 [project]
 name = "cubie"
-version = "0.0.8"
+version = "0.1.0"
 description = "CUDA Batch Integration Engine."
 authors = [
     { name="Chris Cameron" }
@@ -22,8 +22,10 @@ requires-python = ">=3.11"
 license = "MIT"
 license-files = ["src/LICEN[CS]E*"]
 dependencies = [
-    "numpy>=2.0", # numba-cuda-mlir requires numpy 2.x type aliases
-    "numba-cuda-mlir[cu12]",
+    "numpy>=2.0", # vendoring cellmlmanip lifts the former <2.0 cap
+    "numba",
+    "numba-cuda-mlir", # frontend; toolkit resolved from wheels (cuda12/
+                       # cuda13 extras) or an existing system CUDA install
     "attrs",
     "sympy>=1.13.0",
     # cellmlmanip is vendored under cubie.vendored.cellmlmanip (it pins
@@ -42,9 +44,12 @@ Homepage = "https://github.com/ccam80/cubie.git"
 Issues = "https://github.com/ccam80/cubie/issues"
 
 [project.optional-dependencies]
-cupy = ["cupy-cuda12x"] # optional pool memory, matches the cu12 backend pin
+# CuPy is cubie's single device memory allocator on a real GPU, so the
+# cuda12/cuda13 lanes pull in the matching cupy build alongside the
+# toolkit wheels.
+cuda12 = ["numba-cuda-mlir[cu12]", "cupy-cuda12x"] # CUDA 12 toolkit + CuPy
+cuda13 = ["numba-cuda-mlir[cu13]", "cupy-cuda13x"] # CUDA 13 toolkit + CuPy
 test = [
-    "numba",  # CPU-reference implementations in tests use numba.njit
     "pytest",
     "pytest-cov",
     "pytest-durations",
@@ -55,9 +60,11 @@ test = [
     "matplotlib",
     "scipy",
 ]
-# dev pulls cupy so the cupy-marked tests run; the backend is pinned to
-# the CUDA 12 lane via numba-cuda-mlir[cu12] above.
-dev = ["cubie[cupy,test]"]
+# dev defaults to the CUDA 12 lane; flip to dev13 once the CUDA 13
+# matrix is verified.
+dev12 = ["cubie[cuda12,test]"]
+dev13 = ["cubie[cuda13,test]"]
+dev = ["cubie[dev12]"]
 optional = [
     "pandas",
     "matplotlib"

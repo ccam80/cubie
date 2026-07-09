@@ -34,7 +34,14 @@ See Also
 :mod:`cubie._utils`
     Imports ``compile_kwargs`` and ``is_devfunc`` from this module.
 :mod:`cubie.memory.mem_manager`
-    Uses memory manager classes exported here.
+    Uses the ``Stream`` stand-in, ``current_mem_info``, and the
+    ``cupy``/``cupyx`` imports exported here. This module owns the
+    single conditional import of ``cupy``/``cupyx``: both are
+    imported eagerly on a real GPU (CuPy is CuBIE's device
+    allocation provider, so it is a hard requirement there) and are
+    ``None`` under the CUDA simulator, which never touches device
+    memory. Consumers import them from here rather than importing
+    CuPy directly.
 """
 
 from __future__ import annotations
@@ -52,16 +59,9 @@ if os.environ.get("NUMBA_ENABLE_CUDASIM") == "1":
 
 from numba_cuda_mlir import cuda
 from numba_cuda_mlir.cuda import (
-    HostOnlyCUDAMemoryManager,
-    MemoryPointer,
-    MemoryInfo,
-    set_memory_manager as set_cuda_memory_manager,
     is_cuda_array as _is_cuda_array,
 )
 from numba_cuda_mlir.numba_cuda.cudadrv.driver import (
-    BaseCUDAMemoryManager,
-    GetIpcHandleMixin,
-    NumbaCUDAMemoryManager,
     Stream,
 )
 from numba_cuda_mlir.numba_cuda.cudadrv.devicearray import (
@@ -75,6 +75,20 @@ from numba_cuda_mlir.numba_cuda.np.numpy_support import (
 
 
 CUDA_SIMULATION: bool = False
+
+# CuPy is CuBIE's single device allocation provider on a real GPU.
+# numba-cuda-mlir has no simulator, so CuPy is always required here;
+# consumers import it from this module rather than importing directly.
+try:
+    import cupy
+    import cupyx
+except ImportError as e:
+    raise ImportError(
+        "CuPy is required for CuBIE's device memory allocations on a "
+        "real GPU. Install it via the cuda12/cuda13 extra (pip install "
+        "cubie[cuda12]) or pip install cupy-cuda12x directly (assuming "
+        "CUDA toolkit 12.x)."
+    ) from e
 
 # Compile kwargs for cuda.jit decorators.
 # numba-cuda-mlir only accepts fastmath as a boolean, so the previous
@@ -221,25 +235,20 @@ __all__ = [
     "activemask",
     "all_sync",
     "any_sync",
-    "BaseCUDAMemoryManager",
     "compile_kwargs",
     "CUDA_SIMULATION",
+    "cupy",
+    "cupyx",
     "current_mem_info",
     "DeviceNDArray",
     "DeviceNDArrayBase",
     "from_dtype",
-    "GetIpcHandleMixin",
-    "HostOnlyCUDAMemoryManager",
     "is_cuda_array",
     "is_cudasim_enabled",
     "max_shared_memory_per_block",
     "is_devfunc",
     "MappedNDArray",
-    "MemoryInfo",
-    "MemoryPointer",
-    "NumbaCUDAMemoryManager",
     "selp",
-    "set_cuda_memory_manager",
     "Stream",
     "stwt",
     "syncwarp",

@@ -53,8 +53,7 @@ class ArrayRequest:
         NumPy precision constructor used to produce the allocation. Defaults to
         :func:`numpy.float64`. Integer status buffers use :func:`numpy.int32`.
     memory
-        Memory placement option. Must be one of ``"device"``, ``"mapped"``,
-        ``"pinned"``, or ``"managed"``.
+        Memory placement option. Must be ``"device"`` or ``"pinned"``.
     unchunkable
         Whether the memory manager is allowed to chunk the allocation.
     total_runs
@@ -90,7 +89,7 @@ class ArrayRequest:
     )
     memory: str = attrs.field(
         default="device",
-        validator=val.in_(["device", "mapped", "pinned", "managed"]),
+        validator=val.in_(["device", "pinned"]),
     )
     chunk_axis_index: Optional[int] = attrs.field(
         default=2,

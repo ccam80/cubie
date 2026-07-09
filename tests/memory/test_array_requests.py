@@ -62,21 +62,27 @@ def test_array_request_rejects_non_tuple_shape():
     "mem",
     [
         pytest.param("device", id="device"),
-        pytest.param("mapped", id="mapped"),
         pytest.param("pinned", id="pinned"),
-        pytest.param("managed", id="managed"),
     ],
 )
 def test_array_request_accepts_valid_memory(mem):
-    """ArrayRequest accepts all four memory placement options."""
+    """ArrayRequest accepts the supported memory placements."""
     req = ArrayRequest(dtype=np.float64, memory=mem)
     assert req.memory == mem
 
 
-def test_array_request_rejects_invalid_memory():
-    """ArrayRequest rejects unknown memory placements."""
+@pytest.mark.parametrize(
+    "mem",
+    [
+        pytest.param("host", id="host"),
+        pytest.param("mapped", id="mapped"),
+        pytest.param("managed", id="managed"),
+    ],
+)
+def test_array_request_rejects_invalid_memory(mem):
+    """ArrayRequest rejects unsupported memory placements."""
     with pytest.raises(ValueError):
-        ArrayRequest(dtype=np.float64, memory="host")
+        ArrayRequest(dtype=np.float64, memory=mem)
 
 
 # ── ArrayRequest: chunk_axis_index ──────────────────── #

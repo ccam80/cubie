@@ -34,6 +34,7 @@ See Also
 from pathlib import Path
 from typing import (
     Any,
+    Callable,
     Dict,
     Iterable,
     List,
@@ -43,7 +44,7 @@ from typing import (
     Union,
 )
 
-from numpy import ndarray, zeros as np_zeros
+from numpy import asarray, ndarray, zeros as np_zeros
 
 from cubie.outputhandling.output_config import OutputCompileFlags
 from cubie._utils import PrecisionDType
@@ -55,6 +56,7 @@ from cubie.batchsolving.solveresult import SolveResult, SolveSpec
 from cubie.batchsolving.SystemInterface import SystemInterface
 from cubie.memory.mem_manager import ALL_MEMORY_MANAGER_PARAMETERS
 from cubie.odesystems.baseODE import BaseODE
+from cubie.odesystems.symbolic import create_ODE_system
 from cubie.array_interpolator import ArrayInterpolator
 from cubie.integrators.algorithms.base_algorithm_step import (
     ALL_ALGORITHM_STEP_PARAMETERS,
@@ -90,6 +92,73 @@ RENAMED_TIMING_KWARGS = {
 """Legacy timing keyword spellings mapped to their current names."""
 
 
+def _system_from_equations(
+    dxdt: Union[str, Callable, Iterable[str]],
+    y0: Optional[Union[ndarray, Dict[str, object]]],
+    parameters: Optional[Union[ndarray, Dict[str, object]]],
+    drivers: Optional[Dict[str, object]],
+    precision: Optional[PrecisionDType] = None,
+) -> BaseODE:
+    """Build a :class:`SymbolicODE` from equations passed to solve_ivp.
+
+    Parameters
+    ----------
+    dxdt
+        Equations as a callable, an equation string, or an iterable of
+        equation strings.
+    y0
+        Initial-value input. A dict supplies state names and default
+        initial values; an array defers state naming to inference.
+    parameters
+        Parameter input. A dict supplies parameter names and default
+        values (the first value of each entry). Arrays are rejected
+        because they carry no names to declare.
+    drivers
+        Driver configuration forwarded to system creation.
+    precision
+        Optional precision override for the created system.
+
+    Returns
+    -------
+    BaseODE
+        System constructed from the supplied equations.
+
+    Raises
+    ------
+    TypeError
+        If ``parameters`` is a non-dict sequence (array, list, or
+        tuple), which carries no names to declare parameters.
+    """
+    if parameters is not None and not isinstance(parameters, dict):
+        raise TypeError(
+            "When equations are supplied directly to solve_ivp, "
+            "parameters must be a dict mapping names to values so the "
+            "system's parameters can be declared."
+        )
+    states = None
+    if isinstance(y0, dict):
+        states = {
+            name: float(asarray(values).flat[0])
+            for name, values in y0.items()
+        }
+    parameter_defaults = None
+    if isinstance(parameters, dict):
+        parameter_defaults = {
+            name: float(asarray(values).flat[0])
+            for name, values in parameters.items()
+        }
+    create_kwargs = {}
+    if precision is not None:
+        create_kwargs["precision"] = precision
+    return create_ODE_system(
+        dxdt=dxdt,
+        states=states,
+        parameters=parameter_defaults,
+        drivers=drivers,
+        **create_kwargs,
+    )
+
+
 def _check_renamed_kwargs(keys: Iterable[str]) -> None:
     """Raise ``KeyError`` for legacy keyword spellings with rename hints.
 
@@ -114,7 +183,7 @@ def _check_renamed_kwargs(keys: Iterable[str]) -> None:
 
 
 def solve_ivp(
-    system: BaseODE,
+    system: Union[BaseODE, str, Callable, Iterable[str]],
     y0: Union[ndarray, Dict[str, ndarray]],
     parameters: Optional[Union[ndarray, Dict[str, ndarray]]] = None,
     drivers: Optional[Dict[str, object]] = None,
@@ -134,7 +203,15 @@ def solve_ivp(
     Parameters
     ----------
     system
-        System model defining the differential equations.
+        System model defining the differential equations. Accepts a
+        prebuilt :class:`~cubie.odesystems.baseODE.BaseODE`, or raw
+        equations as a Python callable, an equation string, or an
+        iterable of equation strings. Raw equations are converted with
+        :func:`~cubie.odesystems.symbolic.symbolicODE.create_ODE_system`,
+        taking state names and defaults from a ``y0`` dict and
+        parameter names and defaults from a ``parameters`` dict; for
+        repeated solves of the same system, build it once with
+        ``create_ODE_system`` and reuse a :class:`Solver` instead.
     y0
         Initial state values for each run as arrays or dictionaries mapping
         labels to arrays.
@@ -184,6 +261,15 @@ def solve_ivp(
     SolveResult
         Results returned from :meth:`Solver.solve`.
     """
+    if not isinstance(system, BaseODE):
+        system = _system_from_equations(
+            system,
+            y0,
+            parameters,
+            drivers,
+            precision=kwargs.pop("precision", None),
+        )
+
     # Collect required explicit parameters from kwargs
     loop_settings = kwargs.pop("loop_settings", None)
 
@@ -712,11 +798,6 @@ class Solver:
                     self.kernel, updates_dict["mem_proportion"]
                 )
             recognised.add("mem_proportion")
-        if "allocator" in updates_dict:
-            self.memory_manager.set_allocator(
-                updates_dict["allocator"]
-            )
-            recognised.add("allocator")
 
         recognised = set(recognised)
         all_unrecognized -= set(recognised)

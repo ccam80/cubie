@@ -78,9 +78,7 @@ class ManagedArray:
     )
     memory_type: str = field(
         default="device",
-        validator=attrsval_in(
-            ["device", "mapped", "pinned", "managed", "host"]
-        ),
+        validator=attrsval_in(["device", "pinned", "host"]),
     )
     is_chunked: bool = field(
         default=True, validator=attrsval_instance_of(bool)

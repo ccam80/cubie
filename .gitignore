@@ -67,6 +67,7 @@ nvprof/
 
 # AI
 .claude/
+.omc/
 
 # Working notes / specs (local only)
 spec/

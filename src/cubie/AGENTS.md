@@ -46,7 +46,7 @@ resolves `__version__` via `importlib.metadata.version("cubie")`.
 |-----------|---------|
 | `batchsolving/` | High-level batch integration API: `Solver`, `solve_ivp`, `BatchSolverKernel`, grid building, system interface, result containers, host/device array managers (see `batchsolving/AGENTS.md`). |
 | `integrators/` | Numerical integration components: `SingleIntegratorRun`, algorithm step factories, step controllers, matrix-free solvers, and CUDA loop builders (see `integrators/AGENTS.md`). |
-| `memory/` | GPU memory subsystem: `MemoryManager` singleton (`default_memmgr`), array request/response containers, stream groups, optional CuPy EMM integration (see `memory/AGENTS.md`). |
+| `memory/` | GPU memory subsystem: `MemoryManager` singleton (`default_memmgr`), array request/response containers, stream groups, CuPy-backed device/pinned allocation (see `memory/AGENTS.md`). |
 | `odesystems/` | ODE system definitions and the SymPy-driven CUDA codegen pipeline (see `odesystems/AGENTS.md`). |
 | `outputhandling/` | Output and summary-metric system (see `outputhandling/AGENTS.md`). |
 | `gui/` | Optional Qt-based editors for `SymbolicODE` constants/parameters/states (see `gui/AGENTS.md`). |

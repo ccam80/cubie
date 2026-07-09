@@ -24,14 +24,16 @@ like this:
     beta = 0.1   # heater dissipation coefficient (how quickly the heat dissipates)
 
 
-    fns = [
-        "base_wiggle = sin(2 * pi * f * t)",
-        "f = 1e4 * t + 1e5",
-        "dT = alpha * (feedback_strength * x + feedback_offset) - beta * T",
-        "di = feedback_strength * x + feedback_offset",
-        "dx = v",
-        "dv = -k * x - c * v + alpha * T + base_wiggle",
-    ]
+    def cantilever(t, y, p):
+        f = 1e4 * t + 1e5
+        base_wiggle = np.sin(2 * p.pi * f * t)
+        dx = y.v
+        dv = -p.k * y.x - p.c * y.v + p.alpha * y.T + base_wiggle
+        dT = (p.alpha * (p.feedback_strength * y.x + p.feedback_offset)
+              - p.beta * y.T)
+        di = p.feedback_strength * y.x + p.feedback_offset
+        return {"x": dx, "v": dv, "T": dT, "i": di}
+
     constants = {
         "k": 0.1,
         "c": 0.01,
@@ -51,7 +53,7 @@ like this:
     }
 
     sys = qb.create_ODE_system(
-        fns,
+        cantilever,
         parameters=parameters,
         constants=constants,
         states=initial_conditions,
@@ -93,13 +95,16 @@ an example of how to do this:
     t_driver = np.linspace(0, 1.0, 1000)
     signal = np.sin(2 * np.pi * 5 * t_driver) * np.exp(-t_driver)
 
+    def driven(t, y, p):
+        dx = -p.k * y.x + p.amplitude * drive_signal
+        return [dx]
+
     sys = qb.create_ODE_system(
-        """
-        dx = -k * x + amplitude * drive_signal
-        """,
+        driven,
         constants={"k": 1.0},
         parameters={"amplitude": 1.0},
         states={"x": 0.0},
+        drivers=["drive_signal"],
         name="DrivenSystem",
     )
 
@@ -107,25 +112,53 @@ an example of how to do this:
         sys,
         y0={"x": np.array([0.0])},
         parameters={"amplitude": np.linspace(0.1, 2.0, 100)},
-        drivers={"drive_signal": (t_driver, signal)},
-        method="dormand_prince_54",
+        drivers={"drive_signal": signal, "time": t_driver},
+        method="dormand-prince-54",
         duration=1.0,
     )
 
-Boundary Conditions
--------------------
+Note how the driver appears: it is declared in ``drivers`` when the
+system is created, and referenced by its bare name inside the function
+body, since drivers are not part of the state or parameter containers.
 
-You have several options for how the driver behaves at and beyond the
-edges of the provided data:
+The ``drivers`` dictionary maps each driver name to a 1-D array of
+sampled values.  The sample times are supplied alongside them, either
+as a ``"time"`` array of the same length, or as scalar ``"dt"`` (and
+optionally ``"t0"``) keys when the samples are evenly spaced.
 
-**Wrap**
-   The signal repeats periodically.  Useful for periodic forcing.
+Interpolation Options
+---------------------
 
-**Zero-pad**
-   The signal is set to zero outside the provided time range.  By
-   default, CuBIE fits a smooth spline from the last data point down to
-   zero over one sample interval, avoiding a discontinuous jump.
+The remaining keys of the ``drivers`` dictionary control how CuBIE
+interpolates between your samples:
 
-**Spline endpoints**
-   Custom endpoint handling using spline interpolation for smooth
-   transitions at the boundaries.
+**order** (default ``3``)
+   Polynomial degree of the spline fitted over each sample segment.
+   The default cubic is smooth enough for most signals.
+
+**wrap** (default ``True``)
+   What happens outside the sampled time range.  With ``wrap=True``
+   the signal repeats periodically — useful for periodic forcing.
+   With ``wrap=False`` the signal is zero outside the sampled range;
+   CuBIE adds a smooth spline segment from the last data point down to
+   zero (and up from zero to the first point) so there is no
+   discontinuous jump.
+
+**boundary_condition**
+   End-point condition for the spline fit: one of ``"natural"``,
+   ``"periodic"``, ``"clamped"``, or ``"not-a-knot"`` (the scipy
+   ``CubicSpline`` conventions).  If you don't set it, CuBIE picks
+   ``"periodic"`` when ``wrap=True`` and ``"clamped"`` when
+   ``wrap=False``.
+
+.. code-block:: python
+
+    drivers={
+        "drive_signal": signal,
+        "time": t_driver,
+        "order": 3,
+        "wrap": True,
+    }
+
+A worked example, including a sanity-check plot of the interpolated
+driver, lives in ``docs/source/examples/array_interpolation_example.py``.
