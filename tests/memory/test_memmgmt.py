@@ -792,6 +792,41 @@ class TestMemoryManager:
 
         mgr.allocate_queue(instance)
 
+    @pytest.mark.parametrize(
+        "fixed_mem_override", [{"free": 1024}], indirect=True
+    )
+    def test_allocate_queue_empty_rebroadcasts_chunk_parameters(self, mgr):
+        """Test allocate_queue with nothing queued resends chunk params."""
+        instance = DummyClass()
+        responses = []
+        mgr.register(
+            instance, allocation_ready_hook=lambda r: responses.append(r)
+        )
+
+        requests = {
+            "arr1": ArrayRequest(
+                shape=(4, 100),
+                dtype=np.float32,
+                memory="device",
+                chunk_axis_index=1,
+                total_runs=100,
+            ),
+        }
+        mgr.queue_request(instance, requests)
+        mgr.allocate_queue(instance)
+
+        assert len(responses) == 1
+        first = responses[0]
+        assert first.chunks > 1
+
+        # Repeat call with nothing queued: chunk parameters rebroadcast
+        mgr.allocate_queue(instance)
+        assert len(responses) == 2
+        second = responses[1]
+        assert second.arr == {}
+        assert second.chunks == first.chunks
+        assert second.chunk_length == first.chunk_length
+
     def test_is_grouped(self, mgr):
         """Test is_grouped returns correct grouping status for instances."""
         # Test instance in default group (should return False)
