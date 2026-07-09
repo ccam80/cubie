@@ -37,11 +37,10 @@ from threading import Lock
 
 from attrs import define, field
 from attrs.validators import instance_of as attrsval_instance_of
-from numba import cuda
 from numpy import ndarray, zeros as np_zeros
 from numpy import dtype as np_dtype
 
-from cubie.cuda_simsafe import CUDA_SIMULATION
+from cubie.cuda_simsafe import CUDA_SIMULATION, cupyx
 
 
 @define
@@ -167,11 +166,14 @@ class ChunkBufferPool:
         PinnedBuffer
             Newly allocated pinned buffer.
         """
-        # Use np.zeros for CUDASIM mode, cuda.pinned_array otherwise
+        # Use np.zeros for CUDASIM mode; CuPy's pinned memory pool
+        # otherwise, since CuPy is the single device allocation
+        # provider on a real GPU.
         if CUDA_SIMULATION:
             arr = np_zeros(shape, dtype=dtype)
         else:
-            arr = cuda.pinned_array(shape, dtype=dtype)
+            arr = cupyx.empty_pinned(shape, dtype=dtype)
+            arr.fill(0)
 
         buffer_id = self._next_id
         self._next_id += 1

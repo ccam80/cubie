@@ -48,10 +48,11 @@ See Also
     Manages CUDA stream groups used by the memory manager.
 """
 
+from types import TracebackType
 from typing import Any, Optional, Callable, Dict, Tuple
 from warnings import warn
-import contextlib
 from copy import deepcopy
+import ctypes
 
 from numba import cuda
 from attrs import define, Factory as attrsFactory, field
@@ -69,16 +70,14 @@ from numpy import (
 from math import prod
 
 from cubie.cuda_simsafe import (
-    BaseCUDAMemoryManager,
-    NumbaCUDAMemoryManager,
-    current_mem_info,
-    set_cuda_memory_manager,
     CUDA_SIMULATION,
+    Stream,
+    cupy,
+    cupyx,
+    current_mem_info,
 )
-from cubie.memory.cupy_emm import current_cupy_stream
 from cubie.memory.stream_groups import StreamGroups
 from cubie.memory.array_requests import ArrayRequest, ArrayResponse
-from cubie.memory.cupy_emm import CuPyAsyncNumbaManager, CuPySyncNumbaManager
 
 
 # Recognised configuration parameters for memory manager settings.
@@ -88,7 +87,6 @@ ALL_MEMORY_MANAGER_PARAMETERS = {
     "memory_manager",
     "stream_group",
     "mem_proportion",
-    "allocator",
 }
 """All keyword arguments accepted by :class:`MemoryManager` registration
 and solver-level memory configuration.
@@ -108,10 +106,6 @@ and solver-level memory configuration.
    * - ``mem_proportion``
      - :meth:`MemoryManager.register`
      - Proportion of VRAM to assign (0.0--1.0).
-   * - ``allocator``
-     - :meth:`MemoryManager.set_allocator`
-     - Memory allocator type (``"default"``, ``"cupy"``,
-       ``"cupy_async"``).
 """
 
 
@@ -148,10 +142,6 @@ def _ensure_cuda_context() -> None:
     or is in a bad state, it raises a clear exception rather than causing
     a segfault.
 
-    This is particularly important after cuda.close() calls which can
-    leave the context in a state requiring reinitialization.
-
-
     Raises
     ------
     RuntimeError
@@ -160,7 +150,7 @@ def _ensure_cuda_context() -> None:
     if not CUDA_SIMULATION:
         try:
             # Attempt to access current context - triggers creation if
-            # needed. After cuda.close(), this will create a new context
+            # needed.
             ctx = cuda.current_context()
             if ctx is None:
                 raise RuntimeError(
@@ -174,9 +164,152 @@ def _ensure_cuda_context() -> None:
                 f"Failed to initialize or verify CUDA context: {e}. "
                 "This may indicate GPU driver issues, insufficient "
                 "permissions, or the GPU may be in an unrecoverable "
-                "state after cuda.close(). Try restarting the process "
-                "or checking GPU availability."
+                "state. Try restarting the process or checking GPU "
+                "availability."
             ) from e
+
+
+def _numba_stream_ptr(
+    nb_stream: Optional[Stream],
+) -> Optional[int]:
+    """
+    Extract a ``CUstream`` pointer from a Numba stream wrapper.
+
+    Parameters
+    ----------
+    nb_stream
+        Numba CUDA stream whose ``CUstream`` pointer should be extracted. When
+        ``None``, pointer extraction is skipped.
+
+    Returns
+    -------
+    int or None
+        Pointer value compatible with CuPy external streams, or ``None`` when
+        extraction fails.
+
+    Notes
+    -----
+    The function checks common attribute layouts across supported Numba
+    versions to maintain compatibility.
+    """
+    if nb_stream is None:
+        return None
+    h = getattr(nb_stream, "handle", None)
+    if h is None:
+        return None
+    # ctypes.c_void_p or int-like
+    if isinstance(h, ctypes.c_void_p):
+        return int(h.value) if h.value is not None else None
+    try:
+        return int(getattr(h, "value", h))
+    except Exception:
+        return None
+
+
+class current_cupy_stream:
+    """Context manager that forwards a Numba stream into CuPy APIs.
+
+    CuPy is CuBIE's single GPU allocation provider on a real device.
+    Wrapping allocations and host/device copies in this context keeps
+    them ordered on the same stream as the Numba-launched integration
+    kernel.
+
+    Parameters
+    ----------
+    nb_stream
+        Numba CUDA stream to expose to CuPy.
+
+    Attributes
+    ----------
+    nb_stream
+        The Numba stream being forwarded.
+    cupy_ext_stream
+        CuPy external stream wrapper around the Numba stream.
+
+    Notes
+    -----
+    Numba's default stream (handle ``0``) is left as CuPy's ambient
+    current stream rather than wrapped, matching Numba's own default
+    stream semantics.
+    """
+
+    def __init__(self, nb_stream: Stream) -> None:
+        self.nb_stream = nb_stream
+        self.cupy_ext_stream = None
+
+    def __enter__(self) -> "current_cupy_stream":
+        """
+        Enter the context and set up a CuPy external stream.
+
+        Returns
+        -------
+        current_cupy_stream
+            The active context manager instance.
+        """
+        ptr = _numba_stream_ptr(self.nb_stream)
+        if ptr:
+            self.cupy_ext_stream = cupy.cuda.ExternalStream(ptr)
+            self.cupy_ext_stream.__enter__()
+        return self
+
+    def __exit__(
+        self,
+        exc_type: Optional[type[BaseException]],
+        exc: Optional[BaseException],
+        tb: Optional[TracebackType],
+    ) -> Optional[bool]:
+        """Exit the context and clean up the CuPy external stream.
+
+        Parameters
+        ----------
+        exc_type
+            Exception type if an exception occurred.
+        exc
+            Exception instance if an exception occurred.
+        tb
+            Traceback object if an exception occurred.
+
+        Returns
+        -------
+        Optional[bool]
+            The inner stream's suppression decision, or ``None``
+            when no external stream is active.
+        """
+        if self.cupy_ext_stream is not None:
+            result = self.cupy_ext_stream.__exit__(exc_type, exc, tb)
+            self.cupy_ext_stream = None
+            return result
+        return None
+
+
+def _pinned_host_array(shape: Tuple[int, ...], dtype: type) -> ndarray:
+    """
+    Allocate a page-locked (pinned) host array.
+
+    Parameters
+    ----------
+    shape
+        Shape of the array to allocate.
+    dtype
+        Data type for the array elements.
+
+    Returns
+    -------
+    numpy.ndarray
+        Host array backed by page-locked memory (plain heap memory
+        under the CUDA simulator, which never transfers to a real
+        device).
+
+    Notes
+    -----
+    Pinned memory enables asynchronous host/device transfers. On a
+    real GPU this is provided by CuPy's pinned memory pool
+    (:func:`cupyx.empty_pinned`); the CUDA simulator has no device to
+    transfer to, so a plain NumPy array is used instead.
+    """
+    if CUDA_SIMULATION:
+        return np_empty(shape, dtype=dtype)
+    return cupyx.empty_pinned(shape, dtype=dtype)
 
 
 # These will be keys to a dict, so must be hashable: eq=False
@@ -342,10 +475,6 @@ class MemoryManager:
     _mode: str = field(
         default="passive", validator=attrsval_in(["passive", "active"])
     )
-    _allocator: BaseCUDAMemoryManager = field(
-        default=NumbaCUDAMemoryManager,
-        validator=attrsval_optional(attrsval_instance_of(object)),
-    )
     _auto_pool: list[int] = field(
         default=attrsFactory(list), validator=attrsval_instance_of(list)
     )
@@ -428,61 +557,6 @@ class MemoryManager:
             self._add_manual_proportion(instance, proportion)
         else:
             self._add_auto_proportion(instance)
-
-    def set_allocator(self, name: str) -> None:
-        """
-        Set the external memory allocator in Numba.
-
-        Parameters
-        ----------
-        name
-            Memory allocator type. Accepted values are ``"cupy_async"`` to use
-            CuPy's :class:`~cupy.cuda.memory.AsyncMemoryPool`, ``"cupy"`` to
-            use :class:`~cupy.cuda.memory.MemoryPool`, and ``"default"`` for
-            Numba's default manager.
-
-        Raises
-        ------
-        ValueError
-            If allocator name is not recognized.
-
-        Warnings
-        --------
-        UserWarning
-            A change to the memory manager requires the CUDA context to be
-            closed and reopened. This invalidates all previously compiled
-            kernels and allocated arrays, requiring a full rebuild.
-
-        """
-        # Ensure there's a valid context before change - only relevant if user
-        # switches in rapid succession with no interceding operations.
-        context = cuda.current_context()
-        if name == "cupy_async":
-            # use CuPy async memory pool
-            self._allocator = CuPyAsyncNumbaManager
-        elif name == "cupy":
-            self._allocator = CuPySyncNumbaManager
-        elif name == "default":
-            # use numba's default allocator
-            self._allocator = NumbaCUDAMemoryManager
-        else:
-            raise ValueError(f"Unknown allocator: {name}")
-        set_cuda_memory_manager(self._allocator)
-
-        # Reset the context:
-        # https://nvidia.github.io/numba-cuda/user/
-        # external-memory.html#setting-emm-plugin
-        # WARNING - this will invalidate all prior streams, arrays, and funcs!
-        # CUDA_ERROR_INVALID_CONTEXT or CUDA_ERROR_CONTEXT_IS_DESTROYED
-        # suggests you're using an old reference.
-        #   Specific excerpt: The invalidation of modules means that all
-        #   functions compiled with @cuda.jit prior to context destruction
-        #   will need to be redefined, as the code underlying them will also
-        #   have been unloaded from the GPU.
-        cuda.close()
-        self.context = cuda.current_context()
-        self.invalidate_all()
-        self.reinit_streams()
 
     def set_limit_mode(self, mode: str) -> None:
         """
@@ -882,7 +956,7 @@ class MemoryManager:
             )
         use_pinned = memory_type == "pinned"
         if use_pinned:
-            arr = cuda.pinned_array(shape, dtype=dtype)
+            arr = _pinned_host_array(shape, dtype)
         else:
             arr = np_empty(shape, dtype=dtype)
         if like is not None:
@@ -1031,7 +1105,7 @@ class MemoryManager:
         dtype
             Constructor returning the precision object for the array elements.
         memory_type
-            Type of memory: "device", "mapped", "pinned", or "managed".
+            Type of memory: "device" or "pinned".
         stream
             CUDA stream for the allocation. Defaults to 0.
 
@@ -1043,23 +1117,18 @@ class MemoryManager:
         Raises
         ------
         ValueError
-            If memory_type is not recognized.
-        NotImplementedError
-            If memory_type is "managed" (not supported).
+            If memory_type is not "device" or "pinned".
         """
         _ensure_cuda_context()
-        cp_ = self._allocator == CuPyAsyncNumbaManager
-        with current_cupy_stream(stream) if cp_ else contextlib.nullcontext():
-            if memory_type == "device":
+        if memory_type == "device":
+            if CUDA_SIMULATION:
                 return cuda.device_array(shape, dtype)
-            elif memory_type == "mapped":
-                return cuda.mapped_array(shape, dtype)
-            elif memory_type == "pinned":
-                return cuda.pinned_array(shape, dtype)
-            elif memory_type == "managed":
-                raise NotImplementedError("Managed memory not implemented")
-            else:
-                raise ValueError(f"Invalid memory type: {memory_type}")
+            with current_cupy_stream(stream):
+                return cupy.empty(shape, dtype=dtype)
+        elif memory_type == "pinned":
+            return _pinned_host_array(shape, dtype)
+        else:
+            raise ValueError(f"Invalid memory type: {memory_type}")
 
     def queue_request(
         self, instance: object, requests: dict[str, ArrayRequest]
@@ -1109,10 +1178,13 @@ class MemoryManager:
         """
         _ensure_cuda_context()
         stream = self.get_stream(instance)
-        cp_ = self._allocator == CuPyAsyncNumbaManager
-        with current_cupy_stream(stream) if cp_ else contextlib.nullcontext():
+        if CUDA_SIMULATION:
             for i, from_array in enumerate(from_arrays):
                 cuda.to_device(from_array, stream=stream, to=to_arrays[i])
+        else:
+            with current_cupy_stream(stream):
+                for i, from_array in enumerate(from_arrays):
+                    to_arrays[i].set(from_array)
 
     def from_device(
         self,
@@ -1135,10 +1207,13 @@ class MemoryManager:
         """
         _ensure_cuda_context()
         stream = self.get_stream(instance)
-        cp_ = self._allocator == CuPyAsyncNumbaManager
-        with current_cupy_stream(stream) if cp_ else contextlib.nullcontext():
+        if CUDA_SIMULATION:
             for i, from_array in enumerate(from_arrays):
                 from_array.copy_to_host(to_arrays[i], stream=stream)
+        else:
+            with current_cupy_stream(stream):
+                for i, from_array in enumerate(from_arrays):
+                    from_array.get(out=to_arrays[i], blocking=False)
 
     def sync_stream(self, instance: object) -> None:
         """

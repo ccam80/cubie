@@ -61,7 +61,7 @@ from attrs import define, field, validators
 from numba import cuda, int32, from_dtype
 from numpy.typing import NDArray
 
-from cubie.cuda_simsafe import selp
+from cubie.cuda_simsafe import CUDA_SIMULATION, cupy, selp
 from cubie.CUDAFactory import (
     CUDAFactory,
     CUDAFactoryConfig,
@@ -639,12 +639,23 @@ class ArrayInterpolator(CUDAFactory):
 
         # no cover: end
 
-        times_device = cuda.to_device(times)
-        coefficients_device = cuda.to_device(coefficients)
-        out_device = cuda.device_array(
-            (num_points, self.num_inputs),
-            dtype=self.precision,
-        )
+        if CUDA_SIMULATION:
+            # The simulator runs kernels on host memory: NumPy arrays
+            # pass straight in and the kernel writes the output array
+            # in place, so there is nothing to stage or copy back.
+            times_device = asarray(times)
+            coefficients_device = coefficients
+            out_device = empty(
+                (num_points, self.num_inputs),
+                dtype=self.precision,
+            )
+        else:
+            times_device = cupy.asarray(times)
+            coefficients_device = cupy.asarray(coefficients)
+            out_device = cupy.empty(
+                (num_points, self.num_inputs),
+                dtype=self.precision,
+            )
 
         threads_per_block = 128
         blocks_per_grid = (num_points + threads_per_block - 1) // (
@@ -657,7 +668,9 @@ class ArrayInterpolator(CUDAFactory):
         )
         cuda.synchronize()
 
-        return out_device.copy_to_host()
+        if CUDA_SIMULATION:
+            return out_device
+        return out_device.get()
 
     def plot_interpolated(
         self,

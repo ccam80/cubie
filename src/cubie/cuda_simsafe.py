@@ -34,15 +34,21 @@ See Also
 :mod:`cubie._utils`
     Imports ``compile_kwargs`` and ``is_devfunc`` from this module.
 :mod:`cubie.memory.mem_manager`
-    Uses memory manager classes exported here.
+    Uses the ``Stream`` stand-in, ``current_mem_info``, and the
+    ``cupy``/``cupyx`` imports exported here. This module owns the
+    single conditional import of ``cupy``/``cupyx``: both are
+    imported eagerly on a real GPU (CuPy is CuBIE's device
+    allocation provider, so it is a hard requirement there) and are
+    ``None`` under the CUDA simulator, which never touches device
+    memory. Consumers import them from here rather than importing
+    CuPy directly.
 """
 
 from __future__ import annotations
 
-from contextlib import contextmanager
 from ctypes import c_void_p
 import os
-from typing import Any, Callable, Tuple, Union
+from typing import Any, Callable, Tuple
 
 from numba import cuda
 from numba import from_dtype as numba_from_dtype
@@ -69,79 +75,10 @@ compile_kwargs: dict[str, bool] = (
 )
 
 
-class FakeBaseCUDAMemoryManager:  # pragma: no cover - placeholder
-    """Minimal stub of a CUDA memory manager."""
-
-    def __init__(self, context: Union[Any, None] = None):
-        self.context = context
-
-    def initialize(self) -> None:
-        """Placeholder initialize method."""
-
-    def reset(self) -> None:
-        """Placeholder reset method."""
-
-    def defer_cleanup(self):
-        """Return a no-op context manager."""
-
-        return contextmanager(lambda: (yield))()
-
-
-class FakeNumbaCUDAMemoryManager(
-    FakeBaseCUDAMemoryManager
-):  # pragma: no cover - placeholder
-    """Minimal fake of a CUDA memory manager."""
-
-    handle: int = 0
-    ptr: int = 0
-    free: int = 0
-    total: int = 0
-
-    def __init__(self) -> None:
-        super().__init__()
-
-
-class FakeGetIpcHandleMixin:  # pragma: no cover - placeholder
-    """Return a fake IPC handle object."""
-
-    def get_ipc_handle(self):
-        class FakeIpcHandle:
-            """Trivial stand-in for an IPC handle."""
-
-            def __init__(self) -> None:
-                super().__init__()
-
-        return FakeIpcHandle()
-
-
 class FakeStream:  # pragma: no cover - placeholder
     """Placeholder CUDA stream."""
 
     handle = c_void_p(0)
-
-
-class FakeHostOnlyCUDAManager(
-    FakeBaseCUDAMemoryManager
-):  # pragma: no cover - placeholder
-    """Host-only manager used in simulation environments."""
-
-
-class FakeMemoryPointer:  # pragma: no cover - placeholder
-    """Lightweight pointer-like object used in simulation."""
-
-    def __init__(
-        self,
-        context: Any,
-        device_pointer: int,
-        size: int,
-        finalizer: Union[Any, None] = None,
-    ) -> None:
-        self.context = context
-        self.device_pointer = device_pointer
-        self.size = size
-        self._cuda_memsize = size
-        self.handle = self.device_pointer
-        self._finalizer = finalizer
 
 
 class FakeMemoryInfo:  # pragma: no cover - placeholder
@@ -155,12 +92,11 @@ if CUDA_SIMULATION:  # pragma: no cover - simulated
     from numba.cuda.simulator.cudadrv.devicearray import FakeCUDAArray
     from cubie.vendored.numba_cuda_cache import CUDACache
 
-    NumbaCUDAMemoryManager = FakeNumbaCUDAMemoryManager
-    BaseCUDAMemoryManager = FakeBaseCUDAMemoryManager
-    HostOnlyCUDAMemoryManager = FakeHostOnlyCUDAManager
-    GetIpcHandleMixin = FakeGetIpcHandleMixin
-    MemoryPointer = FakeMemoryPointer
-    MemoryInfo = FakeMemoryInfo
+    # The simulator never touches real device memory, so CuPy is not
+    # required; code paths guarded by CUDA_SIMULATION never use these.
+    cupy = None
+    cupyx = None
+
     Stream = FakeStream
     DeviceNDArrayBase = FakeCUDAArray
     DeviceNDArray = FakeCUDAArray
@@ -172,20 +108,22 @@ if CUDA_SIMULATION:  # pragma: no cover - simulated
         fakemem = FakeMemoryInfo()
         return fakemem.free, fakemem.total
 
-    def set_cuda_memory_manager(manager: Any) -> None:
-        """Stub for setting a memory manager."""
-
 else:  # pragma: no cover - exercised in GPU environments
+    try:
+        import cupy
+        import cupyx
+    except ImportError as e:
+        raise ImportError(
+            "CuPy is required for CuBIE's device memory allocations "
+            "on a real GPU. Install it via the cuda12/cuda13 extra "
+            "(pip install cubie[cuda12]) or pip install cupy-cuda12x "
+            "directly (assuming CUDA toolkit 12.x)."
+        ) from e
+
     from numba.cuda import (  # type: ignore[attr-defined]
-        HostOnlyCUDAMemoryManager,
-        MemoryPointer,
-        MemoryInfo,
-        set_memory_manager as set_cuda_memory_manager,
         is_cuda_array as _is_cuda_array,
     )
     from numba.cuda.cudadrv.driver import (  # type: ignore[attr-defined]
-        BaseCUDAMemoryManager,
-        NumbaCUDAMemoryManager,
         Stream,
     )
     from numba.cuda.cudadrv.devicearray import (  # type: ignore[attr-defined]
@@ -193,9 +131,8 @@ else:  # pragma: no cover - exercised in GPU environments
         DeviceNDArray,
         MappedNDArray,
     )
-    from numba.cuda.cudadrv.driver import GetIpcHandleMixin  # type: ignore[attr-defined]
-    from numba.cuda.dispatcher import CUDACache  # noqa: Linter can't find
-    # cuda.dispatcher
+    # Linter can't find cuda.dispatcher.
+    from numba.cuda.dispatcher import CUDACache  # noqa: F401
 
     def current_mem_info() -> Tuple[int, int]:
         """Return free and total memory from the active CUDA context."""
@@ -446,33 +383,23 @@ def max_shared_memory_per_block() -> int:
 __all__ = [
     "activemask",
     "all_sync",
-    "BaseCUDAMemoryManager",
     "compile_kwargs",
     "CUDA_SIMULATION",
     "CUDACache",
+    "cupy",
+    "cupyx",
     "current_mem_info",
     "DeviceNDArray",
     "DeviceNDArrayBase",
-    "FakeBaseCUDAMemoryManager",
-    "FakeGetIpcHandleMixin",
-    "FakeHostOnlyCUDAManager",
     "FakeMemoryInfo",
-    "FakeMemoryPointer",
-    "FakeNumbaCUDAMemoryManager",
     "FakeStream",
     "from_dtype",
-    "GetIpcHandleMixin",
-    "HostOnlyCUDAMemoryManager",
     "is_cuda_array",
     "is_cudasim_enabled",
     "max_shared_memory_per_block",
     "is_devfunc",
     "MappedNDArray",
-    "MemoryInfo",
-    "MemoryPointer",
-    "NumbaCUDAMemoryManager",
     "selp",
-    "set_cuda_memory_manager",
     "Stream",
     "stwt",
     "syncwarp",

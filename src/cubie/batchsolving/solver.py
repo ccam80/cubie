@@ -712,11 +712,6 @@ class Solver:
                     self.kernel, updates_dict["mem_proportion"]
                 )
             recognised.add("mem_proportion")
-        if "allocator" in updates_dict:
-            self.memory_manager.set_allocator(
-                updates_dict["allocator"]
-            )
-            recognised.add("allocator")
 
         recognised = set(recognised)
         all_unrecognized -= set(recognised)

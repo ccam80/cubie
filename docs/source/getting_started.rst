@@ -69,9 +69,6 @@ Requirements
 Optional Dependencies
 ---------------------
 
-* CuPy (install via ``pip install cubie[cupy12]`` or ``cubie[cupy13]``):
-  for pool-based memory management (if you're doing a lot of
-  consecutive batches of different sizes)
 * Pandas: For DataFrame output support
 * Matplotlib: For plotting support. Only used to plot an interpolated driver function for sanity-checks (see
   :doc:`Drivers <user_guide/drivers>`), but generally useful for visualizing results.

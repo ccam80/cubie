@@ -319,6 +319,7 @@ class TestOutputArrays:
         assert output_arrays_manager.device_observables is not None
 
     @pytest.mark.nocudasim
+    @pytest.mark.cupy
     def test_finalise_method_copies_device_to_host(
         self, output_arrays_manager, solver, test_memory_manager
     ):
@@ -329,20 +330,20 @@ class TestOutputArrays:
 
         # Simulate computation by modifying device arrays
         # (In reality, CUDA kernels would write to these device arrays)
-        original_device_state = np.array(output_arrays_manager.device_state)
-        original_device_observables = np.array(
-            output_arrays_manager.device_observables
+        original_device_state = output_arrays_manager.device_state.get()
+        original_device_observables = (
+            output_arrays_manager.device_observables.get()
         )
         original_status_codes = np.arange(
             output_arrays_manager.device_status_codes.size, dtype=np.int32
         )
 
         # Modify device arrays to simulate kernel output
-        output_arrays_manager.device_state[:] = original_device_state * 2
-        output_arrays_manager.device_observables[:] = (
+        output_arrays_manager.device_state.set(original_device_state * 2)
+        output_arrays_manager.device_observables.set(
             original_device_observables * 3
         )
-        output_arrays_manager.device_status_codes[:] = original_status_codes
+        output_arrays_manager.device_status_codes.set(original_status_codes)
 
         # Set up chunking
         output_arrays_manager._chunks = 1
@@ -360,15 +361,15 @@ class TestOutputArrays:
         # Verify that host arrays now contain the modified device data
         np.testing.assert_array_equal(
             output_arrays_manager.state,
-            output_arrays_manager.device_state,
+            output_arrays_manager.device_state.get(),
         )
         np.testing.assert_array_equal(
             output_arrays_manager.observables,
-            output_arrays_manager.device_observables,
+            output_arrays_manager.device_observables.get(),
         )
         np.testing.assert_array_equal(
             output_arrays_manager.status_codes,
-            output_arrays_manager.device_status_codes,
+            output_arrays_manager.device_status_codes.get(),
         )
 
 
