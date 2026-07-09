@@ -649,11 +649,10 @@ class MemoryManager:
         if proportion < 0 or proportion > 1:
             raise ValueError("Proportion must be between 0 and 1")
         if instance_id in self._auto_pool:
-            self._add_manual_proportion(instance, proportion)
+            self._auto_pool.remove(instance_id)
         else:
             self._manual_pool.remove(instance_id)
-            self._add_manual_proportion(instance, proportion)
-            self.registry[instance_id].proportion = proportion
+        self._add_manual_proportion(instance, proportion)
 
     def set_manual_limit_mode(
         self, instance: object, proportion: float

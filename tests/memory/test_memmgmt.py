@@ -617,6 +617,26 @@ class TestMemoryManager:
         assert mgr.registry[id(instance)].proportion == 0.4
         assert instance_id in mgr._manual_pool
 
+    @pytest.mark.parametrize(
+        "registered_instance_override", [{"proportion": None}], indirect=True
+    )
+    def test_set_manual_proportion_from_auto_pool(
+        self, registered_mgr, registered_instance
+    ):
+        """Test set_manual_proportion moves an auto instance to manual."""
+        mgr = registered_mgr
+        instance = registered_instance
+        instance_id = id(instance)
+        inst2 = DummyClass()
+        mgr.register(inst2)
+        assert instance_id in mgr._auto_pool
+        mgr.set_manual_proportion(instance, 0.01)
+        assert instance_id not in mgr._auto_pool
+        assert instance_id in mgr._manual_pool
+        assert mgr.registry[instance_id].proportion == 0.01
+        assert mgr.registry[instance_id].cap == int(0.01 * mgr.totalmem)
+        assert abs(mgr.registry[id(inst2)].proportion - 0.99) < 1e-6
+
     def test_rebalance_auto_pool(self, mgr):
         """Test _rebalance_auto_pool splits available proportion among auto pool."""
         inst1 = DummyClass()
