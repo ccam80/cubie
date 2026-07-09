@@ -18,10 +18,9 @@ stream grouping), `ArrayRequest`/`ArrayResponse` (allocation metadata), `ChunkBu
 | File | Description |
 |------|-------------|
 | `__init__.py` | Instantiates `default_memmgr = MemoryManager()`; re-exports `MemoryManager`, `current_cupy_stream`. |
-| `mem_manager.py` | `MemoryManager` (central allocator); `InstanceMemorySettings` (per-instance registry entry); `ALL_MEMORY_MANAGER_PARAMETERS`; `MIN_AUTOPOOL_SIZE`; `_import_cupy` (lazy CuPy import with a clear `ImportError`); `_pinned_host_array`. |
+| `mem_manager.py` | `MemoryManager` (central allocator); `InstanceMemorySettings` (per-instance registry entry); `ALL_MEMORY_MANAGER_PARAMETERS`; `MIN_AUTOPOOL_SIZE`; `current_cupy_stream` (Numba→CuPy stream forwarding); `_pinned_host_array`. |
 | `array_requests.py` | `ArrayRequest` (shape/dtype/placement spec) and `ArrayResponse` (allocated arrays + chunk metadata). |
 | `stream_groups.py` | `StreamGroups` — maps instance ids to named groups, each backed by a CUDA stream. |
-| `cupy_emm.py` | `current_cupy_stream` — forwards a Numba-generated CUDA stream into CuPy so allocations and copies stay stream-ordered with the Numba-launched kernel. |
 | `chunk_buffer_pool.py` | `PinnedBuffer` + `ChunkBufferPool` — reusable pinned staging buffers. Not exported from `__init__.py`. |
 
 ## For AI Agents
@@ -70,11 +69,9 @@ allocation). `to_device`/`from_device` use CuPy's `ndarray.set`/`ndarray.get`, w
   the id directly) or any object (uses `id()`).
 
 ### CuPy stream forwarding
-- `current_cupy_stream` is a **class** context manager that always forwards the given Numba
-  stream into CuPy as an `ExternalStream` (Numba's default stream, handle `0`, is left as CuPy's
-  ambient current stream instead of wrapped). Constructing it **raises `ImportError` if `cupy`
-  isn't installed — there is no silent fallback** (cupy is imported lazily inside the methods, so
-  the module still loads without it).
+- `current_cupy_stream` (defined in `mem_manager.py`) is a **class** context manager that
+  always forwards the given Numba stream into CuPy as an `ExternalStream` (Numba's default
+  stream, handle `0`, is left as CuPy's ambient current stream instead of wrapped).
 - `MemoryManager.allocate`/`to_device`/`from_device` wrap their CuPy calls in
   `current_cupy_stream(stream)` so allocation and copies stay ordered on the instance's stream.
   `get_memory_info()` still queries whole-device free/total via the Numba context, not a CuPy
@@ -101,5 +98,6 @@ direct calls are exercised directly.
   `cubie._utils` (validators in `array_requests.py`).
 ### External
 - `numba`/`numba.cuda` (context/stream management, kernel launch); `attrs`; `numpy`; `cupy`
-  (required on a real GPU — single device allocation provider, imported lazily so the CUDA
-  simulator and `import cubie` never need it; `cupyx.empty_pinned` for pinned host buffers).
+  (required on a real GPU — single device allocation provider, imported once through
+  `cubie.cuda_simsafe`, which supplies `None` stand-ins under the CUDA simulator;
+  `cupyx.empty_pinned` for pinned host buffers).

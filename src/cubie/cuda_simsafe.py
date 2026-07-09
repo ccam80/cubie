@@ -34,9 +34,13 @@ See Also
 :mod:`cubie._utils`
     Imports ``compile_kwargs`` and ``is_devfunc`` from this module.
 :mod:`cubie.memory.mem_manager`
-    Uses the device-array stand-ins exported here. Device allocations
-    themselves are provided by CuPy on a real GPU; this module only
-    supplies simulator fallbacks and typing stand-ins.
+    Uses the device-array stand-ins exported here. This module also
+    owns the single conditional import of ``cupy``/``cupyx``: both
+    are imported eagerly on a real GPU (CuPy is CuBIE's device
+    allocation provider, so it is a hard requirement there) and are
+    ``None`` under the CUDA simulator, which never touches device
+    memory. Consumers import them from here rather than importing
+    CuPy directly.
 """
 
 from __future__ import annotations
@@ -87,6 +91,11 @@ if CUDA_SIMULATION:  # pragma: no cover - simulated
     from numba.cuda.simulator.cudadrv.devicearray import FakeCUDAArray
     from cubie.vendored.numba_cuda_cache import CUDACache
 
+    # The simulator never touches real device memory, so CuPy is not
+    # required; code paths guarded by CUDA_SIMULATION never use these.
+    cupy = None
+    cupyx = None
+
     Stream = FakeStream
     DeviceNDArrayBase = FakeCUDAArray
     DeviceNDArray = FakeCUDAArray
@@ -99,6 +108,17 @@ if CUDA_SIMULATION:  # pragma: no cover - simulated
         return fakemem.free, fakemem.total
 
 else:  # pragma: no cover - exercised in GPU environments
+    try:
+        import cupy
+        import cupyx
+    except ImportError as e:
+        raise ImportError(
+            "CuPy is required for CuBIE's device memory allocations "
+            "on a real GPU. Install it via the cuda12/cuda13 extra "
+            "(pip install cubie[cuda12]) or pip install cupy-cuda12x "
+            "directly (assuming CUDA toolkit 12.x)."
+        ) from e
+
     from numba.cuda import (  # type: ignore[attr-defined]
         is_cuda_array as _is_cuda_array,
     )
@@ -365,6 +385,8 @@ __all__ = [
     "compile_kwargs",
     "CUDA_SIMULATION",
     "CUDACache",
+    "cupy",
+    "cupyx",
     "current_mem_info",
     "DeviceNDArray",
     "DeviceNDArrayBase",

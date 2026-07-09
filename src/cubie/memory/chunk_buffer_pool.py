@@ -40,8 +40,7 @@ from attrs.validators import instance_of as attrsval_instance_of
 from numpy import ndarray, zeros as np_zeros
 from numpy import dtype as np_dtype
 
-from cubie.cuda_simsafe import CUDA_SIMULATION
-from cubie.memory.mem_manager import _import_cupy
+from cubie.cuda_simsafe import CUDA_SIMULATION, cupyx
 
 
 @define
@@ -173,9 +172,6 @@ class ChunkBufferPool:
         if CUDA_SIMULATION:
             arr = np_zeros(shape, dtype=dtype)
         else:
-            _import_cupy()
-            import cupyx
-
             arr = cupyx.empty_pinned(shape, dtype=dtype)
             arr.fill(0)
 

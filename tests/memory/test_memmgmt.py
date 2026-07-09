@@ -1,5 +1,7 @@
 import pytest
 
+from numba import cuda
+
 from cubie.cuda_simsafe import (
     Stream,
 )
@@ -9,6 +11,8 @@ from cubie.memory.mem_manager import (
     ArrayRequest,
     ArrayResponse,
     InstanceMemorySettings,
+    _numba_stream_ptr,
+    current_cupy_stream,
 )
 
 import numpy as np
@@ -1317,3 +1321,48 @@ def test_allocate_queue_handles_all_requests_same_total_runs(mgr):
     assert "arr1" in response.arr
     assert "arr2" in response.arr
     assert "arr3" in response.arr
+
+
+@pytest.fixture(scope="session")
+def stream1():
+    return cuda.stream()
+
+
+@pytest.fixture(scope="session")
+def stream2():
+    return cuda.stream()
+
+
+@pytest.mark.nocudasim
+def test_numba_stream_ptr(stream1):
+    try:
+        expected_ptr = int(stream1.handle.value)
+    except AttributeError:
+        expected_ptr = int(stream1.handle)
+    assert _numba_stream_ptr(stream1) == expected_ptr
+
+
+@pytest.mark.nocudasim
+@pytest.mark.cupy
+def test_cupy_stream_wrapper(stream1, stream2):
+    """Verify current_cupy_stream always forwards a Numba stream.
+
+    CuPy is CuBIE's single device allocation provider, so the
+    forwarding context manager wraps every non-default stream it is
+    given.
+    """
+    import cupy as cp
+
+    with current_cupy_stream(stream1) as cupy_stream:
+        assert isinstance(cupy_stream.cupy_ext_stream, cp.cuda.ExternalStream)
+        assert cupy_stream.cupy_ext_stream.ptr == _numba_stream_ptr(stream1)
+        assert cp.cuda.get_current_stream().ptr == _numba_stream_ptr(stream1)
+
+    with current_cupy_stream(stream2) as cupy_stream:
+        assert isinstance(cupy_stream.cupy_ext_stream, cp.cuda.ExternalStream)
+        assert cupy_stream.cupy_ext_stream.ptr == _numba_stream_ptr(stream2)
+        assert cp.cuda.get_current_stream().ptr == _numba_stream_ptr(stream2)
+
+    # Check that the default current stream is untouched
+    assert cp.cuda.get_current_stream().ptr != _numba_stream_ptr(stream1)
+    assert cp.cuda.get_current_stream().ptr != _numba_stream_ptr(stream2)

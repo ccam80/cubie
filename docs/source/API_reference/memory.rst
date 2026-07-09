@@ -64,5 +64,6 @@ Dependencies
 
 The package requires :mod:`numba.cuda` for kernel launch, stream management,
 and context access. CuPy is required on a real GPU — it is CuBIE's single
-device memory allocator, imported lazily so the CUDA simulator and
-``import cubie`` never require it.
+device memory allocator, imported at package import time through
+:mod:`cubie.cuda_simsafe`. Under the CUDA simulator (which never touches
+device memory) CuPy is not required and the import is skipped.

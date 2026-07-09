@@ -61,7 +61,7 @@ from attrs import define, field, validators
 from numba import cuda, int32, from_dtype
 from numpy.typing import NDArray
 
-from cubie.cuda_simsafe import CUDA_SIMULATION, selp
+from cubie.cuda_simsafe import CUDA_SIMULATION, cupy, selp
 from cubie.CUDAFactory import (
     CUDAFactory,
     CUDAFactoryConfig,
@@ -647,9 +647,6 @@ class ArrayInterpolator(CUDAFactory):
                 dtype=self.precision,
             )
         else:
-            from cubie.memory.mem_manager import _import_cupy
-
-            cupy = _import_cupy()
             times_device = cupy.asarray(times)
             coefficients_device = cupy.asarray(coefficients)
             out_device = cupy.empty(

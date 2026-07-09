@@ -14,13 +14,12 @@ The main components are:
 - :class:`ArrayRequest`: Specification for array allocation requests
 - :class:`ArrayResponse`: Results of array allocation operations
 - :class:`StreamGroups`: Management of CUDA stream groups for coordination
-- :func:`current_cupy_stream`: Context manager for CuPy stream integration
+- :class:`current_cupy_stream`: Context manager for CuPy stream integration
 
 The default memory manager instance is available as `default_memmgr`.
 """
 
-from cubie.memory.cupy_emm import current_cupy_stream
-from cubie.memory.mem_manager import MemoryManager
+from cubie.memory.mem_manager import MemoryManager, current_cupy_stream
 
 default_memmgr = MemoryManager()
 

@@ -48,9 +48,11 @@ See Also
     Manages CUDA stream groups used by the memory manager.
 """
 
+from types import TracebackType
 from typing import Any, Optional, Callable, Dict, Tuple
 from warnings import warn
 from copy import deepcopy
+import ctypes
 
 from numba import cuda
 from attrs import define, Factory as attrsFactory, field
@@ -67,8 +69,13 @@ from numpy import (
 )
 from math import prod
 
-from cubie.cuda_simsafe import current_mem_info, CUDA_SIMULATION
-from cubie.memory.cupy_emm import current_cupy_stream
+from cubie.cuda_simsafe import (
+    CUDA_SIMULATION,
+    Stream,
+    cupy,
+    cupyx,
+    current_mem_info,
+)
 from cubie.memory.stream_groups import StreamGroups
 from cubie.memory.array_requests import ArrayRequest, ArrayResponse
 
@@ -162,38 +169,117 @@ def _ensure_cuda_context() -> None:
             ) from e
 
 
-def _import_cupy() -> Any:
+def _numba_stream_ptr(
+    nb_stream: Optional[Stream],
+) -> Optional[int]:
     """
-    Import and return the :mod:`cupy` module.
+    Extract a ``CUstream`` pointer from a Numba stream wrapper.
+
+    Parameters
+    ----------
+    nb_stream
+        Numba CUDA stream whose ``CUstream`` pointer should be extracted. When
+        ``None``, pointer extraction is skipped.
 
     Returns
     -------
-    module
-        The imported ``cupy`` module.
-
-    Raises
-    ------
-    ImportError
-        If CuPy is not installed. CuPy is CuBIE's single device
-        allocation provider on a real GPU, so it must be installed to
-        allocate device memory or pinned host staging buffers.
+    int or None
+        Pointer value compatible with CuPy external streams, or ``None`` when
+        extraction fails.
 
     Notes
     -----
-    CuPy is imported lazily so that ``import cubie`` succeeds without
-    CuPy installed, and so the CUDA simulator (which never allocates
-    real device memory) never requires CuPy at all.
+    The function checks common attribute layouts across supported Numba
+    versions to maintain compatibility.
     """
+    if nb_stream is None:
+        return None
+    h = getattr(nb_stream, "handle", None)
+    if h is None:
+        return None
+    # ctypes.c_void_p or int-like
+    if isinstance(h, ctypes.c_void_p):
+        return int(h.value) if h.value is not None else None
     try:
-        import cupy
-    except ImportError as e:
-        raise ImportError(
-            "CuPy is required for CuBIE's device memory allocations on "
-            "a real GPU. Install it via the cuda12/cuda13 extra (pip "
-            "install cubie[cuda12]) or pip install cupy-cuda12x "
-            "directly (assuming CUDA toolkit 12.x)."
-        ) from e
-    return cupy
+        return int(getattr(h, "value", h))
+    except Exception:
+        return None
+
+
+class current_cupy_stream:
+    """Context manager that forwards a Numba stream into CuPy APIs.
+
+    CuPy is CuBIE's single GPU allocation provider on a real device.
+    Wrapping allocations and host/device copies in this context keeps
+    them ordered on the same stream as the Numba-launched integration
+    kernel.
+
+    Parameters
+    ----------
+    nb_stream
+        Numba CUDA stream to expose to CuPy.
+
+    Attributes
+    ----------
+    nb_stream
+        The Numba stream being forwarded.
+    cupy_ext_stream
+        CuPy external stream wrapper around the Numba stream.
+
+    Notes
+    -----
+    Numba's default stream (handle ``0``) is left as CuPy's ambient
+    current stream rather than wrapped, matching Numba's own default
+    stream semantics.
+    """
+
+    def __init__(self, nb_stream: Stream) -> None:
+        self.nb_stream = nb_stream
+        self.cupy_ext_stream = None
+
+    def __enter__(self) -> "current_cupy_stream":
+        """
+        Enter the context and set up a CuPy external stream.
+
+        Returns
+        -------
+        current_cupy_stream
+            The active context manager instance.
+        """
+        ptr = _numba_stream_ptr(self.nb_stream)
+        if ptr:
+            self.cupy_ext_stream = cupy.cuda.ExternalStream(ptr)
+            self.cupy_ext_stream.__enter__()
+        return self
+
+    def __exit__(
+        self,
+        exc_type: Optional[type[BaseException]],
+        exc: Optional[BaseException],
+        tb: Optional[TracebackType],
+    ) -> Optional[bool]:
+        """Exit the context and clean up the CuPy external stream.
+
+        Parameters
+        ----------
+        exc_type
+            Exception type if an exception occurred.
+        exc
+            Exception instance if an exception occurred.
+        tb
+            Traceback object if an exception occurred.
+
+        Returns
+        -------
+        Optional[bool]
+            The inner stream's suppression decision, or ``None``
+            when no external stream is active.
+        """
+        if self.cupy_ext_stream is not None:
+            result = self.cupy_ext_stream.__exit__(exc_type, exc, tb)
+            self.cupy_ext_stream = None
+            return result
+        return None
 
 
 def _pinned_host_array(shape: Tuple[int, ...], dtype: type) -> ndarray:
@@ -223,9 +309,6 @@ def _pinned_host_array(shape: Tuple[int, ...], dtype: type) -> ndarray:
     """
     if CUDA_SIMULATION:
         return np_empty(shape, dtype=dtype)
-    _import_cupy()
-    import cupyx
-
     return cupyx.empty_pinned(shape, dtype=dtype)
 
 
@@ -403,17 +486,7 @@ class MemoryManager:
     )
 
     def __attrs_post_init__(self) -> None:
-        """Initialise the manager with current GPU memory information.
-
-        Raises
-        ------
-        ImportError
-            If CuPy is not installed on a real GPU. CuPy is CuBIE's
-            single device allocation provider; the CUDA simulator does
-            not require it.
-        """
-        if not CUDA_SIMULATION:
-            _import_cupy()
+        """Initialise the manager with current GPU memory information."""
         try:
             free, total = self.get_memory_info()
         except ValueError as e:
@@ -1052,7 +1125,6 @@ class MemoryManager:
         if memory_type == "device":
             if CUDA_SIMULATION:
                 return cuda.device_array(shape, dtype)
-            cupy = _import_cupy()
             with current_cupy_stream(stream):
                 return cupy.empty(shape, dtype=dtype)
         elif memory_type == "pinned":

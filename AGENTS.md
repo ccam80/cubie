@@ -68,7 +68,9 @@ change — the full suite is slow (run it as a pre-commit check only, and only w
 - Never call a `CUDAFactory.build()` directly — access compiled functions via the cached properties.
 - Never set/modify env vars in source (esp. `NUMBA_ENABLE_CUDASIM`); set them externally.
 - Module-scoped imports belong in the file header only; deliberate lazy imports of optional deps
-  (Qt, cupy, cellmlmanip) stay function-local.
+  (Qt, cellmlmanip) stay function-local. cupy/cupyx are required on a real GPU and imported
+  once, conditionally, in `cuda_simsafe` — import them from there (`from cubie.cuda_simsafe
+  import cupy, cupyx`), never directly and never lazily.
 - In `CUDAFactory`/device-code files, use explicit imports with the project aliasing (`np_`,
   `attrsval_`, `attrs`-prefixed); store float config fields underscored and expose via a
   precision-casting property.
