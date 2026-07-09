@@ -464,6 +464,7 @@ class IVPLoop(CUDAFactory):
 
         # Timing values
         initial_dt = precision(config.dt)
+        typed_zero = precision(0.0)
         save_every = config.save_every
         sample_summaries_every = config.sample_summaries_every
         samples_per_summary = int32(config.samples_per_summary)
@@ -502,12 +503,14 @@ class IVPLoop(CUDAFactory):
             duration,
             settling_time,
             t0,
+            save_stop,
+            summary_stop,
         ):  # pragma: no cover - CUDA fns not marked in coverage
             """Advance an integration using a compiled CUDA device loop.
 
-            The loop terminates when the time of the next saved sample
-            exceeds the end time (t0 + settling_time + duration), or when
-            the maximum number of iterations is reached.
+            The loop terminates when every output schedule passes its
+            stop time, or when the maximum number of iterations is
+            reached.
 
             Parameters
             ----------
@@ -537,6 +540,18 @@ class IVPLoop(CUDAFactory):
                 Lead-in time before samples are collected.
             t0
                 Initial integration time.
+            save_stop
+                Time half a save interval past the final scheduled
+                save event; the save schedule is complete once
+                ``next_save`` exceeds it. Computed host-side with
+                the same arithmetic as the output allocation
+                (:meth:`SingleIntegratorRun.save_stop_time`).
+            summary_stop
+                Time half a sample interval past the final
+                scheduled summary-update event; the summary
+                schedule is complete once ``next_update_summary``
+                exceeds it
+                (:meth:`SingleIntegratorRun.summary_stop_time`).
 
             Returns
             -------
@@ -696,13 +711,20 @@ class IVPLoop(CUDAFactory):
                 # are constants, allowing Numba to eliminate dead branches
                 end_of_step = t_prec + dt_raw
                 if save_regularly or summarise_regularly:
-                    # Loop continues until all scheduled outputs are complete
+                    # Loop continues until all scheduled outputs are
+                    # complete. Each stop time sits half an interval
+                    # past that schedule's last event, so a schedule
+                    # running slightly late still fires its last
+                    # event, and one running slightly early cannot
+                    # fire an extra one.
                     finished = True
                     if save_regularly:
-                        save_finished = bool_(next_save > t_end)
+                        save_finished = bool_(next_save > save_stop)
                         finished &= save_finished
                     if summarise_regularly:
-                        summary_finished = bool_(next_update_summary > t_end)
+                        summary_finished = bool_(
+                            next_update_summary > summary_stop
+                        )
                         finished &= summary_finished
                 else:
                     # No scheduled outputs; finish when time reaches t_end.
@@ -742,7 +764,12 @@ class IVPLoop(CUDAFactory):
                     if save_last:
                         do_save |= at_end
 
-                    # Adjust step size to hit output boundaries exactly
+                    # Adjust step size to hit output boundaries exactly.
+                    # Only positive gaps clamp the step: downward
+                    # accumulation drift or rounding can put the event
+                    # time at or behind t_prec, and a non-positive
+                    # dt_eff traps the loop. The due event fires at the
+                    # next accepted step instead.
                     dt_eff = dt_raw
                     if do_save or do_update_summary:
                         next_event = t_end
@@ -752,7 +779,8 @@ class IVPLoop(CUDAFactory):
                             next_event = precision(
                                 min(next_event, next_update_summary)
                             )
-                        dt_eff = precision(next_event - t_prec)
+                        gap = precision(next_event - t_prec)
+                        dt_eff = selp(gap > typed_zero, gap, dt_raw)
 
                     # ----------------------------------------------------------- #
                     # Take a step

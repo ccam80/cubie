@@ -11,4 +11,3 @@ scipy
 cupy-cuda12x
 pandas
 sympy>=1.13.0
-cellmlmanip
