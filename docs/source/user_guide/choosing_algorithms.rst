@@ -72,13 +72,8 @@ Available Algorithms
    * - ``classical-rk4`` / ``rk4``
      - 4
      - No
-<<<<<<< HEAD
-     - Ralston's method.
-   * - ``dormand-prince-54`` / ``rk45``
-=======
      - The classical Runge--Kutta method.
    * - ``fehlberg-45``
->>>>>>> origin/main
      - 5(4)
      - Yes
      - Fehlberg's method.
