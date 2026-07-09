@@ -15,6 +15,7 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: release-please-oss/release-please-action@v6
+        id: release
         with:
           token: ${{ secrets.GITHUB_TOKEN }}
           release-type: python
