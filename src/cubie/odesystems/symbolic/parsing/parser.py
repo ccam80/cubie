@@ -1511,13 +1511,20 @@ def parse_input(
     usage are added automatically, except for anonymous auxiliaries that are
     retained for intermediate computation but not persisted as observables.
     """
+    input_type = _detect_input_type(dxdt)
+
     if states is None:
-        states = {}
         if strict:
             raise ValueError(
                 "No state symbols were provided - if you want to build a model "
                 "from a set of equations alone, set strict=False"
             )
+        if input_type == "function":
+            from .function_parser import infer_function_states
+
+            states = infer_function_states(dxdt)
+        else:
+            states = {}
     if observables is None:
         observables = []
     if parameters is None:
@@ -1549,8 +1556,6 @@ def parse_input(
         observable_units=observable_units,
         driver_units=driver_units,
     )
-
-    input_type = _detect_input_type(dxdt)
 
     if input_type == "string":
         if isinstance(dxdt, str):
@@ -1651,6 +1656,9 @@ def parse_input(
             func=dxdt,
             index_map=index_map,
             observables=list(observables),
+            user_functions=user_functions,
+            user_function_derivatives=user_function_derivatives,
+            strict=strict,
         )
         all_symbols = index_map.all_symbols.copy()
         all_symbols.setdefault("t", TIME_SYMBOL)
