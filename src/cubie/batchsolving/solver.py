@@ -44,7 +44,7 @@ from typing import (
     Union,
 )
 
-from numpy import ndarray, zeros as np_zeros
+from numpy import asarray, ndarray, zeros as np_zeros
 
 from cubie.outputhandling.output_config import OutputCompileFlags
 from cubie._utils import PrecisionDType
@@ -56,6 +56,7 @@ from cubie.batchsolving.solveresult import SolveResult, SolveSpec
 from cubie.batchsolving.SystemInterface import SystemInterface
 from cubie.memory.mem_manager import ALL_MEMORY_MANAGER_PARAMETERS
 from cubie.odesystems.baseODE import BaseODE
+from cubie.odesystems.symbolic import create_ODE_system
 from cubie.array_interpolator import ArrayInterpolator
 from cubie.integrators.algorithms.base_algorithm_step import (
     ALL_ALGORITHM_STEP_PARAMETERS,
@@ -128,10 +129,6 @@ def _system_from_equations(
         If ``parameters`` is an array, which cannot declare parameter
         names.
     """
-    from numpy import asarray
-
-    from cubie.odesystems.symbolic import create_ODE_system
-
     if isinstance(parameters, ndarray):
         raise TypeError(
             "When equations are supplied directly to solve_ivp, "

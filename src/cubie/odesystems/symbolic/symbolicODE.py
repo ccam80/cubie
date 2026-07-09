@@ -321,7 +321,7 @@ class SymbolicODE(BaseODE):
     @classmethod
     def create(
         cls,
-        dxdt: Union[str, Iterable[str]],
+        dxdt: Union[str, Iterable[str], Callable],
         precision: PrecisionDType,
         states: Optional[Union[dict[str, float], Iterable[str]]] = None,
         observables: Optional[Iterable[str]] = None,
@@ -345,8 +345,9 @@ class SymbolicODE(BaseODE):
         Parameters
         ----------
         dxdt
-            System equations defined as either a single string or an iterable
-            of equation strings in ``lhs = rhs`` form.
+            System equations defined as a single string, an iterable of
+            equation strings in ``lhs = rhs`` form, or a Python callable
+            with a ``(t, y, ...)`` signature.
         states
             State labels either as an iterable or as a mapping to default
             initial values.

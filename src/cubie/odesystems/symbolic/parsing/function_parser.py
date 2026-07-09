@@ -252,18 +252,20 @@ def _build_name_hints(
         unknown-name error message should recommend.
     """
     hints: Dict[str, str] = {}
-    container = (
-        inspection.constant_params[0]
-        if inspection.constant_params
-        else "p"
-    )
-    for ibm in (
-        index_map.parameters,
-        index_map.constants,
-        index_map.drivers,
-    ):
+    scalar_set = set(inspection.scalar_params)
+    containers = [
+        cp for cp in inspection.constant_params if cp not in scalar_set
+    ]
+    container = containers[0] if containers else "p"
+    # A trailing container argument (e.g. ``def f(t, y, p, d)``) is the
+    # natural spelling for drivers; with a single container both hints
+    # coincide.
+    driver_container = containers[-1] if containers else "p"
+    for ibm in (index_map.parameters, index_map.constants):
         for name in ibm.symbol_map:
             hints[name] = f"{container}.{name}"
+    for name in index_map.drivers.symbol_map:
+        hints[name] = f"{driver_container}.{name}"
     for name in index_map.states.symbol_map:
         hints.setdefault(name, f"{inspection.state_param}.{name}")
     return hints

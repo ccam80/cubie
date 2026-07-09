@@ -113,50 +113,40 @@ class _OdeAstVisitor(ast.NodeVisitor):
         self.return_nodes: List[ast.Return] = []
         self.function_calls: Set[str] = set()
 
-    def visit_Subscript(self, node: ast.Subscript) -> None:
-        if isinstance(node.value, ast.Name):
-            base = node.value.id
-            slc = node.slice
-            if isinstance(slc, ast.Constant):
-                key = slc.value
-                ptype = "int" if isinstance(key, int) else "string"
-            elif isinstance(slc, ast.Index):
-                # Python 3.8 compat
-                inner = slc.value  # type: ignore[attr-defined]
-                if isinstance(inner, ast.Constant):
-                    key = inner.value
-                    ptype = (
-                        "int" if isinstance(key, int) else "string"
-                    )
-                else:
-                    key = ast.dump(inner)
-                    ptype = "expr"
-            elif isinstance(slc, ast.Name):
-                key = slc.id
-                ptype = "name"
-            else:
-                key = ast.dump(slc)
-                ptype = "expr"
+    def _record_access(
+        self, base: str, key: Any, ptype: str
+    ) -> None:
+        entry = {"base": base, "key": key, "pattern_type": ptype}
+        if base == self.state_param:
+            self.state_accesses.append(entry)
+        elif base in self.constant_params:
+            self.constant_accesses.append(entry)
 
-            entry = {"base": base, "key": key, "pattern_type": ptype}
-            if base == self.state_param:
-                self.state_accesses.append(entry)
-            elif base in self.constant_params:
-                self.constant_accesses.append(entry)
+    def _record_subscript(self, node: ast.Subscript) -> None:
+        if not isinstance(node.value, ast.Name):
+            return
+        slc = node.slice
+        if isinstance(slc, ast.Constant):
+            key = slc.value
+            ptype = "int" if isinstance(key, int) else "string"
+        elif isinstance(slc, ast.Name):
+            key = slc.id
+            ptype = "name"
+        else:
+            key = ast.dump(slc)
+            ptype = "expr"
+        self._record_access(node.value.id, key, ptype)
+
+    def _record_attribute(self, node: ast.Attribute) -> None:
+        if isinstance(node.value, ast.Name):
+            self._record_access(node.value.id, node.attr, "attribute")
+
+    def visit_Subscript(self, node: ast.Subscript) -> None:
+        self._record_subscript(node)
         self.generic_visit(node)
 
     def visit_Attribute(self, node: ast.Attribute) -> None:
-        if isinstance(node.value, ast.Name):
-            base = node.value.id
-            entry = {
-                "base": base,
-                "key": node.attr,
-                "pattern_type": "attribute",
-            }
-            if base == self.state_param:
-                self.state_accesses.append(entry)
-            elif base in self.constant_params:
-                self.constant_accesses.append(entry)
+        self._record_attribute(node)
         self.generic_visit(node)
 
     def visit_Assign(self, node: ast.Assign) -> None:
@@ -268,13 +258,14 @@ class _OdeAstVisitor(ast.NodeVisitor):
             self.assignments[name] = ifexp
 
         # Visit expressions for state/constant accesses and calls.
-        self._visit_exprs_in_stmts([node] + node.body + node.orelse)
+        self._visit_exprs_in_stmts([node])
 
     def _visit_exprs_in_stmts(self, stmts: list) -> None:
         """Visit expression sub-trees for accesses and calls only."""
         for stmt in stmts:
             if isinstance(stmt, ast.If):
                 self._visit_expr(stmt.test)
+                self._visit_exprs_in_stmts(stmt.body + stmt.orelse)
             elif isinstance(stmt, ast.Assign):
                 self._visit_expr(stmt.value)
             elif isinstance(stmt, ast.AugAssign):
@@ -286,45 +277,11 @@ class _OdeAstVisitor(ast.NodeVisitor):
         """Visit an expression sub-tree to capture accesses and calls."""
         for child in ast.walk(node):
             if isinstance(child, ast.Subscript):
-                # Call the access-recording logic but not generic_visit
-                # (walk already handles recursion).
-                if isinstance(child.value, ast.Name):
-                    base = child.value.id
-                    slc = child.slice
-                    if isinstance(slc, ast.Constant):
-                        key = slc.value
-                        ptype = (
-                            "int"
-                            if isinstance(key, int)
-                            else "string"
-                        )
-                    elif isinstance(slc, ast.Name):
-                        key = slc.id
-                        ptype = "name"
-                    else:
-                        key = ast.dump(slc)
-                        ptype = "expr"
-                    entry = {
-                        "base": base,
-                        "key": key,
-                        "pattern_type": ptype,
-                    }
-                    if base == self.state_param:
-                        self.state_accesses.append(entry)
-                    elif base in self.constant_params:
-                        self.constant_accesses.append(entry)
+                # walk already recurses, so record without
+                # generic_visit.
+                self._record_subscript(child)
             elif isinstance(child, ast.Attribute):
-                if isinstance(child.value, ast.Name):
-                    base = child.value.id
-                    entry = {
-                        "base": base,
-                        "key": child.attr,
-                        "pattern_type": "attribute",
-                    }
-                    if base == self.state_param:
-                        self.state_accesses.append(entry)
-                    elif base in self.constant_params:
-                        self.constant_accesses.append(entry)
+                self._record_attribute(child)
             elif isinstance(child, ast.Call):
                 cname = _call_name(child)
                 if cname:
@@ -839,7 +796,11 @@ class AstToSympyConverter:
                 fn = self.user_callables[user_name]
                 try:
                     val = fn(*args)
-                except Exception:
+                except (TypeError, AttributeError, ValueError):
+                    # Symbolic arguments rejected by the function body
+                    # (e.g. NumPy ufuncs, float() coercion): fall back
+                    # to a symbolic call. Other errors are genuine bugs
+                    # in the user function and propagate.
                     val = None
                 if isinstance(val, sp.Expr):
                     return val
@@ -860,14 +821,6 @@ class AstToSympyConverter:
             slc = node.slice
             if isinstance(slc, ast.Constant):
                 key = slc.value
-            elif isinstance(slc, ast.Index):
-                inner = slc.value  # type: ignore[attr-defined]
-                if isinstance(inner, ast.Constant):
-                    key = inner.value
-                else:
-                    raise NotImplementedError(
-                        "Only constant subscripts are supported"
-                    )
             else:
                 raise NotImplementedError(
                     "Only constant subscripts are supported"

@@ -239,6 +239,28 @@ class TestParseInput:
         _, aux_rhs = eqs.auxiliaries[0]
         assert aux_rhs.has(sp.Piecewise)
 
+    def test_elif_only_container_access(self):
+        """Container access appearing only in an elif branch resolves."""
+        def f(t, y, p):
+            if t > 1.0:
+                rate = p.k1 * y[0]
+            elif t > 0.5:
+                rate = p.k2 * y[0]
+            else:
+                rate = 0.0
+            return [-rate]
+
+        _, _, _, eqs, _ = parse_input(
+            dxdt=f,
+            states={"x": 1.0},
+            parameters={"k1": 1.0, "k2": 2.0},
+        )
+        assert len(eqs.auxiliaries) == 1
+        _, aux_rhs = eqs.auxiliaries[0]
+        assert aux_rhs.has(sp.Piecewise)
+        k2 = sp.Symbol("k2", real=True)
+        assert aux_rhs.has(k2)
+
 
 class TestCreateODESystem:
     """Test create_ODE_system with callable dxdt."""
@@ -446,6 +468,19 @@ class TestUndeclaredSymbols:
         with pytest.raises(ValueError, match=r"p\.mu"):
             parse_input(
                 dxdt=f, states={"x": 1.0}, parameters={"mu": 2.0}
+            )
+
+    def test_bare_driver_hints_dedicated_driver_argument(self):
+        """A bare driver name hints the trailing container argument."""
+        def f(t, y, p, d):
+            return [forcing - p.k * y.x]  # noqa: F821
+
+        with pytest.raises(ValueError, match=r"d\.forcing"):
+            parse_input(
+                dxdt=f,
+                states={"x": 1.0},
+                parameters={"k": 1.0},
+                drivers=["forcing"],
             )
 
     def test_container_access_infers_parameter(self):
