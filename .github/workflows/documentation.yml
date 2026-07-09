@@ -17,8 +17,8 @@ jobs:
           NUMBA_CUDA_USE_NVIDIA_BINDING: "0"
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-python@v5
+      - uses: actions/checkout@v7
+      - uses: actions/setup-python@v6
 
       - name: Set up virtual environment
         run: python -m venv .venv
@@ -40,7 +40,7 @@ jobs:
           find ./docs/build -name "*.html" -exec sed -i "s|</head>|$META_TAG\n</head>|g" {} +
 
       - name: Deploy to GitHub Pages
-        uses: peaceiris/actions-gh-pages@v3
+        uses: peaceiris/actions-gh-pages@v4
         with:
           publish_branch: gh-pages
           github_token: ${{ secrets.GITHUB_TOKEN }}

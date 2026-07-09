@@ -38,6 +38,115 @@ satisfy nonlinear solves. Precision handling is central: every factory
 propagates the configured precision through compiled device helpers and the
 shared linear and nonlinear solver stack.
 
+.. _algorithm-defaults:
+
+Default settings
+----------------
+
+Each algorithm ships with a default scheme and a default step
+controller. Requesting an algorithm by family name
+(``algorithm="erk"``) uses the defaults below; requesting a specific
+tableau alias (``algorithm="radau"``) selects that scheme within the
+same family.
+
+.. list-table::
+   :header-rows: 1
+   :widths: 20 36 10 34
+
+   * - Name
+     - Default scheme
+     - Order
+     - Default step control
+   * - ``euler``
+     - Forward Euler (explicit, single stage)
+     - 1
+     - Fixed step
+   * - ``backwards_euler``
+     - Backward Euler (implicit, single stage)
+     - 1
+     - Fixed step
+   * - ``backwards_euler_pc``
+     - Backward Euler with a forward-Euler predictor
+     - 1
+     - Fixed step
+   * - ``crank_nicolson``
+     - Crank–Nicolson with an embedded backward-Euler error
+       estimate
+     - 2
+     - PID: ``kp=0.7``, ``ki=-0.4``, gain clamp 0.5–2.0
+   * - ``erk``
+     - ``dormand-prince-54`` (explicit, seven stages)
+     - 5(4)
+     - PID: ``kp=0.7``, ``ki=-0.4``, gain clamp 0.1–5.0
+   * - ``dirk``
+     - ``lobatto_iiic_3`` (diagonally implicit, three stages)
+     - 4
+     - Fixed step — the default tableau has no error estimate
+   * - ``firk``
+     - ``firk_gauss_legendre_2`` (fully implicit, two coupled
+       stages)
+     - 4
+     - Fixed step — the default tableau has no error estimate
+   * - ``rosenbrock``
+     - ``ros3p`` (linearly implicit, three stages)
+     - 3
+     - PID: ``kp=0.6``, ``ki=-0.4``, gain clamp 0.5–2.0
+
+How the step controller is chosen
+~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+
+Adaptive step control needs an embedded error estimate. When an
+algorithm or tableau is named without setting ``step_controller``,
+CuBIE selects the family's tuned PID controller if the scheme
+provides an estimate, and a fixed-step controller if it does not.
+This is why ``dirk`` and ``firk`` run fixed-step out of the box:
+their default tableaus carry no embedded estimate. Aliases that do
+(``radau``, for example) enable the family's adaptive defaults
+automatically. Explicitly pairing an adaptive controller with an
+estimate-free scheme falls back to fixed stepping with a
+``UserWarning``.
+
+The adaptive family defaults all use a 1.0–1.2 deadband (step-size
+increases smaller than 20% are skipped; decreases always apply). Every value can be overridden
+per solve — see :doc:`/user_guide/configuration` for how kwargs
+reach the controller and :doc:`/user_guide/optional_arguments` for
+the full parameter list.
+
+Implicit solver defaults
+~~~~~~~~~~~~~~~~~~~~~~~~
+
+Implicit algorithms (``backwards_euler``, ``backwards_euler_pc``,
+``crank_nicolson``, ``dirk``, ``firk``) solve their stage equations
+with a matrix-free Newton–Krylov iteration. ``rosenbrock`` is
+linearly implicit: it performs one linear solve per stage, so only
+the Krylov and preconditioner settings below apply to it and the
+``newton_*`` parameters do not.
+
+.. list-table::
+   :header-rows: 1
+   :widths: 45 55
+
+   * - Parameter
+     - Default
+   * - ``newton_atol`` / ``newton_rtol``
+     - ``1e-6``
+   * - ``newton_max_iters``
+     - ``100``
+   * - ``newton_damping``
+     - ``0.5``
+   * - ``newton_max_backtracks``
+     - ``8``
+   * - ``krylov_atol`` / ``krylov_rtol``
+     - ``1e-6``
+   * - ``krylov_max_iters``
+     - ``100``
+   * - ``linear_correction_type``
+     - ``"minimal_residual"``
+   * - ``preconditioner_type``
+     - ``"neumann"``
+   * - ``preconditioner_order``
+     - ``2``
+
 Base infrastructure
 -------------------
 

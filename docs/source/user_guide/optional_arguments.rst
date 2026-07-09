@@ -116,8 +116,10 @@ Controller-specific gains:
 **newton_max_iters** — Newton-iteration budget (``gustafsson`` only).
     The Gustafsson controller scales its prediction by how hard the
     implicit solver is working; this is the iteration count it treats
-    as "full effort".  Note the name: this is *not* the same option as
-    the implicit solver's ``max_newton_iters`` below.
+    as "full effort".  This is the same option name as the implicit
+    solver's Newton iteration limit below: passing it once sets both,
+    so keep it equal to the Newton budget you actually intend.  Left
+    unset, the controller uses 20 while the solver uses 100.
 
     - Default: ``20``
 
@@ -141,7 +143,7 @@ Newton (outer loop) options:
       they feed); ``1e-6`` when there is no adaptive controller.
     - Type: ``float`` or array, non-negative
 
-**max_newton_iters** — Newton iteration limit.
+**newton_max_iters** — Newton iteration limit.
     Steps that fail to converge within this many iterations are marked
     failed (and retried at a smaller step size under adaptive
     control).
@@ -164,7 +166,7 @@ Krylov (inner loop) options:
 
     - Default: derived like ``newton_atol``/``newton_rtol`` above.
 
-**max_linear_iters** — linear iteration limit per Newton step.
+**krylov_max_iters** — linear iteration limit per Newton step.
 
     - Default: ``100``
 
@@ -241,6 +243,5 @@ options across the loop, algorithm, and solver configs)
     hardware — these exist for performance experiments on specific
     GPU architectures and never affect results.
 
-Memory-manager settings (allocator choice, VRAM proportion, stream
-groups) are covered in :doc:`memory`, and compilation caching in
-:doc:`caching`.
+Memory-manager settings (VRAM proportion, stream groups) are covered in
+:doc:`memory`, and compilation caching in :doc:`caching`.

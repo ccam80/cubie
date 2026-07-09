@@ -42,8 +42,6 @@ Out of VRAM
   time-domain data.
 - Enable automatic chunking (it should trigger automatically, but verify
   ``mem_proportion`` is not set too high).
-- Switch to CuPy memory pools for better memory reuse
-  (``memory_settings={"allocator": "cupy"}``).
 - Reduce the batch size.
 
 CUDASIM Mode

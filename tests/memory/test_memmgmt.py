@@ -1,4 +1,5 @@
 import pytest
+
 from numba import cuda
 
 from cubie.cuda_simsafe import (
@@ -10,6 +11,8 @@ from cubie.memory.mem_manager import (
     ArrayRequest,
     ArrayResponse,
     InstanceMemorySettings,
+    _numba_stream_ptr,
+    current_cupy_stream,
 )
 
 import numpy as np
@@ -196,7 +199,6 @@ class TestMemoryManager:
         assert mgr.totalmem == 8 * 1024**3
         assert mgr.registry == {}
         assert mgr._mode in ["passive", "active"]
-        assert mgr._allocator is not None
         assert isinstance(mgr.stream_groups, type(mgr.stream_groups))
 
     def test_register(self, registered_mgr, registered_instance):
@@ -213,29 +215,6 @@ class TestMemoryManager:
         assert group == "default"
         assert id(instance) in mgr.stream_groups.groups[group]
         assert mgr.stream_groups.get_stream(instance) is not None
-
-    # Can't recover from this - context stays stale. This doesn't reflect a
-    # real use case; reinstate if live memory manager switching is required
-    # @pytest.mark.cupy
-    # @pytest.mark.parametrize("manager_target",
-    #                          [("cupy_async", CuPyAsyncNumbaManager),
-    #                           ("cupy", CuPySyncNumbaManager),
-    #                           ("default", NumbaCUDAMemoryManager)
-    #                         ],
-    #                          ids=["cupy_async", "cupy", "default"])
-    # def test_set_allocator(self, manager_target, mem_manager_settings,
-    #                              registered_instance_settings):
-    #     """Test that set_allocator sets the allocator correctly
-    #     test each of "cupy_async", "cupy", "default", checking that
-    #     (self._allocator is CuPyAsyncNumbaManager, CuPySyncNumbaManager.
-    #      NumbaCudaMemoryManager, respectively)"""
-    #     label, cls = manager_target
-    #     regmgr, instance = registered_mgr_context_safe(
-    #             mem_manager_settings,
-    #             registered_instance_settings
-    #     )
-    #     regmgr.set_allocator(label)
-    #     assert regmgr._allocator == cls
 
     def test_set_limit_mode(self, mgr):
         """Test that set_limit_mode assigns the mode correctly,
@@ -488,20 +467,37 @@ class TestMemoryManager:
     @pytest.mark.nocudasim
     def test_allocate(self, mgr):
         """Test allocate returns correct array type and shape for each memory type."""
-        for mem_type in ["device", "mapped", "pinned"]:
+        for mem_type in ["device", "pinned"]:
             arr = mgr.allocate(
                 shape=(2, 2), dtype=np.float32, memory_type=mem_type
             )
-            if mem_type in ["device", "mapped"]:
+            if mem_type == "device":
                 assert hasattr(arr, "__cuda_array_interface__")
             else:
                 assert isinstance(arr, np.ndarray)
             assert arr.shape == (2, 2)
             assert arr.dtype == np.float32
-        with pytest.raises(NotImplementedError):
-            mgr.allocate(shape=(1, 1), dtype=np.float32, memory_type="managed")
-        with pytest.raises(ValueError):
-            mgr.allocate(shape=(1, 1), dtype=np.float32, memory_type="invalid")
+        for unsupported in ["mapped", "managed", "invalid"]:
+            with pytest.raises(ValueError):
+                mgr.allocate(
+                    shape=(1, 1), dtype=np.float32, memory_type=unsupported
+                )
+
+    @pytest.mark.nocudasim
+    @pytest.mark.cupy
+    def test_allocate_device_returns_cupy_array(self, mgr):
+        """Test that a "device" allocation is a CuPy array on a real GPU.
+
+        CuPy is CuBIE's single device allocation provider; device
+        arrays are allocated straight from CuPy's memory pool rather
+        than through a Numba External Memory Manager plugin.
+        """
+        import cupy as cp
+
+        arr = mgr.allocate(
+            shape=(4, 4), dtype=np.float32, memory_type="device"
+        )
+        assert isinstance(arr, cp.ndarray)
 
     def test_free(self, registered_mgr, registered_instance):
         """Test free removes allocation by key from all instances."""
@@ -654,10 +650,20 @@ class TestMemoryManager:
                 shape=(2, 2), dtype=np.float32, memory="device", total_runs=2
             ),
             "arr2": ArrayRequest(
-                shape=(3, 3), dtype=np.float64, memory="mapped", total_runs=3
+                shape=(3, 3), dtype=np.float64, memory="pinned", total_runs=3
             ),
         }
         mgr._check_requests(valid_requests)  # Should not raise
+
+        # Unsupported placements are rejected at request construction
+        with pytest.raises(ValueError):
+            ArrayRequest(
+                shape=(3, 3), dtype=np.float64, memory="mapped", total_runs=3
+            )
+        with pytest.raises(ValueError):
+            ArrayRequest(
+                shape=(3, 3), dtype=np.float64, memory="managed", total_runs=3
+            )
 
         # Invalid dict type should raise TypeError
         with pytest.raises(TypeError):
@@ -855,8 +861,8 @@ class TestMemoryManager:
         stream.synchronize()
 
         # Copy back to host and verify values
-        result_arr1 = device_arrays["arr1"].copy_to_host()
-        result_arr2 = device_arrays["arr2"].copy_to_host()
+        result_arr1 = device_arrays["arr1"].get()
+        result_arr2 = device_arrays["arr2"].get()
 
         np.testing.assert_array_equal(result_arr1, host_arr1)
         np.testing.assert_array_equal(result_arr2, host_arr2)
@@ -885,9 +891,13 @@ class TestMemoryManager:
         host_source1 = np.arange(10, dtype=np.float32).reshape(2, 5) * 3.0
         host_source2 = np.arange(6, dtype=np.float64).reshape(3, 2) + 10.0
 
-        # Copy test data to device arrays using cuda.to_device directly
-        cuda.to_device(host_source1, stream=stream, to=device_arrays["arr1"])
-        cuda.to_device(host_source2, stream=stream, to=device_arrays["arr2"])
+        # Copy test data to device arrays using the manager's own
+        # to_device method (the sole allocation/transfer provider).
+        mgr.to_device(
+            instance,
+            [host_source1, host_source2],
+            [device_arrays["arr1"], device_arrays["arr2"]],
+        )
         stream.synchronize()
 
         # Create empty host arrays to receive the data
@@ -1310,3 +1320,48 @@ def test_allocate_queue_handles_all_requests_same_total_runs(mgr):
     assert "arr1" in response.arr
     assert "arr2" in response.arr
     assert "arr3" in response.arr
+
+
+@pytest.fixture(scope="session")
+def stream1():
+    return cuda.stream()
+
+
+@pytest.fixture(scope="session")
+def stream2():
+    return cuda.stream()
+
+
+@pytest.mark.nocudasim
+def test_numba_stream_ptr(stream1):
+    try:
+        expected_ptr = int(stream1.handle.value)
+    except AttributeError:
+        expected_ptr = int(stream1.handle)
+    assert _numba_stream_ptr(stream1) == expected_ptr
+
+
+@pytest.mark.nocudasim
+@pytest.mark.cupy
+def test_cupy_stream_wrapper(stream1, stream2):
+    """Verify current_cupy_stream always forwards a Numba stream.
+
+    CuPy is CuBIE's single device allocation provider, so the
+    forwarding context manager wraps every non-default stream it is
+    given.
+    """
+    import cupy as cp
+
+    with current_cupy_stream(stream1) as cupy_stream:
+        assert isinstance(cupy_stream.cupy_ext_stream, cp.cuda.ExternalStream)
+        assert cupy_stream.cupy_ext_stream.ptr == _numba_stream_ptr(stream1)
+        assert cp.cuda.get_current_stream().ptr == _numba_stream_ptr(stream1)
+
+    with current_cupy_stream(stream2) as cupy_stream:
+        assert isinstance(cupy_stream.cupy_ext_stream, cp.cuda.ExternalStream)
+        assert cupy_stream.cupy_ext_stream.ptr == _numba_stream_ptr(stream2)
+        assert cp.cuda.get_current_stream().ptr == _numba_stream_ptr(stream2)
+
+    # Check that the default current stream is untouched
+    assert cp.cuda.get_current_stream().ptr != _numba_stream_ptr(stream1)
+    assert cp.cuda.get_current_stream().ptr != _numba_stream_ptr(stream2)

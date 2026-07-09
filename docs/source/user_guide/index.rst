@@ -13,6 +13,7 @@ value problems. The source code is available on `Github
    solving
    coming_from_scipy
    coming_from_matlab
+   configuration
    batching
    results
    drivers

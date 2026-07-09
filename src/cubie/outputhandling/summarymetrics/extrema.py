@@ -41,6 +41,7 @@ class Extrema(SummaryMetric):
             buffer_size=2,
             output_size=2,
             unit_modification="[unit]",
+            output_names=["max", "min"],
         )
 
     def build(self) -> MetricFuncCache:

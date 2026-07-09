@@ -12,6 +12,7 @@ you need specific details about a function or class, the :doc:`Reference Manual 
    :caption: Contents
 
    getting_started
+   tutorials/index
    user_guide/index
    theory/index
    developer_guide/index

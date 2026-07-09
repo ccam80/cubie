@@ -78,9 +78,6 @@ as the project's interpreter so you don't have to worry about it.
 
 Install these using `pip install cubie[optional]`
 
-* CuPy: For pool-based memory management (if you're doing a lot of
-  consecutive batches of different sizes). Install via `pip install
-  cubie[cupy12]` or `pip install cubie[cupy13]` to match your toolkit.
 * Pandas: For DataFrame output support
 * Matplotlib: For plotting support. Only used to plot an interpolated driver function for sanity-checks (see
   :doc:`Drivers <user_guide/drivers>`), but generally useful for visualizing results.

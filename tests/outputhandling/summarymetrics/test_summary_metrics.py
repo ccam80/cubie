@@ -794,12 +794,42 @@ def test_real_registry_offsets():
 
 
 def test_legend_combined_metric():
-    """Combined mean_std_rms produces 3 numbered headings."""
+    """Combined mean_std_rms reports its declared constituent names."""
     headings = global_registry.legend(["mean", "std", "rms"])
-    assert headings == ["mean_std_rms_1", "mean_std_rms_2", "mean_std_rms_3"]
+    assert headings == ["mean", "std", "rms"]
 
 
 def test_legend_single_output_metrics():
     """Single-output metrics produce their name as heading."""
     headings = global_registry.legend(["mean", "max", "rms"])
     assert headings == ["mean", "max", "rms"]
+
+
+def test_legend_extrema_combined_metric():
+    """Combined extrema reports max/min under their requested names."""
+    headings = global_registry.legend(["max", "min"])
+    assert headings == ["max", "min"]
+
+
+def test_legend_dxdt_extrema_combined_metric():
+    """Combined dxdt_extrema reports dxdt_max/dxdt_min names."""
+    headings = global_registry.legend(["dxdt_max", "dxdt_min"])
+    assert headings == ["dxdt_max", "dxdt_min"]
+
+
+def test_legend_d2xdt2_extrema_combined_metric():
+    """Combined d2xdt2_extrema reports d2xdt2_max/d2xdt2_min names."""
+    headings = global_registry.legend(["d2xdt2_max", "d2xdt2_min"])
+    assert headings == ["d2xdt2_max", "d2xdt2_min"]
+
+
+def test_legend_std_rms_combined_metric():
+    """Combined std_rms reports std/rms names."""
+    headings = global_registry.legend(["std", "rms"])
+    assert headings == ["std", "rms"]
+
+
+def test_legend_mean_std_combined_metric():
+    """Combined mean_std reports mean/std names."""
+    headings = global_registry.legend(["mean", "std"])
+    assert headings == ["mean", "std"]
