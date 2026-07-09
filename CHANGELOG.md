@@ -1,5 +1,43 @@
 # Changelog
 
+## [0.1.0](https://github.com/ccam80/cubie/compare/v0.0.8...v0.1.0) (2026-07-09)
+
+
+### Features
+
+* add BiCGSTAB linear solver and Jacobi preconditioner ([#524](https://github.com/ccam80/cubie/issues/524)) ([51e0ed5](https://github.com/ccam80/cubie/commit/51e0ed53f57b60f288d814e2e075037dbbec2a82))
+* add Neumann preconditioner convergence diagnostic ([#523](https://github.com/ccam80/cubie/issues/523)) ([950034d](https://github.com/ccam80/cubie/commit/950034db4ceabebd2778358c8c38605cf2cae9be))
+* max_registers kwarg caps per-thread registers via cuda.jit ([#553](https://github.com/ccam80/cubie/issues/553)) ([b106b39](https://github.com/ccam80/cubie/commit/b106b39b282e617156e1aadbdef4c980d01cccb3))
+
+
+### Bug Fixes
+
+* adaptive rejection can no longer loop forever ([#529](https://github.com/ccam80/cubie/issues/529)) ([#535](https://github.com/ccam80/cubie/issues/535)) ([d13fc3a](https://github.com/ccam80/cubie/commit/d13fc3a9c1c7b5a2ffd0ab8a997b1a096cf05934))
+* constant power exponents lower to multiplication chains ([#552](https://github.com/ccam80/cubie/issues/552)) ([ff4da5b](https://github.com/ccam80/cubie/commit/ff4da5b230d6ddcb62d00882cb25ceb63553b03c))
+* CuPy is the single device memory allocation provider ([#561](https://github.com/ccam80/cubie/issues/561)) ([32a2617](https://github.com/ccam80/cubie/commit/32a26173ea21c7a54d0d61ee92e57579d50ed55c))
+* derivative metric history guards gate on the sample counter, not on nonzero values ([#542](https://github.com/ccam80/cubie/issues/542)) ([bd3715b](https://github.com/ccam80/cubie/commit/bd3715b0c83018a75d7cffa2824b2eb2c74e7a6b))
+* dict inputs map to state/parameter slots by key name ([#530](https://github.com/ccam80/cubie/issues/530)) ([#532](https://github.com/ccam80/cubie/issues/532)) ([1787c3a](https://github.com/ccam80/cubie/commit/1787c3ad0bd691f0f1be1cf2471980d9f3d32427))
+* driver dict inputs map to system driver slots by key name ([#536](https://github.com/ccam80/cubie/issues/536)) ([de05c78](https://github.com/ccam80/cubie/commit/de05c7806268c37ef046a10122e0201e7eda2d26))
+* drop no-effect and unreachable code from numba compat shims ([329d6fe](https://github.com/ccam80/cubie/commit/329d6fea50ff58a6d5345f80e2c1ec9984777f93))
+* inner-solver tolerances default to controller tolerance over ten ([#538](https://github.com/ccam80/cubie/issues/538)) ([ec6158c](https://github.com/ccam80/cubie/commit/ec6158ce937930e8638704cc9d7c99b366c89a5b))
+* negative tolerances rejected; sdirk_2_2 declared errorless ([#549](https://github.com/ccam80/cubie/issues/549)) ([0dc5cf6](https://github.com/ccam80/cubie/commit/0dc5cf64b492915cd3b97e71e77032cb51e33839))
+* nested solver shared buffers sized correctly through the allocation chain ([#545](https://github.com/ccam80/cubie/issues/545)) ([ed18917](https://github.com/ccam80/cubie/commit/ed1891764a200b5b409ecee338510c335c5d48b8))
+* no-op controller/algorithm updates keep buffer registration ([#525](https://github.com/ccam80/cubie/issues/525)) ([#533](https://github.com/ccam80/cubie/issues/533)) ([c49660e](https://github.com/ccam80/cubie/commit/c49660e3bfdcd166b431a045ef50f644490ae175))
+* output schedules tolerate f32 drift and zero-gap boundaries ([#566](https://github.com/ccam80/cubie/issues/566)) ([d8407df](https://github.com/ccam80/cubie/commit/d8407dff38fcb037c54760c47618e8e488de2393))
+* package source edits invalidate compiled-kernel and codegen caches ([#544](https://github.com/ccam80/cubie/issues/544)) ([2415657](https://github.com/ccam80/cubie/commit/24156578e84b948681926119cdce62b1fe5140b1))
+* PI/PID controller default gains use canonical predictive values ([#537](https://github.com/ccam80/cubie/issues/537)) ([3f4020c](https://github.com/ccam80/cubie/commit/3f4020cabcc187dc23fa79ec826fbeee8b26c2b9))
+* rosenbrock23 tableau transformed to the increment convention ([#527](https://github.com/ccam80/cubie/issues/527)) ([#534](https://github.com/ccam80/cubie/issues/534)) ([0e11892](https://github.com/ccam80/cubie/commit/0e11892050103ee9797741faa273cf38915acbcf))
+* summary legends populate for summary-only solves; fused metrics report requested names ([#559](https://github.com/ccam80/cubie/issues/559)) ([762dd5e](https://github.com/ccam80/cubie/commit/762dd5e2abfbbd871f1de4fe9d410b8312f16dc6))
+* transient step failures no longer stain the run status word ([#539](https://github.com/ccam80/cubie/issues/539)) ([d6c41dc](https://github.com/ccam80/cubie/commit/d6c41dc1cc86755af8a24a404586debe4f3ddb0d))
+* unconsumed Solver kwargs raise; save_last fires on exact t_end landing ([#540](https://github.com/ccam80/cubie/issues/540)) ([46e0d57](https://github.com/ccam80/cubie/commit/46e0d570f6bcc20758faf7801b984d3f4b2bd197))
+
+
+### Documentation
+
+* solve() configuration reference and per-algorithm defaults ([#560](https://github.com/ccam80/cubie/issues/560)) ([1248ea3](https://github.com/ccam80/cubie/commit/1248ea363468148383397b39f97d1c9cc36f2e30))
+* three runnable tutorials cover sweeps, summaries, stiff solving ([#551](https://github.com/ccam80/cubie/issues/551)) ([540d7a5](https://github.com/ccam80/cubie/commit/540d7a5a9214558722c22ed13beae069075ac644))
+* user guide claims match current behaviour ([#550](https://github.com/ccam80/cubie/issues/550)) ([31fbae6](https://github.com/ccam80/cubie/commit/31fbae647806eec070042c1e6ca25505ca5e4f52))
+
 ## [0.0.8](https://github.com/ccam80/cubie/compare/v0.0.7...v0.0.8) (2026-07-06)
 
 
