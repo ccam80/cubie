@@ -32,7 +32,7 @@ solve the Lotka--Volterra system for a single initial condition:
        LV,
        y0={"x": np.array([0.5]), "y": np.array([0.3])},
        parameters={"b": np.array([0.02]), "d": np.array([0.01])},
-       method="dormand_prince_54",
+       method="dormand-prince-54",
        duration=100.0,
    )
 
@@ -60,7 +60,7 @@ Pass arrays for any states you want to vary across the batch:
            "y": np.array([0.3]),  # same for all runs
        },
        parameters={"b": np.array([0.02]), "d": np.array([0.01])},
-       method="dormand_prince_54",
+       method="dormand-prince-54",
        duration=100.0,
    )
 
@@ -77,7 +77,7 @@ recompiling the CUDA kernel on every call:
 
 .. code-block:: python
 
-   solver = qb.Solver(LV, algorithm="dormand_prince_54")
+   solver = qb.Solver(LV, algorithm="dormand-prince-54")
 
    result_a = solver.solve(
        initial_values={"x": np.array([0.5]), "y": np.array([0.3])},
@@ -94,6 +94,14 @@ recompiling the CUDA kernel on every call:
    )
 
 The first call compiles the kernel; subsequent calls reuse it.
+
+Two further ``Solver`` methods are useful in interactive loops:
+:meth:`~cubie.batchsolving.solver.Solver.update` reconfigures a live
+solver (tolerances, algorithm, output settings) without rebuilding it
+from scratch, and
+:meth:`~cubie.batchsolving.solver.Solver.build_grid` pre-builds the
+input grid once so repeated ``solve`` calls with the same batch layout
+skip grid construction.
 
 The ``duration`` Parameter
 --------------------------

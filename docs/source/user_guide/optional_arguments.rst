@@ -1,613 +1,248 @@
-Optional Arguments Reference
-============================
+Solver Options Reference
+========================
 
-CuBIE uses a cascading configuration system where optional parameters flow
-through to underlying components. When you call ``solver.solve()`` or create
-integration components directly, you can customize behaviour by passing
-optional keyword arguments.
+Every option on this page is a keyword argument: pass it to
+:func:`~cubie.solve_ivp`, to the :class:`~cubie.Solver` constructor, or
+to :meth:`~cubie.batchsolving.solver.Solver.solve`, and CuBIE routes it
+to the right internal component for you.  You never need to know which
+component that is — the options below are grouped by what you are
+trying to achieve.
 
-How Optional Arguments Work
----------------------------
+Two conventions apply throughout:
 
-When you pass an optional argument, it flows down through the configuration
-hierarchy:
+- Leaving an option out (or passing ``None``) means "use the default".
+- Misspelt or unknown option names raise ``KeyError`` rather than
+  being silently ignored.
 
-1. **Algorithm level**: Parameters like ``preconditioner_order`` control how
-   implicit algorithms solve their internal equations.
-2. **Controller level**: Parameters like ``atol`` and ``rtol`` control how
-   the step size adapts to maintain accuracy.
-3. **Loop level**: Parameters like ``dt_save`` control output timing.
-4. **Output level**: Parameters like ``output_types`` control what data is
-   saved.
+Controlling accuracy
+--------------------
 
-Any parameter you don't specify uses a sensible default from the component's
-configuration class. Passing ``None`` for any optional parameter means "use
-the default" — it does not set the parameter to ``None``.
+These are the two knobs most users touch.  Adaptive methods choose
+their own step size to keep the estimated local error below
+``atol + rtol * |value|`` for every state variable.
 
-Algorithm Options
------------------
-
-Algorithm parameters control how integration steps are computed. Implicit
-algorithms (Backwards Euler, DIRK, FIRK, Rosenbrock-W, Crank-Nicolson) use
-internal solvers that have their own tuning parameters.
-
-Implicit Solver Parameters
-~~~~~~~~~~~~~~~~~~~~~~~~~~
-
-These parameters control the Newton-Krylov solver used by implicit methods.
-The solver works in two layers: an outer Newton loop that handles
-nonlinearity, and an inner Krylov loop that solves the linear system at each
-Newton step.
-
-**newton_atol**
-    The absolute tolerance for the Newton solver convergence check. Together
-    with ``newton_rtol``, this defines when the Newton loop exits. The scaled
-    norm of the residual must fall below 1 (where the norm uses these
-    tolerances for scaling) for convergence. Use tighter tolerances for more
-    accurate implicit solves.
-
-    - Default: ``1e-6``
-    - Type: ``float`` or ``ndarray`` (must be positive)
-
-**newton_rtol**
-    The relative tolerance for the Newton solver convergence check. Works
-    together with ``newton_atol`` to scale the residual norm. The relative
-    tolerance scales based on the magnitude of the current solution.
-
-    - Default: ``1e-6``
-    - Type: ``float`` or ``ndarray`` (must be positive)
-
-**newton_max_iters**
-    Maximum number of Newton iterations before the solver gives up. If the
-    Newton loop hasn't converged after this many iterations, the step is
-    marked as failed. Increase this if you have a very stiff system that
-    converges slowly but eventually succeeds.
-
-    - Default: ``100``
-    - Type: ``int`` (1 to 32767)
-
-**newton_damping**
-    The fraction by which the step is shrunk during backtracking. When a
-    Newton step doesn't reduce the residual, the solver backtracks by
-    multiplying the step by this factor and trying again. Values closer to
-    1.0 try smaller corrections first, while values closer to 0 make more
-    aggressive corrections.
-
-    - Default: ``0.5``
-    - Type: ``float`` (0 to 1)
-
-**newton_max_backtracks**
-    Maximum number of backtracking attempts per Newton step. If the solver
-    cannot find a step that reduces the residual after this many attempts,
-    it accepts the current step anyway and continues. Increase this for
-    systems where finding good descent directions is difficult.
-
-    - Default: ``8``
-    - Type: ``int`` (1 to 32767)
-
-**krylov_atol**
-    The absolute tolerance for the linear solver convergence check. Together
-    with ``krylov_rtol``, this defines when the Krylov loop exits. The inner
-    Krylov loop solves a linear system at each Newton step and exits when
-    the scaled residual norm falls below 1.
-
-    - Default: ``1e-6``
-    - Type: ``float`` or ``ndarray`` (must be positive)
-
-**krylov_rtol**
-    The relative tolerance for the linear solver convergence check. Works
-    together with ``krylov_atol`` to scale the residual norm.
-
-    - Default: ``1e-6``
-    - Type: ``float`` or ``ndarray`` (must be positive)
-
-**krylov_max_iters**
-    Maximum number of linear solver iterations per Newton step. If the
-    Krylov loop hasn't converged after this many iterations, it returns
-    with its current best estimate. Increase for ill-conditioned systems.
-
-    - Default: ``100``
-    - Type: ``int`` (1 to 32767)
-
-**linear_correction_type**
-    The line search strategy used within the linear solver. Choose between:
-
-    - ``"steepest_descent"``: Moves in the direction of steepest decrease.
-      Robust but can be slow for ill-conditioned problems.
-    - ``"minimal_residual"``: Minimises the residual along the search
-      direction. Often converges faster but may be less stable.
-
-    - Default: ``"minimal_residual"``
-    - Type: ``str``
-
-**preconditioner_order**
-    Order of the truncated Neumann series preconditioner. Higher orders give
-    better preconditioning (faster convergence) but cost more per iteration.
-    For most problems, order 1-3 works well.
-
-    - Default: ``2``
-    - Type: ``int`` (1 to 32)
-
-Implicit Algorithm Applicability
-~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
-
-.. list-table::
-   :header-rows: 1
-   :widths: 35 10 10 10 10 10
-
-   * - Parameter
-     - Backwards Euler
-     - Crank-Nicolson
-     - DIRK
-     - FIRK
-     - Rosenbrock-W
-   * - newton_atol
-     - ✓
-     - ✓
-     - ✓
-     - ✓
-     - ✗
-   * - newton_rtol
-     - ✓
-     - ✓
-     - ✓
-     - ✓
-     - ✗
-   * - newton_max_iters
-     - ✓
-     - ✓
-     - ✓
-     - ✓
-     - ✗
-   * - newton_damping
-     - ✓
-     - ✓
-     - ✓
-     - ✓
-     - ✗
-   * - newton_max_backtracks
-     - ✓
-     - ✓
-     - ✓
-     - ✓
-     - ✗
-   * - krylov_atol
-     - ✓
-     - ✓
-     - ✓
-     - ✓
-     - ✓
-   * - krylov_rtol
-     - ✓
-     - ✓
-     - ✓
-     - ✓
-     - ✓
-   * - krylov_max_iters
-     - ✓
-     - ✓
-     - ✓
-     - ✓
-     - ✓
-   * - linear_correction_type
-     - ✓
-     - ✓
-     - ✓
-     - ✓
-     - ✓
-   * - preconditioner_order
-     - ✓
-     - ✓
-     - ✓
-     - ✓
-     - ✓
-
-Tableau Selection
-~~~~~~~~~~~~~~~~~
-
-Multi-stage algorithms (ERK, DIRK, FIRK, Rosenbrock-W) use Butcher tableaus
-that define the coefficients for each stage. CuBIE provides several built-in
-tableaus, and you can also define custom ones.
-
-**tableau**
-    The Butcher tableau defining the Runge-Kutta method. Different tableaus
-    offer different trade-offs between accuracy, stability, and computational
-    cost. Tableaus with embedded error estimates enable adaptive stepping;
-    tableaus without them require fixed stepping.
-
-    - ERK defaults: ``dormand-prince-54`` (Dormand-Prince 5(4), adaptive)
-    - DIRK defaults: ``lobatto_iiic_3`` (Lobatto IIIC, 3-stage, order 4,
-      fixed-step — no embedded error estimate)
-    - FIRK defaults: ``firk_gauss_legendre_2`` (Gauss-Legendre, 2-stage,
-      order 4, fixed-step — no embedded error estimate)
-    - Rosenbrock-W defaults: ``ros3p`` (ROS3P, 3-stage, order 3, stiff
-      problems)
-
-Controller Options
-------------------
-
-Step controllers determine how the integration proceeds: whether to accept or
-reject a step, and how to adjust the step size for the next attempt. CuBIE
-provides several controllers for different use cases.
-
-Common Adaptive Parameters
-~~~~~~~~~~~~~~~~~~~~~~~~~~
-
-These parameters apply to all adaptive step controllers (I, PI, PID,
-Gustafsson).
-
-**atol**
-    Absolute tolerance for error control. The error at each step is compared
-    against ``atol + rtol * |state|``. Absolute tolerance dominates when state
-    values are small. Can be a scalar (same for all variables) or an array
-    (one per state variable).
+**atol** — absolute error tolerance.
+    Dominates when a state is near zero.  A scalar applies to every
+    state; an array gives one tolerance per state variable.  Must be
+    non-negative.
 
     - Default: ``1e-6``
     - Type: ``float`` or array of ``float``
 
-**rtol**
-    Relative tolerance for error control. Scales with the magnitude of the
-    state, so larger values have proportionally larger acceptable errors.
-    Can be a scalar or array.
+**rtol** — relative error tolerance.
+    Scales with the magnitude of the state: ``rtol=1e-6`` asks for
+    roughly six correct digits.  Scalar or per-state array; must be
+    non-negative.
 
     - Default: ``1e-6``
     - Type: ``float`` or array of ``float``
 
-**dt_min**
-    Minimum allowable step size. The controller will not shrink the step
-    below this limit. If the error is still too large at the minimum step,
-    the integration will continue but flag this condition.
+Controlling the step size
+-------------------------
 
-    - Default: ``1e-6``
-    - Type: ``float`` (must be positive)
+**dt** — the step size (fixed methods) or initial step size (adaptive).
+    For fixed-step methods this is *the* step size.  For adaptive
+    methods it seeds the first step, and if you give ``dt`` alone the
+    bounds are derived from it as ``dt_min = dt/100`` and
+    ``dt_max = dt*100``.
 
-**dt_max**
-    Maximum allowable step size. The controller will not grow the step beyond
-    this limit, even if the error estimate suggests a larger step would be
-    acceptable. Set this to prevent jumping over important dynamics.
+    - Default: ``1e-3`` (fixed); ``sqrt(dt_min * dt_max)`` (adaptive)
+    - Type: ``float``, positive
 
-    - Default: ``1.0`` (or derived from ``dt`` if provided; see :doc:`timing`)
-    - Type: ``float`` (must be greater than ``dt_min``)
+**dt_min** / **dt_max** — hard bounds on the adaptive step size.
+    The controller never steps outside these.  Use ``dt_max`` to stop
+    the solver skating over short-lived dynamics; if the error is
+    still too large at ``dt_min``, the run is flagged in
+    ``result.status_codes`` rather than silently continuing.
+    Supplying ``dt_max < dt_min`` raises ``ValueError``.
 
-**algorithm_order**
-    Order of the integration algorithm, used to calculate optimal step size
-    adjustment. Usually determined automatically from the algorithm, but can
-    be overridden if needed.
+    - Defaults: ``dt_min=1e-6``, ``dt_max=1.0``
+    - Type: ``float``, positive
 
-    - Default: determined by algorithm
-    - Type: ``int`` (must be at least 1)
+See :doc:`timing` for the full derivation rules, and for the output
+timing options (``save_every``, ``summarise_every``,
+``sample_summaries_every``, ``duration``, ``t0``, ``settling_time``).
 
-**min_gain**
-    Minimum factor by which the step size can shrink in one adjustment.
-    Prevents overly aggressive step reduction. A value of 0.3 means the step
-    can shrink to at most 30% of its previous size.
+Tuning the step controller
+--------------------------
 
-    - Default: ``0.3``
-    - Type: ``float`` (0 to 1)
+Adaptive step-size control is handled by a controller you select with
+``step_controller``: one of ``"fixed"``, ``"i"``, ``"pi"``, ``"pid"``,
+or ``"gustafsson"`` (see :doc:`choosing_algorithms`).  Each algorithm
+picks a sensible default, so treat everything in this section as
+expert tuning.
 
-**max_gain**
-    Maximum factor by which the step size can grow in one adjustment.
-    Prevents overly aggressive step growth. A value of 2.0 means the step can
-    at most double.
+Options for all adaptive controllers:
 
-    - Default: ``2.0``
-    - Type: ``float`` (must be at least 1)
+**min_gain** / **max_gain** — limits on how fast the step changes.
+    Per adjustment, the step size can shrink to no less than
+    ``min_gain`` times and grow to no more than ``max_gain`` times its
+    previous value.
 
-**safety**
-    Safety factor applied to step size predictions. A value less than 1.0
-    makes the controller more conservative, preferring smaller steps than
-    the error estimate suggests. Helps prevent rejected steps due to
-    optimistic predictions.
+    - Defaults: ``min_gain=0.3``, ``max_gain=2.0``
 
-    - Default: ``0.9``
-    - Type: ``float`` (0 to 1)
-
-**deadband_min** / **deadband_max**
-    Range within which step size changes are suppressed. If the calculated
-    gain falls between ``deadband_min`` and ``deadband_max``, the step size
-    is left unchanged. This prevents small oscillations in step size when
-    the error is near the tolerance. Set both to 1.0 to disable the deadband.
-
-    - Default: ``deadband_min=1.0``, ``deadband_max=1.2``
-    - Type: ``float``
-
-PI Controller Parameters
-~~~~~~~~~~~~~~~~~~~~~~~~
-
-The PI (proportional-integral) controller uses both current and previous
-error estimates to calculate step size adjustments.
-
-**kp**
-    Proportional gain coefficient. Controls how strongly the current error
-    estimate affects the step size. Higher values react more aggressively to
-    the current error.
-
-    - Default: ``0.7``
-    - Type: ``float``
-
-**ki**
-    Integral gain coefficient. Controls how strongly the accumulated error
-    history affects the step size. Higher values provide more smoothing but
-    slower response.
-
-    - Default: ``-0.4``
-    - Type: ``float``
-
-    Individual algorithms may pass their own tuned ``kp``/``ki`` as
-    controller defaults (e.g. Rosenbrock-W and FIRK default to
-    ``kp=0.6``); see the "Defaults" section of each algorithm's page in
-    the API reference. The 1/18, 1/9 pairing quoted in some external
-    references is a *recommended tuning* (the H312PID row in
-    :doc:`the step-control API page
-    </API_reference/integrators/step_control>`), not the library
-    default.
-
-PID Controller Parameters
-~~~~~~~~~~~~~~~~~~~~~~~~~
-
-The PID controller adds a derivative term to the PI controller for faster
-response to rapidly changing errors.
-
-**kp**
-    Proportional gain coefficient (same as PI controller).
-
-    - Default: ``0.7``
-    - Type: ``float``
-
-**ki**
-    Integral gain coefficient (same as PI controller).
-
-    - Default: ``-0.4``
-    - Type: ``float``
-
-**kd**
-    Derivative gain coefficient. Controls how the rate of change of error
-    affects step size. Helps anticipate changes but can amplify noise.
-
-    - Default: ``0.0`` (derivative term disabled)
-    - Type: ``float``
-
-Gustafsson Controller Parameters
-~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
-
-The Gustafsson controller is designed for implicit methods, incorporating
-information about Newton iteration convergence.
-
-**gamma**
-    Damping factor applied to the gain calculation. Lower values produce
-    more conservative step size changes.
+**safety** — conservatism factor.
+    Step-size predictions are multiplied by this, so values below 1.0
+    aim slightly smaller than the error estimate suggests, trading a
+    little speed for fewer rejected steps.
 
     - Default: ``0.9``
-    - Type: ``float`` (0 to 1)
 
-**newton_max_iters**
-    Expected maximum Newton iterations, used to scale the step size
-    prediction. Should match or slightly exceed your actual Newton iteration
-    limit.
+**deadband_min** / **deadband_max** — "leave it alone" band.
+    Proposed gains inside this band are snapped to 1.0, preventing
+    twitchy step-size changes when the error hovers near tolerance.
+    Set both to 1.0 to disable.
+
+    - Defaults: ``deadband_min=1.0``, ``deadband_max=1.2``
+
+Controller-specific gains:
+
+**kp** / **ki** — proportional and integral gains (``pi`` and ``pid``).
+    How strongly the controller reacts to the current error (``kp``)
+    and to the error history (``ki``).
+
+    - Defaults: ``kp=0.7``, ``ki=-0.4``
+
+**kd** — derivative gain (``pid`` only).
+    Reacts to the rate of change of the error.  Disabled at 0.
+
+    - Default: ``0.0``
+
+**gamma** — damping factor (``gustafsson`` only).
+    Lower values make step-size changes more conservative.
+
+    - Default: ``0.9``
+
+**newton_max_iters** — Newton-iteration budget (``gustafsson`` only).
+    The Gustafsson controller scales its prediction by how hard the
+    implicit solver is working; this is the iteration count it treats
+    as "full effort".  This is the same option name as the implicit
+    solver's Newton iteration limit below: passing it once sets both,
+    so keep it equal to the Newton budget you actually intend.  Left
+    unset, the controller uses 20 while the solver uses 100.
 
     - Default: ``20``
-    - Type: ``int``
 
-Fixed Step Controller
-~~~~~~~~~~~~~~~~~~~~~
+Tuning the implicit (stiff) solvers
+-----------------------------------
 
-The fixed step controller maintains a constant step size throughout
-integration.
+Implicit algorithms (Backward Euler, Crank--Nicolson, DIRK, FIRK)
+solve a nonlinear system at every step with a Newton--Krylov method:
+an outer Newton loop handles the nonlinearity, and an inner Krylov
+loop solves a linear system for each Newton update.  Rosenbrock-W
+methods are linearly implicit: they skip the Newton loop entirely, so
+only the linear-solver and preconditioner options below apply to them.
 
-**dt**
-    The fixed step size to use. Required parameter for fixed stepping.
+Newton (outer loop) options:
 
-    - No default (must be specified)
-    - Type: ``float`` (must be positive)
+**newton_atol** / **newton_rtol** — Newton convergence tolerances.
+    When to declare the nonlinear solve converged.
 
-Controller Applicability
-~~~~~~~~~~~~~~~~~~~~~~~~
+    - Default: the step controller's ``atol``/``rtol`` divided by 10
+      (so stage solves always converge tighter than the error estimate
+      they feed); ``1e-6`` when there is no adaptive controller.
+    - Type: ``float`` or array, non-negative
 
-.. list-table::
-   :header-rows: 1
-   :widths: 30 10 10 10 10 10
+**newton_max_iters** — Newton iteration limit.
+    Steps that fail to converge within this many iterations are marked
+    failed (and retried at a smaller step size under adaptive
+    control).
 
-   * - Parameter
-     - Fixed
-     - I
-     - PI
-     - PID
-     - Gustafsson
-   * - dt
-     - ✓
-     - ✗
-     - ✗
-     - ✗
-     - ✗
-   * - atol
-     - ✗
-     - ✓
-     - ✓
-     - ✓
-     - ✓
-   * - rtol
-     - ✗
-     - ✓
-     - ✓
-     - ✓
-     - ✓
-   * - dt_min
-     - ✗
-     - ✓
-     - ✓
-     - ✓
-     - ✓
-   * - dt_max
-     - ✗
-     - ✓
-     - ✓
-     - ✓
-     - ✓
-   * - min_gain
-     - ✗
-     - ✓
-     - ✓
-     - ✓
-     - ✓
-   * - max_gain
-     - ✗
-     - ✓
-     - ✓
-     - ✓
-     - ✓
-   * - safety
-     - ✗
-     - ✓
-     - ✓
-     - ✓
-     - ✓
-   * - deadband_min/max
-     - ✗
-     - ✓
-     - ✓
-     - ✓
-     - ✓
-   * - kp
-     - ✗
-     - ✗
-     - ✓
-     - ✓
-     - ✗
-   * - ki
-     - ✗
-     - ✗
-     - ✓
-     - ✓
-     - ✗
-   * - kd
-     - ✗
-     - ✗
-     - ✗
-     - ✓
-     - ✗
-   * - gamma
-     - ✗
-     - ✗
-     - ✗
-     - ✗
-     - ✓
-   * - newton_max_iters (ctrl)
-     - ✗
-     - ✗
-     - ✗
-     - ✗
-     - ✓
+    - Default: ``100``
 
-Loop Options
-------------
+**newton_damping** — backtracking shrink factor.
+    When a Newton step fails to reduce the residual, the update is
+    scaled by this factor and retried.
 
-Loop parameters control the overall integration process, including timing,
-initial conditions, and output cadence. See :doc:`timing` for detailed
-coverage of how timing parameters interact.
+    - Default: ``0.5`` (range 0--1)
 
-Timing Parameters
-~~~~~~~~~~~~~~~~~
+**newton_max_backtracks** — backtracking attempt limit.
 
-**dt**
-    Initial step size at the start of integration. For adaptive controllers,
-    this is used only for the first step; subsequent steps are determined
-    by the controller. If not specified, computed as ``sqrt(dt_min * dt_max)``.
-    When you provide ``dt`` alone, ``dt_min`` and ``dt_max`` are derived from
-    it. See :doc:`timing` for the full derivation rules.
+    - Default: ``8``
 
-    - Default: ``sqrt(dt_min * dt_max)`` for adaptive, ``1e-3`` for fixed
-    - Type: ``float`` (must be positive)
+Krylov (inner loop) options:
 
-**save_every**
-    Time interval between saved output samples. Determines how often state
-    and observable values are recorded to the output arrays. Smaller values
-    give higher resolution output but require more memory.
+**krylov_atol** / **krylov_rtol** — linear-solve tolerances.
 
-    - Default: If not set, saves only initial and final states
-    - Type: ``float`` (must be positive)
+    - Default: derived like ``newton_atol``/``newton_rtol`` above.
 
-**summarise_every**
-    Window length for summary statistics. At the end of each window,
-    metrics (mean, max, RMS, etc.) are computed and the accumulator resets.
-    Uses fixed, non-overlapping windows.
+**krylov_max_iters** — linear iteration limit per Newton step.
 
-    - Default: ``duration`` (one summary over the entire integration)
-    - Type: ``float`` (must be positive)
+    - Default: ``100``
 
-Output Options
---------------
+**linear_correction_type** — linear solver strategy.
+    ``"minimal_residual"`` (default) minimises the residual along the
+    search direction; ``"steepest_descent"`` is more robust but often
+    slower; ``"bicgstab"`` switches to a BiCGSTAB solver, which can
+    help on difficult non-symmetric systems.
 
-Output parameters control what data is saved during integration.
+Preconditioner options:
 
-Output Type Selection
-~~~~~~~~~~~~~~~~~~~~~
+**preconditioner_order** — truncated Neumann-series order.
+    Higher orders speed up Krylov convergence at more cost per
+    iteration; 1--3 suits most problems.
 
-**output_types**
-    List of output types to save. Valid options include:
+    - Default: ``2``
 
-    - ``"state"``: Save state variable time series
-    - ``"observables"``: Save observable time series
-    - ``"time"``: Save time stamps for each output sample
-    - ``"iteration_counters"``: Save Newton and Krylov iteration counts
+**preconditioner_type** — preconditioner family.
+    ``"neumann"`` (default) or ``"jacobi"``; pass a two-element list
+    (e.g. ``["jacobi", "neumann"]``) to chain both.
 
-    Summary metrics can also be specified:
+Advanced implicit options: **beta** and **gamma** (implicit-integration
+coefficients, default 1.0 each) and **M** (a mass-matrix override,
+default identity).  These change the equations being solved — leave
+them alone unless you know you need them.
 
-    - ``"mean"``: Arithmetic mean over summary interval
-    - ``"max"``: Maximum value over summary interval
-    - ``"min"``: Minimum value over summary interval
-    - ``"rms"``: Root-mean-square over summary interval
-    - ``"std"``: Standard deviation over summary interval
-    - ``"var"``: Variance over summary interval
+Choosing the method's coefficients
+----------------------------------
+
+**tableau** — the Butcher tableau for multi-stage methods.
+    Selecting an algorithm by name (see :doc:`choosing_algorithms`)
+    already picks a tableau.  The bare family names use these
+    defaults:
+
+    - ERK: ``dormand-prince-54`` (adaptive)
+    - DIRK: ``lobatto_iiic_3`` (fixed-step)
+    - FIRK: ``firk_gauss_legendre_2`` (fixed-step)
+    - Rosenbrock-W: ``ros3p`` (adaptive)
+
+    You can also pass a custom ``ButcherTableau`` instance as the
+    algorithm itself.
+
+Choosing what gets saved
+------------------------
+
+**output_types** — what to record.
+    Any combination of the time-domain outputs ``"state"``,
+    ``"observables"``, ``"time"``, and ``"iteration_counters"``, plus
+    any of the 18 summary metric names (``"mean"``, ``"max"``,
+    ``"peaks"``, ...) — the full metric table is in :doc:`results`.
 
     - Default: ``["state"]``
-    - Type: list of ``str``
 
-Index Selection
-~~~~~~~~~~~~~~~
+**save_variables** / **summarise_variables** — which variables, by name.
+    Restrict time-domain saving and summary metrics to the listed
+    state/observable names.  Saving less is the single easiest memory
+    and speed win.  (The index-based equivalents
+    ``saved_state_indices``, ``saved_observable_indices``,
+    ``summarised_state_indices``, and ``summarised_observable_indices``
+    are also accepted.)
 
-**saved_state_indices**
-    Indices of state variables to include in time-domain output. Use this
-    to save only the variables you need, reducing memory requirements.
-    If not specified, all state variables are saved.
+    - Default: all states and observables; summaries follow the saved
+      selection unless you specify them separately.
 
-    - Default: all states
-    - Type: list or array of ``int``
+GPU tuning (advanced)
+---------------------
 
-**saved_observable_indices**
-    Indices of observable variables to include in time-domain output.
+**Buffer location options** (``state_location``,
+``timestep_memory_location``, and about forty more ``*_location``
+options across the loop, algorithm, and solver configs)
+    Each working buffer can live in ``"local"`` (per-thread) or
+    ``"shared"`` (per-block) GPU memory.  Everything defaults to
+    ``"local"``, which profiling shows is the right choice on typical
+    hardware — these exist for performance experiments on specific
+    GPU architectures and never affect results.
 
-    - Default: all observables
-    - Type: list or array of ``int``
-
-**summarised_state_indices**
-    Indices of state variables to include in summary calculations.
-    Defaults to the same as ``saved_state_indices`` if not specified.
-
-    - Default: same as saved indices
-    - Type: list or array of ``int``
-
-**summarised_observable_indices**
-    Indices of observable variables to include in summary calculations.
-
-    - Default: same as saved indices
-    - Type: list or array of ``int``
-
-Memory Location Options
------------------------
-
-Advanced users can control where intermediate buffers are allocated in GPU
-memory. These options affect performance but not correctness.
-
-**Buffer location parameters** (e.g., ``state_location``,
-``preconditioned_vec_location``, etc.)
-
-Control whether a buffer is allocated in local memory (``"local"``) or
-shared memory (``"shared"``). Local memory is private to each thread and
-larger; shared memory is faster but limited and shared across a thread
-block. The defaults are tuned for typical use cases.
-
-- Default: ``"local"`` for most buffers
-- Type: ``str`` (``"local"`` or ``"shared"``)
-
-These parameters are primarily useful for performance tuning on specific GPU
-architectures and can generally be left at their defaults.
+Memory-manager settings (allocator choice, VRAM proportion, stream
+groups) are covered in :doc:`memory`, and compilation caching in
+:doc:`caching`.
