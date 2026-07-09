@@ -86,15 +86,10 @@ each indexed ``[window, variable, run]``:
    peak_prey = per_metric["max"][0, 0, :]   # window 0, x, all runs
    mean_prey = per_metric["mean"][0, 0, :]
 
-One known bug to be aware of: metrics that share an accumulator are
-fused when requested together, and the fused name leaks into the
-result keys.  Requesting both ``"max"`` and ``"min"`` computes the
-combined ``"extrema"`` metric, so the per-metric keys come out as
-``"extrema_1"`` and ``"extrema_2"`` rather than the names you asked
-for.  This renaming is a bug rather than intended behaviour (tracked
-as `issue #547 <https://github.com/ccam80/cubie/issues/547>`_).
-Until it is fixed, print ``list(per_metric.keys())`` if a metric you
-requested seems to be missing.
+Metrics that share an accumulator are computed together on the GPU:
+requesting both ``"max"`` and ``"min"`` runs one combined pass over
+the data instead of two.  This fusion is transparent — the result
+keys are always the metric names you requested.
 
 Step 4: Trim what you don't need
 --------------------------------

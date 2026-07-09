@@ -38,6 +38,11 @@ order.  States and named values can be accessed by attribute
        name="LotkaVolterra",
    )
 
+CuBIE reads the function's source code to build the GPU kernel, so
+the function form needs to live somewhere Python can read it back: a
+script, a module, or a notebook cell all work, but a string passed
+to ``exec`` or ``python -c`` does not.
+
 The same system can be written as equation strings, which is handy
 when the model already exists as equations on paper.  Anything of the
 form ``dx = ...`` defines a state variable ``x``:

@@ -753,6 +753,26 @@ def test_summary_legend_maps_indices():
     assert legend == expected
 
 
+def test_summary_legend_maps_indices_fused_extrema():
+    """Fused max/min legend reports the requested metric names."""
+    cfg = OutputConfig(
+        max_states=3, max_observables=2,
+        output_types=["max", "min"], precision=np.float32,
+    )
+    legend = cfg.summary_legend_per_variable
+    assert legend == {0: "max", 1: "min"}
+
+
+def test_summary_legend_maps_indices_fused_mean_std_rms():
+    """Fused mean/std/rms legend reports the requested metric names."""
+    cfg = OutputConfig(
+        max_states=3, max_observables=2,
+        output_types=["mean", "std", "rms"], precision=np.float32,
+    )
+    legend = cfg.summary_legend_per_variable
+    assert legend == {0: "mean", 1: "std", 2: "rms"}
+
+
 # -- summary_unit_modifications ------------------------------------------- #
 
 

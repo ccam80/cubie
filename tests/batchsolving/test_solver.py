@@ -208,13 +208,13 @@ def test_solve_info_property(
 
 
 def test_solve_basic(
-    solver,
+    solver_mutable,
     simple_initial_values,
     simple_parameters,
     driver_settings,
 ):
     """Test basic solve functionality."""
-    result = solver.solve(
+    result = solver_mutable.solve(
         initial_values=simple_initial_values,
         parameters=simple_parameters,
         drivers=driver_settings,
@@ -233,14 +233,14 @@ def test_solve_basic(
 
 
 def test_solve_with_different_grid_types(
-    solver,
+    solver_mutable,
     simple_initial_values,
     simple_parameters,
     driver_settings,
 ):
     """Test solve with different grid types."""
     # Test combinatorial grid
-    result_comb = solver.solve(
+    result_comb = solver_mutable.solve(
         initial_values=simple_initial_values,
         parameters=simple_parameters,
         drivers=driver_settings,
@@ -265,7 +265,7 @@ def test_solve_with_different_grid_types(
         param_names[0]: [1.0, 2.0],
         param_names[1]: [0.5, 1.5],
     }
-    result_verb = solver.solve(
+    result_verb = solver_mutable.solve(
         initial_values=verbatim_initial_values,
         parameters=verbatim_parameters,
         drivers=driver_settings,
@@ -279,7 +279,7 @@ def test_solve_with_different_grid_types(
 
 
 def test_solve_with_different_result_types(
-    solver,
+    solver_mutable,
     simple_initial_values,
     simple_parameters,
     driver_settings,
@@ -288,7 +288,7 @@ def test_solve_with_different_result_types(
     result_types = ["full", "numpy"]
 
     for result_type in result_types:
-        result = solver.solve(
+        result = solver_mutable.solve(
             initial_values=simple_initial_values,
             parameters=simple_parameters,
             drivers=driver_settings,
@@ -664,11 +664,12 @@ def test_build_grid_precision(
 
 
 def test_solve_array_path_matches_dict_path(
-    solver, simple_initial_values, simple_parameters, driver_settings
+    solver_mutable, simple_initial_values, simple_parameters,
+    driver_settings
 ):
     """Test that array fast path produces same results as dict path."""
     # Solve with dict inputs
-    result_dict = solver.solve(
+    result_dict = solver_mutable.solve(
         initial_values=simple_initial_values,
         parameters=simple_parameters,
         drivers=driver_settings,
@@ -679,10 +680,10 @@ def test_solve_array_path_matches_dict_path(
     )
 
     # Build grid and solve with arrays
-    inits, params = solver.build_grid(
+    inits, params = solver_mutable.build_grid(
         simple_initial_values, simple_parameters, grid_type="verbatim"
     )
-    result_array = solver.solve(
+    result_array = solver_mutable.solve(
         initial_values=inits,
         parameters=params,
         drivers=driver_settings,
@@ -952,11 +953,13 @@ def test_solve_ivp_with_save_variables(system):
     assert result.time_domain_array.shape[1] == len(state_names)
 
 
-def test_solver_solve_with_save_variables(solver, system, driver_settings):
+def test_solver_solve_with_save_variables(
+    solver_mutable, system, driver_settings
+):
     """Test Solver.solve accepts save_variables parameter."""
     state_names = list(system.initial_values.names)[:1]
 
-    result = solver.solve(
+    result = solver_mutable.solve(
         initial_values={state_names[0]: [1.0, 2.0]},
         parameters={list(system.parameters.names)[0]: [0.1, 0.2]},
         drivers=driver_settings,
@@ -1039,6 +1042,19 @@ def test_solver_accepts_max_cache_entries_kwarg(system, solver_settings):
     )
 
     assert solver.kernel.cache_handler.config.max_cache_entries == 5
+
+
+def test_solver_accepts_max_registers_kwarg(system, solver_settings):
+    """Verify Solver(system, max_registers=128) is recognized."""
+    solver = Solver(
+        system,
+        algorithm=solver_settings["algorithm"],
+        memory_manager=solver_settings["memory_manager"],
+        stream_group=solver_settings["stream_group"],
+        max_registers=128,
+    )
+
+    assert solver.kernel.compile_settings.max_registers == 128
 
 
 def test_solve_ivp_passes_cache_kwargs(
@@ -1272,3 +1288,46 @@ def test_regular_saves_fill_allocation_at_fp_endpoints(
     final_states = states[-1, : len(simple_initial_values), :]
     assert np.all(np.isfinite(final_states))
     assert np.any(final_states != 0.0)
+
+
+@pytest.mark.nocudasim
+def test_save_boundary_zero_gap_run_completes():
+    """A driven stiff Rosenbrock run survives t rounding onto a save
+    boundary.
+
+    Float32 time accumulation can land the committed time exactly on
+    ``next_save`` without the save firing, because the pre-step save
+    prediction and the post-step time commit use different arithmetic.
+    A step clamped to that boundary would have length zero, which the
+    step function cannot integrate; the positive-gap-only clamp keeps
+    dt_raw instead, so the run completes.
+
+    This test keeps its own system because landing the committed
+    time exactly on a save boundary needs this particular driven
+    stiff system with these solver settings; the shared fixture
+    systems do not reproduce the coincidence.
+    """
+    forced = create_ODE_system(
+        "dx = v\ndv = mu * (1 - x*x) * v - x + forcing",
+        parameters={"mu": 50.0},
+        states={"x": 2.0, "v": 0.0},
+        drivers=["forcing"],
+        precision=np.float32,
+        name="ForcedVanDerPol548",
+    )
+    time = np.linspace(0.0, 20.0, 400)
+    signal = 5.0 * np.sin(2.0 * np.pi * 0.25 * time)
+
+    result = solve_ivp(
+        forced,
+        y0={"x": np.array([2.0]), "v": np.array([0.0])},
+        parameters={"mu": np.array([64.0])},
+        drivers={"forcing": signal, "time": time},
+        method="rosenbrock",
+        duration=20.0,
+        save_every=0.05,
+    )
+
+    assert result.status_messages == {}
+    states = np.asarray(result.time_domain_array)
+    assert np.all(np.isfinite(states))

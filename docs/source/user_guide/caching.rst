@@ -9,10 +9,10 @@ The ``generated/`` Directory
 ----------------------------
 
 When CuBIE first compiles a system, it writes generated Python files into
-a ``generated/`` directory inside the working directory (or a
-user-specified cache directory).  These files contain the CUDA device
-functions for the right-hand side, Jacobian helpers, and other
-system-specific code.
+a ``generated/`` directory inside the current working directory.  These
+files contain the CUDA device functions for the right-hand side,
+Jacobian helpers, and other system-specific code.  The location is
+fixed; it cannot be redirected.
 
 When Recompilation Happens
 --------------------------
@@ -32,9 +32,10 @@ Numba Kernel Cache
 ------------------
 
 After CuBIE generates Python source, Numba JIT-compiles it into GPU
-machine code.  Numba caches compiled kernels to disk so that the second
-run with the same configuration skips the JIT step entirely.  This cache
-is separate from the ``generated/`` directory and is managed by Numba.
+machine code.  CuBIE caches the compiled kernels to disk so that the
+second run with the same configuration skips the JIT step entirely.
+The kernel cache lives inside the ``generated/`` directory, under
+``generated/<system_name>/CUDA_cache_<hash>/``.
 
 Cache Settings
 --------------
@@ -48,7 +49,9 @@ On the :class:`~cubie.Solver`:
    Disable caching; recompile every time.
 
 ``cache="path/to/dir"``
-   Use a custom directory for generated files.
+   Store the compiled-kernel cache in a custom directory.  (The
+   generated Python source still goes to ``generated/`` in the working
+   directory.)
 
 .. code-block:: python
 
@@ -58,7 +61,9 @@ On the :class:`~cubie.Solver`:
 Clearing Caches
 ---------------
 
-Delete the ``generated/`` directory to clear the code-generation cache.
-Numba's cache can be cleared by deleting the ``__pycache__`` directories
-next to the generated files, or by setting ``cache=False`` for a single
-run.
+Delete the ``generated/`` directory to clear both caches: it holds the
+generated source files and, in the ``CUDA_cache_*`` subdirectories, the
+compiled kernels.  To skip the caches for a single run, pass
+``cache=False``.  If you have edited CuBIE's own code-generation
+internals, clear ``generated/`` manually — the kernel cache key does
+not account for package-code changes.

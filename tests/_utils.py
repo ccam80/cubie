@@ -868,12 +868,21 @@ def run_device_loop(
     d_counters_out = cuda.to_device(counters_output)
     d_status = cuda.to_device(status)
 
+    # Build before sizing: the build refreshes nested child buffer
+    # sizes in the loop's group, mirroring BatchSolverKernel.run().
+    loop_fn = singleintegratorrun.device_function
+
     shared_bytes = max(4, singleintegratorrun.shared_memory_bytes)
     shared_elements = max(1, singleintegratorrun.shared_memory_elements)
     persistent_required = max(1, singleintegratorrun.persistent_local_elements)
 
-    loop_fn = singleintegratorrun.device_function
     numba_precision = from_dtype(precision)
+    save_stop = precision(
+        singleintegratorrun.save_stop_time(duration, warmup, t0)
+    )
+    summary_stop = precision(
+        singleintegratorrun.summary_stop_time(duration, warmup, t0)
+    )
 
     @cuda.jit(
         # (
@@ -921,6 +930,8 @@ def run_device_loop(
             duration,
             warmup,
             t0,
+            save_stop,
+            summary_stop,
         )
 
     kernel[1, 1, 0, shared_bytes](
@@ -1012,26 +1023,160 @@ def assert_integration_outputs(
         )
 
     if flags.summarise_state:
-        assert_allclose(
+        assert_summaries_close(
             device.state_summaries,
             reference.state_summaries,
+            samples=state_ref,
+            output_functions=output_functions,
             rtol=rtol,
             atol=atol,
-            err_msg="state summaries mismatch.\n"
-            f"device: {device.state_summaries}\n"
-            f"reference: {reference.state_summaries}",
+            label="state summaries",
         )
 
     if flags.summarise_observables:
-        assert_allclose(
+        assert_summaries_close(
             device.observable_summaries,
             reference.observable_summaries,
+            samples=observables_ref,
+            output_functions=output_functions,
             rtol=rtol,
             atol=atol,
-            err_msg="observable summary mismatch.\n"
-            f"device: {device.observable_summaries}\n"
-            f"reference: {reference.observable_summaries}",
+            label="observable summaries",
         )
+
+
+def summary_atol_per_column(
+    output_functions: OutputFunctions,
+    amplitude: float,
+    base_atol: float,
+    eps: float,
+) -> Array:
+    """Per-column absolute tolerances for a summaries array.
+
+    Derivative metrics amplify sample-level rounding noise: a
+    perturbation of one ulp in one sample shifts a first difference by
+    up to 2*eps*amplitude and a second difference (stencil coefficients
+    1, -2, 1) by up to 4*eps*amplitude, and the metrics scale by
+    1/sample_summaries_every and 1/sample_summaries_every**2
+    respectively. Columns belonging to dxdt/d2xdt2 metrics therefore
+    get ``base_atol`` plus that amplification floor; all other columns
+    keep ``base_atol``.
+
+    Parameters
+    ----------
+    output_functions
+        Configured output functions; supplies the per-variable summary
+        legend and ``sample_summaries_every``.
+    amplitude
+        Maximum absolute sample value feeding the summaries.
+    base_atol
+        Absolute tolerance for non-derivative columns.
+    eps
+        Machine epsilon of the comparison precision.
+
+    Returns
+    -------
+    Array
+        Absolute tolerance for each per-variable summary column.
+    """
+    legend = output_functions.summary_legend_per_variable
+    sample_every = float(
+        output_functions.compile_settings.sample_summaries_every
+    )
+    tolerances = []
+    for index in range(len(legend)):
+        name = legend[index]
+        if name.startswith("d2xdt2"):
+            tolerance = base_atol + (
+                4.0 * eps * amplitude / (sample_every * sample_every)
+            )
+        elif name.startswith("dxdt"):
+            tolerance = base_atol + 2.0 * eps * amplitude / sample_every
+        else:
+            tolerance = base_atol
+        tolerances.append(tolerance)
+    return np.asarray(tolerances)
+
+
+def assert_summaries_close(
+    device_summaries,
+    reference_summaries,
+    samples,
+    output_functions: OutputFunctions,
+    rtol: float,
+    atol: float,
+    label: str,
+) -> None:
+    """Compare summary arrays with metric-type-scaled tolerances.
+
+    The last axis of the summary arrays is laid out as
+    ``variable_index * per_variable_height + metric_column``; the
+    per-variable tolerance vector from :func:`summary_atol_per_column`
+    is tiled across variables and applied elementwise as
+    ``|device - reference| <= atol_column + rtol * |reference|``.
+
+    Parameters
+    ----------
+    device_summaries
+        Summary array produced on the device.
+    reference_summaries
+        Summary array produced by the CPU reference.
+    samples
+        Sampled values the summaries were computed from; supplies the
+        amplitude and the machine epsilon for the derivative-metric
+        tolerance floor. ``None`` or empty falls back to an amplitude
+        of 1.0 and the summary dtype's epsilon.
+    output_functions
+        Configured output functions for legend and timing metadata.
+    rtol
+        Relative tolerance applied against the reference magnitude.
+    atol
+        Base absolute tolerance for non-derivative columns.
+    label
+        Array description used in the failure message.
+    """
+    device_summaries = np.asarray(device_summaries)
+    reference_summaries = np.asarray(reference_summaries)
+    samples = np.asarray(samples) if samples is not None else None
+    if samples is not None and samples.size > 0:
+        # The ulp floor absorbs sample-level rounding differences, so
+        # eps belongs to the sample precision, not the summary dtype.
+        amplitude = float(np.max(np.abs(samples)))
+        eps = float(np.finfo(samples.dtype).eps)
+    else:
+        amplitude = 1.0
+        eps = float(np.finfo(reference_summaries.dtype).eps)
+    per_variable = summary_atol_per_column(
+        output_functions, amplitude, atol, eps
+    )
+    n_columns = device_summaries.shape[-1]
+    if n_columns % len(per_variable) != 0:
+        raise AssertionError(
+            f"{label}: last axis ({n_columns}) is not a multiple of the "
+            f"per-variable summary height ({len(per_variable)})"
+        )
+    atol_columns = np.tile(per_variable, n_columns // len(per_variable))
+    difference = np.abs(
+        device_summaries.astype(np.float64)
+        - reference_summaries.astype(np.float64)
+    )
+    allowed = atol_columns + rtol * np.abs(
+        reference_summaries.astype(np.float64)
+    )
+    device_nan = np.isnan(device_summaries)
+    reference_nan = np.isnan(reference_summaries)
+    both_nan = device_nan & reference_nan
+    # One-sided NaN makes difference NaN, and NaN > allowed is False,
+    # so it must be flagged explicitly rather than fall through.
+    nan_mismatch = device_nan ^ reference_nan
+    violations = ((difference > allowed) & ~both_nan) | nan_mismatch
+    assert not np.any(violations), (
+        f"{label} mismatch at {np.argwhere(violations).tolist()}.\n"
+        f"device: {device_summaries}\n"
+        f"reference: {reference_summaries}\n"
+        f"difference: {difference}\n"
+        f"allowed: {np.broadcast_to(allowed, difference.shape)}"
+    )
 
 
 def extract_state_and_time(
@@ -1343,3 +1488,77 @@ def setup_chunked_arrays(manager, num_runs, num_chunks):
             host_slot = manager.host.get_managed_array(name)
             host_slot.chunked_shape = chunked_shape
             host_slot.chunked_slice_fn = slice_fn
+
+
+class StepResult:
+    """Lightweight return container mirroring GPU kernel outputs."""
+
+    def __init__(self, dt, accepted, local_mem):
+        self.dt = dt
+        self.accepted = accepted
+        self.local_mem = local_mem
+
+
+def run_controller_device_step(
+    device_func,
+    precision,
+    dt0,
+    error,
+    *,
+    local_mem=None,
+    state=None,
+    state_prev=None,
+    niters=1,
+):
+    """Execute a step-controller device function once on the GPU."""
+
+    err = np.asarray(error, dtype=precision)
+    state_arr = (
+        np.asarray(state, dtype=precision)
+        if state is not None
+        else np.zeros_like(err)
+    )
+    state_prev_arr = (
+        np.asarray(state_prev, dtype=precision)
+        if state_prev is not None
+        else np.zeros_like(err)
+    )
+
+    dt = np.asarray([dt0], dtype=precision)
+    accept = np.zeros(1, dtype=np.int32)
+    niters_val = np.int32(niters)
+    shared_scratch = np.zeros(1, dtype=precision)
+    if local_mem is not None:
+        persistent_local = np.asarray(local_mem, dtype=precision)
+    else:
+        persistent_local = np.zeros(2, dtype=precision)
+
+    @cuda.jit
+    def kernel(
+        dt_val,
+        state_val,
+        state_prev_val,
+        err_val,
+        niters_val,
+        accept_val,
+        shared_val,
+        persistent_val,
+    ):
+        device_func(
+            dt_val,
+            state_val,
+            state_prev_val,
+            err_val,
+            niters_val,
+            accept_val,
+            shared_val,
+            persistent_val,
+        )
+
+    kernel[1, 1](
+        dt, state_arr, state_prev_arr, err, niters_val, accept,
+        shared_scratch, persistent_local,
+    )
+    return StepResult(
+        precision(dt[0]), int(accept[0]), persistent_local.copy()
+    )

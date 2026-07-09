@@ -97,6 +97,14 @@ recompiling the CUDA kernel on every call:
 
 The first call compiles the kernel; subsequent calls reuse it.
 
+Two further ``Solver`` methods are useful in interactive loops:
+:meth:`~cubie.batchsolving.solver.Solver.update` reconfigures a live
+solver (tolerances, algorithm, output settings) without rebuilding it
+from scratch, and
+:meth:`~cubie.batchsolving.solver.Solver.build_grid` pre-builds the
+input grid once so repeated ``solve`` calls with the same batch layout
+skip grid construction.
+
 The ``duration`` Parameter
 --------------------------
 

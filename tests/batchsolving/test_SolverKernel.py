@@ -217,10 +217,17 @@ def test_bogus_update_fails(solverkernel_mutable):
 
 
 class TestTimingParameterValidation:
-    """Tests for timing parameter validation in BatchSolverKernel.run()."""
+    """Tests for timing parameter validation in BatchSolverKernel.run().
+
+    Solve-time timing kwargs permanently reconfigure the solver (the
+    validation error is raised after the settings update is applied),
+    so every test here uses the function-scoped ``solver_mutable``
+    rather than the shared session ``solver`` fixture.
+    """
 
     def test_save_every_greater_than_duration_no_save_last_raises(
-        self, system, precision, driver_array, solver, driver_settings
+        self, system, precision, driver_array, solver_mutable,
+        driver_settings
     ):
         inits = np.ones((3, 1), dtype=precision)
         params = np.ones((3, 1), dtype=precision)
@@ -228,7 +235,7 @@ class TestTimingParameterValidation:
         with pytest.raises(
             ValueError, match=r"save_every.*>.*duration.*no outputs"
         ):
-            solver.solve(
+            solver_mutable.solve(
                 inits,
                 params,
                 driver_settings,
@@ -237,14 +244,15 @@ class TestTimingParameterValidation:
             )
 
     def test_save_every_greater_than_duration_with_save_last_succeeds(
-        self, system, precision, driver_array, solver, driver_settings
+        self, system, precision, driver_array, solver_mutable,
+        driver_settings
     ):
         """Test that save_every >= duration with save_last=True is valid."""
         inits = np.ones((3, 1), dtype=precision)
         params = np.ones((3, 1), dtype=precision)
 
         # Should not raise when save_last is True (default when save_every=None)
-        solver.solve(
+        solver_mutable.solve(
             inits,
             params,
             drivers=driver_settings,
@@ -254,7 +262,8 @@ class TestTimingParameterValidation:
         )
 
     def test_summarise_every_greater_than_duration_raises(
-        self, system, precision, driver_array, solver, driver_settings
+        self, system, precision, driver_array, solver_mutable,
+        driver_settings
     ):
         """Test that summarise_every > duration raises."""
         inits = np.ones((3, 1), dtype=precision)
@@ -264,7 +273,7 @@ class TestTimingParameterValidation:
             ValueError,
             match=r"summarise_every.*>.*duration.*no summary outputs",
         ):
-            solver.solve(
+            solver_mutable.solve(
                 inits,
                 params,
                 driver_settings,
@@ -273,7 +282,8 @@ class TestTimingParameterValidation:
             )
 
     def test_sample_summaries_every_gte_summarise_every_raises(
-        self, system, precision, driver_array, solver, driver_settings
+        self, system, precision, driver_array, solver_mutable,
+        driver_settings
     ):
         """Test that sample_summaries_every >= summarise_every raises."""
         inits = np.ones((3, 1), dtype=precision)
@@ -282,7 +292,7 @@ class TestTimingParameterValidation:
         with pytest.raises(
             ValueError, match=r"sample_summaries_every.*>=.*summarise_every"
         ):
-            solver.solve(
+            solver_mutable.solve(
                 inits,
                 params,
                 drivers=driver_settings,

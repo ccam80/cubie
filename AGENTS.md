@@ -53,6 +53,16 @@ change — the full suite is slow (run it as a pre-commit check only, and only w
 - **Conventional Commit format**; description in **present-state changelog language** (describe the
   resulting state, e.g. "nested AGENTS.md files created…"). Types: `fix`, `feat` (rare), `test`,
   `docs`, `chore`.
+- **Agents:** every fix or feature is developed on its own branch off `main`. When the work is
+  done and verified, commit, push the branch, and open a PR.
+- **Performance gate (every PR):** run `benchmarks/lorenz_mean_runtime.py` A/B — A on `main`,
+  B on the PR branch (e.g. via `PYTHONPATH=<tree>/src`) — and include the results table in the
+  PR message. Script defaults are the gate settings. The script outputs kernel runtime only
+  (CUDA-event); one invocation per side suffices — means repeat to ~0.1% — but an invocation
+  where a config's std exceeds ~5% of its mean was contaminated by outside interference:
+  discard it and rerun. Run A (`main`) first, then pass A's printed mean/std to the B run via
+  `--ref-fixed MEAN STD --ref-adaptive MEAN STD`; the script prints a Welch z per config and
+  the verdict (`|z| >= 3` = the means differ; positive z on the PR branch = regression).
 
 ## Cross-cutting code rules (details in `src/cubie/AGENTS.md`)
 - Never call a `CUDAFactory.build()` directly — access compiled functions via the cached properties.

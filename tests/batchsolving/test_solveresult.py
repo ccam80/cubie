@@ -564,6 +564,70 @@ class TestNaNProcessing:
             status_array[2] = original_values[2]
 
 
+@pytest.fixture(scope="session")
+def solved_summary_only_solver(system, precision):
+    """Solver run with a summary-only, fusing output configuration.
+
+    No state or observable output is requested, and the requested
+    summary metrics (``mean``, ``max``, ``min``) trigger the
+    ``extrema`` combined-metric substitution, so the result
+    exercises both the summary-only legend path and requested-name
+    reporting for fused metrics.
+    """
+    solver = Solver(system, save_every=0.01)
+
+    solver.solve(
+        initial_values={
+            "x0": [1.0, 2.0, 3.0],
+            "x1": [0.0, 0.0, 0.0],
+            "x2": [0.0, 0.0, 0.0],
+        },
+        parameters={
+            "p0": [0.1, 0.2, 0.3],
+            "p1": [0.1, 0.2, 0.3],
+            "p2": [0.1, 0.2, 0.3],
+        },
+        duration=0.1,
+        output_types=["mean", "max", "min"],
+    )
+    return solver
+
+
+class TestSummaryOnlyRegression:
+    """Summary-only legends and fused-metric output naming."""
+
+    def test_summary_only_solve_populates_legend(
+        self, solved_summary_only_solver
+    ):
+        """A summary-only solve produces a non-empty
+        summaries_legend whose row count matches the variable dimension
+        of summaries_array."""
+        result = SolveResult.from_solver(solved_summary_only_solver)
+
+        assert result.summaries_legend != {}
+        variable_index = result._stride_order.index("variable")
+        assert (
+            len(result.summaries_legend)
+            == result.summaries_array.shape[variable_index]
+        )
+
+    def test_fused_extrema_reports_requested_names(
+        self, solved_summary_only_solver
+    ):
+        """The fused max/min metric reports its outputs under the
+        requested names, not extrema_1/extrema_2, with max >= min
+        elementwise."""
+        per_summary = SolveResult.from_solver(
+            solved_summary_only_solver, results_type="numpy_per_summary"
+        )
+
+        assert "max" in per_summary
+        assert "min" in per_summary
+        assert "extrema_1" not in per_summary
+        assert "extrema_2" not in per_summary
+        assert np.all(per_summary["max"] >= per_summary["min"])
+
+
 class TestSolveSpecFields:
     """Test SolveSpec field attributes."""
 

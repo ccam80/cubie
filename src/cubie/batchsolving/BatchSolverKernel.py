@@ -231,6 +231,9 @@ class BatchSolverKernel(CUDAFactory):
         Cache mode control. ``True`` enables default caching, ``False``
         disables caching, or a string/``Path`` sets a custom cache
         directory.
+    kernel_settings
+        Kernel-level compile settings forwarded to
+        :class:`BatchSolverConfig` (currently ``max_registers``).
 
     Notes
     -----
@@ -253,6 +256,7 @@ class BatchSolverKernel(CUDAFactory):
         memory_settings: Optional[Dict[str, Any]] = None,
         cache_settings: Optional[Dict[str, Any]] = None,
         cache: Union[bool, str, Path] = True,
+        kernel_settings: Optional[Dict[str, Any]] = None,
     ) -> None:
         super().__init__()
         if memory_settings is None:
@@ -315,6 +319,7 @@ class BatchSolverKernel(CUDAFactory):
             precision=precision,
             loop_fn=None,
             compile_flags=self.single_integrator.output_compile_flags,
+            **(kernel_settings or {}),
         )
         self.setup_compile_settings(initial_config)
 
@@ -586,6 +591,16 @@ class BatchSolverKernel(CUDAFactory):
             duration = precision(chunk_run_params.duration)
             warmup = precision(chunk_run_params.warmup)
             t0 = precision(chunk_run_params.t0)
+            save_stop = precision(
+                self.single_integrator.save_stop_time(
+                    duration, warmup, t0
+                )
+            )
+            summary_stop = precision(
+                self.single_integrator.summary_stop_time(
+                    duration, warmup, t0
+                )
+            )
 
             # Use the chunk-local run count
             runs = chunk_run_params.runs
@@ -622,6 +637,8 @@ class BatchSolverKernel(CUDAFactory):
                 duration,
                 warmup,
                 t0,
+                save_stop,
+                summary_stop,
                 runs,
             )
             kernel_event.record_end(stream)
@@ -744,9 +761,13 @@ class BatchSolverKernel(CUDAFactory):
             buffer_registry.get_toplevel_allocators(self)
         )
 
+        jit_kwargs = dict(compile_kwargs)
+        if config.max_registers is not None and not is_cudasim_enabled():
+            jit_kwargs["max_registers"] = config.max_registers
+
         # no cover: start
         @cuda.jit(
-            **compile_kwargs,
+            **jit_kwargs,
         )
         def integration_kernel(
             inits,
@@ -761,6 +782,8 @@ class BatchSolverKernel(CUDAFactory):
             duration,
             warmup,
             t0,
+            save_stop,
+            summary_stop,
             n_runs,
         ):
             """Execute the compiled single-run loop for each batch chunk.
@@ -791,6 +814,13 @@ class BatchSolverKernel(CUDAFactory):
                 Warmup duration applied before the chunk starts.
             t0
                 Start time of the chunk integration window.
+            save_stop
+                Completion time of the regular save schedule, half
+                an interval past its final scheduled event.
+            summary_stop
+                Completion time of the summary-update schedule,
+                half a sample interval past its final scheduled
+                event.
             n_runs
                 Number of runs scheduled for the kernel launch.
 
@@ -843,6 +873,8 @@ class BatchSolverKernel(CUDAFactory):
                 duration,
                 warmup,
                 t0,
+                save_stop,
+                summary_stop,
             )
             if tx == 0:
                 status_codes_output[run_index] = status

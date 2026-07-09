@@ -339,9 +339,13 @@ class NewtonKrylov(MatrixFreeSolver):
         alloc_stage_base_bt = get_alloc("stage_base_bt", self)
         alloc_krylov_iters_local = get_alloc("krylov_iters_local", self)
 
-        # Get child allocators for linear solver
+        # Get child allocators for linear solver. Named registration
+        # keeps re-registration idempotent if the linear solver
+        # instance is ever replaced.
         alloc_lin_shared, alloc_lin_persistent = (
-            buffer_registry.get_child_allocators(self, self.linear_solver)
+            buffer_registry.get_child_allocators(
+                self, self.linear_solver, name="linear_solver"
+            )
         )
 
         # no cover: start
