@@ -112,6 +112,7 @@ class _OdeAstVisitor(ast.NodeVisitor):
         self.assignments: Dict[str, ast.expr] = {}
         self.return_nodes: List[ast.Return] = []
         self.function_calls: Set[str] = set()
+        self._entered_function = False
 
     def _record_access(
         self, base: str, key: Any, ptype: str
@@ -173,6 +174,13 @@ class _OdeAstVisitor(ast.NodeVisitor):
                     for elt in target.elts:
                         if isinstance(elt, ast.Name):
                             self.assignments[elt.id] = node.value
+        self.generic_visit(node)
+
+    def visit_AnnAssign(self, node: ast.AnnAssign) -> None:
+        if node.value is not None and isinstance(
+            node.target, ast.Name
+        ):
+            self.assignments[node.target.id] = node.value
         self.generic_visit(node)
 
     def visit_AugAssign(self, node: ast.AugAssign) -> None:
@@ -261,13 +269,21 @@ class _OdeAstVisitor(ast.NodeVisitor):
         self._visit_exprs_in_stmts([node])
 
     def _visit_exprs_in_stmts(self, stmts: list) -> None:
-        """Visit expression sub-trees for accesses and calls only."""
-        for stmt in stmts:
+        """Visit expression sub-trees for accesses and calls only.
+
+        For-loops are unrolled first so that recorded accesses carry
+        the substituted constant subscripts (``y[0]``, not ``y[i]``),
+        matching what :meth:`_collect_branch_assignments` converts.
+        """
+        for stmt in self._flatten_for_loops(stmts):
             if isinstance(stmt, ast.If):
                 self._visit_expr(stmt.test)
                 self._visit_exprs_in_stmts(stmt.body + stmt.orelse)
             elif isinstance(stmt, ast.Assign):
                 self._visit_expr(stmt.value)
+            elif isinstance(stmt, ast.AnnAssign):
+                if stmt.value is not None:
+                    self._visit_expr(stmt.value)
             elif isinstance(stmt, ast.AugAssign):
                 self._visit_expr(stmt.value)
             elif isinstance(stmt, ast.Expr):
@@ -295,12 +311,20 @@ class _OdeAstVisitor(ast.NodeVisitor):
     ) -> Dict[str, ast.expr]:
         """Extract assignments from a branch body without side effects.
 
-        Handles ``Assign``, ``AugAssign``, and nested ``If`` (for elif
-        chains).  Returns ``{name: ast_expression_node}``.
+        Handles ``Assign``, ``AnnAssign``, ``AugAssign``, nested ``If``
+        (for elif chains), and ``For`` (unrolled before processing).
+        Statements with no branch-expression equivalent (``return``,
+        ``while``, ``with``, ...) raise.  Returns
+        ``{name: ast_expression_node}``.
         """
         branch: Dict[str, ast.expr] = {}
-        for stmt in stmts:
-            if isinstance(stmt, ast.Assign):
+        for stmt in self._flatten_for_loops(stmts):
+            if isinstance(stmt, ast.AnnAssign):
+                if stmt.value is not None and isinstance(
+                    stmt.target, ast.Name
+                ):
+                    branch[stmt.target.id] = stmt.value
+            elif isinstance(stmt, ast.Assign):
                 for target in stmt.targets:
                     if isinstance(target, ast.Name):
                         branch[target.id] = stmt.value
@@ -394,6 +418,27 @@ class _OdeAstVisitor(ast.NodeVisitor):
                     ast.copy_location(ifexp, stmt)
                     branch[name] = ifexp
 
+            elif isinstance(stmt, ast.Return):
+                raise NotImplementedError(
+                    "'return' inside an if/elif/else branch is not "
+                    "supported in ODE functions. Assign the branch "
+                    "result to a variable and return once at the end "
+                    "of the function."
+                )
+
+            elif isinstance(stmt, (ast.Expr, ast.Pass)):
+                # Bare expressions have no assignment to collect;
+                # their accesses and calls are recorded by
+                # _visit_exprs_in_stmts.
+                pass
+
+            else:
+                raise NotImplementedError(
+                    f"'{type(stmt).__name__}' statements are not "
+                    f"supported inside if/elif/else branches in ODE "
+                    f"functions."
+                )
+
         return branch
 
     # -- For-loop unrolling --------------------------------------------
@@ -405,6 +450,19 @@ class _OdeAstVisitor(ast.NodeVisitor):
         visits the body repeatedly, so that ``y[i]`` becomes ``y[0]``,
         ``y[1]``, etc.
         """
+        for stmt in self._unroll_for(node):
+            self.visit(stmt)
+
+    def _unroll_for(self, node: ast.For) -> List[ast.stmt]:
+        """Return the loop body once per value, loop variable bound.
+
+        Each returned statement is a deep copy of a body statement
+        with the loop variable substituted by a concrete constant.
+        """
+        if node.orelse:
+            raise NotImplementedError(
+                "for/else is not supported in ODE functions."
+            )
         if not isinstance(node.target, ast.Name):
             raise NotImplementedError(
                 "Only simple loop variables are supported "
@@ -413,11 +471,27 @@ class _OdeAstVisitor(ast.NodeVisitor):
             )
         loop_var = node.target.id
         values = _extract_for_iterable(node.iter)
-
+        unrolled: List[ast.stmt] = []
         for val in values:
             for stmt in node.body:
-                substituted = _substitute_name(stmt, loop_var, val)
-                self.visit(substituted)
+                unrolled.append(
+                    _substitute_name(stmt, loop_var, val)
+                )
+        return unrolled
+
+    def _flatten_for_loops(
+        self, stmts: List[ast.stmt]
+    ) -> List[ast.stmt]:
+        """Replace each for-loop in *stmts* with its unrolled body."""
+        flat: List[ast.stmt] = []
+        for stmt in stmts:
+            if isinstance(stmt, ast.For):
+                flat.extend(
+                    self._flatten_for_loops(self._unroll_for(stmt))
+                )
+            else:
+                flat.append(stmt)
+        return flat
 
     # -- NamedExpr (:=) support ----------------------------------------
 
@@ -433,6 +507,39 @@ class _OdeAstVisitor(ast.NodeVisitor):
         raise NotImplementedError(
             "While-loops are not supported in ODE functions. "
             "Use a for-loop with a constant iterable instead."
+        )
+
+    def visit_Try(self, node: ast.Try) -> None:
+        raise NotImplementedError(
+            "try/except is not supported in ODE functions."
+        )
+
+    def visit_TryStar(self, node: ast.stmt) -> None:
+        raise NotImplementedError(
+            "try/except* is not supported in ODE functions."
+        )
+
+    def visit_Match(self, node: ast.stmt) -> None:
+        raise NotImplementedError(
+            "match statements are not supported in ODE functions. "
+            "Use if/elif/else instead."
+        )
+
+    def visit_FunctionDef(self, node: ast.FunctionDef) -> None:
+        if self._entered_function:
+            raise NotImplementedError(
+                "Nested function definitions are not supported in "
+                "ODE functions. Pass helper callables via the "
+                "user_functions argument instead."
+            )
+        self._entered_function = True
+        self.generic_visit(node)
+
+    def visit_AsyncFunctionDef(
+        self, node: ast.AsyncFunctionDef
+    ) -> None:
+        raise NotImplementedError(
+            "Async functions are not supported in ODE functions."
         )
 
     def visit_ListComp(self, node: ast.ListComp) -> None:

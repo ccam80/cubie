@@ -261,6 +261,121 @@ class TestParseInput:
         k2 = sp.Symbol("k2", real=True)
         assert aux_rhs.has(k2)
 
+    def test_for_loop_inside_if_branch(self):
+        """A for-loop inside an if-branch unrolls into the branch."""
+        def f(t, y, p):
+            if t > 0.0:
+                total = 0.0
+                for i in range(2):
+                    total += p[i] * y[i]
+            else:
+                total = 1.0
+            return [-total, total]
+
+        _, _, _, eqs, _ = parse_input(
+            dxdt=f,
+            states={"a": 1.0, "b": 0.5},
+            parameters={"k0": 0.1, "k1": 0.2},
+        )
+        assert len(eqs.auxiliaries) == 1
+        _, aux_rhs = eqs.auxiliaries[0]
+        assert aux_rhs.has(sp.Piecewise)
+        a = sp.Symbol("a", real=True)
+        b = sp.Symbol("b", real=True)
+        k0 = sp.Symbol("k0", real=True)
+        k1 = sp.Symbol("k1", real=True)
+        branch_expr = aux_rhs.args[0][0]
+        expected = k0 * a + k1 * b
+        assert sp.simplify(branch_expr - expected) == 0, (
+            f"Expected {expected}, got {branch_expr}"
+        )
+
+    def test_return_inside_branch_raises(self):
+        """A return inside an if-branch raises with guidance."""
+        def f(t, y):
+            if y[0] > 0:
+                return [-y[0]]
+            return [y[0]]
+
+        with pytest.raises(NotImplementedError, match="return"):
+            parse_input(dxdt=f, states={"x": 1.0})
+
+    def test_while_inside_branch_raises(self):
+        """A while-loop inside an if-branch raises."""
+        def f(t, y):
+            if y[0] > 0:
+                a = y[0]
+                while a > 1.0:
+                    a = a - 1.0
+            else:
+                a = 0.0
+            return [-a]
+
+        with pytest.raises(NotImplementedError, match="While"):
+            parse_input(dxdt=f, states={"x": 1.0})
+
+    def test_for_else_raises(self):
+        """A for/else loop raises."""
+        def f(t, y):
+            total = 0.0
+            for i in range(2):
+                total += y[i]
+            else:
+                total += 1.0
+            return [-total, total]
+
+        with pytest.raises(NotImplementedError, match="for/else"):
+            parse_input(dxdt=f, states={"a": 1.0, "b": 0.5})
+
+    def test_try_except_raises(self):
+        """try/except raises instead of merging branch assignments."""
+        def f(t, y):
+            try:
+                a = y[0]
+            except ValueError:
+                a = 0.0
+            return [-a]
+
+        with pytest.raises(NotImplementedError, match="try/except"):
+            parse_input(dxdt=f, states={"x": 1.0})
+
+    def test_match_statement_raises(self):
+        """match statements raise instead of merging case bodies."""
+        def f(t, y):
+            match int(t):
+                case 0:
+                    a = y[0]
+                case _:
+                    a = -y[0]
+            return [a]
+
+        with pytest.raises(NotImplementedError, match="match"):
+            parse_input(dxdt=f, states={"x": 1.0})
+
+    def test_nested_def_raises(self):
+        """Nested function definitions raise with guidance."""
+        def f(t, y):
+            def helper(v):
+                return -v
+            return [helper(y[0])]
+
+        with pytest.raises(
+            NotImplementedError, match="user_functions"
+        ):
+            parse_input(dxdt=f, states={"x": 1.0})
+
+    def test_annotated_assignment(self):
+        """An annotated assignment is treated as an assignment."""
+        def f(t, y):
+            a: float = 2.0 * y[0]
+            return [-a]
+
+        _, _, _, eqs, _ = parse_input(dxdt=f, states={"x": 1.0})
+        assert len(eqs.auxiliaries) == 1
+        _, aux_rhs = eqs.auxiliaries[0]
+        x = sp.Symbol("x", real=True)
+        assert sp.simplify(aux_rhs - 2.0 * x) == 0
+
 
 class TestCreateODESystem:
     """Test create_ODE_system with callable dxdt."""
