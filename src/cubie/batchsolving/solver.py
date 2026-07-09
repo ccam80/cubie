@@ -126,10 +126,10 @@ def _system_from_equations(
     Raises
     ------
     TypeError
-        If ``parameters`` is an array, which cannot declare parameter
-        names.
+        If ``parameters`` is a non-dict sequence (array, list, or
+        tuple), which carries no names to declare parameters.
     """
-    if isinstance(parameters, ndarray):
+    if parameters is not None and not isinstance(parameters, dict):
         raise TypeError(
             "When equations are supplied directly to solve_ivp, "
             "parameters must be a dict mapping names to values so the "

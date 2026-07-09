@@ -550,8 +550,13 @@ def test_solve_ivp_accepts_equation_strings():
     assert np.all(np.isfinite(values))
 
 
-def test_solve_ivp_raw_equations_reject_array_parameters():
-    """Raw-equation solve_ivp needs named parameters, not arrays."""
+@pytest.mark.parametrize(
+    "bad_parameters",
+    [np.array([[0.5]]), [0.5], (0.5,)],
+    ids=["ndarray", "list", "tuple"],
+)
+def test_solve_ivp_raw_equations_reject_array_parameters(bad_parameters):
+    """Raw-equation solve_ivp needs named parameters, not sequences."""
     def decay(t, y, k):
         return [-k * y[0]]
 
@@ -559,7 +564,7 @@ def test_solve_ivp_raw_equations_reject_array_parameters():
         solve_ivp(
             decay,
             y0={"x": [1.0]},
-            parameters=np.array([[0.5]]),
+            parameters=bad_parameters,
             duration=0.05,
             method="euler",
         )
