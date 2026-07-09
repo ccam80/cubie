@@ -29,11 +29,13 @@ To use Cubie, you need to:
    import cubie as qb
    import numpy as np
 
+   def lotka_volterra(t, y, p):
+       dx = p.a * y.x - p.b * y.x * y.y
+       dy = -p.c * y.y + p.d * y.x * y.y
+       return [dx, dy]
+
    LV = qb.create_ODE_system(
-           """
-               dx = a*x - b*x*y
-               dy = -c*y + d*x*y
-               """,
+           lotka_volterra,
            states={'x': 100, 'y': 100},
            parameters={'a': 0.01, 'b': 1, 'c': 0.01, 'd': 1},
            name="LotkaVolterra")

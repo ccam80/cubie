@@ -15,11 +15,13 @@ every combination of the supplied parameter arrays is solved.
    import cubie as qb
    import numpy as np
 
+   def lotka_volterra(t, y, p):
+       dx = p.a * y.x - p.b * y.x * y.y
+       dy = -p.c * y.y + p.d * y.x * y.y
+       return [dx, dy]
+
    LV = qb.create_ODE_system(
-       """
-       dx = a*x - b*x*y
-       dy = -c*y + d*x*y
-       """,
+       lotka_volterra,
        constants={"a": 0.1, "c": 0.3},
        parameters={"b": 0.02, "d": 0.01},
        states={"x": 0.5, "y": 0.3},
@@ -78,9 +80,8 @@ Example: Heatmap from a 2-Parameter Sweep
    import matplotlib.pyplot as plt
 
    # Assuming result from the combinatorial example above
-   data = result.as_numpy
    # Get the final value of state 'x' for each run
-   final_x = data["time_domain"][-1, 0, :]  # last time, first var, all runs
+   final_x = result.time_domain_array[-1, 0, :]  # last t, first var
    final_x_grid = final_x.reshape(50, 40)
 
    fig, ax = plt.subplots()
