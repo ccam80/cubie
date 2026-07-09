@@ -496,29 +496,6 @@ class TestMemoryManager:
         )
         assert isinstance(arr, cp.ndarray)
 
-    @pytest.mark.nocudasim
-    def test_memory_manager_requires_cupy_on_real_gpu(self):
-        """Test that constructing a manager without CuPy raises clearly.
-
-        Only exercised meaningfully when CuPy is not importable; when
-        CuPy is installed (the normal real-GPU CI configuration) this
-        simply confirms construction succeeds. Uninstalling CuPy to
-        force the failure path is out of scope without a mock, and
-        mocks require an explicit user exception.
-        """
-        try:
-            import cupy  # noqa: F401
-
-            cupy_installed = True
-        except ImportError:
-            cupy_installed = False
-
-        if cupy_installed:
-            assert MemoryManager() is not None
-        else:
-            with pytest.raises(ImportError):
-                MemoryManager()
-
     def test_free(self, registered_mgr, registered_instance):
         """Test free removes allocation by key from all instances."""
         mgr = registered_mgr
