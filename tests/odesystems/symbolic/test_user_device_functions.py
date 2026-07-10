@@ -12,6 +12,9 @@ import pytest
 from numba import cuda
 
 from cubie import create_ODE_system, solve_ivp
+from cubie.odesystems.symbolic.codegen.neumann_convergence import (
+    check_neumann_convergence,
+)
 
 
 @pytest.fixture(scope="module")
@@ -110,3 +113,29 @@ def test_device_function_with_derivative_implicit_solve(
     state = _solve(system, "backwards_euler")
     expected = _solve(reference, "backwards_euler")
     np.testing.assert_allclose(state, expected, rtol=1e-5)
+
+
+def test_check_neumann_convergence_fallback_resolves_user_functions(
+    cubed, d_cubed, precision
+):
+    """The evaluator-less path forwards user functions to the builder.
+
+    ``check_neumann_convergence`` builds its own RHS evaluator when no
+    prebuilt evaluator is supplied; the user device callables must reach
+    that evaluator so the diagnostic degrades gracefully instead of
+    raising ``NameError``.
+    """
+    system = create_ODE_system(
+        "dx = -cubed(x)",
+        states={"x": 2.0},
+        user_functions={"cubed": cubed},
+        user_function_derivatives={"cubed": d_cubed},
+        precision=precision,
+        name="userfunc_neumann_fallback",
+    )
+    result = check_neumann_convergence(
+        system.equations,
+        system.indices,
+        user_functions=system._device_function_injections(),
+    )
+    assert result["converges"] in (True, False, None)

@@ -336,6 +336,7 @@ def check_neumann_convergence(
     beta: float = 1.0,
     gamma: float = 1.0,
     t0: float = 0.0,
+    user_functions: Optional[Dict[str, object]] = None,
 ) -> Dict[str, object]:
     """Evaluate whether the Neumann preconditioner is likely to converge.
 
@@ -364,6 +365,11 @@ def check_neumann_convergence(
         Transformation parameters from the FIRK formulation.
     t0
         Time at which to evaluate the Jacobian.
+    user_functions
+        Callables resolving user function names appearing in the
+        right-hand side, keyed by the printed name. Used only when
+        ``evaluator`` is omitted and forwarded to
+        :func:`build_rhs_evaluator`.
 
     Returns
     -------
@@ -374,7 +380,9 @@ def check_neumann_convergence(
         not be evaluated.
     """
     if evaluator is None:
-        evaluator = build_rhs_evaluator(equations, index_map)
+        evaluator = build_rhs_evaluator(
+            equations, index_map, user_functions=user_functions
+        )
 
     jacobian = evaluator.jacobian(index_map, t0=t0)
 
