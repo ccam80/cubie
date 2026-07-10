@@ -677,7 +677,6 @@ class MemoryManager:
             return
         self._auto_pool.remove(instance_id)
         self._add_manual_proportion(instance, proportion)
-        settings.proportion = proportion
 
     def set_auto_limit_mode(self, instance: object) -> None:
         """
