@@ -198,6 +198,7 @@ def _build_residual_lines(
         symbol_map=symbol_map,
         constant_names=index_map.constants.symbol_map,
     )
+    assert lines, "internal error: codegen produced an empty body"
     return "\n".join("        " + ln for ln in lines)
 
 
@@ -323,6 +324,7 @@ def _build_n_stage_residual_lines(
         symbol_map=symbol_map,
         constant_names=index_map.constants.symbol_map,
     )
+    assert lines, "internal error: codegen produced an empty body"
     return "\n".join("        " + ln for ln in lines)
 
 

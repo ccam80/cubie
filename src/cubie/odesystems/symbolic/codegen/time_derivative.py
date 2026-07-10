@@ -187,6 +187,7 @@ def generate_time_derivative_lines(
         symbol_map=symbol_map,
         constant_names=index_map.constants.symbol_map,
     )
+    assert lines, "internal error: codegen produced an empty body"
     return lines
 
 

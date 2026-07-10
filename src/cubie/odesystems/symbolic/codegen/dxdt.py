@@ -199,6 +199,7 @@ def generate_observables_lines(
         symbol_map=index_map.all_arrayrefs,
         constant_names=index_map.constants.symbol_map,
     )
+    assert obs_lines, "internal error: codegen produced an empty body"
     return obs_lines
 
 def generate_dxdt_fac_code(
