@@ -28,6 +28,10 @@ def solver_with_arrays(
         stream=solver_settings["stream"],
         warmup=solver_settings["warmup"],
     )
+    # kernel.run launches and copies back asynchronously; wait for the
+    # host arrays like Solver.solve does before results are read.
+    solver.memory_manager.sync_stream(solver.kernel)
+    solver.kernel.wait_for_writeback()
 
     return solver
 
