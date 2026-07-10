@@ -1,6 +1,10 @@
-import sympy as sp
+import math
 import re
 
+import numpy as np
+import sympy as sp
+
+from cubie import create_ODE_system, solve_ivp
 from cubie.odesystems.symbolic.codegen import (
     CUDAPrinter,
     print_cuda,
@@ -152,6 +156,44 @@ class TestCUDAPrinter:
         assert "**" not in result
         value = eval(result, {"_cse0": 2.0, "precision": float})
         assert value == 0.25
+
+    def test_sqrt_prints_as_math_sqrt(self):
+        """sp.sqrt lowers to a math.sqrt call, not a pow."""
+        x = sp.Symbol("x")
+        result = print_cuda(sp.sqrt(x))
+        assert result == "math.sqrt(x)"
+        value = eval(result, {"x": 9.0, "math": math})
+        assert value == 3.0
+
+    def test_float_half_power_prints_as_math_sqrt(self):
+        """A Float 0.5 exponent lowers to math.sqrt like Rational 1/2."""
+        x = sp.Symbol("x")
+        result = print_cuda(x ** sp.Float(0.5))
+        assert result == "math.sqrt(x)"
+
+    def test_compound_base_sqrt_parenthesised(self):
+        """sqrt of a compound base keeps the base parenthesised."""
+        a, b = sp.symbols("a b")
+        result = print_cuda(sp.sqrt(a + b))
+        assert result == "math.sqrt((a + b))"
+
+    def test_negative_half_power_prints_reciprocal_sqrt(self):
+        """x**-1/2 prints as a precision-cast reciprocal of math.sqrt."""
+        x = sp.Symbol("x")
+        for exponent in (sp.Rational(-1, 2), sp.Float(-0.5)):
+            result = print_cuda(x ** exponent)
+            assert result == "(precision(1)/math.sqrt(x))"
+            value = eval(
+                result,
+                {"x": 4.0, "precision": float, "math": math},
+            )
+            assert value == 0.5
+
+    def test_three_half_power_keeps_pow(self):
+        """Non-half fractional exponents keep the precision-wrapped pow."""
+        x = sp.Symbol("x")
+        result = print_cuda(x ** sp.Rational(3, 2))
+        assert result == "x**precision(3/2)"
 
     def test_higher_integer_power_wraps_exponent(self):
         """Test that x**4 wraps its exponent with precision()."""
@@ -578,3 +620,32 @@ class TestConstantExponentAlias:
             constant_names={"n"},
         )
         assert lines == ["out = x**_cubie_codegen_iexp_n"]
+
+
+def test_sqrt_rhs_matches_analytic_solution(precision):
+    """A sqrt right-hand side integrates to its analytic solution.
+
+    ``dx = -sqrt(x)`` with ``x(0) = 4`` has the exact solution
+    ``x(t) = (2 - t/2)**2``, so the generated ``math.sqrt`` lowering is
+    checked end to end against a closed-form reference.
+    """
+    system = create_ODE_system(
+        "dx = -sqrt(x)",
+        states={"x": 4.0},
+        precision=precision,
+        name="sqrt_lowering_analytic",
+    )
+    result = solve_ivp(
+        system,
+        y0={"x": 4.0},
+        method="tsit5",
+        duration=1.0,
+        dt=0.01,
+        save_every=0.1,
+        output_types=["state", "time"],
+    )
+    assert not np.any(result.status_codes)
+    time = np.asarray(result.time).reshape(-1)
+    state = np.squeeze(result.time_domain_array)
+    expected = (2.0 - time / 2.0) ** 2
+    np.testing.assert_allclose(state, expected, rtol=1e-4, atol=1e-5)
