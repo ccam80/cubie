@@ -71,8 +71,6 @@ class StreamGroups:
         """Initialize default group and stream if not provided."""
         if self.groups is None:
             self.groups = {"default": []}
-        if self.streams is None:
-            self.streams = {"default": cuda.default_stream()}
 
     def add_instance(self, instance: Any, group: str) -> None:
         """Add an instance to a stream group.

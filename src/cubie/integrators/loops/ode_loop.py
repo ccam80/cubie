@@ -484,6 +484,7 @@ class IVPLoop(CUDAFactory):
 
         fixed_mode = not config.is_adaptive
 
+        # no cover: start
         @cuda.jit(
             device=True,
             inline=True,
@@ -978,6 +979,7 @@ class IVPLoop(CUDAFactory):
                                 )
                                 summary_idx += int32(1)
 
+        # no cover: end
         return IVPLoopCache(loop_function=loop_fn)
 
     @property

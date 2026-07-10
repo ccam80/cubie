@@ -493,6 +493,7 @@ def load_cellml_model(
     # The GUI operates on raw dicts so the user's constant/parameter
     # choices are reflected in the cache key and codegen output.
     if show_gui:
+        # no cover: start
         from cubie.gui.constants_editor import edit_pre_parse_dicts
 
         constant_units = {
@@ -509,6 +510,7 @@ def load_cellml_model(
                 state_units=state_units,
             )
         )
+        # no cover: end
 
     # ---- Cache check (incorporates GUI choices) ----
     # Initialize cache manager with argument-based cache keys

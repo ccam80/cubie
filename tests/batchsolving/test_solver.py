@@ -1399,3 +1399,138 @@ def test_save_boundary_zero_gap_run_completes():
     assert result.status_messages == {}
     states = np.asarray(result.time_domain_array)
     assert np.all(np.isfinite(states))
+
+
+# ============================================================================
+# Additional coverage: precision passthrough, update() no-ops, memory
+# settings, profiling toggles, and pass-through properties
+# ============================================================================
+
+
+def test_solve_ivp_raw_equations_precision_override():
+    """solve_ivp forwards a precision override to the built system
+    (_system_from_equations create_kwargs branch)."""
+    def decay(t, y, k):
+        return [-k * y[0]]
+
+    result = solve_ivp(
+        decay,
+        y0={"x": [1.0]},
+        parameters={"k": [0.5]},
+        duration=0.02,
+        dt=0.01,
+        save_every=0.01,
+        method="euler",
+        precision=np.float64,
+    )
+    assert isinstance(result, SolveResult)
+    assert result.solve_settings.precision == np.float64
+
+
+def test_solve_ivp_forwards_summarise_variables(system):
+    """solve_ivp threads summarise_variables through to Solver kwargs."""
+    state_names = list(system.initial_values.names)[:1]
+    result = solve_ivp(
+        system,
+        y0={state_names[0]: [1.0, 2.0]},
+        parameters={list(system.parameters.names)[0]: [0.1, 0.2]},
+        summarise_variables=state_names,
+        save_every=0.01,
+        summarise_every=0.02,
+        duration=0.02,
+        dt=0.01,
+        method="euler",
+        output_types=["state", "mean"],
+    )
+    assert isinstance(result, SolveResult)
+    assert result.solve_settings.summarised_states == state_names
+
+
+def test_solver_update_with_no_args_returns_empty_set(solver_mutable):
+    """update() with no updates_dict and no kwargs is a no-op."""
+    solver = solver_mutable
+    assert solver.update() == set()
+    assert solver.update(None) == set()
+
+
+def test_solver_update_memory_settings_no_args_returns_empty_set(
+    solver_mutable,
+):
+    """update_memory_settings() with no updates_dict and no kwargs is a
+    no-op."""
+    solver = solver_mutable
+    assert solver.update_memory_settings() == set()
+    assert solver.update_memory_settings(None) == set()
+
+
+def test_solver_update_memory_settings_accepts_kwargs_form(solver_mutable):
+    """update_memory_settings merges **kwargs into updates_dict."""
+    solver = solver_mutable
+    updated = solver.update_memory_settings(mem_proportion=0.15)
+    assert "mem_proportion" in updated
+
+
+def test_solver_update_memory_settings_none_proportion_sets_auto(
+    solver_mutable,
+):
+    """mem_proportion=None switches the memory manager to auto-limit
+    mode instead of raising or being ignored."""
+    solver = solver_mutable
+    updated = solver.update_memory_settings({"mem_proportion": None})
+    assert "mem_proportion" in updated
+    # Auto-limit mode still reports a usable (non-None) proportion.
+    assert solver.mem_proportion is not None
+
+
+def test_solver_update_memory_settings_unrecognized_raises(solver_mutable):
+    """An unrecognized memory setting raises KeyError unless silent."""
+    solver = solver_mutable
+    with pytest.raises(KeyError, match="Unrecognized"):
+        solver.update_memory_settings({"not_a_real_memory_setting": 1})
+
+
+def test_solver_enable_disable_profiling(solver_mutable):
+    """enable_profiling/disable_profiling toggle the kernel's flag."""
+    solver = solver_mutable
+    solver.enable_profiling()
+    assert solver.kernel._profileCUDA is True
+    solver.disable_profiling()
+    assert solver.kernel._profileCUDA is False
+
+
+def test_solver_compile_flags_property(solver):
+    """compile_flags passes through to the kernel's compile flags."""
+    assert solver.compile_flags is solver.kernel.compile_flags
+
+
+def test_solver_status_messages_property_before_solve(solver):
+    """status_messages decodes the kernel's current status codes."""
+    messages = solver.status_messages
+    assert isinstance(messages, dict)
+
+
+def test_solver_parameters_initial_values_driver_coefficients_properties(
+    solved_solver_simple,
+):
+    """parameters, initial_values, and driver_coefficients pass through
+    to the kernel after a solve."""
+    solver, _ = solved_solver_simple
+    assert solver.parameters is solver.kernel.parameters
+    assert solver.initial_values is solver.kernel.initial_values
+    assert solver.driver_coefficients is solver.kernel.driver_coefficients
+
+
+def test_solver_stream_property(solver):
+    """stream passes through to the kernel's stream."""
+    assert solver.stream == solver.kernel.stream
+
+
+def test_solver_set_verbosity(solver_mutable):
+    """set_verbosity updates the global time logger verbosity."""
+    from cubie.time_logger import default_timelogger
+
+    solver = solver_mutable
+    solver.set_verbosity("verbose")
+    assert default_timelogger.verbosity == "verbose"
+    solver.set_verbosity(None)
+    assert default_timelogger.verbosity is None

@@ -71,6 +71,7 @@ def save_state_factory(
     nstates = int32(len(saved_state_indices))
     ncounters = int32(4)
 
+    # no cover: start
     @cuda.jit(
         device=True,
         inline=True,
@@ -116,7 +117,6 @@ def save_state_factory(
         When ``save_time`` is ``True`` the current step value is stored at the
         first slot immediately after the copied state values.
         """
-        # no cover: start
         if save_state:
             for k in range(nstates):
                 stwt(output_states_slice,

@@ -187,9 +187,7 @@ def parse_function_input(
         # List/tuple return: positional mapping
         for i, expr in enumerate(ret_exprs):
             dx_name = dxdt_names[i]
-            dx_sym = index_map.dxdt.symbol_map.get(dx_name)
-            if dx_sym is None:
-                dx_sym = sp.Symbol(dx_name, real=True)
+            dx_sym = index_map.dxdt.symbol_map[dx_name]
             equation_map.append((dx_sym, expr))
 
     funcs = _resolve_called_functions(

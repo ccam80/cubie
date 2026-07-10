@@ -310,8 +310,6 @@ def _build_operator_body(
         symbol_map=index_map.all_arrayrefs,
         constant_names=index_map.constants.symbol_map,
     )
-    if not lines:
-        return "        pass"
     return "\n".join("        " + ln for ln in lines)
 
 
@@ -349,8 +347,6 @@ def _build_cached_jvp_body(
         symbol_map=index_map.all_arrayrefs,
         constant_names=index_map.constants.symbol_map,
     )
-    if not lines:
-        return "        pass"
     return "\n".join("        " + ln for ln in lines)
 
 
@@ -769,8 +765,6 @@ def _build_n_stage_operator_lines(
         symbol_map=symbol_map,
         constant_names=index_map.constants.symbol_map,
     )
-    if not lines:
-        return "        pass"
     return "\n".join("        " + ln for ln in lines)
 
 

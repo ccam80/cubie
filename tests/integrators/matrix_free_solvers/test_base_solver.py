@@ -100,11 +100,11 @@ def test_matrix_free_solver_creates_norm():
     """Verify MatrixFreeSolver creates ScaledNorm in constructor."""
 
     # Create a concrete subclass for testing (MatrixFreeSolver is abstract)
-    class TestSolver(MatrixFreeSolver):
+    class _StubSolver(MatrixFreeSolver):
         def build(self):
             pass
 
-    solver = TestSolver(precision=np.float64, n=3, solver_type="newton")
+    solver = _StubSolver(precision=np.float64, n=3, solver_type="newton")
 
     # Verify norm attribute exists and is a ScaledNorm instance
     assert hasattr(solver, "norm")
@@ -142,3 +142,26 @@ def test_matrix_free_solver_forwards_kwargs_to_norm(precision):
     # Verify kwargs reached the nested ScaledNorm
     assert np.allclose(solver.norm.atol, krylov_atol)
     assert np.allclose(solver.norm.rtol, krylov_rtol)
+
+
+def test_matrix_free_solver_update_with_no_changes_returns_empty_set():
+    """update() with no arguments returns an empty set without error."""
+
+    class _StubSolver(MatrixFreeSolver):
+        def build(self):
+            pass
+
+    solver = _StubSolver(precision=np.float64, n=3, solver_type="newton")
+    assert solver.update() == set()
+    assert solver.update(updates_dict={}) == set()
+
+
+def test_matrix_free_solver_n_and_max_iters_properties():
+    """n and max_iters forward to compile_settings on a concrete solver."""
+    from cubie.integrators.matrix_free_solvers.linear_solver import (
+        MRLinearSolver,
+    )
+
+    solver = MRLinearSolver(precision=np.float64, n=7, krylov_max_iters=11)
+    assert solver.n == 7
+    assert solver.max_iters == 11

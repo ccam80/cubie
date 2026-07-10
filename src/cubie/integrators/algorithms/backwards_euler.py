@@ -190,6 +190,7 @@ class BackwardsEulerStep(ODEImplicitStep):
 
         solver_fn = solver_function
 
+        # no cover: start
         @cuda.jit(
             # (
             #     numba_precision[::1],
@@ -316,6 +317,7 @@ class BackwardsEulerStep(ODEImplicitStep):
 
             return status
 
+        # no cover: end
         return StepCache(step=step, nonlinear_solver=solver_fn)
 
     @property

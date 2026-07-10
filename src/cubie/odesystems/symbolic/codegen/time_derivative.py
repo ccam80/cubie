@@ -122,8 +122,6 @@ def _build_time_derivative_assignments(
         chain_term = sp.S.Zero
         for dep in sorted(rhs.free_symbols & processed, key=str):
             derivative = symbol_derivatives.get(dep)
-            if derivative is None:
-                continue
             chain_term += sp.diff(rhs, dep) * derivative
 
         total = direct_time + driver_term + chain_term
@@ -189,8 +187,6 @@ def generate_time_derivative_lines(
         symbol_map=symbol_map,
         constant_names=index_map.constants.symbol_map,
     )
-    if not lines:
-        lines = ["pass"]
     return lines
 
 

@@ -307,7 +307,7 @@ def _pinned_host_array(shape: Tuple[int, ...], dtype: type) -> ndarray:
     (:func:`cupyx.empty_pinned`); the CUDA simulator has no device to
     transfer to, so a plain NumPy array is used instead.
     """
-    if CUDA_SIMULATION:
+    if CUDA_SIMULATION:  # pragma: no cover - simulated
         return np_empty(shape, dtype=dtype)
     return cupyx.empty_pinned(shape, dtype=dtype)
 
@@ -1121,7 +1121,7 @@ class MemoryManager:
         """
         _ensure_cuda_context()
         if memory_type == "device":
-            if CUDA_SIMULATION:
+            if CUDA_SIMULATION:  # pragma: no cover - simulated
                 return cuda.device_array(shape, dtype)
             with current_cupy_stream(stream):
                 return cupy.empty(shape, dtype=dtype)
@@ -1178,7 +1178,7 @@ class MemoryManager:
         """
         _ensure_cuda_context()
         stream = self.get_stream(instance)
-        if CUDA_SIMULATION:
+        if CUDA_SIMULATION:  # pragma: no cover - simulated
             for i, from_array in enumerate(from_arrays):
                 cuda.to_device(from_array, stream=stream, to=to_arrays[i])
         else:
@@ -1207,7 +1207,7 @@ class MemoryManager:
         """
         _ensure_cuda_context()
         stream = self.get_stream(instance)
-        if CUDA_SIMULATION:
+        if CUDA_SIMULATION:  # pragma: no cover - simulated
             for i, from_array in enumerate(from_arrays):
                 from_array.copy_to_host(to_arrays[i], stream=stream)
         else:

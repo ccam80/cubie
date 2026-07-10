@@ -289,8 +289,6 @@ def _build_cached_neumann_body(
         symbol_map=index_map.all_arrayrefs,
         constant_names=index_map.constants.symbol_map,
     )
-    if not lines:
-        return "            pass"
     replaced = [ln.replace("v[", "out[") for ln in lines]
 
     return "\n".join("            " + ln for ln in replaced)
@@ -456,8 +454,6 @@ def _build_n_stage_neumann_lines(
         symbol_map=symbol_map,
         constant_names=index_map.constants.symbol_map,
     )
-    if not lines:
-        return "            pass"
     return "\n".join("            " + ln for ln in lines)
 
 
@@ -819,8 +815,6 @@ def _build_jacobi_body_with_state_subs(
         symbol_map=symbol_map,
         constant_names=index_map.constants.symbol_map,
     )
-    if not lines:
-        return "        pass"
     return "\n".join("        " + ln for ln in lines)
 
 
@@ -918,8 +912,6 @@ def _build_cached_jacobi_body(
         symbol_map=symbol_map,
         constant_names=index_map.constants.symbol_map,
     )
-    if not lines:
-        return "        pass"
     return "\n".join("        " + ln for ln in lines)
 
 
@@ -1258,8 +1250,6 @@ def _build_n_stage_jacobi_lines(
         symbol_map=symbol_map,
         constant_names=index_map.constants.symbol_map,
     )
-    if not lines:
-        return "            pass"
     return "\n".join("        " + ln for ln in lines)
 
 

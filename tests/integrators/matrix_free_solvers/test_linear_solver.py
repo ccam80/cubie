@@ -68,6 +68,21 @@ def test_neumann_preconditioner(
     )
 
 
+def test_linear_solver_update_with_no_changes_returns_empty_set(precision):
+    """update() with no arguments returns an empty set without error."""
+    solver = MRLinearSolver(precision=precision, n=3)
+    assert solver.update() == set()
+    assert solver.update(updates_dict={}) == set()
+
+
+def test_linear_solver_use_cached_auxiliaries_property(precision):
+    """use_cached_auxiliaries forwards to compile_settings."""
+    solver = MRLinearSolver(precision=precision, n=3)
+    assert solver.use_cached_auxiliaries is False
+    solver.update(use_cached_auxiliaries=True)
+    assert solver.use_cached_auxiliaries is True
+
+
 @pytest.fixture(scope="function")
 def solver_device(request, placeholder_operator, precision):
     """Return solver device for the requested correction type."""

@@ -31,6 +31,16 @@ def test_construction_minimal(system):
     assert core._output_functions is not None
 
 
+def test_construction_omits_algorithm_settings(system):
+    """algorithm_settings=None defaults to {} before the required
+
+    'algorithm' key is validated, so construction still raises
+    ValueError once get_algorithm_step finds no algorithm selected.
+    """
+    with pytest.raises(ValueError, match="must include 'algorithm'"):
+        SingleIntegratorRunCore(system=system)
+
+
 @pytest.mark.parametrize(
     "solver_settings_override",
     [{

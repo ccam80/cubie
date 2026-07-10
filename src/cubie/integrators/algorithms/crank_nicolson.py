@@ -185,6 +185,7 @@ class CrankNicolsonStep(ODEImplicitStep):
         )
         alloc_dxdt = buffer_registry.get_allocator('cn_dxdt', self)
 
+        # no cover: start
         @cuda.jit(
             # (
             #     numba_precision[::1],
@@ -345,6 +346,7 @@ class CrankNicolsonStep(ODEImplicitStep):
 
             return status
 
+        # no cover: end
         return StepCache(step=step, nonlinear_solver=solver_function)
 
     @property

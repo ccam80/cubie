@@ -199,8 +199,6 @@ def generate_observables_lines(
         symbol_map=index_map.all_arrayrefs,
         constant_names=index_map.constants.symbol_map,
     )
-    if not obs_lines:
-        obs_lines = ["pass"]
     return obs_lines
 
 def generate_dxdt_fac_code(

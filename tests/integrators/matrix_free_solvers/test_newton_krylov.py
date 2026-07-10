@@ -30,6 +30,16 @@ def placeholder_system(precision):
     return residual, operator, base
 
 
+def test_newton_krylov_update_with_no_changes_returns_empty_set(precision):
+    """update() with no arguments returns an empty set without error."""
+    linear_solver_instance = MRLinearSolver(precision=precision, n=1)
+    newton_instance = NewtonKrylov(
+        precision=precision, n=1, linear_solver=linear_solver_instance,
+    )
+    assert newton_instance.update() == set()
+    assert newton_instance.update(updates_dict={}) == set()
+
+
 def test_newton_krylov_placeholder(placeholder_system, precision, tolerance):
     """Solve a simple implicit Euler step using Newton-Krylov."""
 

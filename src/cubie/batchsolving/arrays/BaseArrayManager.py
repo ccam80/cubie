@@ -658,8 +658,6 @@ class BaseArrayManager(ABC):
 
             array_shape = array.shape
             expected_size_tuple = getattr(expected_sizes, array_name)
-            if expected_size_tuple is None:
-                continue  # No size information for this array
             expected_shape = list(expected_size_tuple)
 
             if len(array_shape) != len(expected_shape):

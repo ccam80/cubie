@@ -568,6 +568,7 @@ class ERKStep(ODEExplicitStep):
 
             return success
 
+        # no cover: end
         return StepCache(step=step)
 
     @property

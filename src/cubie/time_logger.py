@@ -103,7 +103,7 @@ class CUDAEvent:
             self._end_event = cuda.event()
             self._start_time = None
             self._end_time = None
-        else:
+        else:  # pragma: no cover - simulated
             # CUDASIM mode: use wall-clock timestamps as fallback
             self._start_event = None
             self._end_event = None
@@ -131,7 +131,7 @@ class CUDAEvent:
 
         if not is_cudasim_enabled():
             self._start_event.record(stream)
-        else:
+        else:  # pragma: no cover - simulated
             self._start_time = perf_counter()
 
     def record_end(self, stream) -> None:
@@ -152,7 +152,7 @@ class CUDAEvent:
 
         if not is_cudasim_enabled():
             self._end_event.record(stream)
-        else:
+        else:  # pragma: no cover - simulated
             self._end_time = perf_counter()
 
     def elapsed_time_ms(self) -> float:
@@ -181,7 +181,7 @@ class CUDAEvent:
             if self._start_event is None or self._end_event is None:
                 return 0.0
             return cuda.event_elapsed_time(self._start_event, self._end_event)
-        else:
+        else:  # pragma: no cover - simulated
             if self._start_time is None or self._end_time is None:
                 return 0.0
             return (self._end_time - self._start_time) * 1000.0

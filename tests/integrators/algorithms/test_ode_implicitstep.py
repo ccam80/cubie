@@ -1,6 +1,7 @@
 """Tests for ODEImplicitStep tolerance parameter routing."""
 
 import numpy as np
+import pytest
 
 from cubie.integrators.algorithms.backwards_euler import BackwardsEulerStep
 
@@ -75,3 +76,66 @@ def test_implicit_step_linear_solver_newton_atol_returns_none(precision):
     # But krylov_atol/rtol are still available
     assert step.krylov_atol is not None
     assert step.krylov_rtol is not None
+
+
+def test_implicit_step_rejects_invalid_solver_type(precision):
+    """Constructing with an unknown solver_type raises ValueError."""
+    with pytest.raises(ValueError, match="solver_type must be"):
+        BackwardsEulerStep(
+            precision=precision,
+            n=3,
+            solver_type='not_a_real_solver',
+        )
+
+
+def test_implicit_config_settings_dict_includes_implicit_fields(precision):
+    """ImplicitStepConfig.settings_dict merges base and implicit fields."""
+    step = BackwardsEulerStep(precision=precision, n=3)
+    settings = step.compile_settings.settings_dict
+    assert settings['beta'] == step.compile_settings.beta
+    assert settings['gamma'] == step.compile_settings.gamma
+    assert settings['M'] is step.compile_settings.M
+    assert (
+        settings['preconditioner_order']
+        == step.compile_settings.preconditioner_order
+    )
+    assert (
+        settings['preconditioner_type']
+        == step.compile_settings.preconditioner_type
+    )
+    assert (
+        settings['get_solver_helper_fn']
+        == step.compile_settings.get_solver_helper_fn
+    )
+
+
+def test_implicit_step_beta_gamma_mass_matrix_properties(precision):
+    """beta, gamma, and mass_matrix forward to compile_settings."""
+    step = BackwardsEulerStep(precision=precision, n=3)
+    assert step.beta == step.compile_settings.beta
+    assert step.gamma == step.compile_settings.gamma
+    assert step.mass_matrix is step.compile_settings.M
+
+
+def test_implicit_step_preconditioner_type_property(precision):
+    """preconditioner_type forwards to compile_settings."""
+    step = BackwardsEulerStep(
+        precision=precision, n=3, preconditioner_type='jacobi',
+    )
+    assert step.preconditioner_type == 'jacobi'
+
+
+def test_implicit_step_update_invokes_register_buffers_override(precision):
+    """update() dispatches to ODEImplicitStep's no-op register_buffers."""
+    step = BackwardsEulerStep(precision=precision, n=3)
+    recognised = step.update(newton_atol=1e-5)
+    assert 'newton_atol' in recognised
+
+
+def test_implicit_step_settings_dict_merges_solver_settings(precision):
+    """ODEImplicitStep.settings_dict merges algorithm and solver keys."""
+    step = BackwardsEulerStep(precision=precision, n=3)
+    settings = step.settings_dict
+    solver_settings = step.solver.settings_dict
+    for key, value in solver_settings.items():
+        assert key in settings

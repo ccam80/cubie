@@ -2,10 +2,34 @@
 
 import time
 import pytest
+from numba import cuda
 
-from cubie.time_logger import TimeLogger, TimingEvent, default_timelogger
+from cubie.time_logger import (
+    CUDAEvent,
+    TimeLogger,
+    TimingEvent,
+    default_timelogger,
+)
 from cubie.odesystems.symbolic import create_ODE_system
 from cubie.batchsolving.solver import solve_ivp
+
+
+@cuda.jit
+def _busy_kernel(out):
+    """Trivial kernel that does enough work to register nonzero time."""
+    idx = cuda.grid(1)
+    if idx < out.size:
+        acc = 0.0
+        for i in range(2000):
+            acc += i * 0.5
+        out[idx] = acc
+
+
+def _run_busy_kernel(stream):
+    """Launch a small kernel on ``stream`` so CUDA events see real work."""
+    out = cuda.device_array(256, dtype="float64", stream=stream)
+    _busy_kernel[2, 128, stream](out)
+
 
 class TestTimingEvent:
     """Test TimingEvent dataclass."""
@@ -449,6 +473,352 @@ class TestTimeLogger:
         assert "codegen completed in" in captured.out
         assert "compile completed in" in captured.out
         assert "runtime completed in" in captured.out
+
+
+class TestCUDAEvent:
+    """Test CUDAEvent on real GPU (record_start/record_end/elapsed_time_ms)."""
+
+    @pytest.mark.nocudasim
+    def test_default_timelogger_used_when_none_provided(self):
+        """CUDAEvent falls back to default_timelogger.verbosity."""
+        event = CUDAEvent(name="default_logger_event")
+        assert event._verbosity == default_timelogger.verbosity
+
+    @pytest.mark.nocudasim
+    def test_record_start_and_end_noop_when_verbosity_none(self):
+        """record_start/record_end are no-ops when verbosity is None."""
+        logger = TimeLogger(verbosity=None)
+        event = CUDAEvent(name="noop_event", timelogger=logger)
+        stream = cuda.stream()
+        event.record_start(stream)
+        event.record_end(stream)
+        stream.synchronize()
+        assert event.elapsed_time_ms() == 0.0
+
+    @pytest.mark.nocudasim
+    def test_record_start_and_end_real_gpu(self):
+        """record_start/record_end record real CUDA events on the GPU."""
+        logger = TimeLogger(verbosity="default")
+        event = CUDAEvent(name="gpu_op", timelogger=logger)
+        stream = cuda.stream()
+        event.record_start(stream)
+        _run_busy_kernel(stream)
+        event.record_end(stream)
+        stream.synchronize()
+        elapsed = event.elapsed_time_ms()
+        assert elapsed >= 0.0
+
+    @pytest.mark.nocudasim
+    def test_elapsed_time_ms_zero_when_start_event_missing(self):
+        """elapsed_time_ms returns 0.0 when the start event is None."""
+        logger = TimeLogger(verbosity="default")
+        event = CUDAEvent(name="missing_start", timelogger=logger)
+        event._start_event = None
+        assert event.elapsed_time_ms() == 0.0
+
+    @pytest.mark.nocudasim
+    def test_elapsed_time_ms_zero_when_end_event_missing(self):
+        """elapsed_time_ms returns 0.0 when the end event is None."""
+        logger = TimeLogger(verbosity="default")
+        event = CUDAEvent(name="missing_end", timelogger=logger)
+        event._end_event = None
+        assert event.elapsed_time_ms() == 0.0
+
+
+class TestTimeLoggerExtra:
+    """Additional TimeLogger coverage: messaging branches and CUDA events."""
+
+    def test_start_event_called_twice_skips_second(self):
+        """A second start_event before stop_event is a no-op."""
+        logger = TimeLogger(verbosity="default")
+        logger.register_event("dup", "runtime", "Dup event")
+        logger.start_event("dup")
+        logger.start_event("dup")
+        assert len(logger.events) == 1
+
+    def test_start_event_debug_skipped(self, capsys):
+        """Debug verbosity prints the skipped message on cache hit."""
+        logger = TimeLogger(verbosity="debug")
+        logger.register_event("cached", "compile", "Cached op")
+        logger.start_event("cached", skipped=True)
+        captured = capsys.readouterr()
+        assert "Skipped (found in cache)" in captured.out
+
+    def test_start_event_debug_custom_message(self, capsys):
+        """Debug verbosity prints a registered custom start message."""
+        logger = TimeLogger(verbosity="debug")
+        logger.register_event(
+            "custom", "runtime", "Custom", start_message="Beginning {label}"
+        )
+        logger.start_event("custom")
+        captured = capsys.readouterr()
+        assert "Beginning custom" in captured.out
+
+    def test_start_event_verbose_skipped(self, capsys):
+        """Verbose verbosity prints the skipped message on cache hit."""
+        logger = TimeLogger(verbosity="verbose")
+        logger.register_event("cached2", "compile", "Cached op 2")
+        logger.start_event("cached2", skipped=True)
+        captured = capsys.readouterr()
+        assert "Skipped (found in cache)" in captured.out
+
+    def test_start_event_verbose_custom_message(self, capsys):
+        """Verbose verbosity prints a registered custom start message."""
+        logger = TimeLogger(verbosity="verbose")
+        logger.register_event(
+            "custom2", "runtime", "Custom2", start_message="Go {label}"
+        )
+        logger.start_event("custom2")
+        captured = capsys.readouterr()
+        assert "Go custom2" in captured.out
+
+    def test_start_event_default_custom_message(self, capsys):
+        """Default verbosity prints a registered custom start message."""
+        logger = TimeLogger(verbosity="default")
+        logger.register_event(
+            "custom3", "runtime", "Custom3", start_message="Kickoff {label}"
+        )
+        logger.start_event("custom3")
+        captured = capsys.readouterr()
+        assert "Kickoff custom3" in captured.out
+
+    def test_stop_event_without_active_start_is_noop(self):
+        """stop_event on an event with no active start is a no-op."""
+        logger = TimeLogger(verbosity="default")
+        logger.register_event("neverstarted", "runtime", "Never started")
+        logger.stop_event("neverstarted")
+        assert len(logger.events) == 0
+
+    def test_stop_event_debug_custom_message(self, capsys):
+        """Debug verbosity prints a registered custom stop message."""
+        logger = TimeLogger(verbosity="debug")
+        logger.register_event(
+            "custom4",
+            "runtime",
+            "Custom4",
+            stop_message="Done {label} in {duration:.2f}s",
+        )
+        logger.start_event("custom4")
+        logger.stop_event("custom4")
+        captured = capsys.readouterr()
+        assert "Done custom4" in captured.out
+
+    def test_stop_event_verbose_custom_message(self, capsys):
+        """Verbose verbosity prints a registered custom stop message."""
+        logger = TimeLogger(verbosity="verbose")
+        logger.register_event(
+            "custom5",
+            "runtime",
+            "Custom5",
+            stop_message="Finished {label} after {duration:.2f}s",
+        )
+        logger.start_event("custom5")
+        logger.stop_event("custom5")
+        captured = capsys.readouterr()
+        assert "Finished custom5" in captured.out
+
+    def test_stop_event_default_custom_message(self, capsys):
+        """Default verbosity prints a registered custom stop message."""
+        logger = TimeLogger(verbosity="default")
+        logger.register_event(
+            "custom6",
+            "runtime",
+            "Custom6",
+            stop_message="Elapsed {label}: {duration:.2f}s",
+        )
+        logger.start_event("custom6")
+        logger.stop_event("custom6")
+        captured = capsys.readouterr()
+        assert "Elapsed custom6" in captured.out
+
+    def test_set_verbosity_invalid_raises(self):
+        """set_verbosity rejects unrecognised verbosity levels."""
+        logger = TimeLogger(verbosity="default")
+        with pytest.raises(ValueError, match="verbosity must be"):
+            logger.set_verbosity("invalid")
+
+    def test_set_verbosity_string_none_normalized(self):
+        """set_verbosity normalizes the string 'None' to None."""
+        logger = TimeLogger(verbosity="default")
+        logger.set_verbosity("None")
+        assert logger.verbosity is None
+
+    def test_print_message_prints_when_verbosity_sufficient(self, capsys):
+        """print_message prints when verbosity meets the minimum."""
+        logger = TimeLogger(verbosity="verbose")
+        logger.print_message("hello there")
+        captured = capsys.readouterr()
+        assert "hello there" in captured.out
+
+    def test_print_message_suppressed_when_verbosity_insufficient(
+        self, capsys
+    ):
+        """print_message is silent when verbosity is below the minimum."""
+        logger = TimeLogger(verbosity="default")
+        logger.print_message("hidden message")
+        captured = capsys.readouterr()
+        assert captured.out == ""
+
+    def test_print_message_noop_when_verbosity_none(self, capsys):
+        """print_message is a no-op when verbosity is None."""
+        logger = TimeLogger(verbosity=None)
+        logger.print_message("no output")
+        captured = capsys.readouterr()
+        assert captured.out == ""
+
+    def test_register_cuda_event_adds_to_registry_and_list(self):
+        """CUDAEvent construction registers it with the TimeLogger."""
+        logger = TimeLogger(verbosity="default")
+        event = CUDAEvent(name="gpu_registered", timelogger=logger)
+        assert event in logger._cuda_events
+        assert "gpu_registered" in logger._event_registry
+        assert (
+            logger._event_registry["gpu_registered"]["category"]
+            == "runtime"
+        )
+
+    def test_register_cuda_event_noop_when_verbosity_none(self):
+        """CUDAEvent registration is skipped when verbosity is None."""
+        logger = TimeLogger(verbosity=None)
+        CUDAEvent(name="gpu_unregistered", timelogger=logger)
+        assert logger._cuda_events == []
+        assert "gpu_unregistered" not in logger._event_registry
+
+    def test_retrieve_cuda_events_noop_when_verbosity_none(self):
+        """_retrieve_cuda_events is a no-op when verbosity is None."""
+        logger = TimeLogger(verbosity=None)
+        logger._retrieve_cuda_events()
+        assert logger._cuda_events == []
+
+    def test_retrieve_cuda_events_noop_when_no_events_registered(self):
+        """_retrieve_cuda_events returns early with no pending events."""
+        logger = TimeLogger(verbosity="default")
+        logger._retrieve_cuda_events()
+        assert logger.events == []
+
+    def test_get_category_total_skips_unregistered_cuda_metadata_event(
+        self,
+    ):
+        """_get_category_total skips a duration_ms event whose name was
+        never registered (event_info is None)."""
+        logger = TimeLogger(verbosity="default")
+        logger.events.append(
+            TimingEvent(
+                name="unregistered_gpu_event",
+                event_type="stop",
+                timestamp=0.0,
+                metadata={"duration_ms": 5.0},
+            )
+        )
+        total = logger._get_category_total("runtime")
+        assert total == 0.0
+
+    def test_get_category_total_skips_wrong_category_cuda_metadata_event(
+        self,
+    ):
+        """_get_category_total skips a duration_ms event registered
+        under a different category than requested."""
+        logger = TimeLogger(verbosity="default")
+        logger.register_event("compile_gpu_event", "compile", "Compile op")
+        logger.events.append(
+            TimingEvent(
+                name="compile_gpu_event",
+                event_type="stop",
+                timestamp=0.0,
+                metadata={"duration_ms": 5.0},
+            )
+        )
+        total = logger._get_category_total("runtime")
+        assert total == 0.0
+
+    def test_print_summary_debug_skips_unregistered_cuda_metadata_event(
+        self, capsys
+    ):
+        """Debug print_summary skips a duration_ms event whose name was
+        never registered (event_info is None)."""
+        logger = TimeLogger(verbosity="debug")
+        logger.register_event("known_op", "runtime", "Known op")
+        logger.start_event("known_op")
+        logger.stop_event("known_op")
+        logger.events.append(
+            TimingEvent(
+                name="unregistered_gpu_event2",
+                event_type="stop",
+                timestamp=0.0,
+                metadata={"duration_ms": 5.0},
+            )
+        )
+        logger.print_summary()
+        captured = capsys.readouterr()
+        assert "unregistered_gpu_event2" not in captured.out
+
+    @pytest.mark.nocudasim
+    def test_retrieve_cuda_events_converts_to_timing_events(self):
+        """_retrieve_cuda_events appends a stop TimingEvent with duration."""
+        logger = TimeLogger(verbosity="default")
+        event = CUDAEvent(name="gpu_convert", timelogger=logger)
+        stream = cuda.stream()
+        event.record_start(stream)
+        _run_busy_kernel(stream)
+        event.record_end(stream)
+        stream.synchronize()
+
+        logger._retrieve_cuda_events()
+
+        assert logger._cuda_events == []
+        stop_events = [
+            e
+            for e in logger.events
+            if e.name == "gpu_convert" and e.event_type == "stop"
+        ]
+        assert len(stop_events) == 1
+        assert "duration_ms" in stop_events[0].metadata
+
+    @pytest.mark.nocudasim
+    def test_get_category_total_includes_cuda_event_duration(self):
+        """_get_category_total sums CUDA event durations for a category."""
+        logger = TimeLogger(verbosity="default")
+        event = CUDAEvent(name="gpu_total", timelogger=logger)
+        stream = cuda.stream()
+        event.record_start(stream)
+        _run_busy_kernel(stream)
+        event.record_end(stream)
+        stream.synchronize()
+
+        logger._retrieve_cuda_events()
+        total = logger._get_category_total("runtime")
+        assert total >= 0.0
+
+    @pytest.mark.nocudasim
+    def test_print_summary_runtime_includes_cuda_event(self, capsys):
+        """print_summary(category='runtime') retrieves CUDA event timing."""
+        logger = TimeLogger(verbosity="default")
+        event = CUDAEvent(name="gpu_summary", timelogger=logger)
+        stream = cuda.stream()
+        event.record_start(stream)
+        _run_busy_kernel(stream)
+        event.record_end(stream)
+        stream.synchronize()
+
+        logger.print_summary(category="runtime")
+        captured = capsys.readouterr()
+        assert "runtime completed in" in captured.out
+
+    @pytest.mark.nocudasim
+    def test_print_summary_debug_prints_cuda_event_ms(self, capsys):
+        """Debug print_summary prints CUDA event durations in ms."""
+        logger = TimeLogger(verbosity="debug")
+        event = CUDAEvent(name="gpu_debug", timelogger=logger)
+        stream = cuda.stream()
+        event.record_start(stream)
+        _run_busy_kernel(stream)
+        event.record_end(stream)
+        stream.synchronize()
+
+        logger.print_summary()
+        captured = capsys.readouterr()
+        assert "gpu_debug" in captured.out
+        assert "ms" in captured.out
 
 
 @pytest.mark.nocudasim

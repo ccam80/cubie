@@ -639,7 +639,7 @@ class ArrayInterpolator(CUDAFactory):
 
         # no cover: end
 
-        if CUDA_SIMULATION:
+        if CUDA_SIMULATION:  # pragma: no cover - simulated
             # The simulator runs kernels on host memory: NumPy arrays
             # pass straight in and the kernel writes the output array
             # in place, so there is nothing to stage or copy back.
@@ -668,7 +668,7 @@ class ArrayInterpolator(CUDAFactory):
         )
         cuda.synchronize()
 
-        if CUDA_SIMULATION:
+        if CUDA_SIMULATION:  # pragma: no cover - simulated
             return out_device
         return out_device.get()
 
@@ -844,19 +844,10 @@ class ArrayInterpolator(CUDAFactory):
         Raises
         ------
         ValueError
-            Raised when periodic constraints are incompatible with the input
-            configuration or when an unknown boundary condition is supplied.
+            Raised when periodic constraints are incompatible with the
+            input configuration.
         """
         boundary_condition = self.boundary_condition
-        if boundary_condition not in {
-            "natural",
-            "periodic",
-            "clamped",
-            "not-a-knot",
-        }:
-            raise ValueError(
-                f"Unsupported boundary condition: {boundary_condition}."
-            )
 
         precision = self.precision
         base_inputs = self.input_array.astype(precision, copy=False)

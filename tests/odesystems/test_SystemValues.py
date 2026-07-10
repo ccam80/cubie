@@ -497,3 +497,38 @@ def test_add_and_remove_roundtrip():
     params.add_entry("b", 5.0)
     assert params.n == 3
     assert params.values_dict["b"] == 5.0
+
+
+def test_defaults_as_sequence_expand_to_zero():
+    """A list of names passed as defaults expands to zero values."""
+    params = SystemValues({}, np.float32, defaults=["a", "b"])
+    assert params.values_dict == {"a": 0.0, "b": 0.0}
+
+
+def test_convert_symbol_keys_passes_through_non_dict():
+    """_convert_symbol_keys returns non-dict inputs unchanged."""
+    params = SystemValues({"a": 1.0}, np.float32)
+    payload = [1, 2, 3]
+    assert params._convert_symbol_keys(payload) is payload
+
+
+def test_get_indices_unsupported_type_raises():
+    """A list containing an unsupported type raises TypeError."""
+    params = SystemValues({"a": 1.0, "b": 2.0}, np.float32)
+    with pytest.raises(TypeError, match="list containing"):
+        params.get_indices([1.5])
+
+
+def test_update_from_dict_kwargs_only():
+    """update_from_dict applies kwargs when no dict is supplied."""
+    params = SystemValues({"a": 1.0, "b": 2.0}, np.float32)
+    updated = params.update_from_dict(None, a=9.0)
+    assert updated == {"a"}
+    assert params.values_dict["a"] == 9.0
+
+
+def test_get_labels_non_sequence_raises():
+    """get_labels rejects a non-sequence index argument."""
+    params = SystemValues({"a": 1.0}, np.float32)
+    with pytest.raises(TypeError, match="list or numpy array"):
+        params.get_labels("a")

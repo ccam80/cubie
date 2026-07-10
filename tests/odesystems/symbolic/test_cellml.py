@@ -3,7 +3,10 @@ import pytest
 import numpy as np
 
 from cubie import solve_ivp, SolveResult
-from cubie.odesystems.symbolic.parsing.cellml import load_cellml_model
+from cubie.odesystems.symbolic.parsing.cellml import (
+    load_cellml_model,
+    _sanitize_symbol_name,
+)
 from cubie._utils import is_devfunc
 
 
@@ -429,3 +432,25 @@ def test_cache_isolated_per_model(cellml_fixtures_dir, tmp_path):
 
     finally:
         os.chdir(original_cwd)
+
+
+def test_sanitize_symbol_name_leading_digit():
+    """A name starting with a digit is prefixed to stay a valid identifier."""
+    assert _sanitize_symbol_name("3rate") == "var_3rate"
+
+
+def test_sanitize_symbol_name_leading_underscore_digit():
+    """A leading underscore followed by a digit is prefixed with 'var'."""
+    assert _sanitize_symbol_name("_2x") == "var_2x"
+
+
+def test_load_with_parameters_dict(cellml_fixtures_dir):
+    """A parameters dict is accepted and merged with CellML values."""
+    path = str(cellml_fixtures_dir / "basic_ode.cellml")
+    model = load_cellml_model(
+        path,
+        parameters={"user_param": 1.5},
+        fix_singularities=False,
+    )
+    assert "user_param" in model.parameters.values_dict
+    assert model.parameters.values_dict["user_param"] == 1.5

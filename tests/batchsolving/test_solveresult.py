@@ -679,3 +679,80 @@ class TestSolveSpecFields:
 
         for attr in expected_attrs:
             assert hasattr(spec, attr), f"SolveSpec missing attribute: {attr}"
+
+
+def test_format_time_domain_label_dimensionless_omits_unit():
+    """_format_time_domain_label returns the bare label for a
+    dimensionless unit instead of appending '[unit]'."""
+    from cubie.batchsolving.solveresult import _format_time_domain_label
+
+    assert _format_time_domain_label("x0", "dimensionless") == "x0"
+
+
+def test_format_time_domain_label_appends_unit():
+    """_format_time_domain_label appends the unit when not
+    dimensionless."""
+    from cubie.batchsolving.solveresult import _format_time_domain_label
+
+    assert _format_time_domain_label("v", "mV") == "v [mV]"
+
+
+def test_from_solver_unknown_results_type_returns_full(solver_with_arrays):
+    """An unrecognized results_type falls through to the 'full' object
+    rather than raising."""
+    result = SolveResult.from_solver(
+        solver_with_arrays, results_type="not_a_real_type"
+    )
+    assert isinstance(result, SolveResult)
+
+
+def test_as_pandas_1d_time_index_used_directly():
+    """When ``time`` is a 1D array, as_pandas uses it directly as the
+    DataFrame index instead of slicing a run column from a 2D array.
+
+    Host arrays from a real solve are always at least 2D (time, run),
+    so this branch is exercised via a hand-built SolveResult rather
+    than an actual solver run.
+    """
+    time_domain_array = np.arange(6, dtype=float).reshape(3, 2, 1)
+    summaries_array = np.arange(2, dtype=float).reshape(1, 2, 1)
+    time = np.array([0.0, 0.01, 0.02])
+    result = SolveResult(
+        time_domain_array=time_domain_array,
+        summaries_array=summaries_array,
+        time=time,
+        time_domain_legend={0: "a", 1: "b"},
+        summaries_legend={0: "a mean", 1: "b mean"},
+        active_outputs=ActiveOutputs(
+            state_summaries=True, observable_summaries=False
+        ),
+    )
+    assert result.time.ndim == 1
+    pandas_dict = result.as_pandas
+    assert list(pandas_dict["time_domain"].index) == list(time)
+
+
+def test_status_messages_property(solver_with_arrays):
+    """SolveResult.status_messages decodes the stored status codes."""
+    result = SolveResult.from_solver(solver_with_arrays)
+    messages = result.status_messages
+    assert isinstance(messages, dict)
+    assert messages == {}
+
+
+def test_from_solver_raw_results_type(solver_with_arrays):
+    """results_type='raw' shortcuts to a plain dict of host arrays with
+    no legends or supporting information."""
+    result = SolveResult.from_solver(solver_with_arrays, results_type="raw")
+
+    assert isinstance(result, dict)
+    assert set(result.keys()) == {
+        "state",
+        "observables",
+        "state_summaries",
+        "observable_summaries",
+        "iteration_counters",
+        "status_codes",
+    }
+    assert result["state"] is solver_with_arrays.state
+    assert result["status_codes"] is solver_with_arrays.status_codes

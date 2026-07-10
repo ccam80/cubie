@@ -547,3 +547,36 @@ class TestIndexedBases:
         assert ib.parameter_values == original_param_values
         assert ib.constant_values[sp.Symbol("c", real=True)] == 999.0
 
+
+class TestIndexedBaseMapExtras:
+    """Cover passthrough defaults and unit handling in IndexedBaseMap."""
+
+    def test_dict_defaults_are_passthrough(self):
+        """A dict of input defaults is used verbatim as passthrough."""
+        base_map = IndexedBaseMap(
+            "drv", ["d0", "d1"], input_defaults={"d0": 1.0, "d1": 2.0}
+        )
+        assert base_map._passthrough_defaults is True
+        assert base_map.default_values == {"d0": 1.0, "d1": 2.0}
+        assert base_map.defaults == {"d0": 1.0, "d1": 2.0}
+
+    def test_units_as_sequence(self):
+        """A sequence of unit strings maps to labels in order."""
+        base_map = IndexedBaseMap(
+            "vals", ["x", "y"], units=["metre", "second"]
+        )
+        assert base_map.units == {"x": "metre", "y": "second"}
+
+    def test_units_sequence_length_mismatch_raises(self):
+        """A unit sequence of the wrong length raises ValueError."""
+        with pytest.raises(ValueError, match="same length"):
+            IndexedBaseMap("vals", ["x", "y"], units=["metre"])
+
+    def test_update_values_noop_when_passthrough(self):
+        """update_values is a no-op when defaults are passthrough."""
+        base_map = IndexedBaseMap(
+            "drv", ["d0"], input_defaults={"d0": 1.0}
+        )
+        base_map.update_values({"d0": 5.0})
+        assert base_map.default_values == {"d0": 1.0}
+

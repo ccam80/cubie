@@ -266,7 +266,7 @@ class CUBIECacheImpl(CacheImpl):
         """
         if not is_cudasim_enabled():
             return kernel._reduce_states()
-        else:
+        else:  # pragma: no cover - simulated
             raise RuntimeError(
                 "CUBIECacheImpl.reduce() was called inside "
                 "CUDASIM mode, indicating a cache miss when "
@@ -294,7 +294,7 @@ class CUBIECacheImpl(CacheImpl):
             from numba.cuda.dispatcher import _Kernel
 
             return _Kernel._rebuild(**payload)
-        else:
+        else:  # pragma: no cover - simulated
             raise RuntimeError(
                 "CUBIECacheImpl.rebuild() was called inside "
                 "CUDASIM mode, indicating a cache hit when "
