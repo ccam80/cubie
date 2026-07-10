@@ -595,8 +595,10 @@ class SingleIntegratorRunCore(CUDAFactory):
         recognized = set()
         system_recognized = self._system.update(updates_dict, silent=True)
 
-        # Capture n whether or not system updated, in case of an algo/step swap
+        # Capture n and n_drivers whether or not system updated, in case
+        # of an algo/step swap
         updates_dict.update({'n': self._system.sizes.states})
+        updates_dict.update({'n_drivers': self._system.sizes.drivers})
 
         # Capture outputsettings-generated compile settings and pass on
         out_rcgnzd = self._output_functions.update(updates_dict, silent=True)
