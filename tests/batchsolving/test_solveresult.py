@@ -711,7 +711,7 @@ def test_as_pandas_without_summaries_returns_a_dataframe(
 
     When no summary metrics are active, each run contributes an empty
     per-run DataFrame so the concatenated ``summaries`` entry is a
-    real (empty) DataFrame rather than raising.
+    real (empty) DataFrame.
     """
     result = SolveResult.from_solver(solver_no_summaries_arrays)
     assert result.active_outputs.state_summaries is False
