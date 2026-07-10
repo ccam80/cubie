@@ -4,6 +4,7 @@ import warnings
 
 import pytest
 import sympy as sp
+from numba import cuda
 
 from cubie.odesystems.symbolic.codegen import (
     generate_operator_apply_code,
@@ -1511,11 +1512,9 @@ class TestBuildSympyUserFunctions:
     def test_derivative_without_name_falls_back(self):
         """A derivative callable lacking __name__ is tolerated."""
 
-        class DeviceFunc:
-            targetoptions = {"device": True}
-
-            def __call__(self, *args, **kwargs):
-                return 0
+        @cuda.jit(device=True)
+        def myfunc(a, b):
+            return a + b
 
         def grad(a, b, index):
             return 0
@@ -1525,7 +1524,7 @@ class TestBuildSympyUserFunctions:
         assert not hasattr(partial_grad, "__name__")
 
         parse_locals, alias_map, is_device_map = _build_sympy_user_functions(
-            {"myfunc": DeviceFunc()},
+            {"myfunc": myfunc},
             {"myfunc": "myfunc_"},
             {"myfunc": partial_grad},
         )

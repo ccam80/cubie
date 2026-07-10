@@ -118,14 +118,11 @@ class CellMLCache:
         """
         # Handle precision consistently - convert numpy dtype to string name
         if precision is not None:
-            try:
-                precision_str = (
-                    precision.__name__
-                    if hasattr(precision, "__name__")
-                    else str(precision)
-                )
-            except Exception:
-                precision_str = str(precision)
+            precision_str = (
+                precision.__name__
+                if hasattr(precision, "__name__")
+                else str(precision)
+            )
         else:
             precision_str = "None"
 

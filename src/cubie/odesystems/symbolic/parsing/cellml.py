@@ -356,11 +356,8 @@ def load_cellml_model(
         if hasattr(raw_state, 'initial_value') and raw_state.initial_value is not None:
             initial_values[clean_name] = float(raw_state.initial_value)
         
-        # Get units if available
-        if hasattr(raw_state, 'units'):
-            state_units[clean_name] = str(raw_state.units)
-        else:
-            state_units[clean_name] = "dimensionless"
+        # cellmlmanip Variables always carry units
+        state_units[clean_name] = str(raw_state.units)
     
     # Collect units for all other symbols
     all_symbol_units = {}
@@ -413,11 +410,9 @@ def load_cellml_model(
                 # Regular symbol conversion
                 dummy_to_symbol[atom] = sp.Symbol(clean_name)
                 
-                # Extract units for this symbol
-                if hasattr(atom, 'units'):
-                    all_symbol_units[clean_name] = str(atom.units)
-                else:
-                    all_symbol_units[clean_name] = "dimensionless"
+                # cellmlmanip Variables and Quantities always carry
+                # units
+                all_symbol_units[clean_name] = str(atom.units)
     default_timelogger.stop_event("codegen_cellml_symbol_conversion")
     
     default_timelogger.start_event("codegen_cellml_equation_processing")
