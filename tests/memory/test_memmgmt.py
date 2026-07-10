@@ -1365,3 +1365,19 @@ def test_cupy_stream_wrapper(stream1, stream2):
     # Check that the default current stream is untouched
     assert cp.cuda.get_current_stream().ptr != _numba_stream_ptr(stream1)
     assert cp.cuda.get_current_stream().ptr != _numba_stream_ptr(stream2)
+
+
+def test_set_manual_proportion_from_auto_pool(mgr):
+    """set_manual_proportion moves an auto instance to the manual pool.
+
+    The instance must leave the auto pool so the subsequent auto-pool
+    rebalance cannot overwrite the requested manual proportion.
+    """
+    inst = DummyClass()
+    mgr.register(inst)
+    instance_id = id(inst)
+    assert instance_id in mgr._auto_pool
+    mgr.set_manual_proportion(inst, 0.4)
+    assert instance_id in mgr._manual_pool
+    assert instance_id not in mgr._auto_pool
+    assert abs(mgr.proportion(inst) - 0.4) < 1e-6

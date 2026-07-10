@@ -649,6 +649,7 @@ class MemoryManager:
         if proportion < 0 or proportion > 1:
             raise ValueError("Proportion must be between 0 and 1")
         if instance_id in self._auto_pool:
+            self._auto_pool.remove(instance_id)
             self._add_manual_proportion(instance, proportion)
         else:
             self._manual_pool.remove(instance_id)
