@@ -1260,7 +1260,6 @@ class MemoryManager:
 
         """
         stream_group = self.get_stream_group(triggering_instance)
-        stream = self.get_stream(triggering_instance)
         queued_requests = self._queued_allocations.pop(stream_group, {})
         peers = self.stream_groups.get_instances_in_group(stream_group)
 
@@ -1279,6 +1278,8 @@ class MemoryManager:
                     )
                 )
             return None
+
+        stream = self.get_stream(triggering_instance)
 
         # Get total_runs from first request
         num_runs = 1
