@@ -978,22 +978,26 @@ def _lhs_pass_sympy(
         )
 
     if underived_states:
+        # underived_states holds dxdt names ("dz"); the state itself
+        # is the name with the derivative prefix stripped ("z").
+        underived_names = {name[1:] for name in underived_states}
         warn(
-            f"States {underived_states} have no derivative equation. "
+            f"States {underived_names} have no derivative equation. "
             f"Converting to observables.",
             EquationWarning,
         )
-        for state in underived_states:
-            s_sym = sp.Symbol(state, real=True)
-            if state in observables:
+        for dx_name in underived_states:
+            state_name = dx_name[1:]
+            state_sym = sp.Symbol(state_name, real=True)
+            if state_name in observables.symbol_map:
                 raise ValueError(
-                    f"State {state} is both observable and state. "
+                    f"State {state_name} is both observable and state. "
                     f"Cannot convert."
                 )
-            observables.push(s_sym)
-            states.pop(s_sym)
-            dxdt.pop(s_sym)
-            observable_names.add(state)
+            observables.push(state_sym)
+            states.pop(state_sym)
+            dxdt.pop(sp.Symbol(dx_name, real=True))
+            observable_names.add(state_name)
 
     return anonymous_auxiliaries
 
@@ -1297,24 +1301,28 @@ def _lhs_pass(
         raise ValueError(f"Observables {missing_obs} are never assigned to.")
 
     if underived_states:
+        # underived_states holds dxdt names ("dz"); the state itself
+        # is the name with the derivative prefix stripped ("z").
+        underived_names = {name[1:] for name in underived_states}
         warn(
-            f"States {underived_states} have no associated derivative "
+            f"States {underived_names} have no associated derivative "
             f"term. In the Cubie world, this makes it an 'observable'. "
-            f"{underived_states} have been moved from states to observables.",
+            f"{underived_names} have been moved from states to observables.",
             EquationWarning,
         )
-        for state in underived_states:
-            s_sym = sp.Symbol(state, real=True)
-            if state in observables:
+        for dx_name in underived_states:
+            state_name = dx_name[1:]
+            state_sym = sp.Symbol(state_name, real=True)
+            if state_name in observables.symbol_map:
                 raise ValueError(
-                    f"State {state} is already both observable and state. "
-                    f"It needs to be an observable if it has no derivative"
-                    f"term."
+                    f"State {state_name} is already both observable and "
+                    f"state. It needs to be an observable if it has no "
+                    f"derivative term."
                 )
-            observables.push(s_sym)
-            states.pop(s_sym)
-            dxdt.pop(s_sym)
-            observable_names.add(state)
+            observables.push(state_sym)
+            states.pop(state_sym)
+            dxdt.pop(sp.Symbol(dx_name, real=True))
+            observable_names.add(state_name)
 
     return anonymous_auxiliaries
 

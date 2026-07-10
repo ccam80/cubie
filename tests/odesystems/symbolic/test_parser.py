@@ -17,6 +17,7 @@ from cubie.odesystems.symbolic.parsing.parser import (
     TIME_SYMBOL,
     _detect_input_type,
     _lhs_pass,
+    _lhs_pass_sympy,
     _normalize_sympy_equations,
     _process_calls,
     _process_parameters,
@@ -1376,3 +1377,44 @@ class TestDerivativeNotation:
         anon_aux = _lhs_pass(lines, ib, strict=True)
 
         assert "d" in anon_aux
+
+
+class TestUnderivedStateConversion:
+    """A declared state without a derivative becomes an observable.
+
+    The conversion block strips the derivative prefix from the
+    outstanding dxdt name, moves the state symbol into observables,
+    and removes the state and dxdt entries.
+    """
+
+    def test_string_underived_state_becomes_observable(self):
+        """String pathway: an underived state is converted, not crashed."""
+        imap = IndexedBases.from_user_inputs(
+            ["x", "z"], ["k"], [], [], []
+        )
+        with warnings.catch_warnings(record=True) as caught:
+            warnings.simplefilter("always")
+            _lhs_pass(["dx = x"], imap, strict=True)
+        assert any(
+            issubclass(w.category, EquationWarning) for w in caught
+        )
+        assert "z" in imap.observable_names
+        assert "z" not in imap.state_names
+        assert "dz" not in imap.dxdt_names
+
+    def test_sympy_underived_state_becomes_observable(self):
+        """SymPy pathway: an underived state is converted, not crashed."""
+        imap = IndexedBases.from_user_inputs(
+            ["x", "z"], ["k"], [], [], []
+        )
+        with warnings.catch_warnings(record=True) as caught:
+            warnings.simplefilter("always")
+            _lhs_pass_sympy(
+                [(sp.Symbol("dx"), sp.Symbol("x"))], imap, strict=True
+            )
+        assert any(
+            issubclass(w.category, EquationWarning) for w in caught
+        )
+        assert "z" in imap.observable_names
+        assert "z" not in imap.state_names
+        assert "dz" not in imap.dxdt_names
