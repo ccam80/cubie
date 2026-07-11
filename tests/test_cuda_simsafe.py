@@ -11,15 +11,17 @@ def test_compile_kwargs_in_cudasim_mode():
 
 @pytest.mark.nocudasim
 def test_compile_kwargs_without_cudasim():
-    """Test that compile_kwargs matches the numba-cuda-mlir contract.
+    """Test that compile_kwargs selects the per-flag fastmath set.
 
-    numba-cuda-mlir only accepts fastmath as a boolean, so the
-    per-flag fastmath selection is inexpressible and compile_kwargs
-    is empty.
+    numba-cuda-mlir accepts per-flag fastmath (natively on patched
+    builds, via cubie._mlir_compat's selective-fastmath shim on the
+    stock wheel), so device code opts into the approximations that
+    are safe for it; 'afn' stays excluded to keep full-precision
+    sqrt/pow in step-controller error norms.
     """
     from cubie.cuda_simsafe import CUDA_SIMULATION, compile_kwargs
     assert CUDA_SIMULATION is False
-    assert compile_kwargs == {}
+    assert compile_kwargs == {"fastmath": {"nsz", "contract", "arcp"}}
 
 @pytest.mark.sim_only
 def test_selp_function_in_cudasim():

@@ -91,11 +91,14 @@ except ImportError as e:
     ) from e
 
 # Compile kwargs for cuda.jit decorators.
-# numba-cuda-mlir only accepts fastmath as a boolean, so the previous
-# per-flag fastmath selection ({"nsz", "contract", "arcp"}) cannot be
-# expressed; leave fastmath at its default (off) rather than enable
-# the full set of approximations.
-compile_kwargs: dict[str, bool] = {
+# numba-cuda-mlir accepts per-flag fastmath (natively on patched
+# builds; via the selective-fastmath shims in cubie._mlir_compat on
+# the stock wheel), so device code opts into the approximations that
+# are safe for it: no signed zeros, FMA contraction and approximate
+# division. 'afn' is excluded — step controllers rely on
+# full-precision sqrt/pow in their error norms.
+compile_kwargs: dict[str, object] = {
+    "fastmath": {"nsz", "contract", "arcp"},
     # "lineinfo": True,
 }
 

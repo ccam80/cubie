@@ -54,7 +54,16 @@ branches exist in the ccam80/numba-cuda-mlir fork
 (fix-boolean-bitwise-invert-lowering, fix-boolean-comparison-lowering,
 fix-numpy-scalar-constants, fix-nested-tuple-dynamic-getitem,
 fix-integer-mod-floordiv-lowering, fix-dynamic-shared-memory-ub,
-fix-frozen-array-device-malloc).
+fix-frozen-array-device-malloc, ssa-iterative-def-search,
+selective-fastmath).
+
+The iterative SSA def-search shim removes the RecursionError that
+large flattened kernels hit inside ``reconstruct_ssa``, and the
+selective fastmath shims accept numba-cuda's per-flag ``fastmath``
+form (bool | set | dict), stamping ``#arith.fastmath`` per op and
+rewriting ``arcp`` division / ``afn`` tanh to their hardware
+approximations; both groups no-op on builds that carry the fixes
+natively.
 Remove the corresponding shim once each lands upstream. With the
 shared-memory shim in place LTO-link optimization is safe and runs
 at the upstream default (enabled); set
@@ -1603,3 +1612,564 @@ def apply_compiler_perf_patches() -> None:
 
 
 apply_compiler_perf_patches()
+
+
+# ------------------------------------------------------------------ #
+# Iterative SSA reaching-definition search                            #
+# ------------------------------------------------------------------ #
+# The stock reaching-definition search in numba_cuda/core/ssa.py is a
+# mutual recursion between _find_def_from_top and
+# _find_def_from_bottom at two Python frames per CFG block, so large
+# flattened kernels (exactly the shape cubie's generated loops take
+# after inlining) raise RecursionError inside reconstruct_ssa. These
+# methods mirror the ssa-iterative-def-search branch of the
+# ccam80/numba-cuda-mlir fork: an explicit worklist bounds the search
+# by memory instead of the interpreter recursion limit, and
+# predecessors are pushed in reverse so phi creation order — and thus
+# fresh-variable numbering — matches the recursive formulation
+# exactly.
+
+
+def _ssa_find_def_from_top(self, states, label, loc):
+    """Find definition reaching the top of the block at ``label``."""
+
+    return self._find_def_iteratively(states, label, loc, from_top=True)
+
+
+def _ssa_find_def_from_bottom(self, states, label, loc):
+    """Find definition from within the block at ``label``."""
+
+    return self._find_def_iteratively(
+        states, label, loc, from_top=False
+    )
+
+
+def _ssa_find_def_iteratively(self, states, label, loc, from_top):
+    """Drive the def search on an explicit worklist.
+
+    Each ``pending`` item is a ``(phinode, pred, loc)`` triple whose
+    resolved incoming definition must be appended to ``phinode``.
+    """
+
+    pending = []
+    result = self._walk_def_chain(states, label, loc, from_top, pending)
+    while pending:
+        phinode, pred, philoc = pending.pop()
+        incoming_def = self._walk_def_chain(
+            states, pred, philoc, False, pending
+        )
+        phinode.value.incoming_values.append(incoming_def.target)
+        phinode.value.incoming_blocks.append(pred)
+    return result
+
+
+def _ssa_walk_def_chain(self, states, label, loc, from_top, pending):
+    """Walk one def-search chain without recursion.
+
+    Alternates the *from-bottom* step (take the block's last
+    definition, if any) with the *from-top* step (insert a phi node,
+    or hop to the immediate dominator). A phi node is registered in
+    ``defmap`` before its predecessors are resolved, so a chain that
+    revisits the block terminates there; resolution of the phi's
+    incoming values is deferred onto ``pending``.
+    """
+
+    cfg = states["cfg"]
+    defmap = states["defmap"]
+    phimap = states["phimap"]
+    phi_locations = states["phi_locations"]
+
+    while True:
+        if not from_top:
+            defs = defmap[label]
+            if defs:
+                return defs[-1]
+            from_top = True
+
+        if label in phi_locations:
+            scope = states["scope"]
+            loc = states["block"].loc
+            freshvar = scope.redefine(states["varname"], loc=loc)
+            phinode = _nb_ir.Assign(
+                target=freshvar,
+                value=_nb_ir.Expr.phi(loc=loc),
+                loc=loc,
+            )
+            defmap[label].insert(0, phinode)
+            phimap[label].append(phinode)
+            # Defer the search for the phi's incoming values;
+            # reversed so they resolve in predecessor order.
+            preds = [pred for pred, _ in cfg.predecessors(label)]
+            for pred in reversed(preds):
+                pending.append((phinode, pred, loc))
+            return phinode
+        else:
+            idom = cfg.immediate_dominators()[label]
+            if idom == label:
+                _nb_ssa._warn_about_uninitialized_variable(
+                    states["varname"], loc
+                )
+                return _nb_ssa.UndefinedVariable
+            label = idom
+            from_top = False
+
+
+def register_iterative_ssa_def_search() -> None:
+    """Make the SSA reaching-definition search iterative.
+
+    No-ops on builds whose ``_FixSSAVars`` already carries
+    ``_walk_def_chain`` (a patched build, or a future release that
+    merged the fix).
+    """
+
+    fixer = _nb_ssa._FixSSAVars
+    if hasattr(fixer, "_walk_def_chain"):
+        return
+    fixer._walk_def_chain = _ssa_walk_def_chain
+    fixer._find_def_iteratively = _ssa_find_def_iteratively
+    fixer._find_def_from_top = _ssa_find_def_from_top
+    fixer._find_def_from_bottom = _ssa_find_def_from_bottom
+
+
+register_iterative_ssa_def_search()
+
+
+# ------------------------------------------------------------------ #
+# Selective fastmath (Python-side subset)                             #
+# ------------------------------------------------------------------ #
+# The stock wheel coerces ``fastmath`` to a bool and consumes it only
+# as module-wide knobs, so numba-cuda's selective form
+# (``fastmath={"arcp", ...}``) is rejected and no per-operation
+# fast-math semantics reach codegen. The shims below carry the
+# Python-side portion of the selective-fastmath branch of the
+# ccam80/numba-cuda-mlir fork:
+#
+# - bool | set | dict | FastMathOptions accepted and normalised;
+# - every fastmath-capable arith/math op stamped with
+#   ``#arith.fastmath<...>``;
+# - f32 division under ``arcp``/``fast`` rewritten to
+#   ``__nv_fast_fdividef`` (so it compiles to ``div.approx.f32``);
+# - f32 ``math.tanh`` under ``afn``/``fast`` on sm_75+ rewritten to
+#   the hardware ``tanh.approx.f32``;
+# - the module-level knobs (``#nvvm.target flags={fast}``, libnvvm
+#   options on the modern path, LTO-link ftz/fma/prec options)
+#   implied per-flag instead of by truthiness.
+#
+# The native half of the branch (transferring per-instruction flags
+# through the LLVM 7 translation so libnvvm sees them) lives in the
+# MLIRToLLVM70 library and cannot be shimmed from Python; on the
+# stock wheel the per-op attributes still drive the two MLIR-level
+# rewrites above, which are the effects cubie's flag set uses. The
+# group no-ops when the installed package provides
+# ``numba_cuda_mlir.fastmath`` natively.
+
+_FASTMATH_FLAG_ORDER = (
+    "reassoc",
+    "nnan",
+    "ninf",
+    "nsz",
+    "arcp",
+    "contract",
+    "afn",
+)
+_FAST_FDIVIDEF = "__nv_fast_fdividef"
+_fastmath_capable_names_cache = None
+
+
+def _fastmath_flags(value):
+    """Return the LLVM flag-name set for a user-facing value."""
+
+    from numba_cuda_mlir.numba_cuda.core.options import FastMathOptions
+
+    if value is None:
+        return set()
+    return FastMathOptions(value).flags
+
+
+def _fastmath_attr(flags):
+    """Build ``#arith.fastmath<...>`` for the given flag set."""
+
+    if "fast" in flags:
+        mnemonic = "fast"
+    else:
+        mnemonic = ",".join(
+            f for f in _FASTMATH_FLAG_ORDER if f in flags
+        )
+    return _ir.Attribute.parse(f"#arith.fastmath<{mnemonic}>")
+
+
+def _fastmath_capable_op_names():
+    """Names of arith/math ops that carry a ``fastmath`` attribute.
+
+    Discovered from the generated Python bindings so the set tracks
+    the bundled MLIR version.
+    """
+
+    global _fastmath_capable_names_cache
+    if _fastmath_capable_names_cache is not None:
+        return _fastmath_capable_names_cache
+    from numba_cuda_mlir._mlir.dialects import _arith_ops_gen
+    from numba_cuda_mlir._mlir.dialects import _math_ops_gen
+
+    names = set()
+    for module in (_arith_ops_gen, _math_ops_gen):
+        for cls in vars(module).values():
+            if (
+                inspect.isclass(cls)
+                and hasattr(cls, "OPERATION_NAME")
+                and isinstance(
+                    inspect.getattr_static(cls, "fastmath", None),
+                    property,
+                )
+            ):
+                names.add(cls.OPERATION_NAME)
+    _fastmath_capable_names_cache = frozenset(names)
+    return _fastmath_capable_names_cache
+
+
+def _stamp_fastmath_attrs(func_op, flags):
+    """Stamp the fastmath attribute onto every capable nested op."""
+
+    attr = _fastmath_attr(flags)
+    capable = _fastmath_capable_op_names()
+
+    def stamp(op):
+        if op.name in capable:
+            op.attributes["fastmath"] = attr
+        return _ir.WalkResult.ADVANCE
+
+    func_op.operation.walk(stamp)
+
+
+def _chip_number(chip):
+    """Return 89 for ``sm_89``; 0 when the chip is unknown."""
+
+    if not chip:
+        return 0
+    digits = "".join(c for c in str(chip) if c.isdigit())
+    return int(digits) if digits else 0
+
+
+def _rewrite_approx_tanh(func_op, flags, chip):
+    """Rewrite f32 ``math.tanh`` to ``tanh.approx.f32`` on sm_75+.
+
+    Runs at stamping time because ``convert-math-to-nvvm`` lowers
+    ``math.tanh`` to a plain libdevice call and drops the fastmath
+    attribute in the process.
+    """
+
+    if not (flags & {"afn", "fast"}) or _chip_number(chip) < 75:
+        return
+
+    tanh_ops = []
+
+    def collect(op):
+        if op.name == "math.tanh" and isinstance(
+            op.results[0].type, _ir.F32Type
+        ):
+            tanh_ops.append(op)
+        return _ir.WalkResult.ADVANCE
+
+    func_op.operation.walk(collect)
+
+    for op in tanh_ops:
+        with _ir.InsertionPoint(op), op.location:
+            result = _llvm.inline_asm(
+                op.results[0].type,
+                [op.operands[0]],
+                "tanh.approx.f32 $0, $1;",
+                "=f,f",
+            )
+        op.results[0].replace_all_uses_with(result)
+        op.erase()
+
+
+def _fastmath_flag_set_of_op(op):
+    """Flag names from an op's ``#llvm.fastmath<...>`` attribute."""
+
+    attrs = op.operation.attributes
+    if "fastmathFlags" not in attrs:
+        return frozenset()
+    text = str(attrs["fastmathFlags"])
+    inner = text[text.index("<") + 1 : text.rindex(">")]
+    return frozenset(
+        flag.strip() for flag in inner.split(",") if flag.strip()
+    )
+
+
+def _rewrite_fast_divisions(module):
+    """Lower flagged f32 ``llvm.fdiv`` to ``__nv_fast_fdividef``.
+
+    Mirrors numba-cuda, whose fastmath float32 division calls
+    ``__nv_fast_fdividef`` (libnvvm never selects ``div.approx``
+    from instruction flags or ``-prec-div=0`` alone). Gating on the
+    per-instruction ``arcp``/``fast`` flag keeps the transform
+    selective per compiled function.
+    """
+
+    from numba_cuda_mlir._mlir.dialects import gpu as _gpu
+
+    worklist = []
+
+    def collect(op):
+        if (
+            op.name == "llvm.fdiv"
+            and isinstance(op.results[0].type, _ir.F32Type)
+            and _fastmath_flag_set_of_op(op) & {"fast", "arcp"}
+        ):
+            worklist.append(op)
+        return _ir.WalkResult.ADVANCE
+
+    module.operation.walk(collect)
+    if not worklist:
+        return
+
+    for gpu_module in module.body:
+        if isinstance(gpu_module, _gpu.GPUModuleOp):
+            block = gpu_module.regions[0].blocks[0]
+            has_decl = any(
+                getattr(op, "sym_name", None)
+                and op.sym_name.value == _FAST_FDIVIDEF
+                for op in block
+            )
+            if not has_decl:
+                decl = _ir.Operation.parse(
+                    f"llvm.func @{_FAST_FDIVIDEF}(f32, f32) -> f32"
+                )
+                _ir.InsertionPoint.at_block_begin(block).insert(decl)
+
+    for op in worklist:
+        loc = op.operation.location
+        with _ir.InsertionPoint(op), loc:
+            call = _llvm.CallOp(
+                result=op.results[0].type,
+                callee_operands=[op.operands[0], op.operands[1]],
+                op_bundle_operands=[],
+                op_bundle_sizes=[],
+                callee=_FAST_FDIVIDEF,
+            )
+        op.results[0].replace_all_uses_with(call.results[0])
+        op.operation.erase()
+
+
+def _fastmath_nvvm_knobs(value):
+    """Module-level libnvvm/ptxas knobs implied by a flag set.
+
+    A key is absent when the flag set does not speak to that knob:
+    ``arcp`` implies ``prec_div=False``, ``afn`` implies
+    ``prec_sqrt=False``, ``contract`` implies ``fma=True``, and
+    denormal flushing has no per-instruction flag so ``ftz=True`` is
+    implied only by full ``fast`` (which enables all four, matching
+    numba-cuda's bool-form gating).
+    """
+
+    flags = _fastmath_flags(value)
+    knobs = {}
+    if "fast" in flags:
+        knobs["ftz"] = True
+    if flags & {"contract", "fast"}:
+        knobs["fma"] = True
+    if flags & {"arcp", "fast"}:
+        knobs["prec_div"] = False
+    if flags & {"afn", "fast"}:
+        knobs["prec_sqrt"] = False
+    return knobs
+
+
+def register_selective_fastmath_shims() -> None:
+    """Install the Python-side selective fastmath support.
+
+    No-ops when the installed package provides
+    ``numba_cuda_mlir.fastmath`` natively.
+    """
+
+    try:
+        import numba_cuda_mlir.fastmath  # noqa: F401
+
+        return
+    except ImportError:
+        pass
+
+    import dataclasses
+
+    from numba_cuda_mlir import decorators as _decorators
+    from numba_cuda_mlir.numba_cuda.core.options import FastMathOptions
+
+    # Defining __eq__ without __hash__ leaves the class unhashable;
+    # normalised targetoptions values must stay hashable for
+    # dispatch caching.
+    if getattr(FastMathOptions, "__hash__", None) is None:
+        FastMathOptions.__hash__ = lambda self: hash(
+            frozenset(self.flags)
+        )
+
+    def verify_fastmath_value(value, targetoptions):
+        if value is None:
+            return None
+        try:
+            FastMathOptions(value)
+        except ValueError as error:
+            return str(error)
+        return None
+
+    original_get_schema = _decorators._get_schema
+
+    def get_schema_with_selective_fastmath():
+        schema = []
+        for option in original_get_schema():
+            if option.name in ("fastmath", "fast_math"):
+                types = option.types
+                if not isinstance(types, tuple):
+                    types = (types,)
+                option = dataclasses.replace(
+                    option,
+                    types=types + (set, dict, FastMathOptions),
+                    extra_verification=verify_fastmath_value,
+                )
+            schema.append(option)
+        return tuple(schema)
+
+    _decorators._get_schema = get_schema_with_selective_fastmath
+
+    original_verify = _decorators.verify_target_options
+
+    def verify_target_options_normalized(kws):
+        targetoptions = original_verify(kws)
+        targetoptions["fastmath"] = FastMathOptions(
+            targetoptions.get("fastmath") or False
+        )
+        return targetoptions
+
+    _decorators.verify_target_options = verify_target_options_normalized
+
+    # The #nvvm.target module flag is all-or-nothing; selective
+    # subsets are expressed per-op, so the flag keys off full 'fast'
+    # only. setup_func_op gates it on truthiness, so it sees a
+    # bool-shaped view of the option.
+    original_setup_func_op = _mlir_lowering.MLIRLower.setup_func_op
+
+    def setup_func_op_selective(self):
+        saved = self.targetoptions
+        adjusted = dict(saved)
+        adjusted["fastmath"] = "fast" in _fastmath_flags(
+            saved.get("fastmath") or False
+        )
+        self.targetoptions = adjusted
+        try:
+            return original_setup_func_op(self)
+        finally:
+            self.targetoptions = saved
+
+    _mlir_lowering.MLIRLower.setup_func_op = setup_func_op_selective
+
+    # Stamp per-op attributes right after the body is lowered, before
+    # lower_capi_thunks clones the function, so the C-ABI clone
+    # inherits them. Device callees are compiled under their own
+    # target options and cloned in pre-stamped, so flags scope
+    # per-function exactly as numba-cuda's per-instruction flags do.
+    original_lower_body = _mlir_lowering.MLIRLower.lower_function_body
+
+    def lower_function_body_with_fastmath(self):
+        result = original_lower_body(self)
+        flags = _fastmath_flags(
+            self.targetoptions.get("fastmath") or False
+        )
+        if flags:
+            _stamp_fastmath_attrs(self.mlir_funcOp, flags)
+            _rewrite_approx_tanh(
+                self.mlir_funcOp, flags, self.targetoptions.get("chip")
+            )
+        return result
+
+    _mlir_lowering.MLIRLower.lower_function_body = (
+        lower_function_body_with_fastmath
+    )
+
+    previous_pre_codegen = _mlir_optimization.run_pre_codegen_patterns
+
+    def pre_codegen_with_fast_divisions(module, *args, **kwargs):
+        result = previous_pre_codegen(module, *args, **kwargs)
+        _rewrite_fast_divisions(module)
+        return result
+
+    _mlir_optimization.run_pre_codegen_patterns = (
+        pre_codegen_with_fast_divisions
+    )
+
+    def nvvm_options_selective(cc, target_options=None, **extra):
+        opts = {"arch": f"compute_{cc}", **extra}
+        if target_options is None:
+            return opts
+        opts.update(
+            _fastmath_nvvm_knobs(target_options.get("fastmath", False))
+        )
+        # -g / -generate-line-info stay omitted: the MLIR pipeline
+        # embeds DWARF metadata itself and libnvvm rejects the
+        # combination.
+        opt = target_options.get("opt")
+        if opt is False or opt == 0:
+            opts["opt"] = 0
+        return opts
+
+    _mlir_optimization._nvvm_options = nvvm_options_selective
+
+    original_get_lto_ptx = _mlir_optimization.get_lto_ptx
+    stock_knob = 'target_options.get("fastmath") or None'
+    if stock_knob not in inspect.getsource(original_get_lto_ptx):
+        raise RuntimeError(
+            "cubie._mlir_compat: numba-cuda-mlir's get_lto_ptx no "
+            "longer matches the stock fastmath knob gating; update "
+            "the selective fastmath shim for this release."
+        )
+
+    def get_lto_ptx_selective(cres, linker=None, target_options=None):
+        if target_options is None:
+            target_options = cres.metadata["targetoptions"]
+        if (
+            linker is None
+            and not cres.metadata.get("lto_ptx")
+            and cres.metadata.get("linker") is None
+        ):
+            from numba_cuda_mlir.linker import Linker
+            from numba_cuda_mlir.tools import (
+                get_gpu_compute_capability,
+                parse_compute_capability,
+            )
+
+            chip = target_options.get("chip")
+            if chip:
+                cc = parse_compute_capability(chip)
+                arch = chip
+            else:
+                cc = get_gpu_compute_capability(tuple)
+                arch = get_gpu_compute_capability(str)
+            knobs = _fastmath_nvvm_knobs(
+                target_options.get("fastmath", False)
+            )
+            linker = Linker(
+                cc=cc,
+                arch=arch,
+                verbose=target_options.get("dump", False),
+                debug=target_options.get("debug", False),
+                lineinfo=target_options.get("lineinfo", False),
+                lto=True,
+                ftz=knobs.get("ftz"),
+                prec_div=knobs.get("prec_div"),
+                prec_sqrt=knobs.get("prec_sqrt"),
+                fma=knobs.get("fma"),
+                optimization_level=int(
+                    target_options.get("opt_level", 3)
+                ),
+                ptxas_options=target_options.get(
+                    "ptxas_options", None
+                ),
+                max_registers=target_options.get(
+                    "max_registers", None
+                ),
+            )
+        return original_get_lto_ptx(cres, linker, target_options)
+
+    _mlir_optimization.get_lto_ptx = get_lto_ptx_selective
+
+
+register_selective_fastmath_shims()
