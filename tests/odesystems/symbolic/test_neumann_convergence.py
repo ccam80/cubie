@@ -84,8 +84,8 @@ def test_converges_for_diagonally_dominant_system(
 ):
     """A diagonally dominant Jacobian reports convergence."""
     result = check_neumann_convergence(
-        diagonally_dominant_system.equations,
         diagonally_dominant_system.indices,
+        diagonally_dominant_system._get_neumann_evaluator(),
     )
     assert result["converges"] is True
     assert result["rho_N"] < 1.0
@@ -98,8 +98,8 @@ def test_diverges_and_warns_for_off_diagonal_heavy_system(
     """A non-dominant Jacobian reports divergence and warns."""
     with pytest.warns(UserWarning):
         result = check_neumann_convergence(
-            off_diagonal_heavy_system.equations,
             off_diagonal_heavy_system.indices,
+            off_diagonal_heavy_system._get_neumann_evaluator(),
         )
     assert result["converges"] is False
     assert result["rho_N"] >= 1.0
@@ -113,8 +113,8 @@ def test_gating_singularity_converges_without_false_divergence(
     with warnings.catch_warnings(record=True) as record:
         warnings.simplefilter("always")
         result = check_neumann_convergence(
-            gating_singularity_system.equations,
             gating_singularity_system.indices,
+            gating_singularity_system._get_neumann_evaluator(),
         )
     assert result["converges"] is True
     assert result["rho_N"] < 1.0
@@ -126,8 +126,8 @@ def test_non_finite_jacobian_reports_not_verified(
 ):
     """A non-finite Jacobian returns the full signature with no verdict."""
     result = check_neumann_convergence(
-        singular_initial_state_system.equations,
         singular_initial_state_system.indices,
+        singular_initial_state_system._get_neumann_evaluator(),
     )
     assert result["converges"] is None
     # The early-return path must expose the same keys as the normal path.
@@ -140,12 +140,12 @@ def test_finite_and_non_finite_paths_share_return_signature(
 ):
     """Both convergence paths return an identical set of keys."""
     finite = check_neumann_convergence(
-        diagonally_dominant_system.equations,
         diagonally_dominant_system.indices,
+        diagonally_dominant_system._get_neumann_evaluator(),
     )
     non_finite = check_neumann_convergence(
-        singular_initial_state_system.equations,
         singular_initial_state_system.indices,
+        singular_initial_state_system._get_neumann_evaluator(),
     )
     assert set(finite) == set(non_finite) == _RESULT_KEYS
 
