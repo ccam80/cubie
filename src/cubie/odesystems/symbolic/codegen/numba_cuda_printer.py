@@ -284,6 +284,13 @@ class CUDAPrinter(PythonCodePrinter):
         remaining integer exponents are wrapped with precision() so
         the pow stays in the working precision.
 
+        Half powers print as ``math.sqrt`` calls: ``x**(1/2)`` becomes
+        ``math.sqrt(x)`` and ``x**(-1/2)`` becomes
+        ``(precision(1)/math.sqrt(x))``. Numba lowers a float ``**``
+        with a 0.5 exponent to a generic pow expansion containing no
+        sqrt instruction, which is several times slower than the
+        dedicated sqrt in both precisions.
+
         A symbol exponent naming a factory-scope constant (listed in
         ``constant_names``) prints as its integer-exponent alias so
         integral constant values lower to multiplication chains
@@ -295,6 +302,13 @@ class CUDAPrinter(PythonCodePrinter):
         PREC = sp.printing.precedence.precedence
         base_str = self.parenthesize(expr.base, PREC(expr))
         exp_expr = expr.exp
+
+        if isinstance(exp_expr, (sp.Float, sp.Rational)):
+            half_check = float(exp_expr)
+            if half_check == 0.5:
+                return f"math.sqrt({base_str})"
+            if half_check == -0.5:
+                return f"(precision(1)/math.sqrt({base_str}))"
 
         if exp_expr.is_Integer:
             exponent_value = int(exp_expr)

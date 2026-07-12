@@ -1757,3 +1757,63 @@ class TestParseInputFunctionDispatch:
         assert len(list(index_map.state_names)) == 1
         assert len(parsed.state_derivatives) == 1
         assert "t" in all_symbols
+
+
+class TestUnderivedStateConversion:
+    """A declared state without a derivative becomes an observable.
+
+    The conversion block strips the derivative prefix from the
+    outstanding dxdt name, moves the state symbol into observables,
+    and removes the state and dxdt entries.
+    """
+
+    def test_string_underived_state_becomes_observable(self):
+        """String pathway: an underived state is converted, not crashed."""
+        imap = IndexedBases.from_user_inputs(
+            ["x", "z"], ["k"], [], [], []
+        )
+        with warnings.catch_warnings(record=True) as caught:
+            warnings.simplefilter("always")
+            _lhs_pass(["dx = x"], imap, strict=True)
+        assert any(
+            issubclass(w.category, EquationWarning) for w in caught
+        )
+        assert "z" in imap.observable_names
+        assert "z" not in imap.state_names
+        assert "dz" not in imap.dxdt_names
+
+    def test_first_declared_underived_state_reindexes_survivors(self):
+        """Converting a non-final state leaves survivors in bounds."""
+        imap = IndexedBases.from_user_inputs(
+            ["z", "x"], ["k"], [], [], []
+        )
+        with warnings.catch_warnings(record=True) as caught:
+            warnings.simplefilter("always")
+            _lhs_pass(["dx = x"], imap, strict=True)
+        assert any(
+            issubclass(w.category, EquationWarning) for w in caught
+        )
+        x_sym = sp.Symbol("x", real=True)
+        dx_sym = sp.Symbol("dx", real=True)
+        assert imap.states.index_map == {x_sym: 0}
+        assert str(imap.states.ref_map[x_sym]) == "state[0]"
+        assert imap.states.base.shape == (1,)
+        assert imap.dxdt.index_map == {dx_sym: 0}
+        assert str(imap.dxdt.ref_map[dx_sym]) == "out[0]"
+
+    def test_sympy_underived_state_becomes_observable(self):
+        """SymPy pathway: an underived state is converted, not crashed."""
+        imap = IndexedBases.from_user_inputs(
+            ["x", "z"], ["k"], [], [], []
+        )
+        with warnings.catch_warnings(record=True) as caught:
+            warnings.simplefilter("always")
+            _lhs_pass_sympy(
+                [(sp.Symbol("dx"), sp.Symbol("x"))], imap, strict=True
+            )
+        assert any(
+            issubclass(w.category, EquationWarning) for w in caught
+        )
+        assert "z" in imap.observable_names
+        assert "z" not in imap.state_names
+        assert "dz" not in imap.dxdt_names
