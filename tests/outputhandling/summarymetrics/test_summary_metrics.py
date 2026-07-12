@@ -833,3 +833,28 @@ def test_legend_mean_std_combined_metric():
     """Combined mean_std reports mean/std names."""
     headings = global_registry.legend(["mean", "std"])
     assert headings == ["mean", "std"]
+
+
+def test_summary_metric_rejects_mismatched_output_names(precision):
+    """output_names length must equal a fixed (non-callable) output_size."""
+    with pytest.raises(ValueError, match="output_names has"):
+        _ConcreteMetric(
+            precision=precision,
+            output_size=2,
+            output_names=["only_one"],
+        )
+
+
+def test_every_registered_metric_builds():
+    """Every built-in metric's build() returns a populated cache.
+
+    build() only assembles closures with ``@cuda.jit(device=True)``
+    decorators; without a kernel launch that never triggers a real
+    compile, so calling it for every registered metric is cheap and
+    exercises the host-side setup/return lines of each metric's
+    build() that a single parametrised algorithm test would not.
+    """
+    for name, metric in global_registry._metric_objects.items():
+        cache = metric.build()
+        assert callable(cache.update), name
+        assert callable(cache.save), name

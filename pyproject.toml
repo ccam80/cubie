@@ -101,8 +101,10 @@ filterwarnings = [
 omit = [
     "*/tests/*",
     "*/__pycache__/*",
-    # Vendored third-party code (cellmlmanip); not cubie's tested surface.
+    # Vendored third-party code (cellmlmanip, numba-cuda cache);
+    # not cubie's tested surface.
     "*/vendored/cellmlmanip/*",
+    "*/vendored/numba_cuda_cache.py",
     # Compile-time numba-cuda patches; covered by the pull requests
     # submitted to numba-cuda-mlir.
     "*/_numba_cuda_compat.py",

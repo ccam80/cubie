@@ -199,3 +199,161 @@ def nonlinear_equations(indexed_bases):
         (dy, b * x * y - a * y),
     ]
     return ParsedEquations.from_equations(equations, indexed_bases)
+
+
+@pytest.fixture
+def bare_indexed_bases():
+    """IndexedBases with two states and two parameters only.
+
+    No constants, observables, or drivers: codegen tests use this to
+    reach the no-observable and no-driver generator branches.
+    """
+    return IndexedBases.from_user_inputs(
+        states=["x", "y"],
+        parameters=["a", "b"],
+        constants=[],
+        observables=[],
+        drivers=[],
+    )
+
+
+@pytest.fixture
+def bare_nonlinear_equations(bare_indexed_bases):
+    """Two-state nonlinear equations with no cacheable auxiliaries."""
+    ib = bare_indexed_bases
+    x = ib.states.symbol_map["x"]
+    y = ib.states.symbol_map["y"]
+    a = ib.parameters.symbol_map["a"]
+    b = ib.parameters.symbol_map["b"]
+    dx = ib.dxdt.symbol_map["dx"]
+    dy = ib.dxdt.symbol_map["dy"]
+
+    equations = [
+        (dx, a * x - b * x * y),
+        (dy, b * x * y - a * y),
+    ]
+    return ParsedEquations.from_equations(equations, ib)
+
+
+@pytest.fixture
+def cacheable_equations(bare_indexed_bases):
+    """Equations whose shared transcendental aux triggers caching.
+
+    The Jacobian entries reuse ``sin(x)*cos(y) + exp(x*y)`` across
+    both outputs, so the default cache planner selects auxiliaries to
+    cache; this drives the ``cached_aux`` branches of the cached
+    generators.
+    """
+    ib = bare_indexed_bases
+    x = ib.states.symbol_map["x"]
+    y = ib.states.symbol_map["y"]
+    a = ib.parameters.symbol_map["a"]
+    b = ib.parameters.symbol_map["b"]
+    dx = ib.dxdt.symbol_map["dx"]
+    dy = ib.dxdt.symbol_map["dy"]
+
+    shared = sp.sin(x) * sp.cos(y) + sp.exp(x * y)
+    equations = [
+        (dx, a * shared + x**3),
+        (dy, b * shared + y**3),
+    ]
+    return ParsedEquations.from_equations(equations, ib)
+
+
+@pytest.fixture
+def chained_aux_equations(bare_indexed_bases):
+    """Two chained auxiliaries on a system without drivers/observables."""
+    ib = bare_indexed_bases
+    x = ib.states.symbol_map["x"]
+    y = ib.states.symbol_map["y"]
+    a = ib.parameters.symbol_map["a"]
+    b = ib.parameters.symbol_map["b"]
+    dx = ib.dxdt.symbol_map["dx"]
+    dy = ib.dxdt.symbol_map["dy"]
+
+    first = sp.Symbol("first")
+    second = sp.Symbol("second")
+    equations = [
+        (first, x * y),
+        (second, first + a * x),
+        (dx, second * a),
+        (dy, first * b),
+    ]
+    return ParsedEquations.from_equations(equations, ib)
+
+
+@pytest.fixture
+def observable_driver_indexed_bases():
+    """IndexedBases with an observable and a driver declared."""
+    return IndexedBases.from_user_inputs(
+        states=["x", "y"],
+        parameters=["a", "b"],
+        constants=[],
+        observables=["obs1"],
+        drivers=["driver1"],
+    )
+
+
+@pytest.fixture
+def observable_driver_equations(observable_driver_indexed_bases):
+    """Two-state equations using an observable and a driver."""
+    ib = observable_driver_indexed_bases
+    x = ib.states.symbol_map["x"]
+    y = ib.states.symbol_map["y"]
+    a = ib.parameters.symbol_map["a"]
+    b = ib.parameters.symbol_map["b"]
+    drive = ib.drivers.symbol_map["driver1"]
+    obs = ib.observables.symbol_map["obs1"]
+    dx = ib.dxdt.symbol_map["dx"]
+    dy = ib.dxdt.symbol_map["dy"]
+
+    equations = [
+        (obs, a * x + drive),
+        (dx, obs * y - b * x * y),
+        (dy, b * x * y - a * y),
+    ]
+    return ParsedEquations.from_equations(equations, ib)
+
+
+@pytest.fixture
+def single_observable_indexed_bases():
+    """IndexedBases with a single state and one observable."""
+    return IndexedBases.from_user_inputs(
+        states=["x"],
+        parameters=["a"],
+        constants=[],
+        observables=["obs1"],
+        drivers=[],
+    )
+
+
+@pytest.fixture
+def single_observable_equations(single_observable_indexed_bases):
+    """Single-state equations carrying one observable."""
+    ib = single_observable_indexed_bases
+    x = ib.states.symbol_map["x"]
+    a = ib.parameters.symbol_map["a"]
+    obs = ib.observables.symbol_map["obs1"]
+    dx = ib.dxdt.symbol_map["dx"]
+
+    equations = [
+        (obs, a * x * x),
+        (dx, obs + a * x),
+    ]
+    return ParsedEquations.from_equations(equations, ib)
+
+
+@pytest.fixture
+def lower_triangular_stage_coefficients():
+    """Butcher tableau slice with a structural zero coupling.
+
+    The lower-triangular ``a`` matrix exercises the
+    ``coeff_value == 0`` skip in stage-coupling loops; the nodes are
+    the matching Radau-style abscissae.
+    """
+    a = [
+        [sp.Rational(1, 4), 0],
+        [sp.Rational(1, 2), sp.Rational(1, 4)],
+    ]
+    nodes = [sp.Rational(1, 4), sp.Rational(3, 4)]
+    return a, nodes

@@ -15,6 +15,8 @@ Published Functions
     Check whether a value should be treated as a CUDA array.
 :func:`is_cudasim_enabled`
     Always ``False``; retained for callers that branch on it.
+:func:`get_jit_kwargs`
+    Return ``cuda.jit`` kwargs with an explicit ``lineinfo`` value.
 
 Published Device Functions
 --------------------------
@@ -36,18 +38,17 @@ See Also
 :mod:`cubie.memory.mem_manager`
     Uses the ``Stream`` stand-in, ``current_mem_info``, and the
     ``cupy``/``cupyx`` imports exported here. This module owns the
-    single conditional import of ``cupy``/``cupyx``: both are
-    imported eagerly on a real GPU (CuPy is CuBIE's device
-    allocation provider, so it is a hard requirement there) and are
-    ``None`` under the CUDA simulator, which never touches device
-    memory. Consumers import them from here rather than importing
-    CuPy directly.
+    single import of ``cupy``/``cupyx``: both are imported eagerly
+    (CuPy is CuBIE's device allocation provider, so it is a hard
+    requirement). Consumers import them from here rather than
+    importing CuPy directly.
 """
 
 from __future__ import annotations
 
 import os
-from typing import Any, Callable, Tuple
+from types import MappingProxyType
+from typing import Any, Callable, Mapping, Optional, Tuple
 
 from numpy import dtype
 
@@ -73,6 +74,8 @@ from numba_cuda_mlir.numba_cuda.np.numpy_support import (
     from_dtype as numba_from_dtype,
 )
 
+from cubie._env import lineinfo_default
+
 
 CUDA_SIMULATION: bool = False
 
@@ -90,14 +93,42 @@ except ImportError as e:
         "CUDA toolkit 12.x)."
     ) from e
 
-# Compile kwargs for cuda.jit decorators.
-# numba-cuda-mlir only accepts fastmath as a boolean, so the previous
-# per-flag fastmath selection ({"nsz", "contract", "arcp"}) cannot be
-# expressed; leave fastmath at its default (off) rather than enable
-# the full set of approximations.
-compile_kwargs: dict[str, bool] = {
-    # "lineinfo": True,
-}
+# Base compile kwargs for cuda.jit decorators. Immutable: per-build
+# overrides (lineinfo) merge over a copy via get_jit_kwargs so no build
+# can leak state into another compilation unit.
+# numba-cuda-mlir only accepts fastmath as a boolean, so the per-flag
+# fastmath selection ({"nsz", "contract", "arcp"}) cannot be
+# expressed; leave fastmath off rather than enable the full set of
+# approximations. The lineinfo env default applies to device functions
+# decorated at import time, which never see a factory config. Factory
+# builds pass their compile setting to get_jit_kwargs.
+compile_kwargs: Mapping[str, Any] = MappingProxyType(
+    {
+        "fastmath": False,
+        "lineinfo": lineinfo_default(),
+    }
+)
+
+
+def get_jit_kwargs(lineinfo: Optional[bool] = None) -> dict[str, Any]:
+    """Return ``cuda.jit`` kwargs with an explicit ``lineinfo`` value.
+
+    Parameters
+    ----------
+    lineinfo
+        Whether to compile with source-line correlation data. ``None``
+        defers to the ``CUBIE_LINEINFO`` environment variable.
+
+    Returns
+    -------
+    dict
+        Copy of :data:`compile_kwargs` with ``lineinfo`` set.
+    """
+    kwargs = dict(compile_kwargs)
+    kwargs["lineinfo"] = (
+        lineinfo_default() if lineinfo is None else bool(lineinfo)
+    )
+    return kwargs
 
 
 def current_mem_info() -> Tuple[int, int]:
@@ -224,7 +255,7 @@ def max_shared_memory_per_block() -> int:
         launch. Under CUDASIM the ubiquitous 48 kiB default is
         returned.
     """
-    if CUDA_SIMULATION:
+    if CUDA_SIMULATION:  # pragma: no cover - simulated
         return 49152
     return int(
         cuda.get_current_device().MAX_SHARED_MEMORY_PER_BLOCK
@@ -236,6 +267,7 @@ __all__ = [
     "all_sync",
     "any_sync",
     "compile_kwargs",
+    "get_jit_kwargs",
     "CUDA_SIMULATION",
     "cupy",
     "cupyx",

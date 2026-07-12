@@ -88,12 +88,6 @@ class SingleIntegratorRun(SingleIntegratorRunCore):
         return self._loop.persistent_local_buffer_size
 
     @property
-    def dt(self) -> float:
-        """Return the initial step size from the controller."""
-
-        return self._step_controller.dt
-
-    @property
     def dt_min(self) -> float:
         """Return the minimum allowable step size."""
 

@@ -179,39 +179,37 @@ def test_samples_per_summary_computes_ratio():
     assert cfg.samples_per_summary == expected
 
 
-def test_samples_per_summary_warns_on_adjustment():
-    """Warning emitted when adjusted value differs from raw _summarise_every."""
-    # 0.03 / 0.02 = 1.5 -> rounds to 2 -> adjusted = 0.04 != 0.03
-    # Actually that deviation is 0.5 which is > 0.01, so it raises.
-    # We need deviation <= 0.01. Use values where rounding adjusts slightly.
-    # With float32: summarise_every=0.039, sample=0.02 -> ratio ~1.95 -> round=2
-    # deviation = |2 - 1.95| = 0.05 > 0.01, raises.
-    # Actually the code does round() first, then int(), then checks
-    # deviation = abs(raw_ratio - samples_per_summary). But raw_ratio
-    # is already round(...) which is an int, so deviation is always 0.
-    # Let me re-read the code.
-    #
-    # raw_ratio = round(summarise_every / sample_summaries_every)
-    # samples_per_summary = int(raw_ratio)
-    # deviation = abs(raw_ratio - samples_per_summary)
-    #
-    # round() returns int in Python 3, so deviation is always 0.
-    # The warning branch checks: adjusted != self._summarise_every
-    # So it warns when summarise_every * n != original _summarise_every.
+def test_samples_per_summary_warns_on_slight_adjustment():
+    """Warning emitted when a near-multiple ratio is snapped.
+
+    A ratio within 0.01 of an integer is accepted; the value is
+    adjusted to the exact multiple with a warning naming both values.
+    """
     cfg = ODELoopConfig(
         precision=np.float64,
-        summarise_every=0.099,
+        summarise_every=0.1001,
         sample_summaries_every=0.02,
     )
-    # ratio = 0.099/0.02 = 4.95 -> round = 5 -> adjusted = 5*0.02 = 0.1
-    # deviation = |5 - 5| = 0  <= 0.01 -> enters first branch
-    # adjusted (0.1) != _summarise_every (0.099) -> warns
+    # ratio = 0.1001/0.02 = 5.005; deviation 0.005 <= 0.01 -> snap to
+    # 5 with a warning because 5 * 0.02 != 0.1001.
     with warnings.catch_warnings(record=True) as w:
         warnings.simplefilter("always")
         result = cfg.samples_per_summary
     assert result == 5
     assert len(w) >= 1
     assert "summarise_every adjusted from" in str(w[0].message)
+
+
+def test_samples_per_summary_raises_on_non_multiple():
+    """A ratio far from an integer multiple raises ValueError."""
+    cfg = ODELoopConfig(
+        precision=np.float64,
+        summarise_every=0.03,
+        sample_summaries_every=0.02,
+    )
+    # ratio = 1.5: not an integer multiple, deviation 0.5 > 0.01.
+    with pytest.raises(ValueError, match="integer multiple"):
+        cfg.samples_per_summary
 
 
 

@@ -449,7 +449,7 @@ class SolveResult:
                     [[f"run_{run}"], df.columns]
                 )
             else:
-                summaries_dfs.append(pd.DataFrame)
+                summaries_dfs.append(pd.DataFrame())
 
         time_domain_df = pd.concat(time_dfs, axis=1)
         summaries_df = pd.concat(summaries_dfs, axis=1)

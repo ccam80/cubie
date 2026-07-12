@@ -22,6 +22,7 @@ from numba_cuda_mlir import cuda
 
 from numba_cuda_mlir.types import int32
 from cubie.buffer_registry import buffer_registry
+from cubie.cuda_simsafe import get_jit_kwargs
 from cubie.integrators.algorithms.backwards_euler import BackwardsEulerStep
 from cubie.integrators.algorithms.base_algorithm_step import StepCache
 
@@ -75,6 +76,7 @@ class BackwardsEulerPCStep(BackwardsEulerStep):
         alloc_increment_cache = buffer_registry.get_allocator('increment_cache', self)
         solver_fn = solver_function
 
+        # no cover: start
         @cuda.jit(
             # (
             #     numba_precision[::1],
@@ -96,6 +98,7 @@ class BackwardsEulerPCStep(BackwardsEulerStep):
             # ),
             device=True,
             inline=True,
+            **get_jit_kwargs(self.compile_settings.lineinfo),
         )
         def step(
             state,
@@ -210,4 +213,5 @@ class BackwardsEulerPCStep(BackwardsEulerStep):
 
             return status
 
+        # no cover: end
         return StepCache(step=step, nonlinear_solver=solver_fn)

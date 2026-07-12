@@ -815,8 +815,6 @@ class AstToSympyConverter:
             return sp.Integer(val)
         elif isinstance(val, float):
             return sp.Float(val)
-        elif isinstance(val, bool):
-            return sp.true if val else sp.false
         else:
             raise NotImplementedError(
                 f"Unsupported constant type: {type(val).__name__}"

@@ -14,12 +14,13 @@ def test_compile_kwargs_without_cudasim():
     """Test that compile_kwargs matches the numba-cuda-mlir contract.
 
     numba-cuda-mlir only accepts fastmath as a boolean, so the
-    per-flag fastmath selection is inexpressible and compile_kwargs
-    is empty.
+    per-flag fastmath selection is inexpressible and fastmath stays
+    off; lineinfo carries the CUBIE_LINEINFO-derived default.
     """
     from cubie.cuda_simsafe import CUDA_SIMULATION, compile_kwargs
     assert CUDA_SIMULATION is False
-    assert compile_kwargs == {}
+    assert compile_kwargs["fastmath"] is False
+    assert "lineinfo" in compile_kwargs
 
 @pytest.mark.sim_only
 def test_selp_function_in_cudasim():

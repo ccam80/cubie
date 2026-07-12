@@ -1,3 +1,4 @@
+# no cover: start
 """Qt GUI for editing constants and parameters in a SymbolicODE.
 
 Table-based editors for viewing and modifying constants, parameters,
@@ -618,3 +619,4 @@ def show_constants_editor(
     else:
         editor.show()
         return editor
+# no cover: end

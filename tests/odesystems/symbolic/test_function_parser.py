@@ -1,10 +1,25 @@
 """Tests for function_parser module and end-to-end callable integration."""
 
+import ast
+
 import pytest
 import sympy as sp
 
 from cubie.odesystems.symbolic.codegen.linear_operators import (
     generate_operator_apply_code,
+)
+from cubie.odesystems.symbolic.indexedbasemaps import (
+    IndexedBaseMap,
+    IndexedBases,
+)
+from cubie.odesystems.symbolic.parsing.function_inspector import (
+    AstToSympyConverter,
+)
+from cubie.odesystems.symbolic.parsing.function_parser import (
+    _resolve_called_functions,
+    _unpack_return,
+    infer_function_states,
+    parse_function_input,
 )
 from cubie.odesystems.symbolic.parsing.parser import (
     EquationWarning,
@@ -853,3 +868,229 @@ class TestDerivativeAliasReference:
         _, obs_rhs = eqs.observables[0]
         x = sp.Symbol("x", real=True)
         assert sp.simplify(obs_rhs - (-1.0 * x)) == 0
+
+
+def _single_state_index_map():
+    """Return an ``IndexedBases`` with one state ``x`` and empty rest."""
+    return IndexedBases.from_user_inputs(
+        states={"x": 1.0},
+        parameters={},
+        constants={},
+        observables=[],
+        drivers=[],
+    )
+
+
+class TestParseFunctionInputDirect:
+    """Direct calls into ``parse_function_input`` and helpers."""
+
+    def test_observables_default_to_empty(self):
+        """Omitting ``observables`` yields the standard equation triple."""
+        def f(t, y):
+            return [-y[0]]
+
+        equation_map, funcs, new_params = parse_function_input(
+            f, _single_state_index_map()
+        )
+        assert len(equation_map) == 1
+        assert funcs == {}
+        assert new_params == []
+
+    def test_observable_symbol_falls_back_to_new_symbol(self):
+        """An observable absent from the index map gets a fresh symbol."""
+        def f(t, y):
+            flux = 2.0 * y[0]  # noqa: F841
+            return [-y[0]]
+
+        equation_map, _, _ = parse_function_input(
+            f, _single_state_index_map(), observables=["flux"]
+        )
+        flux_sym = sp.Symbol("flux", real=True)
+        x = sp.Symbol("x", real=True)
+        lhs, rhs = next(
+            (lhs, rhs)
+            for lhs, rhs in equation_map
+            if lhs == flux_sym
+        )
+        assert sp.simplify(rhs - 2.0 * x) == 0
+
+    def test_dict_return_synthesizes_missing_dxdt_symbol(self):
+        """A dict return with no matching dxdt entry synthesizes one."""
+        states = IndexedBaseMap("state", ["x"], input_defaults=[1.0])
+        empty_params = IndexedBaseMap("parameters", [])
+        empty_consts = IndexedBaseMap("constants", [])
+        empty_obs = IndexedBaseMap("observables", [])
+        empty_drivers = IndexedBaseMap("drivers", [])
+        empty_dxdt = IndexedBaseMap("out", [])
+        index_map = IndexedBases(
+            states,
+            empty_params,
+            empty_consts,
+            empty_obs,
+            empty_drivers,
+            empty_dxdt,
+        )
+
+        def f(t, y):
+            return {"x": -y[0]}
+
+        equation_map, _, _ = parse_function_input(f, index_map)
+        dx_sym = sp.Symbol("dx", real=True)
+        lhs, rhs = equation_map[-1]
+        assert lhs == dx_sym
+        x = sp.Symbol("x", real=True)
+        assert sp.simplify(rhs + x) == 0
+
+    def test_unpack_return_without_assignments(self):
+        """``_unpack_return`` defaults missing assignments to empty."""
+        x = sp.Symbol("x", real=True)
+        converter = AstToSympyConverter({"y[0]": x})
+        node = ast.parse("[-y[0]]", mode="eval").body
+        result = _unpack_return(node, converter)
+        assert len(result) == 1
+        assert sp.simplify(result[0] + x) == 0
+
+    def test_resolve_called_functions_bare_name(self):
+        """A module-qualified call resolves through its bare name."""
+        def dummy(a):
+            return a
+
+        resolved = _resolve_called_functions(
+            {"np.dummy"}, {"dummy": dummy}
+        )
+        assert resolved["dummy"] is dummy
+
+    def test_infer_states_dict_non_string_key_raises(self):
+        """Non-string dict return keys raise during state inference."""
+        def f(t, y):
+            return {t: -y[0]}
+
+        with pytest.raises(ValueError, match="string literals"):
+            infer_function_states(f)
+
+
+class TestParseFunctionErrors:
+    """Error and edge paths reached through ``parse_input``."""
+
+    def test_local_named_like_constant_arg_skipped(self):
+        """A local reassigning a constant arg is not an auxiliary."""
+        def f(t, y, k):
+            k = 2.0  # noqa: F841
+            return [-k * y[0]]
+
+        _, _, _, eqs, _ = parse_input(
+            dxdt=f, states={"x": 1.0}, parameters={"k": 1.0}
+        )
+        assert len(eqs.state_derivatives) == 1
+        aux_names = [str(lhs) for lhs, _ in eqs.auxiliaries]
+        assert "k" not in aux_names
+
+    def test_local_named_like_state_arg_skipped(self):
+        """A local reassigning the state argument is not an auxiliary."""
+        def f(t, y):
+            y = y[0]
+            return [-y]
+
+        _, _, _, eqs, _ = parse_input(dxdt=f, states={"x": 1.0})
+        assert len(eqs.state_derivatives) == 1
+        assert len(eqs.auxiliaries) == 0
+
+    def test_return_length_mismatch_raises(self):
+        """A return longer than the state vector raises."""
+        def f(t, y):
+            return [-y[0], y[0]]
+
+        with pytest.raises(ValueError, match="Return has"):
+            parse_input(dxdt=f, states={"x": 1.0})
+
+    def test_dict_return_non_constant_key_raises(self):
+        """A dict return with a non-literal key raises."""
+        def f(t, y):
+            return {t: -y[0]}
+
+        with pytest.raises(ValueError, match="string literals"):
+            parse_input(dxdt=f, states={"x": 1.0})
+
+    def test_dict_return_unknown_state_raises(self):
+        """A dict return keyed by an undeclared state raises."""
+        def f(t, y):
+            return {"z": -y[0]}
+
+        with pytest.raises(ValueError, match="not a declared state"):
+            parse_input(dxdt=f, states={"x": 1.0})
+
+    def test_unknown_string_state_raises(self):
+        """A string subscript for an undeclared state raises."""
+        def f(t, y):
+            return [-y["z"]]
+
+        with pytest.raises(ValueError, match="Unknown state 'z'"):
+            parse_input(dxdt=f, states={"x": 1.0})
+
+    def test_non_constant_container_subscript_raises(self):
+        """A computed container subscript raises NotImplementedError."""
+        def f(t, y, p):
+            return [-p[0 + 0]]
+
+        with pytest.raises(
+            NotImplementedError, match="constant subscripts"
+        ):
+            parse_input(
+                dxdt=f, states={"x": 1.0}, parameters={"k": 1.0}
+            )
+
+    def test_observable_via_container_raises(self):
+        """Accessing an observable through a container argument raises."""
+        def f(t, y, p):
+            return [-p.flux * y[0]]
+
+        with pytest.raises(ValueError, match="observable"):
+            parse_input(
+                dxdt=f, states={"x": 1.0}, observables=["flux"]
+            )
+
+    def test_repeated_container_inference_reuses_symbol(self):
+        """A second access to an inferred container key reuses it."""
+        def f(t, y, p):
+            return [-p.k_new * y[0] + p.k_new]
+
+        with pytest.warns(EquationWarning, match="k_new"):
+            index_map, _, _, eqs, _ = parse_input(
+                dxdt=f, states={"x": 1.0}
+            )
+        assert index_map.parameter_names.count("k_new") == 1
+
+    def test_scalar_arg_reuses_inferred_container_symbol(self):
+        """A scalar arg matching an inferred container key reuses it."""
+        def f(t, y, p, k_new):
+            return [-p.k_new * y[0] + k_new]
+
+        with pytest.warns(EquationWarning, match="k_new"):
+            index_map, _, _, eqs, _ = parse_input(
+                dxdt=f, states={"x": 1.0}
+            )
+        assert index_map.parameter_names.count("k_new") == 1
+
+    def test_string_subscript_alias_resolves(self):
+        """A local aliasing a string-subscript state resolves to it."""
+        def f(t, y):
+            v = y["x"]
+            return [-v]
+
+        _, _, _, eqs, _ = parse_input(dxdt=f, states={"x": 1.0})
+        assert len(eqs.state_derivatives) == 1
+        assert len(eqs.auxiliaries) == 0
+        x = sp.Symbol("x", real=True)
+        assert sp.simplify(eqs.state_derivatives[0][1] + x) == 0
+
+    def test_attribute_access_alias_not_auxiliary(self):
+        """A local aliasing ``p.k`` is not emitted as an auxiliary."""
+        def f(t, y, p):
+            a = p.k
+            return [-a * y[0]]
+
+        _, _, _, eqs, _ = parse_input(
+            dxdt=f, states={"x": 1.0}, parameters={"k": 1.0}
+        )
+        assert len(eqs.state_derivatives) == 1
+        assert len(eqs.auxiliaries) == 0

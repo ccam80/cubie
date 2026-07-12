@@ -24,17 +24,18 @@ Based on the recursive chain approach by sklam
 JIT-compiled functions without passing them as an iterable.
 """
 
-from typing import Callable, Sequence, Union
+from typing import Callable, Optional, Sequence, Union
 
 from numba_cuda_mlir import cuda
 
 from numba_cuda_mlir.types import int32
 from numpy.typing import ArrayLike
 
-from cubie.cuda_simsafe import compile_kwargs
+from cubie.cuda_simsafe import compile_kwargs, get_jit_kwargs
 from cubie.outputhandling.summarymetrics import summary_metrics
 
 
+# no cover: start
 @cuda.jit(
     device=True,
     inline=True,
@@ -62,6 +63,7 @@ def do_nothing(
     configured.
     """
     pass
+# no cover: end
 
 
 def chain_metrics(
@@ -70,6 +72,7 @@ def chain_metrics(
     buffer_sizes: Sequence[int],
     function_params: Sequence[object],
     inner_chain: Callable = do_nothing,
+    lineinfo: Optional[bool] = None,
 ) -> Callable:
     """
     Recursively chain summary metric update functions for CUDA execution.
@@ -120,7 +123,7 @@ def chain_metrics(
     @cuda.jit(
         device=True,
         inline=True,
-        **compile_kwargs,
+        **get_jit_kwargs(lineinfo),
     )
     def wrapper(
         value,
@@ -158,6 +161,7 @@ def chain_metrics(
             remaining_sizes,
             remaining_params,
             wrapper,
+            lineinfo=lineinfo,
         )
     else:
         return wrapper
@@ -169,6 +173,7 @@ def update_summary_factory(
     summarised_state_indices: Union[Sequence[int], ArrayLike],
     summarised_observable_indices: Union[Sequence[int], ArrayLike],
     summaries_list: Sequence[str],
+    lineinfo: Optional[bool] = None,
 ) -> Callable:
     """
     Factory function for creating CUDA device functions to update summary
@@ -217,14 +222,15 @@ def update_summary_factory(
     buffer_sizes_list = summary_metrics.buffer_sizes(summaries_list)
     params = summary_metrics.params(summaries_list)
     chain_fn = chain_metrics(
-        update_fns, buffer_offsets, buffer_sizes_list, params
+        update_fns, buffer_offsets, buffer_sizes_list, params,
+        lineinfo=lineinfo,
     )
 
     # no cover: start
     @cuda.jit(
         device=True,
         inline=True,
-        **compile_kwargs,
+        **get_jit_kwargs(lineinfo),
     )
     def update_summary_metrics_func(
         current_state,

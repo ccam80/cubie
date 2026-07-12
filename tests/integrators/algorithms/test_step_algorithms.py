@@ -714,6 +714,14 @@ def test_algorithm(
             ), "newton_damping update"
 
 
+def test_firk_step_is_multistage_matches_tableau():
+    """FIRKStep.is_multistage forwards stage_count > 1 from the tableau."""
+    step = FIRKStep(
+        precision=np.float32, n=3, tableau=DEFAULT_FIRK_TABLEAU,
+    )
+    assert step.is_multistage == (DEFAULT_FIRK_TABLEAU.stage_count > 1)
+
+
 # Test controller defaults selection based on tableau error estimation
 @pytest.mark.parametrize(
     "step_class,tableau,expected_dict",
@@ -727,6 +735,9 @@ def test_algorithm(
         # DIRK with error estimate defaults to PI
         (DIRKStep, DIRK_TABLEAU_REGISTRY["sdirk_2_2"], {"step_controller":
                                                             "fixed"}),
+        # DIRK with an embedded error estimate defaults to adaptive
+        (DIRKStep, DIRK_TABLEAU_REGISTRY["l_stable_sdirk_4"],
+         {"step_controller": "pid"}),
         # FIRK with error estimate defaults to PI
         (FIRKStep, FIRK_TABLEAU_REGISTRY["radau"], {"step_controller": "pid"}),
         # Rosenbrock with error estimate defaults to PI

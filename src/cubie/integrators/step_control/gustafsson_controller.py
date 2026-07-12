@@ -47,7 +47,7 @@ from cubie._utils import (
     getype_validator,
     inrangetype_validator,
 )
-from cubie.cuda_simsafe import compile_kwargs, selp
+from cubie.cuda_simsafe import get_jit_kwargs, selp
 from cubie.result_codes import CUBIE_RESULT_CODES
 from cubie.integrators.step_control.base_step_controller import ControllerCache
 
@@ -185,10 +185,11 @@ class GustafssonController(BaseAdaptiveStepController):
         step_too_small = int32(CUBIE_RESULT_CODES.STEP_TOO_SMALL)
 
         # step sizes and norms can be approximate - fastmath is fine
+        # no cover: start
         @cuda.jit(
             device=True,
             inline=True,
-            **compile_kwargs,
+            **get_jit_kwargs(self.compile_settings.lineinfo),
         )
         def controller_gustafsson(
             dt,
@@ -284,4 +285,5 @@ class GustafssonController(BaseAdaptiveStepController):
             ret = success if dt_new_raw > dt_min else step_too_small
             return ret
 
+        # no cover: end
         return ControllerCache(device_function=controller_gustafsson)

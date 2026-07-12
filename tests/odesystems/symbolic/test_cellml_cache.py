@@ -513,3 +513,75 @@ def test_file_hash_change_invalidates_all_configs(
     assert cache.cache_valid(hash1) is False
     assert cache.cache_valid(hash2) is False
 
+
+@pytest.fixture
+def isolated_cache(basic_cellml_path, tmp_path):
+    """Return a CellMLCache whose storage is redirected to tmp_path."""
+    cache = CellMLCache(
+        model_name="basic_ode", cellml_path=basic_cellml_path
+    )
+    cache.cache_dir = tmp_path / "cache"
+    cache.manifest_file = cache.cache_dir / "manifest.json"
+    return cache
+
+
+def test_compute_cache_key_with_none_precision(isolated_cache):
+    """A None precision serialises without error."""
+    key = isolated_cache.compute_cache_key(None, None, None, "model")
+    assert isinstance(key, str)
+    assert len(key) == 16
+
+
+def test_load_manifest_recovers_from_corrupt_json(isolated_cache):
+    """A corrupt manifest file yields the default empty structure."""
+    isolated_cache.cache_dir.mkdir(parents=True, exist_ok=True)
+    isolated_cache.manifest_file.write_text("{not valid json")
+    manifest = isolated_cache._load_manifest()
+    assert manifest == {"version": 1, "file_hash": None, "entries": []}
+
+
+def test_save_manifest_swallows_directory_conflict(
+    isolated_cache, tmp_path
+):
+    """_save_manifest logs and returns when the directory cannot be made."""
+    blocker = tmp_path / "blocker"
+    blocker.write_text("i am a file")
+    # Point cache_dir at an existing file so mkdir raises.
+    isolated_cache.cache_dir = blocker
+    isolated_cache.manifest_file = blocker / "manifest.json"
+    # Should not raise despite the impossible directory.
+    isolated_cache._save_manifest({"version": 1, "entries": []})
+
+
+def test_evict_lru_ignores_missing_cache_file(isolated_cache):
+    """Eviction tolerates a cache file that is already gone."""
+    isolated_cache.max_entries = 1
+    manifest = {
+        "version": 1,
+        "file_hash": None,
+        "entries": [
+            {"args_hash": "gone_a", "last_used": 1.0},
+            {"args_hash": "gone_b", "last_used": 2.0},
+        ],
+    }
+    result = isolated_cache._evict_lru(manifest)
+    assert len(result["entries"]) == 1
+    assert result["entries"][0]["args_hash"] == "gone_b"
+
+
+def test_save_to_cache_swallows_pickle_failure(isolated_cache):
+    """save_to_cache logs and returns when the payload is unpicklable."""
+    unpicklable = {"fn": lambda value: value}
+    # A lambda in the payload makes pickle.dump raise; the method must
+    # swallow it rather than propagate.
+    isolated_cache.save_to_cache(
+        "hash123",
+        parsed_equations=None,
+        indexed_bases=None,
+        all_symbols=unpicklable,
+        user_functions=unpicklable,
+        fn_hash="abc",
+        precision=float64,
+        name="model",
+    )
+

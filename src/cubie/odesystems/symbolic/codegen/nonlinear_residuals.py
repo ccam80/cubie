@@ -57,7 +57,7 @@ default_timelogger.register_event("codegen_generate_n_stage_residual_code",
 RESIDUAL_TEMPLATE = (
     "\n"
     "# AUTO-GENERATED NONLINEAR RESIDUAL FACTORY\n"
-    "def {func_name}(constants, precision, beta=1.0, gamma=1.0):\n"
+    "def {func_name}(constants, precision, beta=1.0, gamma=1.0, lineinfo=None):\n"
     '    """Auto-generated nonlinear residual for implicit updates.\n'
     "    Computes beta * M * u - gamma * h * f(t, base_state + a_ij * u).\n"
     '    """\n'
@@ -74,7 +74,8 @@ RESIDUAL_TEMPLATE = (
     "        #  precision[::1],\n"
     "        #  precision[::1]),\n"
     "        device=True,\n"
-    "        inline=True)\n"
+    "        inline=True,\n"
+    "        **get_jit_kwargs(lineinfo))\n"
     "    def residual(u, parameters, drivers, t, h, a_ij, base_state, out):\n"
     "{res_lines}\n"
     "    return residual\n"
@@ -84,7 +85,7 @@ RESIDUAL_TEMPLATE = (
 N_STAGE_RESIDUAL_TEMPLATE = (
     "\n"
     "# AUTO-GENERATED N-STAGE RESIDUAL FACTORY\n"
-    "def {func_name}(constants, precision, beta=1.0, gamma=1.0):\n"
+    "def {func_name}(constants, precision, beta=1.0, gamma=1.0, lineinfo=None):\n"
     '    """Auto-generated FIRK residual for flattened stage increments.\n'
     "    Handles {stage_count} stages with ``s * n`` unknowns.\n"
     '    """\n'
@@ -102,7 +103,8 @@ N_STAGE_RESIDUAL_TEMPLATE = (
     "        #  precision[::1],\n"
     "        #  precision[::1]),\n"
     "        device=True,\n"
-    "        inline=True)\n"
+    "        inline=True,\n"
+    "        **get_jit_kwargs(lineinfo))\n"
     "    def residual(u, parameters, drivers, t, h, a_ij, base_state, out):\n"
     "{body}\n"
     "    return residual\n"
@@ -198,8 +200,7 @@ def _build_residual_lines(
         symbol_map=symbol_map,
         constant_names=index_map.constants.symbol_map,
     )
-    if not lines:
-        return "        pass"
+    assert lines, "internal error: codegen produced an empty body"
     return "\n".join("        " + ln for ln in lines)
 
 
@@ -325,8 +326,7 @@ def _build_n_stage_residual_lines(
         symbol_map=symbol_map,
         constant_names=index_map.constants.symbol_map,
     )
-    if not lines:
-        return "        pass"
+    assert lines, "internal error: codegen produced an empty body"
     return "\n".join("        " + ln for ln in lines)
 
 

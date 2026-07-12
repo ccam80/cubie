@@ -2417,3 +2417,103 @@ class TestChunkMetadataFlow2:
         # Verify data integrity for final chunk
         expected_final = test_data_3[:, :, 100:105]
         np.testing.assert_array_equal(final_chunk, expected_final)
+
+
+class TestChunkSliceTypeValidation:
+    """Test chunk_slice() rejects non-int chunk_index."""
+
+    def test_chunk_slice_non_int_raises_type_error(self):
+        """Verify chunk_slice raises TypeError for a non-int index."""
+        managed = ManagedArray(
+            dtype=np_float32,
+            default_shape=(10, 5, 100),
+            memory_type="host",
+            stride_order=("", "", "run"),
+        )
+        with pytest.raises(TypeError, match="chunk_index must be int"):
+            managed.chunk_slice("0")
+        with pytest.raises(TypeError, match="chunk_index must be int"):
+            managed.chunk_slice(1.5)
+
+
+class TestArrayContainerMemoryType:
+    """Test ArrayContainer.memory_type property."""
+
+    def test_memory_type_returns_first_managed_array_type(self):
+        """Returns the memory_type of the first managed array."""
+        container = TestArraysSimple(
+            arr1=ManagedArray(dtype=np_float32, memory_type="pinned"),
+            arr2=ManagedArray(dtype=np_float32, memory_type="device"),
+        )
+        assert container.memory_type == "pinned"
+
+    def test_memory_type_no_arrays_managed_fallback(self):
+        """Returns the fallback string when no arrays are managed."""
+
+        @attrs.define(slots=False)
+        class EmptyArrayContainer(ArrayContainer):
+            """Container with no ManagedArray fields."""
+
+        container = EmptyArrayContainer()
+        assert container.memory_type == "No arrays managed"
+
+
+class TestCheckSizesRemainingBranches:
+    """Test check_sizes branches not covered by the happy-path tests."""
+
+    def test_check_sizes_array_name_not_in_container(
+        self, test_manager_with_sizing
+    ):
+        """An array name absent from the container is False, not a
+        KeyError."""
+        arrays = {"not_a_real_array": np.zeros((1, 1, 1))}
+        result = test_manager_with_sizing.check_sizes(
+            arrays, location="host"
+        )
+        assert result["not_a_real_array"] is False
+
+    def test_check_sizes_ndim_mismatch_is_false(
+        self, test_manager_with_sizing
+    ):
+        """An array whose ndim differs from the expected size tuple's
+        length is False rather than raising."""
+        arrays = {"state": np.zeros((5, 5))}  # 2D instead of 3D
+        result = test_manager_with_sizing.check_sizes(
+            arrays, location="host"
+        )
+        assert result["state"] is False
+
+
+class TestUpdateHostArrayRemainingBranches:
+    """Test _update_host_array branches not covered elsewhere."""
+
+    def test_update_host_array_none_raises(self, test_arrmgr):
+        """Passing None as the new array raises ValueError."""
+        with pytest.raises(ValueError, match="New array is None"):
+            test_arrmgr._update_host_array(None, np.array([1, 2]), "arr1")
+
+    def test_update_host_array_current_none_marks_new(self, test_arrmgr):
+        """When current_array is None, the label is queued for both
+        reallocation and overwrite and the array is attached."""
+        test_arrmgr._needs_reallocation = []
+        test_arrmgr._needs_overwrite = []
+        new = np.array([7.0, 8.0, 9.0])
+
+        test_arrmgr._update_host_array(new, None, "arr1")
+
+        assert "arr1" in test_arrmgr._needs_reallocation
+        assert "arr1" in test_arrmgr._needs_overwrite
+        assert test_arrmgr.host.arr1.array is new
+
+
+class TestAllocateSkipsUnattachedArrays:
+    """Test allocate() skips reallocation entries with no host array."""
+
+    def test_allocate_skips_array_with_none_host_array(self, test_arrmgr):
+        """An array marked for reallocation whose host array is None is
+        skipped instead of raising an AttributeError."""
+        test_arrmgr.host.arr1.array = None
+        test_arrmgr._needs_reallocation = ["arr1"]
+
+        # Should not raise despite the None host array.
+        test_arrmgr.allocate()

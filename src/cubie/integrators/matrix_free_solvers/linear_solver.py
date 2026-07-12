@@ -40,7 +40,7 @@ from cubie.integrators.matrix_free_solvers.linear_solver_base import (
     LinearSolverCache,
 )
 from cubie.buffer_registry import buffer_registry
-from cubie.cuda_simsafe import activemask, all_sync, compile_kwargs, selp
+from cubie.cuda_simsafe import activemask, all_sync, get_jit_kwargs, selp
 from cubie.result_codes import CUBIE_RESULT_CODES
 
 
@@ -177,6 +177,7 @@ class MRLinearSolver(LinearSolverBase):
         max_iters = config.max_iters
         precision = config.precision
         use_cached_auxiliaries = config.use_cached_auxiliaries
+        jit_kwargs = get_jit_kwargs(config.lineinfo)
 
         # Compute flags for correction type
         sd_flag = linear_correction_type == "steepest_descent"
@@ -208,7 +209,7 @@ class MRLinearSolver(LinearSolverBase):
             @cuda.jit(
                 device=True,
                 inline=True,
-                **compile_kwargs,
+                **jit_kwargs,
             )
             def linear_solver_cached(
                 state,
@@ -391,7 +392,7 @@ class MRLinearSolver(LinearSolverBase):
             @cuda.jit(
                 device=True,
                 inline=True,
-                **compile_kwargs,
+                **jit_kwargs,
             )
             def linear_solver(
                 state,

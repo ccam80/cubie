@@ -1,3 +1,4 @@
+# no cover: start
 """Qt GUI for editing initial state values in a SymbolicODE.
 
 Table-based editor for viewing and modifying initial state values
@@ -206,3 +207,4 @@ def show_states_editor(
     else:
         editor.show()
         return editor
+# no cover: end
