@@ -10,6 +10,7 @@ computed on demand and invalidated when any buffer is modified.
 """
 
 from typing import Callable, Dict, Optional, Tuple, Any, Set
+from weakref import WeakKeyDictionary
 
 from attrs import asdict as attrs_asdict, define, field
 from attrs.validators import (
@@ -155,8 +156,6 @@ class BufferGroup:
 
     Attributes
     ----------
-    parent : object
-        Parent instance that owns this group.
     entries : Dict[str, CUDABuffer]
         Registered buffers by name.
     children : Dict[str, object]
@@ -175,7 +174,6 @@ class BufferGroup:
         computation.
     """
 
-    parent: object = field()
     entries: Dict[str, CUDABuffer] = field(factory=dict)
     children: Dict[str, object] = field(factory=dict, init=False)
     _shared_layout: Optional[Dict[str, slice]] = field(
@@ -561,12 +559,15 @@ class BufferRegistry:
 
     Attributes
     ----------
-    _groups : Dict[object, BufferGroup]
-        Maps parent instances to their buffer groups.
+    _groups : WeakKeyDictionary
+        Maps parent instances to their buffer groups. Parents are
+        held weakly: a group disappears with its parent, so dead
+        components do not accumulate in the registry across a
+        session.
     """
 
-    _groups: Dict[object, BufferGroup] = field(
-        factory=dict, init=False
+    _groups: WeakKeyDictionary = field(
+        factory=WeakKeyDictionary, init=False
     )
 
     def register(
@@ -616,7 +617,7 @@ class BufferRegistry:
         re-registering after children have built.
         """
         if parent not in self._groups:
-            self._groups[parent] = BufferGroup(parent=parent)
+            self._groups[parent] = BufferGroup()
         self._groups[parent].register(
             name, size, location, persistent, aliases, precision
         )
