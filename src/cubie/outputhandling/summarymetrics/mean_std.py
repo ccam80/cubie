@@ -14,6 +14,8 @@ See Also
 """
 
 from numba import cuda
+
+from cubie.cuda_simsafe import get_jit_kwargs
 from math import sqrt
 
 from cubie.outputhandling.summarymetrics import summary_metrics
@@ -73,6 +75,7 @@ class MeanStd(SummaryMetric):
             # ],
             device=True,
             inline=True,
+            **get_jit_kwargs(self.compile_settings.lineinfo),
         )
         def update(
             value,
@@ -115,6 +118,7 @@ class MeanStd(SummaryMetric):
             # ],
             device=True,
             inline=True,
+            **get_jit_kwargs(self.compile_settings.lineinfo),
         )
         def save(
             buffer,

@@ -74,9 +74,13 @@ Any other keyword argument is forwarded to :class:`~cubie.Solver`.
      - ``"euler"``
      - Integration algorithm name or a supplied
        :class:`~cubie.integrators.algorithms.ButcherTableau`.
-   * - ``profileCUDA``
-     - ``False``
-     - Enables CUDA profiling of the compiled kernel.
+   * - ``lineinfo``
+     - ``None``
+     - Compiles every kernel and device function with source-line
+       correlation data for profilers such as Nsight Compute. ``None``
+       defers to the ``CUBIE_LINEINFO`` environment variable (default
+       off); an explicit argument always wins. Updating it later
+       triggers a full rebuild.
    * - ``cache``
      - ``True``
      - Compiled-kernel disk caching; accepts ``bool``, a cache-mode
