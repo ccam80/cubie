@@ -681,31 +681,13 @@ class TestSolveSpecFields:
             assert hasattr(spec, attr), f"SolveSpec missing attribute: {attr}"
 
 
-@pytest.fixture(scope="session")
-def solver_no_summaries_arrays(system, solver_settings):
-    """Solver run with only state output (no summary types active)."""
-    solver = Solver(
-        system,
-        output_types=["state"],
-        memory_manager=solver_settings["memory_manager"],
-        stream_group="solver_no_summaries_group",
-    )
-    solver.solve(
-        initial_values={
-            list(system.initial_values.names)[0]: [1.0, 2.0],
-        },
-        parameters={
-            list(system.parameters.names)[0]: [0.1, 0.2],
-        },
-        duration=0.02,
-        save_every=0.01,
-        dt=0.01,
-    )
-    return solver
-
-
+@pytest.mark.parametrize(
+    "solver_settings_override",
+    [{"output_types": ["state"]}],
+    indirect=True,
+)
 def test_as_pandas_without_summaries_returns_a_dataframe(
-    solver_no_summaries_arrays,
+    solver_with_arrays,
 ):
     """as_pandas returns a usable summaries DataFrame with no metrics.
 
@@ -713,7 +695,7 @@ def test_as_pandas_without_summaries_returns_a_dataframe(
     per-run DataFrame so the concatenated ``summaries`` entry is a
     real (empty) DataFrame.
     """
-    result = SolveResult.from_solver(solver_no_summaries_arrays)
+    result = SolveResult.from_solver(solver_with_arrays)
     assert result.active_outputs.state_summaries is False
     assert result.active_outputs.observable_summaries is False
 
