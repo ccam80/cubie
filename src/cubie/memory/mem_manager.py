@@ -175,6 +175,10 @@ class _WeakCallable:
             return None
         return target(*args, **kwargs)
 
+    # Unhashable by design: equality tracks the referent, which can
+    # be collected mid-lifetime, so no stable hash exists.
+    __hash__ = None
+
     def __eq__(self, other: object) -> bool:
         if isinstance(other, _WeakCallable):
             return self.target() == other.target()
@@ -611,10 +615,17 @@ class MemoryManager:
 
         self.stream_groups.add_instance(instance, stream_group)
 
+        try:
+            instance_ref = weakref_ref(instance)
+        except TypeError:
+            # Instances without weak-reference support keep the
+            # pre-existing lifetime contract: registered until the
+            # process ends, never purged.
+            instance_ref = None
         settings = InstanceMemorySettings(
             invalidate_hook=invalidate_cache_hook,
             allocation_ready_hook=allocation_ready_hook,
-            instance_ref=weakref_ref(instance),
+            instance_ref=instance_ref,
         )
 
         self.registry[instance_id] = settings

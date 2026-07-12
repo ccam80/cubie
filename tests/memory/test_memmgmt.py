@@ -1504,3 +1504,19 @@ class TestDeadInstanceRelease:
         del inst
         gc.collect()
         mgr.invalidate_all()
+
+    def test_non_weakrefable_instance_registers(self, mgr):
+        """Objects without weakref support register and persist.
+
+        Such instances carry no instance_ref, so the purge treats
+        them as permanently alive.
+        """
+
+        class Slotted:
+            __slots__ = ()
+
+        inst = Slotted()
+        mgr.register(inst, proportion=0.2)
+        assert mgr.registry[id(inst)].instance_ref is None
+        assert abs(mgr.manual_pool_proportion - 0.2) < 1e-9
+        assert id(inst) in mgr.registry
