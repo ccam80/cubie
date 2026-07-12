@@ -632,13 +632,13 @@ def test_registry_clear_parent_cascades_through_children(
     """
     fresh_registry.register("inner", output_functions, 4, "shared")
     fresh_registry.register("mid", step_controller, 6, "shared")
-    fresh_registry.get_child_allocators(
+    fresh_registry.register_child(
         step_controller, output_functions, name="inner_child",
     )
     fresh_registry.register(
         "outer", single_integrator_run, 8, "shared",
     )
-    fresh_registry.get_child_allocators(
+    fresh_registry.register_child(
         single_integrator_run, step_controller, name="mid_child",
     )
 
@@ -679,10 +679,10 @@ def test_registry_clear_parent_terminates_on_cycle(
     """A registration cycle clears both groups without recursing."""
     fresh_registry.register("a", single_integrator_run, 4, "shared")
     fresh_registry.register("b", step_controller, 4, "shared")
-    fresh_registry.get_child_allocators(
+    fresh_registry.register_child(
         single_integrator_run, step_controller, name="down",
     )
-    fresh_registry.get_child_allocators(
+    fresh_registry.register_child(
         step_controller, single_integrator_run, name="up",
     )
 

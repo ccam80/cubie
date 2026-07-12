@@ -294,7 +294,7 @@ class NewtonKrylov(MatrixFreeSolver):
         # Record the linear solver as a child at registration time so
         # clear_parent cascades reach it before this solver has built;
         # build refreshes the same named registration with real sizes.
-        _ = buffer_registry.get_child_allocators(
+        buffer_registry.register_child(
             self, self.linear_solver, name="linear_solver"
         )
 

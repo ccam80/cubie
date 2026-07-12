@@ -213,10 +213,10 @@ class SingleIntegratorRunCore(CUDAFactory):
 
 
         # Register algorithm step and controller buffers with loop as parent
-        buffer_registry.get_child_allocators(
+        buffer_registry.register_child(
             self._loop, self._algo_step, name="algorithm"
         )
-        buffer_registry.get_child_allocators(
+        buffer_registry.register_child(
                 self._loop, self._step_controller, name='controller'
         )
 
@@ -641,10 +641,10 @@ class SingleIntegratorRunCore(CUDAFactory):
             step_recognized |= self._apply_inner_tolerance_defaults()
 
         # Re-register algo and controller buffers to refresh sizing in loop
-        buffer_registry.get_child_allocators(
+        buffer_registry.register_child(
                 self._loop, self._algo_step, name='algorithm'
         )
-        buffer_registry.get_child_allocators(
+        buffer_registry.register_child(
                 self._loop, self._step_controller, name='controller'
         )
 
@@ -777,10 +777,10 @@ class SingleIntegratorRunCore(CUDAFactory):
             'evaluate_observables': evaluate_observables}
 
         # Re-register algo and controller buffers to refresh sizing in loop
-        buffer_registry.get_child_allocators(
+        buffer_registry.register_child(
                 self._loop, self._algo_step, name='algorithm'
         )
-        buffer_registry.get_child_allocators(
+        buffer_registry.register_child(
                 self._loop, self._step_controller, name='controller'
         )
 

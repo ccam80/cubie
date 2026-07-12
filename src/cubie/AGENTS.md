@@ -122,10 +122,12 @@ warp-coherent loops, …) live in `writing_cuda_functions.md`.
   `get_child_allocators(parent, child, name)` for device-side allocation; sizes via
   the `*_buffer_size` properties. Locations: `'local'` (thread registers / persistent
   local) vs `'shared'` (block shared memory). The shared/persistent carve-out and
-  buffer **aliasing** are registry-internal. `get_child_allocators` records the
-  parent→child ownership edge, and `clear_parent` cascades through recorded children —
-  this is how hot-swap paths drop a replaced component's whole chain, so registering
-  children through `get_child_allocators` is what keeps swap cleanup working.
+  buffer **aliasing** are registry-internal. `register_child(parent, child, name)`
+  registers a child's buffer footprint with its parent and records the ownership edge
+  (`get_child_allocators` calls it before returning allocators), and `clear_parent`
+  cascades through recorded children — this is how hot-swap paths drop a replaced
+  component's whole chain, so registering children through `register_child` /
+  `get_child_allocators` is what keeps swap cleanup working.
 - **Docs requirement:** a child `AGENTS.md` just **lists the buffers it registers**;
   it does not re-describe the registry mechanics or aliasing.
 
