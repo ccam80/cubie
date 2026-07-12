@@ -96,7 +96,7 @@ except ImportError as e:
 # expressed; leave fastmath at its default (off) rather than enable
 # the full set of approximations.
 compile_kwargs: dict[str, bool] = {
-    # "lineinfo": True,
+    "lineinfo": True,
 }
 
 
