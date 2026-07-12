@@ -233,6 +233,36 @@ def test_solve_basic(
 
 
 @pytest.mark.parametrize(
+    "solver_settings_override", [{"algorithm": "firk"}], indirect=True
+)
+def test_solve_firk_with_driver_arrays(
+    solver_mutable,
+    simple_initial_values,
+    simple_parameters,
+    driver_settings,
+):
+    """A FIRK solve with driver arrays completes successfully.
+
+    The FIRK step evaluates drivers at the stage times through its own
+    stage driver stack, which is sized from the algorithm step's driver
+    count; a driven solve exercises that path end to end.
+    """
+    result = solver_mutable.solve(
+        initial_values=simple_initial_values,
+        parameters=simple_parameters,
+        drivers=driver_settings,
+        duration=0.05,
+        save_every=0.02,
+        settling_time=0.0,
+        blocksize=32,
+        grid_type="combinatorial",
+        results_type="full",
+    )
+    assert not np.any(result.status_codes)
+    assert np.all(np.isfinite(result.time_domain_array))
+
+
+@pytest.mark.parametrize(
     "solver_settings_override",
     [{"algorithm": "tsit5", "step_controller": "pid"}],
     indirect=True,
@@ -393,6 +423,19 @@ def test_update_silent_mode(precision, solver_mutable):
 
     assert "nonexistent_parameter" not in updated_keys
     assert solver.kernel.dt == new_dt
+
+
+def test_update_profileCUDA(solver_mutable):
+    """Test that update toggles profiling without raising KeyError."""
+    solver = solver_mutable
+
+    updated_keys = solver.update({"profileCUDA": True})
+    assert updated_keys == {"profileCUDA"}
+    assert solver.kernel._profileCUDA is True
+
+    updated_keys = solver.update({"profileCUDA": False})
+    assert updated_keys == {"profileCUDA"}
+    assert solver.kernel._profileCUDA is False
 
 
 def test_update_saved_variables(solver_mutable, system):
