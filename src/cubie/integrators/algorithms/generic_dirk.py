@@ -230,7 +230,7 @@ class DIRKStep(ODEImplicitStep):
 
         # Register solver scratch and solver persistent buffers so they can
         # be aliased
-        _ = buffer_registry.get_child_allocators(
+        buffer_registry.register_child(
                 self,
                 self.solver,
                 name='solver'

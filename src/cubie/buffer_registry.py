@@ -159,6 +159,11 @@ class BufferGroup:
         Parent instance that owns this group.
     entries : Dict[str, CUDABuffer]
         Registered buffers by name.
+    children : Dict[str, object]
+        Child instances whose buffers this parent hosts, keyed by
+        the registration base name, recorded by
+        :meth:`BufferRegistry.register_child`. Re-registering a
+        name replaces the recorded child.
     _shared_layout : Dict[str, slice] or None
         Cached unified shared memory layout (None when invalid).
     _persistent_layout : Dict[str, slice] or None
@@ -172,6 +177,7 @@ class BufferGroup:
 
     parent: object = field()
     entries: Dict[str, CUDABuffer] = field(factory=dict)
+    children: Dict[str, object] = field(factory=dict, init=False)
     _shared_layout: Optional[Dict[str, slice]] = field(
         default=None, init=False
     )
@@ -660,19 +666,29 @@ class BufferRegistry:
             self._groups[parent].invalidate_layouts()
 
     def clear_parent(self, parent: object) -> None:
-        """Remove all buffer registrations for a parent.
+        """Remove a parent's buffer registrations and its children's.
+
+        Cascades through the children recorded by
+        :meth:`register_child`, so clearing a component also
+        clears every component whose buffers it hosts (e.g. an
+        implicit step's nonlinear solver and that solver's inner
+        linear solver). Unknown parents are ignored.
 
         Parameters
         ----------
         parent
             Parent instance to remove.
         """
-        if parent in self._groups:
-            del self._groups[parent]
+        group = self._groups.pop(parent, None)
+        if group is None:
+            return
+        # Popping before recursing makes a registration cycle
+        # terminate: a revisited parent has no group and returns.
+        for child in group.children.values():
+            self.clear_parent(child)
 
     def reset(self) -> None:
-        """Clear all buffer registrations, for example when switching
-        algorithms."""
+        """Clear every parent's buffer registrations from the registry."""
         allparents = list(self._groups.keys())
         for parent in allparents:
             self.clear_parent(parent)
@@ -836,6 +852,71 @@ class BufferRegistry:
             )
         return self._groups[parent].get_allocator(name, zero)
 
+    def register_child(
+        self,
+        parent: object,
+        child: object,
+        name: Optional[str] = None,
+    ) -> Tuple[str, str]:
+        """Register a child's buffer footprint with its parent.
+
+        Registers '{name}_shared' and '{name}_persistent' entries in
+        the parent's group, sized from the child's current buffer
+        registrations, and records the parent-to-child ownership edge
+        that :meth:`clear_parent` cascades through. Idempotent:
+        repeated calls with the same name refresh the entry sizes and
+        replace the recorded child.
+
+        Parameters
+        ----------
+        parent
+            Parent instance that will allocate memory for the child.
+        child
+            Child instance whose buffer requirements should be
+            registered.
+        name
+            Optional base name for the buffer registrations. If not
+            provided, uses 'child_{id(child)}' as the base name.
+
+        Returns
+        -------
+        str
+            Name of the child's shared-memory entry.
+        str
+            Name of the child's persistent-local entry.
+        """
+        child_shared_size = self.shared_buffer_size(child)
+        child_persistent_size = self.persistent_local_buffer_size(child)
+
+        if name is None:
+            base_name = f'child_{id(child)}'
+        else:
+            base_name = name
+
+        shared_name = f'{base_name}_shared'
+        persistent_name = f'{base_name}_persistent'
+
+        precision = parent.precision
+
+        self.register(
+            shared_name,
+            parent,
+            child_shared_size,
+            'shared',
+            precision=precision
+        )
+        self.register(
+            persistent_name,
+            parent,
+            child_persistent_size,
+            'local',
+            persistent=True,
+            precision=precision
+        )
+        self._groups[parent].children[base_name] = child
+
+        return shared_name, persistent_name
+
     def get_child_allocators(
         self,
         parent: object,
@@ -844,9 +925,9 @@ class BufferRegistry:
     ) -> Tuple[Callable, Callable]:
         """Register child buffers and return shared and persistent allocators.
 
-        Registers buffers for a child device function within the parent's
-        buffer group, then returns allocators that provide slices into the
-        parent's shared and persistent memory regions.
+        Delegates registration and ownership recording to
+        :meth:`register_child`, then returns allocators that provide
+        slices into the parent's shared and persistent memory regions.
 
         Parameters
         ----------
@@ -864,51 +945,10 @@ class BufferRegistry:
             Allocator for child's shared memory (returns slice).
         Callable
             Allocator for child's persistent memory (returns slice).
-
-        Notes
-        -----
-        This method computes the shared and persistent buffer sizes for the
-        child, registers them with the parent's buffer group, and returns
-        allocators that slice the parent's memory regions appropriately.
-        The child's buffers are registered with names
-        '{name}_shared' and '{name}_persistent' if name is provided, otherwise
-        'child_{child_id}_shared' and 'child_{child_id}_persistent'.
         """
-        # Get child buffer sizes
-        child_shared_size = self.shared_buffer_size(child)
-        child_persistent_size = self.persistent_local_buffer_size(child)
-
-        # Generate buffer names
-        if name is None:
-            child_id = id(child)
-            base_name = f'child_{child_id}'
-        else:
-            base_name = name
-        
-        shared_name = f'{base_name}_shared'
-        persistent_name = f'{base_name}_persistent'
-
-        # Get precision from parent
-        precision = parent.precision
-
-        # Register child buffers with parent
-        self.register(
-            shared_name,
-            parent,
-            child_shared_size,
-            'shared',
-            precision=precision
+        shared_name, persistent_name = self.register_child(
+            parent, child, name
         )
-        self.register(
-            persistent_name,
-            parent,
-            child_persistent_size,
-            'local',
-            persistent=True,
-            precision=precision
-        )
-
-        # Get and return allocators
         alloc_shared = self.get_allocator(shared_name, parent)
         alloc_persistent = self.get_allocator(persistent_name, parent)
 
