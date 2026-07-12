@@ -127,6 +127,9 @@ class IndexedBaseMap:
     def pop(self, sym: sp.Symbol) -> None:
         """Remove a symbol from the indexed base.
 
+        Surviving symbols are reindexed so every reference stays
+        within the shrunken base's bounds.
+
         Parameters
         ----------
         sym
@@ -144,6 +147,9 @@ class IndexedBaseMap:
             self.base_name, shape=(len(self.ref_map),), real=self.real
         )
         self.length = len(self.ref_map)
+        for index, existing in enumerate(self.ref_map):
+            self.index_map[existing] = index
+            self.ref_map[existing] = self.base[index]
 
     def push(self, sym: sp.Symbol, default_value: float = 0.0, unit: str = "dimensionless") -> None:
         """Append a new symbol to the indexed base.
