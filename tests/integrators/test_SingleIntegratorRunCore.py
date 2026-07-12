@@ -568,6 +568,57 @@ def test_update_empty_dict_noop(single_integrator_run_mutable):
     assert result == set()
 
 
+@pytest.mark.parametrize(
+    "solver_settings_override",
+    [{"algorithm": "tsit5", "step_controller": "pid"}],
+    indirect=True,
+)
+def test_algorithm_hot_swap_preserves_controller_buffers(
+    single_integrator_run_mutable,
+):
+    """An algorithm swap keeps the controller's buffer registrations."""
+    run = single_integrator_run_mutable
+    run.update({"algorithm": "bogacki-shampine-32"})
+    assert run.device_function is not None
+
+
+@pytest.mark.parametrize(
+    "solver_settings_override",
+    [{"algorithm": "tsit5", "step_controller": "pid"}],
+    indirect=True,
+)
+def test_controller_hot_swap_preserves_algorithm_buffers(
+    single_integrator_run_mutable,
+):
+    """A controller swap keeps the algorithm's buffer registrations."""
+    run = single_integrator_run_mutable
+    run.update({"step_controller": "gustafsson"})
+    assert run.device_function is not None
+
+
+@pytest.mark.parametrize(
+    "solver_settings_override",
+    [{"algorithm": "backwards_euler"}],
+    indirect=True,
+)
+def test_implicit_algorithm_hot_swap_clears_solver_chain(
+    single_integrator_run_mutable,
+):
+    """Swapping away from an implicit step drops its solver chain groups."""
+    from cubie.buffer_registry import buffer_registry
+
+    run = single_integrator_run_mutable
+    old_step = run._algo_step
+    old_solver = old_step.solver
+    old_linear_solver = old_solver.linear_solver
+
+    run.update({"algorithm": "crank_nicolson"})
+    assert run.device_function is not None
+    assert old_step not in buffer_registry._groups
+    assert old_solver not in buffer_registry._groups
+    assert old_linear_solver not in buffer_registry._groups
+
+
 def test_update_unrecognised_raises(single_integrator_run_mutable):
     """Unrecognised keys raise KeyError when silent=False."""
     with pytest.raises(KeyError, match="Unrecognized"):

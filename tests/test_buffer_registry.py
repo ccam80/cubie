@@ -621,6 +621,76 @@ def test_registry_clear_parent_unknown_noop(
     fresh_registry.clear_parent(output_functions)  # should not raise
 
 
+def test_registry_clear_parent_cascades_through_children(
+    fresh_registry, single_integrator_run, step_controller,
+    output_functions,
+):
+    """clear_parent removes recorded children recursively.
+
+    Chain: single_integrator_run hosts step_controller, which hosts
+    output_functions; clearing the root clears all three groups.
+    """
+    fresh_registry.register("inner", output_functions, 4, "shared")
+    fresh_registry.register("mid", step_controller, 6, "shared")
+    fresh_registry.register_child(
+        step_controller, output_functions, name="inner_child",
+    )
+    fresh_registry.register(
+        "outer", single_integrator_run, 8, "shared",
+    )
+    fresh_registry.register_child(
+        single_integrator_run, step_controller, name="mid_child",
+    )
+
+    fresh_registry.clear_parent(single_integrator_run)
+    assert single_integrator_run not in fresh_registry._groups
+    assert step_controller not in fresh_registry._groups
+    assert output_functions not in fresh_registry._groups
+
+
+def test_registry_child_reregistration_replaces_recorded_child(
+    fresh_registry, single_integrator_run, step_controller,
+    output_functions,
+):
+    """Re-registering a child name replaces the recorded child.
+
+    After the same base name is registered with a new child, a
+    cascade from the parent clears the new child only; the replaced
+    child's group survives.
+    """
+    fresh_registry.register("a", step_controller, 6, "shared")
+    fresh_registry.get_child_allocators(
+        single_integrator_run, step_controller, name="component",
+    )
+    fresh_registry.register("b", output_functions, 4, "shared")
+    fresh_registry.get_child_allocators(
+        single_integrator_run, output_functions, name="component",
+    )
+
+    fresh_registry.clear_parent(single_integrator_run)
+    assert output_functions not in fresh_registry._groups
+    assert step_controller in fresh_registry._groups
+    fresh_registry.clear_parent(step_controller)
+
+
+def test_registry_clear_parent_terminates_on_cycle(
+    fresh_registry, single_integrator_run, step_controller,
+):
+    """A registration cycle clears both groups without recursing."""
+    fresh_registry.register("a", single_integrator_run, 4, "shared")
+    fresh_registry.register("b", step_controller, 4, "shared")
+    fresh_registry.register_child(
+        single_integrator_run, step_controller, name="down",
+    )
+    fresh_registry.register_child(
+        step_controller, single_integrator_run, name="up",
+    )
+
+    fresh_registry.clear_parent(single_integrator_run)
+    assert single_integrator_run not in fresh_registry._groups
+    assert step_controller not in fresh_registry._groups
+
+
 def test_registry_reset_clears_all(
     fresh_registry, step_controller, output_functions,
 ):

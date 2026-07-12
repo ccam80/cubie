@@ -214,10 +214,10 @@ class SingleIntegratorRunCore(CUDAFactory):
 
 
         # Register algorithm step and controller buffers with loop as parent
-        buffer_registry.get_child_allocators(
+        buffer_registry.register_child(
             self._loop, self._algo_step, name="algorithm"
         )
-        buffer_registry.get_child_allocators(
+        buffer_registry.register_child(
                 self._loop, self._step_controller, name='controller'
         )
 
@@ -644,10 +644,10 @@ class SingleIntegratorRunCore(CUDAFactory):
             step_recognized |= self._apply_inner_tolerance_defaults()
 
         # Re-register algo and controller buffers to refresh sizing in loop
-        buffer_registry.get_child_allocators(
+        buffer_registry.register_child(
                 self._loop, self._algo_step, name='algorithm'
         )
-        buffer_registry.get_child_allocators(
+        buffer_registry.register_child(
                 self._loop, self._step_controller, name='controller'
         )
 
@@ -690,7 +690,7 @@ class SingleIntegratorRunCore(CUDAFactory):
 
         new_algo = updates_dict.get("algorithm").lower()
         if new_algo != self.compile_settings.algorithm:
-            buffer_registry.reset()
+            buffer_registry.clear_parent(self._algo_step)
             old_settings = self._algo_step.settings_dict
             old_settings["algorithm"] = new_algo
             self._algo_step = get_algorithm_step(
@@ -730,7 +730,7 @@ class SingleIntegratorRunCore(CUDAFactory):
         new_controller = updates_dict.get("step_controller").lower()
 
         if new_controller != self.compile_settings.step_controller:
-            buffer_registry.reset()
+            buffer_registry.clear_parent(self._step_controller)
             old_settings = self._step_controller.settings_dict
             old_settings["step_controller"] = new_controller
             old_settings["algorithm_order"] = updates_dict.get(
@@ -780,10 +780,10 @@ class SingleIntegratorRunCore(CUDAFactory):
             'evaluate_observables': evaluate_observables}
 
         # Re-register algo and controller buffers to refresh sizing in loop
-        buffer_registry.get_child_allocators(
+        buffer_registry.register_child(
                 self._loop, self._algo_step, name='algorithm'
         )
-        buffer_registry.get_child_allocators(
+        buffer_registry.register_child(
                 self._loop, self._step_controller, name='controller'
         )
 
