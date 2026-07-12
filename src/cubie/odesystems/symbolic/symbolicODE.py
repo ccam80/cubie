@@ -77,7 +77,6 @@ from cubie.odesystems.symbolic.codegen import (
 from cubie.odesystems.symbolic.codegen.jacobian import generate_analytical_jvp
 from cubie.odesystems.symbolic.codegen.neumann_convergence import (
     NeumannRHSEvaluator,
-    build_rhs_evaluator,
     check_neumann_convergence,
 )
 from cubie.odesystems.symbolic.odefile import ODEFile
@@ -483,15 +482,16 @@ class SymbolicODE(BaseODE):
     def _get_neumann_evaluator(self) -> NeumannRHSEvaluator:
         """Return the cached finite-difference Jacobian evaluator.
 
-        The evaluator compiles the guarded right-hand side once; the
-        Neumann convergence diagnostic reuses it on every call and only
-        re-runs the cheap numeric spectral-radius check.
+        The evaluator launches the compiled ``dxdt`` device function
+        on the device, so the diagnostic reflects the production code
+        at the compiled precision. The getters fetch the current
+        compiled function and precision on every call, so settings
+        changes are picked up without rebuilding the evaluator.
         """
         if self._neumann_rhs_evaluator is None:
-            self._neumann_rhs_evaluator = build_rhs_evaluator(
-                self.equations,
-                self.indices,
-                user_functions=self._device_function_injections(),
+            self._neumann_rhs_evaluator = NeumannRHSEvaluator(
+                lambda: self.evaluate_f,
+                lambda: self.precision,
             )
         return self._neumann_rhs_evaluator
 
@@ -973,7 +973,6 @@ class SymbolicODE(BaseODE):
         # surfaces for reused code as well as freshly generated code.
         if func_type in _NEUMANN_PRECONDITIONER_TYPES:
             check_neumann_convergence(
-                self.equations,
                 self.indices,
                 evaluator=self._get_neumann_evaluator(),
                 stage_coefficients=stage_coefficients,

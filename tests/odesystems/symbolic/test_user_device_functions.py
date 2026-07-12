@@ -115,15 +115,15 @@ def test_device_function_with_derivative_implicit_solve(
     np.testing.assert_allclose(state, expected, rtol=1e-5)
 
 
-def test_check_neumann_convergence_fallback_resolves_user_functions(
+def test_check_neumann_convergence_evaluates_device_function(
     cubed, d_cubed, precision
 ):
-    """The evaluator-less path forwards user functions to the builder.
+    """The diagnostic evaluates the compiled ``dxdt`` on the device.
 
-    ``check_neumann_convergence`` builds its own RHS evaluator when no
-    prebuilt evaluator is supplied; the user device callables must reach
-    that evaluator so the diagnostic degrades gracefully instead of
-    raising ``NameError``.
+    For ``dx = -cubed(x)`` at ``x = 2`` the Jacobian is ``-12``; a
+    single-state system is diagonally dominant, so the check returns
+    a genuine verdict even though the user function is a device-only
+    callable.
     """
     system = create_ODE_system(
         "dx = -cubed(x)",
@@ -131,11 +131,13 @@ def test_check_neumann_convergence_fallback_resolves_user_functions(
         user_functions={"cubed": cubed},
         user_function_derivatives={"cubed": d_cubed},
         precision=precision,
-        name="userfunc_neumann_fallback",
+        name="userfunc_neumann_device",
     )
     result = check_neumann_convergence(
-        system.equations,
         system.indices,
-        user_functions=system._device_function_injections(),
+        system._get_neumann_evaluator(),
     )
-    assert result["converges"] in (True, False, None)
+    assert result["converges"] is True
+    np.testing.assert_allclose(
+        result["J_numeric"], [[-12.0]], rtol=5e-2
+    )
