@@ -13,17 +13,20 @@ dominant and the Neumann series diverges for all but the tiniest step
 sizes.
 
 The Jacobian is evaluated at the initial state by central finite
-differences of the guarded right-hand side rather than by substituting
-into the analytic Jacobian matrix. The analytic derivative of a CellML
-gating term such as ``(V - E) / (exp((V - E) / k) - 1)`` is ``0 / 0`` at
-the resting potential even though the term itself is finite there;
-finite-differencing the guarded RHS takes that removable-singularity
-limit numerically and yields a finite Jacobian.
+differences of the system's **compiled** ``dxdt`` device function,
+launched on the device at the system's compiled precision, so the
+diagnostic reflects the behaviour of the production device code rather
+than a host-side reconstruction. Finite-differencing the guarded
+right-hand side also takes removable singularities numerically: the
+analytic derivative of a CellML gating term such as
+``(V - E) / (exp((V - E) / k) - 1)`` is ``0 / 0`` at the resting
+potential even though the term itself is finite there, and the guarded
+device code evaluates it cleanly.
 
-Published Functions
--------------------
-:func:`build_rhs_evaluator`
-    Build a cached finite-difference Jacobian evaluator for a system.
+Published Objects
+-----------------
+:class:`NeumannRHSEvaluator`
+    Finite-difference Jacobian evaluator running the compiled ``dxdt``.
 :func:`neumann_spectral_radius`
     Pure-numeric Jacobi spectral-radius diagnostic as a function of the
     Jacobian and the ``beta``/``gamma``/tableau parameters.
@@ -34,64 +37,70 @@ Published Functions
 
 import logging
 import warnings
-from typing import Dict, Optional, Sequence, Union
+from typing import Callable, Dict, Optional, Sequence, Union
 
 import numpy as np
 import sympy as sp
+from numba import cuda
 
-from cubie.odesystems.symbolic.parsing.parser import TIME_SYMBOL
+from cubie.cuda_simsafe import CUDA_SIMULATION
 from cubie.odesystems.symbolic.indexedbasemaps import IndexedBases
-from cubie.odesystems.symbolic.parsing.parser import ParsedEquations
-from cubie.odesystems.symbolic.sym_utils import topological_sort
 
 logger = logging.getLogger(__name__)
 
-# Central-difference step: cube-root of machine epsilon balances round-off
-# against truncation error for a double-precision second-order stencil.
-_FD_STEP = float(np.finfo(np.float64).eps) ** (1.0 / 3.0)
-
 
 class NeumannRHSEvaluator:
-    """Finite-difference Jacobian evaluator for a symbolic system.
+    """Finite-difference Jacobian evaluator for a compiled system.
 
-    Resolves the auxiliary chain into the state derivatives once and
-    compiles the guarded right-hand side to a NumPy callable. The
-    resulting object is cached on the owning :class:`SymbolicODE`; each
-    call reads current state/constant/parameter values from the index
-    map, so value changes are reflected without rebuilding.
+    Launches the system's compiled ``dxdt`` device function at
+    perturbed initial states and forms the Jacobian by central finite
+    differences, so the diagnostic sees exactly the device code the
+    solver runs, at the compiled precision. The object is cached on
+    the owning :class:`SymbolicODE`; each call fetches the current
+    compiled ``dxdt`` through ``dxdt_getter`` (rebuilding the wrapper
+    kernel only when the device function changes) and reads current
+    values from the index map, so value and constant changes are
+    reflected without rebuilding the evaluator.
     """
 
     def __init__(
         self,
-        rhs_callable,
-        argument_symbols: Sequence[sp.Symbol],
-        state_symbols: Sequence[sp.Symbol],
-        driver_symbols: Sequence[sp.Symbol],
+        dxdt_getter: Callable,
+        precision_getter: Callable,
     ) -> None:
-        self._rhs = rhs_callable
-        self._argument_symbols = list(argument_symbols)
-        self._state_symbols = list(state_symbols)
-        self._driver_symbols = set(driver_symbols)
-        self._state_count = len(state_symbols)
+        self._dxdt_getter = dxdt_getter
+        self._precision_getter = precision_getter
+        self._kernel = None
+        self._kernel_dxdt = None
 
-    def _value_map(
-        self,
-        index_map: IndexedBases,
-        t0: float,
-    ) -> Dict[sp.Symbol, float]:
-        """Collect current numeric values for every RHS symbol."""
-        values: Dict[sp.Symbol, float] = {}
-        for sym, val in index_map.states.default_values.items():
-            values[sym] = float(val)
-        for sym, val in index_map.constants.default_values.items():
-            values[sym] = float(val)
-        if hasattr(index_map, "parameters"):
-            for sym, val in index_map.parameters.default_values.items():
-                values[sym] = float(val)
-        for sym in self._driver_symbols:
-            values[sym] = 0.0
-        values[TIME_SYMBOL] = float(t0)
-        return values
+    def _evaluation_kernel(self):
+        """Return the evaluation kernel for the current ``dxdt``.
+
+        The kernel is compiled once per compiled ``dxdt`` object; a
+        settings change that rebuilds the device function triggers a
+        rebuild of the wrapper on the next call.
+        """
+        dxdt_function = self._dxdt_getter()
+        if dxdt_function is not self._kernel_dxdt:
+            # no cover: start
+            @cuda.jit
+            def evaluate_rhs(
+                states, parameters, drivers, observables, out, t
+            ):
+                i = cuda.grid(1)
+                if i < states.shape[0]:
+                    dxdt_function(
+                        states[i],
+                        parameters,
+                        drivers,
+                        observables[i],
+                        out[i],
+                        t,
+                    )
+            # no cover: end
+            self._kernel = evaluate_rhs
+            self._kernel_dxdt = dxdt_function
+        return self._kernel
 
     def jacobian(
         self,
@@ -103,121 +112,107 @@ class NeumannRHSEvaluator:
         Parameters
         ----------
         index_map
-            Index maps supplying current state/constant/parameter values.
+            Index maps supplying current state/parameter values.
         t0
             Time at which to evaluate the right-hand side.
 
         Returns
         -------
         numpy.ndarray
-            The ``state_count x state_count`` Jacobian. Entries that
-            cannot be evaluated are returned as ``nan``.
+            The ``state_count x state_count`` Jacobian in float64.
+            Entries that cannot be evaluated are returned as ``nan``.
         """
-        values = self._value_map(index_map, t0)
-        base_args = np.array(
-            [values.get(sym, 0.0) for sym in self._argument_symbols],
-            dtype=np.float64,
-        )
-        n = self._state_count
+        precision = np.dtype(self._precision_getter())
+        state_map = index_map.states.index_map
+        n = len(state_map)
+        base = np.zeros(n, dtype=np.float64)
+        state_defaults = index_map.states.default_values
+        for sym, idx in state_map.items():
+            base[idx] = float(state_defaults[sym])
 
-        def evaluate(args):
-            with np.errstate(all="ignore"):
-                try:
-                    return np.asarray(self._rhs(*args), dtype=np.float64)
-                except (
-                    ZeroDivisionError,
-                    FloatingPointError,
-                    OverflowError,
-                    ValueError,
-                ):
-                    return np.full(n, np.nan)
+        parameters = np.zeros(1, dtype=precision)
+        if hasattr(index_map, "parameters"):
+            parameter_map = index_map.parameters.index_map
+            if parameter_map:
+                parameters = np.zeros(
+                    len(parameter_map), dtype=precision
+                )
+                defaults = index_map.parameters.default_values
+                for sym, idx in parameter_map.items():
+                    parameters[idx] = float(defaults[sym])
 
-        jacobian = np.zeros((n, n), dtype=np.float64)
+        n_drivers = 1
+        if hasattr(index_map, "drivers"):
+            n_drivers = max(1, len(index_map.drivers.index_map))
+        drivers = np.zeros(n_drivers, dtype=precision)
+
+        n_observables = max(1, len(index_map.observables.index_map))
+        observables = np.zeros((2 * n, n_observables), dtype=precision)
+        out = np.zeros((2 * n, n), dtype=precision)
+
+        # Central-difference step: cube-root of the compiled
+        # precision's epsilon balances round-off against truncation
+        # error for a second-order stencil at that precision.
+        fd_step = float(np.finfo(precision).eps) ** (1.0 / 3.0)
+        states = np.empty((2 * n, n), dtype=precision)
         for col in range(n):
-            step = _FD_STEP * max(abs(base_args[col]), 1.0)
-            forward = base_args.copy()
-            backward = base_args.copy()
+            step = fd_step * max(abs(base[col]), 1.0)
+            forward = base.copy()
+            backward = base.copy()
             forward[col] += step
             backward[col] -= step
-            f_plus = evaluate(forward)
-            f_minus = evaluate(backward)
-            jacobian[:, col] = (f_plus - f_minus) / (2.0 * step)
-        return jacobian
+            states[2 * col] = forward
+            states[2 * col + 1] = backward
 
+        kernel = self._evaluation_kernel()
+        threads = 32
+        blocks = (2 * n + threads - 1) // threads
 
-def build_rhs_evaluator(
-    equations: ParsedEquations,
-    index_map: IndexedBases,
-) -> NeumannRHSEvaluator:
-    """Compile a finite-difference Jacobian evaluator for a system.
+        def launch():
+            device_states = cuda.to_device(states)
+            device_parameters = cuda.to_device(parameters)
+            device_drivers = cuda.to_device(drivers)
+            device_observables = cuda.to_device(observables)
+            device_out = cuda.to_device(out)
+            kernel[blocks, threads](
+                device_states,
+                device_parameters,
+                device_drivers,
+                device_observables,
+                device_out,
+                precision.type(t0),
+            )
+            return device_out.copy_to_host()
 
-    Resolves the auxiliary assignments into each state derivative and
-    lambdifies the guarded right-hand side. This is the expensive step;
-    the returned evaluator is cheap to call and should be cached.
-
-    Parameters
-    ----------
-    equations
-        Parsed ODE equations (the same object passed to codegen).
-    index_map
-        Index maps (states, constants, drivers, ...) for the system.
-
-    Returns
-    -------
-    NeumannRHSEvaluator
-        Callable evaluator producing the state Jacobian by central
-        finite differences of the guarded right-hand side.
-    """
-    state_symbols = list(index_map.states.index_map.keys())
-    dxdt_symbols = list(index_map.dxdt.index_map.keys())
-    dxdt_set = set(dxdt_symbols)
-
-    # Resolve the auxiliary chain into the derivatives so the compiled
-    # right-hand side depends only on states/constants/drivers/time. The
-    # guarded Piecewise gating terms survive substitution and keep the
-    # RHS finite at removable singularities.
-    sorted_equations = topological_sort(equations.to_equation_list())
-    auxiliary_subs: Dict[sp.Symbol, sp.Expr] = {}
-    derivative_exprs: Dict[sp.Symbol, sp.Expr] = {}
-    for lhs, rhs in sorted_equations:
-        resolved = rhs.xreplace(auxiliary_subs)
-        if lhs in dxdt_set:
-            derivative_exprs[lhs] = resolved
+        if CUDA_SIMULATION:
+            # The simulator executes device code as host Python,
+            # where domain errors raise instead of producing the
+            # non-finite values device math returns; translate them
+            # into the caller's could-not-evaluate path.
+            try:
+                evaluated = launch()
+            except (
+                ZeroDivisionError,
+                FloatingPointError,
+                OverflowError,
+                ValueError,
+            ):
+                return np.full((n, n), np.nan)
         else:
-            auxiliary_subs[lhs] = resolved
+            evaluated = launch()
 
-    constant_symbols = list(index_map.constants.default_values.keys())
-    parameter_symbols = []
-    if hasattr(index_map, "parameters"):
-        parameter_symbols = list(
-            index_map.parameters.default_values.keys()
-        )
-    driver_symbols = []
-    if hasattr(index_map, "drivers"):
-        driver_symbols = list(index_map.drivers.index_map.keys())
-
-    argument_symbols = (
-        state_symbols
-        + constant_symbols
-        + parameter_symbols
-        + driver_symbols
-        + [TIME_SYMBOL]
-    )
-    rhs_vector = [
-        derivative_exprs.get(sym, sp.S.Zero) for sym in dxdt_symbols
-    ]
-    # Evaluate with the ``math`` module (scalar ternaries for Piecewise,
-    # builtin min/max) rather than NumPy: the finite-difference stencil
-    # feeds scalars, and NumPy's ``select`` requires array conditions.
-    rhs_callable = sp.lambdify(
-        argument_symbols, rhs_vector, modules=["math"], cse=True
-    )
-    return NeumannRHSEvaluator(
-        rhs_callable,
-        argument_symbols,
-        state_symbols,
-        driver_symbols,
-    )
+        evaluated = evaluated.astype(np.float64)
+        jacobian = np.empty((n, n), dtype=np.float64)
+        for col in range(n):
+            # Effective step from the precision-cast states so the
+            # divisor matches the perturbation the device code saw.
+            denominator = float(states[2 * col, col]) - float(
+                states[2 * col + 1, col]
+            )
+            jacobian[:, col] = (
+                evaluated[2 * col] - evaluated[2 * col + 1]
+            ) / denominator
+        return jacobian
 
 
 def neumann_spectral_radius(
@@ -296,9 +291,8 @@ def neumann_spectral_radius(
 
 
 def check_neumann_convergence(
-    equations: ParsedEquations,
     index_map: IndexedBases,
-    evaluator: Optional[NeumannRHSEvaluator] = None,
+    evaluator: NeumannRHSEvaluator,
     stage_coefficients: Optional[
         Sequence[Sequence[Union[float, sp.Expr]]]
     ] = None,
@@ -310,18 +304,16 @@ def check_neumann_convergence(
     """Evaluate whether the Neumann preconditioner is likely to converge.
 
     Evaluates the state Jacobian at the initial state by finite
-    differences and checks the spectral radius of the Jacobi iteration
-    matrix ``N = I - D^-1 M``.
+    differences of the compiled ``dxdt`` device function and checks the
+    spectral radius of the Jacobi iteration matrix ``N = I - D^-1 M``.
 
     Parameters
     ----------
-    equations
-        Parsed ODE equations (the same object passed to codegen).
     index_map
-        Index maps (states, constants, etc.) with default values.
+        Index maps (states, parameters, etc.) with default values.
     evaluator
-        Prebuilt finite-difference Jacobian evaluator. Built from
-        ``equations``/``index_map`` when omitted.
+        Finite-difference Jacobian evaluator wrapping the system's
+        compiled ``dxdt`` device function.
     stage_coefficients
         Butcher-tableau ``A`` matrix for the FIRK method. When provided,
         the full staged system ``beta I - gamma (A (x) J)`` is analysed
@@ -343,9 +335,6 @@ def check_neumann_convergence(
         ``J_numeric``. ``converges`` is ``None`` when the Jacobian could
         not be evaluated.
     """
-    if evaluator is None:
-        evaluator = build_rhs_evaluator(equations, index_map)
-
     jacobian = evaluator.jacobian(index_map, t0=t0)
 
     if not np.isfinite(jacobian).all():
