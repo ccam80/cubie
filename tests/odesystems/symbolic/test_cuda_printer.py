@@ -2,6 +2,7 @@ import math
 import re
 
 import numpy as np
+import pytest
 import sympy as sp
 
 from cubie import create_ODE_system, solve_ivp
@@ -622,18 +623,24 @@ class TestConstantExponentAlias:
         assert lines == ["out = x**_cubie_codegen_iexp_n"]
 
 
+@pytest.mark.parametrize(
+    "solver_settings_override",
+    [{"precision": np.float32}, {"precision": np.float64}],
+    indirect=True,
+)
 def test_sqrt_rhs_matches_analytic_solution(precision):
     """A sqrt right-hand side integrates to its analytic solution.
 
     ``dx = -sqrt(x)`` with ``x(0) = 4`` has the exact solution
     ``x(t) = (2 - t/2)**2``, so the generated ``math.sqrt`` lowering is
-    checked end to end against a closed-form reference.
+    checked end to end against a closed-form reference in both
+    precisions.
     """
     system = create_ODE_system(
         "dx = -sqrt(x)",
         states={"x": 4.0},
         precision=precision,
-        name="sqrt_lowering_analytic",
+        name=f"sqrt_lowering_analytic_{np.dtype(precision).name}",
     )
     result = solve_ivp(
         system,
