@@ -363,6 +363,19 @@ def test_update_silent_mode(precision, solver_mutable):
     assert solver.kernel.dt == new_dt
 
 
+def test_update_profileCUDA(solver_mutable):
+    """Test that update toggles profiling without raising KeyError."""
+    solver = solver_mutable
+
+    updated_keys = solver.update({"profileCUDA": True})
+    assert updated_keys == {"profileCUDA"}
+    assert solver.kernel._profileCUDA is True
+
+    updated_keys = solver.update({"profileCUDA": False})
+    assert updated_keys == {"profileCUDA"}
+    assert solver.kernel._profileCUDA is False
+
+
 def test_update_saved_variables(solver_mutable, system):
     """Test updating saved variables with labels."""
     solver = solver_mutable
