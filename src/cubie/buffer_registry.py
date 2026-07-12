@@ -159,6 +159,11 @@ class BufferGroup:
         Parent instance that owns this group.
     entries : Dict[str, CUDABuffer]
         Registered buffers by name.
+    children : Dict[str, object]
+        Child instances whose buffers this parent hosts, keyed by
+        the registration base name, recorded by
+        :meth:`BufferRegistry.get_child_allocators`. Re-registering
+        a name replaces the recorded child.
     _shared_layout : Dict[str, slice] or None
         Cached unified shared memory layout (None when invalid).
     _persistent_layout : Dict[str, slice] or None
@@ -172,6 +177,7 @@ class BufferGroup:
 
     parent: object = field()
     entries: Dict[str, CUDABuffer] = field(factory=dict)
+    children: Dict[str, object] = field(factory=dict, init=False)
     _shared_layout: Optional[Dict[str, slice]] = field(
         default=None, init=False
     )
@@ -660,15 +666,26 @@ class BufferRegistry:
             self._groups[parent].invalidate_layouts()
 
     def clear_parent(self, parent: object) -> None:
-        """Remove all buffer registrations for a parent.
+        """Remove a parent's buffer registrations and its children's.
+
+        Cascades through the children recorded by
+        :meth:`get_child_allocators`, so clearing a component also
+        clears every component whose buffers it hosts (e.g. an
+        implicit step's nonlinear solver and that solver's inner
+        linear solver). Unknown parents are ignored.
 
         Parameters
         ----------
         parent
             Parent instance to remove.
         """
-        if parent in self._groups:
-            del self._groups[parent]
+        group = self._groups.pop(parent, None)
+        if group is None:
+            return
+        # Popping before recursing makes a registration cycle
+        # terminate: a revisited parent has no group and returns.
+        for child in group.children.values():
+            self.clear_parent(child)
 
     def reset(self) -> None:
         """Clear every parent's buffer registrations from the registry."""
@@ -872,6 +889,9 @@ class BufferRegistry:
         The child's buffers are registered with names
         '{name}_shared' and '{name}_persistent' if name is provided, otherwise
         'child_{child_id}_shared' and 'child_{child_id}_persistent'.
+        The child instance is recorded under the base name in the
+        parent's group, so :meth:`clear_parent` cascades through it;
+        re-registering the same name replaces the recorded child.
         """
         # Get child buffer sizes
         child_shared_size = self.shared_buffer_size(child)
@@ -906,6 +926,10 @@ class BufferRegistry:
             persistent=True,
             precision=precision
         )
+
+        # Record the ownership edge so clear_parent can cascade;
+        # re-registering a name replaces the recorded child.
+        self._groups[parent].children[base_name] = child
 
         # Get and return allocators
         alloc_shared = self.get_allocator(shared_name, parent)
