@@ -322,8 +322,11 @@ class Solver:
         System model containing the ODEs to integrate.
     algorithm
         Integration algorithm to use. Defaults to ``"euler"``.
-    profileCUDA
-        Enable CUDA profiling. Defaults to ``False``.
+    lineinfo
+        Compile all kernels and device functions with source-line
+        correlation data for profilers such as Nsight Compute. ``None``
+        defers to the ``CUBIE_LINEINFO`` environment variable (default
+        off). Changing it later via :meth:`update` triggers a rebuild.
     step_control_settings
         Explicit controller configuration that overrides solver defaults.
     algorithm_settings
@@ -365,7 +368,7 @@ class Solver:
         self,
         system: BaseODE,
         algorithm: str = "euler",
-        profileCUDA: bool = False,
+        lineinfo: Optional[bool] = None,
         step_control_settings: Optional[Dict[str, object]] = None,
         algorithm_settings: Optional[Dict[str, object]] = None,
         output_settings: Optional[Dict[str, object]] = None,
@@ -468,7 +471,7 @@ class Solver:
         self.kernel = BatchSolverKernel(
             system,
             loop_settings=loop_settings,
-            profileCUDA=profileCUDA,
+            lineinfo=lineinfo,
             step_control_settings=step_settings,
             algorithm_settings=algorithm_settings,
             output_settings=output_settings,
@@ -737,13 +740,6 @@ class Solver:
         )
         all_unrecognized -= self.kernel.update(updates_dict, silent=True)
 
-        if "profileCUDA" in updates_dict:
-            if updates_dict["profileCUDA"]:
-                self.enable_profiling()
-            else:
-                self.disable_profiling()
-            all_unrecognized.discard("profileCUDA")
-
         recognised = set(updates_dict.keys()) - all_unrecognized
 
         if all_unrecognized:
@@ -804,16 +800,6 @@ class Solver:
             if not silent:
                 raise KeyError(f"Unrecognized parameters: {all_unrecognized}")
         return recognised
-
-    def enable_profiling(self) -> None:
-        """Enable CUDA profiling for the solver."""
-        # Consider disabling optimisation and enabling debug and line info
-        # for profiling
-        self.kernel.enable_profiling()
-
-    def disable_profiling(self) -> None:
-        """Disable CUDA profiling for the solver."""
-        self.kernel.disable_profiling()
 
     def get_state_indices(
         self, state_labels: Optional[List[str]] = None

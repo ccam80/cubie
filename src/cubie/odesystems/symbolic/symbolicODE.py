@@ -558,7 +558,13 @@ class SymbolicODE(BaseODE):
             dxdt_code,
             injections=self._device_function_injections(),
         )
-        dxdt_func = dxdt_factory(constants, numba_precision)
+        # Cached generated files may predate the lineinfo parameter; pass
+        # it only when the factory's signature declares it.
+        dxdt_func = dxdt_factory(
+            constants,
+            numba_precision,
+            **self._lineinfo_kwarg(dxdt_factory),
+        )
 
         obs_code = None
         if not self.gen_file.function_is_cached("observables_factory"):
@@ -571,7 +577,11 @@ class SymbolicODE(BaseODE):
             obs_code,
             injections=self._device_function_injections(),
         )
-        evaluate_observables = observables_factory(constants, numba_precision)
+        evaluate_observables = observables_factory(
+            constants,
+            numba_precision,
+            **self._lineinfo_kwarg(observables_factory),
+        )
 
         return ODECache(
             dxdt=dxdt_func,
@@ -995,6 +1005,7 @@ class SymbolicODE(BaseODE):
             "beta": beta,
             "gamma": gamma,
             "order": preconditioner_order,
+            "lineinfo": self.compile_settings.lineinfo,
         }
 
         # Skip expensive code generation when function is already cached
@@ -1137,6 +1148,16 @@ class SymbolicODE(BaseODE):
 
         return func
 
+    def _lineinfo_kwarg(self, factory) -> dict:
+        """Return a ``lineinfo`` kwarg when ``factory`` declares one.
+
+        Generated factory files cached on disk may predate the ``lineinfo``
+        parameter; those factories are called without it.
+        """
+        if "lineinfo" in inspect.signature(factory).parameters:
+            return {"lineinfo": self.compile_settings.lineinfo}
+        return {}
+
     def _build_preconditioner_chain(
         self,
         preconditioner_type: Union[str, list],
@@ -1205,11 +1226,14 @@ class SymbolicODE(BaseODE):
 
         is_cached = composite_type == "preconditioner_cached"
         return _chain_two_preconditioners(
-            fns[0], fns[1], cached=is_cached
+            fns[0],
+            fns[1],
+            cached=is_cached,
+            lineinfo=self.compile_settings.lineinfo,
         )
 
 
-def _chain_two_preconditioners(p0, p1, cached=False):
+def _chain_two_preconditioners(p0, p1, cached=False, lineinfo=None):
     """Build a device function chaining two preconditioners.
 
     Parameters
@@ -1240,10 +1264,11 @@ def _chain_two_preconditioners(p0, p1, cached=False):
     """
     from numba import cuda
 
-    from cubie.cuda_simsafe import compile_kwargs
+    from cubie.cuda_simsafe import get_jit_kwargs
 
+    jit_kwargs = get_jit_kwargs(lineinfo)
     if cached:
-        @cuda.jit(device=True, inline=True, **compile_kwargs)
+        @cuda.jit(device=True, inline=True, **jit_kwargs)
         def chained_cached(
             state, parameters, drivers, cached_aux, base_state,
             t, h, a_ij, v, out, jvp, scratch, chain_scratch,
@@ -1260,7 +1285,7 @@ def _chain_two_preconditioners(p0, p1, cached=False):
             )
         return chained_cached
     else:
-        @cuda.jit(device=True, inline=True, **compile_kwargs)
+        @cuda.jit(device=True, inline=True, **jit_kwargs)
         def chained(
             state, parameters, drivers, base_state,
             t, h, a_ij, v, out, jvp, scratch, chain_scratch,

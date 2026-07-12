@@ -48,31 +48,84 @@ from __future__ import annotations
 
 from ctypes import c_void_p
 import os
-from typing import Any, Callable, Tuple
+from types import MappingProxyType
+from typing import Any, Callable, Mapping, Optional, Tuple
 
 from numba import cuda
 from numba import from_dtype as numba_from_dtype
 from numpy import dtype
 
+from cubie._env import lineinfo_default
+
 
 CUDA_SIMULATION: bool = os.environ.get("NUMBA_ENABLE_CUDASIM") == "1"
 
-# Compile kwargs for cuda.jit decorators
-# lineinfo is not supported in CUDASIM mode
-compile_kwargs: dict[str, bool] = (
+# Base compile kwargs for cuda.jit decorators. Immutable: per-build
+# overrides (lineinfo) merge over a copy via get_jit_kwargs so no build
+# can leak state into another compilation unit.
+# lineinfo is not supported in CUDASIM mode; the env default applies to
+# device functions decorated at import time, which never see a factory
+# config. Factory builds pass their compile setting to get_jit_kwargs.
+compile_kwargs: Mapping[str, Any] = MappingProxyType(
     {}
     if CUDA_SIMULATION
     else {
-        # "lineinfo": True,
-        # 'debug':True,
-        # 'opt':False,
         "fastmath": {
             "nsz": True,
             "contract": True,
             "arcp": True,
         },
+        "lineinfo": lineinfo_default(),
     }
 )
+
+
+def get_jit_kwargs(lineinfo: Optional[bool] = None) -> dict[str, Any]:
+    """Return ``cuda.jit`` kwargs with an explicit ``lineinfo`` value.
+
+    Parameters
+    ----------
+    lineinfo
+        Whether to compile with source-line correlation data. ``None``
+        defers to the ``CUBIE_LINEINFO`` environment variable.
+
+    Returns
+    -------
+    dict
+        Copy of :data:`compile_kwargs` with ``lineinfo`` set. Under the
+        CUDA simulator the flag is omitted (unsupported there).
+    """
+    kwargs = dict(compile_kwargs)
+    if not CUDA_SIMULATION:
+        kwargs["lineinfo"] = (
+            lineinfo_default() if lineinfo is None else bool(lineinfo)
+        )
+    return kwargs
+
+
+def lineinfo_kwarg(lineinfo: Optional[bool] = None) -> dict[str, Any]:
+    """Return only the ``lineinfo`` kwarg for ``cuda.jit`` decorators.
+
+    For decoration sites that deliberately do not take the shared
+    :data:`compile_kwargs` defaults (e.g. algorithm steps, which must not
+    inherit fastmath) but should still honour the lineinfo setting.
+
+    Parameters
+    ----------
+    lineinfo
+        Whether to compile with source-line correlation data. ``None``
+        defers to the ``CUBIE_LINEINFO`` environment variable.
+
+    Returns
+    -------
+    dict
+        ``{"lineinfo": value}``, or ``{}`` under the CUDA simulator.
+    """
+    if CUDA_SIMULATION:
+        return {}
+    return {
+        "lineinfo": lineinfo_default() if lineinfo is None else bool(lineinfo)
+    }
 
 
 class FakeStream:  # pragma: no cover - placeholder
@@ -384,6 +437,8 @@ __all__ = [
     "activemask",
     "all_sync",
     "compile_kwargs",
+    "get_jit_kwargs",
+    "lineinfo_kwarg",
     "CUDA_SIMULATION",
     "CUDACache",
     "cupy",

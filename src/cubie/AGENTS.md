@@ -31,10 +31,11 @@ resolves `__version__` via `importlib.metadata.version("cubie")`.
 | File | Description |
 |------|-------------|
 | `__init__.py` | Package entry point: star-imports subpackages, sets the Numba occupancy-warning env var, defines `__all__` and `__version__`. |
-| `CUDAFactory.py` | Core cached-compilation framework: `CUDAFactory` (ABC), `CUDAFactoryConfig`/`_CubieConfigBase` (hashing attrs config), `CUDADispatcherCache`, the `MultipleInstance*` variants, and `hash_tuple`. |
+| `CUDAFactory.py` | Core cached-compilation framework: `CUDAFactory` (ABC), `CUDAFactoryConfig`/`_CubieConfigBase` (hashing attrs config; carries the `lineinfo` compile setting every factory honours), `CUDADispatcherCache`, the `MultipleInstance*` variants, and `hash_tuple`. |
+| `_env.py` | `CUBIE_*` environment-variable registry: `env_bool`, `lineinfo_default` (`CUBIE_LINEINFO`). Env values are defaults; explicit solver arguments always win. |
 | `buffer_registry.py` | Singleton `buffer_registry` (`BufferRegistry`) managing CUDA buffer metadata, layout, aliasing, and allocator generation; defines `CUDABuffer` and `BufferGroup`. |
 | `_utils.py` | Shared helpers: `PrecisionDType`, precision/buffer validators + converters, attrs validator factories, `build_config`, `merge_kwargs_into_settings`, `ensure_nonzero_size`, `slice_variable_dimension`, `clamp_factory`. |
-| `cuda_simsafe.py` | CUDASIM compatibility layer: `CUDA_SIMULATION`, `compile_kwargs`, `from_dtype`, `is_devfunc`, `is_cuda_array`, the warp intrinsics (`selp`, `activemask`, `all_sync`, `any_sync`, `syncwarp`), the store write-through hint `stwt`, and memory-manager/array stand-ins. |
+| `cuda_simsafe.py` | CUDASIM compatibility layer: `CUDA_SIMULATION`, `compile_kwargs` (immutable base defaults), `get_jit_kwargs(lineinfo)` / `lineinfo_kwarg(lineinfo)` (per-build jit kwargs; factory builds pass `config.lineinfo`), `from_dtype`, `is_devfunc`, `is_cuda_array`, the warp intrinsics (`selp`, `activemask`, `all_sync`, `any_sync`, `syncwarp`), the store write-through hint `stwt`, and memory-manager/array stand-ins. |
 | `cubie_cache.py` | File-based persistence of compiled kernels: `CUBIECache*`, `CacheConfig`, `CubieCacheHandler`, `ALL_CACHE_PARAMETERS`. Depends on numba-cuda internals. |
 | `time_logger.py` | `TimeLogger` (verbosity-gated timing), `CUDAEvent` (GPU event pair with CUDASIM fallback), `TimingEvent`, `default_timelogger`. |
 | `result_codes.py` | `CUBIE_RESULT_CODES(IntFlag)` — the package-central status vocabulary OR-combined into the per-run status word — plus `decode_status_codes` for host-side decoding. |
