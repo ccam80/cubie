@@ -249,13 +249,15 @@ def test_kernel_initial_values_parameters_driver_coefficients_properties(
     )
 
 
-def test_kernel_enable_disable_profiling(solverkernel_mutable):
-    """enable_profiling/disable_profiling toggle _profileCUDA directly."""
+def test_kernel_update_lineinfo(solverkernel_mutable):
+    """update routes lineinfo into the kernel's compile settings."""
     kernel = solverkernel_mutable
-    kernel.enable_profiling()
-    assert kernel._profileCUDA is True
-    kernel.disable_profiling()
-    assert kernel._profileCUDA is False
+    updated = kernel.update({"lineinfo": True})
+    assert "lineinfo" in updated
+    assert kernel.compile_settings.lineinfo is True
+    updated = kernel.update({"lineinfo": False})
+    assert "lineinfo" in updated
+    assert kernel.compile_settings.lineinfo is False
 
 
 def test_shared_memory_needs_padding_matches_precision_and_parity(

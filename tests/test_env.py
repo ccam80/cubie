@@ -5,11 +5,7 @@ from numpy import float32
 
 from cubie._env import env_bool, lineinfo_default
 from cubie.CUDAFactory import CUDAFactoryConfig
-from cubie.cuda_simsafe import (
-    CUDA_SIMULATION,
-    compile_kwargs,
-    get_jit_kwargs,
-)
+from cubie.cuda_simsafe import compile_kwargs, get_jit_kwargs
 
 
 class TestEnvBool:
@@ -65,9 +61,7 @@ class TestLineinfoPrecedence:
         assert cfg.values_hash != before
 
 
-@pytest.mark.skipif(
-    CUDA_SIMULATION, reason="lineinfo is unsupported under CUDASIM"
-)
+@pytest.mark.nocudasim
 class TestJitKwargs:
     def test_compile_kwargs_immutable(self):
         with pytest.raises(TypeError):

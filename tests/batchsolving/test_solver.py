@@ -1580,15 +1580,6 @@ def test_solver_update_memory_settings_unrecognized_raises(solver_mutable):
         solver.update_memory_settings({"not_a_real_memory_setting": 1})
 
 
-def test_solver_enable_disable_profiling(solver_mutable):
-    """enable_profiling/disable_profiling toggle the kernel's flag."""
-    solver = solver_mutable
-    solver.enable_profiling()
-    assert solver.kernel._profileCUDA is True
-    solver.disable_profiling()
-    assert solver.kernel._profileCUDA is False
-
-
 def test_solver_compile_flags_property(solver):
     """compile_flags passes through to the kernel's compile flags."""
     assert solver.compile_flags is solver.kernel.compile_flags
