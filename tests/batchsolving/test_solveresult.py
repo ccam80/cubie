@@ -28,6 +28,10 @@ def solver_with_arrays(
         stream=solver_settings["stream"],
         warmup=solver_settings["warmup"],
     )
+    # kernel.run launches and copies back asynchronously; wait for the
+    # host arrays like Solver.solve does before results are read.
+    solver.memory_manager.sync_stream(solver.kernel)
+    solver.kernel.wait_for_writeback()
 
     return solver
 
@@ -756,3 +760,24 @@ def test_from_solver_raw_results_type(solver_with_arrays):
     }
     assert result["state"] is solver_with_arrays.state
     assert result["status_codes"] is solver_with_arrays.status_codes
+@pytest.mark.parametrize(
+    "solver_settings_override",
+    [{"output_types": ["state"]}],
+    indirect=True,
+)
+def test_as_pandas_without_summaries_returns_a_dataframe(
+    solver_with_arrays,
+):
+    """as_pandas returns a usable summaries DataFrame with no metrics.
+
+    When no summary metrics are active, each run contributes an empty
+    per-run DataFrame so the concatenated ``summaries`` entry is a
+    real (empty) DataFrame.
+    """
+    result = SolveResult.from_solver(solver_with_arrays)
+    assert result.active_outputs.state_summaries is False
+    assert result.active_outputs.observable_summaries is False
+
+    pandas_dict = result.as_pandas
+    assert isinstance(pandas_dict["summaries"], pd.DataFrame)
+    assert pandas_dict["summaries"].empty
