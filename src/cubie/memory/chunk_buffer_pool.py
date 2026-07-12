@@ -169,7 +169,7 @@ class ChunkBufferPool:
         # Use np.zeros for CUDASIM mode; CuPy's pinned memory pool
         # otherwise, since CuPy is the single device allocation
         # provider on a real GPU.
-        if CUDA_SIMULATION:
+        if CUDA_SIMULATION:  # pragma: no cover - simulated
             arr = np_zeros(shape, dtype=dtype)
         else:
             arr = cupyx.empty_pinned(shape, dtype=dtype)

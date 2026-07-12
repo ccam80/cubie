@@ -171,7 +171,7 @@ else:  # pragma: no cover - exercised in GPU environments
 def is_cuda_array(value: Any) -> bool:
     """Check whether ``value`` should be treated as a CUDA array."""
 
-    if CUDA_SIMULATION:
+    if CUDA_SIMULATION:  # pragma: no cover - simulated
         return hasattr(value, "shape")
     return _is_cuda_array(value)
 
@@ -194,7 +194,7 @@ def from_dtype(dt: dtype):
 
     if not CUDA_SIMULATION:
         return numba_from_dtype(dt)
-    return dt
+    return dt  # pragma: no cover - simulated
 
 
 def is_devfunc(func: Callable[..., Any]) -> bool:
@@ -221,6 +221,7 @@ def is_devfunc(func: Callable[..., Any]) -> bool:
 
 if CUDA_SIMULATION:  # pragma: no cover - simulated
 
+    # no cover: start
     @cuda.jit(
         device=True,
         inline=True,
@@ -332,8 +333,11 @@ if CUDA_SIMULATION:  # pragma: no cover - simulated
         """
         array[index] = value
 
+    # no cover: end
+
 else:  # pragma: no cover - relies on GPU runtime
 
+    # no cover: start
     @cuda.jit(
         device=True,
         inline=True,
@@ -382,6 +386,8 @@ else:  # pragma: no cover - relies on GPU runtime
     def stwt(array, index, value):
         cuda.stwt(array, index, value)
 
+    # no cover: end
+
 
 def is_cudasim_enabled() -> bool:
     """Return ``True`` when running under the CUDA simulator."""
@@ -401,7 +407,7 @@ def max_shared_memory_per_block() -> int:
         launch. Under CUDASIM the ubiquitous 48 kiB default is
         returned.
     """
-    if CUDA_SIMULATION:
+    if CUDA_SIMULATION:  # pragma: no cover - simulated
         return 49152
     return int(
         cuda.get_current_device().MAX_SHARED_MEMORY_PER_BLOCK

@@ -3,7 +3,10 @@ import pytest
 import numpy as np
 
 from cubie import solve_ivp, SolveResult
-from cubie.odesystems.symbolic.parsing.cellml import load_cellml_model
+from cubie.odesystems.symbolic.parsing.cellml import (
+    load_cellml_model,
+    _sanitize_symbol_name,
+)
 from cubie._utils import is_devfunc
 
 
@@ -429,3 +432,112 @@ def test_cache_isolated_per_model(cellml_fixtures_dir, tmp_path):
 
     finally:
         os.chdir(original_cwd)
+
+
+def test_sanitize_symbol_name_leading_digit():
+    """A name starting with a digit is prefixed to stay a valid identifier."""
+    assert _sanitize_symbol_name("3rate") == "var_3rate"
+
+
+def test_sanitize_symbol_name_leading_underscore_digit():
+    """A leading underscore followed by a digit is prefixed with 'var'."""
+    assert _sanitize_symbol_name("_2x") == "var_2x"
+
+
+def test_load_with_parameters_dict(
+    cellml_fixtures_dir, tmp_path, monkeypatch
+):
+    """A parameters dict is accepted and merged with CellML values."""
+    monkeypatch.chdir(tmp_path)
+    path = str(cellml_fixtures_dir / "basic_ode.cellml")
+    model = load_cellml_model(
+        path,
+        parameters={"user_param": 1.5},
+        fix_singularities=False,
+    )
+    assert "user_param" in model.parameters.values_dict
+    assert model.parameters.values_dict["user_param"] == 1.5
+
+
+def test_underscore_component_names_load(
+    cellml_fixtures_dir, tmp_path, monkeypatch
+):
+    """Variables qualified by a leading-underscore component load."""
+    monkeypatch.chdir(tmp_path)
+    model = load_cellml_model(
+        str(cellml_fixtures_dir / "underscore_names.cellml"),
+        fix_singularities=False,
+    )
+    assert model.num_states == 1
+    state_names = [str(s) for s in model.indices.states.index_map]
+    assert state_names == ["_main_x"]
+
+
+def test_multiple_time_variables_raise(cellml_fixtures_dir):
+    """Derivatives against two time variables raise a clear error."""
+    with pytest.raises(ValueError, match="single shared time"):
+        load_cellml_model(
+            str(cellml_fixtures_dir / "two_time_variables.cellml"),
+            fix_singularities=False,
+        )
+
+
+def test_constant_as_observable_raises(cellml_fixtures_dir):
+    """Requesting a numeric-valued variable as an observable raises."""
+    with pytest.raises(ValueError, match="never assigned"):
+        load_cellml_model(
+            str(cellml_fixtures_dir / "basic_ode.cellml"),
+            observables=["main_a"],
+            fix_singularities=False,
+        )
+
+
+def test_repeat_load_hits_persistent_cache(
+    cellml_fixtures_dir, tmp_path, monkeypatch
+):
+    """A second identical load returns the cached parsed model."""
+    monkeypatch.chdir(tmp_path)
+    path = str(cellml_fixtures_dir / "basic_ode.cellml")
+    first = load_cellml_model(
+        path, precision=np.float64, fix_singularities=False
+    )
+    second = load_cellml_model(
+        path, precision=np.float64, fix_singularities=False
+    )
+    assert second.fn_hash == first.fn_hash
+    assert second.num_states == first.num_states
+
+
+def test_unknown_parameter_name_reuses_effective_cache(
+    cellml_fixtures_dir, tmp_path, monkeypatch
+):
+    """Parameter names absent from the model resolve to the plain config.
+
+    The pre-parse cache key is built from the requested parameter
+    names, while the post-parse key uses the parameters the model
+    actually yielded. A name that matches nothing therefore misses the
+    early check but lands on the cached plain-configuration entry
+    after parsing.
+    """
+    monkeypatch.chdir(tmp_path)
+    path = str(cellml_fixtures_dir / "basic_ode.cellml")
+    baseline = load_cellml_model(path, fix_singularities=False)
+    aliased = load_cellml_model(
+        path,
+        parameters=["not_in_model"],
+        fix_singularities=False,
+    )
+    assert aliased.fn_hash == baseline.fn_hash
+    assert "not_in_model" not in aliased.parameters.values_dict
+
+
+def test_parameters_as_list(cellml_fixtures_dir, tmp_path, monkeypatch):
+    """A parameters list promotes named constants to parameters."""
+    monkeypatch.chdir(tmp_path)
+    model = load_cellml_model(
+        str(cellml_fixtures_dir / "basic_ode.cellml"),
+        parameters=["main_a"],
+        fix_singularities=False,
+    )
+    assert "main_a" in model.parameters.values_dict
+    assert model.parameters.values_dict["main_a"] == 0.5

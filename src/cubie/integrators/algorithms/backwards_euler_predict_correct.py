@@ -75,6 +75,7 @@ class BackwardsEulerPCStep(BackwardsEulerStep):
         alloc_increment_cache = buffer_registry.get_allocator('increment_cache', self)
         solver_fn = solver_function
 
+        # no cover: start
         @cuda.jit(
             # (
             #     numba_precision[::1],
@@ -211,4 +212,5 @@ class BackwardsEulerPCStep(BackwardsEulerStep):
 
             return status
 
+        # no cover: end
         return StepCache(step=step, nonlinear_solver=solver_fn)

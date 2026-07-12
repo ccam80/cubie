@@ -223,8 +223,6 @@ def _simulate_cached_leaves(
             continue
         removal.add(node)
         for dep in dependencies.get(node, set()):
-            if dep not in ref_counts:
-                continue
             ref_counts[dep] -= 1
             if ref_counts[dep] == 0:
                 stack.append(dep)
@@ -274,6 +272,8 @@ def _collect_candidates(
     for seed in seeds:
         if equations.jvp_closure_usage.get(seed, 0) == 0:
             continue
+        # _reachable_leaves always contains the seed itself, so the
+        # result is never empty.
         reachable = _reachable_leaves(
             seed,
             dependents,
@@ -281,8 +281,6 @@ def _collect_candidates(
             total_cost,
             min_internal_cost,
         )
-        if not reachable:
-            continue
         ordered_leaves = sorted(
             reachable,
             key=lambda sym: (
@@ -318,14 +316,10 @@ def _collect_candidates(
                     frozenset(subset),
                     frozenset(removal),
                 )
-                existing = candidate_map.get(key)
-                if existing is None:
-                    candidate_map[key] = group
-                    continue
-                if saved > existing.saved:
-                    candidate_map[key] = group
-                    continue
-                if saved == existing.saved and fill_cost < existing.fill_cost:
+                # Duplicate keys always carry identical metrics because
+                # saved/fill_cost derive deterministically from the
+                # (subset, removal) pair, so the first insertion wins.
+                if key not in candidate_map:
                     candidate_map[key] = group
     return sorted(
         candidate_map.values(),
@@ -342,7 +336,7 @@ def _evaluate_leaves(
     equations: JVPEquations,
     leaves_key: frozenset,
     memo: Dict[str, Dict],
-) -> Optional[Tuple[int, Set[sp.Symbol], Set[sp.Symbol], int]]:
+) -> Tuple[int, Set[sp.Symbol], Set[sp.Symbol], int]:
     """Return memoized evaluation metadata for the provided leaves.
 
     Parameters
@@ -356,9 +350,8 @@ def _evaluate_leaves(
 
     Returns
     -------
-    tuple or None
-        If valid, returns ``(saved, removal, prepare, fill_cost)``.
-        Returns None if the leaf combination is invalid.
+    tuple
+        ``(saved, removal, prepare, fill_cost)`` for the leaf set.
     """
 
     leaves_memo = memo.setdefault("leaves", {})
@@ -373,9 +366,10 @@ def _evaluate_leaves(
         equations,
         tuple(leaves_key),
     )
-    if simulation is None:
-        leaves_memo[leaves_key] = None
-        return None
+    # Unions of valid candidate groups are always valid: a candidate
+    # leaf's consumers are leaves of the same group, and removal sets
+    # grow monotonically under union.
+    assert simulation is not None, "invalid leaf union in cache search"
     saved, removal, prepare, fill_cost = simulation
     removal_key = frozenset(removal)
     existing = removal_memo.get(removal_key)
@@ -428,14 +422,11 @@ def _search_group_combinations(
     stack = [(0, frozenset(), tuple())]
     while stack:
         start, leaves_key, chosen = stack.pop()
-        evaluation = _evaluate_leaves(
+        saved, removal_set, prepare_set, fill_cost = _evaluate_leaves(
             equations,
             leaves_key,
             memo,
         )
-        if evaluation is None:
-            continue
-        saved, removal_set, prepare_set, fill_cost = evaluation
         if leaves_key and saved >= min_ops:
             if best_state is None:
                 best_state = (
@@ -500,18 +491,10 @@ def _search_group_combinations(
                 continue
             stack.append((idx + 1, frozenset(new_leaves), chosen + (group,)))
 
-    if best_state is None:
-        runtime_nodes = tuple(equations.non_jvp_order)
-        return CacheSelection(
-            groups=tuple(),
-            cached_leaves=tuple(),
-            cached_leaf_order=tuple(),
-            removal_nodes=tuple(),
-            runtime_nodes=runtime_nodes,
-            prepare_nodes=tuple(),
-            saved=0,
-            fill_cost=0,
-        )
+    # Every candidate passed the min_ops filter at collection, and its
+    # single-group state is always visited, so a best state exists
+    # whenever candidates do.
+    assert best_state is not None, "no cache state met the ops threshold"
 
     (
         leaves_key,

@@ -1024,3 +1024,297 @@ def test_interpolator_columns_track_declared_driver_order(
         forward_interp.coefficients[0, :, 0],
     )
 
+
+# ── _normalise_input_array ──────────────────────────────────────────── #
+
+
+def test_construction_rejects_non_convertible_array(precision):
+    """An array that cannot be cast to a NumPy float array raises
+
+    ValueError naming the offending key.
+    """
+    with pytest.raises(ValueError, match="could not be converted"):
+        ArrayInterpolator(
+            precision=precision,
+            input_dict={
+                "values": ["a", "b", "c"],
+                "dt": precision(0.1),
+            },
+        )
+
+
+def test_construction_rejects_multidimensional_input(precision):
+    """A two-dimensional input array raises ValueError."""
+    with pytest.raises(ValueError, match="must be one-dimensional"):
+        ArrayInterpolator(
+            precision=precision,
+            input_dict={
+                "values": np.zeros((3, 2), dtype=precision),
+                "dt": precision(0.1),
+            },
+        )
+
+
+def test_construction_rejects_mismatched_input_lengths(precision):
+    """Input vectors of differing lengths raise ValueError."""
+    with pytest.raises(ValueError, match="same length"):
+        ArrayInterpolator(
+            precision=precision,
+            input_dict={
+                "a": np.zeros(5, dtype=precision),
+                "b": np.zeros(4, dtype=precision),
+                "dt": precision(0.1),
+            },
+        )
+
+
+def test_construction_rejects_too_few_samples(precision):
+    """Fewer than order + 1 samples raise ValueError."""
+    with pytest.raises(ValueError, match="At least order \\+ 1 samples"):
+        ArrayInterpolator(
+            precision=precision,
+            input_dict={
+                "values": np.array([1.0, 2.0], dtype=precision),
+                "order": 3,
+                "dt": precision(0.1),
+            },
+        )
+
+
+# ── _validate_time_inputs ───────────────────────────────────────────── #
+
+
+def test_construction_rejects_both_dt_and_time(precision):
+    """Providing both dt and time raises ValueError."""
+    with pytest.raises(ValueError, match="Only one of dt or time"):
+        ArrayInterpolator(
+            precision=precision,
+            input_dict={
+                "values": np.arange(4, dtype=precision),
+                "dt": precision(0.1),
+                "time": np.arange(4, dtype=precision),
+            },
+        )
+
+
+def test_construction_rejects_multidimensional_time(precision):
+    """A two-dimensional time array raises ValueError."""
+    with pytest.raises(ValueError, match="Time array must be"):
+        ArrayInterpolator(
+            precision=precision,
+            input_dict={
+                "values": np.arange(4, dtype=precision),
+                "time": np.zeros((4, 1), dtype=precision),
+            },
+        )
+
+
+def test_construction_rejects_time_length_mismatch(precision):
+    """A time array whose length differs from the samples raises
+
+    ValueError.
+    """
+    with pytest.raises(ValueError, match="must match the number"):
+        ArrayInterpolator(
+            precision=precision,
+            input_dict={
+                "values": np.arange(4, dtype=precision),
+                "time": np.arange(5, dtype=precision),
+            },
+        )
+
+
+def test_construction_rejects_non_increasing_time(precision):
+    """A non-strictly-increasing time array raises ValueError."""
+    with pytest.raises(ValueError, match="strictly increasing"):
+        ArrayInterpolator(
+            precision=precision,
+            input_dict={
+                "values": np.array([1.0, 2.0, 3.0, 4.0], dtype=precision),
+                "time": np.array([0.0, 1.0, 1.0, 2.0], dtype=precision),
+            },
+        )
+
+
+def test_construction_rejects_non_uniform_time(precision):
+    """A non-uniformly-spaced time array raises ValueError."""
+    with pytest.raises(ValueError, match="uniformly spaced"):
+        ArrayInterpolator(
+            precision=precision,
+            input_dict={
+                "values": np.array([1.0, 2.0, 3.0, 4.0], dtype=precision),
+                "time": np.array([0.0, 1.0, 3.0, 4.0], dtype=precision),
+            },
+        )
+
+
+def test_construction_rejects_neither_dt_nor_time(precision):
+    """Providing neither dt nor time raises ValueError."""
+    with pytest.raises(ValueError, match="Either Time array or dt"):
+        ArrayInterpolator(
+            precision=precision,
+            input_dict={"values": np.arange(4, dtype=precision)},
+        )
+
+
+# ── update() ─────────────────────────────────────────────────────────── #
+
+
+def test_update_with_no_changes_returns_empty_set(quadratic_input):
+    """update() with no arguments returns an empty set without error."""
+    assert quadratic_input.update() == set()
+    assert quadratic_input.update(updates_dict={}) == set()
+
+
+def test_update_accepts_kwargs():
+    """kwargs passed to update() are merged and recognised."""
+    interp = ArrayInterpolator(
+        precision=np.float32,
+        input_dict={
+            "values": np.arange(6, dtype=np.float32),
+            "dt": np.float32(0.1),
+            "order": 2,
+            "wrap": False,
+        },
+    )
+    recognised = interp.update(order=1)
+    assert "order" in recognised
+    assert interp.order == 1
+
+
+def test_update_raises_on_unrecognised_parameter(quadratic_input):
+    """An unrecognised update key raises KeyError."""
+    with pytest.raises(KeyError, match="Unrecognized parameters"):
+        quadratic_input.update(not_a_real_parameter=1)
+
+
+# ── get_input_array / get_interpolated ──────────────────────────────── #
+
+
+def test_get_input_array_returns_normalised_array(quadratic_input):
+    """get_input_array returns the stored normalised input array."""
+    array = quadratic_input.get_input_array()
+    assert array is quadratic_input.input_array
+
+
+def test_get_interpolated_empty_times_returns_empty_array(quadratic_input):
+    """An empty eval_times array short-circuits to an empty result."""
+    result = quadratic_input.get_interpolated(np.array([], dtype=np.float64))
+    assert result.shape == (0, quadratic_input.num_inputs)
+
+
+def test_get_interpolated_requires_coefficients(quadratic_input):
+    """get_interpolated raises RuntimeError if coefficients are missing.
+
+    Coefficients are always populated by construction; this exercises
+    the documented defensive guard by clearing the cached array
+    directly, the only way to reach the un-set state.
+    """
+    original = quadratic_input._coefficients
+    try:
+        quadratic_input._coefficients = None
+        with pytest.raises(RuntimeError, match="have not been generated"):
+            quadratic_input.get_interpolated(
+                np.array([0.5], dtype=np.float64)
+            )
+    finally:
+        quadratic_input._coefficients = original
+
+
+# ── check_against_system_drivers ────────────────────────────────────── #
+
+
+@pytest.mark.parametrize(
+    "solver_settings_override",
+    [{"system_type": "two_driver"}],
+    indirect=True,
+)
+def test_check_against_system_drivers_rejects_wrong_count(system, precision):
+    """A driver-count mismatch raises ValueError."""
+    with pytest.raises(ValueError, match="does not match number of"):
+        ArrayInterpolator.check_against_system_drivers(
+            {"d_a": np.zeros(4, dtype=precision), "dt": precision(0.1)},
+            system,
+        )
+
+
+@pytest.mark.parametrize(
+    "solver_settings_override",
+    [{"system_type": "two_driver"}],
+    indirect=True,
+)
+def test_check_against_system_drivers_rejects_wrong_symbols(
+    system, precision,
+):
+    """A driver-name mismatch raises ValueError."""
+    with pytest.raises(ValueError, match="do not match drivers"):
+        ArrayInterpolator.check_against_system_drivers(
+            {
+                "d_a": np.zeros(4, dtype=precision),
+                "not_a_driver": np.zeros(4, dtype=precision),
+                "dt": precision(0.1),
+            },
+            system,
+        )
+
+
+# ── _compute_coefficients: periodic-boundary guards ─────────────────── #
+
+
+def test_periodic_boundary_requires_wrap(precision):
+    """An explicit periodic boundary condition with wrap=False raises
+
+    ValueError.
+    """
+    with pytest.raises(ValueError, match="require wrap=True"):
+        ArrayInterpolator(
+            precision=precision,
+            input_dict={
+                "values": np.arange(6, dtype=precision),
+                "dt": precision(0.1),
+                "wrap": False,
+                "boundary_condition": "periodic",
+            },
+        )
+
+
+def test_periodic_boundary_requires_matching_endpoints(precision):
+    """Periodic boundary conditions with mismatched endpoints raise
+
+    ValueError.
+    """
+    values = np.array([0.0, 1.0, 2.0, 3.0, 5.0], dtype=precision)
+    with pytest.raises(ValueError, match="first and last samples"):
+        ArrayInterpolator(
+            precision=precision,
+            input_dict={
+                "values": values,
+                "dt": precision(0.1),
+                "wrap": True,
+            },
+        )
+
+
+# ── _compute_coefficients: not-a-knot single-constraint order ───────── #
+
+
+def test_not_a_knot_order_two_uses_single_start_constraint(precision):
+    """order=2 not-a-knot needs only one constraint, exercising the
+
+    early-exit branch before the mirrored end-of-grid constraint is
+    added.
+    """
+    times = np.arange(0.0, 5.0, 1.0, dtype=precision)
+    values = times**2
+    interp = ArrayInterpolator(
+        precision=precision,
+        input_dict={
+            "values": values,
+            "time": times,
+            "order": 2,
+            "wrap": False,
+            "boundary_condition": "not-a-knot",
+        },
+    )
+    assert interp.coefficients is not None
+

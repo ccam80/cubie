@@ -176,6 +176,16 @@ class CUDAPrinter(PythonCodePrinter):
         result = self._replace_powers_with_multiplication(result)
         return result
 
+    def _print_Abs(self, expr: sp.Expr) -> str:
+        """Print absolute value via the ``CUDA_FUNCTIONS`` mapping.
+
+        ``PythonCodePrinter`` prints ``Abs`` as the ``abs`` builtin,
+        which bypasses ``_print_Function`` and the CUDA mapping; this
+        override routes it to ``math.fabs``.
+        """
+        cuda_func = self.cuda_functions["Abs"]
+        return f"{cuda_func}({self._print(expr.args[0])})"
+
     def _print_Symbol(self, expr: sp.Symbol) -> str:
         """Print a symbol, applying array substitutions when configured.
 

@@ -33,6 +33,7 @@ from cubie.cuda_simsafe import compile_kwargs, get_jit_kwargs
 from cubie.outputhandling.summarymetrics import summary_metrics
 
 
+# no cover: start
 @cuda.jit(
     device=True,
     inline=True,
@@ -60,6 +61,7 @@ def do_nothing(
     configured.
     """
     pass
+# no cover: end
 
 
 def chain_metrics(

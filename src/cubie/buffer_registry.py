@@ -133,6 +133,7 @@ class CUDABuffer:
         _zero = zero
         elements = int32(self.size)
 
+        # no cover: start
         @cuda.jit(device=True, inline=True, **compile_kwargs)
         def allocate_buffer(shared, persistent):
             """Allocate buffer from appropriate memory region."""
@@ -147,6 +148,7 @@ class CUDABuffer:
                     array[i] = _precision(0.0)
             return array
 
+        # no cover: end
         return allocate_buffer
 
 
@@ -983,6 +985,7 @@ class BufferRegistry:
         precision = kernel.precision
         numba_precision = from_dtype(precision)
 
+        # no cover: start
         @cuda.jit(device=True, inline=True, **compile_kwargs)
         def alloc_shared():
             return cuda.shared.array(0,
@@ -993,6 +996,7 @@ class BufferRegistry:
                 return cuda.local.array(persistent_size,
                                         dtype=numba_precision)
 
+        # no cover: end
         return alloc_shared, alloc_persistent
 
 

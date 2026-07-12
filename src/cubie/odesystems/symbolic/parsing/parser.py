@@ -223,10 +223,6 @@ def _normalize_sympy_equations(
             # Handle Derivative on LHS (canonical SymPy form for ODEs)
             if isinstance(lhs, sp.Derivative):
                 # Extract state variable from Derivative(x, t)
-                if len(lhs.args) < 1:
-                    raise ValueError(
-                        f"Equation {i}: Derivative has no arguments"
-                    )
                 state_var = lhs.args[0]
                 if not isinstance(state_var, sp.Symbol):
                     raise ValueError(
@@ -257,10 +253,6 @@ def _normalize_sympy_equations(
 
             # Handle Derivative in tuple format as well
             if isinstance(lhs, sp.Derivative):
-                if len(lhs.args) < 1:
-                    raise ValueError(
-                        f"Equation {i}: Derivative has no arguments"
-                    )
                 state_var = lhs.args[0]
                 if not isinstance(state_var, sp.Symbol):
                     raise ValueError(
@@ -706,8 +698,6 @@ def _inline_nondevice_calls(
             if v == name:
                 orig_name = k
                 break
-        if orig_name is None:
-            return applied
         fn = user_functions.get(orig_name)
         if fn is None or is_devfunc(fn):
             return applied

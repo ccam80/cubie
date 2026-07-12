@@ -10,8 +10,15 @@ import sympy as sp
 from cubie.odesystems.symbolic.parsing.function_inspector import (
     AstToSympyConverter,
     FunctionInspection,
+    _call_name,
+    _resolve_func_name,
     inspect_ode_function,
 )
+
+
+def _expr(source):
+    """Parse *source* as a single expression AST node."""
+    return ast.parse(source, mode="eval").body
 
 class TestInspectOdeFunction:
     """Tests for inspect_ode_function."""
@@ -381,3 +388,411 @@ class TestAstToSympyConverter:
         result = converter.convert(node)
         assert isinstance(result, sp.Symbol)
         assert str(result) == "foo"
+
+
+class TestSubscriptAndCallRecording:
+    """Access recording for non-constant subscripts and call names."""
+
+    def test_nested_subscript_value_ignored(self):
+        """A subscript whose base is not a bare Name is not recorded.
+
+        The outer ``y[0][1]`` subscript has a subscript (not a Name) as
+        its value, so only the inner ``y[0]`` access is recorded.
+        """
+        def f(t, y):
+            return [y[0][1]]
+
+        result = inspect_ode_function(f)
+        keys = [a["key"] for a in result.state_accesses]
+        assert 0 in keys
+        assert all(a["base"] == "y" for a in result.state_accesses)
+
+    def test_name_subscript_pattern(self):
+        """A bare-name subscript ``y[i]`` records pattern_type 'name'."""
+        def f(t, y, i):
+            return [y[i]]
+
+        result = inspect_ode_function(f)
+        assert result.state_accesses[0]["pattern_type"] == "name"
+        assert result.state_accesses[0]["key"] == "i"
+
+    def test_expr_subscript_pattern(self):
+        """A computed subscript ``y[i + 1]`` records pattern_type 'expr'."""
+        def f(t, y, i):
+            return [y[i + 1]]
+
+        result = inspect_ode_function(f)
+        assert result.state_accesses[0]["pattern_type"] == "expr"
+
+    def test_call_name_of_non_name_callable(self):
+        """``_call_name`` returns None for a non-Name, non-Attribute func."""
+        node = _expr("obj[0]()")
+        assert _call_name(node) is None
+
+    def test_resolve_func_name_strips_module_prefix(self):
+        """Module-qualified names lose their known prefix."""
+        assert _resolve_func_name("math.sin") == "sin"
+        assert _resolve_func_name("np.exp") == "exp"
+
+    def test_resolve_func_name_keeps_unknown_prefix(self):
+        """A dotted name with an unknown prefix is returned unchanged."""
+        assert _resolve_func_name("foo.bar") == "foo.bar"
+        assert _resolve_func_name("sin") == "sin"
+
+
+class TestAssignmentEdgeCases:
+    """Tuple unpacking, augmented, walrus, and import handling."""
+
+    def test_tuple_unpacking_length_mismatch_raises(self):
+        """Mismatched tuple unpacking lengths raise a ValueError."""
+        def f(t, y):
+            a, b = y[0], y[1], y[2]
+            return [-a]
+
+        with pytest.raises(ValueError, match="length mismatch"):
+            inspect_ode_function(f)
+
+    def test_tuple_unpacking_non_tuple_rhs(self):
+        """Unpacking a single call binds each target to that call."""
+        def f(t, y):
+            from math import sin
+            a, b = sin(y[0])
+            return [-a, -b]
+
+        result = inspect_ode_function(f)
+        assert "a" in result.assignments
+        assert "b" in result.assignments
+        assert result.assignments["a"] is result.assignments["b"]
+
+    def test_augmented_assignment_without_prior_raises(self):
+        """An augmented assignment with no prior value raises."""
+        def f(t, y):
+            total += y[0]  # noqa: F821
+            return [-total]
+
+        with pytest.raises(ValueError, match="no prior assignment"):
+            inspect_ode_function(f)
+
+    def test_walrus_at_statement_level(self):
+        """A walrus outside an if condition is treated as an assignment."""
+        def f(t, y):
+            z = (v := y[0]) + 1.0
+            return [-v - z]
+
+        result = inspect_ode_function(f)
+        assert "v" in result.assignments
+        assert "z" in result.assignments
+
+    def test_plain_import_allowed(self):
+        """A plain ``import`` statement is accepted."""
+        def f(t, y):
+            import math
+            return [math.sin(y[0])]
+
+        result = inspect_ode_function(f)
+        assert "math.sin" in result.function_calls
+
+
+class TestIfFallbacks:
+    """If/elif fallbacks that raise when a branch lacks a prior value."""
+
+    def test_if_branch_only_no_prior_raises(self):
+        """A variable set only in an if-branch with no prior raises."""
+        def f(t, y):
+            if y[0] > 0:
+                result = y[1]
+            return [-result]  # noqa: F821
+
+        with pytest.raises(ValueError, match="no else-branch"):
+            inspect_ode_function(f)
+
+    def test_else_branch_only_no_prior_raises(self):
+        """A variable set only in an else-branch with no prior raises."""
+        def f(t, y):
+            if y[0] > 0:
+                pass
+            else:
+                result = y[1]
+            return [-result]  # noqa: F821
+
+        with pytest.raises(ValueError, match="no if-branch"):
+            inspect_ode_function(f)
+
+    def test_nested_if_only_no_fallback_raises(self):
+        """A nested-if-only assignment without a fallback raises."""
+        def f(t, y):
+            if y[0] > 1:
+                r = y[0]
+            else:
+                if y[1] > 0:
+                    r = y[1]
+            return [-r]  # noqa: F821
+
+        with pytest.raises(ValueError, match="nested if"):
+            inspect_ode_function(f)
+
+    def test_nested_else_only_no_fallback_raises(self):
+        """A nested-else-only assignment without a fallback raises."""
+        def f(t, y):
+            if y[0] > 1:
+                r = y[0]
+            else:
+                if y[1] > 0:
+                    pass
+                else:
+                    r = y[1]
+            return [-r]  # noqa: F821
+
+        with pytest.raises(ValueError, match="nested"):
+            inspect_ode_function(f)
+
+    def test_else_branch_uses_prior_fallback(self):
+        """An else-only assignment falls back to the prior value."""
+        def f(t, y):
+            r = 0.0
+            if y[0] > 0:
+                pass
+            else:
+                r = y[1]
+            return [-r]
+
+        result = inspect_ode_function(f)
+        assert isinstance(result.assignments["r"], ast.IfExp)
+
+    def test_nested_if_uses_prior_fallback(self):
+        """A nested-if assignment falls back to the prior value."""
+        def f(t, y):
+            r = 0.0
+            if y[0] > 1:
+                r = y[0]
+            else:
+                if y[1] > 0:
+                    r = y[1]
+            return [-r]
+
+        result = inspect_ode_function(f)
+        assert isinstance(result.assignments["r"], ast.IfExp)
+
+    def test_nested_else_uses_prior_fallback(self):
+        """A nested-else assignment falls back to the prior value."""
+        def f(t, y):
+            r = 0.0
+            if y[0] > 1:
+                r = y[0]
+            else:
+                if y[1] > 0:
+                    pass
+                else:
+                    r = y[1]
+            return [-r]
+
+        result = inspect_ode_function(f)
+        assert isinstance(result.assignments["r"], ast.IfExp)
+
+    def test_branch_annassign_expr_and_call_recorded(self):
+        """Branch annotated-assign, bare expr, and calls are recorded."""
+        def f(t, y):
+            from math import sin
+            a = 0.0
+            if y[0] > 0:
+                a: float = sin(y[1])
+                sin(y[0])
+            else:
+                a = 1.0
+            return [-a]
+
+        result = inspect_ode_function(f)
+        assert "sin" in result.function_calls
+        assert isinstance(result.assignments["a"], ast.IfExp)
+
+    def test_branch_tuple_unpacking_matched(self):
+        """Matched tuple unpacking inside a branch splits per target."""
+        def f(t, y):
+            if y[0] > 0:
+                a, b = y[0], y[1]
+            else:
+                a, b = -y[0], -y[1]
+            return [-a, -b]
+
+        result = inspect_ode_function(f)
+        assert isinstance(result.assignments["a"], ast.IfExp)
+        assert isinstance(result.assignments["b"], ast.IfExp)
+
+    def test_branch_tuple_unpacking_non_tuple_rhs(self):
+        """A single-call unpacking inside a branch binds every target."""
+        def f(t, y):
+            from math import sin
+            if y[0] > 0:
+                a, b = sin(y[0])
+            else:
+                a, b = sin(y[1]), sin(y[0])
+            return [-a, -b]
+
+        result = inspect_ode_function(f)
+        assert isinstance(result.assignments["a"], ast.IfExp)
+        assert isinstance(result.assignments["b"], ast.IfExp)
+
+    def test_branch_augmented_without_prior_raises(self):
+        """An augmented assignment in a branch with no prior raises."""
+        def f(t, y):
+            if y[0] > 0:
+                total += y[1]  # noqa: F821
+            else:
+                total = 0.0
+            return [-total]
+
+        with pytest.raises(ValueError, match="no prior assignment"):
+            inspect_ode_function(f)
+
+
+class TestForIterableSigns:
+    """For-loop unrolling over iterables carrying negative literals."""
+
+    def test_range_with_negative_start(self):
+        """``range`` arguments may be negated integer literals."""
+        def f(t, y):
+            total = 0.0
+            for i in range(-1, 1):
+                total += y[0]
+            return [-total]
+
+        result = inspect_ode_function(f)
+        assert "total" in result.assignments
+
+    def test_literal_tuple_with_negative_element(self):
+        """Literal tuple elements may be negated numeric literals."""
+        def f(t, y):
+            total = 0.0
+            for c in (-0.5, 0.5):
+                total += c * y[0]
+            return [-total]
+
+        result = inspect_ode_function(f)
+        assert "total" in result.assignments
+
+
+class TestInspectRejections:
+    """Top-level guards in ``inspect_ode_function``."""
+
+    def test_non_callable_raises(self):
+        """A non-callable argument raises TypeError."""
+        with pytest.raises(TypeError, match="Expected callable"):
+            inspect_ode_function(42)
+
+    def test_builtin_without_source_raises(self):
+        """A builtin with no inspectable source raises TypeError."""
+        with pytest.raises(TypeError, match="builtin or C-extension"):
+            inspect_ode_function(len)
+
+    def test_unconventional_state_name_warns(self):
+        """A second parameter with an unusual name warns."""
+        def f(t, q):
+            return [-q[0]]
+
+        with warnings.catch_warnings(record=True) as w:
+            warnings.simplefilter("always")
+            inspect_ode_function(f)
+            assert any(
+                "conventionally named" in str(x.message) for x in w
+            )
+
+    def test_multiple_return_statements_raise(self):
+        """More than one return statement raises."""
+        def f(t, y):
+            return [-y[0]]
+            return [y[0]]  # noqa
+
+        with pytest.raises(ValueError, match="exactly one return"):
+            inspect_ode_function(f)
+
+    def test_async_function_raises(self):
+        """An async function raises: its AST has no FunctionDef node.
+
+        ``ast.walk`` only matches ``ast.FunctionDef``; an ``async def``
+        produces ``ast.AsyncFunctionDef``, so the definition search
+        fails and the no-definition guard fires.
+        """
+        async def f(t, y):
+            return [-y[0]]
+
+        with pytest.raises(ValueError, match="Could not find function"):
+            inspect_ode_function(f)
+
+
+class TestConverterOperators:
+    """Direct conversion of operator and comparison AST nodes."""
+
+    def _converter(self):
+        x = sp.Symbol("x", real=True)
+        y = sp.Symbol("y", real=True)
+        return AstToSympyConverter({"x": x, "y": y}), x, y
+
+    def test_div_floordiv_mod(self):
+        """Division, floor division, and modulo convert correctly."""
+        conv, x, y = self._converter()
+        assert conv.convert(_expr("x / y")) == x / y
+        assert conv.convert(_expr("x // y")) == sp.floor(x / y)
+        assert conv.convert(_expr("x % y")) == sp.Mod(x, y)
+
+    def test_unary_plus_and_not(self):
+        """Unary plus is identity and ``not`` maps to ``sp.Not``."""
+        conv, x, y = self._converter()
+        assert conv.convert(_expr("+x")) == x
+        assert conv.convert(_expr("not x")) == sp.Not(x)
+
+    def test_all_comparisons(self):
+        """Every supported comparison maps to its SymPy relation."""
+        conv, x, y = self._converter()
+        assert conv.convert(_expr("x >= y")) == sp.Ge(x, y)
+        assert conv.convert(_expr("x < y")) == sp.Lt(x, y)
+        assert conv.convert(_expr("x <= y")) == sp.Le(x, y)
+        assert conv.convert(_expr("x == y")) == sp.Eq(x, y)
+        assert conv.convert(_expr("x != y")) == sp.Ne(x, y)
+
+    def test_bool_and_or(self):
+        """Boolean ``and``/``or`` map to ``sp.And``/``sp.Or``."""
+        conv, x, y = self._converter()
+        assert conv.convert(_expr("(x > 0) and (y > 0)")) == sp.And(
+            sp.Gt(x, 0), sp.Gt(y, 0)
+        )
+        assert conv.convert(_expr("(x > 0) or (y > 0)")) == sp.Or(
+            sp.Gt(x, 0), sp.Gt(y, 0)
+        )
+
+    def test_tuple_and_list_expressions_raise(self):
+        """Bare tuple/list expressions raise NotImplementedError."""
+        conv, x, y = self._converter()
+        with pytest.raises(NotImplementedError, match="unpacked"):
+            conv.convert(_expr("(x, y)"))
+        with pytest.raises(NotImplementedError, match="unpacked"):
+            conv.convert(_expr("[x, y]"))
+
+
+class TestConverterUserFunctions:
+    """User-callable resolution and symbolic fallback."""
+
+    def test_module_prefixed_user_call_inlined(self):
+        """A module-qualified call resolves via the bare user name."""
+        x = sp.Symbol("x", real=True)
+        conv = AstToSympyConverter(
+            {"x": x},
+            user_callables={"myfn": lambda a: a * 2},
+            user_function_classes={"myfn": sp.Function("myfn")},
+        )
+        result = conv.convert(_expr("np.myfn(x)"))
+        assert result == 2 * x
+
+    def test_user_call_symbolic_fallback_on_error(self):
+        """A user callable that rejects symbolic args stays symbolic."""
+        def bad(a):
+            raise ValueError("symbolic arg rejected")
+
+        x = sp.Symbol("x", real=True)
+        myfn = sp.Function("myfn")
+        conv = AstToSympyConverter(
+            {"x": x},
+            user_callables={"myfn": bad},
+            user_function_classes={"myfn": myfn},
+        )
+        result = conv.convert(_expr("myfn(x)"))
+        assert result == myfn(x)

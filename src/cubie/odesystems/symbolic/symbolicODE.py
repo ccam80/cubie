@@ -616,7 +616,9 @@ class SymbolicODE(BaseODE):
         to :meth:`BaseODE.set_constants` for cache management.
         """
         self.indices.update_constants(updates_dict, **kwargs)
-        recognized = super().set_constants(updates_dict, silent=silent)
+        recognized = super().set_constants(
+            updates_dict, silent=silent, **kwargs
+        )
         return recognized
 
     def make_parameter(self, name: str) -> None:
@@ -772,6 +774,7 @@ class SymbolicODE(BaseODE):
         return result
 
     def constants_gui(self, blocking: bool = True) -> None:
+        # no cover: start
         """Launch a Qt GUI for editing constants and parameters.
 
         The GUI displays all constants and parameters with their values and
@@ -795,8 +798,10 @@ class SymbolicODE(BaseODE):
         """
         from cubie.gui.constants_editor import show_constants_editor
         show_constants_editor(self, blocking=blocking)
+        # no cover: end
 
     def states_gui(self, blocking: bool = True) -> None:
+        # no cover: start
         """Launch a Qt GUI for editing initial state values.
 
         The GUI displays all state variables with their initial values and
@@ -819,6 +824,7 @@ class SymbolicODE(BaseODE):
         """
         from cubie.gui.states_editor import show_states_editor
         show_states_editor(self, blocking=blocking)
+        # no cover: end
 
     def get_solver_helper(
         self,
@@ -1283,6 +1289,7 @@ def _chain_two_preconditioners(p0, p1, cached=False, lineinfo=None):
                 base_state, t, h, a_ij,
                 scratch, out, jvp, chain_scratch,
             )
+        # no cover: end
         return chained_cached
     else:
         @cuda.jit(device=True, inline=True, **jit_kwargs)
@@ -1298,4 +1305,5 @@ def _chain_two_preconditioners(p0, p1, cached=False, lineinfo=None):
                 state, parameters, drivers, base_state,
                 t, h, a_ij, scratch, out, jvp, chain_scratch,
             )
+        # no cover: end
         return chained

@@ -122,6 +122,7 @@ class FixedStepController(BaseStepController):
         """
         success = int32(CUBIE_RESULT_CODES.SUCCESS)
 
+        # no cover: start
         @cuda.jit(
             device=True,
             inline=True,
@@ -166,4 +167,5 @@ class FixedStepController(BaseStepController):
             accept_out[0] = int32(1)
             return success
 
+        # no cover: end
         return ControllerCache(device_function=controller_fixed_step)
