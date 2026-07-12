@@ -43,6 +43,7 @@ import numpy as np
 import sympy as sp
 from numba import cuda
 
+from cubie.cuda_simsafe import CUDA_SIMULATION
 from cubie.odesystems.symbolic.indexedbasemaps import IndexedBases
 
 logger = logging.getLogger(__name__)
@@ -166,7 +167,8 @@ class NeumannRHSEvaluator:
         kernel = self._evaluation_kernel()
         threads = 32
         blocks = (2 * n + threads - 1) // threads
-        try:
+
+        def launch():
             device_states = cuda.to_device(states)
             device_parameters = cuda.to_device(parameters)
             device_drivers = cuda.to_device(drivers)
@@ -180,18 +182,24 @@ class NeumannRHSEvaluator:
                 device_out,
                 precision.type(t0),
             )
-            evaluated = device_out.copy_to_host()
-        except (
-            ZeroDivisionError,
-            FloatingPointError,
-            OverflowError,
-            ValueError,
-        ):
-            # The CUDA simulator surfaces domain errors as host
-            # exceptions where device code produces non-finite
-            # values; both funnel into the caller's
-            # could-not-evaluate path.
-            return np.full((n, n), np.nan)
+            return device_out.copy_to_host()
+
+        if CUDA_SIMULATION:
+            # The simulator executes device code as host Python,
+            # where domain errors raise instead of producing the
+            # non-finite values device math returns; translate them
+            # into the caller's could-not-evaluate path.
+            try:
+                evaluated = launch()
+            except (
+                ZeroDivisionError,
+                FloatingPointError,
+                OverflowError,
+                ValueError,
+            ):
+                return np.full((n, n), np.nan)
+        else:
+            evaluated = launch()
 
         evaluated = evaluated.astype(np.float64)
         jacobian = np.empty((n, n), dtype=np.float64)
