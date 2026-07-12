@@ -558,8 +558,8 @@ class SymbolicODE(BaseODE):
             dxdt_code,
             injections=self._device_function_injections(),
         )
-        # Cached generated files may predate the lineinfo parameter; pass
-        # it only when the factory's signature declares it.
+        # Older on-disk generated factories may not declare a lineinfo
+        # parameter; pass it only when the factory's signature declares it.
         dxdt_func = dxdt_factory(
             constants,
             numba_precision,
@@ -1151,7 +1151,7 @@ class SymbolicODE(BaseODE):
     def _lineinfo_kwarg(self, factory) -> dict:
         """Return a ``lineinfo`` kwarg when ``factory`` declares one.
 
-        Generated factory files cached on disk may predate the ``lineinfo``
+        Older on-disk generated factories may not declare a ``lineinfo``
         parameter; those factories are called without it.
         """
         if "lineinfo" in inspect.signature(factory).parameters:
