@@ -97,7 +97,7 @@ except ImportError as e:
 # are safe for it: no signed zeros, FMA contraction and approximate
 # division. 'afn' is excluded — step controllers rely on
 # full-precision sqrt/pow in their error norms.
-compile_kwargs: dict[str, object] = {
+compile_kwargs: dict[str, bool | set[str]] = {
     "fastmath": {"nsz", "contract", "arcp"},
     # "lineinfo": True,
 }

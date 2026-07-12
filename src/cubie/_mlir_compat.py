@@ -2114,15 +2114,27 @@ def register_selective_fastmath_shims() -> None:
     _mlir_optimization._nvvm_options = nvvm_options_selective
 
     original_get_lto_ptx = _mlir_optimization.get_lto_ptx
-    stock_knob = 'target_options.get("fastmath") or None'
-    if stock_knob not in inspect.getsource(original_get_lto_ptx):
-        raise RuntimeError(
-            "cubie._mlir_compat: numba-cuda-mlir's get_lto_ptx no "
-            "longer matches the stock fastmath knob gating; update "
-            "the selective fastmath shim for this release."
-        )
+    stock_knob_verified = False
+
+    def verify_stock_knob():
+        # Checked on the first LTO compile rather than at import so a
+        # wheel that reworks get_lto_ptx without providing
+        # numba_cuda_mlir.fastmath fails loudly at the point the
+        # wrapped knob gating matters, not on every `import cubie`.
+        nonlocal stock_knob_verified
+        if stock_knob_verified:
+            return
+        stock_knob = 'target_options.get("fastmath") or None'
+        if stock_knob not in inspect.getsource(original_get_lto_ptx):
+            raise RuntimeError(
+                "cubie._mlir_compat: numba-cuda-mlir's get_lto_ptx no "
+                "longer matches the stock fastmath knob gating; update "
+                "the selective fastmath shim for this release."
+            )
+        stock_knob_verified = True
 
     def get_lto_ptx_selective(cres, linker=None, target_options=None):
+        verify_stock_knob()
         if target_options is None:
             target_options = cres.metadata["targetoptions"]
         if (
