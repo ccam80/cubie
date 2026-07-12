@@ -45,7 +45,7 @@ default_timelogger.register_event("codegen_generate_observables_fac_code",
 DXDT_TEMPLATE = (
     "\n"
     "# AUTO-GENERATED DXDT FACTORY\n"
-    "def {func_name}(constants, precision):\n"
+    "def {func_name}(constants, precision, lineinfo=None):\n"
     '    """Auto-generated dxdt factory."""\n'
     "{const_lines}"
     "    \n"
@@ -57,7 +57,8 @@ DXDT_TEMPLATE = (
     "        #  precision[::1],\n"
     "        #  precision),\n"
     "        device=True,\n"
-    "        inline=True)\n"
+    "        inline=True,\n"
+    "        **get_jit_kwargs(lineinfo))\n"
     "    def dxdt(state, parameters, drivers, observables, out, t):\n"
     "    {body}\n"
     "    \n"
@@ -67,7 +68,7 @@ DXDT_TEMPLATE = (
 OBSERVABLES_TEMPLATE = (
     "\n"
     "# AUTO-GENERATED OBSERVABLES FACTORY\n"
-    "def {func_name}(constants, precision):\n"
+    "def {func_name}(constants, precision, lineinfo=None):\n"
     '    """Auto-generated observables factory."""\n'
     "{const_lines}"
     "    @cuda.jit(\n"
@@ -77,7 +78,8 @@ OBSERVABLES_TEMPLATE = (
     "        #  precision[::1],\n"
     "        #  precision),\n"
     "        device=True,\n"
-    "        inline=True)\n"
+    "        inline=True,\n"
+    "        **get_jit_kwargs(lineinfo))\n"
     "    def get_observables(state, parameters, drivers, observables, t):\n"
     "    {body}\n"
     "    \n"

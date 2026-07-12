@@ -67,7 +67,7 @@ default_timelogger.register_event(
 NEUMANN_TEMPLATE = (
     "\n"
     "# AUTO-GENERATED NEUMANN PRECONDITIONER FACTORY\n"
-    "def {func_name}(constants, precision, beta=1.0, gamma=1.0, order=1):\n"
+    "def {func_name}(constants, precision, beta=1.0, gamma=1.0, order=1, lineinfo=None):\n"
     '    """Auto-generated Neumann preconditioner.\n'
     "    Approximates (beta*I - gamma*a_ij*h*J)^[-1] via a truncated\n"
     "    Neumann series. Returns device function:\n"
@@ -95,7 +95,8 @@ NEUMANN_TEMPLATE = (
     "        #  precision[::1],\n"
     "        #  precision[::1]),\n"
     "        device=True,\n"
-    "        inline=True)\n"
+    "        inline=True,\n"
+    "        **get_jit_kwargs(lineinfo))\n"
     "    def preconditioner(\n"
     "        state, parameters, drivers, base_state, t, h, a_ij, v, out, jvp, scratch\n"
     "    ):\n"
@@ -117,7 +118,7 @@ NEUMANN_TEMPLATE = (
 NEUMANN_CACHED_TEMPLATE = (
     "\n"
     "# AUTO-GENERATED CACHED NEUMANN PRECONDITIONER FACTORY\n"
-    "def {func_name}(constants, precision, beta=1.0, gamma=1.0, order=1):\n"
+    "def {func_name}(constants, precision, beta=1.0, gamma=1.0, order=1, lineinfo=None):\n"
     '    """Cached Neumann preconditioner using stored auxiliaries.\n'
     "    Approximates (beta*I - gamma*a_ij*h*J)^[-1] via a truncated\n"
     "    Neumann series with cached auxiliaries. Returns device function:\n"
@@ -147,7 +148,8 @@ NEUMANN_CACHED_TEMPLATE = (
     "        #  precision[::1],\n"
     "        #  precision[::1]),\n"
     "        device=True,\n"
-    "        inline=True)\n"
+    "        inline=True,\n"
+    "        **get_jit_kwargs(lineinfo))\n"
     "    def preconditioner(\n"
     "        state, parameters, drivers, cached_aux, base_state, t, h, a_ij, v, out, jvp, scratch\n"
     "    ):\n"
@@ -167,7 +169,7 @@ NEUMANN_CACHED_TEMPLATE = (
 N_STAGE_NEUMANN_TEMPLATE = (
     "\n"
     "# AUTO-GENERATED N-STAGE NEUMANN PRECONDITIONER FACTORY\n"
-    "def {func_name}(constants, precision, beta=1.0, gamma=1.0, order=1):\n"
+    "def {func_name}(constants, precision, beta=1.0, gamma=1.0, order=1, lineinfo=None):\n"
     '    """Auto-generated FIRK Neumann preconditioner.\n'
     "    Handles {stage_count} stages with ``s * n`` unknowns.\n"
     "    Approximates the inverse of ``beta * I - gamma * h * (A ⊗ J)`` using\n"
@@ -196,7 +198,8 @@ N_STAGE_NEUMANN_TEMPLATE = (
     "        #  precision[::1],\n"
     "        #  precision[::1]),\n"
     "        device=True,\n"
-    "        inline=True)\n"
+    "        inline=True,\n"
+    "        **get_jit_kwargs(lineinfo))\n"
     "    def preconditioner(state, parameters, drivers, base_state, t, h, a_ij, v, out, jvp, scratch):\n"
     "        for i in range(total_n):\n"
     "            out[i] = v[i]\n"
@@ -578,7 +581,7 @@ def generate_neumann_preconditioner_cached_code(
 JACOBI_TEMPLATE = (
     "\n"
     "# AUTO-GENERATED DIAGONAL JACOBI PRECONDITIONER FACTORY\n"
-    "def {func_name}(constants, precision, beta=1.0, gamma=1.0, order=1):\n"
+    "def {func_name}(constants, precision, beta=1.0, gamma=1.0, order=1, lineinfo=None):\n"
     '    """Auto-generated diagonal Jacobi preconditioner.\n'
     "    Computes diagonal of ``beta * M - gamma * a_ij * h * J`` and\n"
     "    applies pointwise inversion: ``out[i] = v[i] / d[i]``.\n"
@@ -592,7 +595,8 @@ JACOBI_TEMPLATE = (
     "{const_lines}"
     "    @cuda.jit(\n"
     "        device=True,\n"
-    "        inline=True)\n"
+    "        inline=True,\n"
+    "        **get_jit_kwargs(lineinfo))\n"
     "    def preconditioner("
     "state, parameters, drivers, base_state, t, h, a_ij, v, out, jvp, scratch):\n"
     "{diag_body}\n"
@@ -603,7 +607,7 @@ JACOBI_TEMPLATE = (
 JACOBI_CACHED_TEMPLATE = (
     "\n"
     "# AUTO-GENERATED CACHED DIAGONAL JACOBI PRECONDITIONER FACTORY\n"
-    "def {func_name}(constants, precision, beta=1.0, gamma=1.0, order=1):\n"
+    "def {func_name}(constants, precision, beta=1.0, gamma=1.0, order=1, lineinfo=None):\n"
     '    """Cached diagonal Jacobi preconditioner using stored auxiliaries.\n'
     "    Computes diagonal of ``beta * M - gamma * a_ij * h * J`` and\n"
     "    applies pointwise inversion: ``out[i] = v[i] / d[i]``.\n"
@@ -619,7 +623,8 @@ JACOBI_CACHED_TEMPLATE = (
     "{const_lines}"
     "    @cuda.jit(\n"
     "        device=True,\n"
-    "        inline=True)\n"
+    "        inline=True,\n"
+    "        **get_jit_kwargs(lineinfo))\n"
     "    def preconditioner("
     "state, parameters, drivers, cached_aux, base_state,"
     " t, h, a_ij, v, out, jvp, scratch):\n"
@@ -1033,7 +1038,7 @@ def generate_jacobi_preconditioner_cached_code(
 N_STAGE_JACOBI_TEMPLATE = (
     "\n"
     "# AUTO-GENERATED N-STAGE DIAGONAL JACOBI PRECONDITIONER FACTORY\n"
-    "def {func_name}(constants, precision, beta=1.0, gamma=1.0, order=1):\n"
+    "def {func_name}(constants, precision, beta=1.0, gamma=1.0, order=1, lineinfo=None):\n"
     '    """Auto-generated FIRK diagonal Jacobi preconditioner.\n'
     "    Handles {stage_count} stages with ``s * n`` unknowns.\n"
     "    Computes diagonal of ``beta * M - gamma * h * (A ⊗ J)`` and\n"
@@ -1050,7 +1055,8 @@ N_STAGE_JACOBI_TEMPLATE = (
     "    stage_width = int32({state_count})\n"
     "    @cuda.jit(\n"
     "        device=True,\n"
-    "        inline=True)\n"
+    "        inline=True,\n"
+    "        **get_jit_kwargs(lineinfo))\n"
     "    def preconditioner("
     "state, parameters, drivers, base_state, t, h, a_ij, v, out, jvp, scratch):\n"
     "        # Evaluate diagonal J_ii at each stage evaluation point,\n"

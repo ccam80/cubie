@@ -46,7 +46,7 @@ default_timelogger.register_event("codegen_generate_time_derivative_fac_code",
 TIME_DERIVATIVE_TEMPLATE = (
     "\n"
     "# AUTO-GENERATED TIME-DERIVATIVE FACTORY\n"
-    "def {func_name}(constants, precision):\n"
+    "def {func_name}(constants, precision, lineinfo=None):\n"
     '    """Auto-generated time-derivative factory."""\n'
     "{const_lines}"
     "    @cuda.jit(\n"
@@ -58,7 +58,8 @@ TIME_DERIVATIVE_TEMPLATE = (
     "        #  precision[::1],\n"
     "        #  precision),\n"
     "        device=True,\n"
-    "        inline=True)\n"
+    "        inline=True,\n"
+    "        **get_jit_kwargs(lineinfo))\n"
     "    def time_derivative_rhs(\n"
     "        state, parameters, drivers, driver_dt, observables, out, t\n"
     "    ):\n"

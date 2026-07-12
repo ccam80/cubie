@@ -244,7 +244,7 @@ def assert_solverkernel_config(kernel, settings, tolerance):
     # - observables, state, state_summaries, observable_summaries: runtime outputs
     # - output_*, summaries_*: computed from settings
     # - parameters, initial_values: runtime input data
-    # - profileCUDA: construction-time setting
+    # - lineinfo: compile setting on every CUDAFactoryConfig
     # - save_time: derived from output configuration
     # - shared_memory_bytes, shared_memory_needs_padding: computed
     # - single_integrator: tested separately

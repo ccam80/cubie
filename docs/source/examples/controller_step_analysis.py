@@ -106,7 +106,7 @@ def build_solver_settings(precision: type[np.floating[Any]]) -> Dict[str, Any]:
         "output_types": ["state", "time"],
         "blocksize": 32,
         "stream": 0,
-        "profileCUDA": False,
+        "lineinfo": False,
         "memory_manager": default_memmgr,
         "stream_group": "test_group",
         "mem_proportion": None,

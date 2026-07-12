@@ -34,6 +34,7 @@ from numpy import eye
 
 from cubie._utils import PrecisionDType, build_config
 from cubie.buffer_registry import buffer_registry
+from cubie.cuda_simsafe import get_jit_kwargs
 from cubie.integrators.algorithms.base_algorithm_step import StepCache, \
     StepControlDefaults
 from cubie.integrators.algorithms.ode_implicitstep import (
@@ -211,6 +212,7 @@ class BackwardsEulerStep(ODEImplicitStep):
             # ),
             device=True,
             inline=True,
+            **get_jit_kwargs(self.compile_settings.lineinfo),
         )
         def step(
             state,

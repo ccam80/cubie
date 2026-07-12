@@ -39,7 +39,7 @@ from cubie.integrators.step_control.adaptive_step_controller import (
     AdaptiveStepControlConfig,
     BaseAdaptiveStepController,
 )
-from cubie.cuda_simsafe import compile_kwargs, selp
+from cubie.cuda_simsafe import get_jit_kwargs, selp
 from cubie.result_codes import CUBIE_RESULT_CODES
 from cubie.integrators.step_control.base_step_controller import ControllerCache
 
@@ -172,7 +172,7 @@ class AdaptivePIController(BaseAdaptiveStepController):
         @cuda.jit(
             device=True,
             inline=True,
-            **compile_kwargs,
+            **get_jit_kwargs(self.compile_settings.lineinfo),
         )
         def controller_PI(
             dt,

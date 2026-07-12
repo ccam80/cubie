@@ -24,12 +24,12 @@ Based on the recursive chain approach by sklam
 JIT-compiled functions without passing them as an iterable.
 """
 
-from typing import Callable, Sequence, Union
+from typing import Callable, Optional, Sequence, Union
 
 from numba import cuda, int32
 from numpy.typing import ArrayLike
 
-from cubie.cuda_simsafe import compile_kwargs
+from cubie.cuda_simsafe import compile_kwargs, get_jit_kwargs
 from cubie.outputhandling.summarymetrics import summary_metrics
 
 
@@ -70,6 +70,7 @@ def chain_metrics(
     output_sizes: Sequence[int],
     function_params: Sequence[object],
     inner_chain: Callable = do_nothing,
+    lineinfo: Optional[bool] = None,
 ) -> Callable:
     """
     Recursively chain summary metric functions for CUDA execution.
@@ -126,7 +127,7 @@ def chain_metrics(
     @cuda.jit(
         device=True,
         inline=True,
-        **compile_kwargs,
+        **get_jit_kwargs(lineinfo),
     )
     def wrapper(
         buffer,
@@ -176,6 +177,7 @@ def chain_metrics(
             remaining_output_sizes,
             remaining_metric_params,
             wrapper,
+            lineinfo=lineinfo,
         )
     else:
         return wrapper
@@ -187,6 +189,7 @@ def save_summary_factory(
     summarised_state_indices: Union[Sequence[int], ArrayLike],
     summarised_observable_indices: Union[Sequence[int], ArrayLike],
     summaries_list: Sequence[str],
+    lineinfo: Optional[bool] = None,
 ) -> Callable:
     """
     Factory function for creating CUDA device functions to save summary metrics.
@@ -249,13 +252,14 @@ def save_summary_factory(
         output_offsets,
         output_sizes,
         params,
+        lineinfo=lineinfo,
     )
 
     # no cover: start
     @cuda.jit(
         device=True,
         inline=True,
-        **compile_kwargs,
+        **get_jit_kwargs(lineinfo),
     )
     def save_summary_metrics_func(
         buffer_state_summaries,

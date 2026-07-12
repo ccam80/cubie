@@ -425,17 +425,33 @@ def test_update_silent_mode(precision, solver_mutable):
     assert solver.kernel.dt == new_dt
 
 
-def test_update_profileCUDA(solver_mutable):
-    """Test that update toggles profiling without raising KeyError."""
+def test_update_lineinfo(solver_mutable):
+    """Test that update routes lineinfo through compile settings."""
     solver = solver_mutable
 
-    updated_keys = solver.update({"profileCUDA": True})
-    assert updated_keys == {"profileCUDA"}
-    assert solver.kernel._profileCUDA is True
+    updated_keys = solver.update({"lineinfo": True})
+    assert "lineinfo" in updated_keys
+    assert solver.kernel.compile_settings.lineinfo is True
+    assert not solver.kernel.cache_valid
 
-    updated_keys = solver.update({"profileCUDA": False})
-    assert updated_keys == {"profileCUDA"}
-    assert solver.kernel._profileCUDA is False
+    updated_keys = solver.update({"lineinfo": False})
+    assert "lineinfo" in updated_keys
+    assert solver.kernel.compile_settings.lineinfo is False
+
+
+def test_lineinfo_constructor_propagates_to_children(system):
+    """Explicit lineinfo reaches every child factory's compile settings."""
+    solver = Solver(system, algorithm="euler", lineinfo=True)
+
+    kernel = solver.kernel
+    assert kernel.compile_settings.lineinfo is True
+
+    integrator = kernel.single_integrator
+    assert integrator._loop.compile_settings.lineinfo is True
+    assert integrator._algo_step.compile_settings.lineinfo is True
+    assert integrator._step_controller.compile_settings.lineinfo is True
+    assert integrator._output_functions.compile_settings.lineinfo is True
+    assert integrator._system.compile_settings.lineinfo is True
 
 
 def test_update_saved_variables(solver_mutable, system):

@@ -38,7 +38,7 @@ from cubie.integrators.matrix_free_solvers.linear_solver_base import (
     LinearSolverCache,
 )
 from cubie.buffer_registry import buffer_registry
-from cubie.cuda_simsafe import activemask, all_sync, compile_kwargs, selp
+from cubie.cuda_simsafe import activemask, all_sync, get_jit_kwargs, selp
 from cubie.result_codes import CUBIE_RESULT_CODES
 
 
@@ -237,6 +237,7 @@ class BiCGSTABSolver(LinearSolverBase):
         preconditioned = preconditioner is not None
         cached = config.use_cached_auxiliaries
         chained_precond = config.preconditioner_is_chained
+        jit_kwargs = get_jit_kwargs(config.lineinfo)
 
         # Convert types for device function
         n_val = int32(n)
@@ -291,7 +292,7 @@ class BiCGSTABSolver(LinearSolverBase):
         # unused branch is pruned before type inference (same mechanism
         # as ``preconditioned`` below).
         if cached:
-            @cuda.jit(device=True, inline=True, **compile_kwargs)
+            @cuda.jit(device=True, inline=True, **jit_kwargs)
             def op_apply(
                 state, parameters, drivers, cached_aux, base_state,
                 t, h, a_ij, vin, vout,
@@ -301,7 +302,7 @@ class BiCGSTABSolver(LinearSolverBase):
                     t, h, a_ij, vin, vout,
                 )
         else:
-            @cuda.jit(device=True, inline=True, **compile_kwargs)
+            @cuda.jit(device=True, inline=True, **jit_kwargs)
             def op_apply(
                 state, parameters, drivers, cached_aux, base_state,
                 t, h, a_ij, vin, vout,
@@ -313,7 +314,7 @@ class BiCGSTABSolver(LinearSolverBase):
 
         if preconditioned:
             if cached:
-                @cuda.jit(device=True, inline=True, **compile_kwargs)
+                @cuda.jit(device=True, inline=True, **jit_kwargs)
                 def precond(
                     state, parameters, drivers, cached_aux, base_state,
                     t, h, a_ij, rhs, out, temp, scratch, chain_scratch,
@@ -331,7 +332,7 @@ class BiCGSTABSolver(LinearSolverBase):
                             scratch,
                         )
             else:
-                @cuda.jit(device=True, inline=True, **compile_kwargs)
+                @cuda.jit(device=True, inline=True, **jit_kwargs)
                 def precond(
                     state, parameters, drivers, cached_aux, base_state,
                     t, h, a_ij, rhs, out, temp, scratch, chain_scratch,
@@ -351,7 +352,7 @@ class BiCGSTABSolver(LinearSolverBase):
         @cuda.jit(
             device=True,
             inline=True,
-            **compile_kwargs,
+            **jit_kwargs,
         )
         def _core(
             state,
@@ -659,7 +660,7 @@ class BiCGSTABSolver(LinearSolverBase):
             @cuda.jit(
                 device=True,
                 inline=True,
-                **compile_kwargs,
+                **jit_kwargs,
             )
             def bicgstab_solver(
                 state,
@@ -685,7 +686,7 @@ class BiCGSTABSolver(LinearSolverBase):
             @cuda.jit(
                 device=True,
                 inline=True,
-                **compile_kwargs,
+                **jit_kwargs,
             )
             def bicgstab_solver(
                 state,
