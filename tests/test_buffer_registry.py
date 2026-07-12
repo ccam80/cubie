@@ -2,6 +2,9 @@
 
 from __future__ import annotations
 
+import gc
+import weakref
+
 import numpy as np
 import pytest
 
@@ -213,30 +216,30 @@ def test_build_allocator_zero_flag():
 # ── BufferGroup.register validation ──────────────────────── #
 
 
-def test_register_empty_name_raises(single_integrator_run):
+def test_register_empty_name_raises():
     """BufferGroup.register raises ValueError for empty name."""
-    group = BufferGroup(parent=single_integrator_run)
+    group = BufferGroup()
     with pytest.raises(ValueError, match="cannot be empty"):
         group.register("", 10, "shared")
 
 
-def test_register_self_alias_raises(single_integrator_run):
+def test_register_self_alias_raises():
     """BufferGroup.register raises ValueError for self-aliasing."""
-    group = BufferGroup(parent=single_integrator_run)
+    group = BufferGroup()
     with pytest.raises(ValueError, match="cannot alias itself"):
         group.register("buf", 10, "shared", aliases="buf")
 
 
-def test_register_missing_alias_target_raises(single_integrator_run):
+def test_register_missing_alias_target_raises():
     """BufferGroup.register raises ValueError for missing alias target."""
-    group = BufferGroup(parent=single_integrator_run)
+    group = BufferGroup()
     with pytest.raises(ValueError, match="not registered"):
         group.register("child", 10, "shared", aliases="parent")
 
 
-def test_register_adds_entry_and_invalidates(single_integrator_run):
+def test_register_adds_entry_and_invalidates():
     """Registration adds entry to group and invalidates layouts."""
-    group = BufferGroup(parent=single_integrator_run)
+    group = BufferGroup()
     group.register("buf", 10, "shared")
     group.build_layouts()
     assert group._shared_layout is not None
@@ -251,32 +254,26 @@ def test_register_adds_entry_and_invalidates(single_integrator_run):
 # ── BufferGroup.update_buffer ─────────────────────────────── #
 
 
-def test_update_buffer_unregistered_returns_false_false(
-    single_integrator_run,
-):
+def test_update_buffer_unregistered_returns_false_false():
     """update_buffer returns (False, False) for unknown buffer."""
-    group = BufferGroup(parent=single_integrator_run)
+    group = BufferGroup()
     recognized, changed = group.update_buffer("missing", size=10)
     assert recognized is False
     assert changed is False
 
 
-def test_update_buffer_no_change_returns_true_false(
-    single_integrator_run,
-):
+def test_update_buffer_no_change_returns_true_false():
     """update_buffer returns (True, False) when values unchanged."""
-    group = BufferGroup(parent=single_integrator_run)
+    group = BufferGroup()
     group.register("buf", 10, "shared")
     recognized, changed = group.update_buffer("buf", size=10)
     assert recognized is True
     assert changed is False
 
 
-def test_update_buffer_changed_returns_true_true(
-    single_integrator_run,
-):
+def test_update_buffer_changed_returns_true_true():
     """update_buffer returns (True, True) and invalidates on change."""
-    group = BufferGroup(parent=single_integrator_run)
+    group = BufferGroup()
     group.register("buf", 10, "shared")
     group.build_layouts()
     assert group._shared_layout is not None
@@ -291,9 +288,9 @@ def test_update_buffer_changed_returns_true_true(
 # ── BufferGroup.invalidate_layouts ────────────────────────── #
 
 
-def test_invalidate_layouts_clears_all(single_integrator_run):
+def test_invalidate_layouts_clears_all():
     """invalidate_layouts sets all caches to None."""
-    group = BufferGroup(parent=single_integrator_run)
+    group = BufferGroup()
     group.register("s", 10, "shared")
     group.register("p", 5, "local", persistent=True)
     group.register("l", 3, "local")
@@ -309,11 +306,9 @@ def test_invalidate_layouts_clears_all(single_integrator_run):
 # ── BufferGroup.build_layouts ─────────────────────────────── #
 
 
-def test_build_layouts_shared_sequential_offsets(
-    single_integrator_run,
-):
+def test_build_layouts_shared_sequential_offsets():
     """build_layouts assigns sequential shared slices."""
-    group = BufferGroup(parent=single_integrator_run)
+    group = BufferGroup()
     group.register("a", 10, "shared")
     group.register("b", 20, "shared")
     group.build_layouts()
@@ -322,11 +317,9 @@ def test_build_layouts_shared_sequential_offsets(
     assert group.shared_layout["b"] == slice(10, 30)
 
 
-def test_build_layouts_persistent_sequential_offsets(
-    single_integrator_run,
-):
+def test_build_layouts_persistent_sequential_offsets():
     """build_layouts assigns sequential persistent slices."""
-    group = BufferGroup(parent=single_integrator_run)
+    group = BufferGroup()
     group.register("a", 15, "local", persistent=True)
     group.register("b", 25, "local", persistent=True)
     group.build_layouts()
@@ -335,9 +328,9 @@ def test_build_layouts_persistent_sequential_offsets(
     assert group.persistent_layout["b"] == slice(15, 40)
 
 
-def test_build_layouts_local_sizes_min_one(single_integrator_run):
+def test_build_layouts_local_sizes_min_one():
     """build_layouts uses max(size, 1) for local buffers."""
-    group = BufferGroup(parent=single_integrator_run)
+    group = BufferGroup()
     group.register("zero", 0, "local")
     group.register("nonzero", 7, "local")
     group.build_layouts()
@@ -346,11 +339,9 @@ def test_build_layouts_local_sizes_min_one(single_integrator_run):
     assert group.local_sizes["nonzero"] == 7
 
 
-def test_build_layouts_short_circuits_when_populated(
-    single_integrator_run,
-):
+def test_build_layouts_short_circuits_when_populated():
     """build_layouts returns early when all caches already built."""
-    group = BufferGroup(parent=single_integrator_run)
+    group = BufferGroup()
     group.register("s", 10, "shared")
     group.build_layouts()
     original = group._shared_layout
@@ -362,9 +353,9 @@ def test_build_layouts_short_circuits_when_populated(
 # ── BufferGroup.layout_aliases ────────────────────────────── #
 
 
-def test_alias_overlaps_shared_parent(single_integrator_run):
+def test_alias_overlaps_shared_parent():
     """Aliased buffer overlaps within shared parent when space."""
-    group = BufferGroup(parent=single_integrator_run)
+    group = BufferGroup()
     group.register("parent", 100, "shared")
     group.register("child", 30, "shared", aliases="parent")
     group.build_layouts()
@@ -373,9 +364,9 @@ def test_alias_overlaps_shared_parent(single_integrator_run):
     assert group.shared_layout["child"] == slice(0, 30)
 
 
-def test_alias_exceeds_parent_falls_back(single_integrator_run):
+def test_alias_exceeds_parent_falls_back():
     """Aliased buffer exceeding parent gets own shared allocation."""
-    group = BufferGroup(parent=single_integrator_run)
+    group = BufferGroup()
     group.register("parent", 50, "shared")
     group.register("child", 80, "shared", aliases="parent")
     group.build_layouts()
@@ -385,9 +376,9 @@ def test_alias_exceeds_parent_falls_back(single_integrator_run):
     assert group.shared_buffer_size() == 130
 
 
-def test_alias_fallback_persistent(single_integrator_run):
+def test_alias_fallback_persistent():
     """Persistent aliased buffer falls back to persistent layout."""
-    group = BufferGroup(parent=single_integrator_run)
+    group = BufferGroup()
     group.register("parent", 10, "local")
     group.register(
         "child", 5, "local", persistent=True, aliases="parent",
@@ -398,9 +389,9 @@ def test_alias_fallback_persistent(single_integrator_run):
     assert group.persistent_local_buffer_size() == 5
 
 
-def test_alias_fallback_local(single_integrator_run):
+def test_alias_fallback_local():
     """Local aliased buffer falls back to local pile."""
-    group = BufferGroup(parent=single_integrator_run)
+    group = BufferGroup()
     group.register("parent", 10, "local", persistent=True)
     group.register("child", 5, "local", aliases="parent")
     group.build_layouts()
@@ -408,11 +399,9 @@ def test_alias_fallback_local(single_integrator_run):
     assert group.local_sizes["child"] == 5
 
 
-def test_alias_local_child_of_shared_parent_overlaps(
-    single_integrator_run,
-):
+def test_alias_local_child_of_shared_parent_overlaps():
     """Local child aliasing shared parent overlaps in shared."""
-    group = BufferGroup(parent=single_integrator_run)
+    group = BufferGroup()
     group.register("parent", 100, "shared")
     group.register("child", 30, "local", aliases="parent")
     group.build_layouts()
@@ -421,11 +410,9 @@ def test_alias_local_child_of_shared_parent_overlaps(
     assert group.local_buffer_size() == 0
 
 
-def test_multiple_aliases_sequential_consumption(
-    single_integrator_run,
-):
+def test_multiple_aliases_sequential_consumption():
     """Multiple aliases consume parent space sequentially."""
-    group = BufferGroup(parent=single_integrator_run)
+    group = BufferGroup()
     group.register("parent", 100, "shared")
     group.register("c1", 40, "shared", aliases="parent")
     group.register("c2", 40, "shared", aliases="parent")
@@ -450,9 +437,9 @@ def test_multiple_aliases_sequential_consumption(
         pytest.param("local_sizes", id="local"),
     ],
 )
-def test_layout_property_triggers_build(prop, single_integrator_run):
+def test_layout_property_triggers_build(prop):
     """Accessing layout property triggers build when None."""
-    group = BufferGroup(parent=single_integrator_run)
+    group = BufferGroup()
     group.register("s", 5, "shared")
     group.register("p", 3, "local", persistent=True)
     group.register("l", 2, "local")
@@ -467,39 +454,37 @@ def test_layout_property_triggers_build(prop, single_integrator_run):
 # ── BufferGroup size methods ──────────────────────────────── #
 
 
-def test_shared_buffer_size_empty(single_integrator_run):
+def test_shared_buffer_size_empty():
     """shared_buffer_size returns 0 for empty layout."""
-    group = BufferGroup(parent=single_integrator_run)
+    group = BufferGroup()
     assert group.shared_buffer_size() == 0
 
 
-def test_shared_buffer_size_returns_max_stop(single_integrator_run):
+def test_shared_buffer_size_returns_max_stop():
     """shared_buffer_size returns max slice stop."""
-    group = BufferGroup(parent=single_integrator_run)
+    group = BufferGroup()
     group.register("a", 10, "shared")
     group.register("b", 20, "shared")
     assert group.shared_buffer_size() == 30
 
 
-def test_local_buffer_size_returns_sum(single_integrator_run):
+def test_local_buffer_size_returns_sum():
     """local_buffer_size returns sum of local sizes."""
-    group = BufferGroup(parent=single_integrator_run)
+    group = BufferGroup()
     group.register("a", 5, "local")
     group.register("b", 8, "local")
     assert group.local_buffer_size() == 13
 
 
-def test_persistent_buffer_size_empty(single_integrator_run):
+def test_persistent_buffer_size_empty():
     """persistent_local_buffer_size returns 0 for empty layout."""
-    group = BufferGroup(parent=single_integrator_run)
+    group = BufferGroup()
     assert group.persistent_local_buffer_size() == 0
 
 
-def test_persistent_buffer_size_returns_max_stop(
-    single_integrator_run,
-):
+def test_persistent_buffer_size_returns_max_stop():
     """persistent_local_buffer_size returns max slice stop."""
-    group = BufferGroup(parent=single_integrator_run)
+    group = BufferGroup()
     group.register("a", 30, "local", persistent=True)
     group.register("b", 40, "local", persistent=True)
     assert group.persistent_local_buffer_size() == 70
@@ -508,18 +493,16 @@ def test_persistent_buffer_size_returns_max_stop(
 # ── BufferGroup.get_allocator ─────────────────────────────── #
 
 
-def test_get_allocator_unregistered_raises(single_integrator_run):
+def test_get_allocator_unregistered_raises():
     """get_allocator raises KeyError for unregistered buffer."""
-    group = BufferGroup(parent=single_integrator_run)
+    group = BufferGroup()
     with pytest.raises(KeyError, match="not registered"):
         group.get_allocator("missing")
 
 
-def test_get_allocator_returns_allocator_for_registered(
-    single_integrator_run,
-):
+def test_get_allocator_returns_allocator_for_registered():
     """get_allocator returns allocator with correct name."""
-    group = BufferGroup(parent=single_integrator_run)
+    group = BufferGroup()
     group.register("buf", 10, "shared")
     alloc = group.get_allocator("buf")
     assert callable(alloc)
@@ -976,7 +959,7 @@ def test_layout_deterministic_regardless_of_access_order(
     single_integrator_run,
 ):
     """Layout is deterministic regardless of property access order."""
-    group = BufferGroup(parent=single_integrator_run)
+    group = BufferGroup()
     group.register("parent", 100, "shared")
     group.register("child", 30, "shared", aliases="parent")
     group.register("local", 20, "local")
@@ -1094,3 +1077,45 @@ def test_nested_shared_solver_buffers_sized_through_chain(
         loop_entries["algorithm_shared"].size
         == buffer_registry.shared_buffer_size(algo)
     )
+
+
+# ── Dead-parent release ───────────────────────────────────── #
+
+
+class _Owner:
+    """Weakref-able stand-in for a buffer-owning component."""
+
+    precision = np.float32
+
+
+def test_dead_parent_group_is_released(fresh_registry):
+    """A parent's buffer group disappears when the parent dies."""
+    owner = _Owner()
+    fresh_registry.register("buf", owner, 8, "shared")
+    assert owner in fresh_registry._groups
+    ref = weakref.ref(owner)
+    del owner
+    gc.collect()
+    assert ref() is None
+    assert "buf" not in [
+        name
+        for group in fresh_registry._groups.values()
+        for name in group.entries
+    ]
+
+
+def test_child_released_with_its_parent(fresh_registry):
+    """A recorded child is released once its parent dies."""
+    parent = _Owner()
+    child = _Owner()
+    fresh_registry.register("outer", parent, 8, "shared")
+    fresh_registry.register("inner", child, 4, "shared")
+    fresh_registry.register_child(parent, child, name="component")
+    child_ref = weakref.ref(child)
+    del child
+    gc.collect()
+    # The ownership edge keeps the child alive with its parent.
+    assert child_ref() is not None
+    del parent
+    gc.collect()
+    assert child_ref() is None

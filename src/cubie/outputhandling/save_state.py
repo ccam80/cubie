@@ -14,12 +14,12 @@ See Also
     Companion factory for accumulating summary metrics.
 """
 
-from typing import Callable, Sequence, Union
+from typing import Callable, Optional, Sequence, Union
 
 from numba import cuda, int32
 from numpy.typing import ArrayLike
 
-from cubie.cuda_simsafe import compile_kwargs, stwt
+from cubie.cuda_simsafe import get_jit_kwargs, stwt
 
 
 def save_state_factory(
@@ -29,6 +29,7 @@ def save_state_factory(
     save_observables: bool,
     save_time: bool,
     save_counters: bool = False,
+    lineinfo: Optional[bool] = None,
 ) -> Callable:
     """Build a CUDA device function that stores solver state and observables.
 
@@ -50,6 +51,9 @@ def save_state_factory(
     save_counters
         When ``True`` the generated function writes iteration counters to
         the output.
+    lineinfo
+        Compile with source-line correlation data. ``None`` defers to the
+        ``CUBIE_LINEINFO`` environment variable.
 
     Returns
     -------
@@ -75,7 +79,7 @@ def save_state_factory(
     @cuda.jit(
         device=True,
         inline=True,
-        **compile_kwargs,
+        **get_jit_kwargs(lineinfo),
     )
     def save_state_func(
         current_state,

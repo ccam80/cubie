@@ -42,7 +42,7 @@ from numba import cuda, int32, float64, bool_
 
 from cubie.CUDAFactory import CUDAFactory, CUDADispatcherCache
 from cubie.buffer_registry import buffer_registry
-from cubie.cuda_simsafe import activemask, all_sync, compile_kwargs, selp
+from cubie.cuda_simsafe import activemask, all_sync, get_jit_kwargs, selp
 from cubie.result_codes import CUBIE_RESULT_CODES
 from cubie._utils import PrecisionDType, unpack_dict_values, build_config
 from cubie.integrators.loops.ode_loop_config import ODELoopConfig
@@ -488,7 +488,7 @@ class IVPLoop(CUDAFactory):
         @cuda.jit(
             device=True,
             inline=True,
-            **compile_kwargs,
+            **get_jit_kwargs(config.lineinfo),
         )
         def loop_fn(
             initial_states,

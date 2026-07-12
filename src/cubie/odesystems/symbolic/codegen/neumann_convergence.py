@@ -43,7 +43,7 @@ import numpy as np
 import sympy as sp
 from numba import cuda
 
-from cubie.cuda_simsafe import CUDA_SIMULATION
+from cubie.cuda_simsafe import CUDA_SIMULATION, get_jit_kwargs
 from cubie.odesystems.symbolic.indexedbasemaps import IndexedBases
 
 logger = logging.getLogger(__name__)
@@ -83,7 +83,7 @@ class NeumannRHSEvaluator:
         dxdt_function = self._dxdt_getter()
         if dxdt_function is not self._kernel_dxdt:
             # no cover: start
-            @cuda.jit
+            @cuda.jit(**get_jit_kwargs())
             def evaluate_rhs(
                 states, parameters, drivers, observables, out, t
             ):

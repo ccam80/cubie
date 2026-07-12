@@ -1,4 +1,6 @@
 import ctypes
+import gc
+import weakref
 
 import pytest
 
@@ -30,6 +32,13 @@ class DummyClass:
     def __init__(self, proportion=None, invalidate_all_hook=None):
         self.proportion = proportion
         self.invalidate_all_hook = invalidate_all_hook
+        self.last_response = None
+
+    def notice_invalidate(self):
+        self.proportion = None
+
+    def notice_allocation(self, response):
+        self.last_response = response
 
 
 @pytest.fixture(scope="function")
@@ -1845,3 +1854,91 @@ def test_get_chunk_parameters_computes_chunk_size_when_eligible(mgr):
     )
     assert 0 < chunk_length < 5_000_000
     assert num_chunks > 1
+class TestDeadInstanceRelease:
+    """The registry releases instances once they are collected."""
+
+    def test_registry_does_not_pin_instances(self, mgr):
+        """Bound-method hooks leave the instance collectable."""
+        inst = DummyClass()
+        mgr.register(
+            inst,
+            proportion=0.4,
+            invalidate_cache_hook=inst.notice_invalidate,
+            allocation_ready_hook=inst.notice_allocation,
+        )
+        instance_id = id(inst)
+        ref = weakref.ref(inst)
+        del inst
+        gc.collect()
+        assert ref() is None
+        assert mgr.manual_pool_proportion == 0.0
+        assert instance_id not in mgr.registry
+        assert instance_id not in mgr._manual_pool
+
+    def test_dead_manual_instances_release_proportion(self, mgr):
+        """Collected manual instances free their reservations.
+
+        Three successive 0.5 reservations exceed the whole memory if
+        the dead instances' proportions are retained.
+        """
+        keeper = DummyClass()
+        mgr.register(keeper)
+        for _ in range(3):
+            inst = DummyClass()
+            mgr.register(inst, proportion=0.5)
+            del inst
+            gc.collect()
+        assert mgr.manual_pool_proportion == 0.0
+        survivor = DummyClass()
+        mgr.register(survivor, proportion=0.9)
+        assert abs(mgr.manual_pool_proportion - 0.9) < 1e-9
+        assert id(survivor) in mgr._manual_pool
+
+    def test_dead_auto_instance_leaves_pool(self, mgr):
+        """A collected auto instance stops diluting the auto pool."""
+        keeper = DummyClass()
+        mgr.register(keeper)
+        inst = DummyClass()
+        mgr.register(inst)
+        del inst
+        gc.collect()
+        assert abs(mgr.auto_pool_proportion - 1.0) < 1e-9
+        assert mgr.registry[id(keeper)].proportion == 1.0
+
+    def test_bound_method_hooks_compare_equal(self, mgr):
+        """Registered hooks compare equal to the source bound methods."""
+        inst = DummyClass(proportion=0.3)
+        mgr.register(
+            inst,
+            invalidate_cache_hook=inst.notice_invalidate,
+            allocation_ready_hook=inst.notice_allocation,
+        )
+        settings = mgr.registry[id(inst)]
+        assert settings.invalidate_hook == inst.notice_invalidate
+        assert settings.allocation_ready_hook == inst.notice_allocation
+        settings.invalidate_hook()
+        assert inst.proportion is None
+
+    def test_dead_hooks_are_noops(self, mgr):
+        """Hooks of a collected instance do nothing when invoked."""
+        inst = DummyClass()
+        mgr.register(inst, invalidate_cache_hook=inst.notice_invalidate)
+        del inst
+        gc.collect()
+        mgr.invalidate_all()
+
+    def test_non_weakrefable_instance_registers(self, mgr):
+        """Objects without weakref support register and persist.
+
+        Such instances carry no instance_ref, so the purge treats
+        them as permanently alive.
+        """
+
+        class Slotted:
+            __slots__ = ()
+
+        inst = Slotted()
+        mgr.register(inst, proportion=0.2)
+        assert mgr.registry[id(inst)].instance_ref is None
+        assert abs(mgr.manual_pool_proportion - 0.2) < 1e-9
+        assert id(inst) in mgr.registry

@@ -52,6 +52,8 @@ from types import TracebackType
 from typing import Any, Optional, Callable, Dict, Tuple
 from warnings import warn
 from copy import deepcopy
+from inspect import ismethod
+from weakref import WeakMethod, ref as weakref_ref
 import ctypes
 
 from numba import cuda
@@ -131,6 +133,56 @@ def placeholder_dataready(response: ArrayResponse) -> None:
 
     """
     pass
+
+
+class _WeakCallable:
+    """Callable wrapper that holds bound methods weakly.
+
+    Registered instances supply bound methods as registry hooks; a
+    strong reference to those methods would keep the instance alive
+    for the lifetime of the registry. Bound methods are therefore
+    stored through :class:`weakref.WeakMethod`, while plain functions
+    are stored directly. Calling a wrapper whose referent has been
+    garbage collected is a no-op.
+
+    Parameters
+    ----------
+    func
+        Callable to wrap. An existing wrapper is copied rather than
+        double-wrapped.
+    """
+
+    def __init__(self, func: Callable) -> None:
+        if isinstance(func, _WeakCallable):
+            self._weak = func._weak
+            self._strong = func._strong
+        elif ismethod(func):
+            self._weak = WeakMethod(func)
+            self._strong = None
+        else:
+            self._weak = None
+            self._strong = func
+
+    def target(self) -> Optional[Callable]:
+        """Return the wrapped callable, or None once collected."""
+        if self._weak is not None:
+            return self._weak()
+        return self._strong
+
+    def __call__(self, *args: Any, **kwargs: Any) -> Any:
+        target = self.target()
+        if target is None:
+            return None
+        return target(*args, **kwargs)
+
+    # Unhashable by design: equality tracks the referent, which can
+    # be collected mid-lifetime, so no stable hash exists.
+    __hash__ = None
+
+    def __eq__(self, other: object) -> bool:
+        if isinstance(other, _WeakCallable):
+            return self.target() == other.target()
+        return self.target() == other
 
 
 def _ensure_cuda_context() -> None:
@@ -330,6 +382,9 @@ class InstanceMemorySettings:
         Function to call when allocations are ready.
     cap
         Maximum allocatable bytes for this instance.
+    instance_ref
+        Weak reference to the registered instance, used to detect
+        and purge entries whose instance has been collected.
 
     Attributes
     ----------
@@ -343,6 +398,8 @@ class InstanceMemorySettings:
         Function to call when allocations are ready.
     cap : int or None
         Maximum allocatable bytes for this instance.
+    instance_ref : weakref.ref or None
+        Weak reference to the registered instance.
 
     Properties
     ----------
@@ -355,6 +412,10 @@ class InstanceMemorySettings:
     to calculate total allocated memory. The invalidate_hook is called when the
     allocator/memory manager changes, requiring arrays and kernels to be
     re-allocated or redefined.
+
+    Bound-method hooks are stored weakly so the registry never keeps
+    a registered instance alive; once the instance is collected the
+    hooks become no-ops and the entry is purged by the manager.
     """
 
     proportion: float = field(
@@ -365,13 +426,19 @@ class InstanceMemorySettings:
     )
     invalidate_hook: Callable[[], None] = field(
         default=placeholder_invalidate,
+        converter=_WeakCallable,
         validator=attrsval_instance_of(Callable),
     )
     allocation_ready_hook: Callable[[ArrayResponse], None] = field(
-        default=placeholder_dataready
+        default=placeholder_dataready,
+        converter=_WeakCallable,
     )
     cap: Optional[int] = field(
         default=None, validator=attrsval_optional(attrsval_instance_of(int))
+    )
+    instance_ref: Optional[weakref_ref] = field(
+        default=None,
+        validator=attrsval_optional(attrsval_instance_of(weakref_ref)),
     )
 
     def add_allocation(self, key: str, arr: Any) -> None:
@@ -541,15 +608,24 @@ class MemoryManager:
             and 1.
 
         """
+        self._purge_dead_instances()
         instance_id = id(instance)
         if instance_id in self.registry:
             raise ValueError("Instance already registered")
 
         self.stream_groups.add_instance(instance, stream_group)
 
+        try:
+            instance_ref = weakref_ref(instance)
+        except TypeError:
+            # Instances without weak-reference support keep the
+            # pre-existing lifetime contract: registered until the
+            # process ends, never purged.
+            instance_ref = None
         settings = InstanceMemorySettings(
             invalidate_hook=invalidate_cache_hook,
             allocation_ready_hook=allocation_ready_hook,
+            instance_ref=instance_ref,
         )
 
         self.registry[instance_id] = settings
@@ -648,6 +724,7 @@ class MemoryManager:
             If proportion is not between 0 and 1.
 
         """
+        self._purge_dead_instances()
         instance_id = id(instance)
         if proportion < 0 or proportion > 1:
             raise ValueError("Proportion must be between 0 and 1")
@@ -674,6 +751,7 @@ class MemoryManager:
         -----
         If the instance is already in the manual pool, this is a no-op.
         """
+        self._purge_dead_instances()
         instance_id = id(instance)
         settings = self.registry[instance_id]
         if instance_id in self._manual_pool:
@@ -694,6 +772,7 @@ class MemoryManager:
         -----
         If the instance is already in the auto pool, this is a no-op.
         """
+        self._purge_dead_instances()
         instance_id = id(instance)
         settings = self.registry[instance_id]
         if instance_id in self._auto_pool:
@@ -739,6 +818,7 @@ class MemoryManager:
     @property
     def manual_pool_proportion(self):
         """Total proportion of VRAM currently assigned manually."""
+        self._purge_dead_instances()
         manual_settings = [
             self.registry[instance_id] for instance_id in self._manual_pool
         ]
@@ -750,6 +830,7 @@ class MemoryManager:
     @property
     def auto_pool_proportion(self):
         """Total proportion of VRAM currently distributed automatically."""
+        self._purge_dead_instances()
         auto_settings = [
             self.registry[instance_id] for instance_id in self._auto_pool
         ]
@@ -849,6 +930,37 @@ class MemoryManager:
         self._auto_pool.append(instance_id)
         self._rebalance_auto_pool()
         return self.registry[instance_id].proportion
+
+    def _purge_dead_instances(self) -> None:
+        """
+        Drop registry entries whose instance has been collected.
+
+        Registered instances are held weakly. Once an instance is
+        garbage collected, its manual or auto reservation is
+        released, its stream-group membership is removed, and any
+        allocations it still had queued are discarded.
+
+        """
+        dead_ids = [
+            instance_id
+            for instance_id, settings in self.registry.items()
+            if settings.instance_ref is not None
+            and settings.instance_ref() is None
+        ]
+        for instance_id in dead_ids:
+            self.registry.pop(instance_id)
+            if instance_id in self._manual_pool:
+                self._manual_pool.remove(instance_id)
+            if instance_id in self._auto_pool:
+                self._auto_pool.remove(instance_id)
+            self.stream_groups.remove_instance(instance_id)
+            for queued in self._queued_allocations.values():
+                queued.pop(instance_id, None)
+        if dead_ids:
+            # Freed reservations flow back to the surviving auto pool.
+            # The nested purge this triggers finds nothing dead, so
+            # the recursion terminates after one level.
+            self._rebalance_auto_pool()
 
     def _rebalance_auto_pool(self) -> None:
         """
