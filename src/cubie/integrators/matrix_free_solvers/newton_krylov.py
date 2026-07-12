@@ -291,6 +291,12 @@ class NewtonKrylov(MatrixFreeSolver):
             config.krylov_iters_local_location,
             precision=np_int32,
         )
+        # Record the linear solver as a child at registration time so
+        # clear_parent cascades reach it before this solver has built;
+        # build refreshes the same named registration with real sizes.
+        buffer_registry.register_child(
+            self, self.linear_solver, name="linear_solver"
+        )
 
     def build(self) -> NewtonKrylovCache:
         """Compile Newton-Krylov solver device function.

@@ -617,6 +617,26 @@ class TestMemoryManager:
         assert mgr.registry[id(instance)].proportion == 0.4
         assert instance_id in mgr._manual_pool
 
+    @pytest.mark.parametrize(
+        "registered_instance_override", [{"proportion": None}], indirect=True
+    )
+    def test_set_manual_proportion_from_auto_pool(
+        self, registered_mgr, registered_instance
+    ):
+        """Test set_manual_proportion moves an auto instance to manual."""
+        mgr = registered_mgr
+        instance = registered_instance
+        instance_id = id(instance)
+        inst2 = DummyClass()
+        mgr.register(inst2)
+        assert instance_id in mgr._auto_pool
+        mgr.set_manual_proportion(instance, 0.01)
+        assert instance_id not in mgr._auto_pool
+        assert instance_id in mgr._manual_pool
+        assert mgr.registry[instance_id].proportion == 0.01
+        assert mgr.registry[instance_id].cap == int(0.01 * mgr.totalmem)
+        assert abs(mgr.registry[id(inst2)].proportion - 0.99) < 1e-6
+
     def test_rebalance_auto_pool(self, mgr):
         """Test _rebalance_auto_pool splits available proportion among auto pool."""
         inst1 = DummyClass()
@@ -791,6 +811,41 @@ class TestMemoryManager:
         instance = registered_instance
 
         mgr.allocate_queue(instance)
+
+    @pytest.mark.parametrize(
+        "fixed_mem_override", [{"free": 1024}], indirect=True
+    )
+    def test_allocate_queue_empty_rebroadcasts_chunk_parameters(self, mgr):
+        """Test allocate_queue with nothing queued resends chunk params."""
+        instance = DummyClass()
+        responses = []
+        mgr.register(
+            instance, allocation_ready_hook=lambda r: responses.append(r)
+        )
+
+        requests = {
+            "arr1": ArrayRequest(
+                shape=(4, 100),
+                dtype=np.float32,
+                memory="device",
+                chunk_axis_index=1,
+                total_runs=100,
+            ),
+        }
+        mgr.queue_request(instance, requests)
+        mgr.allocate_queue(instance)
+
+        assert len(responses) == 1
+        first = responses[0]
+        assert first.chunks > 1
+
+        # Repeat call with nothing queued: chunk parameters rebroadcast
+        mgr.allocate_queue(instance)
+        assert len(responses) == 2
+        second = responses[1]
+        assert second.arr == {}
+        assert second.chunks == first.chunks
+        assert second.chunk_length == first.chunk_length
 
     def test_is_grouped(self, mgr):
         """Test is_grouped returns correct grouping status for instances."""
