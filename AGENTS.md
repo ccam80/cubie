@@ -16,6 +16,9 @@ optimisation conventions live in `src/cubie/writing_cuda_functions.md`.
 - **Python 3.10–3.14**, **CUDA 12 or 13** (via the `cuda12`/`cuda13` extras, or a system
   toolkit), **NVIDIA GPU (compute capability ≥6.0)**.
 - CPU-only dev/test without a GPU: set `NUMBA_ENABLE_CUDASIM=1` (Numba's CUDA simulator).
+  **CUDASIM is not production.** Behaviour under the simulator must never be considered when
+  evaluating code: designs, fixes, and diagnostics are judged solely on their real-GPU
+  behaviour. A path that works under CUDASIM but degrades or disappears on hardware is broken.
 - Dev shell is **PowerShell on Windows** — chain with `;`, not `&&`. Staying Windows-compatible is
   a project goal; CI runs on Ubuntu (Python 3.10/3.11/3.12).
 

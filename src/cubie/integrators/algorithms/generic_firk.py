@@ -237,7 +237,7 @@ class FIRKStep(ODEImplicitStep):
         all_stages_n = tableau.stage_count * n
         stage_driver_stack_elements = tableau.stage_count * config.n_drivers
 
-        _, _ = buffer_registry.get_child_allocators(
+        buffer_registry.register_child(
             self, self.solver, name="solver"
         )
         buffer_registry.register(
