@@ -484,6 +484,9 @@ class MemoryManager:
     _queued_allocations: Dict[str, Dict] = field(
         default=attrsFactory(dict), validator=attrsval_instance_of(dict)
     )
+    _group_chunk_parameters: Dict[str, Tuple[int, int]] = field(
+        default=attrsFactory(dict), validator=attrsval_instance_of(dict)
+    )
 
     def __attrs_post_init__(self) -> None:
         """Initialise the manager with current GPU memory information."""
@@ -1247,11 +1250,34 @@ class MemoryManager:
         Processes all pending requests in the same stream group, applying
         coordinated chunking based on available memory. Calls
         allocation_ready_hook for each instance with their results.
+        Instances in the group with no queued requests receive an empty
+        response carrying the group's chunk parameters. When nothing is
+        queued (all allocations already in place from an earlier call),
+        every instance receives the group's stored chunk parameters, so
+        per-instance chunk state is restored on repeat runs.
 
         """
         stream_group = self.get_stream_group(triggering_instance)
-        stream = self.get_stream(triggering_instance)
         queued_requests = self._queued_allocations.pop(stream_group, {})
+        peers = self.stream_groups.get_instances_in_group(stream_group)
+
+        if not queued_requests:
+            cached_parameters = self._group_chunk_parameters.get(stream_group)
+            if cached_parameters is None:
+                return None
+            chunk_length, num_chunks = cached_parameters
+            for peer in peers:
+                self.registry[peer].allocation_ready_hook(
+                    ArrayResponse(
+                        arr={},
+                        chunks=num_chunks,
+                        chunk_length=chunk_length,
+                        chunked_shapes={},
+                    )
+                )
+            return None
+
+        stream = self.get_stream(triggering_instance)
 
         # Get total_runs from first request
         num_runs = 1
@@ -1265,7 +1291,10 @@ class MemoryManager:
         chunk_length, num_chunks = self.get_chunk_parameters(
             queued_requests, num_runs, stream_group
         )
-        peers = self.stream_groups.get_instances_in_group(stream_group)
+        self._group_chunk_parameters[stream_group] = (
+            chunk_length,
+            num_chunks,
+        )
         notaries = set(peers) - set(queued_requests.keys())
         for instance_id, requests_dict in queued_requests.items():
             chunked_shapes = self.compute_chunked_shapes(
@@ -1288,15 +1317,16 @@ class MemoryManager:
             )
 
             self.registry[instance_id].allocation_ready_hook(response)
-            for peer in notaries:
-                self.registry[peer].allocation_ready_hook(
-                    ArrayResponse(
-                        arr={},
-                        chunks=num_chunks,
-                        chunk_length=chunk_length,
-                        chunked_shapes={},
-                    )
+
+        for peer in notaries:
+            self.registry[peer].allocation_ready_hook(
+                ArrayResponse(
+                    arr={},
+                    chunks=num_chunks,
+                    chunk_length=chunk_length,
+                    chunked_shapes={},
                 )
+            )
 
         return None
 

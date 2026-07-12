@@ -75,6 +75,36 @@ def test_chunked_solve_produces_valid_output(
 
 
 
+def test_repeat_chunked_solve_matches_first(
+    system, precision, chunked_solved_solver, driver_settings
+):
+    """A repeat chunked solve on the same solver reproduces the first."""
+    solver, first_result = chunked_solved_solver
+    assert solver.chunks > 1
+    first_state = first_result.time_domain_array.copy()
+
+    n_runs = 5
+    n_states = system.sizes.states
+    n_params = system.sizes.parameters
+    inits = np.ones((n_states, n_runs), dtype=precision)
+    params = np.ones((n_params, n_runs), dtype=precision)
+
+    second_result = solver.solve(
+        inits,
+        params,
+        drivers=driver_settings,
+        duration=0.05,
+        summarise_every=None,
+        save_every=0.01,
+        dt=0.01,
+    )
+
+    assert solver.chunks > 1
+    np.testing.assert_array_equal(
+        second_result.time_domain_array, first_state
+    )
+
+
 def test_input_buffers_released_after_kernel(chunked_solved_solver):
     chunked_solver, result_chunked = chunked_solved_solver
 
