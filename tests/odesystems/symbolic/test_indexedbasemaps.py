@@ -106,6 +106,9 @@ class TestIndexedBaseMap:
         assert "y" not in base_map.symbol_map
         assert base_map.length == initial_length - 1
         assert base_map.base.shape == (2,)
+        assert base_map.index_map == {x: 0, z: 1}
+        assert str(base_map.ref_map[x]) == "test[0]"
+        assert str(base_map.ref_map[z]) == "test[1]"
 
     def test_push_symbol(self):
         """Test adding a symbol to the map."""
