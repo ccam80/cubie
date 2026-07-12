@@ -2096,7 +2096,30 @@ def register_selective_fastmath_shims() -> None:
         pre_codegen_with_fast_divisions
     )
 
+    original_nvvm_options = _mlir_optimization._nvvm_options
+    nvvm_knob_verified = False
+
+    def verify_nvvm_knob():
+        # nvvm_options_selective is a frozen copy of the stock
+        # function, differing only in the knob gating, so a wheel
+        # that reworks _nvvm_options without providing
+        # numba_cuda_mlir.fastmath would be silently overridden by a
+        # stale copy. Checked on the first call, like the get_lto_ptx
+        # guard below, so `import cubie` stays importable.
+        nonlocal nvvm_knob_verified
+        if nvvm_knob_verified:
+            return
+        stock_knob = 'if target_options.get("fastmath"):'
+        if stock_knob not in inspect.getsource(original_nvvm_options):
+            raise RuntimeError(
+                "cubie._mlir_compat: numba-cuda-mlir's _nvvm_options "
+                "no longer matches the stock fastmath knob gating; "
+                "update the selective fastmath shim for this release."
+            )
+        nvvm_knob_verified = True
+
     def nvvm_options_selective(cc, target_options=None, **extra):
+        verify_nvvm_knob()
         opts = {"arch": f"compute_{cc}", **extra}
         if target_options is None:
             return opts
