@@ -125,7 +125,7 @@ class BackwardsEulerStep(ODEImplicitStep):
         config = self.compile_settings
 
         # Register solver child buffers
-        _ = buffer_registry.get_child_allocators(
+        buffer_registry.register_child(
             self, self.solver, name='solver_scratch'
         )
 

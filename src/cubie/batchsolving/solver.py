@@ -727,7 +727,6 @@ class Solver:
                 self.driver_interpolator.driver_del_t
             )
 
-        recognised = set()
         all_unrecognized = set(updates_dict.keys())
         all_unrecognized -= driver_recognised
         all_unrecognized -= self.update_memory_settings(
@@ -738,12 +737,12 @@ class Solver:
         )
         all_unrecognized -= self.kernel.update(updates_dict, silent=True)
 
-        if "profileCUDA" in updates_dict:  # pragma: no cover
+        if "profileCUDA" in updates_dict:
             if updates_dict["profileCUDA"]:
                 self.enable_profiling()
             else:
                 self.disable_profiling()
-            recognised.add("profileCUDA")
+            all_unrecognized.discard("profileCUDA")
 
         recognised = set(updates_dict.keys()) - all_unrecognized
 

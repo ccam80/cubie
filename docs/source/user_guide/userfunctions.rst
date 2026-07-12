@@ -54,6 +54,9 @@ name.
   derivative is taken.
 - The derivative callable’s __name__ is used in generated code, so choose a
   descriptive name (e.g., myfunc_grad).
+- The derivative must itself be a CUDA device function
+  (``@cuda.jit(device=True)``) — it is called from generated device code
+  when an implicit method builds Jacobian terms.
 
 Example:
 
@@ -67,7 +70,7 @@ Example:
      def myfunc(a, b):
          return a * b
 
-     # This can be device or pure Python; codegen only needs the name
+     @cuda.jit(device=True)
      def myfunc_grad(a, b, index):
          if index == 0:
              return b
@@ -101,6 +104,50 @@ Example:
   (This is internal plumbing — when you solve through
   :func:`~cubie.solve_ivp` or :class:`~cubie.Solver`, the JVP code is
   generated for you.)
+
+End-to-end example
+------------------
+
+Device functions are supported end-to-end: systems whose equations call
+them can be built and solved directly. The device callables are made
+available to the generated module automatically, in both the string and
+Python-function input forms.
+
+.. code-block:: python
+
+   import numpy as np
+   from numba import cuda
+
+   from cubie import create_ODE_system, solve_ivp
+
+   @cuda.jit(device=True)
+   def cubed(x):
+       return x * x * x
+
+   @cuda.jit(device=True)
+   def d_cubed(x, index):
+       return 3.0 * x * x
+
+   system = create_ODE_system(
+       "dx = -cubed(x)",
+       states={"x": 2.0},
+       user_functions={"cubed": cubed},
+       user_function_derivatives={"cubed": d_cubed},
+   )
+
+   result = solve_ivp(
+       system,
+       y0={"x": 2.0},
+       method="backwards_euler",
+       duration=0.5,
+       dt=0.01,
+       save_every=0.05,
+   )
+   print(result.time_domain_array[:, 0, 0])
+
+The derivative mapping is only needed for implicit methods, which build
+Jacobian terms; explicit methods such as ``euler`` need only
+``user_functions``.
 
 Name collisions with SymPy
 --------------------------

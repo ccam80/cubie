@@ -161,13 +161,21 @@ class ODEFile:
                 has_function = False
         return has_function
 
-    def _import_function(self, func_name: str) -> Callable:
+    def _import_function(
+        self,
+        func_name: str,
+        injections: Optional[dict[str, Callable]] = None,
+    ) -> Callable:
         """Import ``func_name`` from the generated module.
 
         Parameters
         ----------
         func_name
             Name of the generated function to import.
+        injections
+            Callables set as module attributes after import so the
+            generated factory can resolve them by name, e.g. user
+            device functions called from the generated source.
 
         Returns
         -------
@@ -177,12 +185,15 @@ class ODEFile:
         spec = util.spec_from_file_location(func_name, self.file_path)
         module = util.module_from_spec(spec)
         spec.loader.exec_module(module)
+        for name, obj in (injections or {}).items():
+            setattr(module, name, obj)
         return getattr(module, func_name)
 
     def import_function(
         self,
         func_name: str,
         code_lines: Optional[str] = None,
+        injections: Optional[dict[str, Callable]] = None,
     ) -> Tuple[Callable, bool]:
         """Import a generated function, generating it when absent.
 
@@ -192,6 +203,10 @@ class ODEFile:
             Name of the factory function to import.
         code_lines
             Source code used to generate the function when it is not cached.
+        injections
+            Callables set as attributes on the generated module so the
+            factory can resolve them by name, e.g. user device
+            functions called from the generated source.
 
         Returns
         -------
@@ -224,8 +239,8 @@ class ODEFile:
                     f"{func_name} not found in cache and no code provided."
                 )
             self.add_function(code_lines)
-        
-        return self._import_function(func_name), was_cached
+
+        return self._import_function(func_name, injections), was_cached
 
     def add_function(self, printed_code: str) -> None:
         """Append generated code to the cache file.
