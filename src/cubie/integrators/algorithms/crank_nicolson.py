@@ -31,7 +31,7 @@ from numpy import eye
 
 from cubie._utils import PrecisionDType, build_config
 from cubie.buffer_registry import buffer_registry
-from cubie.cuda_simsafe import lineinfo_kwarg
+from cubie.cuda_simsafe import get_jit_kwargs
 from cubie.integrators.algorithms import ImplicitStepConfig
 from cubie.integrators.algorithms.base_algorithm_step import StepCache, \
     StepControlDefaults
@@ -207,7 +207,7 @@ class CrankNicolsonStep(ODEImplicitStep):
             # ),
             device=True,
             inline=True,
-            **lineinfo_kwarg(self.compile_settings.lineinfo),
+            **get_jit_kwargs(self.compile_settings.lineinfo),
         )
         def step(
             state,

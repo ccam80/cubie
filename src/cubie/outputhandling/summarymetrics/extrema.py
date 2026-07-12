@@ -15,7 +15,7 @@ See Also
 
 from numba import cuda
 
-from cubie.cuda_simsafe import lineinfo_kwarg
+from cubie.cuda_simsafe import get_jit_kwargs
 
 from cubie.outputhandling.summarymetrics import summary_metrics
 from cubie.outputhandling.summarymetrics.metrics import (
@@ -70,7 +70,7 @@ class Extrema(SummaryMetric):
             # ],
             device=True,
             inline=True,
-            **lineinfo_kwarg(self.compile_settings.lineinfo),
+            **get_jit_kwargs(self.compile_settings.lineinfo),
         )
         def update(
             value,
@@ -108,7 +108,7 @@ class Extrema(SummaryMetric):
             # ],
             device=True,
             inline=True,
-            **lineinfo_kwarg(self.compile_settings.lineinfo),
+            **get_jit_kwargs(self.compile_settings.lineinfo),
         )
         def save(
             buffer,

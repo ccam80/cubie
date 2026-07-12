@@ -9,7 +9,6 @@ from cubie.cuda_simsafe import (
     CUDA_SIMULATION,
     compile_kwargs,
     get_jit_kwargs,
-    lineinfo_kwarg,
 )
 
 
@@ -77,7 +76,6 @@ class TestJitKwargs:
     def test_explicit_value_wins(self, monkeypatch):
         monkeypatch.setenv("CUBIE_LINEINFO", "1")
         assert get_jit_kwargs(False)["lineinfo"] is False
-        assert lineinfo_kwarg(False) == {"lineinfo": False}
 
     def test_none_defers_to_env(self, monkeypatch):
         monkeypatch.setenv("CUBIE_LINEINFO", "1")

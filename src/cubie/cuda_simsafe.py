@@ -103,31 +103,6 @@ def get_jit_kwargs(lineinfo: Optional[bool] = None) -> dict[str, Any]:
     return kwargs
 
 
-def lineinfo_kwarg(lineinfo: Optional[bool] = None) -> dict[str, Any]:
-    """Return only the ``lineinfo`` kwarg for ``cuda.jit`` decorators.
-
-    For decoration sites that deliberately do not take the shared
-    :data:`compile_kwargs` defaults (e.g. algorithm steps, which must not
-    inherit fastmath) but should still honour the lineinfo setting.
-
-    Parameters
-    ----------
-    lineinfo
-        Whether to compile with source-line correlation data. ``None``
-        defers to the ``CUBIE_LINEINFO`` environment variable.
-
-    Returns
-    -------
-    dict
-        ``{"lineinfo": value}``, or ``{}`` under the CUDA simulator.
-    """
-    if CUDA_SIMULATION:
-        return {}
-    return {
-        "lineinfo": lineinfo_default() if lineinfo is None else bool(lineinfo)
-    }
-
-
 class FakeStream:  # pragma: no cover - placeholder
     """Placeholder CUDA stream."""
 
@@ -438,7 +413,6 @@ __all__ = [
     "all_sync",
     "compile_kwargs",
     "get_jit_kwargs",
-    "lineinfo_kwarg",
     "CUDA_SIMULATION",
     "CUDACache",
     "cupy",
