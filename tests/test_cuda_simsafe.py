@@ -15,9 +15,8 @@ def test_compile_kwargs_without_cudasim():
 
     numba-cuda-mlir accepts per-flag fastmath (natively on patched
     builds, via cubie._mlir_compat's selective-fastmath shim on the
-    stock wheel), so device code opts into the approximations that
-    are safe for it; 'afn' stays excluded to keep full-precision
-    sqrt/pow in step-controller error norms.
+    stock wheel): no signed zeros, FMA contraction and approximate
+    division.
     """
     from cubie.cuda_simsafe import CUDA_SIMULATION, compile_kwargs
     assert CUDA_SIMULATION is False
