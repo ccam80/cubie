@@ -61,6 +61,12 @@ def test_recovered_transient_failure_reports_success():
     proceeds to completion with a finite trajectory.  The delivered status
     must be ``0`` and the trajectory must be returned unmasked under the
     default ``nan_error_trajectories=True``.
+
+    The controller is pinned to a gently clamped PID (0.5--2.0 gain
+    limits) rather than the algorithm default: the recovery window
+    must stay open long enough for the reduced steps to converge, and
+    a springier controller can walk ``dt`` through ``dt_min`` before
+    the inner solve first succeeds.
     """
     system = _build_system()
     duration = 1.0
@@ -78,6 +84,13 @@ def test_recovered_transient_failure_reports_success():
         rtol=1e-3,
         save_every=duration / 10.0,
         krylov_max_iters=2,
+        step_controller="pid",
+        kp=0.6,
+        ki=-0.4,
+        deadband_min=1.0,
+        deadband_max=1.1,
+        min_gain=0.5,
+        max_gain=2.0,
         output_types=["state", "time"],
         grid_type="verbatim",
     )
