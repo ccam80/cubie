@@ -5,7 +5,7 @@ from numpy import float32
 
 from cubie._env import env_bool, lineinfo_default
 from cubie.CUDAFactory import CUDAFactoryConfig
-from cubie.cuda_simsafe import compile_kwargs, get_jit_kwargs
+from cubie.cuda_simsafe import JITFlags, compile_kwargs, get_jit_kwargs
 
 
 class TestEnvBool:
@@ -49,11 +49,15 @@ class TestLineinfoPrecedence:
 
     def test_explicit_arg_beats_env(self, monkeypatch):
         monkeypatch.setenv("CUBIE_LINEINFO", "1")
-        cfg = CUDAFactoryConfig(precision=float32, lineinfo=False)
+        cfg = CUDAFactoryConfig(
+            precision=float32, jit_flags=JITFlags(lineinfo=False)
+        )
         assert cfg.lineinfo is False
 
     def test_lineinfo_changes_values_hash(self):
-        cfg = CUDAFactoryConfig(precision=float32, lineinfo=False)
+        cfg = CUDAFactoryConfig(
+            precision=float32, jit_flags=JITFlags(lineinfo=False)
+        )
         before = cfg.values_hash
         recognized, changed = cfg.update({"lineinfo": True})
         assert recognized == {"lineinfo"}
