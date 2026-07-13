@@ -12,7 +12,7 @@ Published Classes
 Constants
 ---------
 :data:`FIRK_ADAPTIVE_DEFAULTS`
-    Default PID controller settings for adaptive tableaus.
+    Default Gustafsson controller settings for adaptive tableaus.
 
 :data:`FIRK_FIXED_DEFAULTS`
     Default fixed-step settings for errorless tableaus.
@@ -62,13 +62,12 @@ from cubie.buffer_registry import buffer_registry
 
 FIRK_ADAPTIVE_DEFAULTS = StepControlDefaults(
     step_controller={
-        "step_controller": "pid",
-        "kp": 0.6,
-        "ki": -0.4,
+        "step_controller": "gustafsson",
         "deadband_min": 1.0,
-        "deadband_max": 1.1,
-        "min_gain": 0.5,
-        "max_gain": 2.0,
+        "deadband_max": 1.2,
+        "min_gain": 0.2,
+        "max_gain": 8.0,
+        "safety": 0.9,
     }
 )
 """Default step controller settings for adaptive FIRK tableaus.
@@ -76,9 +75,12 @@ FIRK_ADAPTIVE_DEFAULTS = StepControlDefaults(
 This configuration is used when the FIRK tableau has an embedded error
 estimate (``tableau.has_error_estimate == True``).
 
-The PI controller provides robust adaptive stepping with proportional and
-derivative terms to smooth step size adjustments. The deadband prevents
-unnecessary step size changes for small variations in the error estimate.
+The Gustafsson predictive controller with these limits reproduces the
+step control of Hairer & Wanner's RADAU5, the reference implementation
+for fully implicit Runge--Kutta methods (``facl = 0.2``, ``facr = 8``,
+``quot1 = 1.0``, ``quot2 = 1.2``, ``safe = 0.9``). The deadband keeps
+the step unchanged for small gains so warp-coherent threads avoid
+needless step-size churn.
 
 Notes
 -----
@@ -153,8 +155,8 @@ class FIRKStep(ODEImplicitStep):
         This constructor creates a FIRK step object and automatically selects
         appropriate default step controller settings based on whether the
         tableau has an embedded error estimate. Tableaus with error estimates
-        default to adaptive stepping (PI controller), while errorless tableaus
-        default to fixed stepping.
+        default to adaptive stepping (Gustafsson controller), while
+        errorless tableaus default to fixed stepping.
 
         Parameters
         ----------
@@ -185,7 +187,7 @@ class FIRKStep(ODEImplicitStep):
         The step controller defaults are selected dynamically:
 
         - If ``tableau.has_error_estimate`` is ``True``:
-          Uses :data:`FIRK_ADAPTIVE_DEFAULTS` (PI controller)
+          Uses :data:`FIRK_ADAPTIVE_DEFAULTS` (Gustafsson controller)
         - If ``tableau.has_error_estimate`` is ``False``:
           Uses :data:`FIRK_FIXED_DEFAULTS` (fixed-step controller)
 

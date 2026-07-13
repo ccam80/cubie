@@ -59,8 +59,8 @@ class InstrumentedDIRKStep(InstrumentedODEImplicitStep):
         This constructor creates a DIRK step object and automatically selects
         appropriate default step controller settings based on whether the
         tableau has an embedded error estimate. Tableaus with error estimates
-        default to adaptive stepping (PI controller), while errorless tableaus
-        default to fixed stepping.
+        default to adaptive stepping (Gustafsson controller), while
+        errorless tableaus default to fixed stepping.
 
         Parameters
         ----------
@@ -129,7 +129,7 @@ class InstrumentedDIRKStep(InstrumentedODEImplicitStep):
         The step controller defaults are selected dynamically:
 
         - If ``tableau.has_error_estimate`` is ``True``:
-          Uses :data:`DIRK_ADAPTIVE_DEFAULTS` (PI controller)
+          Uses :data:`DIRK_ADAPTIVE_DEFAULTS` (Gustafsson controller)
         - If ``tableau.has_error_estimate`` is ``False``:
           Uses :data:`DIRK_FIXED_DEFAULTS` (fixed-step controller)
 
