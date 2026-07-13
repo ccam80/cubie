@@ -27,7 +27,7 @@ from cubie._utils import PrecisionDType
 from cubie.integrators.step_control.adaptive_step_controller import (
     BaseAdaptiveStepController,
 )
-from cubie.cuda_simsafe import get_jit_kwargs, selp
+from cubie.cuda_simsafe import selp
 from cubie.result_codes import CUBIE_RESULT_CODES
 
 from cubie.integrators.step_control.base_step_controller import ControllerCache
@@ -106,10 +106,7 @@ class AdaptiveIController(BaseAdaptiveStepController):
         @cuda.jit(
             device=True,
             inline=True,
-            **get_jit_kwargs(
-                self.compile_settings.lineinfo,
-                fastmath={"afn": True},
-            ),
+            **self.jit_kwargs,
         )
         def controller_I(
             dt,

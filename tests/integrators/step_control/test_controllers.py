@@ -66,13 +66,22 @@ class TestControllers:
     def test_controller_builds(self, step_controller, precision):
         assert callable(step_controller.device_function)
 
-    @pytest.mark.nocudasim
-    def test_controller_enables_approximate_functions(
-        self, step_controller
+    @pytest.mark.parametrize(
+        "flag, value", [("afn", False), ("lineinfo", True)]
+    )
+    def test_jit_flag_updates_reach_compile_settings(
+        self, step_controller, flag, value
     ):
-        fastmath = step_controller.device_function.targetoptions["fastmath"]
-        fastmath_flags = getattr(fastmath, "flags", fastmath)
-        assert "afn" in fastmath_flags
+        """Jit-flag settings route into the controller's config."""
+        original = getattr(step_controller.compile_settings.jit_flags, flag)
+        recognized = step_controller.update_compile_settings({flag: value})
+        try:
+            assert flag in recognized
+            assert getattr(
+                step_controller.compile_settings.jit_flags, flag
+            ) == value
+        finally:
+            step_controller.update_compile_settings({flag: original})
 
     def test_rejected_step_never_grows_dt(
         self, step_controller, precision, system

@@ -52,7 +52,6 @@ from cubie.cuda_simsafe import (
     all_sync,
     selp,
     any_sync,
-    get_jit_kwargs,
 )
 from cubie.result_codes import CUBIE_RESULT_CODES
 
@@ -355,7 +354,7 @@ class NewtonKrylov(MatrixFreeSolver):
         )
 
         # no cover: start
-        @cuda.jit(device=True, inline=True, **get_jit_kwargs(config.lineinfo))
+        @cuda.jit(device=True, inline=True, **self.jit_kwargs)
         def newton_krylov_solver(
             stage_increment,
             parameters,

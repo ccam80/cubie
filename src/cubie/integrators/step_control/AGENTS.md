@@ -19,7 +19,7 @@ controllers.
 |------|-------------|
 | `__init__.py` | Exports the controller classes, `get_controller`, `_CONTROLLER_REGISTRY`. |
 | `base_step_controller.py` | `BaseStepController` / `BaseStepControllerConfig` / `ControllerCache`; `ALL_STEP_CONTROLLER_PARAMETERS` (union of every controller's kwargs). |
-| `adaptive_step_controller.py` | `BaseAdaptiveStepController` + `AdaptiveStepControlConfig` (shared adaptive config: `dt_min/max`, `atol/rtol`, `algorithm_order`, gain limits, deadband, safety); `_ensure_sane_bounds`. |
+| `adaptive_step_controller.py` | `BaseAdaptiveStepController` + `AdaptiveStepControlConfig` (shared adaptive config: `dt_min/max`, `atol/rtol`, `algorithm_order`, gain limits, deadband, safety; defaults `jit_flags` with `afn=True` so gain arithmetic uses the approximate `LG2`/`EX2` hardware paths); `_ensure_sane_bounds`. |
 | `fixed_step_controller.py` | `FixedStepController` — unconditional accept, returns `0`; no history. |
 | `adaptive_I_controller.py` | `AdaptiveIController` — integral-only; gain `safety·norm^(-1/(2(1+order)))`; no history. |
 | `adaptive_PI_controller.py` | `AdaptivePIController` (`kp=0.7`, `ki=-0.4`) — uses previous + current norm. |

@@ -21,7 +21,6 @@ from typing import Callable, Optional
 from numba import cuda, int32
 
 from cubie.buffer_registry import buffer_registry
-from cubie.cuda_simsafe import get_jit_kwargs
 from cubie.integrators.algorithms.backwards_euler import BackwardsEulerStep
 from cubie.integrators.algorithms.base_algorithm_step import StepCache
 
@@ -97,7 +96,7 @@ class BackwardsEulerPCStep(BackwardsEulerStep):
             # ),
             device=True,
             inline=True,
-            **get_jit_kwargs(self.compile_settings.lineinfo),
+            **self.jit_kwargs,
         )
         def step(
             state,

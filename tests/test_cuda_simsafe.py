@@ -10,16 +10,6 @@ def test_compile_kwargs_in_cudasim_mode():
     assert compile_kwargs == {}
 
 
-@pytest.mark.sim_only
-def test_get_jit_kwargs_omits_gpu_options_in_cudasim():
-    """Test that per-build GPU options are omitted in CUDASIM."""
-    from cubie.cuda_simsafe import get_jit_kwargs
-
-    kwargs = get_jit_kwargs(False, fastmath={"afn": True})
-
-    assert kwargs == {}
-
-
 @pytest.mark.nocudasim
 def test_compile_kwargs_without_cudasim():
     """Test that compile_kwargs contains lineinfo when CUDASIM is disabled."""
@@ -29,19 +19,16 @@ def test_compile_kwargs_without_cudasim():
 
 
 @pytest.mark.nocudasim
-def test_get_jit_kwargs_merges_fastmath_flags():
-    """Test that per-build fast-math flags preserve the defaults."""
-    from cubie.cuda_simsafe import compile_kwargs, get_jit_kwargs
+def test_jit_flags_render_over_live_defaults():
+    """Enabling afn extends the live default flag set without mutating it."""
+    from cubie.cuda_simsafe import JITFlags, compile_kwargs, get_jit_kwargs
 
-    kwargs = get_jit_kwargs(False, fastmath={"afn": True})
+    kwargs = get_jit_kwargs(JITFlags(afn=True))
 
-    assert kwargs["fastmath"] == {
-        "nsz": True,
-        "contract": True,
-        "arcp": True,
-        "afn": True,
-    }
+    expected = set(compile_kwargs["fastmath"]) | {"afn"}
+    assert kwargs["fastmath"] == expected
     assert "afn" not in compile_kwargs["fastmath"]
+    assert kwargs["lineinfo"] == compile_kwargs["lineinfo"]
 
 @pytest.mark.sim_only
 def test_selp_function_in_cudasim():

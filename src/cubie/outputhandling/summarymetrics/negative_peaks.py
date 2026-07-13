@@ -14,7 +14,6 @@ See Also
 """
 
 from numba import cuda, int32
-from cubie.cuda_simsafe import get_jit_kwargs
 
 from cubie.outputhandling.summarymetrics import summary_metrics
 from cubie.outputhandling.summarymetrics.metrics import (
@@ -61,7 +60,7 @@ class NegativePeaks(SummaryMetric):
         """
 
         precision = self.compile_settings.precision
-        jit_kwargs = get_jit_kwargs(self.compile_settings.lineinfo)
+        jit_kwargs = self.jit_kwargs
 
         # no cover: start
         @cuda.jit(

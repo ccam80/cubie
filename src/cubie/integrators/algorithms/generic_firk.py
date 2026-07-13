@@ -40,7 +40,6 @@ from typing import Callable, Optional
 from attrs import define, field, validators
 from numba import cuda, int32
 
-from cubie.cuda_simsafe import get_jit_kwargs
 from cubie.result_codes import CUBIE_RESULT_CODES
 from numpy import eye
 
@@ -407,7 +406,7 @@ class FIRKStep(ODEImplicitStep):
             # ),
             device=True,
             inline=True,
-            **get_jit_kwargs(self.compile_settings.lineinfo),
+            **self.jit_kwargs,
         )
         def step(
             state,
