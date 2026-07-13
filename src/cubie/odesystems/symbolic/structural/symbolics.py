@@ -306,16 +306,17 @@ class DerivativeRegistry:
         return dict(self._to_derivative)
 
     def rename(self, old: sp.Symbol, new: sp.Symbol) -> None:
-        """Rebind a registered symbol to a new symbol.
+        """Rebind a registered derivative symbol to a new symbol.
 
-        Chain relations (its base and its derivative, if any) are
-        preserved under the new symbol.
+        The renamed variable becomes an ordinary chain root (its link
+        to the variable it derived is cut, mirroring MTK's
+        ``diff2term``); a higher derivative of ``old``, if any, is
+        rebased onto ``new``.
         """
 
         lower = self._to_base.pop(old, None)
-        if lower is not None:
-            self._to_base[new] = lower
-            self._to_derivative[lower] = new
+        if lower is not None and self._to_derivative.get(lower) == old:
+            del self._to_derivative[lower]
         upper = self._to_derivative.pop(old, None)
         if upper is not None:
             self._to_derivative[new] = upper

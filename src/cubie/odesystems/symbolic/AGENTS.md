@@ -30,7 +30,8 @@ attrs conventions; `BaseODE` (parent, `../AGENTS.md`) for `ODECache`/`config_has
 | Directory | Purpose |
 |-----------|---------|
 | `codegen/` | CUDA source emitters for dxdt, observables, Jacobian/JVP, linear operators, preconditioners, residuals, time derivatives, and the Numba-CUDA SymPy printer (see `codegen/AGENTS.md`). |
-| `parsing/` | Converts string / SymPy / callable / CellML input into `ParsedEquations` + `IndexedBases`, plus `JVPEquations` and auxiliary-caching heuristics (see `parsing/AGENTS.md`). |
+| `parsing/` | Converts string / SymPy / callable / CellML input into `ParsedEquations` + `IndexedBases`, plus `JVPEquations` and auxiliary-caching heuristics; `dae.py` is the DAE front end for structural simplification (see `parsing/AGENTS.md`). |
+| `structural/` | MTK-style structural simplification and tearing (alias elimination, Pantelides index reduction, dummy derivatives, Carpanzano/Modia tearing); enabled via `create_ODE_system(..., simplify=True)` (see `structural/AGENTS.md`). |
 
 ## For AI Agents
 

@@ -1,0 +1,167 @@
+"""DAE parser front-end and SymbolicODE integration tests."""
+
+import numpy as np
+import pytest
+import sympy as sp
+
+from cubie.odesystems.symbolic.parsing.dae import parse_dae_input
+from cubie.odesystems.symbolic.parsing.parser import EquationWarning
+from cubie.odesystems.symbolic.symbolicODE import create_ODE_system
+
+
+class TestParseDaeInput:
+    def test_string_implicit_and_alias(self):
+        index_map, _syms, _funcs, parsed, _h, simplified = (
+            parse_dae_input(
+                dxdt=["dx = -k*x + y", "y = 2*x"],
+                states={"x": 1.0},
+                observables=["y"],
+                parameters={"k": 0.5},
+            )
+        )
+        assert list(index_map.state_names) == ["x"]
+        assert list(index_map.observable_names) == ["y"]
+        assert simplified.mass_matrix is None
+        eqs = {str(lhs): rhs for lhs, rhs in parsed.ordered}
+        x, k = sp.symbols("x k", real=True)
+        # Observable y inlined into the dynamics.
+        assert sp.simplify(eqs["dx"] - (-k * x + 2 * x)) == 0
+        assert sp.simplify(eqs["y"] - 2 * x) == 0
+
+    def test_nested_derivative_string(self):
+        index_map, _syms, _funcs, parsed, _h, simplified = (
+            parse_dae_input(
+                dxdt=["d(d(x, t), t) = -x"],
+                states={"x": 1.0},
+            )
+        )
+        assert len(index_map.state_names) == 2
+        assert len(simplified.differential_states) == 2
+        assert not simplified.residuals
+
+    def test_sympy_higher_order_derivative(self):
+        x = sp.Symbol("x", real=True)
+        t = sp.Symbol("t", real=True)
+        index_map, _syms, _funcs, _parsed, _h, simplified = (
+            parse_dae_input(
+                dxdt=[(sp.Derivative(x, t, 2), -x)],
+                states={"x": 1.0},
+            )
+        )
+        assert len(simplified.differential_states) == 2
+
+    def test_torn_system_mass_and_defaults_warning(self):
+        with pytest.warns(EquationWarning):
+            index_map, _s, _f, parsed, _h, simplified = (
+                parse_dae_input(
+                    dxdt="""
+                    dx = vx
+                    dy = vy
+                    dvx = T*x
+                    dvy = T*y - g
+                    0 = x**2 + y**2 - L**2
+                    """,
+                    states={
+                        "x": 1.0,
+                        "y": 0.0,
+                        "vx": 0.0,
+                        "vy": 0.0,
+                        "T": 0.0,
+                    },
+                    constants={"g": 9.81, "L": 1.0},
+                    state_priority={"y": 10, "vy": 10},
+                )
+            )
+        assert len(index_map.state_names) == 5
+        assert simplified.mass_matrix is not None
+        assert len(simplified.residuals) == 3
+
+    def test_undeclared_symbol_inferred_parameter(self):
+        index_map, _s, _f, _p, _h, _simplified = parse_dae_input(
+            dxdt=["dx = -mu * x"],
+            states={"x": 1.0},
+        )
+        assert "mu" in index_map.parameter_names
+
+    def test_strict_rejects_undeclared(self):
+        with pytest.raises(ValueError, match="(?i)undefined symbol"):
+            parse_dae_input(
+                dxdt=["dx = -mu * x"],
+                states={"x": 1.0},
+                strict=True,
+            )
+
+    def test_callable_input_rejected(self):
+        with pytest.raises(TypeError, match="Callable"):
+            parse_dae_input(
+                dxdt=lambda t, y: [-y[0]],
+                states={"x": 1.0},
+            )
+
+    def test_assigning_parameter_rejected(self):
+        with pytest.raises(ValueError, match="immutable"):
+            parse_dae_input(
+                dxdt=["k = 2*x", "dx = -k*x"],
+                states={"x": 1.0},
+                parameters={"k": 0.5},
+            )
+
+    def test_unassigned_observable_rejected(self):
+        with pytest.raises(ValueError, match="no.*defining"):
+            parse_dae_input(
+                dxdt=["dx = -x"],
+                states={"x": 1.0},
+                observables=["y"],
+            )
+
+
+class TestSymbolicODEIntegration:
+    def test_simplified_system_compiles_and_evaluates(self):
+        ode = create_ODE_system(
+            dxdt=["dx = -k*x + y", "y = 2*x"],
+            states={"x": 1.0},
+            observables=["y"],
+            parameters={"k": 0.5},
+            precision=np.float64,
+            simplify=True,
+            name="dae_test_alias",
+        )
+        assert ode.compile_settings.mass is None
+        fn = ode.evaluate_f
+        state = np.array([2.0], dtype=np.float64)
+        params = np.array([0.5], dtype=np.float64)
+        drivers = np.zeros(1, dtype=np.float64)
+        obs = np.zeros(1, dtype=np.float64)
+        out = np.zeros(1, dtype=np.float64)
+        fn(state, params, drivers, obs, out, 0.0)
+        assert out[0] == pytest.approx(3.0, abs=1e-13)
+        ode.evaluate_observables(state, params, drivers, obs, 0.0)
+        assert obs[0] == pytest.approx(4.0, abs=1e-13)
+
+    def test_torn_dae_mass_matrix_reaches_system(self):
+        ode = create_ODE_system(
+            dxdt="""
+            dx = -z
+            0 = z**5 + z - x
+            """,
+            states={"x": 2.0, "z": 1.0},
+            precision=np.float64,
+            simplify=True,
+            name="dae_test_torn",
+        )
+        mass = ode.compile_settings.mass
+        assert mass is not None
+        assert mass.shape == (2, 2)
+        assert mass[0, 0] == 1.0 and mass[1, 1] == 0.0
+        names = list(ode.indices.state_names)
+        assert names == ["x", "z"]
+        fn = ode.evaluate_f
+        state = np.array([2.0, 1.0], dtype=np.float64)
+        params = np.zeros(1, dtype=np.float64)
+        drivers = np.zeros(1, dtype=np.float64)
+        obs = np.zeros(1, dtype=np.float64)
+        out = np.zeros(2, dtype=np.float64)
+        fn(state, params, drivers, obs, out, 0.0)
+        # dx = -z = -1; residual = z^5 + z - x = 0 at (2, 1).
+        assert out[0] == pytest.approx(-1.0, abs=1e-13)
+        assert out[1] == pytest.approx(0.0, abs=1e-13)

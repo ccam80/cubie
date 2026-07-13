@@ -1,0 +1,369 @@
+"""Structural simplification pipeline tests."""
+
+import pytest
+import sympy as sp
+
+from cubie.odesystems.symbolic.structural.errors import (
+    ExtraEquationsSystemError,
+    ExtraVariablesSystemError,
+)
+from cubie.odesystems.symbolic.structural.simplify import (
+    structural_simplify,
+)
+from cubie.odesystems.symbolic.structural.symbolics import (
+    DerivativeRegistry,
+)
+from cubie.odesystems.symbolic.structural.system_structure import (
+    Equation,
+    StructuralState,
+)
+
+T = sp.Symbol("t", real=True)
+
+
+def syms(names):
+    return sp.symbols(names, real=True)
+
+
+def make_state(eqs, unknowns, knowns=(), priorities=None,
+               irreducibles=None):
+    names = {s.name for s in unknowns} | {s.name for s in knowns}
+    registry = DerivativeRegistry(names | {"t"})
+    return registry, lambda: StructuralState(
+        eqs,
+        unknowns,
+        registry,
+        set(knowns),
+        T,
+        state_priorities=priorities or {},
+        irreducibles=irreducibles or (),
+    )
+
+
+class TestExplicitSystems:
+    def test_plain_ode_passthrough(self):
+        x, k = syms("x k")
+        registry = DerivativeRegistry({"x", "k", "t"})
+        dx = registry.derivative(x)
+        state = StructuralState(
+            [Equation(dx, -k * x)], [x], registry, {k}, T
+        )
+        result = structural_simplify(state)
+        assert result.states == [x]
+        assert sp.simplify(result.dxdt[x] + k * x) == 0
+        assert result.residuals == []
+        assert result.mass_matrix is None
+
+    def test_observed_chain_extracted(self):
+        x, y, z, k = syms("x y z k")
+        registry = DerivativeRegistry({"x", "y", "z", "k", "t"})
+        dx = registry.derivative(x)
+        state = StructuralState(
+            [
+                Equation(dx, -k * x + z),
+                Equation(y, 2 * x),
+                Equation(z, y + 1),
+            ],
+            [x, y, z],
+            registry,
+            {k},
+            T,
+        )
+        result = structural_simplify(state)
+        assert result.states == [x]
+        obs = dict(result.observed)
+        assert set(obs) == {y, z}
+        # Substituting observed into dxdt reproduces the dynamics.
+        rhs = result.dxdt[x]
+        full = rhs
+        for _ in range(3):
+            full = full.xreplace(obs)
+        assert sp.simplify(full - (-k * x + 2 * x + 1)) == 0
+
+    def test_perfect_alias_eliminated(self):
+        x, y, k = syms("x y k")
+        registry = DerivativeRegistry({"x", "y", "k", "t"})
+        dx = registry.derivative(x)
+        state = StructuralState(
+            [
+                Equation(dx, -k * y),
+                Equation(sp.S.Zero, x - y),
+            ],
+            [x, y],
+            registry,
+            {k},
+            T,
+        )
+        result = structural_simplify(state)
+        assert result.states == [x]
+        obs = dict(result.observed)
+        assert obs[y] == x
+        assert sp.simplify(result.dxdt[x] + k * x) == 0
+
+    def test_negated_alias_sign(self):
+        x, y, k = syms("x y k")
+        registry = DerivativeRegistry({"x", "y", "k", "t"})
+        dx = registry.derivative(x)
+        state = StructuralState(
+            [
+                Equation(dx, -k * y),
+                Equation(sp.S.Zero, x + y),
+            ],
+            [x, y],
+            registry,
+            {k},
+            T,
+        )
+        result = structural_simplify(state)
+        obs = dict(result.observed)
+        assert obs[y] == -x
+        assert sp.simplify(result.dxdt[x] - k * x) == 0
+
+    def test_alias_target_prefers_priority(self):
+        x, y = syms("x y")
+        registry = DerivativeRegistry({"x", "y", "t"})
+        dx = registry.derivative(x)
+        dy = registry.derivative(y)
+        # x and y are aliased differentiated states with
+        # integer-linear dynamics; after aliasing, one of the now
+        # duplicate differential equations reduces away exactly, and
+        # priority keeps y as the surviving state.
+        state = StructuralState(
+            [
+                Equation(dx, -3 * x),
+                Equation(dy, -3 * y),
+                Equation(sp.S.Zero, x - y),
+            ],
+            [x, y],
+            registry,
+            set(),
+            T,
+            state_priorities={y: 5},
+        )
+        result = structural_simplify(state)
+        assert result.states == [y]
+        assert dict(result.observed)[x] == y
+        assert sp.simplify(result.dxdt[y] + 3 * y) == 0
+
+    def test_irreducible_not_eliminated(self):
+        x, y, k = syms("x y k")
+        registry = DerivativeRegistry({"x", "y", "k", "t"})
+        dx = registry.derivative(x)
+        state = StructuralState(
+            [
+                Equation(dx, -k * y),
+                Equation(y, x),
+            ],
+            [x, y],
+            registry,
+            {k},
+            T,
+            irreducibles=[y],
+        )
+        result = structural_simplify(state)
+        # y must survive as a solver unknown (algebraic state).
+        assert y in result.states
+
+
+class TestAlgebraicSystems:
+    def test_nonlinear_algebraic_solvable_becomes_observed(self):
+        x, k = syms("x k")
+        z = sp.Symbol("z", real=True)
+        registry = DerivativeRegistry({"x", "z", "k", "t"})
+        dx = registry.derivative(x)
+        state = StructuralState(
+            [
+                Equation(dx, -k * x + z),
+                Equation(sp.S.Zero, z - x**2),
+            ],
+            [x, z],
+            registry,
+            {k},
+            T,
+        )
+        result = structural_simplify(state)
+        assert result.states == [x]
+        obs = dict(result.observed)
+        assert sp.simplify(obs[z] - x**2) == 0
+
+    def test_unsolvable_algebraic_torn_to_residual(self):
+        x, z = syms("x z")
+        registry = DerivativeRegistry({"x", "z", "t"})
+        dx = registry.derivative(x)
+        # z**5 + z - x = 0 is not explicitly solvable for z.
+        state = StructuralState(
+            [
+                Equation(dx, -z),
+                Equation(sp.S.Zero, z**5 + z - x),
+            ],
+            [x, z],
+            registry,
+            set(),
+            T,
+        )
+        result = structural_simplify(state)
+        assert result.differential_states == [x]
+        assert result.algebraic_states == [z]
+        assert len(result.residuals) == 1
+        assert sp.simplify(
+            result.residuals[0] - (z**5 + z - x)
+        ) == 0
+        mass = result.mass_matrix
+        assert mass is not None
+        assert mass[0, 0] == 1 and mass[1, 1] == 0
+
+    def test_inline_linear_scc_solves_analytically(self):
+        x, u, v, p = syms("x u v p")
+        registry = DerivativeRegistry({"x", "u", "v", "p", "t"})
+        dx = registry.derivative(x)
+        # Coupled linear block: u + 2v = x; 3u - v = 1 with
+        # non-integer-friendly structure kept linear.
+        state_fn = lambda: StructuralState(
+            [
+                Equation(dx, -u),
+                Equation(sp.S.Zero, u + 2 * v - x),
+                Equation(sp.S.Zero, 3 * u - v - 1),
+            ],
+            [x, u, v],
+            registry,
+            {p},
+            T,
+        )
+        result = structural_simplify(
+            state_fn(), inline_linear_sccs=True
+        )
+        # The integer-linear exact SCC matching or the analytic
+        # solve must fully determine u and v as observed.
+        assert result.states == [x]
+        obs = dict(result.observed)
+        u_val = obs[u]
+        for _ in range(3):
+            u_val = u_val.xreplace(obs)
+        assert sp.simplify(u_val - (x + 2) / 7) == 0
+
+
+class TestPantelidesAndDummyDerivatives:
+    def make_pendulum(self, priorities=None):
+        x, y, vx, vy, Tn, g, L = syms("x y vx vy T g L")
+        registry = DerivativeRegistry(
+            {"x", "y", "vx", "vy", "T", "g", "L", "t"}
+        )
+        eqs = [
+            Equation(registry.derivative(x), vx),
+            Equation(registry.derivative(y), vy),
+            Equation(registry.derivative(vx), Tn * x),
+            Equation(registry.derivative(vy), Tn * y - g),
+            Equation(sp.S.Zero, x**2 + y**2 - L**2),
+        ]
+        state = StructuralState(
+            eqs,
+            [x, y, vx, vy, Tn],
+            registry,
+            {g, L},
+            T,
+            state_priorities=priorities or {},
+        )
+        return state, (x, y, vx, vy, Tn, g, L)
+
+    def test_pendulum_balanced_reduction(self):
+        state, symbols = self.make_pendulum()
+        result = structural_simplify(state)
+        # 2 differential + 3 algebraic states, 3 residuals: the
+        # constraint and its two time derivatives.
+        assert len(result.differential_states) == 2
+        assert len(result.algebraic_states) == 3
+        assert len(result.residuals) == 3
+        x, y = symbols[0], symbols[1]
+        L = symbols[6]
+        # The original constraint survives as a residual.
+        assert any(
+            sp.simplify(r - (x**2 + y**2 - L**2)) == 0
+            for r in result.residuals
+        )
+
+    def test_pendulum_priorities_select_states(self):
+        state, symbols = self.make_pendulum()
+        x, y, vx, vy = symbols[0], symbols[1], symbols[2], symbols[3]
+        state.structure.state_priorities = [
+            10 if state.fullvars[i] in (y, vy) else 0
+            for i in range(len(state.fullvars))
+        ]
+        result = structural_simplify(state)
+        assert y in result.differential_states
+        assert vy in result.differential_states
+
+    def test_higher_order_input_lowered(self):
+        x, w = syms("x w")
+        registry = DerivativeRegistry({"x", "w", "t"})
+        d1 = registry.derivative(x)
+        d2 = registry.derivative(d1)
+        # x'' = -x (harmonic oscillator given as second order).
+        state = StructuralState(
+            [Equation(d2, -x)],
+            [x],
+            registry,
+            set(),
+            T,
+        )
+        result = structural_simplify(state)
+        assert len(result.differential_states) == 2
+        assert not result.residuals
+        assert x in result.differential_states
+        # The generated companion state x_t satisfies d(x) = x_t and
+        # d(x_t) = -x.
+        other = [
+            s for s in result.differential_states if s != x
+        ][0]
+        assert result.dxdt[x] == other
+        assert sp.simplify(result.dxdt[other] + x) == 0
+
+
+class TestConsistencyErrors:
+    def test_overdetermined_raises(self):
+        x, k = syms("x k")
+        registry = DerivativeRegistry({"x", "k", "t"})
+        dx = registry.derivative(x)
+        state = StructuralState(
+            [
+                Equation(dx, -k * x),
+                Equation(sp.S.Zero, x - 1),
+                Equation(sp.S.Zero, x - 2),
+            ],
+            [x],
+            registry,
+            {k},
+            T,
+        )
+        with pytest.raises(ExtraEquationsSystemError):
+            structural_simplify(state)
+
+    def test_underdetermined_raises(self):
+        x, z = syms("x z")
+        registry = DerivativeRegistry({"x", "z", "t"})
+        dx = registry.derivative(x)
+        state = StructuralState(
+            [Equation(dx, -x + z)],
+            [x, z],
+            registry,
+            set(),
+            T,
+        )
+        with pytest.raises(ExtraVariablesSystemError):
+            structural_simplify(state)
+
+    def test_underdetermined_tearing_only_mode(self):
+        x, z = syms("x z")
+        registry = DerivativeRegistry({"x", "z", "t"})
+        dx = registry.derivative(x)
+        state = StructuralState(
+            [Equation(dx, -x + z)],
+            [x, z],
+            registry,
+            set(),
+            T,
+        )
+        with pytest.warns(UserWarning):
+            result = structural_simplify(
+                state, fully_determined=False
+            )
+        assert x in result.states

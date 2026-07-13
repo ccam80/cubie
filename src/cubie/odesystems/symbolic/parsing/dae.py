@@ -201,16 +201,22 @@ def _parse_string_equations(
         lhs_str, rhs_str = [p.strip() for p in line.split("=", 1)]
 
         rhs_text = _sanitise_input_math(rhs_str)
-        try:
-            rhs_expr = parse_expr(
-                rhs_text,
-                transformations=PARSE_TRANSFORMS,
-                local_dict=local_dict,
-            )
-        except (NameError, TypeError) as exc:
-            raise ValueError(
-                f"Undefined symbols in equation '{raw_line}'"
-            ) from exc
+        if strict:
+            try:
+                rhs_expr = parse_expr(
+                    rhs_text,
+                    transformations=PARSE_TRANSFORMS,
+                    local_dict=local_dict,
+                )
+            except (NameError, TypeError) as exc:
+                raise ValueError(
+                    f"Undefined symbols in equation '{raw_line}'"
+                ) from exc
+        else:
+            # Without transformations parse_expr auto-creates
+            # symbols for undeclared names (inferred as parameters
+            # below), mirroring the standard parser.
+            rhs_expr = parse_expr(rhs_text, local_dict=local_dict)
         rhs_expr = _inline_nondevice_calls(
             rhs_expr, user_functions or {}, rename
         )
@@ -267,13 +273,16 @@ def _parse_string_equations(
 
     # Infer undeclared RHS symbols as parameters (non-strict), after
     # derivative replacement so derivative symbols don't count.
+    # Auto-created symbols lack the real assumption, so they are
+    # coerced to the canonical real symbols used everywhere else.
     declared = set(known_symbol_map.values()) | {TIME_SYMBOL}
     declared |= {
         sp.Symbol(name, real=True) for name in unknown_names
     }
+    inferred_subs = {}
     for eq in equations:
         for sym in eq.free_symbols():
-            if sym in declared:
+            if sym in declared or sym in inferred_subs:
                 continue
             if registry.is_derivative(sym):
                 continue
@@ -281,8 +290,13 @@ def _parse_string_equations(
                 raise ValueError(
                     f"Equations reference undefined symbol {sym}."
                 )
-            new_params.append(sym)
-            declared.add(sym)
+            real_sym = sp.Symbol(sym.name, real=True)
+            inferred_subs[sym] = real_sym
+            new_params.append(real_sym)
+            declared.add(real_sym)
+    if inferred_subs:
+        for i in range(len(equations)):
+            equations[i] = equations[i].xreplace(inferred_subs)
 
     return equations, funcs, new_params, aux_names
 
