@@ -33,12 +33,17 @@ jobs:
       contains(github.event.head_commit.message, 'test_all')
     permissions:
       contents: read
-    # max-parallel is the cost lever: 8 = fully parallel (8 x g4dn.2xlarge
-    # = 64 vCPU peak). Drop to 4 (32 vCPU) or 2 (16 vCPU) to fit a smaller
-    # On-Demand G quota at the cost of wall-clock.
+    # max-parallel: 2 keeps the peak at 2 x g4dn.xlarge = 8 vCPU, the
+    # On-Demand G quota. Two 4-vCPU jobs at once beat one 8-vCPU job on
+    # both makespan and cost: the suite is compile-dominated and the
+    # param-set xdist grouping (tests/conftest.py + --dist=loadgroup in
+    # addopts) keeps thread scaling near-linear, so the smaller instance
+    # loses little per job while per-job overhead overlaps across the
+    # two concurrent runners. Raise max-parallel only with a quota bump
+    # (each +2 needs +8 vCPU of G quota on g4dn.xlarge).
     strategy:
       fail-fast: false
-      max-parallel: 8
+      max-parallel: 2
       matrix:
         os: [linux, windows]
         python-version: ["3.10", "3.14"]

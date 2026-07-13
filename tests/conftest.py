@@ -1,6 +1,7 @@
+import hashlib
+import os
 from pathlib import Path
 from types import SimpleNamespace
-import os
 
 import numpy as np
 import pytest
@@ -75,17 +76,75 @@ np.set_printoptions(linewidth=120, threshold=np.inf, precision=12)
 # --------------------------------------------------------------------------- #
 #                           Test ordering hook                                #
 # --------------------------------------------------------------------------- #
+
+
+def _canonical_param(value):
+    """Return a stable repr for a param value, dict-order independent."""
+    if isinstance(value, dict):
+        return repr(
+            sorted((k, _canonical_param(v)) for k, v in value.items())
+        )
+    return repr(value)
+
+
+def _session_param_signature(item):
+    """Signature of the session-scoped indirect params an item carries.
+
+    Session-scoped parametrised fixtures (solver_settings_override and
+    friends) tear down and rebuild the compiled fixture chain whenever
+    consecutive tests carry different param sets, so tests sharing a
+    signature must run contiguously on one xdist worker for each param
+    set to compile once. Returns None for tests using pure defaults.
+    """
+    callspec = getattr(item, "callspec", None)
+    if callspec is None:
+        return None
+    name2fixturedefs = item._fixtureinfo.name2fixturedefs
+    parts = []
+    for name in sorted(callspec.params):
+        fixturedefs = name2fixturedefs.get(name)
+        if not fixturedefs or fixturedefs[-1].scope != "session":
+            continue
+        parts.append(f"{name}={_canonical_param(callspec.params[name])}")
+    return "; ".join(parts) if parts else None
+
+
 @pytest.hookimpl(trylast=True)
 def pytest_collection_modifyitems(config, items):
-    # move tests which close the CUDA context to the very end, so that the
-    # streams used in session-scoped fixtures don't disappear on them mid-run
+    """Group override-param tests for xdist and order the collection.
+
+    Under ``--dist=loadgroup`` each non-default session param set
+    becomes one xdist_group, so each set is compiled by exactly one
+    worker. Grouped items run first (largest groups first, for
+    balance); default-param tests follow as individually scheduled
+    items, so every worker builds the default fixture chain exactly
+    once, after its override groups are done. Tests which close the
+    CUDA context stay at the very end, ungrouped, so the streams used
+    in session-scoped fixtures don't disappear on them mid-run.
+    """
     final_basenames = {"test_cupyemm.py", "test_memmgmt.py"}
-    # iterate over a shallow copy to allow safe in-place removals/appends
-    for item in items[:]:
+    grouped = []
+    default = []
+    final = []
+    group_sizes = {}
+    for item in items:
         if item.fspath.basename in final_basenames:
-            items.remove(item)
-            items.append(item)
-    pass
+            final.append(item)
+            continue
+        signature = _session_param_signature(item)
+        if signature is None:
+            default.append(item)
+            continue
+        digest = hashlib.sha1(signature.encode()).hexdigest()[:10]
+        item.add_marker(pytest.mark.xdist_group(name=f"pg-{digest}"))
+        grouped.append((digest, item))
+        group_sizes[digest] = group_sizes.get(digest, 0) + 1
+
+    group_order = {}
+    for index, (digest, _) in enumerate(grouped):
+        group_order.setdefault(digest, (-group_sizes[digest], index))
+    grouped.sort(key=lambda pair: group_order[pair[0]])
+    items[:] = [item for _, item in grouped] + default + final
 
 
 # --------------------------------------------------------------------------- #

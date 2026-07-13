@@ -19,8 +19,10 @@ images:
 runners:
   # Linux GPU: RunsOn's managed image (driver + CUDA toolkit +
   # container toolkit prebaked; rebuilt by RunsOn ~every 15 days).
+  # g4dn.xlarge (4 vCPU) so two matrix jobs fit inside the 8-vCPU
+  # On-Demand G quota; see max-parallel in ci_cuda_tests.yml.
   gpu-linux:
-    family: ["g4dn.2xlarge"]
+    family: ["g4dn.xlarge"]
     image: ubuntu24-gpu-x64
 
   # Windows GPU: our baked AMI (driver already installed).
@@ -31,5 +33,5 @@ runners:
   # build-windows-gpu-ami.yml, ci/tools/install_gpu_driver.ps1, the
   # `images:` block above) and set `image: windows25-gpu-x64` here instead.
   gpu-windows:
-    family: ["g4dn.2xlarge"]
+    family: ["g4dn.xlarge"]
     image: cubie-win-gpu
