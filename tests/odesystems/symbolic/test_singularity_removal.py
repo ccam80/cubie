@@ -70,14 +70,13 @@ def test_fix_disabled_leaves_singularity(ghk_singularity_model):
 
 
 def test_autodetect_logs_info_without_warning(
-    cellml_fixtures_dir, caplog, recwarn, tmp_path, monkeypatch
+    cellml_fixtures_dir, caplog, recwarn, isolated_cache_root
 ):
     """Auto-detect names the voltage via INFO, applies the fix, no warn.
 
-    ``chdir`` into a fresh directory so the CWD-relative CellML parse
-    cache misses and the parse-time INFO log is actually emitted.
+    Use a fresh cache root so the CellML parse cache misses and the
+    parse-time INFO log is actually emitted.
     """
-    monkeypatch.chdir(tmp_path)
     path = str(cellml_fixtures_dir / "ghk_singularity.cellml")
     with caplog.at_level(logging.INFO, logger=CELLML_LOGGER):
         ode = load_cellml_model(
@@ -91,14 +90,13 @@ def test_autodetect_logs_info_without_warning(
 
 
 def test_autodetect_missing_voltage_warns_and_skips(
-    cellml_fixtures_dir, tmp_path, monkeypatch
+    cellml_fixtures_dir, isolated_cache_root
 ):
     """No detectable voltage warns and loads the model unchanged.
 
-    ``chdir`` into a fresh directory so the parse-time UserWarning is
-    not skipped by a CWD-relative CellML parse-cache hit.
+    Use a fresh cache root so the parse-time UserWarning is not
+    skipped by a CellML parse-cache hit.
     """
-    monkeypatch.chdir(tmp_path)
     path = str(cellml_fixtures_dir / "basic_ode.cellml")
     with pytest.warns(UserWarning, match="membrane voltage"):
         ode = load_cellml_model(

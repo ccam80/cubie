@@ -288,49 +288,45 @@ def test_cellml_time_logging_events_registered():
         )
 
 
-def test_cache_used_on_reload(cellml_fixtures_dir, tmp_path):
+def test_cache_used_on_reload(
+    cellml_fixtures_dir, tmp_path, isolated_cache_root
+):
     """Verify CellML cache is used on second load of same model."""
     import shutil
 
-    # Copy fixture to tmp directory so we can control generated/ location
+    # Copy fixture to tmp directory so its content is under test control
     tmp_cellml = tmp_path / "basic_ode.cellml"
     shutil.copy(cellml_fixtures_dir / "basic_ode.cellml", tmp_cellml)
 
-    # Change working directory to tmp_path for generated/ directory
-    original_cwd = os.getcwd()
-    try:
-        os.chdir(tmp_path)
+    # First load - creates cache
+    ode1 = load_cellml_model(
+        str(tmp_cellml), name="basic_ode", fix_singularities=False
+    )
 
-        # First load - creates cache
-        ode1 = load_cellml_model(
-            str(tmp_cellml), name="basic_ode", fix_singularities=False
-        )
+    # Verify cache manifest created (LRU cache uses manifest file)
+    manifest_file = (
+        isolated_cache_root / "basic_ode" / "cellml_cache_manifest.json"
+    )
+    assert manifest_file.exists(), (
+        "Cache manifest should exist after first load"
+    )
 
-        # Verify cache manifest created (LRU cache uses manifest file)
-        manifest_file = (
-            tmp_path / "generated" / "basic_ode" / "cellml_cache_manifest.json"
-        )
-        assert manifest_file.exists(), (
-            "Cache manifest should exist after first load"
-        )
+    # Second load - should use cache
+    ode2 = load_cellml_model(
+        str(tmp_cellml), name="basic_ode", fix_singularities=False
+    )
 
-        # Second load - should use cache
-        ode2 = load_cellml_model(
-            str(tmp_cellml), name="basic_ode", fix_singularities=False
-        )
-
-        # Verify both ODEs are equivalent
-        assert ode1.num_states == ode2.num_states
-        assert ode1.fn_hash == ode2.fn_hash
-        assert len(ode1.indices.states.index_map) == len(
-            ode2.indices.states.index_map
-        )
-
-    finally:
-        os.chdir(original_cwd)
+    # Verify both ODEs are equivalent
+    assert ode1.num_states == ode2.num_states
+    assert ode1.fn_hash == ode2.fn_hash
+    assert len(ode1.indices.states.index_map) == len(
+        ode2.indices.states.index_map
+    )
 
 
-def test_cache_invalidated_on_file_change(cellml_fixtures_dir, tmp_path):
+def test_cache_invalidated_on_file_change(
+    cellml_fixtures_dir, tmp_path, isolated_cache_root
+):
     """Verify cache invalidates when CellML file content changes."""
     import shutil
 
@@ -338,55 +334,50 @@ def test_cache_invalidated_on_file_change(cellml_fixtures_dir, tmp_path):
     tmp_cellml = tmp_path / "basic_ode.cellml"
     shutil.copy(cellml_fixtures_dir / "basic_ode.cellml", tmp_cellml)
 
-    original_cwd = os.getcwd()
-    try:
-        os.chdir(tmp_path)
+    # First load - creates cache
+    load_cellml_model(
+        str(tmp_cellml), name="basic_ode", fix_singularities=False
+    )
+    manifest_file = (
+        isolated_cache_root / "basic_ode" / "cellml_cache_manifest.json"
+    )
+    assert manifest_file.exists()
 
-        # First load - creates cache
-        load_cellml_model(
-            str(tmp_cellml), name="basic_ode", fix_singularities=False
-        )
-        manifest_file = (
-            tmp_path / "generated" / "basic_ode" / "cellml_cache_manifest.json"
-        )
-        assert manifest_file.exists()
+    # Modify CellML file (add comment)
+    with open(tmp_cellml, "a") as f:
+        f.write("\n<!-- Modified for test -->\n")
 
-        # Modify CellML file (add comment)
-        with open(tmp_cellml, "a") as f:
-            f.write("\n<!-- Modified for test -->\n")
+    # Verify cache becomes invalid (file hash changed)
+    from cubie.odesystems.symbolic.parsing.cellml_cache import CellMLCache
+    import numpy as np
 
-        # Verify cache becomes invalid (file hash changed)
-        from cubie.odesystems.symbolic.parsing.cellml_cache import CellMLCache
-        import numpy as np
+    cache = CellMLCache("basic_ode", str(tmp_cellml))
+    # Compute args_hash for default arguments (precision=np.float32)
+    args_hash = cache.compute_cache_key(
+        None, None, np.float32, "basic_ode", fix_singularities=False
+    )
+    assert not cache.cache_valid(args_hash), (
+        "Cache should be invalid after file change"
+    )
 
-        cache = CellMLCache("basic_ode", str(tmp_cellml))
-        # Compute args_hash for default arguments (precision=np.float32)
-        args_hash = cache.compute_cache_key(
-            None, None, np.float32, "basic_ode", fix_singularities=False
-        )
-        assert not cache.cache_valid(args_hash), (
-            "Cache should be invalid after file change"
-        )
+    # Load again - should re-parse and update cache
+    load_cellml_model(
+        str(tmp_cellml), name="basic_ode", fix_singularities=False
+    )
 
-        # Load again - should re-parse and update cache
-        load_cellml_model(
-            str(tmp_cellml), name="basic_ode", fix_singularities=False
-        )
-
-        # Verify new cache is valid (need fresh CellMLCache for updated file hash)
-        cache2 = CellMLCache("basic_ode", str(tmp_cellml))
-        args_hash2 = cache2.compute_cache_key(
-            None, None, np.float32, "basic_ode", fix_singularities=False
-        )
-        assert cache2.cache_valid(args_hash2), (
-            "Cache should be valid after re-parse"
-        )
-
-    finally:
-        os.chdir(original_cwd)
+    # Verify new cache is valid (need fresh CellMLCache for updated file hash)
+    cache2 = CellMLCache("basic_ode", str(tmp_cellml))
+    args_hash2 = cache2.compute_cache_key(
+        None, None, np.float32, "basic_ode", fix_singularities=False
+    )
+    assert cache2.cache_valid(args_hash2), (
+        "Cache should be valid after re-parse"
+    )
 
 
-def test_cache_isolated_per_model(cellml_fixtures_dir, tmp_path):
+def test_cache_isolated_per_model(
+    cellml_fixtures_dir, tmp_path, isolated_cache_root
+):
     """Verify each model has separate cache file."""
     import shutil
 
@@ -398,40 +389,32 @@ def test_cache_isolated_per_model(cellml_fixtures_dir, tmp_path):
         cellml_fixtures_dir / "beeler_reuter_model_1977.cellml", tmp_br
     )
 
-    original_cwd = os.getcwd()
-    try:
-        os.chdir(tmp_path)
+    # Load both models
+    ode_basic = load_cellml_model(
+        str(tmp_basic), name="basic_ode", fix_singularities=False
+    )
+    ode_br = load_cellml_model(
+        str(tmp_br), name="beeler_reuter_model_1977"
+    )
 
-        # Load both models
-        ode_basic = load_cellml_model(
-            str(tmp_basic), name="basic_ode", fix_singularities=False
-        )
-        ode_br = load_cellml_model(
-            str(tmp_br), name="beeler_reuter_model_1977"
-        )
+    # Verify separate cache manifests exist (LRU cache uses manifest files)
+    manifest_basic = (
+        isolated_cache_root / "basic_ode" / "cellml_cache_manifest.json"
+    )
+    manifest_br = (
+        isolated_cache_root
+        / "beeler_reuter_model_1977"
+        / "cellml_cache_manifest.json"
+    )
 
-        # Verify separate cache manifests exist (LRU cache uses manifest files)
-        manifest_basic = (
-            tmp_path / "generated" / "basic_ode" / "cellml_cache_manifest.json"
-        )
-        manifest_br = (
-            tmp_path
-            / "generated"
-            / "beeler_reuter_model_1977"
-            / "cellml_cache_manifest.json"
-        )
+    assert manifest_basic.exists(), "basic_ode cache manifest should exist"
+    assert manifest_br.exists(), (
+        "beeler_reuter cache manifest should exist"
+    )
 
-        assert manifest_basic.exists(), "basic_ode cache manifest should exist"
-        assert manifest_br.exists(), (
-            "beeler_reuter cache manifest should exist"
-        )
-
-        # Verify different models have different hashes
-        assert ode_basic.fn_hash != ode_br.fn_hash
-        assert ode_basic.num_states != ode_br.num_states
-
-    finally:
-        os.chdir(original_cwd)
+    # Verify different models have different hashes
+    assert ode_basic.fn_hash != ode_br.fn_hash
+    assert ode_basic.num_states != ode_br.num_states
 
 
 def test_sanitize_symbol_name_leading_digit():
@@ -445,10 +428,9 @@ def test_sanitize_symbol_name_leading_underscore_digit():
 
 
 def test_load_with_parameters_dict(
-    cellml_fixtures_dir, tmp_path, monkeypatch
+    cellml_fixtures_dir, isolated_cache_root
 ):
     """A parameters dict is accepted and merged with CellML values."""
-    monkeypatch.chdir(tmp_path)
     path = str(cellml_fixtures_dir / "basic_ode.cellml")
     model = load_cellml_model(
         path,
@@ -460,10 +442,9 @@ def test_load_with_parameters_dict(
 
 
 def test_underscore_component_names_load(
-    cellml_fixtures_dir, tmp_path, monkeypatch
+    cellml_fixtures_dir, isolated_cache_root
 ):
     """Variables qualified by a leading-underscore component load."""
-    monkeypatch.chdir(tmp_path)
     model = load_cellml_model(
         str(cellml_fixtures_dir / "underscore_names.cellml"),
         fix_singularities=False,
@@ -493,10 +474,9 @@ def test_constant_as_observable_raises(cellml_fixtures_dir):
 
 
 def test_repeat_load_hits_persistent_cache(
-    cellml_fixtures_dir, tmp_path, monkeypatch
+    cellml_fixtures_dir, isolated_cache_root
 ):
     """A second identical load returns the cached parsed model."""
-    monkeypatch.chdir(tmp_path)
     path = str(cellml_fixtures_dir / "basic_ode.cellml")
     first = load_cellml_model(
         path, precision=np.float64, fix_singularities=False
@@ -509,7 +489,7 @@ def test_repeat_load_hits_persistent_cache(
 
 
 def test_unknown_parameter_name_reuses_effective_cache(
-    cellml_fixtures_dir, tmp_path, monkeypatch
+    cellml_fixtures_dir, isolated_cache_root
 ):
     """Parameter names absent from the model resolve to the plain config.
 
@@ -519,7 +499,6 @@ def test_unknown_parameter_name_reuses_effective_cache(
     early check but lands on the cached plain-configuration entry
     after parsing.
     """
-    monkeypatch.chdir(tmp_path)
     path = str(cellml_fixtures_dir / "basic_ode.cellml")
     baseline = load_cellml_model(path, fix_singularities=False)
     aliased = load_cellml_model(
@@ -531,9 +510,8 @@ def test_unknown_parameter_name_reuses_effective_cache(
     assert "not_in_model" not in aliased.parameters.values_dict
 
 
-def test_parameters_as_list(cellml_fixtures_dir, tmp_path, monkeypatch):
+def test_parameters_as_list(cellml_fixtures_dir, isolated_cache_root):
     """A parameters list promotes named constants to parameters."""
-    monkeypatch.chdir(tmp_path)
     model = load_cellml_model(
         str(cellml_fixtures_dir / "basic_ode.cellml"),
         parameters=["main_a"],

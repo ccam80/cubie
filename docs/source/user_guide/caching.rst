@@ -11,8 +11,18 @@ The ``generated/`` Directory
 When CuBIE first compiles a system, it writes generated Python files into
 a ``generated/`` directory inside the current working directory.  These
 files contain the CUDA device functions for the right-hand side,
-Jacobian helpers, and other system-specific code.  The location is
-fixed; it cannot be redirected.
+Jacobian helpers, and other system-specific code.
+
+To relocate every cache layer at once, set the ``CUBIE_CACHE_DIR``
+environment variable to the desired directory before starting Python,
+or call :func:`cubie.cache_root.set_cache_root` at runtime (which takes
+precedence over the environment variable):
+
+.. code-block:: python
+
+   from cubie.cache_root import set_cache_root
+
+   set_cache_root("/data/cubie_caches")
 
 When Recompilation Happens
 --------------------------

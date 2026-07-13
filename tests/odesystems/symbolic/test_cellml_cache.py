@@ -154,15 +154,12 @@ def test_compute_cache_key_different_args(tmp_cellml_file):
 
 
 
-def test_cache_valid_missing_file(basic_cellml_path, tmp_path, monkeypatch):
+def test_cache_valid_missing_file(basic_cellml_path, isolated_cache_root):
     """Verify cache_valid() returns False when cache file doesn't exist.
     
     Tests that cache validation correctly identifies when no cache file
     is present in the expected location.
     """
-    # Change to tmp directory so cache files don't interfere with real ones
-    monkeypatch.chdir(tmp_path)
-    
     cache = CellMLCache(model_name="basic_ode", cellml_path=basic_cellml_path)
     args_hash = cache.compute_cache_key(None, None, float64, "basic_ode")
     
@@ -171,15 +168,12 @@ def test_cache_valid_missing_file(basic_cellml_path, tmp_path, monkeypatch):
     assert cache.cache_valid(args_hash) is False
 
 
-def test_cache_valid_hash_mismatch(tmp_cellml_file, tmp_path, monkeypatch):
+def test_cache_valid_hash_mismatch(tmp_cellml_file, isolated_cache_root):
     """Verify cache_valid() returns False when file hash doesn't match.
     
     Tests cache invalidation when the source CellML file has been
     modified after cache creation.
     """
-    # Change to tmp directory
-    monkeypatch.chdir(tmp_path)
-    
     cache = CellMLCache(model_name="test", cellml_path=tmp_cellml_file)
     args_hash = cache.compute_cache_key(None, None, float64, "test")
     
@@ -197,16 +191,13 @@ def test_cache_valid_hash_mismatch(tmp_cellml_file, tmp_path, monkeypatch):
 
 
 def test_load_from_cache_returns_none_invalid(
-    tmp_cellml_file, tmp_path, monkeypatch
+    tmp_cellml_file, isolated_cache_root
 ):
     """Verify load_from_cache() returns None when cache invalid.
     
     Tests that attempting to load from an invalid or non-existent cache
     returns None rather than raising an exception.
     """
-    # Change to tmp directory
-    monkeypatch.chdir(tmp_path)
-    
     cache = CellMLCache(model_name="test", cellml_path=tmp_cellml_file)
     args_hash = cache.compute_cache_key(None, None, float64, "test")
     
@@ -226,7 +217,7 @@ def test_load_from_cache_returns_none_invalid(
     assert cache.load_from_cache(args_hash) is None
 
 
-def test_save_and_load_roundtrip(tmp_cellml_file, tmp_path, monkeypatch):
+def test_save_and_load_roundtrip(tmp_cellml_file, isolated_cache_root):
     """Verify data saved to cache can be loaded back correctly.
     
     Tests the complete save/load cycle, ensuring that all data saved to
@@ -235,9 +226,6 @@ def test_save_and_load_roundtrip(tmp_cellml_file, tmp_path, monkeypatch):
     # Import required types for creating mock data
     from attrs import define, field
     from sympy import symbols
-    
-    # Change to tmp directory
-    monkeypatch.chdir(tmp_path)
     
     cache = CellMLCache(model_name="test", cellml_path=tmp_cellml_file)
     args_hash = cache.compute_cache_key(None, None, float64, "test")
@@ -304,15 +292,12 @@ def test_save_and_load_roundtrip(tmp_cellml_file, tmp_path, monkeypatch):
     assert loaded_data['user_functions'] is None
 
 
-def test_corrupted_cache_returns_none(tmp_cellml_file, tmp_path, monkeypatch):
+def test_corrupted_cache_returns_none(tmp_cellml_file, isolated_cache_root):
     """Verify load_from_cache() handles corrupted pickle gracefully.
     
     Tests that corrupted cache files are handled gracefully by returning
     None rather than raising exceptions that would crash the parsing.
     """
-    # Change to tmp directory
-    monkeypatch.chdir(tmp_path)
-    
     cache = CellMLCache(model_name="test", cellml_path=tmp_cellml_file)
     args_hash = cache.compute_cache_key(None, None, float64, "test")
     
@@ -340,16 +325,13 @@ def test_corrupted_cache_returns_none(tmp_cellml_file, tmp_path, monkeypatch):
     assert cache.load_from_cache(args_hash) is None
 
 
-def test_lru_eviction_on_sixth_entry(tmp_cellml_file, tmp_path, monkeypatch):
+def test_lru_eviction_on_sixth_entry(tmp_cellml_file, isolated_cache_root):
     """Verify LRU eviction when 6th config added to cache.
     
     Tests that the cache correctly evicts the oldest entry when
     the max_entries limit (5) is exceeded.
     """
     from sympy import symbols
-    
-    # Change to tmp directory
-    monkeypatch.chdir(tmp_path)
     
     cache = CellMLCache(model_name="test", cellml_path=tmp_cellml_file)
     
@@ -405,16 +387,13 @@ def test_lru_eviction_on_sixth_entry(tmp_cellml_file, tmp_path, monkeypatch):
     assert not first_cache_file.exists()
 
 
-def test_cache_hit_with_different_params(tmp_cellml_file, tmp_path, monkeypatch):
+def test_cache_hit_with_different_params(tmp_cellml_file, isolated_cache_root):
     """Verify cache can store and retrieve different parameter sets.
     
     Tests that the cache correctly handles multiple configurations
     for the same CellML file.
     """
     from sympy import symbols
-    
-    # Change to tmp directory
-    monkeypatch.chdir(tmp_path)
     
     cache = CellMLCache(model_name="test", cellml_path=tmp_cellml_file)
     
@@ -465,7 +444,7 @@ def test_cache_hit_with_different_params(tmp_cellml_file, tmp_path, monkeypatch)
 
 
 def test_file_hash_change_invalidates_all_configs(
-    tmp_cellml_file, tmp_path, monkeypatch
+    tmp_cellml_file, isolated_cache_root
 ):
     """Verify that file hash change invalidates all cached configs.
     
@@ -473,9 +452,6 @@ def test_file_hash_change_invalidates_all_configs(
     configurations become invalid regardless of their args_hash.
     """
     from sympy import symbols
-    
-    # Change to tmp directory
-    monkeypatch.chdir(tmp_path)
     
     cache = CellMLCache(model_name="test", cellml_path=tmp_cellml_file)
     

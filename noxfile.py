@@ -38,7 +38,8 @@ def gpu(session, cuda):
         "'| binding', d.binding.__name__)",
     )
     # Wipe the shared, cwd-relative codegen + compiled-kernel cache before
-    # each cell. GENERATED_DIR = getcwd()/generated, and cubie_cache stores
+    # each cell. The default cache root is getcwd()/generated
+    # (cubie.cache_root), and cubie_cache stores
     # compiled kernels under it keyed by a config_hash that does NOT include
     # the CUDA toolkit version — so without this wipe a later cell gets a
     # cache hit and runs an earlier cell's kernel instead of compiling its

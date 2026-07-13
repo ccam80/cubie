@@ -12,29 +12,22 @@ Published Classes
     >>> ode_file.cached_file_valid(123456)
     True
 
-Constants
----------
-:data:`GENERATED_DIR`
-    Root directory for generated modules (``./generated/``).
-
 See Also
 --------
 :class:`~cubie.odesystems.symbolic.symbolicODE.SymbolicODE`
     Creates and owns an ``ODEFile`` instance for codegen caching.
+:mod:`cubie.cache_root`
+    Shared root directory for all disk cache layers.
 :mod:`cubie.cubie_cache`
     Separate Numba compilation cache layer.
 """
 
 from importlib import util
-from os import getcwd
-from pathlib import Path
 from typing import Callable, Optional, Tuple
 
 from cubie._utils import package_source_hash
+from cubie.cache_root import get_cache_root
 from cubie.time_logger import default_timelogger
-
-cwd = getcwd()
-GENERATED_DIR = Path(cwd) / "generated"
 
 
 def _salted_hash(fn_hash) -> str:
@@ -68,7 +61,7 @@ class ODEFile:
         fn_hash
             Hash representing the symbolic system definition.
         """
-        system_dir = GENERATED_DIR / system_name
+        system_dir = get_cache_root() / system_name
         system_dir.mkdir(parents=True, exist_ok=True)
         self.file_path = system_dir / f"{system_name}.py"
         self.fn_hash = fn_hash
