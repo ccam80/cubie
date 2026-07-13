@@ -30,12 +30,16 @@ jobs:
 
       - name: Build AMI
         # Spot g4dn.xlarge capacity is per-Availability-Zone, and Packer
-        # pins a build to a single subnet (hence a single AZ). A run that
-        # lands in an AZ with no spot capacity fails the fleet request, so
-        # sweep the default VPC's subnets (one per AZ) and take the first
-        # AZ that has capacity -- automating AWS's own "choose another AZ"
-        # advice. Set AWS_BUILD_SUBNET_ID to pin one subnet instead (e.g.
-        # an account with no default VPC).
+        # pins a build to a single subnet (hence a single AZ). Sweep the
+        # default VPC's subnets (one per AZ) and take the first AZ with
+        # capacity -- automating AWS's own "choose another AZ" advice.
+        # Only an AZ-capacity error advances the sweep: any other Packer
+        # failure (WinRM timeout, driver install, security group, or a
+        # regional spot-quota miss that recurs in every AZ) short-circuits
+        # immediately, because a Windows bake can run 30-60 min per AZ and
+        # sweeping on a non-capacity error would waste hours. Set
+        # AWS_BUILD_SUBNET_ID to pin one subnet instead (e.g. no default
+        # VPC).
         env:
           AWS_REGION: ${{ vars.AWS_REGION }}
           PINNED_SUBNET: ${{ vars.AWS_BUILD_SUBNET_ID }}
@@ -56,23 +60,40 @@ jobs:
             echo "No candidate subnets found; set AWS_BUILD_SUBNET_ID." >&2
             exit 1
           fi
+          # Errors that mean "this AZ is out of capacity, try another". A
+          # regional spot-quota miss (MaxSpotInstanceCountExceeded) is
+          # intentionally excluded -- every AZ shares that quota.
+          CAP_RE='InsufficientInstanceCapacity|capacity-not-available|do not have sufficient .*capacity|insufficient .*capacity in the [Aa]vailability [Zz]one'
           echo "Candidate subnets (one per AZ): $SUBNETS"
+          swept=0
+          last_rc=1
           for SN in $SUBNETS; do
             echo "::group::packer build on subnet $SN"
-            if packer build \
-                 -var "region=$AWS_REGION" \
-                 -var "subnet_id=$SN" \
-                 packer/windows-gpu.pkr.hcl; then
-              echo "::endgroup::"
+            set +e
+            packer build \
+              -var "region=$AWS_REGION" \
+              -var "subnet_id=$SN" \
+              packer/windows-gpu.pkr.hcl 2>&1 | tee packer.out
+            rc=${PIPESTATUS[0]}
+            set -e
+            echo "::endgroup::"
+            if [ "$rc" -eq 0 ]; then
               echo "Bake succeeded in subnet $SN."
               exit 0
             fi
-            echo "::endgroup::"
-            echo "Subnet $SN failed (likely no spot capacity in its AZ);" \
-                 "trying the next AZ."
+            if grep -Eq "$CAP_RE" packer.out; then
+              echo "Subnet $SN: no spot capacity in its AZ (rc=$rc);" \
+                   "trying the next AZ."
+              swept=1
+              last_rc=$rc
+              continue
+            fi
+            echo "Subnet $SN: Packer failed for a non-capacity reason" \
+                 "(rc=$rc); not sweeping further AZs." >&2
+            exit "$rc"
           done
-          echo "No AZ had spot capacity for the bake instance." >&2
-          exit 1
+          echo "Every candidate AZ was out of spot capacity (swept=$swept)." >&2
+          exit "$last_rc"
 
       - name: Deregister superseded cubie-win-gpu AMIs
         # Keep the most recent AMI; deregister older ones (and their
