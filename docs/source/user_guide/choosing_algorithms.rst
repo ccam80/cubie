@@ -231,9 +231,10 @@ Select one by name with ``step_controller`` inside
    ratio.  Widely used with implicit methods; useful when step
    rejections are frequent.
 
-Each algorithm picks a sensible default controller (an adaptive
-controller when it has an error estimate, ``fixed`` otherwise), so for
-most problems you don't need to choose at all.  To override:
+Each algorithm picks a sensible default controller (``pi`` for
+explicit Runge--Kutta, ``gustafsson`` for the implicit families,
+``fixed`` when there is no error estimate), so for most problems you
+don't need to choose at all.  To override:
 
 .. code-block:: python
 

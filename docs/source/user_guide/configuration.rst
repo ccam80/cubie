@@ -198,9 +198,10 @@ Notes on selected parameters
     Selects the step-size controller by name: ``"fixed"``, ``"i"``,
     ``"pi"``, ``"pid"``, or ``"gustafsson"``. When omitted, the
     chosen algorithm's own default controller is used — fixed for
-    schemes without an embedded error estimate, otherwise an
-    algorithm-tuned PID. See :doc:`choosing_algorithms` and the
-    algorithm defaults table in the API reference.
+    schemes without an embedded error estimate, otherwise PI for
+    explicit Runge–Kutta and Gustafsson for the implicit families.
+    See :doc:`choosing_algorithms` and the algorithm defaults table
+    in the API reference.
 
 **max_registers**
     Per-thread register cap forwarded to ``cuda.jit``. Default
