@@ -1,4 +1,4 @@
-"""Compile-time performance patches for stock numba-cuda.
+"""Performance and lineinfo patches for stock numba-cuda.
 
 CuBIE JIT-compiles deeply nested ``inline='always'`` device-function
 stacks; several numba-cuda frontend algorithms are superlinear or
@@ -8,9 +8,11 @@ the affected functions and methods with the implementations carried
 on the ``cubie_patch`` branch of the ccam80/numba-cuda fork, so the
 improvements ship with cubie while awaiting upstream acceptance.
 
-Every patch is behaviour-preserving: live maps, SSA form, inferred
-signatures and generated PTX are identical (verified bit-exact on
-saturating production batches); only compile time changes.
+Every performance patch is behaviour-preserving: live maps, SSA form,
+inferred signatures and generated PTX are identical (verified
+bit-exact on saturating production batches); only compile time
+changes. The ``fix/lineinfo-cross-file`` group deliberately changes
+emitted debug metadata; that change is the fix.
 
 Patch groups, each with its fork feature branch:
 
@@ -40,6 +42,14 @@ reverse-order sweep commits)
     reverse-topological sweep order.
 ``perf: Lower._find_singly_assigned_variable`` (cubie_patch)
     Linear in block size instead of quadratic.
+``fix/lineinfo-cross-file`` (cubie_patch)
+    Debug locations for code inlined at the numba IR level from other
+    source files keep their own file (scoped through a
+    DILexicalBlockFile) and their own line numbers (the prologue line
+    clamp only applies to lines in the kernel's own file), so
+    ``lineinfo=True`` attributes every PTX line to the source file
+    that produced it instead of mis-filing or dropping cross-file
+    lines.
 
 Import this module before compiling any kernel (cubie imports it at
 package import). Each group self-detects whether the installed
@@ -68,6 +78,7 @@ if os.environ.get("NUMBA_ENABLE_CUDASIM", "0") != "1":
         ssa as _ssa,
         transforms as _transforms,
     )
+    from numba.cuda import debuginfo as _debuginfo
     from numba.cuda import lowering as _lowering
 
     _PATCHES_ACTIVE = True
@@ -155,9 +166,9 @@ def _compute_live_map(cfg, blocks, var_use_map, var_def_map):
         for offset in reversed(offsets):
             live_vars = live_bits[offset]
             for inc_blk in predecessors[offset]:
-                incoming = (
-                    live_vars & def_reach_map[inc_blk]
-                ) & ~def_bits[inc_blk]
+                incoming = (live_vars & def_reach_map[inc_blk]) & ~def_bits[
+                    inc_blk
+                ]
                 merged = live_bits[inc_blk] | incoming
                 if merged != live_bits[inc_blk]:
                     live_bits[inc_blk] = merged
@@ -205,9 +216,7 @@ def _patch_postproc():
         - compute lifetime of variables
         - compute generator info (if function is a generator function)
         """
-        self.func_ir.blocks = _transforms.canonicalize_cfg(
-            self.func_ir.blocks
-        )
+        self.func_ir.blocks = _transforms.canonicalize_cfg(self.func_ir.blocks)
         vlt = _postproc.VariableLifetime(self.func_ir.blocks)
         self.func_ir.variable_lifetime = vlt
 
@@ -268,9 +277,7 @@ def _patch_error_markup():
 
         scheme_cls._markup = _markup
 
-    if "highlighting=False" in inspect.getsource(
-        _errors.NumbaError.__init__
-    ):
+    if "highlighting=False" in inspect.getsource(_errors.NumbaError.__init__):
         return  # base-class double highlight already suppressed
 
     def __init__(self, msg, loc=None, highlighting=True):
@@ -506,8 +513,14 @@ def _clone_callee_ir(func_ir):
 
 def _make_inline_ir():
     def inline_ir(
-        self, caller_ir, block, i, callee_ir, callee_freevars,
-        arg_typs=None, preserve_ir=True,
+        self,
+        caller_ir,
+        block,
+        i,
+        callee_ir,
+        callee_freevars,
+        arg_typs=None,
+        preserve_ir=True,
     ):
         """Inlines the callee_ir in the caller_ir at statement index i
         of block `block`, callee_freevars are the free variables for
@@ -523,6 +536,7 @@ def _make_inline_ir():
         callee_ir_original = callee_ir
 
         if preserve_ir:
+
             def copy_ir(the_ir):
                 kernel_copy = the_ir.copy()
                 kernel_copy.blocks = {}
@@ -546,9 +560,7 @@ def _make_inline_ir():
             _ir_utils._the_max_label.next(),
             max(caller_ir.blocks.keys()),
         )
-        callee_blocks = _icc.add_offset_to_labels(
-            callee_blocks, max_label + 1
-        )
+        callee_blocks = _icc.add_offset_to_labels(callee_blocks, max_label + 1)
         callee_blocks = _icc.simplify_CFG(callee_blocks)
         callee_ir.blocks = callee_blocks
         min_label = min(callee_blocks.keys())
@@ -648,8 +660,13 @@ def _patch_inline_worker():
         callee_ir = self._fresh_callee_ir(function)
         freevars = function.__code__.co_freevars
         return self.inline_ir(
-            caller_ir, block, i, callee_ir, freevars,
-            arg_typs=arg_typs, preserve_ir=False,
+            caller_ir,
+            block,
+            i,
+            callee_ir,
+            freevars,
+            arg_typs=arg_typs,
+            preserve_ir=False,
         )
 
     def _fresh_callee_ir(self, function, enable_ssa=False):
@@ -802,9 +819,7 @@ def _patch_lowering():
                         self.context.typing_context, tys, {}
                     )
                 else:
-                    static_sig = typing.signature(
-                        signature.return_type, *tys
-                    )
+                    static_sig = typing.signature(signature.return_type, *tys)
             except TypingError:
                 return None
             try:
@@ -907,6 +922,102 @@ def _patch_lowering():
 
 
 # ----------------------------------------------------------------- #
+# fix/lineinfo-cross-file: per-file line info for inlined code       #
+# ----------------------------------------------------------------- #
+
+
+def _patch_cross_file_lineinfo():
+    """Attribute inlined cross-file lines to their own file and line.
+
+    ``inline='always'`` device functions are folded into the caller at
+    the numba IR level with their source locations intact, but stock
+    lowering discards the file (``mark_location`` receives only a line
+    number, and every DILocation is scoped to the kernel's
+    DISubprogram) and ``_adjust_line_if_prologue`` rewrites any line
+    numerically below the kernel's ``def`` line to the ``def`` line, a
+    prologue heuristic that is only valid for lines in the kernel's
+    own file. Together these mis-file or destroy every line of an
+    inlined cross-file device function.
+
+    The fix scopes locations whose file differs from the subprogram's
+    through a DILexicalBlockFile referencing the correct DIFile, and
+    restricts the prologue clamp to same-file lines. The DIBuilder
+    learns the current location from a weak back-reference to the
+    Lower installed at construction, because the stock
+    ``mark_location`` signature carries no file information.
+    """
+    lower = _lowering.Lower
+    base = _lowering.BaseLower
+    if "filename" in inspect.getsource(lower._adjust_line_if_prologue):
+        return  # already file-aware (cubie_patch fork or upstream fix)
+
+    def _adjust_line_if_prologue(self, line):
+        """Adjust prologue line numbers to use the 'def' line.
+
+        The function prologue doesn't have corresponding source lines.
+        These instructions inherit line numbers from co_firstlineno,
+        which points to the decorator line when decorators are
+        present. This method redirects such lines to the 'def' line.
+        Lines from other source files (inlined device functions) are
+        never prologue lines and pass through unchanged.
+        """
+        # Every call site passes line == self.loc.line, so self.loc
+        # names the file the line belongs to.
+        filename = getattr(self.loc, "filename", None)
+        if filename is not None and filename != self.defn_loc.filename:
+            return line
+        return self.defn_loc.line if line < self.defn_loc.line else line
+
+    lower._adjust_line_if_prologue = _adjust_line_if_prologue
+
+    orig_init = base.__init__
+
+    def __init__(self, *args, **kwargs):
+        orig_init(self, *args, **kwargs)
+        # The DIBuilder needs the file of the location being marked,
+        # which only the Lower knows (self.loc); mark_location's
+        # signature cannot carry it without forking the call sites.
+        self.debuginfo._cubie_lower = weakref.ref(self)
+
+    base.__init__ = __init__
+
+    def mark_location(self, builder, line):
+        builder.debug_metadata = self._cubie_add_location(line)
+
+    def _cubie_add_location(self, line):
+        lower_ref = getattr(self, "_cubie_lower", None)
+        lower_inst = lower_ref() if lower_ref is not None else None
+        loc = getattr(lower_inst, "loc", None)
+        filename = getattr(loc, "filename", None)
+        if filename is None or filename == self.filepath:
+            return self._add_location(line)
+        # llvmlite dedupes debug info nodes, so re-adding the same
+        # DIFile/DILexicalBlockFile returns the cached node.
+        difile = self.module.add_debug_info(
+            "DIFile",
+            {
+                "directory": os.path.dirname(filename),
+                "filename": os.path.basename(filename),
+            },
+        )
+        scope = self.module.add_debug_info(
+            "DILexicalBlockFile",
+            {
+                "scope": self.subprograms[-1],
+                "file": difile,
+                "discriminator": 0,
+            },
+        )
+        return self.module.add_debug_info(
+            "DILocation",
+            {"line": line, "column": 1, "scope": scope},
+        )
+
+    _debuginfo.DIBuilder.mark_location = mark_location
+    _debuginfo.DIBuilder._cubie_add_location = _cubie_add_location
+
+
+# ----------------------------------------------------------------- #
 # application                                                        #
 # ----------------------------------------------------------------- #
 
@@ -921,6 +1032,7 @@ def apply_patches():
     _patch_ssa()
     _patch_inline_worker()
     _patch_lowering()
+    _patch_cross_file_lineinfo()
 
 
 apply_patches()
