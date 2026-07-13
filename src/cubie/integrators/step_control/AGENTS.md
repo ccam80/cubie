@@ -47,7 +47,7 @@ controllers.
   previous `dt` and norm (I and fixed keep no history). The slot count is the
   `_timestep_buffer_elements` class attribute (PI 1, PID/Gustafsson 2, fixed/I 0), which
   the base `register_buffers()` uses to register the buffer — controllers with 0 register
-  nothing. There is **no** `local_memory_elements` property; query the size the same way
+  nothing. There is **no** `persistent_local_elements` property; query the size the same way
   as any other buffer-registered factory, via the registry-derived
   `persistent_local_buffer_size`.
 

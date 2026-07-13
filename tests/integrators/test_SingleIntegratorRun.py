@@ -40,7 +40,6 @@ def test_loop_forwarding(single_integrator_run):
     loop = run._loop
 
     assert run.shared_memory_elements == loop.shared_buffer_size
-    assert run.local_memory_elements == loop.local_buffer_size
     assert run.persistent_local_elements == loop.persistent_local_buffer_size
 
     assert run.save_every == loop.save_every

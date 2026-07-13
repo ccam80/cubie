@@ -1616,3 +1616,61 @@ def test_solver_set_verbosity(solver_mutable):
     assert default_timelogger.verbosity == "verbose"
     solver.set_verbosity(None)
     assert default_timelogger.verbosity is None
+
+
+@pytest.mark.parametrize(
+    "solver_settings_override",
+    [{"system_type": "large"}],
+    indirect=True,
+)
+def test_shared_loop_buffers_leave_results_unchanged(
+    system,
+    driver_settings,
+    simple_initial_values,
+    simple_parameters,
+):
+    """Buffer placement is storage-only: moving every movable loop
+    buffer to shared memory reproduces the all-local trajectories.
+
+    On the 100-state system these placements shrink the loop's
+    plain-local pool far below the DIRK step's persistent
+    requirement, so this fails loudly if the persistent scratch
+    array is ever again sized from the plain-local total instead
+    of the persistent layout.
+    """
+    shared_locations = {
+        "state_location": "shared",
+        "proposed_state_location": "shared",
+        "parameters_location": "shared",
+        "drivers_location": "shared",
+        "proposed_drivers_location": "shared",
+        "observables_location": "shared",
+        "proposed_observables_location": "shared",
+        "error_location": "shared",
+    }
+
+    def build_and_solve(locations):
+        solver = Solver(
+            system,
+            algorithm="dirk",
+            dt=0.01,
+            step_controller="fixed",
+            output_types=["state"],
+            **locations,
+        )
+        result = solver.solve(
+            initial_values=simple_initial_values,
+            parameters=simple_parameters,
+            drivers=driver_settings,
+            duration=0.02,
+            save_every=0.02,
+            blocksize=32,
+            grid_type="verbatim",
+        )
+        return np.asarray(result.time_domain_array)
+
+    local_output = build_and_solve({})
+    shared_output = build_and_solve(shared_locations)
+
+    assert np.all(np.isfinite(local_output))
+    np.testing.assert_array_equal(shared_output, local_output)

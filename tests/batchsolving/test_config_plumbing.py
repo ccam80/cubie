@@ -296,7 +296,7 @@ def assert_singleintegratorrun_config(single_integrator, settings, tolerance):
 
     # Not tested (runtime/computed values):
     # - numba_precision, algorithm_key: aliases/derived
-    # - shared_memory_elements, local_memory_elements: computed
+    # - shared_memory_elements, persistent_local_elements: computed
     # - compiled_loop_function, threads_per_loop: compiled artifacts
     # - _algo_step, _step_controller, _loop, _output_functions: tested separately
 
