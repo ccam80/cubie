@@ -173,7 +173,10 @@ class AdaptivePIController(BaseAdaptiveStepController):
         @cuda.jit(
             device=True,
             inline=True,
-            **get_jit_kwargs(self.compile_settings.lineinfo),
+            **get_jit_kwargs(
+                self.compile_settings.lineinfo,
+                fastmath={"afn": True},
+            ),
         )
         def controller_PI(
             dt,

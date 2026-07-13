@@ -60,9 +60,8 @@ from cubie._env import lineinfo_default
 
 CUDA_SIMULATION: bool = os.environ.get("NUMBA_ENABLE_CUDASIM") == "1"
 
-# Base compile kwargs for cuda.jit decorators. Immutable: per-build
-# overrides (lineinfo) merge over a copy via get_jit_kwargs so no build
-# can leak state into another compilation unit.
+# Base compile kwargs for cuda.jit decorators.
+# Per-build overrides merge over a copy and cannot leak state.
 # lineinfo is not supported in CUDASIM mode; the env default applies to
 # device functions decorated at import time, which never see a factory
 # config. Factory builds pass their compile setting to get_jit_kwargs.
@@ -80,14 +79,19 @@ compile_kwargs: Mapping[str, Any] = MappingProxyType(
 )
 
 
-def get_jit_kwargs(lineinfo: Optional[bool] = None) -> dict[str, Any]:
-    """Return ``cuda.jit`` kwargs with an explicit ``lineinfo`` value.
+def get_jit_kwargs(
+    lineinfo: Optional[bool] = None,
+    fastmath: Optional[Mapping[str, bool]] = None,
+) -> dict[str, Any]:
+    """Return per-build ``cuda.jit`` keyword arguments.
 
     Parameters
     ----------
     lineinfo
         Whether to compile with source-line correlation data. ``None``
         defers to the ``CUBIE_LINEINFO`` environment variable.
+    fastmath
+        Fast-math flags to merge into the package defaults.
 
     Returns
     -------
@@ -97,6 +101,10 @@ def get_jit_kwargs(lineinfo: Optional[bool] = None) -> dict[str, Any]:
     """
     kwargs = dict(compile_kwargs)
     if not CUDA_SIMULATION:
+        if fastmath is not None:
+            merged_fastmath = dict(kwargs.get("fastmath", {}))
+            merged_fastmath.update(fastmath)
+            kwargs["fastmath"] = merged_fastmath
         kwargs["lineinfo"] = (
             lineinfo_default() if lineinfo is None else bool(lineinfo)
         )

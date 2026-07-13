@@ -66,6 +66,14 @@ class TestControllers:
     def test_controller_builds(self, step_controller, precision):
         assert callable(step_controller.device_function)
 
+    @pytest.mark.nocudasim
+    def test_controller_enables_approximate_functions(
+        self, step_controller
+    ):
+        fastmath = step_controller.device_function.targetoptions["fastmath"]
+        fastmath_flags = getattr(fastmath, "flags", fastmath)
+        assert "afn" in fastmath_flags
+
     def test_rejected_step_never_grows_dt(
         self, step_controller, precision, system
     ):
