@@ -23,14 +23,18 @@ runners:
   # container toolkit prebaked; rebuilt by RunsOn ~every 15 days).
   # Spot-only: ap-southeast-2 has zero On-Demand G/VT vCPU quota (and it
   # is not grantable in this region), so every runner must be spot.
-  # capacity-optimized draws from whichever spot pool has the most
-  # headroom, and listing three 8-vCPU GPU families widens the pools to
-  # cut launch misses. All three are 8 vCPU, so `-n logical` still fans
-  # the tests out to 8 workers regardless of which pool wins.
+  # price-capacity-optimized (pco, RunsOn's default) picks a high-capacity
+  # spot pool that is also among the cheapest -- cost matters here as this
+  # is personally funded. Listing three 8-vCPU GPU families widens the
+  # pools to cut launch misses. All three are 8 vCPU, so `-n logical`
+  # still fans the tests out to 8 workers regardless of which pool wins.
+  # The shared "All G and VT Spot" vCPU quota is fixed (AWS will not raise
+  # it further), so provisioning can still fail when it is momentarily
+  # exhausted; ci_cuda_tests.yml retries failed legs with backoff.
   gpu-linux:
     family: ["g4dn.2xlarge", "g5.2xlarge", "g6.2xlarge"]
     image: ubuntu24-gpu-x64
-    spot: capacity-optimized
+    spot: price-capacity-optimized
 
   # Windows GPU: our baked AMI (GRID driver already installed). The AWS
   # GRID driver is multi-GPU, so the same AMI runs on the T4/A10G/L4 spot
@@ -44,4 +48,4 @@ runners:
   gpu-windows:
     family: ["g4dn.2xlarge", "g5.2xlarge", "g6.2xlarge"]
     image: cubie-win-gpu
-    spot: capacity-optimized
+    spot: price-capacity-optimized
