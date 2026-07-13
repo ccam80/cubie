@@ -1,7 +1,10 @@
-on: 
+on:
   push:
     branches:
       - main
+  # Manual recovery path: re-run build + publish when a release was
+  # created but the publish step failed (e.g. transient PyPI outage).
+  workflow_dispatch:
 
 permissions:
   contents: write
@@ -41,8 +44,10 @@ jobs:
     name: Build Distribution
     needs:
       - release-please
-    if: ${{ needs.release-please.outputs.release_created == 'true' }}
+    if: ${{ needs.release-please.outputs.release_created == 'true' || github.event_name == 'workflow_dispatch' }}
     runs-on: ubuntu-latest
+    permissions:
+      contents: read
     steps:
       - uses: actions/checkout@v7
 
