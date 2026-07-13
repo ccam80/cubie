@@ -5,9 +5,11 @@
 #   runs-on: "runs-on=${{ github.run_id }}/runner=<name>"
 
 images:
-  # Custom Windows 2025 + NVIDIA T4 driver AMI, baked by
+  # Custom Windows 2025 + NVIDIA GRID driver AMI, baked by
   # .github/workflows/build-windows-gpu-ami.yml. RunsOn picks the most
-  # recent AMI matching `name` owned by `self` at launch.
+  # recent AMI matching `name` owned by `self` at launch. The single AWS
+  # GRID driver package covers G4dn (T4), G5 (A10G), and G6 (L4), so one
+  # AMI runs on any of those spot families.
   cubie-win-gpu:
     platform: windows
     arch: x64
@@ -19,14 +21,24 @@ images:
 runners:
   # Linux GPU: RunsOn's managed image (driver + CUDA toolkit +
   # container toolkit prebaked; rebuilt by RunsOn ~every 15 days).
-  # g4dn.2xlarge (8 vCPU) consumes the whole 8-vCPU On-Demand G
-  # quota, so the matrix runs one job at a time; see max-parallel in
-  # ci_cuda_tests.yml.
+  # Spot-only: ap-southeast-2 has zero On-Demand G/VT vCPU quota (and it
+  # is not grantable in this region), so every runner must be spot.
+  # price-capacity-optimized (pco, RunsOn's default) picks a high-capacity
+  # spot pool that is also among the cheapest -- cost matters here as this
+  # is personally funded. Listing three 8-vCPU GPU families widens the
+  # pools to cut launch misses. All three are 8 vCPU, so `-n logical`
+  # still fans the tests out to 8 workers regardless of which pool wins.
+  # The shared "All G and VT Spot" vCPU quota is fixed (AWS will not raise
+  # it further), so provisioning can still fail when it is momentarily
+  # exhausted; ci_cuda_tests.yml retries failed legs with backoff.
   gpu-linux:
-    family: ["g4dn.2xlarge"]
+    family: ["g4dn.2xlarge", "g5.2xlarge", "g6.2xlarge"]
     image: ubuntu24-gpu-x64
+    spot: price-capacity-optimized
 
-  # Windows GPU: our baked AMI (driver already installed).
+  # Windows GPU: our baked AMI (GRID driver already installed). The AWS
+  # GRID driver is multi-GPU, so the same AMI runs on the T4/A10G/L4 spot
+  # pools listed below.
   # NOTE: RunsOn's build config defines a stock `windows25-gpu-x64` image
   # (built but, as of this writing, undocumented/unannounced -- the docs
   # still say Windows GPU is unsupported). If it becomes available in your
@@ -34,5 +46,6 @@ runners:
   # build-windows-gpu-ami.yml, ci/tools/install_gpu_driver.ps1, the
   # `images:` block above) and set `image: windows25-gpu-x64` here instead.
   gpu-windows:
-    family: ["g4dn.2xlarge"]
+    family: ["g4dn.2xlarge", "g5.2xlarge", "g6.2xlarge"]
     image: cubie-win-gpu
+    spot: price-capacity-optimized

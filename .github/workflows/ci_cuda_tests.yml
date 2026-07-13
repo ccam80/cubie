@@ -1,12 +1,20 @@
 name: CUDA tests
 on:
   workflow_dispatch:
+    inputs:
+      attempt:
+        description: "Retry counter (internal; leave as 1 for manual runs)."
+        default: "1"
+      legs:
+        description: >
+          JSON array of matrix legs to run (internal; empty = full matrix).
+        default: ""
   schedule:
     - cron: "0 16 * * 1,3,5"   # Mon/Wed/Fri 16:00 UTC
   push:
     branches: ["main"]
-  # PRs opt in via a maintainer comment (see the job `if`) rather than
-  # running the paid GPU matrix on every PR.
+  # PRs opt in via a maintainer comment (see the `setup` job `if`) rather
+  # than running the paid GPU matrix on every PR.
   issue_comment:
     types: [created]
 
@@ -16,7 +24,10 @@ concurrency:
   cancel-in-progress: true
 
 jobs:
-  cuda:
+  # Resolve the matrix once so the retry path can re-run a subset of legs.
+  # A fresh workflow_dispatch (attempt=1, legs="") runs the full 8-leg
+  # matrix; a retry dispatch passes only the legs that never got a GPU.
+  setup:
     # Real-GPU runs on paid AWS runners. Trigger on schedule/dispatch, on a
     # push whose commit message opts in, or when a maintainer comments
     # `/test on cuda` on a PR. The author_association gate stops external
@@ -31,33 +42,57 @@ jobs:
        contains(fromJSON('["OWNER","MEMBER","COLLABORATOR"]'), github.event.comment.author_association)) ||
       contains(github.event.head_commit.message, 'test_cuda') ||
       contains(github.event.head_commit.message, 'test_all')
+    runs-on: ubuntu-latest
     permissions:
       contents: read
-    # max-parallel: 1 because one g4dn.2xlarge = 8 vCPU = the whole
-    # On-Demand G quota. Calibrated against the last Lightning run,
-    # a grouped 8-worker job is ~13 min and the serial 8-job matrix
-    # ~106 min at ~$2/matrix — cost-neutral with 2 x g4dn.xlarge but
-    # with the fastest per-job feedback. The param-set xdist grouping
+    outputs:
+      matrix: ${{ steps.gen.outputs.matrix }}
+      attempt: ${{ steps.gen.outputs.attempt }}
+    steps:
+      - name: Resolve matrix and attempt
+        id: gen
+        env:
+          IN_LEGS: ${{ inputs.legs }}
+          IN_ATTEMPT: ${{ inputs.attempt }}
+        run: |
+          set -euo pipefail
+          if [ -n "${IN_LEGS:-}" ]; then
+            MATRIX="$IN_LEGS"
+          else
+            MATRIX='[
+              {"os":"linux","python-version":"3.10","cuda":"12","extra":"dev12","runner":"gpu-linux"},
+              {"os":"linux","python-version":"3.10","cuda":"13","extra":"dev13","runner":"gpu-linux"},
+              {"os":"linux","python-version":"3.14","cuda":"12","extra":"dev12","runner":"gpu-linux"},
+              {"os":"linux","python-version":"3.14","cuda":"13","extra":"dev13","runner":"gpu-linux"},
+              {"os":"windows","python-version":"3.10","cuda":"12","extra":"dev12","runner":"gpu-windows"},
+              {"os":"windows","python-version":"3.10","cuda":"13","extra":"dev13","runner":"gpu-windows"},
+              {"os":"windows","python-version":"3.14","cuda":"12","extra":"dev12","runner":"gpu-windows"},
+              {"os":"windows","python-version":"3.14","cuda":"13","extra":"dev13","runner":"gpu-windows"}
+            ]'
+          fi
+          MATRIX=$(printf '%s' "$MATRIX" | jq -c '.')
+          echo "matrix=$MATRIX" >> "$GITHUB_OUTPUT"
+          echo "attempt=${IN_ATTEMPT:-1}" >> "$GITHUB_OUTPUT"
+
+  cuda:
+    needs: setup
+    name: cuda (${{ matrix.os }}, ${{ matrix.python-version }}, ${{ matrix.cuda }})
+    permissions:
+      contents: read
+    # max-parallel: 1 keeps the matrix to one 8-vCPU GPU instance at a
+    # time. Runners are spot-only (ap-southeast-2 has zero On-Demand G/VT
+    # quota, not grantable here), so concurrency is bounded by the shared
+    # "All G and VT Spot" vCPU quota; one g4dn/g5/g6.2xlarge = 8 vCPU fits
+    # under it. That quota is fixed (AWS will not raise it), so a leg can
+    # still fail to get a spot GPU when it is momentarily exhausted -- the
+    # `retry` job re-dispatches those legs. The param-set xdist grouping
     # (tests/conftest.py + --dist=loadgroup in addopts) keeps thread
-    # scaling near-linear, so the 8 vCPUs are fully used. Raise
-    # max-parallel only with a quota bump (each +1 needs +8 vCPU of
-    # G quota).
+    # scaling near-linear, so the 8 vCPUs are fully used.
     strategy:
       fail-fast: false
       max-parallel: 1
       matrix:
-        os: [linux, windows]
-        python-version: ["3.10", "3.14"]
-        cuda: ["12", "13"]
-        include:
-          - cuda: "12"
-            extra: dev12
-          - cuda: "13"
-            extra: dev13
-          - os: linux
-            runner: gpu-linux
-          - os: windows
-            runner: gpu-windows
+        include: ${{ fromJSON(needs.setup.outputs.matrix) }}
     runs-on: "runs-on=${{ github.run_id }}/runner=${{ matrix.runner }}"
 
     steps:
@@ -74,6 +109,20 @@ jobs:
 
       - name: GPU sanity check
         run: nvidia-smi
+
+      # A leg that reaches here got a real GPU, so any later failure is a
+      # genuine test failure, not a spot-provisioning miss. The `retry` job
+      # re-runs only legs WITHOUT this marker, so real failures stay red
+      # and are never wastefully re-run on the GPU.
+      - name: Mark GPU acquired
+        if: success()
+        run: echo ok > gpu-marker.txt
+      - name: Upload GPU marker
+        if: success()
+        uses: actions/upload-artifact@v7
+        with:
+          name: gpu-${{ matrix.os }}-py${{ matrix.python-version }}-cuda${{ matrix.cuda }}
+          path: gpu-marker.txt
 
       - name: Install cubie (${{ matrix.extra }})
         run: |
@@ -119,3 +168,70 @@ jobs:
           flags: ${{ matrix.os }}-py${{ matrix.python-version }}-cuda${{ matrix.cuda }}
           disable_search: true
           fail_ci_if_error: false
+
+  # Re-dispatch legs that never got a spot GPU, with exponential backoff.
+  # This is the resilience layer for the fixed, un-raisable spot quota:
+  # RunsOn falls back to on-demand (which is 0 here, so it fails) for 5 min
+  # after a spot-quota miss, so the backoff starts at 5 min to outlast that
+  # snooze, and each retry is a fresh run (attempt resets on the runner, so
+  # RunsOn tries spot again rather than being forced onto on-demand).
+  retry:
+    needs: [setup, cuda]
+    if: always() && needs.setup.result == 'success'
+    runs-on: ubuntu-latest
+    permissions:
+      actions: write
+      contents: read
+    steps:
+      - name: Download GPU markers
+        # Do not fail the retry when zero legs got a GPU (no markers to
+        # download) -- that total-failure case is exactly when we must
+        # still re-dispatch. The compute step treats "no markers" as
+        # "every leg is retryable".
+        continue-on-error: true
+        uses: actions/download-artifact@v7
+        with:
+          pattern: gpu-*
+          path: markers
+      - name: Re-dispatch legs that never got a GPU
+        env:
+          MATRIX: ${{ needs.setup.outputs.matrix }}
+          ATTEMPT: ${{ needs.setup.outputs.attempt }}
+          MAX_ATTEMPTS: "5"
+          BASE_BACKOFF: "300"   # seconds; first retry waits out the 5-min snooze
+          MAX_BACKOFF: "1200"   # cap at 20 min
+          REF: ${{ github.ref_name }}
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          # Markers are artifacts named gpu-<os>-py<pyver>-cuda<cuda>; a leg
+          # with a marker acquired a GPU and is not a provisioning failure.
+          if [ -d markers ]; then
+            ls markers | sed -n 's/^gpu-//p' | sort -u > acquired.txt
+          else
+            : > acquired.txt
+          fi
+          RETRYABLE=$(printf '%s' "$MATRIX" | jq -c --rawfile s acquired.txt '
+            ($s | split("\n") | map(select(length > 0))) as $ok
+            | map(select(
+                (.os + "-py" + (."python-version") + "-cuda" + .cuda) as $k
+                | ($ok | index($k)) == null))')
+          COUNT=$(printf '%s' "$RETRYABLE" | jq 'length')
+          echo "Attempt ${ATTEMPT}: ${COUNT} leg(s) never acquired a GPU."
+          if [ "$COUNT" -eq 0 ]; then
+            echo "No spot-provisioning failures to retry."
+            exit 0
+          fi
+          if [ "$ATTEMPT" -ge "$MAX_ATTEMPTS" ]; then
+            echo "Reached MAX_ATTEMPTS=${MAX_ATTEMPTS}; leaving the run red."
+            exit 0
+          fi
+          BACKOFF=$(( BASE_BACKOFF * (2 ** (ATTEMPT - 1)) ))
+          [ "$BACKOFF" -gt "$MAX_BACKOFF" ] && BACKOFF="$MAX_BACKOFF"
+          echo "Retrying these legs in ${BACKOFF}s:"
+          printf '%s' "$RETRYABLE" | jq .
+          sleep "$BACKOFF"
+          gh workflow run ci_cuda_tests.yml \
+            --ref "$REF" \
+            -f attempt="$(( ATTEMPT + 1 ))" \
+            -f legs="$RETRYABLE"
