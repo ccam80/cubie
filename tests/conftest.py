@@ -119,7 +119,7 @@ def codegen_dir():
         return
 
     gen_dir = Path(tempfile.mkdtemp(prefix="cubie_generated_"))
-    previous = cache_root._cache_root_override
+    previous = cache_root.get_cache_root_override()
     cache_root.set_cache_root(gen_dir)
     try:
         yield gen_dir
@@ -144,7 +144,7 @@ def isolated_cache_root(tmp_path):
     """
     from cubie import cache_root
 
-    previous = cache_root._cache_root_override
+    previous = cache_root.get_cache_root_override()
     root = tmp_path / "generated"
     cache_root.set_cache_root(root)
     yield root

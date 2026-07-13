@@ -8,9 +8,10 @@ from cubie.odesystems.symbolic.odefile import ODEFile
 from cubie.odesystems.symbolic.parsing.cellml_cache import CellMLCache
 
 
-def test_default_root_is_cwd_generated():
+def test_default_root_is_cwd_generated(monkeypatch):
     """Without an override the root is <cwd>/generated at call time."""
-    previous = cache_root._cache_root_override
+    previous = cache_root.get_cache_root_override()
+    monkeypatch.delenv("CUBIE_CACHE_DIR", raising=False)
     cache_root.set_cache_root(None)
     try:
         assert cache_root.get_cache_root() == Path.cwd() / "generated"
@@ -18,9 +19,36 @@ def test_default_root_is_cwd_generated():
         cache_root.set_cache_root(previous)
 
 
-def test_set_cache_root_overrides_and_clears(tmp_path):
+def test_env_var_sets_root_and_override_wins(tmp_path, monkeypatch):
+    """CUBIE_CACHE_DIR redirects the root; set_cache_root beats it."""
+    previous = cache_root.get_cache_root_override()
+    env_root = tmp_path / "env_root"
+    monkeypatch.setenv("CUBIE_CACHE_DIR", str(env_root))
+    cache_root.set_cache_root(None)
+    try:
+        assert cache_root.get_cache_root() == env_root
+        override_root = tmp_path / "override_root"
+        cache_root.set_cache_root(override_root)
+        assert cache_root.get_cache_root() == override_root
+    finally:
+        cache_root.set_cache_root(previous)
+
+
+def test_blank_env_var_is_ignored(monkeypatch):
+    """An empty CUBIE_CACHE_DIR falls back to <cwd>/generated."""
+    previous = cache_root.get_cache_root_override()
+    monkeypatch.setenv("CUBIE_CACHE_DIR", "   ")
+    cache_root.set_cache_root(None)
+    try:
+        assert cache_root.get_cache_root() == Path.cwd() / "generated"
+    finally:
+        cache_root.set_cache_root(previous)
+
+
+def test_set_cache_root_overrides_and_clears(tmp_path, monkeypatch):
     """set_cache_root installs an override; None restores the default."""
-    previous = cache_root._cache_root_override
+    previous = cache_root.get_cache_root_override()
+    monkeypatch.delenv("CUBIE_CACHE_DIR", raising=False)
     try:
         cache_root.set_cache_root(tmp_path)
         assert cache_root.get_cache_root() == tmp_path
