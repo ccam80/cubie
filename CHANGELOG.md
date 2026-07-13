@@ -1,5 +1,22 @@
 # Changelog
 
+## [0.1.1](https://github.com/ccam80/cubie/compare/v0.1.0...v0.1.1) (2026-07-12)
+
+
+### Bug Fixes
+
+* algorithm steps receive the system's driver count ([#579](https://github.com/ccam80/cubie/issues/579)) ([28a1a0b](https://github.com/ccam80/cubie/commit/28a1a0b5639eef3549a062fd7e7eb139db60ef25))
+* as_pandas returns an empty summaries frame with no active metrics ([#584](https://github.com/ccam80/cubie/issues/584)) ([7d9904c](https://github.com/ccam80/cubie/commit/7d9904c67ba0c074392ebe2b617f30db2ddb7652))
+* buffer registry releases collected parents ([#595](https://github.com/ccam80/cubie/issues/595)) ([76d81e3](https://github.com/ccam80/cubie/commit/76d81e3989b80096a0e9aaeb37c7b171701a16f9))
+* half powers lower to math.sqrt instead of pow ([#586](https://github.com/ccam80/cubie/issues/586)) ([b81fdc1](https://github.com/ccam80/cubie/commit/b81fdc12bf75d7450f4938d8a1f21fac199af3e9))
+* hot-swapping algorithm or controller keeps survivors' buffer registrations ([#581](https://github.com/ccam80/cubie/issues/581)) ([cfd4240](https://github.com/ccam80/cubie/commit/cfd4240a6d63f0755c19f74ed629126b20778290))
+* memory manager releases collected instances ([#593](https://github.com/ccam80/cubie/issues/593)) ([c898269](https://github.com/ccam80/cubie/commit/c898269a93293c7cd1ad25b4232f37ac1abd51a4))
+* repeat chunked solves reuse the group's stored chunk parameters ([#577](https://github.com/ccam80/cubie/issues/577)) ([dc758e3](https://github.com/ccam80/cubie/commit/dc758e325e4f99f6d488f61f99bc6f3f7fdb9dc9))
+* set_manual_proportion removes the instance from the auto pool ([#576](https://github.com/ccam80/cubie/issues/576)) ([c688695](https://github.com/ccam80/cubie/commit/c688695b2c1d7dece6d353956430378d53471b7c))
+* Solver.update recognises profileCUDA instead of raising KeyError ([#591](https://github.com/ccam80/cubie/issues/591)) ([627a00d](https://github.com/ccam80/cubie/commit/627a00dfa8c8cfcd2b2b5cc02d8fc5afa52c0955)), closes [#590](https://github.com/ccam80/cubie/issues/590)
+* underived states convert to observables instead of crashing ([#585](https://github.com/ccam80/cubie/issues/585)) ([adb37c7](https://github.com/ccam80/cubie/commit/adb37c76b81ec1c3e2b6c11c1dcb4e3d72514ddc))
+* user device functions resolve inside generated modules ([#578](https://github.com/ccam80/cubie/issues/578)) ([87ca19b](https://github.com/ccam80/cubie/commit/87ca19bc9b1d208abcc07456911420817e7e1c26))
+
 ## [0.1.0](https://github.com/ccam80/cubie/compare/v0.0.8...v0.1.0) (2026-07-09)
 
 
