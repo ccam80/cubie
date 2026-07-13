@@ -1493,10 +1493,11 @@ def setup_chunked_arrays(manager, num_runs, num_chunks):
 class StepResult:
     """Lightweight return container mirroring GPU kernel outputs."""
 
-    def __init__(self, dt, accepted, local_mem):
+    def __init__(self, dt, accepted, local_mem, status=None):
         self.dt = dt
         self.accepted = accepted
         self.local_mem = local_mem
+        self.status = status
 
 
 def run_controller_device_step(
@@ -1509,6 +1510,7 @@ def run_controller_device_step(
     state=None,
     state_prev=None,
     niters=1,
+    truncated=False,
 ):
     """Execute a step-controller device function once on the GPU."""
 
@@ -1526,7 +1528,9 @@ def run_controller_device_step(
 
     dt = np.asarray([dt0], dtype=precision)
     accept = np.zeros(1, dtype=np.int32)
+    status = np.zeros(1, dtype=np.int32)
     niters_val = np.int32(niters)
+    truncated_val = bool(truncated)
     shared_scratch = np.zeros(1, dtype=precision)
     if local_mem is not None:
         persistent_local = np.asarray(local_mem, dtype=precision)
@@ -1540,25 +1544,29 @@ def run_controller_device_step(
         state_prev_val,
         err_val,
         niters_val,
+        truncated_flag,
         accept_val,
         shared_val,
         persistent_val,
+        status_val,
     ):
-        device_func(
+        status_val[0] = device_func(
             dt_val,
             state_val,
             state_prev_val,
             err_val,
             niters_val,
+            truncated_flag,
             accept_val,
             shared_val,
             persistent_val,
         )
 
     kernel[1, 1](
-        dt, state_arr, state_prev_arr, err, niters_val, accept,
-        shared_scratch, persistent_local,
+        dt, state_arr, state_prev_arr, err, niters_val, truncated_val,
+        accept, shared_scratch, persistent_local, status,
     )
     return StepResult(
-        precision(dt[0]), int(accept[0]), persistent_local.copy()
+        precision(dt[0]), int(accept[0]), persistent_local.copy(),
+        int(status[0]),
     )

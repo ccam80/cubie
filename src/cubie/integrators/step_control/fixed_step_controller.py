@@ -134,6 +134,7 @@ class FixedStepController(BaseStepController):
             state_prev,
             error,
             niters,
+            truncated,
             accept_out,
             shared_scratch,
             persistent_local,
@@ -152,6 +153,9 @@ class FixedStepController(BaseStepController):
                 Estimated local error vector.
             niters : int32
                 Iteration counters from the integrator loop.
+            truncated : bool
+                True when the loop forced the step onto an output
+                boundary. Unused.
             accept_out : device array
                 Output flag indicating acceptance of the step.
             shared_scratch : device array

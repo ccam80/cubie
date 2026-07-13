@@ -99,8 +99,10 @@ def run_reference_loop(
         driver_evaluator,
         solver_settings["algorithm"],
         newton_tol=solver_settings["newton_atol"],
+        newton_rtol=solver_settings["newton_rtol"],
         newton_max_iters=solver_settings["newton_max_iters"],
         linear_tol=solver_settings["krylov_atol"],
+        linear_rtol=solver_settings["krylov_rtol"],
         linear_max_iters=solver_settings["krylov_max_iters"],
         linear_correction_type=solver_settings["linear_correction_type"],
         preconditioner_order=solver_settings["preconditioner_order"],
@@ -175,6 +177,7 @@ def run_reference_loop(
         dt = controller.dt
         do_save = False
         do_summary_sample = False
+        truncated = False
 
         # Determine next event time
         next_event_time = min(
@@ -187,7 +190,12 @@ def run_reference_loop(
             break
 
         if t32 + dt >= next_event_time:
-            dt = precision(next_event_time - t32)
+            forced_dt = precision(next_event_time - t32)
+            # Only a positive gap clamps the step; the due event still
+            # fires at this step's end.
+            if forced_dt > precision(0.0):
+                truncated = bool(forced_dt != dt)
+                dt = forced_dt
             if next_event_time == next_save_time:
                 do_save = True
             if next_event_time == next_summary_sample_time:
@@ -207,6 +215,7 @@ def run_reference_loop(
             prev_state=state,
             new_state=result.state,
             niters=result.niters,
+            truncated=truncated,
         )
         if not accept:
             continue
