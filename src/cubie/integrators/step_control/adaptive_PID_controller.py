@@ -267,14 +267,20 @@ class AdaptivePIDController(BaseAdaptiveStepController):
             # A truncated step's length came from the output schedule,
             # not the controller, so its error norm carries no step-size
             # information: an accepted truncated step leaves dt and the
-            # error history unchanged.
+            # error history unchanged and returns success — its gain
+            # path is equally meaningless and must not trip
+            # STEP_TOO_SMALL.
             freeze = accept and truncated
             dt_new_raw = dt[0] * gain
             dt[0] = selp(freeze, dt[0], clamp(dt_new_raw, dt_min, dt_max))
             timestep_buffer[1] = selp(freeze, err_prev_prev, err_prev)
             timestep_buffer[0] = selp(freeze, err_prev, nrm2)
 
-            ret = success if dt_new_raw > dt_min else step_too_small
+            ret = (
+                success
+                if (freeze or dt_new_raw > dt_min)
+                else step_too_small
+            )
             return ret
 
         # no cover: end

@@ -36,8 +36,9 @@ controllers.
 - `truncated` is a bool the loop sets when it forced the step length onto an output
   boundary instead of using `dt`. The error norm of such a step carries no step-size
   information, so on an **accepted** truncated step the adaptive controllers leave `dt`
-  and their history buffers unchanged (via `selp`); a **rejected** truncated step still
-  shrinks `dt` through the normal reject path.
+  and their history buffers unchanged (via `selp`) and return `SUCCESS` unconditionally
+  (the gain path is equally meaningless, so it never yields `STEP_TOO_SMALL`); a
+  **rejected** truncated step still shrinks `dt` through the normal reject path.
 - Returns `CUBIE_RESULT_CODES.SUCCESS` normally, or `CUBIE_RESULT_CODES.STEP_TOO_SMALL`
   when the proposed step would fall at/below `dt_min` (reject-at-minimum-step — the loop
   uses this to stop adaptive retries). Both are captured as device closure constants from

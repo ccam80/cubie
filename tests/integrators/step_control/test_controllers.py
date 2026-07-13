@@ -4,6 +4,7 @@ import numpy as np
 import pytest
 from numba import cuda
 
+from cubie.result_codes import CUBIE_RESULT_CODES
 from tests._utils import run_controller_device_step
 
 
@@ -170,3 +171,35 @@ class TestControllers:
         )
         assert result.accepted == 0
         assert result.dt < dt0
+
+    def test_truncated_accepted_step_at_dt_min_returns_success(
+        self, step_controller, precision, system
+    ):
+        """A frozen truncated step at dt_min never trips STEP_TOO_SMALL.
+
+        With dt at dt_min, a truncated step whose error norm sits just
+        under one yields a sub-unity gain, so the (meaningless)
+        proposed step falls to or below dt_min. The loop treats
+        STEP_TOO_SMALL as irrecoverable, so the frozen step must
+        report success instead of staining the run.
+        """
+        device_func = step_controller.device_function
+        n = system.sizes.states
+        dt_min = precision(step_controller.dt_min)
+        # atol is 1e-3 and rtol 0, so this error norm is just below 1:
+        # accepted, but with gain < 1 for every controller.
+        near_unity_error = np.full(n, 0.999e-3, dtype=precision)
+        state = np.ones(n, dtype=precision)
+
+        result = run_controller_device_step(
+            device_func,
+            precision,
+            dt_min,
+            near_unity_error,
+            state=state,
+            state_prev=state,
+            truncated=True,
+        )
+        assert result.accepted == 1
+        assert result.dt == dt_min
+        assert result.status == int(CUBIE_RESULT_CODES.SUCCESS)
