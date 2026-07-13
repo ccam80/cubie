@@ -1,10 +1,11 @@
 ##  Install and verify the NVIDIA GPU driver for the cubie Windows GPU CI
 ##  AMI. Adapted from runs-on/runner-images-for-aws (Install-GPU.ps1).
 ##
-##  Installs the AWS GRID driver for G4dn (T4) on Windows Server 2025 --
-##  the AWS-supported driver for these instances. The CUDA toolkit is NOT
-##  installed here: cubie resolves the toolkit from pip wheels
-##  (numba-cuda[cu12]/[cu13]); only the kernel driver is needed on the host.
+##  Installs the AWS GRID driver on Windows Server 2025 -- one package
+##  that covers G4dn (T4), G5 (A10G), and G6 (L4), so the single AMI runs
+##  on any of those spot families. The CUDA toolkit is NOT installed here:
+##  cubie resolves the toolkit from pip wheels (numba-cuda[cu12]/[cu13]);
+##  only the kernel driver is needed on the host.
 ##
 ##  Called twice by the Packer build with a windows-restart between: the
 ##  first run installs the driver, the second (marker present) verifies

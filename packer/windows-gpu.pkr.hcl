@@ -14,7 +14,11 @@ variable "region" {
   default = "ap-southeast-2"
 }
 
-# Builder needs a physical T4 present so the driver binds during the bake.
+# Builder needs a physical GPU present so the driver binds during the
+# bake. Baked on the cheapest T4 box; the AWS GRID driver it installs is
+# multi-GPU, so the resulting AMI also runs on G5 (A10G) and G6 (L4).
+# Requested as spot (see spot_instance_types) because this region has no
+# On-Demand G quota.
 variable "instance_type" {
   type    = string
   default = "g4dn.xlarge"
@@ -46,7 +50,8 @@ locals {
 
 source "amazon-ebs" "windows_gpu" {
   region                                     = var.region
-  instance_type                              = var.instance_type
+  spot_instance_types                        = [var.instance_type]
+  spot_allocation_strategy                   = "capacity-optimized"
   subnet_id                                  = var.subnet_id
   associate_public_ip_address                = true
   temporary_security_group_source_public_ip  = true
