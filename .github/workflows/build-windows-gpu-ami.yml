@@ -29,13 +29,50 @@ jobs:
         run: packer init packer/windows-gpu.pkr.hcl
 
       - name: Build AMI
-        # AWS_BUILD_SUBNET_ID is optional: leave the repo variable unset to
-        # let Packer pick a subnet in the default VPC.
-        run: >
-          packer build
-          -var "region=${{ vars.AWS_REGION }}"
-          -var "subnet_id=${{ vars.AWS_BUILD_SUBNET_ID }}"
-          packer/windows-gpu.pkr.hcl
+        # Spot g4dn.xlarge capacity is per-Availability-Zone, and Packer
+        # pins a build to a single subnet (hence a single AZ). A run that
+        # lands in an AZ with no spot capacity fails the fleet request, so
+        # sweep the default VPC's subnets (one per AZ) and take the first
+        # AZ that has capacity -- automating AWS's own "choose another AZ"
+        # advice. Set AWS_BUILD_SUBNET_ID to pin one subnet instead (e.g.
+        # an account with no default VPC).
+        env:
+          AWS_REGION: ${{ vars.AWS_REGION }}
+          PINNED_SUBNET: ${{ vars.AWS_BUILD_SUBNET_ID }}
+        run: |
+          set -euo pipefail
+          if [ -n "${PINNED_SUBNET:-}" ]; then
+            SUBNETS="$PINNED_SUBNET"
+          else
+            VPC=$(aws ec2 describe-vpcs --region "$AWS_REGION" \
+              --filters Name=isDefault,Values=true \
+              --query 'Vpcs[0].VpcId' --output text)
+            SUBNETS=$(aws ec2 describe-subnets --region "$AWS_REGION" \
+              --filters "Name=vpc-id,Values=$VPC" \
+                        "Name=default-for-az,Values=true" \
+              --query 'Subnets[].SubnetId' --output text)
+          fi
+          if [ -z "${SUBNETS// /}" ]; then
+            echo "No candidate subnets found; set AWS_BUILD_SUBNET_ID." >&2
+            exit 1
+          fi
+          echo "Candidate subnets (one per AZ): $SUBNETS"
+          for SN in $SUBNETS; do
+            echo "::group::packer build on subnet $SN"
+            if packer build \
+                 -var "region=$AWS_REGION" \
+                 -var "subnet_id=$SN" \
+                 packer/windows-gpu.pkr.hcl; then
+              echo "::endgroup::"
+              echo "Bake succeeded in subnet $SN."
+              exit 0
+            fi
+            echo "::endgroup::"
+            echo "Subnet $SN failed (likely no spot capacity in its AZ);" \
+                 "trying the next AZ."
+          done
+          echo "No AZ had spot capacity for the bake instance." >&2
+          exit 1
 
       - name: Deregister superseded cubie-win-gpu AMIs
         # Keep the most recent AMI; deregister older ones (and their
