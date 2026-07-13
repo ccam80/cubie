@@ -66,7 +66,9 @@ def test_cross_file_lineinfo(tmp_path):
     assert "lineinfo_helper.py" in file_ids, ptx
     assert "test_numba_cuda_compat.py" in file_ids, ptx
 
-    # getsourcelines starts at the decorator; the body is two lines on.
+    # getsourcelines returns the line of the "@" decorator line (on
+    # every supported Python it scans back to include decorators), so
+    # the def is one line on and the body two.
     _, decorator_line = inspect.getsourcelines(scale.py_func)
     body_line = decorator_line + 2
 
@@ -74,3 +76,56 @@ def test_cross_file_lineinfo(tmp_path):
     kernel_id = file_ids["test_numba_cuda_compat.py"]
     assert re.search(rf"\.loc\s+{helper_id}\s+{body_line}\b", ptx), ptx
     assert re.search(rf"\.loc\s+{kernel_id}\s+\d+", ptx), ptx
+
+
+def _single_file_kernel_ptx(**compile_kwargs):
+    from numba.core import types
+    from numba.cuda import compile_ptx
+
+    def kernel(x):
+        x[0] = x[0] + 1
+
+    ptx, _ = compile_ptx(
+        kernel, types.void(types.float32[:]), **compile_kwargs
+    )
+    return ptx
+
+
+def test_same_file_lineinfo_unchanged():
+    """Single-file kernels keep stock lineinfo output under the patch.
+
+    Exactly one ``.file`` entry (this file) and no lexical-block-file
+    rescoping of any ``.loc``.
+    """
+    ptx = _single_file_kernel_ptx(lineinfo=True)
+    file_ids = _file_ids_by_basename(ptx)
+    assert list(file_ids) == ["test_numba_cuda_compat.py"], ptx
+    kernel_id = file_ids["test_numba_cuda_compat.py"]
+    loc_ids = set(re.findall(r"\.loc\s+(\d+)\s", ptx))
+    assert loc_ids == {kernel_id}, ptx
+
+
+def test_no_lineinfo_no_directives():
+    """Without lineinfo, the patch adds no debug directives."""
+    ptx = _single_file_kernel_ptx()
+    assert ".file" not in ptx and ".loc" not in ptx, ptx
+
+
+def test_relative_source_path_single_file_entry():
+    """A relative co_filename does not split the kernel's own lines.
+
+    The subprogram file is stored absolute, so the patch must
+    normalize before comparing or every line lands in a spurious
+    second file entry for the relative spelling.
+    """
+    from numba.core import types
+    from numba.cuda import compile_ptx
+
+    code = compile("def kernel(x):\n    x[0] += 1\n", "rel_kernel.py", "exec")
+    namespace = {}
+    exec(code, namespace)
+
+    ptx, _ = compile_ptx(
+        namespace["kernel"], types.void(types.float32[:]), lineinfo=True
+    )
+    assert len(re.findall(r"\.file\s+\d+", ptx)) == 1, ptx

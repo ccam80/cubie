@@ -42,7 +42,8 @@ reverse-order sweep commits)
     reverse-topological sweep order.
 ``perf: Lower._find_singly_assigned_variable`` (cubie_patch)
     Linear in block size instead of quadratic.
-``fix/lineinfo-cross-file`` (cubie_patch)
+``fix/lineinfo-cross-file`` (fork branch ``fix-lineinfo-cross-file``,
+proposed upstream)
     Debug locations for code inlined at the numba IR level from other
     source files keep their own file (scoped through a
     DILexicalBlockFile) and their own line numbers (the prologue line
@@ -61,6 +62,7 @@ once the corresponding change lands upstream.
 
 import copy
 import inspect
+import linecache
 import operator
 import os
 import weakref
@@ -977,7 +979,10 @@ def _patch_cross_file_lineinfo():
         # The DIBuilder needs the file of the location being marked,
         # which only the Lower knows (self.loc); mark_location's
         # signature cannot carry it without forking the call sites.
-        self.debuginfo._cubie_lower = weakref.ref(self)
+        # Guarded so a future numba-cuda that leaves debuginfo unset
+        # degrades to stock behaviour instead of failing every compile.
+        if getattr(self, "debuginfo", None) is not None:
+            self.debuginfo._cubie_lower = weakref.ref(self)
 
     base.__init__ = __init__
 
@@ -991,6 +996,20 @@ def _patch_cross_file_lineinfo():
         filename = getattr(loc, "filename", None)
         if filename is None or filename == self.filepath:
             return self._add_location(line)
+        if filename.startswith("<") and filename.endswith(">"):
+            # Pseudo-paths from exec'd sources (e.g. notebook cells)
+            # get a file entry only when linecache can serve their
+            # source; otherwise keep the subprogram scope, matching
+            # stock attribution for lines no tool could display.
+            if not linecache.getlines(filename):
+                return self._add_location(line)
+        else:
+            # self.filepath is stored absolute; normalize so a
+            # relative spelling of the subprogram's own file is not
+            # treated as a different file.
+            filename = os.path.abspath(filename)
+            if filename == self.filepath:
+                return self._add_location(line)
         # llvmlite dedupes debug info nodes, so re-adding the same
         # DIFile/DILexicalBlockFile returns the cached node.
         difile = self.module.add_debug_info(
