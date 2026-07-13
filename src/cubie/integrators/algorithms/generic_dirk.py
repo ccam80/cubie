@@ -42,7 +42,7 @@ from numba_cuda_mlir.types import int32
 from numpy import eye
 
 from cubie._utils import PrecisionDType, build_config
-from cubie.cuda_simsafe import activemask, all_sync
+from cubie.cuda_simsafe import activemask, all_sync, get_jit_kwargs
 from cubie.result_codes import CUBIE_RESULT_CODES
 from cubie.integrators.algorithms.base_algorithm_step import (
     StepCache,
@@ -231,7 +231,7 @@ class DIRKStep(ODEImplicitStep):
 
         # Register solver scratch and solver persistent buffers so they can
         # be aliased
-        _ = buffer_registry.get_child_allocators(
+        buffer_registry.register_child(
                 self,
                 self.solver,
                 name='solver'
@@ -413,6 +413,7 @@ class DIRKStep(ODEImplicitStep):
             # ),
             device=True,
             inline=True,
+            **get_jit_kwargs(self.compile_settings.lineinfo),
         )
         def step(
             state,

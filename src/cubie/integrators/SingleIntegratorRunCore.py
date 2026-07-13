@@ -146,6 +146,7 @@ class SingleIntegratorRunCore(CUDAFactory):
 
         dt = step_control_settings.get("dt", None)
         algorithm_settings["n"] = n
+        algorithm_settings["n_drivers"] = system_sizes.drivers
         if dt is not None:
             algorithm_settings["dt"] = dt
         algorithm_settings["evaluate_driver_at_t"] = evaluate_driver_at_t
@@ -213,10 +214,10 @@ class SingleIntegratorRunCore(CUDAFactory):
 
 
         # Register algorithm step and controller buffers with loop as parent
-        buffer_registry.get_child_allocators(
+        buffer_registry.register_child(
             self._loop, self._algo_step, name="algorithm"
         )
-        buffer_registry.get_child_allocators(
+        buffer_registry.register_child(
                 self._loop, self._step_controller, name='controller'
         )
 
@@ -594,8 +595,10 @@ class SingleIntegratorRunCore(CUDAFactory):
         recognized = set()
         system_recognized = self._system.update(updates_dict, silent=True)
 
-        # Capture n whether or not system updated, in case of an algo/step swap
+        # Capture n and n_drivers whether or not system updated, in case
+        # of an algo/step swap
         updates_dict.update({'n': self._system.sizes.states})
+        updates_dict.update({'n_drivers': self._system.sizes.drivers})
 
         # Capture outputsettings-generated compile settings and pass on
         out_rcgnzd = self._output_functions.update(updates_dict, silent=True)
@@ -641,10 +644,10 @@ class SingleIntegratorRunCore(CUDAFactory):
             step_recognized |= self._apply_inner_tolerance_defaults()
 
         # Re-register algo and controller buffers to refresh sizing in loop
-        buffer_registry.get_child_allocators(
+        buffer_registry.register_child(
                 self._loop, self._algo_step, name='algorithm'
         )
-        buffer_registry.get_child_allocators(
+        buffer_registry.register_child(
                 self._loop, self._step_controller, name='controller'
         )
 
@@ -687,7 +690,7 @@ class SingleIntegratorRunCore(CUDAFactory):
 
         new_algo = updates_dict.get("algorithm").lower()
         if new_algo != self.compile_settings.algorithm:
-            buffer_registry.reset()
+            buffer_registry.clear_parent(self._algo_step)
             old_settings = self._algo_step.settings_dict
             old_settings["algorithm"] = new_algo
             self._algo_step = get_algorithm_step(
@@ -727,7 +730,7 @@ class SingleIntegratorRunCore(CUDAFactory):
         new_controller = updates_dict.get("step_controller").lower()
 
         if new_controller != self.compile_settings.step_controller:
-            buffer_registry.reset()
+            buffer_registry.clear_parent(self._step_controller)
             old_settings = self._step_controller.settings_dict
             old_settings["step_controller"] = new_controller
             old_settings["algorithm_order"] = updates_dict.get(
@@ -777,10 +780,10 @@ class SingleIntegratorRunCore(CUDAFactory):
             'evaluate_observables': evaluate_observables}
 
         # Re-register algo and controller buffers to refresh sizing in loop
-        buffer_registry.get_child_allocators(
+        buffer_registry.register_child(
                 self._loop, self._algo_step, name='algorithm'
         )
-        buffer_registry.get_child_allocators(
+        buffer_registry.register_child(
                 self._loop, self._step_controller, name='controller'
         )
 

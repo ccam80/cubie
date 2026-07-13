@@ -30,6 +30,7 @@ from numba_cuda_mlir import cuda
 
 from numba_cuda_mlir.types import int32
 
+from cubie.cuda_simsafe import get_jit_kwargs
 from cubie.result_codes import CUBIE_RESULT_CODES
 
 
@@ -153,6 +154,7 @@ class ExplicitEulerStep(ODEExplicitStep):
             # ),
             device=True,
             inline=True,
+            **get_jit_kwargs(self.compile_settings.lineinfo),
         )
         def step(
             state,

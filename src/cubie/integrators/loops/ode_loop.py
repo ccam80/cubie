@@ -43,7 +43,7 @@ from numba_cuda_mlir.types import boolean as bool_
 from numba_cuda_mlir.types import int32, float64
 from cubie.CUDAFactory import CUDAFactory, CUDADispatcherCache
 from cubie.buffer_registry import buffer_registry
-from cubie.cuda_simsafe import activemask, all_sync, compile_kwargs, selp
+from cubie.cuda_simsafe import activemask, all_sync, get_jit_kwargs, selp
 from cubie.result_codes import CUBIE_RESULT_CODES
 from cubie._utils import PrecisionDType, unpack_dict_values, build_config
 from cubie.integrators.loops.ode_loop_config import ODELoopConfig
@@ -485,10 +485,11 @@ class IVPLoop(CUDAFactory):
 
         fixed_mode = not config.is_adaptive
 
+        # no cover: start
         @cuda.jit(
             device=True,
             inline=True,
-            **compile_kwargs,
+            **get_jit_kwargs(config.lineinfo),
         )
         def loop_fn(
             initial_states,
@@ -979,6 +980,7 @@ class IVPLoop(CUDAFactory):
                                 )
                                 summary_idx += int32(1)
 
+        # no cover: end
         return IVPLoopCache(loop_function=loop_fn)
 
     @property

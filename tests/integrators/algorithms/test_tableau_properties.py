@@ -1,13 +1,15 @@
 """Unit tests for ButcherTableau row-matching properties."""
 
+import numpy as np
+import pytest
+
 from cubie.integrators.algorithms.generic_rosenbrockw_tableaus import (
     ROS3P_TABLEAU,
 )
 from cubie.integrators.algorithms.generic_firk_tableaus import (
     RADAU_IIA_5_TABLEAU,
+    compute_embedded_weights_radauIIA,
 )
-
-
 
 
 def test_b_matches_a_row_radauiia5():
@@ -69,3 +71,17 @@ def test_floating_point_tolerance():
     assert result is not None, (
         "Expected match within tolerance for floating-point values"
     )
+
+
+def test_compute_embedded_weights_radauiia_defaults_order_to_stage_count():
+    """order=None defaults to the exact (square) collocation system."""
+    c = np.asarray(RADAU_IIA_5_TABLEAU.c)
+    weights = compute_embedded_weights_radauIIA(c, order=None)
+    assert weights.shape == (len(c),)
+
+
+def test_compute_embedded_weights_radauiia_rejects_order_above_stages():
+    """order exceeding the number of stages raises ValueError."""
+    c = np.asarray(RADAU_IIA_5_TABLEAU.c)
+    with pytest.raises(ValueError, match="Cannot achieve order"):
+        compute_embedded_weights_radauIIA(c, order=len(c) + 1)

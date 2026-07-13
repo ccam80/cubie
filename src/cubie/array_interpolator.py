@@ -63,7 +63,7 @@ from numba_cuda_mlir.numba_cuda.np.numpy_support import from_dtype
 from numba_cuda_mlir.types import int32
 from numpy.typing import NDArray
 
-from cubie.cuda_simsafe import CUDA_SIMULATION, cupy, selp
+from cubie.cuda_simsafe import CUDA_SIMULATION, cupy, get_jit_kwargs, selp
 from cubie.CUDAFactory import (
     CUDAFactory,
     CUDAFactoryConfig,
@@ -429,6 +429,7 @@ class ArrayInterpolator(CUDAFactory):
             #  numba_precision[::1]),
             device=True,
             inline=True,
+            **get_jit_kwargs(self.compile_settings.lineinfo),
         )
         def evaluate_all(time, coefficients, out) -> None:
             """Evaluate all input polynomials at ``time`` on the device.
@@ -476,6 +477,7 @@ class ArrayInterpolator(CUDAFactory):
             #   numba_precision[::1])],
             device=True,
             inline=True,
+            **get_jit_kwargs(self.compile_settings.lineinfo),
         )
         def evaluate_time_derivative(
             time,
@@ -629,7 +631,7 @@ class ArrayInterpolator(CUDAFactory):
         device_eval = self.evaluation_function
 
         # no cover: start
-        @cuda.jit()
+        @cuda.jit(**get_jit_kwargs(self.compile_settings.lineinfo))
         def _evaluate_kernel(times_device, coefficients_device, out_device):
             idx = cuda.grid(1)
             if idx < times_device.shape[0]:
@@ -641,7 +643,7 @@ class ArrayInterpolator(CUDAFactory):
 
         # no cover: end
 
-        if CUDA_SIMULATION:
+        if CUDA_SIMULATION:  # pragma: no cover - simulated
             # The simulator runs kernels on host memory: NumPy arrays
             # pass straight in and the kernel writes the output array
             # in place, so there is nothing to stage or copy back.
@@ -670,7 +672,7 @@ class ArrayInterpolator(CUDAFactory):
         )
         cuda.synchronize()
 
-        if CUDA_SIMULATION:
+        if CUDA_SIMULATION:  # pragma: no cover - simulated
             return out_device
         return out_device.get()
 
@@ -846,19 +848,10 @@ class ArrayInterpolator(CUDAFactory):
         Raises
         ------
         ValueError
-            Raised when periodic constraints are incompatible with the input
-            configuration or when an unknown boundary condition is supplied.
+            Raised when periodic constraints are incompatible with the
+            input configuration.
         """
         boundary_condition = self.boundary_condition
-        if boundary_condition not in {
-            "natural",
-            "periodic",
-            "clamped",
-            "not-a-knot",
-        }:
-            raise ValueError(
-                f"Unsupported boundary condition: {boundary_condition}."
-            )
 
         precision = self.precision
         base_inputs = self.input_array.astype(precision, copy=False)

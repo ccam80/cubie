@@ -127,8 +127,6 @@ class JVPEquations:
             direct = [sym for sym in rhs.free_symbols if sym in dependents]
             seen_direct = set()
             for sym in direct:
-                if sym in seen_direct:
-                    continue
                 seen_direct.add(sym)
                 jvp_usage[sym] = jvp_usage.get(sym, 0) + 1
             stack = list(seen_direct)

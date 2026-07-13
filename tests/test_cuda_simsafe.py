@@ -16,11 +16,16 @@ def test_compile_kwargs_without_cudasim():
     numba-cuda-mlir accepts per-flag fastmath (natively on patched
     builds, via cubie._mlir_compat's selective-fastmath shim on the
     stock wheel): no signed zeros, FMA contraction and approximate
-    division.
+    division; lineinfo carries the CUBIE_LINEINFO-derived default.
     """
     from cubie.cuda_simsafe import CUDA_SIMULATION, compile_kwargs
     assert CUDA_SIMULATION is False
-    assert compile_kwargs == {"fastmath": {"nsz", "contract", "arcp"}}
+    assert compile_kwargs["fastmath"] == {
+        "nsz": True,
+        "contract": True,
+        "arcp": True,
+    }
+    assert "lineinfo" in compile_kwargs
 
 @pytest.mark.sim_only
 def test_selp_function_in_cudasim():

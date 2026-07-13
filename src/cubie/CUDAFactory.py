@@ -37,7 +37,17 @@ from hashlib import sha256
 from abc import ABC, abstractmethod
 from typing import Set, Any, Tuple, Dict
 
-from attrs import define, field, fields, has, Attribute, astuple, asdict
+from attrs import (
+    Factory,
+    define,
+    field,
+    fields,
+    has,
+    Attribute,
+    astuple,
+    asdict,
+)
+from attrs import validators as attrs_validators
 from numpy import (
     array_equal,
     asarray,
@@ -51,6 +61,7 @@ from cubie._utils import (
     precision_validator,
     precision_converter,
 )
+from cubie._env import lineinfo_default
 from cubie.cuda_simsafe import from_dtype as simsafe_dtype
 from cubie.buffer_registry import buffer_registry
 
@@ -293,6 +304,11 @@ class CUDAFactoryConfig(_CubieConfigBase):
     precision: PrecisionDType = field(
         validator=precision_validator,
         converter=precision_converter,
+    )
+    lineinfo: bool = field(
+        default=Factory(lineinfo_default),
+        validator=attrs_validators.instance_of(bool),
+        kw_only=True,
     )
 
     def __attrs_post_init__(self):

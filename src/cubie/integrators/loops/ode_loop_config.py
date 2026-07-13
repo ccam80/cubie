@@ -269,8 +269,8 @@ class ODELoopConfig(CUDAFactoryConfig):
         if summarise_every is None or sample_summaries_every is None:
             return 0
 
-        raw_ratio = round(summarise_every / sample_summaries_every)
-        samples_per_summary = int(raw_ratio)
+        raw_ratio = summarise_every / sample_summaries_every
+        samples_per_summary = int(round(raw_ratio))
 
         # How close is this to an integer multiple? Warn if it needs slight
         # adjustment, raise if the arguments aren't even multiples.

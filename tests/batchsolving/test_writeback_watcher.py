@@ -18,6 +18,31 @@ from cubie.memory.chunk_buffer_pool import ChunkBufferPool, PinnedBuffer
 # ── Helpers ─────────────────────────────────────────────────── #
 
 
+if not CUDA_SIMULATION:
+    @cuda.jit
+    def _busy_kernel(out):
+        """Single-thread kernel that runs long enough to stay pending."""
+        x = 0.0
+        for _ in range(20_000_000):
+            x += 1.0
+        out[0] = x
+
+
+def _record_busy_event():
+    """Launch the busy kernel on a fresh stream and record an event.
+
+    The kernel keeps the stream busy for tens of milliseconds, so an
+    event recorded behind it reads as still-pending on an immediate
+    query.
+    """
+    stream = cuda.stream()
+    event = cuda.event()
+    out = cuda.device_array(1, dtype=np.float32)
+    _busy_kernel[1, 1, stream](out)
+    event.record(stream)
+    return stream, event
+
+
 def _make_pool():
     """Return a fresh ChunkBufferPool."""
     return ChunkBufferPool()
@@ -370,6 +395,102 @@ def test_shutdown_drains_and_completes_remaining_tasks():
     # After shutdown, data should be copied
     np.testing.assert_array_equal(target, 77.0)
     assert w._thread is None
+
+
+@pytest.mark.nocudasim
+def test_process_task_pending_event_returns_false_until_recorded():
+    """A real, still-running CUDA event causes _process_task to report
+    not-yet-complete (returns False) without copying data, then True
+    once the stream is synchronized."""
+    stream, event = _record_busy_event()
+
+    w = WritebackWatcher()
+    buf = _make_pinned_buffer(fill=55.0)
+    target = np.zeros((4, 3), dtype=np.float32)
+    pool = _make_pool()
+    task = WritebackTask(
+        event=event, buffer=buf, target_array=target,
+        buffer_pool=pool, array_name="state",
+    )
+
+    result = w._process_task(task)
+    assert result is False
+    np.testing.assert_array_equal(target, 0.0)
+
+    stream.synchronize()
+    result2 = w._process_task(task)
+    assert result2 is True
+    np.testing.assert_array_equal(target, 55.0)
+
+
+@pytest.mark.nocudasim
+def test_poll_loop_requeues_still_pending_task_in_main_loop():
+    """A task whose event has not completed is re-queued as
+    still_pending within the live-polling loop, then completes on a
+    later iteration once the stream finishes (main-loop still_pending
+    branch)."""
+    stream, event = _record_busy_event()
+
+    w = WritebackWatcher(poll_interval=0.001)
+    buf = _make_pinned_buffer(fill=33.0)
+    target = np.zeros((4, 3), dtype=np.float32)
+    pool = _make_pool()
+    w.submit(
+        event=event, buffer=buf, target_array=target,
+        buffer_pool=pool, array_name="state",
+    )
+    # Watcher thread starts polling immediately; the task is very
+    # likely still pending on submission given the busy kernel above.
+    w.wait_all(timeout=10.0)
+    np.testing.assert_array_equal(target, 33.0)
+    w.shutdown()
+
+
+@pytest.mark.nocudasim
+def test_poll_loop_drain_requeues_still_pending_task_on_shutdown():
+    """A task whose event has not completed is re-queued as
+    still_pending within the post-shutdown drain loop and completes
+    once the event is ready (drain-loop still_pending branch)."""
+    stream, event = _record_busy_event()
+
+    w = WritebackWatcher()
+    buf = _make_pinned_buffer(fill=44.0)
+    target = np.zeros((4, 3), dtype=np.float32)
+    pool = _make_pool()
+    task = WritebackTask(
+        event=event, buffer=buf, target_array=target,
+        buffer_pool=pool, array_name="state",
+    )
+    w._queue.put(task)
+    w._pending_count = 1
+    w._stop_event.set()
+    # Task is very likely still pending on the first drain pass given
+    # the busy kernel above; the drain loop must retry until it
+    # completes.
+    w._poll_loop()
+    np.testing.assert_array_equal(target, 44.0)
+
+
+def test_poll_loop_drains_queue_directly_on_shutdown():
+    """When _poll_loop is invoked with stop_event already set, it skips
+    the live-polling loop and drains any queued tasks synchronously
+    (the post-shutdown drain branch), rather than requiring a race
+    between submit() and shutdown()."""
+    w = WritebackWatcher()
+    buf = _make_pinned_buffer(fill=21.0)
+    target = np.zeros((4, 3), dtype=np.float32)
+    pool = _make_pool()
+    task = WritebackTask(
+        event=None, buffer=buf, target_array=target,
+        buffer_pool=pool, array_name="state",
+    )
+    w._queue.put(task)
+    w._pending_count = 1
+    w._stop_event.set()
+    # No thread involved: call the loop body directly and synchronously.
+    w._poll_loop()
+    np.testing.assert_array_equal(target, 21.0)
+    assert w._queue.empty()
 
 
 def test_multiple_tasks_all_complete():

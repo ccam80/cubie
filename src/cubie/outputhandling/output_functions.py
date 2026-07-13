@@ -262,6 +262,7 @@ class OutputFunctions(CUDAFactory):
         summary_metrics.update(
             sample_summaries_every=config.sample_summaries_every,
             precision=config.precision,
+            lineinfo=config.lineinfo,
         )
 
         # Build functions using output sizes objects
@@ -272,6 +273,7 @@ class OutputFunctions(CUDAFactory):
             config.save_observables,
             config.save_time,
             config.save_counters,
+            lineinfo=config.lineinfo,
         )
 
         update_summary_metrics_func = update_summary_factory(
@@ -279,6 +281,7 @@ class OutputFunctions(CUDAFactory):
             config.summarised_state_indices,
             config.summarised_observable_indices,
             config.summary_types,
+            lineinfo=config.lineinfo,
         )
 
         save_summary_metrics_func = save_summary_factory(
@@ -286,6 +289,7 @@ class OutputFunctions(CUDAFactory):
             config.summarised_state_indices,
             config.summarised_observable_indices,
             config.summary_types,
+            lineinfo=config.lineinfo,
         )
 
         return OutputFunctionCache(

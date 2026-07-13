@@ -5,10 +5,17 @@ from numba_cuda_mlir import cuda
 from numpy import float32
 
 from cubie._utils import (
+    _expand_dtype,
     build_config,
     clamp_factory,
     ensure_nonzero_size,
+    float_array_validator,
     in_attr,
+    is_device_validator,
+    mass_equal,
+    merge_kwargs_into_settings,
+    nonnegative_float_array_validator,
+    precision_validator,
     slice_variable_dimension,
     tol_converter,
     unpack_dict_values,
@@ -620,3 +627,203 @@ class TestEnsureNonzeroSize:
         """Test two-element tuple without zero is unchanged."""
         result = ensure_nonzero_size((3, 5))
         assert result == (3, 5)
+
+    def test_non_int_non_tuple_passthrough(self):
+        """Test that values which are neither int nor tuple pass through."""
+        assert ensure_nonzero_size("label") == "label"
+        assert ensure_nonzero_size(None) is None
+        assert ensure_nonzero_size(2.5) == 2.5
+
+
+# =============================================================================
+# Tests for precision_validator
+# =============================================================================
+
+
+def test_precision_validator_accepts_allowed_precision():
+    """Verify precision_validator does not raise for a supported dtype."""
+    precision_validator(None, None, np.float32)
+
+
+def test_precision_validator_rejects_unsupported_precision():
+    """Verify precision_validator raises ValueError for bad precision."""
+    with pytest.raises(ValueError, match="precision must be one of"):
+        precision_validator(None, None, np.int32)
+
+
+# =============================================================================
+# Tests for is_device_validator
+# =============================================================================
+
+
+def test_is_device_validator_accepts_device_function():
+    """Verify is_device_validator does not raise for a device function."""
+    @cuda.jit(device=True)
+    def dev_func(x):
+        return x
+
+    is_device_validator(None, "attr", dev_func)
+
+
+def test_is_device_validator_rejects_non_device_function():
+    """Verify is_device_validator raises TypeError for a plain callable."""
+    def plain_func(x):
+        return x
+
+    with pytest.raises(TypeError, match="must be a Numba CUDA device"):
+        is_device_validator(None, "attr", plain_func)
+
+
+# =============================================================================
+# Tests for float_array_validator / nonnegative_float_array_validator
+# =============================================================================
+
+
+def test_float_array_validator_accepts_finite_float_array():
+    """Verify float_array_validator does not raise for a valid array."""
+    float_array_validator(None, "attr", np.array([1.0, 2.0], dtype=np.float64))
+
+
+def test_float_array_validator_rejects_non_ndarray():
+    """Verify float_array_validator raises TypeError for a non-array."""
+    with pytest.raises(TypeError, match="must be a numpy array of floats"):
+        float_array_validator(None, "attr", [1.0, 2.0])
+
+
+def test_float_array_validator_rejects_non_float_dtype():
+    """Verify float_array_validator raises TypeError for an int array."""
+    with pytest.raises(TypeError, match="got dtype"):
+        float_array_validator(None, "attr", np.array([1, 2], dtype=np.int32))
+
+
+def test_float_array_validator_rejects_nan_or_inf():
+    """Verify float_array_validator raises ValueError for NaN/inf values."""
+    with pytest.raises(ValueError, match="must not contain NaNs"):
+        float_array_validator(
+            None, "attr", np.array([1.0, np.nan], dtype=np.float64)
+        )
+
+
+def test_nonnegative_float_array_validator_rejects_negative():
+    """Verify nonnegative_float_array_validator raises for negatives."""
+    with pytest.raises(ValueError, match="must not contain negative"):
+        nonnegative_float_array_validator(
+            None, "attr", np.array([1.0, -1.0], dtype=np.float64)
+        )
+
+
+def test_nonnegative_float_array_validator_accepts_nonnegative():
+    """Verify nonnegative_float_array_validator accepts nonnegative array."""
+    nonnegative_float_array_validator(
+        None, "attr", np.array([0.0, 1.0], dtype=np.float64)
+    )
+
+
+# =============================================================================
+# Tests for _expand_dtype
+# =============================================================================
+
+
+def test_expand_dtype_float_expands_to_np_floating():
+    """Verify float expands to (float, np_floating)."""
+    assert _expand_dtype(float) == (float, np.floating)
+
+
+def test_expand_dtype_int_expands_to_np_integer():
+    """Verify int expands to (int, np_integer)."""
+    assert _expand_dtype(int) == (int, np.integer)
+
+
+def test_expand_dtype_other_type_passthrough():
+    """Verify a type that is neither float nor int passes through."""
+    assert _expand_dtype(str) is str
+    assert _expand_dtype(bool) is bool
+
+
+# =============================================================================
+# Tests for merge_kwargs_into_settings duplicate-key warning
+# =============================================================================
+
+
+def test_merge_kwargs_into_settings_warns_on_duplicate_keys():
+    """Verify a UserWarning is raised when kwargs and user_settings share
+    keys, and that the kwargs value takes precedence."""
+    with pytest.warns(UserWarning, match="Duplicate settings"):
+        merged, recognized = merge_kwargs_into_settings(
+            {"dt_min": 0.5},
+            valid_keys={"dt_min"},
+            user_settings={"dt_min": 0.1},
+        )
+    assert merged["dt_min"] == 0.5
+    assert recognized == {"dt_min"}
+
+
+def test_merge_kwargs_into_settings_no_warning_without_duplicates():
+    """Verify no warning is raised when keys don't overlap."""
+    merged, recognized = merge_kwargs_into_settings(
+        {"dt_min": 0.5},
+        valid_keys={"dt_min"},
+        user_settings={"dt_max": 1.0},
+    )
+    assert merged == {"dt_max": 1.0, "dt_min": 0.5}
+    assert recognized == {"dt_min"}
+
+
+# =============================================================================
+# Tests for mass_equal
+# =============================================================================
+
+
+def test_mass_equal_both_none():
+    """Verify mass_equal returns True when both operands are None."""
+    assert mass_equal(None, None) is True
+
+
+def test_mass_equal_one_none_one_not():
+    """Verify mass_equal returns False when only one operand is None."""
+    assert mass_equal(None, np.array([1.0])) is False
+    assert mass_equal(np.array([1.0]), None) is False
+
+
+def test_mass_equal_ndarray_operands():
+    """Verify mass_equal compares ndarrays elementwise."""
+    left = np.array([1.0, 2.0])
+    right = np.array([1.0, 2.0])
+    assert mass_equal(left, right) is True
+    assert mass_equal(left, np.array([1.0, 3.0])) is False
+
+
+def test_mass_equal_non_ndarray_operands():
+    """Verify mass_equal falls back to == for non-ndarray operands."""
+    assert mass_equal(1, 1) is True
+    assert mass_equal(1, 2) is False
+
+
+# =============================================================================
+# Tests for unpack_dict_values regular-key collision with an unpacked dict
+# =============================================================================
+
+
+def test_unpack_dict_values_collision_unpacked_then_regular():
+    """Test collision when a regular key duplicates an already-unpacked
+    dict key (the reverse order of the existing collision tests)."""
+    input_dict = {"settings": {"dt_min": 0.01}, "dt_min": 0.5}
+
+    with pytest.raises(ValueError, match="Key collision detected.*dt_min"):
+        unpack_dict_values(input_dict)
+
+
+# =============================================================================
+# Tests for build_config instance_label validation
+# =============================================================================
+
+
+def test_build_config_instance_label_invalid_for_class_raises():
+    """Verify ValueError when instance_label is used with a config class
+    that has no instance_label attribute."""
+    with pytest.raises(ValueError, match="is not valid for"):
+        build_config(
+            SimpleTestConfig,
+            required={"precision": np.float32, "n": 3},
+            instance_label="krylov",
+        )

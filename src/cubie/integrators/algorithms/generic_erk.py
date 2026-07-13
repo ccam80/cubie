@@ -59,7 +59,7 @@ from numba_cuda_mlir import cuda
 from numba_cuda_mlir.types import int32
 from cubie._utils import PrecisionDType, build_config
 from cubie.buffer_registry import buffer_registry
-from cubie.cuda_simsafe import all_sync, activemask
+from cubie.cuda_simsafe import all_sync, activemask, get_jit_kwargs
 from cubie.result_codes import CUBIE_RESULT_CODES
 from cubie.integrators.algorithms.base_algorithm_step import (
     StepCache,
@@ -347,6 +347,7 @@ class ERKStep(ODEExplicitStep):
             # ),
             device=True,
             inline=True,
+            **get_jit_kwargs(self.compile_settings.lineinfo),
         )
         def step(
             state,
@@ -568,6 +569,7 @@ class ERKStep(ODEExplicitStep):
 
             return success
 
+        # no cover: end
         return StepCache(step=step)
 
     @property

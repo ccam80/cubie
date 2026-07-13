@@ -284,6 +284,17 @@ def test_update_returns_recognized_and_changed():
     assert changed == {"value1"}
 
 
+def test_update_kwargs_only_defaults_updates_dict_to_empty_dict():
+    """Update works when called with only kwargs, no positional dict.
+
+    Exercises the ``updates_dict is None`` default path.
+    """
+    c = _make_config(value1=10)
+    recognized, changed = c.update(value1=99)
+    assert "value1" in recognized
+    assert c.value1 == 99
+
+
 # ── _CubieConfigBase properties ───────────────────────────── #
 
 

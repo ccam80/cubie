@@ -209,6 +209,92 @@ def test_all_lower_plumbing(
     )
 
 
+# ============================================================================
+# Additional coverage: no-op update(), simple properties, timing
+# validation, and shared-memory padding
+# ============================================================================
+
+
+def test_kernel_update_no_args_returns_empty_set(solverkernel_mutable):
+    """update() with neither updates_dict nor kwargs is a no-op."""
+    assert solverkernel_mutable.update() == set()
+    assert solverkernel_mutable.update(None) == set()
+
+
+def test_kernel_compile_flags_property(solverkernel):
+    """compile_flags reads through to compile_settings.compile_flags."""
+    assert (
+        solverkernel.compile_flags
+        is solverkernel.compile_settings.compile_flags
+    )
+
+
+def test_kernel_initial_values_parameters_driver_coefficients_properties(
+    solverkernel,
+):
+    """initial_values, parameters, driver_coefficients, and
+    device_driver_coefficients pass through to input_arrays."""
+    assert (
+        solverkernel.initial_values
+        is solverkernel.input_arrays.initial_values
+    )
+    assert solverkernel.parameters is solverkernel.input_arrays.parameters
+    assert (
+        solverkernel.driver_coefficients
+        is solverkernel.input_arrays.driver_coefficients
+    )
+    assert (
+        solverkernel.device_driver_coefficients
+        is solverkernel.input_arrays.device_driver_coefficients
+    )
+
+
+def test_kernel_update_lineinfo(solverkernel_mutable):
+    """update routes lineinfo into the kernel's compile settings."""
+    kernel = solverkernel_mutable
+    updated = kernel.update({"lineinfo": True})
+    assert "lineinfo" in updated
+    assert kernel.compile_settings.lineinfo is True
+    updated = kernel.update({"lineinfo": False})
+    assert "lineinfo" in updated
+    assert kernel.compile_settings.lineinfo is False
+
+
+def test_shared_memory_needs_padding_matches_precision_and_parity(
+    solverkernel,
+):
+    """shared_memory_needs_padding follows precision/parity rules: never
+    pads float64, and only pads an even, nonzero element count."""
+    result = solverkernel.shared_memory_needs_padding
+    elements = solverkernel.shared_memory_elements
+    if solverkernel.precision == np.float64:
+        expected = False
+    elif elements == 0:
+        expected = False
+    elif elements % 2 == 0:
+        expected = True
+    else:
+        expected = False
+    assert result == expected
+
+
+# NOTE: BatchSolverKernel._validate_timing_parameters lines 450-457
+# (the sample_summaries_every-is-None and summarise_every-is-None
+# ValueError branches) appear unreachable through the public update()
+# API. SingleIntegratorRunCore._process_loop_timing re-derives
+# sample_summaries_every from summarise_every whenever
+# has_summary_outputs is True and summarise_every is not None, and
+# flips has_summary_outputs to False (deferring to "duration
+# dependent" resolution) the moment summarise_every is cleared while
+# summary metrics are requested. In manual testing, clearing either
+# or both of these settings via kernel.update() on a summary-active
+# kernel always leaves has_summary_outputs False by the time
+# _validate_timing_parameters runs, so the guarded branch is never
+# entered from any code path reachable via update()/run(). See the
+# coverage report for details; not exercised here to avoid
+# constructing a stand-in object for the method's ``self``.
+
+
 def test_bogus_update_fails(solverkernel_mutable):
     solverkernel = solverkernel_mutable
     solverkernel.update(dt_min=0.0001)

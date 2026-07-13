@@ -37,7 +37,7 @@ def time_driver_solver_settings(precision):
         "output_types": ["state", "observables", "time"],
         "blocksize": 32,
         "stream": 0,
-        "profileCUDA": False,
+        "lineinfo": False,
         "memory_manager": None,
         "stream_group": "time_driver",
         "mem_proportion": None,

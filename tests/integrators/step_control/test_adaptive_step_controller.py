@@ -410,3 +410,73 @@ def test_update_tracks_newly_set_bounds():
     # Updating dt to violate user-set dt_min raises ValueError
     with pytest.raises(ValueError, match="dt.*<.*dt_min"):
         ctrl.update({"dt": 1e-8})
+
+
+# ── _ensure_sane_bounds: user-provided inversion/violation raises ── #
+
+
+def test_construction_raises_on_inverted_user_bounds():
+    """Both bounds user-provided and inverted raises ValueError."""
+    with pytest.raises(ValueError, match="dt_max.*<.*dt_min"):
+        AdaptiveIController(
+            precision=np.float64, dt_min=1.0, dt_max=0.5,
+        )
+
+
+def test_construction_raises_on_dt_above_user_dt_max():
+    """dt above a user-provided dt_max raises ValueError."""
+    with pytest.raises(ValueError, match="dt.*>.*dt_max"):
+        AdaptiveIController(
+            precision=np.float64, dt=2.0, dt_max=1.0,
+        )
+
+
+# ── _ensure_sane_bounds: auto-fix of non-user-provided bounds ────── #
+
+
+def test_update_autofixes_dt_max_when_derived_max_falls_below_new_min():
+    """A user-set dt_min above the (non-user) derived dt_max auto-fixes
+
+    dt_max: dt_max_new = dt_min * 100. The derived dt_max is also below
+    the new dt, so both auto-fix branches for dt_max run; the final
+    value comes from the dt-based fix (dt * 100).
+    """
+    ctrl = AdaptiveIController(precision=np.float64, dt=1e-7)
+    # dt_max derived as dt * 100 = 1e-5, non-user.
+    ctrl.update({"dt": 0.1, "dt_min": 0.001})
+    # dt_min is honoured (user-provided); dt_max is auto-fixed upward
+    # from its stale derived value so it stays >= dt_min and >= dt.
+    assert ctrl.dt == pytest.approx(np.float64(0.1))
+    assert ctrl.dt_min == pytest.approx(np.float64(0.001))
+    assert ctrl.dt_max >= ctrl.dt_min
+    assert ctrl.dt_max >= ctrl.dt
+
+
+def test_update_autofixes_dt_min_when_derived_min_exceeds_new_max():
+    """A user-set dt_max below the (non-user) derived dt_min auto-fixes
+
+    dt_min from both the dt_max-relative and dt-relative branches.
+    """
+    ctrl = AdaptiveIController(precision=np.float64, dt=10000.0)
+    # dt_min derived as dt / 100 = 100.0, non-user.
+    ctrl.update({"dt": 1e-7, "dt_max": 10.0})
+    assert ctrl.dt == pytest.approx(np.float64(1e-7))
+    assert ctrl.dt_max == pytest.approx(np.float64(10.0))
+    assert ctrl.dt_min <= ctrl.dt_max
+    assert ctrl.dt_min <= ctrl.dt
+
+
+# ── AdaptiveStepControlConfig.__attrs_post_init__: deadband swap ─── #
+
+
+def test_deadband_swap_branch_is_unreachable():
+    """Inverted deadbands cannot be constructed through the public API.
+
+    deadband_min's validator bounds it to [0, 1.0] and deadband_max's
+    validator requires >= 1.0, so deadband_min > deadband_max is
+    impossible to construct.
+    """
+    with pytest.raises((ValueError, TypeError)):
+        AdaptiveStepControlConfig(
+            precision=np.float64, deadband_min=1.1, deadband_max=0.9,
+        )

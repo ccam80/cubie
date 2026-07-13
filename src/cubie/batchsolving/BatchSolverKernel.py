@@ -50,7 +50,7 @@ from attrs import define, field, evolve
 from cubie.odesystems import SymbolicODE
 from cubie.cuda_simsafe import (
     is_cudasim_enabled,
-    compile_kwargs,
+    get_jit_kwargs,
     max_shared_memory_per_block,
 )
 from cubie.cubie_cache import (
@@ -208,8 +208,10 @@ class BatchSolverKernel(CUDAFactory):
         ``"save_every"`` and ``"summarise_every"``.
     evaluate_driver_at_t
         Optional evaluation function for an interpolated forcing term.
-    profileCUDA
-        Flag enabling CUDA profiling hooks.
+    lineinfo
+        Compile the kernel and all device functions with source-line
+        correlation data for profilers. ``None`` defers to the
+        ``CUBIE_LINEINFO`` environment variable (default off).
     step_control_settings
         Mapping of overrides forwarded to
         :class:`cubie.integrators.SingleIntegratorRun` for controller
@@ -249,7 +251,7 @@ class BatchSolverKernel(CUDAFactory):
         loop_settings: Optional[Dict[str, Any]] = None,
         evaluate_driver_at_t: Optional[Callable] = None,
         driver_del_t: Optional[Callable] = None,
-        profileCUDA: bool = False,
+        lineinfo: Optional[bool] = None,
         step_control_settings: Optional[Dict[str, Any]] = None,
         algorithm_settings: Optional[Dict[str, Any]] = None,
         output_settings: Optional[Dict[str, Any]] = None,
@@ -265,9 +267,6 @@ class BatchSolverKernel(CUDAFactory):
             output_settings = {}
         if loop_settings is None:
             loop_settings = {}
-
-        # Store non compile-critical run parameters locally
-        self._profileCUDA = profileCUDA
 
         precision = system.precision
 
@@ -295,6 +294,12 @@ class BatchSolverKernel(CUDAFactory):
             algorithm_settings=algorithm_settings,
             output_settings=output_settings,
         )
+        # An explicit lineinfo argument must reach every child factory;
+        # None leaves the CUBIE_LINEINFO-derived config defaults in place.
+        if lineinfo is not None:
+            self.single_integrator.update(
+                {"lineinfo": lineinfo}, silent=True
+            )
 
         # Extract system identification for cache
         system_name = system.name
@@ -315,10 +320,12 @@ class BatchSolverKernel(CUDAFactory):
             **cache_settings,
         )
 
+        lineinfo_kwargs = {} if lineinfo is None else {"lineinfo": lineinfo}
         initial_config = BatchSolverConfig(
             precision=precision,
             loop_fn=None,
             compile_flags=self.single_integrator.output_compile_flags,
+            **lineinfo_kwargs,
             **(kernel_settings or {}),
         )
         self.setup_compile_settings(initial_config)
@@ -576,9 +583,6 @@ class BatchSolverKernel(CUDAFactory):
         threads_per_loop = self.single_integrator.threads_per_step
         runsperblock = int(blocksize / self.single_integrator.threads_per_step)
 
-        if self.profileCUDA:  # pragma: no cover
-            cuda.profile_start()
-
         # Setup CUDA events for timing (no-op when verbosity is None)
         self._setup_cuda_events(chunks)
 
@@ -651,9 +655,6 @@ class BatchSolverKernel(CUDAFactory):
 
         # Finalize GPU workload timing
         self._gpu_workload_event.record_end(stream)
-
-        if self.profileCUDA:  # pragma: no cover
-            cuda.profile_stop()
 
     def limit_blocksize(
         self,
@@ -737,9 +738,6 @@ class BatchSolverKernel(CUDAFactory):
         simsafe_precision = config.simsafe_precision
         precision = config.numba_precision
 
-        if "lineinfo" in compile_kwargs:
-            compile_kwargs["lineinfo"] = self.profileCUDA
-
         loopfunction = self.single_integrator.device_function
 
         output_flags = self.active_outputs
@@ -761,7 +759,7 @@ class BatchSolverKernel(CUDAFactory):
             buffer_registry.get_toplevel_allocators(self)
         )
 
-        jit_kwargs = dict(compile_kwargs)
+        jit_kwargs = get_jit_kwargs(config.lineinfo)
         if config.max_registers is not None and not is_cudasim_enabled():
             jit_kwargs["max_registers"] = config.max_registers
 
@@ -1070,12 +1068,6 @@ class BatchSolverKernel(CUDAFactory):
         return BatchSolverCache(solver_kernel=self.build_kernel())
 
     @property
-    def profileCUDA(self) -> bool:
-        """Indicate whether CUDA profiling hooks are enabled."""
-
-        return self._profileCUDA and not is_cudasim_enabled()
-
-    @property
     def memory_manager(self) -> "MemoryManager":
         """Registered memory manager for this kernel."""
 
@@ -1350,14 +1342,6 @@ class BatchSolverKernel(CUDAFactory):
         """Elapsed time spent saving outputs during integration."""
 
         return self.single_integrator.save_time
-
-    def enable_profiling(self) -> None:
-        """Enable CUDA profiling hooks for subsequent launches."""
-        self._profileCUDA = True
-
-    def disable_profiling(self) -> None:
-        """Disable CUDA profiling hooks for subsequent launches."""
-        self._profileCUDA = False
 
     @property
     def output_types(self) -> Any:

@@ -307,6 +307,7 @@ def clamp_factory(precision):
     from numba_cuda_mlir.numba_cuda.np.numpy_support import from_dtype
     precision = from_dtype(precision)
 
+    # no cover: start
     @cuda.jit(
         # precision(precision, precision, precision),
         device=True,
@@ -316,6 +317,7 @@ def clamp_factory(precision):
     def clamp(value, minimum, maximum):
         return max(minimum, min(value, maximum))
 
+    # no cover: end
     return clamp
 
 

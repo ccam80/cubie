@@ -14,7 +14,7 @@ See Also
 """
 
 from numba_cuda_mlir import cuda
-from cubie.cuda_simsafe import compile_kwargs
+from cubie.cuda_simsafe import get_jit_kwargs
 
 from cubie.outputhandling.summarymetrics import summary_metrics
 from cubie.outputhandling.summarymetrics.metrics import (
@@ -59,6 +59,7 @@ class Min(SummaryMetric):
         """
 
         precision = self.compile_settings.precision
+        jit_kwargs = get_jit_kwargs(self.compile_settings.lineinfo)
 
         # no cover: start
         @cuda.jit(
@@ -68,7 +69,7 @@ class Min(SummaryMetric):
             # ],
             device=True,
             inline=True,
-            **compile_kwargs,
+            **jit_kwargs,
         )
         def update(
             value,
@@ -104,7 +105,7 @@ class Min(SummaryMetric):
             # ],
             device=True,
             inline=True,
-            **compile_kwargs,
+            **jit_kwargs,
         )
         def save(
             buffer,

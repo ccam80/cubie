@@ -14,6 +14,7 @@ See Also
 """
 
 from numba_cuda_mlir import cuda
+from cubie.cuda_simsafe import get_jit_kwargs
 from math import fabs
 
 from cubie.outputhandling.summarymetrics import summary_metrics
@@ -68,6 +69,7 @@ class MaxMagnitude(SummaryMetric):
             # ],
             device=True,
             inline=True,
+            **get_jit_kwargs(self.compile_settings.lineinfo),
         )
         def update(
             value,
@@ -104,6 +106,7 @@ class MaxMagnitude(SummaryMetric):
             # ],
             device=True,
             inline=True,
+            **get_jit_kwargs(self.compile_settings.lineinfo),
         )
         def save(
             buffer,
