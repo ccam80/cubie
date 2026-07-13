@@ -15,15 +15,15 @@ variable "region" {
 }
 
 # Builder needs a physical GPU present so the driver binds during the
-# bake. Baked on the cheapest T4 box; the AWS GRID driver it installs is
-# multi-GPU, so the resulting AMI also runs on G5 (A10G) and G6 (L4).
-# Requested as spot (see spot_price) because this region has no On-Demand
-# G quota. Kept as a single instance_type + spot_price ("simple" spot
-# request) rather than spot_instance_types: the latter uses the EC2 Fleet
-# API, which needs ec2:DescribeInstanceTypeOfferings on the builder role.
-variable "instance_type" {
-  type    = string
-  default = "g4dn.xlarge"
+# bake. The AWS GRID driver it installs is multi-GPU (T4/A10G/L4), so any
+# of these families bakes a working AMI; listing several lets the spot
+# fleet take whichever GPU pool has capacity (g4dn.xlarge spot is often
+# dry across whole AZs). Requested as spot because this region has no
+# On-Demand G quota. Uses the Fleet IAM actions (CreateFleet,
+# CreateLaunchTemplate, DeleteLaunchTemplate) on the builder role.
+variable "spot_instance_types" {
+  type    = list(string)
+  default = ["g4dn.xlarge", "g4dn.2xlarge", "g5.xlarge", "g6.xlarge"]
 }
 
 # Max hourly spot bid. AWS never charges above the on-demand price
@@ -60,7 +60,8 @@ locals {
 
 source "amazon-ebs" "windows_gpu" {
   region                                     = var.region
-  instance_type                              = var.instance_type
+  spot_instance_types                        = var.spot_instance_types
+  spot_allocation_strategy                   = "capacity-optimized"
   spot_price                                 = var.spot_price
   subnet_id                                  = var.subnet_id
   associate_public_ip_address                = true
@@ -107,7 +108,7 @@ New-NetFirewallRule -DisplayName "Windows Remote Management (HTTPS-In)" -Name "W
 EOF
 
   ami_name        = "cubie-win-gpu-${local.timestamp}"
-  ami_description = "RunsOn Windows 2025 + NVIDIA T4 GRID driver for cubie CUDA CI"
+  ami_description = "RunsOn Windows 2025 + NVIDIA GRID driver (T4/A10G/L4) for cubie CUDA CI"
 
   launch_block_device_mappings {
     device_name           = "/dev/sda1"
