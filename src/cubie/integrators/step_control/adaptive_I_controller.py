@@ -114,6 +114,7 @@ class AdaptiveIController(BaseAdaptiveStepController):
             state_prev,
             error,
             niters,
+            truncated,
             accept_out,
             shared_scratch,
             persistent_local,
@@ -132,6 +133,9 @@ class AdaptiveIController(BaseAdaptiveStepController):
                 Estimated local error vector.
             niters : device array
                 Iteration counters from the integrator loop.
+            truncated : bool
+                True when the loop shortened the step to land on an
+                output boundary instead of using ``dt``.
             accept_out : device array
                 Output flag indicating acceptance of the step.
             shared_scratch : device array
@@ -172,9 +176,13 @@ class AdaptiveIController(BaseAdaptiveStepController):
             # repeated rejection always walks dt down to dt_min.
             gain = selp(accept, gain, min(gain, safety))
 
-            # Update step from the current dt
+            # A truncated step's length came from the output schedule,
+            # not the controller, so its error norm carries no step-size
+            # information: an accepted truncated step leaves dt
+            # unchanged.
+            freeze = accept and truncated
             dt_new_raw = dt[0] * gain
-            dt[0] = clamp(dt_new_raw, dt_min, dt_max)
+            dt[0] = selp(freeze, dt[0], clamp(dt_new_raw, dt_min, dt_max))
 
             ret = success if dt_new_raw > dt_min else step_too_small
             return ret

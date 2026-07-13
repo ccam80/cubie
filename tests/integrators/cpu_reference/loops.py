@@ -177,6 +177,7 @@ def run_reference_loop(
         dt = controller.dt
         do_save = False
         do_summary_sample = False
+        truncated = False
 
         # Determine next event time
         next_event_time = min(
@@ -189,7 +190,9 @@ def run_reference_loop(
             break
 
         if t32 + dt >= next_event_time:
-            dt = precision(next_event_time - t32)
+            forced_dt = precision(next_event_time - t32)
+            truncated = bool(forced_dt != dt)
+            dt = forced_dt
             if next_event_time == next_save_time:
                 do_save = True
             if next_event_time == next_summary_sample_time:
@@ -209,6 +212,7 @@ def run_reference_loop(
             prev_state=state,
             new_state=result.state,
             niters=result.niters,
+            truncated=truncated,
         )
         if not accept:
             continue

@@ -79,7 +79,10 @@ regular grids are active at all (vs. `save_last`-only).
   `accept` before the output calls.
 - **Output-boundary clamping:** when an output is due, `dt_eff` is clamped to
   `next_event - t_prec` (`next_event = min(next_save, next_update_summary, t_end)`); the
-  controller-proposed `dt_raw` is preserved and resumes after the boundary.
+  controller-proposed `dt_raw` is preserved and resumes after the boundary. The loop
+  passes `truncated = (dt_eff != dt_raw)` to the controller, which freezes `dt` and its
+  error history on accepted truncated steps so schedule-forced step lengths never feed
+  the gain calculation.
 - **Stagnation** counts consecutive no-progress steps (not wall-clock): one step that
   doesn't advance `t` (e.g. `dt_eff` rounding to zero at a save boundary) is tolerated;
   two in a row trips `irrecoverable` and sets `status |= 0x40`.

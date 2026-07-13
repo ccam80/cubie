@@ -1509,6 +1509,7 @@ def run_controller_device_step(
     state=None,
     state_prev=None,
     niters=1,
+    truncated=False,
 ):
     """Execute a step-controller device function once on the GPU."""
 
@@ -1527,6 +1528,7 @@ def run_controller_device_step(
     dt = np.asarray([dt0], dtype=precision)
     accept = np.zeros(1, dtype=np.int32)
     niters_val = np.int32(niters)
+    truncated_val = bool(truncated)
     shared_scratch = np.zeros(1, dtype=precision)
     if local_mem is not None:
         persistent_local = np.asarray(local_mem, dtype=precision)
@@ -1540,6 +1542,7 @@ def run_controller_device_step(
         state_prev_val,
         err_val,
         niters_val,
+        truncated_flag,
         accept_val,
         shared_val,
         persistent_val,
@@ -1550,14 +1553,15 @@ def run_controller_device_step(
             state_prev_val,
             err_val,
             niters_val,
+            truncated_flag,
             accept_val,
             shared_val,
             persistent_val,
         )
 
     kernel[1, 1](
-        dt, state_arr, state_prev_arr, err, niters_val, accept,
-        shared_scratch, persistent_local,
+        dt, state_arr, state_prev_arr, err, niters_val, truncated_val,
+        accept, shared_scratch, persistent_local,
     )
     return StepResult(
         precision(dt[0]), int(accept[0]), persistent_local.copy()

@@ -196,6 +196,7 @@ class GustafssonController(BaseAdaptiveStepController):
             state_prev,
             error,
             niters,
+            truncated,
             accept_out,
             shared_scratch,
             persistent_local,
@@ -214,6 +215,9 @@ class GustafssonController(BaseAdaptiveStepController):
                 Estimated local error vector.
             niters : int32
                 Iteration counters from the integrator loop.
+            truncated : bool
+                True when the loop shortened the step to land on an
+                output boundary instead of using ``dt``.
             accept_out : device array
                 Output flag indicating acceptance of the step.
             shared_scratch : device array
@@ -276,11 +280,19 @@ class GustafssonController(BaseAdaptiveStepController):
             # repeated rejection always walks dt down to dt_min.
             gain = selp(accept, gain, min(gain, safety))
 
+            # A truncated step's length came from the output schedule,
+            # not the controller, so its error norm carries no step-size
+            # information: an accepted truncated step leaves dt and the
+            # dt/error history unchanged.
+            freeze = accept and truncated
             dt_new_raw = current_dt * gain
-            dt[0] = clamp(dt_new_raw, dt_min, dt_max)
+            dt[0] = selp(freeze, current_dt, clamp(dt_new_raw, dt_min, dt_max))
 
-            timestep_buffer[0] = current_dt
-            timestep_buffer[1] = nrm2
+            timestep_buffer[0] = selp(
+                freeze, timestep_buffer[0], current_dt
+            )
+            timestep_buffer[1] = selp(freeze, timestep_buffer[1], nrm2)
+
             ret = success if dt_new_raw > dt_min else step_too_small
             return ret
 

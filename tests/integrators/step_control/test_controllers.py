@@ -4,6 +4,8 @@ import numpy as np
 import pytest
 from numba import cuda
 
+from tests._utils import run_controller_device_step
+
 
 _CONTROLLER_SETTINGS = {
     controller: {"step_controller": controller, "atol": 1e-3, "rtol": 0.0}
@@ -85,15 +87,16 @@ class TestControllers:
 
         @cuda.jit
         def kernel(dt_val, state_val, state_prev_val, err_val,
-                   niters_val, accept_val, shared_val, persistent_val):
+                   niters_val, truncated_flag, accept_val, shared_val,
+                   persistent_val):
             device_func(dt_val, state_val, state_prev_val, err_val,
-                        niters_val, accept_val, shared_val,
-                        persistent_val)
+                        niters_val, truncated_flag, accept_val,
+                        shared_val, persistent_val)
 
         # First step: solver-failure error injection (loop uses 1e16).
         huge_error = np.full(n, 1e16, dtype=precision)
-        kernel[1, 1](dt, state, state_prev, huge_error, niters, accept,
-                     shared_scratch, persistent_local)
+        kernel[1, 1](dt, state, state_prev, huge_error, niters, False,
+                     accept, shared_scratch, persistent_local)
         assert int(accept[0]) == 0
 
         # Second step: moderate rejection (nrm2 just above one). The
@@ -102,6 +105,68 @@ class TestControllers:
         dt[0] = dt_before
         moderate_error = np.full(n, 1.23e-3, dtype=precision)
         kernel[1, 1](dt, state, state_prev, moderate_error, niters,
-                     accept, shared_scratch, persistent_local)
+                     False, accept, shared_scratch, persistent_local)
         assert int(accept[0]) == 0
         assert float(dt[0]) < float(dt_before)
+
+    def test_truncated_accepted_step_freezes_controller(
+        self, step_controller, precision, system
+    ):
+        """An accepted schedule-truncated step is a controller no-op.
+
+        The step length came from the output schedule, not the
+        controller, so a tiny error norm from a truncated step must
+        neither rescale dt nor enter the error history.
+        """
+        device_func = step_controller.device_function
+        n = system.sizes.states
+        dt0 = precision(0.017)
+        tiny_error = np.full(n, 1e-12, dtype=precision)
+        state = np.ones(n, dtype=precision)
+
+        frozen = run_controller_device_step(
+            device_func,
+            precision,
+            dt0,
+            tiny_error,
+            state=state,
+            state_prev=state,
+            truncated=True,
+        )
+        assert frozen.accepted == 1
+        assert frozen.dt == dt0
+        assert np.all(frozen.local_mem == precision(0.0))
+
+        unforced = run_controller_device_step(
+            device_func,
+            precision,
+            dt0,
+            tiny_error,
+            state=state,
+            state_prev=state,
+            truncated=False,
+        )
+        assert unforced.accepted == 1
+        assert unforced.dt > dt0
+
+    def test_truncated_rejected_step_still_shrinks_dt(
+        self, step_controller, precision, system
+    ):
+        """A rejected truncated step still walks dt down."""
+        device_func = step_controller.device_function
+        n = system.sizes.states
+        dt0 = precision(0.017)
+        huge_error = np.full(n, 1e16, dtype=precision)
+        state = np.ones(n, dtype=precision)
+
+        result = run_controller_device_step(
+            device_func,
+            precision,
+            dt0,
+            huge_error,
+            state=state,
+            state_prev=state,
+            truncated=True,
+        )
+        assert result.accepted == 0
+        assert result.dt < dt0

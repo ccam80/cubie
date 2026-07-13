@@ -103,6 +103,7 @@ class CPUAdaptiveController:
         prev_state: Array,
         new_state: Array,
         niters: int = 0,
+        truncated: bool = False,
     ) -> bool:
         self._step_count += 1
         if not self.is_adaptive:
@@ -114,6 +115,11 @@ class CPUAdaptiveController:
         )
 
         accept = errornorm <= self.precision(1.0)
+
+        # An accepted schedule-truncated step leaves dt and the error
+        # history unchanged, mirroring the device controllers.
+        if truncated and accept:
+            return accept
 
         current_dt = self.dt
         gain = self._gain(
