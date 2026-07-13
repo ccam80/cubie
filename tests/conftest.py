@@ -4,7 +4,6 @@ import os
 
 import numpy as np
 import pytest
-from pytest import MonkeyPatch
 
 from tests._utils import (
     _build_solver_instance,
@@ -95,43 +94,61 @@ def pytest_collection_modifyitems(config, items):
 
 @pytest.fixture(scope="session", autouse=True)
 def codegen_dir():
-    """Redirect code generation to a temporary directory for the whole session.
+    """Redirect every disk cache to a temporary session directory.
 
-    Use tempfile.mkdtemp instead of pytest's tmp path so the directory isn't
-    removed automatically between parameterized test cases. Remove the
-    directory at session teardown.
+    Sets the shared cache root (:mod:`cubie.cache_root`), which the
+    codegen, CellML parse, and compiled-kernel caches all resolve
+    through, so no cache artefacts leak into or out of the session.
+    Use tempfile.mkdtemp instead of pytest's tmp path so the directory
+    isn't removed automatically between parameterized test cases.
+    Remove the directory at session teardown.
 
-    Toggle: set environment variable `CUBIE_GENERATED_DIR_REDIRECT` to `0` to
-    disable the temporary redirect and keep the original
-    `odefile.GENERATED_DIR`.
+    Toggle: set environment variable `CUBIE_GENERATED_DIR_REDIRECT` to
+    `0` to disable the temporary redirect and keep the default
+    ``<cwd>/generated`` cache root.
     """
     import tempfile
     import shutil
     import os
-    from cubie.odesystems.symbolic import odefile
+    from cubie import cache_root
 
-    original_dir = getattr(odefile, "GENERATED_DIR", None)
     redirect_enabled = int(os.environ.get("CUBIE_GENERATED_DIR_REDIRECT", "1"))
 
     if not redirect_enabled:
-        # Don't change odefile.GENERATED_DIR; yield the original value (or None).
-        yield Path(original_dir) if original_dir is not None else None
+        yield cache_root.get_cache_root()
         return
 
     gen_dir = Path(tempfile.mkdtemp(prefix="cubie_generated_"))
-    mp = MonkeyPatch()
-    mp.setattr(odefile, "GENERATED_DIR", gen_dir, raising=True)
+    previous = cache_root._cache_root_override
+    cache_root.set_cache_root(gen_dir)
     try:
         yield gen_dir
     finally:
-        # restore original attribute and remove temporary dir. Wrap in
-        # try/except in case multiple workers attempt to delete the same
-        # directory when running tests in parallel.
+        # restore the previous root and remove the temporary dir. Wrap
+        # in try/except in case multiple workers attempt to delete the
+        # same directory when running tests in parallel.
         try:
-            mp.undo()
+            cache_root.set_cache_root(previous)
             shutil.rmtree(gen_dir, ignore_errors=True)
         except PermissionError:
             pass
+
+
+@pytest.fixture(scope="function")
+def isolated_cache_root(tmp_path):
+    """Point every disk cache layer at a fresh per-test directory.
+
+    Cache-behaviour tests need a root no other test has written to;
+    the session-wide redirect is shared, so cold-cache assertions
+    would otherwise depend on execution order.
+    """
+    from cubie import cache_root
+
+    previous = cache_root._cache_root_override
+    root = tmp_path / "generated"
+    cache_root.set_cache_root(root)
+    yield root
+    cache_root.set_cache_root(previous)
 
 
 # ========================================

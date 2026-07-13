@@ -3,9 +3,10 @@
 Provides cache classes that persist compiled CUDA kernels to disk,
 enabling faster startup on subsequent runs with identical settings.
 Cache files are stored in
-``generated/<system_name>/CUDA_cache_{system_hash[:8]}`` within the
-configured GENERATED_DIR or in  ``custom_dir/CUDA_cache_{system_hash[:8]}``
-if a custom directory is provided as an argument to "cache".
+``<cache root>/<system_name>/CUDA_cache_{system_hash[:8]}`` under the
+shared cache root (:mod:`cubie.cache_root`) or in
+``custom_dir/CUDA_cache_{system_hash[:8]}`` if a custom directory is
+provided as an argument to "cache".
 
 Notes
 -----
@@ -32,7 +33,7 @@ from numba.cuda.core.caching import (  # noqa: F401
 )
 
 from cubie.cuda_simsafe import is_cudasim_enabled, CUDACache
-from cubie.odesystems.symbolic.odefile import GENERATED_DIR
+from cubie.cache_root import get_cache_root
 from cubie.time_logger import default_timelogger
 from cubie._utils import package_source_hash
 
@@ -109,7 +110,7 @@ class CUBIECacheLocator(_CacheLocator):
         self._compile_settings_hash = compile_settings_hash
 
         if custom_cache_dir is None:
-            cache_root = GENERATED_DIR / system_name
+            cache_root = get_cache_root() / system_name
         else:
             cache_root = Path(custom_cache_dir)
 
@@ -553,7 +554,7 @@ class CUBIECache(CUDACache):
         config_root = (
             config.cache_dir
             if config.cache_dir
-            else GENERATED_DIR / config.system_name
+            else get_cache_root() / config.system_name
         )
         config_specified = (
             Path(config_root) / f"CUDA_cache_{config.system_hash[:8]}"

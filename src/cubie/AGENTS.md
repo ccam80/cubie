@@ -33,6 +33,7 @@ resolves `__version__` via `importlib.metadata.version("cubie")`.
 | `__init__.py` | Package entry point: star-imports subpackages, sets the Numba occupancy-warning env var, defines `__all__` and `__version__`. |
 | `CUDAFactory.py` | Core cached-compilation framework: `CUDAFactory` (ABC), `CUDAFactoryConfig`/`_CubieConfigBase` (hashing attrs config; carries the `lineinfo` compile setting every factory honours), `CUDADispatcherCache`, the `MultipleInstance*` variants, and `hash_tuple`. |
 | `_env.py` | `CUBIE_*` environment-variable registry: `env_bool`, `lineinfo_default` (`CUBIE_LINEINFO`). Env values are defaults; explicit solver arguments always win. |
+| `cache_root.py` | Single source of truth for the on-disk cache root (`get_cache_root`/`set_cache_root`, default `<cwd>/generated`). The codegen, CellML parse, and compiled-kernel caches all resolve through it. |
 | `buffer_registry.py` | Singleton `buffer_registry` (`BufferRegistry`) managing CUDA buffer metadata, layout, aliasing, and allocator generation; defines `CUDABuffer` and `BufferGroup`. |
 | `_utils.py` | Shared helpers: `PrecisionDType`, precision/buffer validators + converters, attrs validator factories, `build_config`, `merge_kwargs_into_settings`, `ensure_nonzero_size`, `slice_variable_dimension`, `clamp_factory`. |
 | `cuda_simsafe.py` | CUDASIM compatibility layer: `CUDA_SIMULATION`, `compile_kwargs` (immutable base defaults), `get_jit_kwargs(lineinfo)` (per-build jit kwargs; factory builds pass `config.lineinfo` — the single sanctioned route for every runtime `@cuda.jit` site), `from_dtype`, `is_devfunc`, `is_cuda_array`, the warp intrinsics (`selp`, `activemask`, `all_sync`, `any_sync`, `syncwarp`), the store write-through hint `stwt`, and memory-manager/array stand-ins. |
@@ -83,7 +84,7 @@ warp-coherent loops, …) live in `writing_cuda_functions.md`.
   2. **Object build cache** (`CUDAFactory._cache` + `_cache_valid`).
      `update_compile_settings` invalidates it **only if a setting actually changed**,
      re-running `build()` on the next property access.
-  3. **Codegen source cache** (`odesystems/symbolic`: `ODEFile`/`GENERATED_DIR`),
+  3. **Codegen source cache** (`odesystems/symbolic`: `ODEFile`),
      keyed by `fn_hash` — the system *definition* (equations + constant/observable
      labels), NOT constant values and NOT the full config. Caches generated CUDA
      *source*, separate from compilation.
@@ -173,8 +174,10 @@ behaviour; use the shared `tests/conftest.py` fixtures rather than mocking cubie
 This root infrastructure is depended on by every subpackage. Within the root, the
 dependency order is roughly `cuda_simsafe` ← `_utils` ← `buffer_registry`,
 `CUDAFactory`; `cubie_cache` depends on `CUDAFactory`, `_utils`, `cuda_simsafe`,
-`time_logger`, `vendored.numba_cuda_cache`, and `odesystems.symbolic.odefile`
-(`GENERATED_DIR`).
+`time_logger`, `vendored.numba_cuda_cache`, and `cache_root`. All three disk
+cache layers (codegen source, CellML parse, compiled kernels) resolve their
+base directory through `cache_root.get_cache_root()`; `set_cache_root()`
+relocates them together.
 
 ### External
 - **numba / numba-cuda** — CUDA JIT, device intrinsics, cache internals.

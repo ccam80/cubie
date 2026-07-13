@@ -28,7 +28,7 @@ def _simple_code(func_name: str) -> str:
 # ── __init__ ──────────────────────────────────────────────────── #
 
 def test_init_creates_system_directory(codegen_dir):
-    """__init__ creates the system subdirectory under GENERATED_DIR."""
+    """__init__ creates the system subdirectory under the cache root."""
     name = f"test_{uuid.uuid4().hex}"
     odf = ODEFile(name, 12345)
     assert odf.file_path.parent.exists()
