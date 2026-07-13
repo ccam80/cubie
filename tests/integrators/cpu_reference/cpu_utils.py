@@ -86,6 +86,55 @@ def euclidean_norm(
     array = np.asarray(vector, dtype=precision)
     return _euclidean_norm_impl(array)
 
+
+@njit(cache=True)
+def _scaled_norm_impl(
+    values: Array,
+    reference: Array,
+    atol: np.floating,
+    rtol: np.floating,
+) -> np.floating:
+    """Return ``sum((|values[i]| / tol_i)^2) / n`` with
+    ``tol_i = max(atol + rtol * |reference[i]|, 1e-16)``; <= 1.0 is
+    converged.
+    """
+
+    size = values.shape[0]
+    zero = values.dtype.type(0.0)
+    nrm2 = zero
+    floor = values.dtype.type(1e-16)
+    inv_n = values.dtype.type(1.0 / size)
+    for index in range(size):
+        ref_value = reference[index]
+        abs_ref = ref_value if ref_value >= zero else -ref_value
+        tol = atol + rtol * abs_ref
+        tol = tol if tol > floor else floor
+        value = values[index]
+        abs_val = value if value >= zero else -value
+        ratio = abs_val / tol
+        nrm2 = nrm2 + ratio * ratio
+    return nrm2 * inv_n
+
+
+def scaled_norm(
+    values: Union[Sequence[float], Array],
+    reference: Union[Sequence[float], Array],
+    atol: np.floating,
+    rtol: np.floating,
+    precision: np.dtype,
+) -> np.floating:
+    """Return the mean squared scaled norm in ``precision``."""
+
+    dtype, scalar_type = resolve_precision_signature(precision)
+    values_array = np.asarray(values, dtype=dtype)
+    reference_array = np.asarray(reference, dtype=dtype)
+    return _scaled_norm_impl(
+        values_array,
+        reference_array,
+        scalar_type(atol),
+        scalar_type(rtol),
+    )
+
 @njit(cache=True)
 def _matrix_vector_product(matrix: Array, vector: Array, out: Array) -> None:
     """Store ``matrix @ vector`` into ``out`` without allocating."""
@@ -230,6 +279,7 @@ def _krylov_solve_dense_impl(
     rhs: Array,
     operator_matrix: Array,
     tolerance: np.floating,
+    rtol: np.floating,
     max_iterations: int,
     initial_guess: Array,
     has_initial_guess: bool,
@@ -243,7 +293,10 @@ def _krylov_solve_dense_impl(
     logging_preconditioned_vectors: Optional[Array],
     stage_index: int,
 ) -> tuple[Array, bool, int]:
-    """Return the Krylov solution for a dense operator matrix."""
+    """Return the Krylov solution for a dense operator matrix.
+
+    Converged when the scaled residual norm is <= 1.
+    """
 
     solution = np.empty_like(rhs)
     if has_initial_guess:
@@ -256,7 +309,7 @@ def _krylov_solve_dense_impl(
     if instrumented and logging_initial_guess is not None:
         logging_initial_guess[stage_index, :] = solution
 
-    tol_squared = tolerance * tolerance
+    typed_one = operator_matrix.dtype.type(1.0)
     iteration_limit = max_iterations
 
     operator_buffer = np.empty_like(rhs)
@@ -264,8 +317,8 @@ def _krylov_solve_dense_impl(
     _matrix_vector_product(operator_matrix, solution, operator_buffer)
     for index in range(residual.shape[0]):
         residual[index] = rhs[index] - operator_buffer[index]
-    residual_squared = _dot_product_impl(residual, residual)
-    if residual_squared <= tol_squared:
+    residual_norm2 = _scaled_norm_impl(residual, solution, tolerance, rtol)
+    if residual_norm2 <= typed_one:
         return solution, True, 0
 
     preconditioner_matrix = _compute_neumann_preconditioner(
@@ -300,7 +353,9 @@ def _krylov_solve_dense_impl(
         for index in range(solution.shape[0]):
             solution[index] = solution[index] + alpha * direction[index]
             residual[index] = residual[index] - alpha * operator_buffer[index]
-        residual_squared = _dot_product_impl(residual, residual)
+        residual_norm2 = _scaled_norm_impl(
+            residual, solution, tolerance, rtol
+        )
 
         _log_krylov_iteration(
             instrumented=instrumented,
@@ -308,7 +363,7 @@ def _krylov_solve_dense_impl(
             index=iteration - 1,
             iterate=solution,
             residual=residual,
-            squared_norm=residual_squared,
+            squared_norm=residual_norm2,
             direction=direction,
             logging_iteration_guesses=logging_iteration_guesses,
             logging_residuals=logging_residuals,
@@ -316,7 +371,7 @@ def _krylov_solve_dense_impl(
             logging_preconditioned_vectors=logging_preconditioned_vectors,
         )
 
-        if residual_squared <= tol_squared:
+        if residual_norm2 <= typed_one:
             converged = True
             break
 
@@ -328,6 +383,7 @@ def _bicgstab_solve_dense_impl(
     rhs: Array,
     operator_matrix: Array,
     tolerance: np.floating,
+    rtol: np.floating,
     max_iterations: int,
     initial_guess: Array,
     has_initial_guess: bool,
@@ -350,15 +406,15 @@ def _bicgstab_solve_dense_impl(
         for index in range(solution.shape[0]):
             solution[index] = zero
 
-    tol_squared = tolerance * tolerance
+    typed_one = operator_matrix.dtype.type(1.0)
 
     operator_buffer = np.empty_like(rhs)
     residual = np.empty_like(rhs)
     _matrix_vector_product(operator_matrix, solution, operator_buffer)
     for index in range(residual.shape[0]):
         residual[index] = rhs[index] - operator_buffer[index]
-    residual_squared = _dot_product_impl(residual, residual)
-    if residual_squared <= tol_squared:
+    residual_norm2 = _scaled_norm_impl(residual, solution, tolerance, rtol)
+    if residual_norm2 <= typed_one:
         return solution, True, 0
 
     preconditioner_matrix = _compute_neumann_preconditioner(
@@ -396,8 +452,10 @@ def _bicgstab_solve_dense_impl(
                 solution[index] + alpha * direction_hat[index]
             )
             residual[index] = residual[index] - alpha * v_vector[index]
-        residual_squared = _dot_product_impl(residual, residual)
-        if residual_squared <= tol_squared:
+        residual_norm2 = _scaled_norm_impl(
+            residual, solution, tolerance, rtol
+        )
+        if residual_norm2 <= typed_one:
             converged = True
             break
 
@@ -413,8 +471,10 @@ def _bicgstab_solve_dense_impl(
         for index in range(solution.shape[0]):
             solution[index] = solution[index] + omega * s_hat[index]
             residual[index] = residual[index] - omega * t_vector[index]
-        residual_squared = _dot_product_impl(residual, residual)
-        if residual_squared <= tol_squared:
+        residual_norm2 = _scaled_norm_impl(
+            residual, solution, tolerance, rtol
+        )
+        if residual_norm2 <= typed_one:
             converged = True
             break
 
@@ -441,6 +501,7 @@ def newton_solve(
     newton_max_iters: int,
     newton_damping: np.floating,
     newton_max_backtracks: int,
+    newton_rtol: np.floating = 0.0,
     stage_index: int = 0,
     instrumented: bool = False,
     newton_initial_guesses: Optional[Array] = None,
@@ -469,9 +530,12 @@ def newton_solve(
     linear_solver
         Callable solving the linear system produced on each iteration.
     newton_tol
-        Convergence tolerance on the residual norm.
+        Absolute tolerance of the scaled convergence norm.
     newton_max_iters
         Maximum number of Newton updates to attempt.
+    newton_rtol
+        Relative tolerance of the scaled convergence norm, scaled by
+        the current iterate.
     newton_damping
         Multiplicative factor applied to the step size during backtracking.
     newton_max_backtracks
@@ -508,15 +572,16 @@ def newton_solve(
     """
 
     dtype, scalar_type = resolve_precision_signature(precision)
-    tol_value = scalar_type(newton_tol)
+    atol_value = scalar_type(newton_tol)
+    rtol_value = scalar_type(newton_rtol)
     damping_value = scalar_type(newton_damping)
+    typed_one = scalar_type(1.0)
     iteration_limit = int(newton_max_iters)
     backtrack_limit = int(newton_max_backtracks)
 
     state = np.asarray(initial_guess, dtype=dtype).copy()
     residual = np.asarray(residual_fn(state), dtype=dtype)
-    norm = euclidean_norm(residual, precision=dtype)
-    norm_squared = norm * norm
+    norm2_prev = _scaled_norm_impl(residual, state, atol_value, rtol_value)
     direction = np.zeros_like(residual)
     if instrumented and newton_initial_guesses is not None:
         newton_initial_guesses[stage_index, :] = state
@@ -528,52 +593,59 @@ def newton_solve(
         index=log_index,
         candidate=state,
         residual=residual,
-        squared_norm=norm_squared,
+        squared_norm=norm2_prev,
         logging_iteration_guesses=newton_iteration_guesses,
         logging_residuals=newton_residuals,
         logging_squared_norms=newton_squared_norms,
     )
     log_index += 1
 
-    if norm <= tol_value:
+    if norm2_prev <= typed_one:
         return state, True, 0
 
+    converged = False
+    iterations_used = 0
     for iteration in range(iteration_limit):
+        if converged:
+            break
+        iterations_used = iteration + 1
         jacobian = np.asarray(jacobian_fn(state), dtype=dtype)
 
-        linear_kwargs: dict[str, Any] = {}
+        # The previous direction warm-starts the linear solve.
+        linear_kwargs: dict[str, Any] = {"initial_guess": direction}
         if instrumented:
             slot = stage_index * max(iteration_limit, 1) + iteration
-            linear_kwargs = {
-                "stage_index": slot,
-                "initial_guess": direction,
-                "instrumented": True,
-                "logging_initial_guess": linear_initial_guesses,
-                "logging_iteration_guesses": linear_iteration_guesses,
-                "logging_residuals": linear_residuals,
-                "logging_squared_norms": linear_squared_norms,
-                "logging_preconditioned_vectors": (
-                    linear_preconditioned_vectors
-                ),
-            }
+            linear_kwargs.update(
+                {
+                    "stage_index": slot,
+                    "instrumented": True,
+                    "logging_initial_guess": linear_initial_guesses,
+                    "logging_iteration_guesses": linear_iteration_guesses,
+                    "logging_residuals": linear_residuals,
+                    "logging_squared_norms": linear_squared_norms,
+                    "logging_preconditioned_vectors": (
+                        linear_preconditioned_vectors
+                    ),
+                }
+            )
 
-        direction, converged, _ = linear_solver(
+        # An unconverged linear solve still yields a usable search
+        # direction; do not abort the Newton iteration.
+        direction, _, _ = linear_solver(
             jacobian,
             -residual,
             **linear_kwargs,
         )
-        if not converged:
-            return state, False, iteration + 1
 
         step = np.asarray(direction, dtype=dtype)
-        scale = scalar_type(1.0)
-        accepted = False
+        scale = typed_one
 
         for _ in range(backtrack_limit + 1):
             trial_state = state + scale * step
             trial_residual = np.asarray(residual_fn(trial_state), dtype=dtype)
-            trial_norm = euclidean_norm(trial_residual, precision=dtype)
-            trial_squared = trial_norm * trial_norm
+            trial_norm2 = _scaled_norm_impl(
+                trial_residual, trial_state, atol_value, rtol_value
+            )
 
             _log_newton_iteration(
                 instrumented=instrumented,
@@ -581,26 +653,29 @@ def newton_solve(
                 index=log_index,
                 candidate=trial_state,
                 residual=trial_residual,
-                squared_norm=trial_squared,
+                squared_norm=trial_norm2,
                 logging_iteration_guesses=newton_iteration_guesses,
                 logging_residuals=newton_residuals,
                 logging_squared_norms=newton_squared_norms,
             )
             log_index += 1
 
-            if trial_norm <= tol_value:
-                return trial_state, True, iteration + 1
-            if trial_norm < norm:
+            if trial_norm2 <= typed_one:
+                converged = True
                 state = trial_state
                 residual = trial_residual
-                norm = trial_norm
-                norm_squared = trial_squared
-                accepted = True
+                if trial_norm2 < norm2_prev:
+                    norm2_prev = trial_norm2
+                break
+            if trial_norm2 < norm2_prev:
+                state = trial_state
+                residual = trial_residual
+                norm2_prev = trial_norm2
                 break
             scale = scalar_type(scale * damping_value)
 
-        if not accepted:
-            return state, False, iteration + 1
+        # A failed backtrack keeps the iterate and retries with a
+        # refined direction.
 
         if (
             instrumented
@@ -609,7 +684,7 @@ def newton_solve(
         ):
             newton_iteration_scale[stage_index, iteration] = scale
 
-    return state, False, iteration_limit
+    return state, converged, iterations_used
 
 
 def make_step_result(
@@ -842,6 +917,7 @@ def krylov_solve(
     tolerance: np.floating,
     max_iterations: int,
     precision: np.dtype,
+    rtol: np.floating = 0.0,
     neumann_order: int = 2,
     correction_type: str = "minimal_residual",
     initial_guess: Optional[Array] = None,
@@ -862,11 +938,14 @@ def krylov_solve(
     rhs
         Right-hand side vector.
     tolerance
-        Convergence tolerance on the residual norm.
+        Absolute tolerance of the scaled convergence norm.
     max_iterations
         Maximum iteration count for the descent loop. Zero is permitted.
     precision
         Floating-point precision to use for the iteration.
+    rtol
+        Relative tolerance of the scaled convergence norm, scaled by
+        the solution iterate.
     neumann_order
         Order of the truncated Neumann-series left preconditioner.
     correction_type
@@ -918,6 +997,7 @@ def krylov_solve(
 
     minimal_residual = correction_type == "minimal_residual"
     tol_value = scalar_type(tolerance)
+    rtol_value = scalar_type(rtol)
     iteration_limit = int(max_iterations)
     order = int(neumann_order)
 
@@ -932,6 +1012,7 @@ def krylov_solve(
             vector,
             matrix,
             tol_value,
+            rtol_value,
             iteration_limit,
             guess,
             initial_provided,
@@ -942,6 +1023,7 @@ def krylov_solve(
             vector,
             matrix,
             tol_value,
+            rtol_value,
             iteration_limit,
             guess,
             initial_provided,

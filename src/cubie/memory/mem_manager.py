@@ -48,10 +48,13 @@ See Also
     Manages CUDA stream groups used by the memory manager.
 """
 
+from types import TracebackType
 from typing import Any, Optional, Callable, Dict, Tuple
 from warnings import warn
-import contextlib
 from copy import deepcopy
+from inspect import ismethod
+from weakref import WeakMethod, ref as weakref_ref
+import ctypes
 
 from numba import cuda
 from attrs import define, Factory as attrsFactory, field
@@ -69,16 +72,14 @@ from numpy import (
 from math import prod
 
 from cubie.cuda_simsafe import (
-    BaseCUDAMemoryManager,
-    NumbaCUDAMemoryManager,
-    current_mem_info,
-    set_cuda_memory_manager,
     CUDA_SIMULATION,
+    Stream,
+    cupy,
+    cupyx,
+    current_mem_info,
 )
-from cubie.memory.cupy_emm import current_cupy_stream
 from cubie.memory.stream_groups import StreamGroups
 from cubie.memory.array_requests import ArrayRequest, ArrayResponse
-from cubie.memory.cupy_emm import CuPyAsyncNumbaManager, CuPySyncNumbaManager
 
 
 # Recognised configuration parameters for memory manager settings.
@@ -88,7 +89,6 @@ ALL_MEMORY_MANAGER_PARAMETERS = {
     "memory_manager",
     "stream_group",
     "mem_proportion",
-    "allocator",
 }
 """All keyword arguments accepted by :class:`MemoryManager` registration
 and solver-level memory configuration.
@@ -108,10 +108,6 @@ and solver-level memory configuration.
    * - ``mem_proportion``
      - :meth:`MemoryManager.register`
      - Proportion of VRAM to assign (0.0--1.0).
-   * - ``allocator``
-     - :meth:`MemoryManager.set_allocator`
-     - Memory allocator type (``"default"``, ``"cupy"``,
-       ``"cupy_async"``).
 """
 
 
@@ -139,6 +135,56 @@ def placeholder_dataready(response: ArrayResponse) -> None:
     pass
 
 
+class _WeakCallable:
+    """Callable wrapper that holds bound methods weakly.
+
+    Registered instances supply bound methods as registry hooks; a
+    strong reference to those methods would keep the instance alive
+    for the lifetime of the registry. Bound methods are therefore
+    stored through :class:`weakref.WeakMethod`, while plain functions
+    are stored directly. Calling a wrapper whose referent has been
+    garbage collected is a no-op.
+
+    Parameters
+    ----------
+    func
+        Callable to wrap. An existing wrapper is copied rather than
+        double-wrapped.
+    """
+
+    def __init__(self, func: Callable) -> None:
+        if isinstance(func, _WeakCallable):
+            self._weak = func._weak
+            self._strong = func._strong
+        elif ismethod(func):
+            self._weak = WeakMethod(func)
+            self._strong = None
+        else:
+            self._weak = None
+            self._strong = func
+
+    def target(self) -> Optional[Callable]:
+        """Return the wrapped callable, or None once collected."""
+        if self._weak is not None:
+            return self._weak()
+        return self._strong
+
+    def __call__(self, *args: Any, **kwargs: Any) -> Any:
+        target = self.target()
+        if target is None:
+            return None
+        return target(*args, **kwargs)
+
+    # Unhashable by design: equality tracks the referent, which can
+    # be collected mid-lifetime, so no stable hash exists.
+    __hash__ = None
+
+    def __eq__(self, other: object) -> bool:
+        if isinstance(other, _WeakCallable):
+            return self.target() == other.target()
+        return self.target() == other
+
+
 def _ensure_cuda_context() -> None:
     """
     Ensure CUDA context is initialized before memory operations.
@@ -148,10 +194,6 @@ def _ensure_cuda_context() -> None:
     or is in a bad state, it raises a clear exception rather than causing
     a segfault.
 
-    This is particularly important after cuda.close() calls which can
-    leave the context in a state requiring reinitialization.
-
-
     Raises
     ------
     RuntimeError
@@ -160,7 +202,7 @@ def _ensure_cuda_context() -> None:
     if not CUDA_SIMULATION:
         try:
             # Attempt to access current context - triggers creation if
-            # needed. After cuda.close(), this will create a new context
+            # needed.
             ctx = cuda.current_context()
             if ctx is None:
                 raise RuntimeError(
@@ -174,9 +216,152 @@ def _ensure_cuda_context() -> None:
                 f"Failed to initialize or verify CUDA context: {e}. "
                 "This may indicate GPU driver issues, insufficient "
                 "permissions, or the GPU may be in an unrecoverable "
-                "state after cuda.close(). Try restarting the process "
-                "or checking GPU availability."
+                "state. Try restarting the process or checking GPU "
+                "availability."
             ) from e
+
+
+def _numba_stream_ptr(
+    nb_stream: Optional[Stream],
+) -> Optional[int]:
+    """
+    Extract a ``CUstream`` pointer from a Numba stream wrapper.
+
+    Parameters
+    ----------
+    nb_stream
+        Numba CUDA stream whose ``CUstream`` pointer should be extracted. When
+        ``None``, pointer extraction is skipped.
+
+    Returns
+    -------
+    int or None
+        Pointer value compatible with CuPy external streams, or ``None`` when
+        extraction fails.
+
+    Notes
+    -----
+    The function checks common attribute layouts across supported Numba
+    versions to maintain compatibility.
+    """
+    if nb_stream is None:
+        return None
+    h = getattr(nb_stream, "handle", None)
+    if h is None:
+        return None
+    # ctypes.c_void_p or int-like
+    if isinstance(h, ctypes.c_void_p):
+        return int(h.value) if h.value is not None else None
+    try:
+        return int(getattr(h, "value", h))
+    except Exception:
+        return None
+
+
+class current_cupy_stream:
+    """Context manager that forwards a Numba stream into CuPy APIs.
+
+    CuPy is CuBIE's single GPU allocation provider on a real device.
+    Wrapping allocations and host/device copies in this context keeps
+    them ordered on the same stream as the Numba-launched integration
+    kernel.
+
+    Parameters
+    ----------
+    nb_stream
+        Numba CUDA stream to expose to CuPy.
+
+    Attributes
+    ----------
+    nb_stream
+        The Numba stream being forwarded.
+    cupy_ext_stream
+        CuPy external stream wrapper around the Numba stream.
+
+    Notes
+    -----
+    Numba's default stream (handle ``0``) is left as CuPy's ambient
+    current stream rather than wrapped, matching Numba's own default
+    stream semantics.
+    """
+
+    def __init__(self, nb_stream: Stream) -> None:
+        self.nb_stream = nb_stream
+        self.cupy_ext_stream = None
+
+    def __enter__(self) -> "current_cupy_stream":
+        """
+        Enter the context and set up a CuPy external stream.
+
+        Returns
+        -------
+        current_cupy_stream
+            The active context manager instance.
+        """
+        ptr = _numba_stream_ptr(self.nb_stream)
+        if ptr:
+            self.cupy_ext_stream = cupy.cuda.ExternalStream(ptr)
+            self.cupy_ext_stream.__enter__()
+        return self
+
+    def __exit__(
+        self,
+        exc_type: Optional[type[BaseException]],
+        exc: Optional[BaseException],
+        tb: Optional[TracebackType],
+    ) -> Optional[bool]:
+        """Exit the context and clean up the CuPy external stream.
+
+        Parameters
+        ----------
+        exc_type
+            Exception type if an exception occurred.
+        exc
+            Exception instance if an exception occurred.
+        tb
+            Traceback object if an exception occurred.
+
+        Returns
+        -------
+        Optional[bool]
+            The inner stream's suppression decision, or ``None``
+            when no external stream is active.
+        """
+        if self.cupy_ext_stream is not None:
+            result = self.cupy_ext_stream.__exit__(exc_type, exc, tb)
+            self.cupy_ext_stream = None
+            return result
+        return None
+
+
+def _pinned_host_array(shape: Tuple[int, ...], dtype: type) -> ndarray:
+    """
+    Allocate a page-locked (pinned) host array.
+
+    Parameters
+    ----------
+    shape
+        Shape of the array to allocate.
+    dtype
+        Data type for the array elements.
+
+    Returns
+    -------
+    numpy.ndarray
+        Host array backed by page-locked memory (plain heap memory
+        under the CUDA simulator, which never transfers to a real
+        device).
+
+    Notes
+    -----
+    Pinned memory enables asynchronous host/device transfers. On a
+    real GPU this is provided by CuPy's pinned memory pool
+    (:func:`cupyx.empty_pinned`); the CUDA simulator has no device to
+    transfer to, so a plain NumPy array is used instead.
+    """
+    if CUDA_SIMULATION:  # pragma: no cover - simulated
+        return np_empty(shape, dtype=dtype)
+    return cupyx.empty_pinned(shape, dtype=dtype)
 
 
 # These will be keys to a dict, so must be hashable: eq=False
@@ -197,6 +382,9 @@ class InstanceMemorySettings:
         Function to call when allocations are ready.
     cap
         Maximum allocatable bytes for this instance.
+    instance_ref
+        Weak reference to the registered instance, used to detect
+        and purge entries whose instance has been collected.
 
     Attributes
     ----------
@@ -210,6 +398,8 @@ class InstanceMemorySettings:
         Function to call when allocations are ready.
     cap : int or None
         Maximum allocatable bytes for this instance.
+    instance_ref : weakref.ref or None
+        Weak reference to the registered instance.
 
     Properties
     ----------
@@ -222,6 +412,10 @@ class InstanceMemorySettings:
     to calculate total allocated memory. The invalidate_hook is called when the
     allocator/memory manager changes, requiring arrays and kernels to be
     re-allocated or redefined.
+
+    Bound-method hooks are stored weakly so the registry never keeps
+    a registered instance alive; once the instance is collected the
+    hooks become no-ops and the entry is purged by the manager.
     """
 
     proportion: float = field(
@@ -232,13 +426,19 @@ class InstanceMemorySettings:
     )
     invalidate_hook: Callable[[], None] = field(
         default=placeholder_invalidate,
+        converter=_WeakCallable,
         validator=attrsval_instance_of(Callable),
     )
     allocation_ready_hook: Callable[[ArrayResponse], None] = field(
-        default=placeholder_dataready
+        default=placeholder_dataready,
+        converter=_WeakCallable,
     )
     cap: Optional[int] = field(
         default=None, validator=attrsval_optional(attrsval_instance_of(int))
+    )
+    instance_ref: Optional[weakref_ref] = field(
+        default=None,
+        validator=attrsval_optional(attrsval_instance_of(weakref_ref)),
     )
 
     def add_allocation(self, key: str, arr: Any) -> None:
@@ -342,10 +542,6 @@ class MemoryManager:
     _mode: str = field(
         default="passive", validator=attrsval_in(["passive", "active"])
     )
-    _allocator: BaseCUDAMemoryManager = field(
-        default=NumbaCUDAMemoryManager,
-        validator=attrsval_optional(attrsval_instance_of(object)),
-    )
     _auto_pool: list[int] = field(
         default=attrsFactory(list), validator=attrsval_instance_of(list)
     )
@@ -353,6 +549,9 @@ class MemoryManager:
         default=attrsFactory(list), validator=attrsval_instance_of(list)
     )
     _queued_allocations: Dict[str, Dict] = field(
+        default=attrsFactory(dict), validator=attrsval_instance_of(dict)
+    )
+    _group_chunk_parameters: Dict[str, Tuple[int, int]] = field(
         default=attrsFactory(dict), validator=attrsval_instance_of(dict)
     )
 
@@ -409,15 +608,24 @@ class MemoryManager:
             and 1.
 
         """
+        self._purge_dead_instances()
         instance_id = id(instance)
         if instance_id in self.registry:
             raise ValueError("Instance already registered")
 
         self.stream_groups.add_instance(instance, stream_group)
 
+        try:
+            instance_ref = weakref_ref(instance)
+        except TypeError:
+            # Instances without weak-reference support keep the
+            # pre-existing lifetime contract: registered until the
+            # process ends, never purged.
+            instance_ref = None
         settings = InstanceMemorySettings(
             invalidate_hook=invalidate_cache_hook,
             allocation_ready_hook=allocation_ready_hook,
+            instance_ref=instance_ref,
         )
 
         self.registry[instance_id] = settings
@@ -428,61 +636,6 @@ class MemoryManager:
             self._add_manual_proportion(instance, proportion)
         else:
             self._add_auto_proportion(instance)
-
-    def set_allocator(self, name: str) -> None:
-        """
-        Set the external memory allocator in Numba.
-
-        Parameters
-        ----------
-        name
-            Memory allocator type. Accepted values are ``"cupy_async"`` to use
-            CuPy's :class:`~cupy.cuda.memory.AsyncMemoryPool`, ``"cupy"`` to
-            use :class:`~cupy.cuda.memory.MemoryPool`, and ``"default"`` for
-            Numba's default manager.
-
-        Raises
-        ------
-        ValueError
-            If allocator name is not recognized.
-
-        Warnings
-        --------
-        UserWarning
-            A change to the memory manager requires the CUDA context to be
-            closed and reopened. This invalidates all previously compiled
-            kernels and allocated arrays, requiring a full rebuild.
-
-        """
-        # Ensure there's a valid context before change - only relevant if user
-        # switches in rapid succession with no interceding operations.
-        context = cuda.current_context()
-        if name == "cupy_async":
-            # use CuPy async memory pool
-            self._allocator = CuPyAsyncNumbaManager
-        elif name == "cupy":
-            self._allocator = CuPySyncNumbaManager
-        elif name == "default":
-            # use numba's default allocator
-            self._allocator = NumbaCUDAMemoryManager
-        else:
-            raise ValueError(f"Unknown allocator: {name}")
-        set_cuda_memory_manager(self._allocator)
-
-        # Reset the context:
-        # https://nvidia.github.io/numba-cuda/user/
-        # external-memory.html#setting-emm-plugin
-        # WARNING - this will invalidate all prior streams, arrays, and funcs!
-        # CUDA_ERROR_INVALID_CONTEXT or CUDA_ERROR_CONTEXT_IS_DESTROYED
-        # suggests you're using an old reference.
-        #   Specific excerpt: The invalidation of modules means that all
-        #   functions compiled with @cuda.jit prior to context destruction
-        #   will need to be redefined, as the code underlying them will also
-        #   have been unloaded from the GPU.
-        cuda.close()
-        self.context = cuda.current_context()
-        self.invalidate_all()
-        self.reinit_streams()
 
     def set_limit_mode(self, mode: str) -> None:
         """
@@ -571,15 +724,15 @@ class MemoryManager:
             If proportion is not between 0 and 1.
 
         """
+        self._purge_dead_instances()
         instance_id = id(instance)
         if proportion < 0 or proportion > 1:
             raise ValueError("Proportion must be between 0 and 1")
         if instance_id in self._auto_pool:
-            self._add_manual_proportion(instance, proportion)
+            self._auto_pool.remove(instance_id)
         else:
             self._manual_pool.remove(instance_id)
-            self._add_manual_proportion(instance, proportion)
-            self.registry[instance_id].proportion = proportion
+        self._add_manual_proportion(instance, proportion)
 
     def set_manual_limit_mode(
         self, instance: object, proportion: float
@@ -598,13 +751,13 @@ class MemoryManager:
         -----
         If the instance is already in the manual pool, this is a no-op.
         """
+        self._purge_dead_instances()
         instance_id = id(instance)
         settings = self.registry[instance_id]
         if instance_id in self._manual_pool:
             return
         self._auto_pool.remove(instance_id)
         self._add_manual_proportion(instance, proportion)
-        settings.proportion = proportion
 
     def set_auto_limit_mode(self, instance: object) -> None:
         """
@@ -619,6 +772,7 @@ class MemoryManager:
         -----
         If the instance is already in the auto pool, this is a no-op.
         """
+        self._purge_dead_instances()
         instance_id = id(instance)
         settings = self.registry[instance_id]
         if instance_id in self._auto_pool:
@@ -664,6 +818,7 @@ class MemoryManager:
     @property
     def manual_pool_proportion(self):
         """Total proportion of VRAM currently assigned manually."""
+        self._purge_dead_instances()
         manual_settings = [
             self.registry[instance_id] for instance_id in self._manual_pool
         ]
@@ -675,6 +830,7 @@ class MemoryManager:
     @property
     def auto_pool_proportion(self):
         """Total proportion of VRAM currently distributed automatically."""
+        self._purge_dead_instances()
         auto_settings = [
             self.registry[instance_id] for instance_id in self._auto_pool
         ]
@@ -774,6 +930,37 @@ class MemoryManager:
         self._auto_pool.append(instance_id)
         self._rebalance_auto_pool()
         return self.registry[instance_id].proportion
+
+    def _purge_dead_instances(self) -> None:
+        """
+        Drop registry entries whose instance has been collected.
+
+        Registered instances are held weakly. Once an instance is
+        garbage collected, its manual or auto reservation is
+        released, its stream-group membership is removed, and any
+        allocations it still had queued are discarded.
+
+        """
+        dead_ids = [
+            instance_id
+            for instance_id, settings in self.registry.items()
+            if settings.instance_ref is not None
+            and settings.instance_ref() is None
+        ]
+        for instance_id in dead_ids:
+            self.registry.pop(instance_id)
+            if instance_id in self._manual_pool:
+                self._manual_pool.remove(instance_id)
+            if instance_id in self._auto_pool:
+                self._auto_pool.remove(instance_id)
+            self.stream_groups.remove_instance(instance_id)
+            for queued in self._queued_allocations.values():
+                queued.pop(instance_id, None)
+        if dead_ids:
+            # Freed reservations flow back to the surviving auto pool.
+            # The nested purge this triggers finds nothing dead, so
+            # the recursion terminates after one level.
+            self._rebalance_auto_pool()
 
     def _rebalance_auto_pool(self) -> None:
         """
@@ -882,7 +1069,7 @@ class MemoryManager:
             )
         use_pinned = memory_type == "pinned"
         if use_pinned:
-            arr = cuda.pinned_array(shape, dtype=dtype)
+            arr = _pinned_host_array(shape, dtype)
         else:
             arr = np_empty(shape, dtype=dtype)
         if like is not None:
@@ -1031,7 +1218,7 @@ class MemoryManager:
         dtype
             Constructor returning the precision object for the array elements.
         memory_type
-            Type of memory: "device", "mapped", "pinned", or "managed".
+            Type of memory: "device" or "pinned".
         stream
             CUDA stream for the allocation. Defaults to 0.
 
@@ -1043,23 +1230,18 @@ class MemoryManager:
         Raises
         ------
         ValueError
-            If memory_type is not recognized.
-        NotImplementedError
-            If memory_type is "managed" (not supported).
+            If memory_type is not "device" or "pinned".
         """
         _ensure_cuda_context()
-        cp_ = self._allocator == CuPyAsyncNumbaManager
-        with current_cupy_stream(stream) if cp_ else contextlib.nullcontext():
-            if memory_type == "device":
+        if memory_type == "device":
+            if CUDA_SIMULATION:  # pragma: no cover - simulated
                 return cuda.device_array(shape, dtype)
-            elif memory_type == "mapped":
-                return cuda.mapped_array(shape, dtype)
-            elif memory_type == "pinned":
-                return cuda.pinned_array(shape, dtype)
-            elif memory_type == "managed":
-                raise NotImplementedError("Managed memory not implemented")
-            else:
-                raise ValueError(f"Invalid memory type: {memory_type}")
+            with current_cupy_stream(stream):
+                return cupy.empty(shape, dtype=dtype)
+        elif memory_type == "pinned":
+            return _pinned_host_array(shape, dtype)
+        else:
+            raise ValueError(f"Invalid memory type: {memory_type}")
 
     def queue_request(
         self, instance: object, requests: dict[str, ArrayRequest]
@@ -1109,10 +1291,13 @@ class MemoryManager:
         """
         _ensure_cuda_context()
         stream = self.get_stream(instance)
-        cp_ = self._allocator == CuPyAsyncNumbaManager
-        with current_cupy_stream(stream) if cp_ else contextlib.nullcontext():
+        if CUDA_SIMULATION:  # pragma: no cover - simulated
             for i, from_array in enumerate(from_arrays):
                 cuda.to_device(from_array, stream=stream, to=to_arrays[i])
+        else:
+            with current_cupy_stream(stream):
+                for i, from_array in enumerate(from_arrays):
+                    to_arrays[i].set(from_array)
 
     def from_device(
         self,
@@ -1135,10 +1320,13 @@ class MemoryManager:
         """
         _ensure_cuda_context()
         stream = self.get_stream(instance)
-        cp_ = self._allocator == CuPyAsyncNumbaManager
-        with current_cupy_stream(stream) if cp_ else contextlib.nullcontext():
+        if CUDA_SIMULATION:  # pragma: no cover - simulated
             for i, from_array in enumerate(from_arrays):
                 from_array.copy_to_host(to_arrays[i], stream=stream)
+        else:
+            with current_cupy_stream(stream):
+                for i, from_array in enumerate(from_arrays):
+                    from_array.get(out=to_arrays[i], blocking=False)
 
     def sync_stream(self, instance: object) -> None:
         """
@@ -1174,11 +1362,34 @@ class MemoryManager:
         Processes all pending requests in the same stream group, applying
         coordinated chunking based on available memory. Calls
         allocation_ready_hook for each instance with their results.
+        Instances in the group with no queued requests receive an empty
+        response carrying the group's chunk parameters. When nothing is
+        queued (all allocations already in place from an earlier call),
+        every instance receives the group's stored chunk parameters, so
+        per-instance chunk state is restored on repeat runs.
 
         """
         stream_group = self.get_stream_group(triggering_instance)
-        stream = self.get_stream(triggering_instance)
         queued_requests = self._queued_allocations.pop(stream_group, {})
+        peers = self.stream_groups.get_instances_in_group(stream_group)
+
+        if not queued_requests:
+            cached_parameters = self._group_chunk_parameters.get(stream_group)
+            if cached_parameters is None:
+                return None
+            chunk_length, num_chunks = cached_parameters
+            for peer in peers:
+                self.registry[peer].allocation_ready_hook(
+                    ArrayResponse(
+                        arr={},
+                        chunks=num_chunks,
+                        chunk_length=chunk_length,
+                        chunked_shapes={},
+                    )
+                )
+            return None
+
+        stream = self.get_stream(triggering_instance)
 
         # Get total_runs from first request
         num_runs = 1
@@ -1192,7 +1403,10 @@ class MemoryManager:
         chunk_length, num_chunks = self.get_chunk_parameters(
             queued_requests, num_runs, stream_group
         )
-        peers = self.stream_groups.get_instances_in_group(stream_group)
+        self._group_chunk_parameters[stream_group] = (
+            chunk_length,
+            num_chunks,
+        )
         notaries = set(peers) - set(queued_requests.keys())
         for instance_id, requests_dict in queued_requests.items():
             chunked_shapes = self.compute_chunked_shapes(
@@ -1215,15 +1429,16 @@ class MemoryManager:
             )
 
             self.registry[instance_id].allocation_ready_hook(response)
-            for peer in notaries:
-                self.registry[peer].allocation_ready_hook(
-                    ArrayResponse(
-                        arr={},
-                        chunks=num_chunks,
-                        chunk_length=chunk_length,
-                        chunked_shapes={},
-                    )
+
+        for peer in notaries:
+            self.registry[peer].allocation_ready_hook(
+                ArrayResponse(
+                    arr={},
+                    chunks=num_chunks,
+                    chunk_length=chunk_length,
+                    chunked_shapes={},
                 )
+            )
 
         return None
 

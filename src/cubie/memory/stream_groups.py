@@ -71,8 +71,6 @@ class StreamGroups:
         """Initialize default group and stream if not provided."""
         if self.groups is None:
             self.groups = {"default": []}
-        if self.streams is None:
-            self.streams = {"default": cuda.default_stream()}
 
     def add_instance(self, instance: Any, group: str) -> None:
         """Add an instance to a stream group.
@@ -175,6 +173,28 @@ class StreamGroups:
             return []
 
         return self.groups[group]
+
+    def remove_instance(self, instance: Any) -> None:
+        """Remove an instance from its stream group, if it has one.
+
+        Parameters
+        ----------
+        instance
+            Host object or integer identifier to remove.
+
+        Notes
+        -----
+        Removing an instance that is in no group is a no-op; the
+        group and its stream are kept for the remaining members.
+        """
+        if isinstance(instance, int):
+            instance_id = instance
+        else:
+            instance_id = id(instance)
+        for members in self.groups.values():
+            if instance_id in members:
+                members.remove(instance_id)
+                return
 
     def change_group(self, instance: Any, new_group: str) -> None:
         """Move an instance to another stream group.

@@ -75,7 +75,7 @@ default_timelogger.register_event(
 CACHED_OPERATOR_APPLY_TEMPLATE = (
     "\n"
     "# AUTO-GENERATED CACHED LINEAR OPERATOR FACTORY\n"
-    "def {func_name}(constants, precision, beta=1.0, gamma=1.0):\n"
+    "def {func_name}(constants, precision, beta=1.0, gamma=1.0, lineinfo=None):\n"
     '    """Auto-generated cached linear operator.\n'
     "    Computes out = beta * (M @ v) - gamma * a_ij * h * (J @ v)\n"
     "    using cached auxiliary intermediates.\n"
@@ -99,7 +99,8 @@ CACHED_OPERATOR_APPLY_TEMPLATE = (
     "        #  precision[::1],\n"
     "        #  precision[::1]),\n"
     "        device=True,\n"
-    "        inline=True)\n"
+    "        inline=True,\n"
+    "        **get_jit_kwargs(lineinfo))\n"
     "    def operator_apply(\n"
     "        state, parameters, drivers, cached_aux, base_state, t, h, a_ij, v, out\n"
     "    ):\n"
@@ -111,7 +112,7 @@ CACHED_OPERATOR_APPLY_TEMPLATE = (
 OPERATOR_APPLY_TEMPLATE = (
     "\n"
     "# AUTO-GENERATED LINEAR OPERATOR FACTORY\n"
-    "def {func_name}(constants, precision, beta=1.0, gamma=1.0):\n"
+    "def {func_name}(constants, precision, beta=1.0, gamma=1.0, lineinfo=None):\n"
     '    """Auto-generated linear operator.\n'
     "    Computes out = beta * (M @ v) - gamma * a_ij * h * (J @ v)\n"
     "    Returns device function:\n"
@@ -131,7 +132,8 @@ OPERATOR_APPLY_TEMPLATE = (
     "        #  precision[::1],\n"
     "        #  precision[::1]),\n"
     "        device=True,\n"
-    "        inline=True)\n"
+    "        inline=True,\n"
+    "        **get_jit_kwargs(lineinfo))\n"
     "    def operator_apply(state, parameters, drivers, base_state, t, h, a_ij, v, out):\n"
     "{body}\n"
     "    return operator_apply\n"
@@ -141,7 +143,7 @@ OPERATOR_APPLY_TEMPLATE = (
 PREPARE_JAC_TEMPLATE = (
     "\n"
     "# AUTO-GENERATED JACOBIAN PREPARATION FACTORY\n"
-    "def {func_name}(constants, precision):\n"
+    "def {func_name}(constants, precision, lineinfo=None):\n"
     '    """Auto-generated Jacobian auxiliary preparation.\n'
     "    Populates cached_aux with intermediate Jacobian values.\n"
     '    """\n'
@@ -153,7 +155,8 @@ PREPARE_JAC_TEMPLATE = (
     "        #  precision,\n"
     "        #  precision[::1]),\n"
     "        device=True,\n"
-    "        inline=True)\n"
+    "        inline=True,\n"
+    "        **get_jit_kwargs(lineinfo))\n"
     "    def prepare_jac(state, parameters, drivers, t, cached_aux):\n"
     "{body}\n"
     "    return prepare_jac\n"
@@ -165,7 +168,7 @@ PREPARE_JAC_TEMPLATE = (
 CACHED_JVP_TEMPLATE = (
     "\n"
     "# AUTO-GENERATED CACHED JVP FACTORY\n"
-    "def {func_name}(constants, precision):\n"
+    "def {func_name}(constants, precision, lineinfo=None):\n"
     '    """Auto-generated cached Jacobian-vector product.\n'
     "    Computes out = J @ v using cached auxiliaries.\n"
     '    """\n'
@@ -179,7 +182,8 @@ CACHED_JVP_TEMPLATE = (
     "        #  precision[::1],\n"
     "        #  precision[::1]),\n"
     "        device=True,\n"
-    "        inline=True)\n"
+    "        inline=True,\n"
+    "        **get_jit_kwargs(lineinfo))\n"
     "    def calculate_cached_jvp(\n"
     "        state, parameters, drivers, cached_aux, t, v, out\n"
     "    ):\n"
@@ -310,8 +314,7 @@ def _build_operator_body(
         symbol_map=index_map.all_arrayrefs,
         constant_names=index_map.constants.symbol_map,
     )
-    if not lines:
-        return "        pass"
+    assert lines, "internal error: codegen produced an empty body"
     return "\n".join("        " + ln for ln in lines)
 
 
@@ -349,8 +352,7 @@ def _build_cached_jvp_body(
         symbol_map=index_map.all_arrayrefs,
         constant_names=index_map.constants.symbol_map,
     )
-    if not lines:
-        return "        pass"
+    assert lines, "internal error: codegen produced an empty body"
     return "\n".join("        " + ln for ln in lines)
 
 
@@ -769,8 +771,7 @@ def _build_n_stage_operator_lines(
         symbol_map=symbol_map,
         constant_names=index_map.constants.symbol_map,
     )
-    if not lines:
-        return "        pass"
+    assert lines, "internal error: codegen produced an empty body"
     return "\n".join("        " + ln for ln in lines)
 
 
@@ -827,7 +828,7 @@ def generate_n_stage_linear_operator_code(
 N_STAGE_OPERATOR_TEMPLATE = (
     "\n"
     "# AUTO-GENERATED N-STAGE LINEAR OPERATOR FACTORY\n"
-    "def {func_name}(constants, precision, beta=1.0, gamma=1.0):\n"
+    "def {func_name}(constants, precision, beta=1.0, gamma=1.0, lineinfo=None):\n"
     '    """Auto-generated FIRK linear operator for flattened stages.\n'
     "    Handles {stage_count} stages with ``s * n`` unknowns.\n"
     '    """\n'
@@ -846,7 +847,8 @@ N_STAGE_OPERATOR_TEMPLATE = (
     "        #  precision[::1],\n"
     "        #  precision[::1]),\n"
     "        device=True,\n"
-    "        inline=True)\n"
+    "        inline=True,\n"
+    "        **get_jit_kwargs(lineinfo))\n"
     "    def operator_apply(state, parameters, drivers, base_state, t, h, a_ij, v, out):\n"
     "{body}\n"
     "    return operator_apply\n"

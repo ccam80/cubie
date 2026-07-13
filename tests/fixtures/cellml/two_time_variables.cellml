@@ -1,0 +1,29 @@
+<?xml version="1.0" encoding="utf-8"?>
+<model name="two_time_variables" xmlns="http://www.cellml.org/cellml/1.0#">
+  <component name="main">
+    <variable name="t1" units="dimensionless"/>
+    <variable name="t2" units="dimensionless"/>
+    <variable name="x" units="dimensionless" initial_value="1.0"/>
+    <variable name="y" units="dimensionless" initial_value="2.0"/>
+    <math xmlns="http://www.w3.org/1998/Math/MathML">
+      <apply>
+        <eq/>
+        <apply>
+          <diff/>
+          <bvar><ci>t1</ci></bvar>
+          <ci>x</ci>
+        </apply>
+        <apply><minus/><ci>x</ci></apply>
+      </apply>
+      <apply>
+        <eq/>
+        <apply>
+          <diff/>
+          <bvar><ci>t2</ci></bvar>
+          <ci>y</ci>
+        </apply>
+        <apply><minus/><ci>y</ci></apply>
+      </apply>
+    </math>
+  </component>
+</model>

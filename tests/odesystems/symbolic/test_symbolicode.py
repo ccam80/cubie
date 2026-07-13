@@ -1,10 +1,31 @@
+import numpy as np
 import pytest
 from numpy.testing import assert_array_equal
 
+from cubie.odesystems.symbolic import symbolicODE as symbolic_ode_module
+from cubie.odesystems.symbolic.parsing.parser import parse_input
 from cubie.odesystems.symbolic.symbolicODE import (
     SymbolicODE,
     create_ODE_system,
 )
+
+
+def test_create_with_driver_array_dict(precision):
+    """Driver-array dicts pass interpolator validation at create time."""
+    t_samples = np.linspace(0.0, 1.0, 11)
+    ode = create_ODE_system(
+        dxdt=["dx = -k * x + d1"],
+        states={"x": 1.0},
+        parameters={"k": 0.5},
+        drivers={
+            "d1": np.sin(t_samples),
+            "time": t_samples,
+            "wrap": False,
+        },
+        precision=precision,
+        name="test_driver_array_create",
+    )
+    assert ode.num_drivers == 1
 
 
 @pytest.fixture(scope="session")
@@ -558,3 +579,109 @@ class TestInfoGetters:
         names = [i["name"] for i in info]
         assert "x" in names
         assert "y" in names
+
+
+class TestMassMatrixCacheTag:
+    """Cover mass-matrix suffix derivation."""
+
+    def test_identity_matrix_has_empty_tag(self):
+        """An identity mass matrix maps to an empty suffix."""
+        tag = symbolic_ode_module._mass_matrix_cache_tag([[1, 0], [0, 1]])
+        assert tag == ""
+
+    def test_non_identity_matrix_has_suffix(self):
+        """A non-identity mass matrix produces a hashed suffix."""
+        tag = symbolic_ode_module._mass_matrix_cache_tag([[2, 0], [0, 1]])
+        assert tag.startswith("_M")
+
+
+class TestSymbolicODEConstructorDefaults:
+    """Cover derivation of all_symbols and fn_hash in __init__."""
+
+    def test_derives_symbols_and_hash_when_omitted(self):
+        """A None all_symbols and fn_hash are derived from inputs."""
+        index_map, _, _, equations, _ = parse_input(
+            dxdt=["dx = -k * x"],
+            states={"x": 1.0},
+            parameters={"k": 0.5},
+            constants={},
+            observables=[],
+            strict=True,
+        )
+        ode = SymbolicODE(
+            equations,
+            np.float32,
+            index_map,
+            all_symbols=None,
+            fn_hash=None,
+            name=None,
+        )
+        assert "x" in ode.all_symbols
+        assert isinstance(ode.fn_hash, str)
+        # name defaults to the derived hash when omitted.
+        assert ode.name == ode.fn_hash
+
+
+class TestSymbolicODEUnitAccessors:
+    """Cover unit and auxiliary-count accessors."""
+
+    def test_jacobian_aux_count_defaults_to_none(self):
+        """jacobian_aux_count is None before any JVP build."""
+        ode = create_ODE_system(
+            dxdt=["dx = -k * x"],
+            states={"x": 1.0},
+            parameters={"k": 0.5},
+            precision=np.float32,
+            strict=True,
+            name="jac_aux_none",
+        )
+        assert ode.jacobian_aux_count is None
+
+    def test_driver_units_reports_declared_drivers(self):
+        """driver_units exposes units for declared drivers."""
+        ode = create_ODE_system(
+            dxdt=["dx = -k * x + d1"],
+            states={"x": 1.0},
+            parameters={"k": 0.5},
+            drivers=["d1"],
+            precision=np.float32,
+            strict=True,
+            name="driver_units_test",
+        )
+        assert "d1" in ode.driver_units
+
+
+class TestSetConstantsKwargs:
+    """set_constants forwards keyword updates to the base class."""
+
+    def test_kwargs_only_updates_compiled_constant(self):
+        """A kwargs-only call updates the compiled constant value."""
+        ode = create_ODE_system(
+            dxdt=["dx = -k * x + c0"],
+            states={"x": 1.0},
+            parameters={"k": 0.5},
+            constants={"c0": 1.0},
+            precision=np.float32,
+            strict=True,
+            name="set_constants_kwargs_test",
+        )
+        recognised = ode.set_constants(None, c0=3.0)
+        assert recognised == {"c0"}
+        assert ode.constants.values_dict["c0"] == np.float32(3.0)
+
+
+class TestPreconditionerChainErrors:
+    """Cover error handling in _build_preconditioner_chain."""
+
+    def test_unknown_preconditioner_type_raises(self):
+        """An unknown preconditioner type raises ValueError."""
+        ode = create_ODE_system(
+            dxdt=["dx = -k * x"],
+            states={"x": 1.0},
+            parameters={"k": 0.5},
+            precision=np.float32,
+            strict=True,
+            name="precond_error_test",
+        )
+        with pytest.raises(ValueError, match="Unknown preconditioner type"):
+            ode._build_preconditioner_chain("bogus", "preconditioner")

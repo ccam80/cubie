@@ -77,7 +77,6 @@ from cubie.odesystems.symbolic.codegen import (
 from cubie.odesystems.symbolic.codegen.jacobian import generate_analytical_jvp
 from cubie.odesystems.symbolic.codegen.neumann_convergence import (
     NeumannRHSEvaluator,
-    build_rhs_evaluator,
     check_neumann_convergence,
 )
 from cubie.odesystems.symbolic.odefile import ODEFile
@@ -92,7 +91,7 @@ from cubie.odesystems.symbolic.codegen.time_derivative import (
 )
 from cubie.odesystems.symbolic.sym_utils import hash_system_definition
 from cubie.odesystems.baseODE import BaseODE, ODECache
-from cubie._utils import PrecisionDType
+from cubie._utils import PrecisionDType, is_devfunc
 from cubie.time_logger import default_timelogger
 
 # Neumann preconditioner helper types checked by the convergence
@@ -153,6 +152,7 @@ def create_ODE_system(
     constants: Optional[Union[dict[str, float], Iterable[str]]] = None,
     drivers: Optional[Union[Iterable[str], dict[str, Any]]] = None,
     user_functions: Optional[dict[str, Callable]] = None,
+    user_function_derivatives: Optional[dict[str, Callable]] = None,
     name: Optional[str] = None,
     strict: bool = False,
 ) -> "SymbolicODE":
@@ -187,6 +187,10 @@ def create_ODE_system(
         entries.
     user_functions
         Custom callables referenced within ``dxdt`` expressions.
+    user_function_derivatives
+        Mapping of user-function names to callables evaluating their
+        analytic derivatives, used when generating Jacobian-based
+        solver helpers.
     name
         Identifier used for generated files. Defaults to the hash of the system
         definition.
@@ -208,6 +212,7 @@ def create_ODE_system(
         constants=constants,
         drivers=drivers,
         user_functions=user_functions,
+        user_function_derivatives=user_function_derivatives,
         name=name,
         precision=precision,
         strict=strict,
@@ -315,7 +320,7 @@ class SymbolicODE(BaseODE):
     @classmethod
     def create(
         cls,
-        dxdt: Union[str, Iterable[str]],
+        dxdt: Union[str, Iterable[str], Callable],
         precision: PrecisionDType,
         states: Optional[Union[dict[str, float], Iterable[str]]] = None,
         observables: Optional[Iterable[str]] = None,
@@ -323,6 +328,7 @@ class SymbolicODE(BaseODE):
         constants: Optional[Union[dict[str, float], Iterable[str]]] = None,
         drivers: Optional[Union[Iterable[str], dict[str, Any]]] = None,
         user_functions: Optional[dict[str, Callable]] = None,
+        user_function_derivatives: Optional[dict[str, Callable]] = None,
         name: Optional[str] = None,
         strict: bool = False,
         state_units: Optional[Union[dict[str, str], Iterable[str]]] = None,
@@ -338,8 +344,9 @@ class SymbolicODE(BaseODE):
         Parameters
         ----------
         dxdt
-            System equations defined as either a single string or an iterable
-            of equation strings in ``lhs = rhs`` form.
+            System equations defined as a single string, an iterable of
+            equation strings in ``lhs = rhs`` form, or a Python callable
+            with a ``(t, y, ...)`` signature.
         states
             State labels either as an iterable or as a mapping to default
             initial values.
@@ -357,6 +364,10 @@ class SymbolicODE(BaseODE):
             defaults or driver-array samples alongside configuration entries.
         user_functions
             Custom callables referenced within ``dxdt`` expressions.
+        user_function_derivatives
+            Mapping of user-function names to callables evaluating
+            their analytic derivatives, used when generating
+            Jacobian-based solver helpers.
         name
             Identifier used for generated files. Defaults to the hash of the
             system definition.
@@ -384,7 +395,7 @@ class SymbolicODE(BaseODE):
         if isinstance(drivers, dict) and (
             "time" in drivers or "dt" in drivers
         ):
-            ArrayInterpolator(precision=precision, drivers_dict=drivers)
+            ArrayInterpolator(precision=precision, input_dict=drivers)
 
         # Register timing event for parsing (one-time registration)
         default_timelogger.register_event(
@@ -402,6 +413,7 @@ class SymbolicODE(BaseODE):
             constants=constants,
             drivers=drivers,
             user_functions=user_functions,
+            user_function_derivatives=user_function_derivatives,
             dxdt=dxdt,
             strict=strict,
             state_units=state_units,
@@ -470,15 +482,51 @@ class SymbolicODE(BaseODE):
     def _get_neumann_evaluator(self) -> NeumannRHSEvaluator:
         """Return the cached finite-difference Jacobian evaluator.
 
-        The evaluator compiles the guarded right-hand side once; the
-        Neumann convergence diagnostic reuses it on every call and only
-        re-runs the cheap numeric spectral-radius check.
+        The evaluator launches the compiled ``dxdt`` device function
+        on the device, so the diagnostic reflects the production code
+        at the compiled precision. The getters fetch the current
+        compiled function and precision on every call, so settings
+        changes are picked up without rebuilding the evaluator.
         """
         if self._neumann_rhs_evaluator is None:
-            self._neumann_rhs_evaluator = build_rhs_evaluator(
-                self.equations, self.indices
+            self._neumann_rhs_evaluator = NeumannRHSEvaluator(
+                lambda: self.evaluate_f,
+                lambda: self.precision,
             )
         return self._neumann_rhs_evaluator
+
+    def _device_function_injections(self) -> dict[str, Callable]:
+        """Collect device callables the generated module must resolve.
+
+        Generated factories call user device functions (and their
+        derivative helpers) by name, but the generated module is
+        imported standalone, so those callables are injected as module
+        attributes before the factory is compiled.
+
+        Returns
+        -------
+        dict[str, Callable]
+            Mapping from printed function name to device callable.
+        """
+        injections = {}
+        for name, func in (self.user_functions or {}).items():
+            if is_devfunc(func):
+                injections[name] = func
+        all_symbols = self.all_symbols or {}
+        for name, obj in all_symbols.items():
+            if name == "__function_aliases__":
+                continue
+            if is_devfunc(obj):
+                injections[name] = obj
+        # The string parser renames user functions (trailing
+        # underscore), and generated source prints the renamed symbol,
+        # so each device callable is injected under its alias too.
+        aliases = all_symbols.get("__function_aliases__", {}) or {}
+        for sym_name, orig_name in aliases.items():
+            func = (self.user_functions or {}).get(orig_name)
+            if func is not None and is_devfunc(func):
+                injections[sym_name] = func
+        return injections
 
     def build(self) -> ODECache:
         """Compile the ``dxdt`` factory and refresh the cache.
@@ -506,9 +554,17 @@ class SymbolicODE(BaseODE):
                 self.equations, self.indices, "dxdt_factory"
             )
         dxdt_factory, _ = self.gen_file.import_function(
-            "dxdt_factory", dxdt_code
+            "dxdt_factory",
+            dxdt_code,
+            injections=self._device_function_injections(),
         )
-        dxdt_func = dxdt_factory(constants, numba_precision)
+        # Older on-disk generated factories may not declare a lineinfo
+        # parameter; pass it only when the factory's signature declares it.
+        dxdt_func = dxdt_factory(
+            constants,
+            numba_precision,
+            **self._lineinfo_kwarg(dxdt_factory),
+        )
 
         obs_code = None
         if not self.gen_file.function_is_cached("observables_factory"):
@@ -517,9 +573,15 @@ class SymbolicODE(BaseODE):
                 func_name="observables_factory",
             )
         observables_factory, _ = self.gen_file.import_function(
-            "observables_factory", obs_code
+            "observables_factory",
+            obs_code,
+            injections=self._device_function_injections(),
         )
-        evaluate_observables = observables_factory(constants, numba_precision)
+        evaluate_observables = observables_factory(
+            constants,
+            numba_precision,
+            **self._lineinfo_kwarg(observables_factory),
+        )
 
         return ODECache(
             dxdt=dxdt_func,
@@ -554,7 +616,9 @@ class SymbolicODE(BaseODE):
         to :meth:`BaseODE.set_constants` for cache management.
         """
         self.indices.update_constants(updates_dict, **kwargs)
-        recognized = super().set_constants(updates_dict, silent=silent)
+        recognized = super().set_constants(
+            updates_dict, silent=silent, **kwargs
+        )
         return recognized
 
     def make_parameter(self, name: str) -> None:
@@ -710,6 +774,7 @@ class SymbolicODE(BaseODE):
         return result
 
     def constants_gui(self, blocking: bool = True) -> None:
+        # no cover: start
         """Launch a Qt GUI for editing constants and parameters.
 
         The GUI displays all constants and parameters with their values and
@@ -733,8 +798,10 @@ class SymbolicODE(BaseODE):
         """
         from cubie.gui.constants_editor import show_constants_editor
         show_constants_editor(self, blocking=blocking)
+        # no cover: end
 
     def states_gui(self, blocking: bool = True) -> None:
+        # no cover: start
         """Launch a Qt GUI for editing initial state values.
 
         The GUI displays all state variables with their initial values and
@@ -757,6 +824,7 @@ class SymbolicODE(BaseODE):
         """
         from cubie.gui.states_editor import show_states_editor
         show_states_editor(self, blocking=blocking)
+        # no cover: end
 
     def get_solver_helper(
         self,
@@ -921,7 +989,6 @@ class SymbolicODE(BaseODE):
         # surfaces for reused code as well as freshly generated code.
         if func_type in _NEUMANN_PRECONDITIONER_TYPES:
             check_neumann_convergence(
-                self.equations,
                 self.indices,
                 evaluator=self._get_neumann_evaluator(),
                 stage_coefficients=stage_coefficients,
@@ -944,6 +1011,7 @@ class SymbolicODE(BaseODE):
             "beta": beta,
             "gamma": gamma,
             "order": preconditioner_order,
+            "lineinfo": self.compile_settings.lineinfo,
         }
 
         # Skip expensive code generation when function is already cached
@@ -1064,7 +1132,11 @@ class SymbolicODE(BaseODE):
                     f"Solver helper '{func_type}' is not implemented."
                 )
 
-        factory, was_cached = self.gen_file.import_function(factory_name, code)
+        factory, was_cached = self.gen_file.import_function(
+            factory_name,
+            code,
+            injections=self._device_function_injections(),
+        )
 
         # For prepare_jac, retrieve aux_count from cached factory if needed
         if func_type == "prepare_jac" and self._jacobian_aux_count is None:
@@ -1081,6 +1153,16 @@ class SymbolicODE(BaseODE):
         default_timelogger.stop_event(event_name)
 
         return func
+
+    def _lineinfo_kwarg(self, factory) -> dict:
+        """Return a ``lineinfo`` kwarg when ``factory`` declares one.
+
+        Older on-disk generated factories may not declare a ``lineinfo``
+        parameter; those factories are called without it.
+        """
+        if "lineinfo" in inspect.signature(factory).parameters:
+            return {"lineinfo": self.compile_settings.lineinfo}
+        return {}
 
     def _build_preconditioner_chain(
         self,
@@ -1150,11 +1232,14 @@ class SymbolicODE(BaseODE):
 
         is_cached = composite_type == "preconditioner_cached"
         return _chain_two_preconditioners(
-            fns[0], fns[1], cached=is_cached
+            fns[0],
+            fns[1],
+            cached=is_cached,
+            lineinfo=self.compile_settings.lineinfo,
         )
 
 
-def _chain_two_preconditioners(p0, p1, cached=False):
+def _chain_two_preconditioners(p0, p1, cached=False, lineinfo=None):
     """Build a device function chaining two preconditioners.
 
     Parameters
@@ -1185,10 +1270,11 @@ def _chain_two_preconditioners(p0, p1, cached=False):
     """
     from numba import cuda
 
-    from cubie.cuda_simsafe import compile_kwargs
+    from cubie.cuda_simsafe import get_jit_kwargs
 
+    jit_kwargs = get_jit_kwargs(lineinfo)
     if cached:
-        @cuda.jit(device=True, inline=True, **compile_kwargs)
+        @cuda.jit(device=True, inline=True, **jit_kwargs)
         def chained_cached(
             state, parameters, drivers, cached_aux, base_state,
             t, h, a_ij, v, out, jvp, scratch, chain_scratch,
@@ -1203,9 +1289,10 @@ def _chain_two_preconditioners(p0, p1, cached=False):
                 base_state, t, h, a_ij,
                 scratch, out, jvp, chain_scratch,
             )
+        # no cover: end
         return chained_cached
     else:
-        @cuda.jit(device=True, inline=True, **compile_kwargs)
+        @cuda.jit(device=True, inline=True, **jit_kwargs)
         def chained(
             state, parameters, drivers, base_state,
             t, h, a_ij, v, out, jvp, scratch, chain_scratch,
@@ -1218,4 +1305,5 @@ def _chain_two_preconditioners(p0, p1, cached=False):
                 state, parameters, drivers, base_state,
                 t, h, a_ij, scratch, out, jvp, chain_scratch,
             )
+        # no cover: end
         return chained

@@ -46,7 +46,7 @@ default_timelogger.register_event("codegen_generate_time_derivative_fac_code",
 TIME_DERIVATIVE_TEMPLATE = (
     "\n"
     "# AUTO-GENERATED TIME-DERIVATIVE FACTORY\n"
-    "def {func_name}(constants, precision):\n"
+    "def {func_name}(constants, precision, lineinfo=None):\n"
     '    """Auto-generated time-derivative factory."""\n'
     "{const_lines}"
     "    @cuda.jit(\n"
@@ -58,7 +58,8 @@ TIME_DERIVATIVE_TEMPLATE = (
     "        #  precision[::1],\n"
     "        #  precision),\n"
     "        device=True,\n"
-    "        inline=True)\n"
+    "        inline=True,\n"
+    "        **get_jit_kwargs(lineinfo))\n"
     "    def time_derivative_rhs(\n"
     "        state, parameters, drivers, driver_dt, observables, out, t\n"
     "    ):\n"
@@ -122,8 +123,6 @@ def _build_time_derivative_assignments(
         chain_term = sp.S.Zero
         for dep in sorted(rhs.free_symbols & processed, key=str):
             derivative = symbol_derivatives.get(dep)
-            if derivative is None:
-                continue
             chain_term += sp.diff(rhs, dep) * derivative
 
         total = direct_time + driver_term + chain_term
@@ -189,8 +188,7 @@ def generate_time_derivative_lines(
         symbol_map=symbol_map,
         constant_names=index_map.constants.symbol_map,
     )
-    if not lines:
-        lines = ["pass"]
+    assert lines, "internal error: codegen produced an empty body"
     return lines
 
 

@@ -23,11 +23,11 @@ import copy
 import inspect
 import textwrap
 import warnings
-from typing import Any, Callable, Dict, List, Optional, Set, Tuple
+from typing import Any, Callable, Dict, List, Optional, Set
 
 import sympy as sp
 
-from .parser import KNOWN_FUNCTIONS, TIME_SYMBOL
+from .parser import KNOWN_FUNCTIONS
 
 # Map of module-qualified names to their bare equivalents
 _MODULE_PREFIXES = {"math", "np", "numpy", "cmath"}
@@ -55,6 +55,11 @@ class FunctionInspection:
         Name of the state vector parameter (second positional arg).
     constant_params
         Names of constant/parameter arguments (third+ positional args).
+    scalar_params
+        Subset of ``constant_params`` never accessed as containers
+        (no subscript or attribute access); each is treated as a
+        scalar bound to the like-named declared symbol, matching
+        SciPy's ``args=`` convention.
     state_accesses
         List of dicts with keys ``base``, ``key``, ``pattern_type``.
     constant_accesses
@@ -80,10 +85,12 @@ class FunctionInspection:
         return_node: ast.Return,
         function_calls: Set[str],
         func_def: ast.FunctionDef,
+        scalar_params: Optional[List[str]] = None,
     ) -> None:
         self.param_names = param_names
         self.state_param = state_param
         self.constant_params = constant_params
+        self.scalar_params = scalar_params or []
         self.state_accesses = state_accesses
         self.constant_accesses = constant_accesses
         self.assignments = assignments
@@ -105,51 +112,42 @@ class _OdeAstVisitor(ast.NodeVisitor):
         self.assignments: Dict[str, ast.expr] = {}
         self.return_nodes: List[ast.Return] = []
         self.function_calls: Set[str] = set()
+        self._entered_function = False
+
+    def _record_access(
+        self, base: str, key: Any, ptype: str
+    ) -> None:
+        entry = {"base": base, "key": key, "pattern_type": ptype}
+        if base == self.state_param:
+            self.state_accesses.append(entry)
+        elif base in self.constant_params:
+            self.constant_accesses.append(entry)
+
+    def _record_subscript(self, node: ast.Subscript) -> None:
+        if not isinstance(node.value, ast.Name):
+            return
+        slc = node.slice
+        if isinstance(slc, ast.Constant):
+            key = slc.value
+            ptype = "int" if isinstance(key, int) else "string"
+        elif isinstance(slc, ast.Name):
+            key = slc.id
+            ptype = "name"
+        else:
+            key = ast.dump(slc)
+            ptype = "expr"
+        self._record_access(node.value.id, key, ptype)
+
+    def _record_attribute(self, node: ast.Attribute) -> None:
+        if isinstance(node.value, ast.Name):
+            self._record_access(node.value.id, node.attr, "attribute")
 
     def visit_Subscript(self, node: ast.Subscript) -> None:
-        if isinstance(node.value, ast.Name):
-            base = node.value.id
-            slc = node.slice
-            if isinstance(slc, ast.Constant):
-                key = slc.value
-                ptype = "int" if isinstance(key, int) else "string"
-            elif isinstance(slc, ast.Index):
-                # Python 3.8 compat
-                inner = slc.value  # type: ignore[attr-defined]
-                if isinstance(inner, ast.Constant):
-                    key = inner.value
-                    ptype = (
-                        "int" if isinstance(key, int) else "string"
-                    )
-                else:
-                    key = ast.dump(inner)
-                    ptype = "expr"
-            elif isinstance(slc, ast.Name):
-                key = slc.id
-                ptype = "name"
-            else:
-                key = ast.dump(slc)
-                ptype = "expr"
-
-            entry = {"base": base, "key": key, "pattern_type": ptype}
-            if base == self.state_param:
-                self.state_accesses.append(entry)
-            elif base in self.constant_params:
-                self.constant_accesses.append(entry)
+        self._record_subscript(node)
         self.generic_visit(node)
 
     def visit_Attribute(self, node: ast.Attribute) -> None:
-        if isinstance(node.value, ast.Name):
-            base = node.value.id
-            entry = {
-                "base": base,
-                "key": node.attr,
-                "pattern_type": "attribute",
-            }
-            if base == self.state_param:
-                self.state_accesses.append(entry)
-            elif base in self.constant_params:
-                self.constant_accesses.append(entry)
+        self._record_attribute(node)
         self.generic_visit(node)
 
     def visit_Assign(self, node: ast.Assign) -> None:
@@ -176,6 +174,13 @@ class _OdeAstVisitor(ast.NodeVisitor):
                     for elt in target.elts:
                         if isinstance(elt, ast.Name):
                             self.assignments[elt.id] = node.value
+        self.generic_visit(node)
+
+    def visit_AnnAssign(self, node: ast.AnnAssign) -> None:
+        if node.value is not None and isinstance(
+            node.target, ast.Name
+        ):
+            self.assignments[node.target.id] = node.value
         self.generic_visit(node)
 
     def visit_AugAssign(self, node: ast.AugAssign) -> None:
@@ -261,15 +266,24 @@ class _OdeAstVisitor(ast.NodeVisitor):
             self.assignments[name] = ifexp
 
         # Visit expressions for state/constant accesses and calls.
-        self._visit_exprs_in_stmts([node] + node.body + node.orelse)
+        self._visit_exprs_in_stmts([node])
 
     def _visit_exprs_in_stmts(self, stmts: list) -> None:
-        """Visit expression sub-trees for accesses and calls only."""
-        for stmt in stmts:
+        """Visit expression sub-trees for accesses and calls only.
+
+        For-loops are unrolled first so that recorded accesses carry
+        the substituted constant subscripts (``y[0]``, not ``y[i]``),
+        matching what :meth:`_collect_branch_assignments` converts.
+        """
+        for stmt in self._flatten_for_loops(stmts):
             if isinstance(stmt, ast.If):
                 self._visit_expr(stmt.test)
+                self._visit_exprs_in_stmts(stmt.body + stmt.orelse)
             elif isinstance(stmt, ast.Assign):
                 self._visit_expr(stmt.value)
+            elif isinstance(stmt, ast.AnnAssign):
+                if stmt.value is not None:
+                    self._visit_expr(stmt.value)
             elif isinstance(stmt, ast.AugAssign):
                 self._visit_expr(stmt.value)
             elif isinstance(stmt, ast.Expr):
@@ -279,45 +293,11 @@ class _OdeAstVisitor(ast.NodeVisitor):
         """Visit an expression sub-tree to capture accesses and calls."""
         for child in ast.walk(node):
             if isinstance(child, ast.Subscript):
-                # Call the access-recording logic but not generic_visit
-                # (walk already handles recursion).
-                if isinstance(child.value, ast.Name):
-                    base = child.value.id
-                    slc = child.slice
-                    if isinstance(slc, ast.Constant):
-                        key = slc.value
-                        ptype = (
-                            "int"
-                            if isinstance(key, int)
-                            else "string"
-                        )
-                    elif isinstance(slc, ast.Name):
-                        key = slc.id
-                        ptype = "name"
-                    else:
-                        key = ast.dump(slc)
-                        ptype = "expr"
-                    entry = {
-                        "base": base,
-                        "key": key,
-                        "pattern_type": ptype,
-                    }
-                    if base == self.state_param:
-                        self.state_accesses.append(entry)
-                    elif base in self.constant_params:
-                        self.constant_accesses.append(entry)
+                # walk already recurses, so record without
+                # generic_visit.
+                self._record_subscript(child)
             elif isinstance(child, ast.Attribute):
-                if isinstance(child.value, ast.Name):
-                    base = child.value.id
-                    entry = {
-                        "base": base,
-                        "key": child.attr,
-                        "pattern_type": "attribute",
-                    }
-                    if base == self.state_param:
-                        self.state_accesses.append(entry)
-                    elif base in self.constant_params:
-                        self.constant_accesses.append(entry)
+                self._record_attribute(child)
             elif isinstance(child, ast.Call):
                 cname = _call_name(child)
                 if cname:
@@ -331,12 +311,20 @@ class _OdeAstVisitor(ast.NodeVisitor):
     ) -> Dict[str, ast.expr]:
         """Extract assignments from a branch body without side effects.
 
-        Handles ``Assign``, ``AugAssign``, and nested ``If`` (for elif
-        chains).  Returns ``{name: ast_expression_node}``.
+        Handles ``Assign``, ``AnnAssign``, ``AugAssign``, nested ``If``
+        (for elif chains), and ``For`` (unrolled before processing).
+        Statements with no branch-expression equivalent (``return``,
+        ``while``, ``with``, ...) raise.  Returns
+        ``{name: ast_expression_node}``.
         """
         branch: Dict[str, ast.expr] = {}
-        for stmt in stmts:
-            if isinstance(stmt, ast.Assign):
+        for stmt in self._flatten_for_loops(stmts):
+            if isinstance(stmt, ast.AnnAssign):
+                if stmt.value is not None and isinstance(
+                    stmt.target, ast.Name
+                ):
+                    branch[stmt.target.id] = stmt.value
+            elif isinstance(stmt, ast.Assign):
                 for target in stmt.targets:
                     if isinstance(target, ast.Name):
                         branch[target.id] = stmt.value
@@ -430,6 +418,27 @@ class _OdeAstVisitor(ast.NodeVisitor):
                     ast.copy_location(ifexp, stmt)
                     branch[name] = ifexp
 
+            elif isinstance(stmt, ast.Return):
+                raise NotImplementedError(
+                    "'return' inside an if/elif/else branch is not "
+                    "supported in ODE functions. Assign the branch "
+                    "result to a variable and return once at the end "
+                    "of the function."
+                )
+
+            elif isinstance(stmt, (ast.Expr, ast.Pass)):
+                # Bare expressions have no assignment to collect;
+                # their accesses and calls are recorded by
+                # _visit_exprs_in_stmts.
+                pass
+
+            else:
+                raise NotImplementedError(
+                    f"'{type(stmt).__name__}' statements are not "
+                    f"supported inside if/elif/else branches in ODE "
+                    f"functions."
+                )
+
         return branch
 
     # -- For-loop unrolling --------------------------------------------
@@ -441,6 +450,19 @@ class _OdeAstVisitor(ast.NodeVisitor):
         visits the body repeatedly, so that ``y[i]`` becomes ``y[0]``,
         ``y[1]``, etc.
         """
+        for stmt in self._unroll_for(node):
+            self.visit(stmt)
+
+    def _unroll_for(self, node: ast.For) -> List[ast.stmt]:
+        """Return the loop body once per value, loop variable bound.
+
+        Each returned statement is a deep copy of a body statement
+        with the loop variable substituted by a concrete constant.
+        """
+        if node.orelse:
+            raise NotImplementedError(
+                "for/else is not supported in ODE functions."
+            )
         if not isinstance(node.target, ast.Name):
             raise NotImplementedError(
                 "Only simple loop variables are supported "
@@ -449,11 +471,27 @@ class _OdeAstVisitor(ast.NodeVisitor):
             )
         loop_var = node.target.id
         values = _extract_for_iterable(node.iter)
-
+        unrolled: List[ast.stmt] = []
         for val in values:
             for stmt in node.body:
-                substituted = _substitute_name(stmt, loop_var, val)
-                self.visit(substituted)
+                unrolled.append(
+                    _substitute_name(stmt, loop_var, val)
+                )
+        return unrolled
+
+    def _flatten_for_loops(
+        self, stmts: List[ast.stmt]
+    ) -> List[ast.stmt]:
+        """Replace each for-loop in *stmts* with its unrolled body."""
+        flat: List[ast.stmt] = []
+        for stmt in stmts:
+            if isinstance(stmt, ast.For):
+                flat.extend(
+                    self._flatten_for_loops(self._unroll_for(stmt))
+                )
+            else:
+                flat.append(stmt)
+        return flat
 
     # -- NamedExpr (:=) support ----------------------------------------
 
@@ -469,6 +507,39 @@ class _OdeAstVisitor(ast.NodeVisitor):
         raise NotImplementedError(
             "While-loops are not supported in ODE functions. "
             "Use a for-loop with a constant iterable instead."
+        )
+
+    def visit_Try(self, node: ast.Try) -> None:
+        raise NotImplementedError(
+            "try/except is not supported in ODE functions."
+        )
+
+    def visit_TryStar(self, node: ast.stmt) -> None:
+        raise NotImplementedError(
+            "try/except* is not supported in ODE functions."
+        )
+
+    def visit_Match(self, node: ast.stmt) -> None:
+        raise NotImplementedError(
+            "match statements are not supported in ODE functions. "
+            "Use if/elif/else instead."
+        )
+
+    def visit_FunctionDef(self, node: ast.FunctionDef) -> None:
+        if self._entered_function:
+            raise NotImplementedError(
+                "Nested function definitions are not supported in "
+                "ODE functions. Pass helper callables via the "
+                "user_functions argument instead."
+            )
+        self._entered_function = True
+        self.generic_visit(node)
+
+    def visit_AsyncFunctionDef(
+        self, node: ast.AsyncFunctionDef
+    ) -> None:
+        raise NotImplementedError(
+            "Async functions are not supported in ODE functions."
         )
 
     def visit_ListComp(self, node: ast.ListComp) -> None:
@@ -642,10 +713,46 @@ class AstToSympyConverter:
     ----------
     symbol_map
         Mapping of variable names to SymPy symbols/expressions.
+    user_callables
+        Mapping of user-defined function names to their Python
+        implementations. Calls to these names take priority over
+        :data:`KNOWN_FUNCTIONS`.
+    user_function_classes
+        Mapping of user-defined function names to SymPy ``Function``
+        placeholders (or subclasses) applied when a call stays
+        symbolic.
+    symbolic_user_names
+        User-function names that must never be inlined (device
+        functions and functions with derivative helpers).
+    inline_assignments
+        Local assignment names whose AST expression is converted in
+        place of the bare name (derivative-output names such as
+        ``dx``).
+    strict_names
+        When ``True`` an unknown bare name raises ``ValueError``
+        instead of creating a dangling symbol.
+    name_hints
+        Mapping of known-but-unreachable names to the access spelling
+        the error message should suggest (e.g. ``{"mu": "p.mu"}``).
     """
 
-    def __init__(self, symbol_map: Dict[str, sp.Basic]) -> None:
+    def __init__(
+        self,
+        symbol_map: Dict[str, sp.Basic],
+        user_callables: Optional[Dict[str, Callable]] = None,
+        user_function_classes: Optional[Dict[str, Any]] = None,
+        symbolic_user_names: Optional[Set[str]] = None,
+        inline_assignments: Optional[Dict[str, ast.expr]] = None,
+        strict_names: bool = False,
+        name_hints: Optional[Dict[str, str]] = None,
+    ) -> None:
         self.symbol_map = symbol_map
+        self.user_callables = user_callables or {}
+        self.user_function_classes = user_function_classes or {}
+        self.symbolic_user_names = symbolic_user_names or set()
+        self.inline_assignments = inline_assignments or {}
+        self.strict_names = strict_names
+        self.name_hints = name_hints or {}
 
     def convert(self, node: ast.expr) -> sp.Expr:
         """Recursively convert an AST node to a SymPy expression.
@@ -708,8 +815,6 @@ class AstToSympyConverter:
             return sp.Integer(val)
         elif isinstance(val, float):
             return sp.Float(val)
-        elif isinstance(val, bool):
-            return sp.true if val else sp.false
         else:
             raise NotImplementedError(
                 f"Unsupported constant type: {type(val).__name__}"
@@ -719,6 +824,24 @@ class AstToSympyConverter:
         name = node.id
         if name in self.symbol_map:
             return self.symbol_map[name]
+        if name in self.inline_assignments:
+            return self.convert(self.inline_assignments[name])
+        if self.strict_names:
+            if name in self.name_hints:
+                raise ValueError(
+                    f"Symbol '{name}' is declared but cannot be "
+                    f"referenced by bare name inside an ODE function. "
+                    f"Access it through its container argument: "
+                    f"'{self.name_hints[name]}'."
+                )
+            raise ValueError(
+                f"Unknown symbol '{name}' in ODE function body. Names "
+                f"must resolve to the time argument, a container "
+                f"access on the state or parameter arguments, a local "
+                f"assignment, or a declared observable. Declare "
+                f"'{name}' as a parameter, constant, or driver and "
+                f"access it through a container argument."
+            )
         # Create a real symbol for unknown names
         sym = sp.Symbol(name, real=True)
         self.symbol_map[name] = sym
@@ -767,10 +890,31 @@ class AstToSympyConverter:
                 "Only named function calls are supported"
             )
         name = _resolve_func_name(raw_name)
+        user_name = None
+        if raw_name in self.user_callables:
+            user_name = raw_name
+        elif name in self.user_callables:
+            user_name = name
+        if user_name is not None:
+            args = [self.convert(a) for a in node.args]
+            if user_name not in self.symbolic_user_names:
+                fn = self.user_callables[user_name]
+                try:
+                    val = fn(*args)
+                except (TypeError, AttributeError, ValueError):
+                    # Symbolic arguments rejected by the function body
+                    # (e.g. NumPy ufuncs, float() coercion): fall back
+                    # to a symbolic call. Other errors are genuine bugs
+                    # in the user function and propagate.
+                    val = None
+                if isinstance(val, sp.Expr):
+                    return val
+            return self.user_function_classes[user_name](*args)
         if name not in KNOWN_FUNCTIONS:
             raise NotImplementedError(
                 f"Unknown function '{raw_name}'. Supported: "
-                f"{sorted(KNOWN_FUNCTIONS.keys())}"
+                f"{sorted(KNOWN_FUNCTIONS.keys())}, plus any names "
+                f"supplied via the user_functions argument."
             )
         sp_func = KNOWN_FUNCTIONS[name]
         args = [self.convert(a) for a in node.args]
@@ -782,14 +926,6 @@ class AstToSympyConverter:
             slc = node.slice
             if isinstance(slc, ast.Constant):
                 key = slc.value
-            elif isinstance(slc, ast.Index):
-                inner = slc.value  # type: ignore[attr-defined]
-                if isinstance(inner, ast.Constant):
-                    key = inner.value
-                else:
-                    raise NotImplementedError(
-                        "Only constant subscripts are supported"
-                    )
             else:
                 raise NotImplementedError(
                     "Only constant subscripts are supported"
@@ -962,6 +1098,21 @@ def inspect_ode_function(func: Callable) -> FunctionInspection:
         ]
         _validate_access_consistency(cp_accesses, cp)
 
+    # Extra args never accessed as containers but referenced by bare
+    # name are scalars bound to the like-named declared symbol
+    # (SciPy's args= convention). Unreferenced args are ignored.
+    container_bases = {a["base"] for a in visitor.constant_accesses}
+    used_names = {
+        node.id
+        for node in ast.walk(func_def)
+        if isinstance(node, ast.Name) and isinstance(node.ctx, ast.Load)
+    }
+    scalar_params = [
+        cp
+        for cp in constant_params
+        if cp not in container_bases and cp in used_names
+    ]
+
     return FunctionInspection(
         param_names=params,
         state_param=state_param,
@@ -972,6 +1123,7 @@ def inspect_ode_function(func: Callable) -> FunctionInspection:
         return_node=visitor.return_nodes[0],
         function_calls=visitor.function_calls,
         func_def=func_def,
+        scalar_params=scalar_params,
     )
 
 

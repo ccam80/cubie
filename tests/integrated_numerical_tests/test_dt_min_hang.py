@@ -1,18 +1,22 @@
-"""Regression tests for f32 save-event drift hang.
+"""Save-schedule tests for float32 rounding effects.
 
-When ``save_every`` is not exactly representable in float32
-(e.g. 0.1), repeated f32 addition of ``next_save += save_every``
-accumulates rounding error.  After enough saves, ``next_save``
-drifts below its true value while the f64 time accumulator
-overshoots it.  This produces a negative ``dt_eff`` at the
-event-boundary adjustment, trapping the loop.
+The device schedule accumulates ``next_save += save_every``. When
+``save_every`` is not exactly representable in float32 (0.1, for
+example), each addition lands slightly off the exact grid, so the
+scheduled save times fall slightly before or after the times the
+user asked for. These tests check that rounding in either direction
+neither hangs the loop nor changes how many samples are saved:
 
-The bug triggers when the solver is crawling at small dt near a
-save boundary whose f32 ``next_save`` has drifted behind the f64
-time.  With save_every=0.1, after ~80 saves the drift is ~5.2 µs.
+- the loop keeps stepping when a scheduled save time falls behind
+  the current time (a stale save target would clamp the next step
+  to zero or negative length, so the clamp only applies when the
+  step would be positive);
+- every allocated output row is written, in increasing time order,
+  whether the schedule reaches the final save slightly after the
+  end time or the duration/save_every division rounds just below a
+  whole number: the host allocation and the device stop time come
+  from the same count, so they cannot disagree.
 """
-
-from __future__ import annotations
 
 import numpy as np
 import pytest
@@ -44,7 +48,13 @@ def _coupled_oscillator(t, y, p):
 
 @pytest.fixture
 def oscillator_system():
-    """Build the coupled oscillator ODE system."""
+    """Build the coupled oscillator ODE system.
+
+    This system is kept separate from the shared fixtures because
+    the hang test below needs an adaptive solver squeezed into very
+    small steps right at a save boundary; the piecewise damping
+    produces that behaviour and the shared fixture systems do not.
+    """
     return create_ODE_system(
         dxdt=_coupled_oscillator,
         states={"x1": 1.0, "v1": 0.0, "x2": -0.5, "v2": 0.0},
@@ -58,17 +68,17 @@ def oscillator_system():
 # ------------------------------------------------------------------ #
 
 def test_f32_save_drift_does_not_hang(oscillator_system):
-    """Loop must not hang when f32 save_every accumulation drifts.
+    """The loop completes when the save schedule falls behind time.
 
-    Regression test for negative ``dt_eff`` caused by ``next_save``
-    falling behind ``t_prec`` due to f32 rounding of non-binary
-    ``save_every``.
-
-    k=3.0 with radau and duration=10.0 reliably triggers the hang
-    because the piecewise damping forces the adaptive solver into
-    small steps near save boundaries around t≈8, where 80 additions
-    of float32(0.1) have drifted ``next_save`` 5.2 µs below its
-    true value.
+    After about 80 additions of float32(0.1), the accumulated save
+    schedule sits about 5 microseconds earlier than the committed
+    simulation time. A save target earlier than the current time
+    would clamp the next step to zero or negative length, which the
+    step function cannot integrate, so the clamp applies only when
+    the resulting step is positive. k=3.0 with radau pushes the
+    adaptive solver into small steps near the save boundaries
+    around t=8, which is where the stale save target appears; the
+    run must still complete with a full set of saves.
     """
     n = 1
     result = solve_ivp(
@@ -95,3 +105,64 @@ def test_f32_save_drift_does_not_hang(oscillator_system):
     # Should produce ~100 saves; any completion is a pass.
     n_saves = result.time_domain_array.shape[0]
     assert n_saves >= 80
+
+
+_DRIFTED_GRID = {
+    "algorithm": "euler",
+    "step_controller": "fixed",
+    "dt": 0.01,
+    "duration": 1.0,
+    "save_every": 0.1,
+    "output_types": ["state", "time"],
+}
+
+_ROUNDED_DOWN_COUNT = {
+    "algorithm": "euler",
+    "step_controller": "fixed",
+    "dt": 0.0005,
+    "duration": 0.01,
+    "save_every": 0.001,
+    "output_types": ["state", "time"],
+}
+
+
+@pytest.mark.parametrize(
+    "solver_settings_override",
+    [
+        pytest.param(_DRIFTED_GRID, id="drifted_schedule"),
+        pytest.param(_ROUNDED_DOWN_COUNT, id="rounded_down_count"),
+    ],
+    indirect=True,
+)
+def test_all_save_slots_written_on_inexact_grid(
+    solver, solver_settings, batch_input_arrays, driver_settings
+):
+    """Every allocated save row is written on an inexact float32 grid.
+
+    Both parameter sets request ten regular saves using values that
+    are not exactly representable in float32. In the first, the
+    accumulated device schedule reaches the final save slightly
+    after the end time. In the second, dividing duration by
+    save_every in float32 gives 9.9999993 rather than 10. Either
+    way the host must allocate eleven rows (the initial state plus
+    ten saves) and the device must fill all of them, in increasing
+    time order, ending at the requested duration.
+    """
+    initial_values, parameters = batch_input_arrays
+    duration = float(solver_settings["duration"])
+    result = solver.solve(
+        initial_values=initial_values,
+        parameters=parameters,
+        drivers=driver_settings,
+        duration=duration,
+    )
+
+    status_codes = np.asarray(result.status_codes)
+    assert np.all(status_codes == 0), result.status_messages
+    times = np.asarray(result.time)
+    assert times.shape[0] == 11
+    assert np.all(np.diff(times, axis=0) > 0.0), (
+        f"saved times are not strictly increasing: {times}"
+    )
+    assert np.allclose(times[-1, :], duration, rtol=1e-4)
+    assert np.isfinite(result.time_domain_array).all()

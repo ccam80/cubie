@@ -1,4 +1,9 @@
+import ctypes
+import gc
+import weakref
+
 import pytest
+
 from numba import cuda
 
 from cubie.cuda_simsafe import (
@@ -10,6 +15,14 @@ from cubie.memory.mem_manager import (
     ArrayRequest,
     ArrayResponse,
     InstanceMemorySettings,
+    _numba_stream_ptr,
+    _pinned_host_array,
+    current_cupy_stream,
+    get_portioned_request_size,
+    is_request_chunkable,
+    placeholder_dataready,
+    placeholder_invalidate,
+    replace_with_chunked_size,
 )
 
 import numpy as np
@@ -19,6 +32,13 @@ class DummyClass:
     def __init__(self, proportion=None, invalidate_all_hook=None):
         self.proportion = proportion
         self.invalidate_all_hook = invalidate_all_hook
+        self.last_response = None
+
+    def notice_invalidate(self):
+        self.proportion = None
+
+    def notice_allocation(self, response):
+        self.last_response = response
 
 
 @pytest.fixture(scope="function")
@@ -196,7 +216,6 @@ class TestMemoryManager:
         assert mgr.totalmem == 8 * 1024**3
         assert mgr.registry == {}
         assert mgr._mode in ["passive", "active"]
-        assert mgr._allocator is not None
         assert isinstance(mgr.stream_groups, type(mgr.stream_groups))
 
     def test_register(self, registered_mgr, registered_instance):
@@ -213,29 +232,6 @@ class TestMemoryManager:
         assert group == "default"
         assert id(instance) in mgr.stream_groups.groups[group]
         assert mgr.stream_groups.get_stream(instance) is not None
-
-    # Can't recover from this - context stays stale. This doesn't reflect a
-    # real use case; reinstate if live memory manager switching is required
-    # @pytest.mark.cupy
-    # @pytest.mark.parametrize("manager_target",
-    #                          [("cupy_async", CuPyAsyncNumbaManager),
-    #                           ("cupy", CuPySyncNumbaManager),
-    #                           ("default", NumbaCUDAMemoryManager)
-    #                         ],
-    #                          ids=["cupy_async", "cupy", "default"])
-    # def test_set_allocator(self, manager_target, mem_manager_settings,
-    #                              registered_instance_settings):
-    #     """Test that set_allocator sets the allocator correctly
-    #     test each of "cupy_async", "cupy", "default", checking that
-    #     (self._allocator is CuPyAsyncNumbaManager, CuPySyncNumbaManager.
-    #      NumbaCudaMemoryManager, respectively)"""
-    #     label, cls = manager_target
-    #     regmgr, instance = registered_mgr_context_safe(
-    #             mem_manager_settings,
-    #             registered_instance_settings
-    #     )
-    #     regmgr.set_allocator(label)
-    #     assert regmgr._allocator == cls
 
     def test_set_limit_mode(self, mgr):
         """Test that set_limit_mode assigns the mode correctly,
@@ -488,20 +484,37 @@ class TestMemoryManager:
     @pytest.mark.nocudasim
     def test_allocate(self, mgr):
         """Test allocate returns correct array type and shape for each memory type."""
-        for mem_type in ["device", "mapped", "pinned"]:
+        for mem_type in ["device", "pinned"]:
             arr = mgr.allocate(
                 shape=(2, 2), dtype=np.float32, memory_type=mem_type
             )
-            if mem_type in ["device", "mapped"]:
+            if mem_type == "device":
                 assert hasattr(arr, "__cuda_array_interface__")
             else:
                 assert isinstance(arr, np.ndarray)
             assert arr.shape == (2, 2)
             assert arr.dtype == np.float32
-        with pytest.raises(NotImplementedError):
-            mgr.allocate(shape=(1, 1), dtype=np.float32, memory_type="managed")
-        with pytest.raises(ValueError):
-            mgr.allocate(shape=(1, 1), dtype=np.float32, memory_type="invalid")
+        for unsupported in ["mapped", "managed", "invalid"]:
+            with pytest.raises(ValueError):
+                mgr.allocate(
+                    shape=(1, 1), dtype=np.float32, memory_type=unsupported
+                )
+
+    @pytest.mark.nocudasim
+    @pytest.mark.cupy
+    def test_allocate_device_returns_cupy_array(self, mgr):
+        """Test that a "device" allocation is a CuPy array on a real GPU.
+
+        CuPy is CuBIE's single device allocation provider; device
+        arrays are allocated straight from CuPy's memory pool rather
+        than through a Numba External Memory Manager plugin.
+        """
+        import cupy as cp
+
+        arr = mgr.allocate(
+            shape=(4, 4), dtype=np.float32, memory_type="device"
+        )
+        assert isinstance(arr, cp.ndarray)
 
     def test_free(self, registered_mgr, registered_instance):
         """Test free removes allocation by key from all instances."""
@@ -621,6 +634,26 @@ class TestMemoryManager:
         assert mgr.registry[id(instance)].proportion == 0.4
         assert instance_id in mgr._manual_pool
 
+    @pytest.mark.parametrize(
+        "registered_instance_override", [{"proportion": None}], indirect=True
+    )
+    def test_set_manual_proportion_from_auto_pool(
+        self, registered_mgr, registered_instance
+    ):
+        """Test set_manual_proportion moves an auto instance to manual."""
+        mgr = registered_mgr
+        instance = registered_instance
+        instance_id = id(instance)
+        inst2 = DummyClass()
+        mgr.register(inst2)
+        assert instance_id in mgr._auto_pool
+        mgr.set_manual_proportion(instance, 0.01)
+        assert instance_id not in mgr._auto_pool
+        assert instance_id in mgr._manual_pool
+        assert mgr.registry[instance_id].proportion == 0.01
+        assert mgr.registry[instance_id].cap == int(0.01 * mgr.totalmem)
+        assert abs(mgr.registry[id(inst2)].proportion - 0.99) < 1e-6
+
     def test_rebalance_auto_pool(self, mgr):
         """Test _rebalance_auto_pool splits available proportion among auto pool."""
         inst1 = DummyClass()
@@ -654,10 +687,20 @@ class TestMemoryManager:
                 shape=(2, 2), dtype=np.float32, memory="device", total_runs=2
             ),
             "arr2": ArrayRequest(
-                shape=(3, 3), dtype=np.float64, memory="mapped", total_runs=3
+                shape=(3, 3), dtype=np.float64, memory="pinned", total_runs=3
             ),
         }
         mgr._check_requests(valid_requests)  # Should not raise
+
+        # Unsupported placements are rejected at request construction
+        with pytest.raises(ValueError):
+            ArrayRequest(
+                shape=(3, 3), dtype=np.float64, memory="mapped", total_runs=3
+            )
+        with pytest.raises(ValueError):
+            ArrayRequest(
+                shape=(3, 3), dtype=np.float64, memory="managed", total_runs=3
+            )
 
         # Invalid dict type should raise TypeError
         with pytest.raises(TypeError):
@@ -786,6 +829,41 @@ class TestMemoryManager:
 
         mgr.allocate_queue(instance)
 
+    @pytest.mark.parametrize(
+        "fixed_mem_override", [{"free": 1024}], indirect=True
+    )
+    def test_allocate_queue_empty_rebroadcasts_chunk_parameters(self, mgr):
+        """Test allocate_queue with nothing queued resends chunk params."""
+        instance = DummyClass()
+        responses = []
+        mgr.register(
+            instance, allocation_ready_hook=lambda r: responses.append(r)
+        )
+
+        requests = {
+            "arr1": ArrayRequest(
+                shape=(4, 100),
+                dtype=np.float32,
+                memory="device",
+                chunk_axis_index=1,
+                total_runs=100,
+            ),
+        }
+        mgr.queue_request(instance, requests)
+        mgr.allocate_queue(instance)
+
+        assert len(responses) == 1
+        first = responses[0]
+        assert first.chunks > 1
+
+        # Repeat call with nothing queued: chunk parameters rebroadcast
+        mgr.allocate_queue(instance)
+        assert len(responses) == 2
+        second = responses[1]
+        assert second.arr == {}
+        assert second.chunks == first.chunks
+        assert second.chunk_length == first.chunk_length
+
     def test_is_grouped(self, mgr):
         """Test is_grouped returns correct grouping status for instances."""
         # Test instance in default group (should return False)
@@ -855,8 +933,8 @@ class TestMemoryManager:
         stream.synchronize()
 
         # Copy back to host and verify values
-        result_arr1 = device_arrays["arr1"].copy_to_host()
-        result_arr2 = device_arrays["arr2"].copy_to_host()
+        result_arr1 = device_arrays["arr1"].get()
+        result_arr2 = device_arrays["arr2"].get()
 
         np.testing.assert_array_equal(result_arr1, host_arr1)
         np.testing.assert_array_equal(result_arr2, host_arr2)
@@ -885,9 +963,13 @@ class TestMemoryManager:
         host_source1 = np.arange(10, dtype=np.float32).reshape(2, 5) * 3.0
         host_source2 = np.arange(6, dtype=np.float64).reshape(3, 2) + 10.0
 
-        # Copy test data to device arrays using cuda.to_device directly
-        cuda.to_device(host_source1, stream=stream, to=device_arrays["arr1"])
-        cuda.to_device(host_source2, stream=stream, to=device_arrays["arr2"])
+        # Copy test data to device arrays using the manager's own
+        # to_device method (the sole allocation/transfer provider).
+        mgr.to_device(
+            instance,
+            [host_source1, host_source2],
+            [device_arrays["arr1"], device_arrays["arr2"]],
+        )
         stream.synchronize()
 
         # Create empty host arrays to receive the data
@@ -1310,3 +1392,553 @@ def test_allocate_queue_handles_all_requests_same_total_runs(mgr):
     assert "arr1" in response.arr
     assert "arr2" in response.arr
     assert "arr3" in response.arr
+
+
+@pytest.fixture(scope="session")
+def stream1():
+    return cuda.stream()
+
+
+@pytest.fixture(scope="session")
+def stream2():
+    return cuda.stream()
+
+
+@pytest.mark.nocudasim
+def test_numba_stream_ptr(stream1):
+    try:
+        expected_ptr = int(stream1.handle.value)
+    except AttributeError:
+        expected_ptr = int(stream1.handle)
+    assert _numba_stream_ptr(stream1) == expected_ptr
+
+
+@pytest.mark.nocudasim
+@pytest.mark.cupy
+def test_cupy_stream_wrapper(stream1, stream2):
+    """Verify current_cupy_stream always forwards a Numba stream.
+
+    CuPy is CuBIE's single device allocation provider, so the
+    forwarding context manager wraps every non-default stream it is
+    given.
+    """
+    import cupy as cp
+
+    with current_cupy_stream(stream1) as cupy_stream:
+        assert isinstance(cupy_stream.cupy_ext_stream, cp.cuda.ExternalStream)
+        assert cupy_stream.cupy_ext_stream.ptr == _numba_stream_ptr(stream1)
+        assert cp.cuda.get_current_stream().ptr == _numba_stream_ptr(stream1)
+
+    with current_cupy_stream(stream2) as cupy_stream:
+        assert isinstance(cupy_stream.cupy_ext_stream, cp.cuda.ExternalStream)
+        assert cupy_stream.cupy_ext_stream.ptr == _numba_stream_ptr(stream2)
+        assert cp.cuda.get_current_stream().ptr == _numba_stream_ptr(stream2)
+
+    # Check that the default current stream is untouched
+    assert cp.cuda.get_current_stream().ptr != _numba_stream_ptr(stream1)
+    assert cp.cuda.get_current_stream().ptr != _numba_stream_ptr(stream2)
+
+
+def test_placeholder_hooks_are_noop():
+    """Test the default hook placeholders perform no operations."""
+    assert placeholder_invalidate() is None
+    assert placeholder_dataready(ArrayResponse()) is None
+
+
+def test_numba_stream_ptr_none_stream():
+    """Test _numba_stream_ptr returns None for a None stream."""
+    assert _numba_stream_ptr(None) is None
+
+
+class DummyStream:
+    def __init__(self, handle):
+        self.handle = handle
+
+
+def test_numba_stream_ptr_ctypes_void_p():
+    """Test pointer extraction from a ctypes.c_void_p handle."""
+    stream = DummyStream(ctypes.c_void_p(1234))
+    assert _numba_stream_ptr(stream) == 1234
+
+
+def test_numba_stream_ptr_ctypes_void_p_null():
+    """Test a null ctypes.c_void_p handle yields None."""
+    stream = DummyStream(ctypes.c_void_p(None))
+    assert _numba_stream_ptr(stream) is None
+
+
+def test_numba_stream_ptr_unconvertible_handle():
+    """Test a handle that cannot be converted to int yields None."""
+    stream = DummyStream("not-a-number")
+    assert _numba_stream_ptr(stream) is None
+
+
+@pytest.mark.nocudasim
+def test_pinned_host_array_real_gpu():
+    """Test _pinned_host_array uses CuPy's pinned pool on a real GPU."""
+    arr = _pinned_host_array((4, 3), np.float32)
+    assert arr.shape == (4, 3)
+    assert arr.dtype == np.float32
+
+
+def test_instance_memory_settings_free_missing_key_warns():
+    """Test free warns when the key is not in the allocations dict."""
+    settings = InstanceMemorySettings()
+    with pytest.warns(UserWarning, match="not found in the allocations"):
+        settings.free("missing")
+
+
+def test_attrs_post_init_cuda_less_environment():
+    """Test the manager falls back to totalmem=1 in a cuda-less env.
+
+    __attrs_post_init__ interprets a ValueError from get_memory_info
+    whose message starts with "not enough values to unpack" as
+    evidence there is no CUDA context to query, warns, and sets
+    totalmem to a placeholder of 1 byte instead of raising.
+    """
+
+    class NoCudaMemoryManager(MemoryManager):
+        def get_memory_info(self):
+            raise ValueError("not enough values to unpack (expected 2, got 0)")
+
+    with pytest.warns(UserWarning, match="cuda-less"):
+        mgr = NoCudaMemoryManager()
+    assert mgr.totalmem == 1
+
+
+def test_register_proportion_out_of_range(mgr):
+    """Test register raises ValueError for an out-of-range proportion."""
+    inst = DummyClass()
+    with pytest.raises(ValueError, match="Proportion must be between"):
+        mgr.register(inst, proportion=1.5)
+
+
+def test_set_manual_proportion_out_of_range(mgr):
+    """Test set_manual_proportion raises ValueError when out of range."""
+    inst = DummyClass()
+    with pytest.raises(ValueError, match="Proportion must be between"):
+        mgr.set_manual_proportion(inst, 1.5)
+
+
+def test_set_manual_limit_mode_noop_when_already_manual(mgr):
+    """Test set_manual_limit_mode is a no-op for an already-manual
+    instance."""
+    inst = DummyClass()
+    mgr.register(inst)
+    mgr.set_manual_limit_mode(inst, 0.3)
+    assert abs(mgr.proportion(inst) - 0.3) < 1e-6
+    # Second call should return early, leaving the proportion unchanged.
+    mgr.set_manual_limit_mode(inst, 0.9)
+    assert abs(mgr.proportion(inst) - 0.3) < 1e-6
+
+
+def test_set_auto_limit_mode_converts_manual_to_auto(mgr):
+    """Test set_auto_limit_mode moves a manual instance to the auto
+    pool."""
+    inst = DummyClass()
+    mgr.register(inst, proportion=0.5)
+    instance_id = id(inst)
+    assert instance_id in mgr._manual_pool
+    mgr.set_auto_limit_mode(inst)
+    assert instance_id not in mgr._manual_pool
+    assert instance_id in mgr._auto_pool
+    assert abs(mgr.proportion(inst) - 1.0) < 1e-6
+
+
+def test_add_manual_proportion_exceeds_total(mgr):
+    """Test manual proportions summing above 1.0 raise ValueError."""
+    inst1 = DummyClass()
+    inst2 = DummyClass()
+    mgr.register(inst1, proportion=0.6)
+    with pytest.raises(ValueError, match="exceed total available memory"):
+        mgr.register(inst2, proportion=0.6)
+
+
+def test_add_manual_proportion_warns_low_autopool(mgr):
+    """Test a manual proportion leaving <5% free warns when the auto
+    pool is empty."""
+    inst = DummyClass()
+    with pytest.warns(UserWarning, match="less than 5%"):
+        mgr.register(inst, proportion=0.97)
+
+
+def test_add_auto_proportion_raises_when_pool_too_small(mgr):
+    """Test registering an auto instance raises ValueError once the
+    manual pool leaves less than the minimum auto pool size."""
+    manual_inst = DummyClass()
+    with pytest.warns(UserWarning, match="less than 5%"):
+        mgr.register(manual_inst, proportion=0.97)
+    auto_inst = DummyClass()
+    with pytest.raises(ValueError, match="less than"):
+        mgr.register(auto_inst)
+
+
+class FakeAllocation:
+    def __init__(self, nbytes):
+        self.nbytes = nbytes
+
+
+def test_get_available_memory_active_mode_warns_low_headroom(mgr):
+    """Test get_available_memory warns when a group has used more
+    than 95% of its allotted memory in active mode."""
+    inst = DummyClass()
+    mgr.register(inst, proportion=0.5)
+    mgr.set_limit_mode("active")
+    settings = mgr.registry[id(inst)]
+    cap = settings.cap
+    settings.add_allocation("fake", FakeAllocation(int(cap * 0.99)))
+    with pytest.warns(UserWarning, match="more than 95%"):
+        available = mgr.get_available_memory("default")
+    free, _ = mgr.get_memory_info()
+    headroom = cap - settings.allocated_bytes
+    assert available == min(headroom, free)
+
+
+def test_get_available_memory_active_mode_normal(mgr):
+    """Test get_available_memory returns headroom in active mode when
+    below the 95% warning threshold."""
+    inst = DummyClass()
+    mgr.register(inst, proportion=0.5)
+    mgr.set_limit_mode("active")
+    available = mgr.get_available_memory("default")
+    settings = mgr.registry[id(inst)]
+    free, _ = mgr.get_memory_info()
+    headroom = settings.cap - settings.allocated_bytes
+    assert available == min(headroom, free)
+
+
+@pytest.mark.parametrize(
+    "fixed_mem_override", [{"free": 1024, "total": 1024 * 100}], indirect=True
+)
+def test_get_chunk_parameters_warns_and_raises_when_unfittable(mgr):
+    """Test get_chunk_parameters warns when a request exceeds 20x
+    VRAM and then raises when even one run cannot fit."""
+    inst = DummyClass()
+    mgr.register(inst, stream_group="test")
+    requests = {
+        id(inst): {
+            "huge": ArrayRequest(
+                shape=(1000, 1000, 1000),
+                dtype=np.float32,
+                memory="device",
+                unchunkable=False,
+                chunk_axis_index=0,
+                total_runs=1000,
+            ),
+        }
+    }
+    with pytest.warns(UserWarning, match="exceeds available VRAM"):
+        with pytest.raises(ValueError, match="single run"):
+            mgr.get_chunk_parameters(
+                requests=requests,
+                axis_length=1000,
+                stream_group="test",
+            )
+
+
+def test_is_request_chunkable_empty_shape():
+    """Test is_request_chunkable returns False for a scalar shape."""
+    request = ArrayRequest(shape=(), dtype=np.float32)
+    assert is_request_chunkable(request) is False
+
+
+def test_is_request_chunkable_no_chunk_axis():
+    """Test is_request_chunkable returns False when chunk_axis_index
+    is None."""
+    request = ArrayRequest(
+        shape=(4, 4), dtype=np.float32, chunk_axis_index=None
+    )
+    assert is_request_chunkable(request) is False
+
+
+def test_is_request_chunkable_axis_out_of_bounds():
+    """Test is_request_chunkable returns False when chunk_axis_index
+    is outside the shape."""
+    request = ArrayRequest(
+        shape=(4, 4), dtype=np.float32, chunk_axis_index=5
+    )
+    assert is_request_chunkable(request) is False
+
+
+def test_is_request_chunkable_degenerate_axis():
+    """Test is_request_chunkable returns False when the run axis has
+    length 1."""
+    request = ArrayRequest(
+        shape=(4, 1), dtype=np.float32, chunk_axis_index=1
+    )
+    assert is_request_chunkable(request) is False
+
+
+def test_get_portioned_request_size():
+    """Test get_portioned_request_size splits chunkable and
+    unchunkable byte totals across instances."""
+    requests = {
+        1: {
+            "chunkable": ArrayRequest(
+                shape=(2, 3, 4),
+                dtype=np.float32,
+                chunk_axis_index=2,
+                unchunkable=False,
+            ),
+            "unchunkable": ArrayRequest(
+                shape=(2, 3, 4),
+                dtype=np.float32,
+                unchunkable=True,
+            ),
+        },
+    }
+    chunkable, unchunkable = get_portioned_request_size(requests)
+    expected = 2 * 3 * 4 * np.dtype(np.float32).itemsize
+    assert chunkable == expected
+    assert unchunkable == expected
+
+
+def test_replace_with_chunked_size():
+    """Test replace_with_chunked_size swaps only the run axis."""
+    shape = (2, 3, 4)
+    newshape = replace_with_chunked_size(shape, axis_index=1, chunked_size=9)
+    assert newshape == (2, 9, 4)
+
+
+def test_attrs_post_init_unexpected_exception():
+    """Test __attrs_post_init__ falls back to totalmem=1 and warns on
+    an unexpected exception from get_memory_info."""
+
+    class BrokenMemoryManager(MemoryManager):
+        def get_memory_info(self):
+            raise RuntimeError("boom")
+
+    with pytest.warns(UserWarning, match="Unexpected exception"):
+        mgr = BrokenMemoryManager()
+    assert mgr.totalmem == 1
+
+
+def test_set_auto_limit_mode_noop_when_already_auto(mgr):
+    """Test set_auto_limit_mode is a no-op for an already-auto
+    instance."""
+    inst = DummyClass()
+    mgr.register(inst)
+    instance_id = id(inst)
+    proportion_before = mgr.proportion(inst)
+    mgr.set_auto_limit_mode(inst)
+    assert instance_id in mgr._auto_pool
+    assert mgr.proportion(inst) == proportion_before
+
+
+def test_add_allocation_overwrites_existing_key():
+    """Test add_allocation frees a previous allocation before
+    overwriting it with a new one under the same key."""
+    settings = InstanceMemorySettings()
+    arr1 = np.zeros((4,), dtype=np.float32)
+    arr2 = np.ones((4,), dtype=np.float32)
+    settings.add_allocation("foo", arr1)
+    settings.add_allocation("foo", arr2)
+    assert settings.allocations["foo"] is arr2
+
+
+def test_create_host_array_with_like(mgr):
+    """Test create_host_array copies data from the like source."""
+    source = np.arange(6, dtype=np.float32).reshape(2, 3)
+    arr = mgr.create_host_array(shape=(2, 3), dtype=np.float32, like=source)
+    np.testing.assert_array_equal(arr, source)
+
+
+def test_sync_stream(registered_mgr, registered_instance):
+    """Test sync_stream synchronizes the instance's CUDA stream."""
+    mgr = registered_mgr
+    instance = registered_instance
+    mgr.sync_stream(instance)  # Should not raise
+
+
+def test_allocate_queue_notifies_notaries(mgr):
+    """Test allocate_queue notifies peers that never queued a request
+    (notaries) with an empty ArrayResponse."""
+    inst1 = DummyClass()
+    inst2 = DummyClass()
+    responses = {}
+
+    def hook1(response):
+        responses["inst1"] = response
+
+    def hook2(response):
+        responses["inst2"] = response
+
+    mgr.register(inst1, allocation_ready_hook=hook1, stream_group="grp")
+    mgr.register(inst2, allocation_ready_hook=hook2, stream_group="grp")
+
+    requests = {
+        "arr1": ArrayRequest(
+            shape=(2, 2, 2),
+            dtype=np.float32,
+            memory="device",
+            total_runs=2,
+        )
+    }
+    mgr.queue_request(inst1, requests)
+    mgr.allocate_queue(inst1)
+
+    assert "inst2" in responses
+    assert responses["inst2"].arr == {}
+    assert responses["inst2"].chunks == responses["inst1"].chunks
+
+
+@pytest.mark.parametrize(
+    "fixed_mem_override",
+    [{"free": 100 * 1024**2, "total": 8 * 1024**3}],
+    indirect=True,
+)
+def test_get_chunk_parameters_unchunkable_alone_exceeds_memory(mgr):
+    """Test get_chunk_parameters raises when unchunkable arrays alone
+    exceed available memory, distinct from the all-unchunkable case
+    (a genuinely chunkable array is also present)."""
+    inst = DummyClass()
+    mgr.register(inst, stream_group="test")
+
+    requests = {
+        id(inst): {
+            "big_unchunkable": ArrayRequest(
+                shape=(512, 512, 256),
+                dtype=np.float32,
+                memory="device",
+                unchunkable=True,
+                total_runs=1,
+            ),
+            "small_chunkable": ArrayRequest(
+                shape=(4, 4, 10),
+                dtype=np.float32,
+                memory="device",
+                unchunkable=False,
+                chunk_axis_index=2,
+                total_runs=10,
+            ),
+        }
+    }
+
+    with pytest.raises(ValueError, match="Unchunkable arrays require"):
+        mgr.get_chunk_parameters(
+            requests=requests,
+            axis_length=10,
+            stream_group="test",
+        )
+
+
+@pytest.mark.parametrize(
+    "fixed_mem_override",
+    [{"free": 10 * 1024**2, "total": 8 * 1024**3}],
+    indirect=True,
+)
+def test_get_chunk_parameters_computes_chunk_size_when_eligible(mgr):
+    """Test get_chunk_parameters returns a positive chunk size and
+    chunk count when the request exceeds available memory but each
+    run still fits."""
+    inst = DummyClass()
+    mgr.register(inst, stream_group="test")
+
+    requests = {
+        id(inst): {
+            "arr": ArrayRequest(
+                shape=(2, 5_000_000),
+                dtype=np.float32,
+                memory="device",
+                unchunkable=False,
+                chunk_axis_index=1,
+                total_runs=5_000_000,
+            ),
+        }
+    }
+
+    chunk_length, num_chunks = mgr.get_chunk_parameters(
+        requests=requests,
+        axis_length=5_000_000,
+        stream_group="test",
+    )
+    assert 0 < chunk_length < 5_000_000
+    assert num_chunks > 1
+class TestDeadInstanceRelease:
+    """The registry releases instances once they are collected."""
+
+    def test_registry_does_not_pin_instances(self, mgr):
+        """Bound-method hooks leave the instance collectable."""
+        inst = DummyClass()
+        mgr.register(
+            inst,
+            proportion=0.4,
+            invalidate_cache_hook=inst.notice_invalidate,
+            allocation_ready_hook=inst.notice_allocation,
+        )
+        instance_id = id(inst)
+        ref = weakref.ref(inst)
+        del inst
+        gc.collect()
+        assert ref() is None
+        assert mgr.manual_pool_proportion == 0.0
+        assert instance_id not in mgr.registry
+        assert instance_id not in mgr._manual_pool
+
+    def test_dead_manual_instances_release_proportion(self, mgr):
+        """Collected manual instances free their reservations.
+
+        Three successive 0.5 reservations exceed the whole memory if
+        the dead instances' proportions are retained.
+        """
+        keeper = DummyClass()
+        mgr.register(keeper)
+        for _ in range(3):
+            inst = DummyClass()
+            mgr.register(inst, proportion=0.5)
+            del inst
+            gc.collect()
+        assert mgr.manual_pool_proportion == 0.0
+        survivor = DummyClass()
+        mgr.register(survivor, proportion=0.9)
+        assert abs(mgr.manual_pool_proportion - 0.9) < 1e-9
+        assert id(survivor) in mgr._manual_pool
+
+    def test_dead_auto_instance_leaves_pool(self, mgr):
+        """A collected auto instance stops diluting the auto pool."""
+        keeper = DummyClass()
+        mgr.register(keeper)
+        inst = DummyClass()
+        mgr.register(inst)
+        del inst
+        gc.collect()
+        assert abs(mgr.auto_pool_proportion - 1.0) < 1e-9
+        assert mgr.registry[id(keeper)].proportion == 1.0
+
+    def test_bound_method_hooks_compare_equal(self, mgr):
+        """Registered hooks compare equal to the source bound methods."""
+        inst = DummyClass(proportion=0.3)
+        mgr.register(
+            inst,
+            invalidate_cache_hook=inst.notice_invalidate,
+            allocation_ready_hook=inst.notice_allocation,
+        )
+        settings = mgr.registry[id(inst)]
+        assert settings.invalidate_hook == inst.notice_invalidate
+        assert settings.allocation_ready_hook == inst.notice_allocation
+        settings.invalidate_hook()
+        assert inst.proportion is None
+
+    def test_dead_hooks_are_noops(self, mgr):
+        """Hooks of a collected instance do nothing when invoked."""
+        inst = DummyClass()
+        mgr.register(inst, invalidate_cache_hook=inst.notice_invalidate)
+        del inst
+        gc.collect()
+        mgr.invalidate_all()
+
+    def test_non_weakrefable_instance_registers(self, mgr):
+        """Objects without weakref support register and persist.
+
+        Such instances carry no instance_ref, so the purge treats
+        them as permanently alive.
+        """
+
+        class Slotted:
+            __slots__ = ()
+
+        inst = Slotted()
+        mgr.register(inst, proportion=0.2)
+        assert mgr.registry[id(inst)].instance_ref is None
+        assert abs(mgr.manual_pool_proportion - 0.2) < 1e-9
+        assert id(inst) in mgr.registry

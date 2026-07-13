@@ -34,6 +34,7 @@ from numpy import eye
 
 from cubie._utils import PrecisionDType, build_config
 from cubie.buffer_registry import buffer_registry
+from cubie.cuda_simsafe import get_jit_kwargs
 from cubie.integrators.algorithms.base_algorithm_step import StepCache, \
     StepControlDefaults
 from cubie.integrators.algorithms.ode_implicitstep import (
@@ -125,7 +126,7 @@ class BackwardsEulerStep(ODEImplicitStep):
         config = self.compile_settings
 
         # Register solver child buffers
-        _ = buffer_registry.get_child_allocators(
+        buffer_registry.register_child(
             self, self.solver, name='solver_scratch'
         )
 
@@ -190,6 +191,7 @@ class BackwardsEulerStep(ODEImplicitStep):
 
         solver_fn = solver_function
 
+        # no cover: start
         @cuda.jit(
             # (
             #     numba_precision[::1],
@@ -211,6 +213,7 @@ class BackwardsEulerStep(ODEImplicitStep):
             # ),
             device=True,
             inline=True,
+            **get_jit_kwargs(self.compile_settings.lineinfo),
         )
         def step(
             state,
@@ -316,6 +319,7 @@ class BackwardsEulerStep(ODEImplicitStep):
 
             return status
 
+        # no cover: end
         return StepCache(step=step, nonlinear_solver=solver_fn)
 
     @property

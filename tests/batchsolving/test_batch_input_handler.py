@@ -791,3 +791,191 @@ def test_process_empty_values_nonempty_raises(system):
         handler._process_single_input(
             42, system.initial_values, kind="combinatorial"
         )
+
+
+# ── _process_single_input: genuinely empty SystemValues ────── #
+
+
+@pytest.fixture(scope="module")
+def no_param_system(precision):
+    """System with no declared parameters (empty SystemValues)."""
+    from cubie import create_ODE_system
+
+    return create_ODE_system(
+        dxdt=["dx0 = -x0"],
+        states={"x0": 1.0},
+        precision=precision,
+        name="no_param_system_batchhandler",
+    )
+
+
+@pytest.mark.parametrize(
+    "empty_params",
+    [{}, np.array([]).reshape(0, 0), [], ()],
+    ids=["empty_dict", "empty_ndarray", "empty_list", "empty_tuple"],
+)
+def test_process_empty_values_object_empty_input_returns_zero_rows(
+    no_param_system, empty_params
+):
+    """Empty (non-None) input against an empty SystemValues returns a
+    (0, 1) array instead of raising."""
+    handler = BatchInputHandler.from_system(no_param_system)
+    result = handler._process_single_input(
+        empty_params, handler.parameters, kind="combinatorial"
+    )
+    assert result.shape == (0, 1)
+
+
+def test_process_empty_values_object_none_input_returns_zero_rows(
+    no_param_system,
+):
+    """None input against an empty SystemValues also returns (0, 1)."""
+    handler = BatchInputHandler.from_system(no_param_system)
+    result = handler._process_single_input(
+        None, handler.parameters, kind="combinatorial"
+    )
+    assert result.shape == (0, 1)
+
+
+@pytest.mark.parametrize(
+    "nonempty_params",
+    [{"phantom": [1.0]}, np.array([1.0]), [1.0]],
+    ids=["dict", "ndarray", "list"],
+)
+def test_process_empty_values_object_nonempty_input_raises(
+    no_param_system, nonempty_params
+):
+    """Non-empty input against an empty SystemValues raises ValueError."""
+    handler = BatchInputHandler.from_system(no_param_system)
+    with pytest.raises(ValueError, match="no settable variables"):
+        handler._process_single_input(
+            nonempty_params, handler.parameters, kind="combinatorial"
+        )
+
+
+def test_call_with_no_param_system_processes_empty_params(no_param_system):
+    """__call__ falls through to the empty-SystemValues path for params
+    when a non-None, non-array params value is supplied."""
+    handler = BatchInputHandler.from_system(no_param_system)
+    inits, params = handler(
+        states={"x0": [1.0, 2.0]}, params={}, kind="combinatorial"
+    )
+    assert params.shape == (0, 2)
+    assert inits.shape[1] == 2
+
+
+# ── _is_right_sized_array: empty SystemValues branches ──────── #
+
+
+def test_is_right_sized_empty_values_none_arr(no_param_system):
+    """None is right-sized when values_object is empty."""
+    handler = BatchInputHandler.from_system(no_param_system)
+    assert (
+        handler._is_right_sized_array(None, handler.parameters) is True
+    )
+
+
+def test_is_right_sized_empty_values_zero_row_2d_array(no_param_system):
+    """A (0, n) 2D array is right-sized when values_object is empty."""
+    handler = BatchInputHandler.from_system(no_param_system)
+    arr = np.empty((0, 3))
+    assert (
+        handler._is_right_sized_array(arr, handler.parameters) is True
+    )
+
+
+def test_is_right_sized_empty_values_other_input_false(no_param_system):
+    """Any other non-None input is not right-sized against an empty
+    values_object."""
+    handler = BatchInputHandler.from_system(no_param_system)
+    assert (
+        handler._is_right_sized_array([1.0], handler.parameters) is False
+    )
+    assert (
+        handler._is_right_sized_array(
+            np.ones((1, 2)), handler.parameters
+        )
+        is False
+    )
+
+
+# ── _is_1d_or_none: fallback False for unrecognised types ───── #
+
+
+def test_is_1d_or_none_scalar_returns_false(input_handler):
+    """A bare scalar is neither None, dict, ndarray, list, nor tuple, so
+    it falls through to the default False."""
+    assert input_handler._is_1d_or_none(5) is False
+    assert input_handler._is_1d_or_none(3.14) is False
+
+
+# ── _fast_return_arrays: remaining branches ─────────────────── #
+
+
+def test_fast_return_device_mismatched_runs_returns_none(
+    input_handler, system
+):
+    """Both device arrays but mismatched run counts fall through to
+    None instead of a fast return."""
+    n_s = system.sizes.states
+    n_p = system.sizes.parameters
+
+    class FakeDevice:
+        def __init__(self, shape, dtype):
+            self._data = np.ones(shape, dtype=dtype)
+            self.shape = shape
+
+        @property
+        def __cuda_array_interface__(self):
+            return {
+                "shape": self._data.shape,
+                "typestr": self._data.dtype.str,
+                "data": (self._data.ctypes.data, False),
+                "version": 3,
+            }
+
+    states = FakeDevice((n_s, 2), system.precision)
+    params = FakeDevice((n_p, 3), system.precision)
+    result = input_handler._fast_return_arrays(states, params, "verbatim")
+    assert result is None
+
+
+def test_fast_return_empty_params_none_marks_params_ok(no_param_system):
+    """When parameters are empty and params is None, params_ok is
+    forced True and an empty (0, n_runs) params array is synthesised."""
+    handler = BatchInputHandler.from_system(no_param_system)
+    n_s = handler.states.n
+    states = np.ones((n_s, 4), dtype=handler.precision)
+    result = handler._fast_return_arrays(states, None, "verbatim")
+    assert result is not None
+    assert result[1].shape == (0, 4)
+
+
+def test_fast_return_states_ok_params_provided_1d_broadcasts(
+    input_handler, system, precision
+):
+    """states_ok + a provided (non-None) 1D params array sanitises and
+    broadcasts to match the state run count."""
+    n_s = system.sizes.states
+    n_p = system.sizes.parameters
+    states = np.ones((n_s, 3), dtype=precision)
+    params = np.arange(n_p, dtype=precision)
+    result = input_handler._fast_return_arrays(states, params, "verbatim")
+    assert result is not None
+    assert result[0].shape[1] == 3
+    assert result[1].shape[1] == 3
+
+
+def test_fast_return_params_ok_states_provided_1d_broadcasts(
+    input_handler, system, precision
+):
+    """params_ok + a provided (non-None) 1D states array sanitises and
+    broadcasts to match the params run count."""
+    n_s = system.sizes.states
+    n_p = system.sizes.parameters
+    params = np.ones((n_p, 3), dtype=precision)
+    states = np.arange(n_s, dtype=precision)
+    result = input_handler._fast_return_arrays(states, params, "verbatim")
+    assert result is not None
+    assert result[0].shape[1] == 3
+    assert result[1].shape[1] == 3

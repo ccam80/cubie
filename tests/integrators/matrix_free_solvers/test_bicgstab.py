@@ -81,6 +81,45 @@ def test_bicgstab_breakdown_detection(precision):
     assert status_code == CUBIE_RESULT_CODES.BICGSTAB_BREAKDOWN
 
 
+def test_bicgstab_linear_correction_type_is_bicgstab():
+    """linear_correction_type always reports 'bicgstab'."""
+    solver = BiCGSTABSolver(precision=np.float32, n=3)
+    assert solver.linear_correction_type == "bicgstab"
+
+
+def test_bicgstab_settings_dict_reports_config_and_locations():
+    """settings_dict exposes iteration limit and buffer placements."""
+    solver = BiCGSTABSolver(
+        precision=np.float32, n=3, krylov_max_iters=42,
+    )
+    settings = solver.compile_settings.settings_dict
+    assert settings["krylov_max_iters"] == 42
+    assert settings["linear_correction_type"] == "bicgstab"
+    assert settings["r0_hat_location"] in ("local", "shared")
+    assert settings["p_location"] == solver.compile_settings.p_location
+    assert settings["v_location"] == solver.compile_settings.v_location
+    assert settings["tmp_location"] == solver.compile_settings.tmp_location
+    assert (
+        settings["s_hat_location"]
+        == solver.compile_settings.s_hat_location
+    )
+
+
+@pytest.mark.parametrize("build_precision", [np.float64, np.float16])
+def test_bicgstab_build_selects_precision_specific_thresholds(
+    build_precision,
+):
+    """build() compiles for float64 and non-float32/64 precisions,
+
+    exercising the elif/else branches of the breakdown-threshold
+    selection (float32 is covered by the ``precision``-fixture tests
+    above).
+    """
+    solver = BiCGSTABSolver(precision=build_precision, n=3)
+    device_fn = solver.device_function
+    assert callable(device_fn)
+
+
 def test_bicgstab_r0_hat_auto_placement():
     """Witness vector auto-selects shared in the DRAM-bound window.
 

@@ -31,6 +31,29 @@ def test_getters(
     )
 
 
+def test_device_function_forwarding_getters(loop):
+    """compile_settings-forwarding properties return the cached values."""
+    cs = loop.compile_settings
+    assert loop.step_controller_fn is cs.step_controller_fn
+    assert loop.step_function is cs.step_function
+    assert loop.evaluate_driver_at_t is cs.evaluate_driver_at_t
+    assert loop.evaluate_observables is cs.evaluate_observables
+    assert loop.dt == cs.dt
+    assert loop.is_adaptive == cs.is_adaptive
+
+
+def test_update_with_no_changes_returns_empty_set(loop_mutable):
+    """update() with no arguments returns an empty set without error."""
+    assert loop_mutable.update() == set()
+    assert loop_mutable.update(updates_dict={}) == set()
+
+
+def test_update_raises_on_unrecognised_parameter(loop_mutable):
+    """An unrecognised update key raises KeyError."""
+    with pytest.raises(KeyError, match="Unrecognized parameters"):
+        loop_mutable.update(not_a_real_parameter=1)
+
+
 @pytest.mark.parametrize(
     "solver_settings_override",
     [

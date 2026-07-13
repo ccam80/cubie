@@ -15,7 +15,7 @@ See Also
 
 from numba import cuda
 
-from cubie.cuda_simsafe import selp
+from cubie.cuda_simsafe import get_jit_kwargs, selp
 from cubie.outputhandling.summarymetrics import summary_metrics
 from cubie.outputhandling.summarymetrics.metrics import (
     SummaryMetric,
@@ -43,6 +43,7 @@ class DxdtExtrema(SummaryMetric):
             buffer_size=3,
             output_size=2,
             unit_modification="[unit]*s^-1",
+            output_names=["dxdt_max", "dxdt_min"],
         )
 
     def build(self) -> MetricFuncCache:
@@ -71,6 +72,7 @@ class DxdtExtrema(SummaryMetric):
             # ],
             device=True,
             inline=True,
+            **get_jit_kwargs(self.compile_settings.lineinfo),
         )
         def update(
             value,
@@ -120,6 +122,7 @@ class DxdtExtrema(SummaryMetric):
             # ],
             device=True,
             inline=True,
+            **get_jit_kwargs(self.compile_settings.lineinfo),
         )
         def save(
             buffer,

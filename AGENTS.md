@@ -16,6 +16,9 @@ optimisation conventions live in `src/cubie/writing_cuda_functions.md`.
 - **Python 3.10–3.14**, **CUDA 12 or 13** (via the `cuda12`/`cuda13` extras, or a system
   toolkit), **NVIDIA GPU (compute capability ≥6.0)**.
 - CPU-only dev/test without a GPU: set `NUMBA_ENABLE_CUDASIM=1` (Numba's CUDA simulator).
+  **CUDASIM is not production.** Behaviour under the simulator must never be considered when
+  evaluating code: designs, fixes, and diagnostics are judged solely on their real-GPU
+  behaviour. A path that works under CUDASIM but degrades or disappears on hardware is broken.
 - Dev shell is **PowerShell on Windows** — chain with `;`, not `&&`. Staying Windows-compatible is
   a project goal; CI runs on Ubuntu (Python 3.10/3.11/3.12).
 
@@ -53,12 +56,24 @@ change — the full suite is slow (run it as a pre-commit check only, and only w
 - **Conventional Commit format**; description in **present-state changelog language** (describe the
   resulting state, e.g. "nested AGENTS.md files created…"). Types: `fix`, `feat` (rare), `test`,
   `docs`, `chore`.
+- **Agents:** every fix or feature is developed on its own branch off `main`. When the work is
+  done and verified, commit, push the branch, and open a PR.
+- **Performance gate (every PR):** run `benchmarks/lorenz_mean_runtime.py` A/B — A on `main`,
+  B on the PR branch (e.g. via `PYTHONPATH=<tree>/src`) — and include the results table in the
+  PR message. Script defaults are the gate settings. The script outputs kernel runtime only
+  (CUDA-event); one invocation per side suffices — means repeat to ~0.1% — but an invocation
+  where a config's std exceeds ~5% of its mean was contaminated by outside interference:
+  discard it and rerun. Run A (`main`) first, then pass A's printed mean/std to the B run via
+  `--ref-fixed MEAN STD --ref-adaptive MEAN STD`; the script prints a Welch z per config and
+  the verdict (`|z| >= 3` = the means differ; positive z on the PR branch = regression).
 
 ## Cross-cutting code rules (details in `src/cubie/AGENTS.md`)
 - Never call a `CUDAFactory.build()` directly — access compiled functions via the cached properties.
 - Never set/modify env vars in source (esp. `NUMBA_ENABLE_CUDASIM`); set them externally.
 - Module-scoped imports belong in the file header only; deliberate lazy imports of optional deps
-  (Qt, cupy, cellmlmanip) stay function-local.
+  (Qt) stay function-local. cupy/cupyx are required on a real GPU and imported
+  once, conditionally, in `cuda_simsafe` — import them from there (`from cubie.cuda_simsafe
+  import cupy, cupyx`), never directly and never lazily.
 - In `CUDAFactory`/device-code files, use explicit imports with the project aliasing (`np_`,
   `attrsval_`, `attrs`-prefixed); store float config fields underscored and expose via a
   precision-casting property.
@@ -71,7 +86,10 @@ change — the full suite is slow (run it as a pre-commit check only, and only w
   `src/cubie/vendored/cellmlmanip` (its `lxml`/`networkx`/`Pint>=0.24`/`rdflib` runtime deps are core).
 - **CUDA toolkit:** supplied by the `cuda12`/`cuda13` extras (`numba-cuda[cu12]`/`[cu13]`) or an
   existing system install; a bare `pip install cubie` uses whatever toolkit numba-cuda can find.
-- **Optional:** cupy via the `cupy12`/`cupy13` extras (pool memory), pandas (DataFrame output),
-  matplotlib (driver plots).
+- **CuPy is required for real-GPU execution** — it is cubie's single device memory allocator.
+  The `cuda12`/`cuda13` extras pull in the matching cupy build alongside the toolkit wheels.
+  It is imported at `import cubie` through `cubie.cuda_simsafe`; the CUDA simulator
+  (`NUMBA_ENABLE_CUDASIM=1`) never requires it.
+- **Optional:** pandas (DataFrame output), matplotlib (driver plots).
 - CI installs a patched `numba-cuda` fork (`ccam80/numba-cuda@cubie_patch`) for faster compile;
   stock `numba-cuda` works for local dev.

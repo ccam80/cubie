@@ -28,6 +28,10 @@ def solver_with_arrays(
         stream=solver_settings["stream"],
         warmup=solver_settings["warmup"],
     )
+    # kernel.run launches and copies back asynchronously; wait for the
+    # host arrays like Solver.solve does before results are read.
+    solver.memory_manager.sync_stream(solver.kernel)
+    solver.kernel.wait_for_writeback()
 
     return solver
 
@@ -564,6 +568,70 @@ class TestNaNProcessing:
             status_array[2] = original_values[2]
 
 
+@pytest.fixture(scope="session")
+def solved_summary_only_solver(system, precision):
+    """Solver run with a summary-only, fusing output configuration.
+
+    No state or observable output is requested, and the requested
+    summary metrics (``mean``, ``max``, ``min``) trigger the
+    ``extrema`` combined-metric substitution, so the result
+    exercises both the summary-only legend path and requested-name
+    reporting for fused metrics.
+    """
+    solver = Solver(system, save_every=0.01)
+
+    solver.solve(
+        initial_values={
+            "x0": [1.0, 2.0, 3.0],
+            "x1": [0.0, 0.0, 0.0],
+            "x2": [0.0, 0.0, 0.0],
+        },
+        parameters={
+            "p0": [0.1, 0.2, 0.3],
+            "p1": [0.1, 0.2, 0.3],
+            "p2": [0.1, 0.2, 0.3],
+        },
+        duration=0.1,
+        output_types=["mean", "max", "min"],
+    )
+    return solver
+
+
+class TestSummaryOnlyRegression:
+    """Summary-only legends and fused-metric output naming."""
+
+    def test_summary_only_solve_populates_legend(
+        self, solved_summary_only_solver
+    ):
+        """A summary-only solve produces a non-empty
+        summaries_legend whose row count matches the variable dimension
+        of summaries_array."""
+        result = SolveResult.from_solver(solved_summary_only_solver)
+
+        assert result.summaries_legend != {}
+        variable_index = result._stride_order.index("variable")
+        assert (
+            len(result.summaries_legend)
+            == result.summaries_array.shape[variable_index]
+        )
+
+    def test_fused_extrema_reports_requested_names(
+        self, solved_summary_only_solver
+    ):
+        """The fused max/min metric reports its outputs under the
+        requested names, not extrema_1/extrema_2, with max >= min
+        elementwise."""
+        per_summary = SolveResult.from_solver(
+            solved_summary_only_solver, results_type="numpy_per_summary"
+        )
+
+        assert "max" in per_summary
+        assert "min" in per_summary
+        assert "extrema_1" not in per_summary
+        assert "extrema_2" not in per_summary
+        assert np.all(per_summary["max"] >= per_summary["min"])
+
+
 class TestSolveSpecFields:
     """Test SolveSpec field attributes."""
 
@@ -615,3 +683,103 @@ class TestSolveSpecFields:
 
         for attr in expected_attrs:
             assert hasattr(spec, attr), f"SolveSpec missing attribute: {attr}"
+
+
+def test_format_time_domain_label_dimensionless_omits_unit():
+    """_format_time_domain_label returns the bare label for a
+    dimensionless unit instead of appending '[unit]'."""
+    from cubie.batchsolving.solveresult import _format_time_domain_label
+
+    assert _format_time_domain_label("x0", "dimensionless") == "x0"
+
+
+def test_format_time_domain_label_appends_unit():
+    """_format_time_domain_label appends the unit when not
+    dimensionless."""
+    from cubie.batchsolving.solveresult import _format_time_domain_label
+
+    assert _format_time_domain_label("v", "mV") == "v [mV]"
+
+
+def test_from_solver_unknown_results_type_returns_full(solver_with_arrays):
+    """An unrecognized results_type falls through to the 'full' object
+    rather than raising."""
+    result = SolveResult.from_solver(
+        solver_with_arrays, results_type="not_a_real_type"
+    )
+    assert isinstance(result, SolveResult)
+
+
+def test_as_pandas_1d_time_index_used_directly():
+    """When ``time`` is a 1D array, as_pandas uses it directly as the
+    DataFrame index instead of slicing a run column from a 2D array.
+
+    Host arrays from a real solve are always at least 2D (time, run),
+    so this branch is exercised via a hand-built SolveResult rather
+    than an actual solver run.
+    """
+    time_domain_array = np.arange(6, dtype=float).reshape(3, 2, 1)
+    summaries_array = np.arange(2, dtype=float).reshape(1, 2, 1)
+    time = np.array([0.0, 0.01, 0.02])
+    result = SolveResult(
+        time_domain_array=time_domain_array,
+        summaries_array=summaries_array,
+        time=time,
+        time_domain_legend={0: "a", 1: "b"},
+        summaries_legend={0: "a mean", 1: "b mean"},
+        active_outputs=ActiveOutputs(
+            state_summaries=True, observable_summaries=False
+        ),
+    )
+    assert result.time.ndim == 1
+    pandas_dict = result.as_pandas
+    assert list(pandas_dict["time_domain"].index) == list(time)
+
+
+def test_status_messages_property(solver_with_arrays):
+    """SolveResult.status_messages decodes the stored status codes."""
+    result = SolveResult.from_solver(solver_with_arrays)
+    messages = result.status_messages
+    assert isinstance(messages, dict)
+    assert messages == {}
+
+
+def test_from_solver_raw_results_type(solver_with_arrays):
+    """results_type='raw' shortcuts to a plain dict of host arrays with
+    no legends or supporting information."""
+    result = SolveResult.from_solver(solver_with_arrays, results_type="raw")
+
+    assert isinstance(result, dict)
+    assert set(result.keys()) == {
+        "state",
+        "observables",
+        "state_summaries",
+        "observable_summaries",
+        "iteration_counters",
+        "status_codes",
+    }
+    assert result["state"] is solver_with_arrays.state
+    assert result["status_codes"] is solver_with_arrays.status_codes
+
+
+@pytest.mark.parametrize(
+    "solver_settings_override",
+    [{"output_types": ["state"]}],
+    indirect=True,
+)
+def test_as_pandas_without_summaries_returns_a_dataframe(
+    solver_with_arrays,
+):
+    """as_pandas returns a usable summaries DataFrame with no metrics.
+
+    When no summary metrics are active, each run contributes an empty
+    per-run DataFrame so the concatenated ``summaries`` entry is a
+    real (empty) DataFrame.
+    """
+    result = SolveResult.from_solver(solver_with_arrays)
+    assert result.active_outputs.state_summaries is False
+    assert result.active_outputs.observable_summaries is False
+
+    pandas_dict = result.as_pandas
+    assert isinstance(pandas_dict["summaries"], pd.DataFrame)
+    assert pandas_dict["summaries"].empty

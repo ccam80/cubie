@@ -1,3 +1,4 @@
+# no cover: start
 """Qt-based GUI utilities for CuBIE ODE systems.
 
 Graphical editors for managing constants, parameters, and initial
@@ -37,3 +38,4 @@ from cubie.gui.constants_editor import ConstantsEditor
 from cubie.gui.states_editor import StatesEditor
 
 __all__ = ["ConstantsEditor", "StatesEditor"]
+# no cover: end

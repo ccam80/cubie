@@ -449,7 +449,7 @@ class SolveResult:
                     [[f"run_{run}"], df.columns]
                 )
             else:
-                summaries_dfs.append(pd.DataFrame)
+                summaries_dfs.append(pd.DataFrame())
 
         time_domain_df = pd.concat(time_dfs, axis=1)
         summaries_df = pd.concat(summaries_dfs, axis=1)
@@ -692,8 +692,8 @@ class SolveResult:
         """
         singlevar_legend = solver.summary_legend_per_variable
         unit_modifications = solver.summary_unit_modifications
-        state_labels = solver.saved_states
-        obs_labels = solver.saved_observables
+        state_labels = solver.summarised_states
+        obs_labels = solver.summarised_observables
         summaries_legend = {}
 
         state_units = {}

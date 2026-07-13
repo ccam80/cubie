@@ -17,11 +17,13 @@ solve the Lotka--Volterra system for a single initial condition:
    import cubie as qb
    import numpy as np
 
+   def lotka_volterra(t, y, p):
+       dx = p.a * y.x - p.b * y.x * y.y
+       dy = -p.c * y.y + p.d * y.x * y.y
+       return [dx, dy]
+
    LV = qb.create_ODE_system(
-       """
-       dx = a*x - b*x*y
-       dy = -c*y + d*x*y
-       """,
+       lotka_volterra,
        constants={"a": 0.1, "c": 0.3},
        parameters={"b": 0.02, "d": 0.01},
        states={"x": 0.5, "y": 0.3},
@@ -82,14 +84,14 @@ recompiling the CUDA kernel on every call:
    result_a = solver.solve(
        initial_values={"x": np.array([0.5]), "y": np.array([0.3])},
        parameters={"b": np.linspace(0.01, 0.05, 1000),
-                    "d": np.array([0.01])},
+                   "d": np.full(1000, 0.01)},
        duration=100.0,
    )
 
    result_b = solver.solve(
        initial_values={"x": np.array([1.0]), "y": np.array([0.5])},
        parameters={"b": np.linspace(0.01, 0.05, 1000),
-                    "d": np.array([0.01])},
+                   "d": np.full(1000, 0.01)},
        duration=200.0,
    )
 

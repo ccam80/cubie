@@ -30,9 +30,12 @@ controllers.
 
 ### Device-function contract (the caller — `IVPLoop` — must match)
 - Signature, identical across all controllers:
-  `(dt, state, state_prev, error, niters, accept_out, shared_scratch, persistent_local)`.
+  `(dt, state, state_prev, error, niters, truncated, accept_out, shared_scratch, persistent_local)`.
 - Writes `accept_out[0] = int32(1)` to accept the step, `int32(0)` to reject (a plain
   accept/reject flag, not a result code).
+- `truncated`: set by the loop when it forced the step length onto an output boundary.
+  On an **accepted** truncated step the adaptive controllers freeze `dt` and their
+  history and return `SUCCESS`; a **rejected** one shrinks `dt` normally.
 - Returns `CUBIE_RESULT_CODES.SUCCESS` normally, or `CUBIE_RESULT_CODES.STEP_TOO_SMALL`
   when the proposed step would fall at/below `dt_min` (reject-at-minimum-step — the loop
   uses this to stop adaptive retries). Both are captured as device closure constants from

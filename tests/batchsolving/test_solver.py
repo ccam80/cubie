@@ -232,6 +232,68 @@ def test_solve_basic(
     assert hasattr(result, "summaries_array")
 
 
+@pytest.mark.parametrize(
+    "solver_settings_override", [{"algorithm": "firk"}], indirect=True
+)
+def test_solve_firk_with_driver_arrays(
+    solver_mutable,
+    simple_initial_values,
+    simple_parameters,
+    driver_settings,
+):
+    """A FIRK solve with driver arrays completes successfully.
+
+    The FIRK step evaluates drivers at the stage times through its own
+    stage driver stack, which is sized from the algorithm step's driver
+    count; a driven solve exercises that path end to end.
+    """
+    result = solver_mutable.solve(
+        initial_values=simple_initial_values,
+        parameters=simple_parameters,
+        drivers=driver_settings,
+        duration=0.05,
+        save_every=0.02,
+        settling_time=0.0,
+        blocksize=32,
+        grid_type="combinatorial",
+        results_type="full",
+    )
+    assert not np.any(result.status_codes)
+    assert np.all(np.isfinite(result.time_domain_array))
+
+
+@pytest.mark.parametrize(
+    "solver_settings_override",
+    [{"algorithm": "tsit5", "step_controller": "pid"}],
+    indirect=True,
+)
+def test_algorithm_hot_swap_after_solve(
+    solver_mutable,
+    simple_initial_values,
+    simple_parameters,
+    driver_settings,
+):
+    """Swapping the algorithm after a solve leaves the solver usable."""
+    solve_kwargs = dict(
+        initial_values=simple_initial_values,
+        parameters=simple_parameters,
+        drivers=driver_settings,
+        duration=0.05,
+        save_every=0.02,
+        settling_time=0.0,
+        blocksize=32,
+        grid_type="combinatorial",
+        results_type="full",
+    )
+    first = solver_mutable.solve(**solve_kwargs)
+    assert not np.any(first.status_codes)
+
+    solver_mutable.update(algorithm="bogacki-shampine-32")
+    second = solver_mutable.solve(**solve_kwargs)
+    assert not np.any(second.status_codes)
+    assert np.all(np.isfinite(second.time_domain_array))
+
+
 def test_solve_with_different_grid_types(
     solver_mutable,
     simple_initial_values,
@@ -361,6 +423,35 @@ def test_update_silent_mode(precision, solver_mutable):
 
     assert "nonexistent_parameter" not in updated_keys
     assert solver.kernel.dt == new_dt
+
+
+def test_update_lineinfo(solver_mutable):
+    """Test that update routes lineinfo through compile settings."""
+    solver = solver_mutable
+
+    updated_keys = solver.update({"lineinfo": True})
+    assert "lineinfo" in updated_keys
+    assert solver.kernel.compile_settings.lineinfo is True
+    assert not solver.kernel.cache_valid
+
+    updated_keys = solver.update({"lineinfo": False})
+    assert "lineinfo" in updated_keys
+    assert solver.kernel.compile_settings.lineinfo is False
+
+
+def test_lineinfo_constructor_propagates_to_children(system):
+    """Explicit lineinfo reaches every child factory's compile settings."""
+    solver = Solver(system, algorithm="euler", lineinfo=True)
+
+    kernel = solver.kernel
+    assert kernel.compile_settings.lineinfo is True
+
+    integrator = kernel.single_integrator
+    assert integrator._loop.compile_settings.lineinfo is True
+    assert integrator._algo_step.compile_settings.lineinfo is True
+    assert integrator._step_controller.compile_settings.lineinfo is True
+    assert integrator._output_functions.compile_settings.lineinfo is True
+    assert integrator._system.compile_settings.lineinfo is True
 
 
 def test_update_saved_variables(solver_mutable, system):
@@ -500,6 +591,74 @@ def test_solve_ivp_forwards_save_every_and_settling_time(
     times = np.asarray(result.time)
     times = times.reshape(times.shape[0], -1)[:, 0]
     assert np.diff(times) == pytest.approx(0.04)
+
+
+def test_solve_ivp_accepts_callable():
+    """solve_ivp builds the system from a SciPy-style callable."""
+    def vdp(t, y, mu):
+        return [y[1], mu * (1 - y[0] ** 2) * y[1] - y[0]]
+
+    solve_kwargs = dict(
+        y0={"x": [1.0], "v": [0.0]},
+        parameters={"mu": [1.5]},
+        dt=1e-2,
+        duration=0.05,
+        save_every=0.01,
+        output_types=["state"],
+        method="euler",
+    )
+    result = solve_ivp(vdp, **solve_kwargs)
+    assert isinstance(result, SolveResult)
+    direct = np.asarray(result.as_numpy["time_domain_array"])
+    assert np.all(np.isfinite(direct))
+
+    from cubie import create_ODE_system
+
+    prebuilt = create_ODE_system(
+        vdp, states={"x": 1.0, "v": 0.0}, parameters={"mu": 1.5}
+    )
+    result_two_step = solve_ivp(prebuilt, **solve_kwargs)
+    two_step = np.asarray(
+        result_two_step.as_numpy["time_domain_array"]
+    )
+    assert np.array_equal(direct, two_step)
+
+
+def test_solve_ivp_accepts_equation_strings():
+    """solve_ivp builds the system from equation strings."""
+    result = solve_ivp(
+        ["dx = v", "dv = mu * (1 - x*x) * v - x"],
+        y0={"x": [1.0], "v": [0.0]},
+        parameters={"mu": [1.5]},
+        dt=1e-2,
+        duration=0.05,
+        save_every=0.01,
+        output_types=["state"],
+        method="euler",
+    )
+    assert isinstance(result, SolveResult)
+    values = np.asarray(result.as_numpy["time_domain_array"])
+    assert np.all(np.isfinite(values))
+
+
+@pytest.mark.parametrize(
+    "bad_parameters",
+    [np.array([[0.5]]), [0.5], (0.5,)],
+    ids=["ndarray", "list", "tuple"],
+)
+def test_solve_ivp_raw_equations_reject_array_parameters(bad_parameters):
+    """Raw-equation solve_ivp needs named parameters, not sequences."""
+    def decay(t, y, k):
+        return [-k * y[0]]
+
+    with pytest.raises(TypeError, match="dict"):
+        solve_ivp(
+            decay,
+            y0={"x": [1.0]},
+            parameters=bad_parameters,
+            duration=0.05,
+            method="euler",
+        )
 
 
 def test_solver_with_different_algorithms(system, solver_settings):
@@ -1288,3 +1447,172 @@ def test_regular_saves_fill_allocation_at_fp_endpoints(
     final_states = states[-1, : len(simple_initial_values), :]
     assert np.all(np.isfinite(final_states))
     assert np.any(final_states != 0.0)
+
+
+@pytest.mark.nocudasim
+def test_save_boundary_zero_gap_run_completes():
+    """A driven stiff Rosenbrock run survives t rounding onto a save
+    boundary.
+
+    Float32 time accumulation can land the committed time exactly on
+    ``next_save`` without the save firing, because the pre-step save
+    prediction and the post-step time commit use different arithmetic.
+    A step clamped to that boundary would have length zero, which the
+    step function cannot integrate; the positive-gap-only clamp keeps
+    dt_raw instead, so the run completes.
+
+    This test keeps its own system because landing the committed
+    time exactly on a save boundary needs this particular driven
+    stiff system with these solver settings; the shared fixture
+    systems do not reproduce the coincidence.
+    """
+    forced = create_ODE_system(
+        "dx = v\ndv = mu * (1 - x*x) * v - x + forcing",
+        parameters={"mu": 50.0},
+        states={"x": 2.0, "v": 0.0},
+        drivers=["forcing"],
+        precision=np.float32,
+        name="ForcedVanDerPol548",
+    )
+    time = np.linspace(0.0, 20.0, 400)
+    signal = 5.0 * np.sin(2.0 * np.pi * 0.25 * time)
+
+    result = solve_ivp(
+        forced,
+        y0={"x": np.array([2.0]), "v": np.array([0.0])},
+        parameters={"mu": np.array([64.0])},
+        drivers={"forcing": signal, "time": time},
+        method="rosenbrock",
+        duration=20.0,
+        save_every=0.05,
+    )
+
+    assert result.status_messages == {}
+    states = np.asarray(result.time_domain_array)
+    assert np.all(np.isfinite(states))
+
+
+# ============================================================================
+# Additional coverage: precision passthrough, update() no-ops, memory
+# settings, profiling toggles, and pass-through properties
+# ============================================================================
+
+
+def test_solve_ivp_raw_equations_precision_override():
+    """solve_ivp forwards a precision override to the built system
+    (_system_from_equations create_kwargs branch)."""
+    def decay(t, y, k):
+        return [-k * y[0]]
+
+    result = solve_ivp(
+        decay,
+        y0={"x": [1.0]},
+        parameters={"k": [0.5]},
+        duration=0.02,
+        dt=0.01,
+        save_every=0.01,
+        method="euler",
+        precision=np.float64,
+    )
+    assert isinstance(result, SolveResult)
+    assert result.solve_settings.precision == np.float64
+
+
+def test_solve_ivp_forwards_summarise_variables(system):
+    """solve_ivp threads summarise_variables through to Solver kwargs."""
+    state_names = list(system.initial_values.names)[:1]
+    result = solve_ivp(
+        system,
+        y0={state_names[0]: [1.0, 2.0]},
+        parameters={list(system.parameters.names)[0]: [0.1, 0.2]},
+        summarise_variables=state_names,
+        save_every=0.01,
+        summarise_every=0.02,
+        duration=0.02,
+        dt=0.01,
+        method="euler",
+        output_types=["state", "mean"],
+    )
+    assert isinstance(result, SolveResult)
+    assert result.solve_settings.summarised_states == state_names
+
+
+def test_solver_update_with_no_args_returns_empty_set(solver_mutable):
+    """update() with no updates_dict and no kwargs is a no-op."""
+    solver = solver_mutable
+    assert solver.update() == set()
+    assert solver.update(None) == set()
+
+
+def test_solver_update_memory_settings_no_args_returns_empty_set(
+    solver_mutable,
+):
+    """update_memory_settings() with no updates_dict and no kwargs is a
+    no-op."""
+    solver = solver_mutable
+    assert solver.update_memory_settings() == set()
+    assert solver.update_memory_settings(None) == set()
+
+
+def test_solver_update_memory_settings_accepts_kwargs_form(solver_mutable):
+    """update_memory_settings merges **kwargs into updates_dict."""
+    solver = solver_mutable
+    updated = solver.update_memory_settings(mem_proportion=0.15)
+    assert "mem_proportion" in updated
+
+
+def test_solver_update_memory_settings_none_proportion_sets_auto(
+    solver_mutable,
+):
+    """mem_proportion=None switches the memory manager to auto-limit
+    mode instead of raising or being ignored."""
+    solver = solver_mutable
+    updated = solver.update_memory_settings({"mem_proportion": None})
+    assert "mem_proportion" in updated
+    # Auto-limit mode still reports a usable (non-None) proportion.
+    assert solver.mem_proportion is not None
+
+
+def test_solver_update_memory_settings_unrecognized_raises(solver_mutable):
+    """An unrecognized memory setting raises KeyError unless silent."""
+    solver = solver_mutable
+    with pytest.raises(KeyError, match="Unrecognized"):
+        solver.update_memory_settings({"not_a_real_memory_setting": 1})
+
+
+def test_solver_compile_flags_property(solver):
+    """compile_flags passes through to the kernel's compile flags."""
+    assert solver.compile_flags is solver.kernel.compile_flags
+
+
+def test_solver_status_messages_property_before_solve(solver):
+    """status_messages decodes the kernel's current status codes."""
+    messages = solver.status_messages
+    assert isinstance(messages, dict)
+
+
+def test_solver_parameters_initial_values_driver_coefficients_properties(
+    solved_solver_simple,
+):
+    """parameters, initial_values, and driver_coefficients pass through
+    to the kernel after a solve."""
+    solver, _ = solved_solver_simple
+    assert solver.parameters is solver.kernel.parameters
+    assert solver.initial_values is solver.kernel.initial_values
+    assert solver.driver_coefficients is solver.kernel.driver_coefficients
+
+
+def test_solver_stream_property(solver):
+    """stream passes through to the kernel's stream."""
+    assert solver.stream == solver.kernel.stream
+
+
+def test_solver_set_verbosity(solver_mutable):
+    """set_verbosity updates the global time logger verbosity."""
+    from cubie.time_logger import default_timelogger
+
+    solver = solver_mutable
+    solver.set_verbosity("verbose")
+    assert default_timelogger.verbosity == "verbose"
+    solver.set_verbosity(None)
+    assert default_timelogger.verbosity is None

@@ -28,7 +28,7 @@ See Also
 
 from attrs import define, field
 from numba import cuda, int32
-from cubie.cuda_simsafe import compile_kwargs
+from cubie.cuda_simsafe import get_jit_kwargs
 from cubie.result_codes import CUBIE_RESULT_CODES
 
 from cubie._utils import getype_validator
@@ -122,10 +122,11 @@ class FixedStepController(BaseStepController):
         """
         success = int32(CUBIE_RESULT_CODES.SUCCESS)
 
+        # no cover: start
         @cuda.jit(
             device=True,
             inline=True,
-            **compile_kwargs,
+            **get_jit_kwargs(self.compile_settings.lineinfo),
         )
         def controller_fixed_step(
             dt,
@@ -133,6 +134,7 @@ class FixedStepController(BaseStepController):
             state_prev,
             error,
             niters,
+            truncated,
             accept_out,
             shared_scratch,
             persistent_local,
@@ -151,6 +153,9 @@ class FixedStepController(BaseStepController):
                 Estimated local error vector.
             niters : int32
                 Iteration counters from the integrator loop.
+            truncated : bool
+                True when the loop forced the step onto an output
+                boundary. Unused.
             accept_out : device array
                 Output flag indicating acceptance of the step.
             shared_scratch : device array
@@ -166,4 +171,5 @@ class FixedStepController(BaseStepController):
             accept_out[0] = int32(1)
             return success
 
+        # no cover: end
         return ControllerCache(device_function=controller_fixed_step)

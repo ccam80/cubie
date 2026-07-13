@@ -91,15 +91,6 @@ class AdaptiveStepControlConfig(BaseStepControllerConfig):
         validator=getype_validator(float, 1.0),
     )
 
-    def __attrs_post_init__(self) -> None:
-        """Ensure step limits are coherent after initialisation."""
-        super().__attrs_post_init__()
-        if self._deadband_min > self._deadband_max:
-            self._deadband_min, self._deadband_max = (
-                self._deadband_max,
-                self._deadband_min,
-            )
-
     @property
     def dt_min(self) -> float:
         """Return the minimum permissible step size."""

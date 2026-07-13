@@ -52,7 +52,7 @@ from cubie.cuda_simsafe import (
     all_sync,
     selp,
     any_sync,
-    compile_kwargs,
+    get_jit_kwargs,
 )
 from cubie.result_codes import CUBIE_RESULT_CODES
 
@@ -291,6 +291,12 @@ class NewtonKrylov(MatrixFreeSolver):
             config.krylov_iters_local_location,
             precision=np_int32,
         )
+        # Record the linear solver as a child at registration time so
+        # clear_parent cascades reach it before this solver has built;
+        # build refreshes the same named registration with real sizes.
+        buffer_registry.register_child(
+            self, self.linear_solver, name="linear_solver"
+        )
 
     def build(self) -> NewtonKrylovCache:
         """Compile Newton-Krylov solver device function.
@@ -349,7 +355,7 @@ class NewtonKrylov(MatrixFreeSolver):
         )
 
         # no cover: start
-        @cuda.jit(device=True, inline=True, **compile_kwargs)
+        @cuda.jit(device=True, inline=True, **get_jit_kwargs(config.lineinfo))
         def newton_krylov_solver(
             stage_increment,
             parameters,

@@ -46,7 +46,7 @@ from cubie._utils import (
     getype_validator,
     inrangetype_validator,
 )
-from cubie.cuda_simsafe import compile_kwargs, selp
+from cubie.cuda_simsafe import get_jit_kwargs, selp
 from cubie.result_codes import CUBIE_RESULT_CODES
 from cubie.integrators.step_control.base_step_controller import ControllerCache
 
@@ -184,10 +184,11 @@ class GustafssonController(BaseAdaptiveStepController):
         step_too_small = int32(CUBIE_RESULT_CODES.STEP_TOO_SMALL)
 
         # step sizes and norms can be approximate - fastmath is fine
+        # no cover: start
         @cuda.jit(
             device=True,
             inline=True,
-            **compile_kwargs,
+            **get_jit_kwargs(self.compile_settings.lineinfo),
         )
         def controller_gustafsson(
             dt,
@@ -195,6 +196,7 @@ class GustafssonController(BaseAdaptiveStepController):
             state_prev,
             error,
             niters,
+            truncated,
             accept_out,
             shared_scratch,
             persistent_local,
@@ -213,6 +215,9 @@ class GustafssonController(BaseAdaptiveStepController):
                 Estimated local error vector.
             niters : int32
                 Iteration counters from the integrator loop.
+            truncated : bool
+                True when the loop forced the step onto an output
+                boundary.
             accept_out : device array
                 Output flag indicating acceptance of the step.
             shared_scratch : device array
@@ -275,12 +280,23 @@ class GustafssonController(BaseAdaptiveStepController):
             # repeated rejection always walks dt down to dt_min.
             gain = selp(accept, gain, min(gain, safety))
 
+            # A truncated step's error norm carries no step-size
+            # info: on accept, freeze dt/history and report success.
+            freeze = accept and truncated
             dt_new_raw = current_dt * gain
-            dt[0] = clamp(dt_new_raw, dt_min, dt_max)
+            dt[0] = selp(freeze, current_dt, clamp(dt_new_raw, dt_min, dt_max))
 
-            timestep_buffer[0] = current_dt
-            timestep_buffer[1] = nrm2
-            ret = success if dt_new_raw > dt_min else step_too_small
+            timestep_buffer[0] = selp(
+                freeze, timestep_buffer[0], current_dt
+            )
+            timestep_buffer[1] = selp(freeze, timestep_buffer[1], nrm2)
+
+            ret = (
+                success
+                if (freeze or dt_new_raw > dt_min)
+                else step_too_small
+            )
             return ret
 
+        # no cover: end
         return ControllerCache(device_function=controller_gustafsson)

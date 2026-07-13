@@ -40,6 +40,7 @@ from typing import Callable, Optional
 from attrs import define, field, validators
 from numba import cuda, int32
 
+from cubie.cuda_simsafe import get_jit_kwargs
 from cubie.result_codes import CUBIE_RESULT_CODES
 from numpy import eye
 
@@ -237,7 +238,7 @@ class FIRKStep(ODEImplicitStep):
         all_stages_n = tableau.stage_count * n
         stage_driver_stack_elements = tableau.stage_count * config.n_drivers
 
-        _, _ = buffer_registry.get_child_allocators(
+        buffer_registry.register_child(
             self, self.solver, name="solver"
         )
         buffer_registry.register(
@@ -406,6 +407,7 @@ class FIRKStep(ODEImplicitStep):
             # ),
             device=True,
             inline=True,
+            **get_jit_kwargs(self.compile_settings.lineinfo),
         )
         def step(
             state,
