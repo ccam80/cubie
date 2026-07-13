@@ -17,11 +17,21 @@ variable "region" {
 # Builder needs a physical GPU present so the driver binds during the
 # bake. Baked on the cheapest T4 box; the AWS GRID driver it installs is
 # multi-GPU, so the resulting AMI also runs on G5 (A10G) and G6 (L4).
-# Requested as spot (see spot_instance_types) because this region has no
-# On-Demand G quota.
+# Requested as spot (see spot_price) because this region has no On-Demand
+# G quota. Kept as a single instance_type + spot_price ("simple" spot
+# request) rather than spot_instance_types: the latter uses the EC2 Fleet
+# API, which needs ec2:DescribeInstanceTypeOfferings on the builder role.
 variable "instance_type" {
   type    = string
   default = "g4dn.xlarge"
+}
+
+# Max hourly spot bid. AWS never charges above the on-demand price
+# (g4dn.xlarge is ~$0.75/h in ap-southeast-2), so this ceiling only has to
+# clear the market spot price; you pay the actual (lower) spot rate.
+variable "spot_price" {
+  type    = string
+  default = "1.00"
 }
 
 # Empty -> Packer picks a subnet in the default VPC. Set explicitly if the
@@ -50,8 +60,8 @@ locals {
 
 source "amazon-ebs" "windows_gpu" {
   region                                     = var.region
-  spot_instance_types                        = [var.instance_type]
-  spot_allocation_strategy                   = "capacity-optimized"
+  instance_type                              = var.instance_type
+  spot_price                                 = var.spot_price
   subnet_id                                  = var.subnet_id
   associate_public_ip_address                = true
   temporary_security_group_source_public_ip  = true
