@@ -86,6 +86,9 @@ markers = [
 addopts = [
     "--import-mode=importlib",
     "-n8",
+    # loadgroup + the conftest ordering hook keep each session
+    # param-set's tests on one worker so each set compiles once.
+    "--dist=loadgroup",
     "-ra",
     "--pytest-durations=0",
     "--cov=cubie",

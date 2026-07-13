@@ -1,0 +1,61 @@
+name: Build Windows GPU AMI
+on:
+  workflow_dispatch:
+  schedule:
+    # Days 1/15/29 (~14-day cadence) keeps the baked RunsOn agent well
+    # under GitHub's 30-day runner-dispatch cutoff.
+    - cron: "0 3 */14 * *"
+
+permissions:
+  id-token: write   # OIDC -> AWS
+  contents: read
+
+jobs:
+  build-ami:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+
+      - name: Configure AWS credentials (OIDC)
+        uses: aws-actions/configure-aws-credentials@v6
+        with:
+          role-to-assume: ${{ secrets.AWS_AMI_BUILDER_ROLE }}
+          aws-region: ${{ vars.AWS_REGION }}
+
+      - name: Set up Packer
+        uses: hashicorp/setup-packer@v3
+
+      - name: Packer init
+        run: packer init packer/windows-gpu.pkr.hcl
+
+      - name: Build AMI
+        # AWS_BUILD_SUBNET_ID is optional: leave the repo variable unset to
+        # let Packer pick a subnet in the default VPC.
+        run: >
+          packer build
+          -var "region=${{ vars.AWS_REGION }}"
+          -var "subnet_id=${{ vars.AWS_BUILD_SUBNET_ID }}"
+          packer/windows-gpu.pkr.hcl
+
+      - name: Deregister superseded cubie-win-gpu AMIs
+        # Keep the most recent AMI; deregister older ones (and their
+        # snapshots) so snapshot storage cost does not grow unbounded.
+        run: |
+          set -euo pipefail
+          KEEP=$(aws ec2 describe-images --owners self \
+            --filters "Name=name,Values=cubie-win-gpu-*" \
+            --query 'sort_by(Images,&CreationDate)[-1].ImageId' --output text)
+          echo "Keeping newest AMI: $KEEP"
+          for AMI in $(aws ec2 describe-images --owners self \
+            --filters "Name=name,Values=cubie-win-gpu-*" \
+            --query 'Images[].ImageId' --output text); do
+            if [ "$AMI" != "$KEEP" ]; then
+              echo "Deregistering $AMI"
+              SNAPS=$(aws ec2 describe-images --image-ids "$AMI" \
+                --query 'Images[].BlockDeviceMappings[].Ebs.SnapshotId' --output text)
+              aws ec2 deregister-image --image-id "$AMI"
+              for SNAP in $SNAPS; do
+                aws ec2 delete-snapshot --snapshot-id "$SNAP" || true
+              done
+            fi
+          done

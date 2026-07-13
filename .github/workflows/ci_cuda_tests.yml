@@ -1,153 +1,121 @@
 name: CUDA tests
 on:
-    # Running CUDA tests every second weekday at 3am and on dispatch with "test_cuda" in commit message
-  create:
   workflow_dispatch:
   schedule:
-    - cron: "0 16 * * 1,3,5"
-  # We're limited to 15 "credits" per month using the Lightning AI runner. One run on one image costs ~0.25 credits at 31/07/2025, including machine spinup. A single hanging job quickly eats up 
-  # budget, so we run every second day. This may give us some overhead to increase matrixed CUDA/OS versions.
+    - cron: "0 16 * * 1,3,5"   # Mon/Wed/Fri 16:00 UTC
   push:
     branches: ["main"]
-  # The git clone used in the workflow doesn't work on PR branches, so we can't run the tests on PRs.
-  #  pull_request:
-  #    branches: ["main"]
-    
+  # PRs opt in via a maintainer comment (see the job `if`) rather than
+  # running the paid GPU matrix on every PR.
+  issue_comment:
+    types: [created]
+
+# Cancel superseded runs on the same PR/ref to avoid paying for stale jobs.
+concurrency:
+  group: cuda-${{ github.event.issue.number || github.ref }}
+  cancel-in-progress: true
+
 jobs:
   cuda:
+    # Real-GPU runs on paid AWS runners. Trigger on schedule/dispatch, on a
+    # push whose commit message opts in, or when a maintainer comments
+    # `/test on cuda` on a PR. The author_association gate stops external
+    # commenters from spending GPU budget.
     if: >
       github.event_name == 'schedule' ||
       github.event_name == 'workflow_dispatch' ||
-      github.base_ref ||
+      (github.event_name == 'issue_comment' &&
+       github.event.issue.pull_request &&
+       github.event.issue.state == 'open' &&
+       contains(github.event.comment.body, '/test on cuda') &&
+       contains(fromJSON('["OWNER","MEMBER","COLLABORATOR"]'), github.event.comment.author_association)) ||
       contains(github.event.head_commit.message, 'test_cuda') ||
       contains(github.event.head_commit.message, 'test_all')
-    # github.base_ref is only true if the current event is a pull request
-    permissions: 
+    permissions:
       contents: read
-      packages: read
-    runs-on: ubuntu-latest
+    # max-parallel: 1 because one g4dn.2xlarge = 8 vCPU = the whole
+    # On-Demand G quota. Calibrated against the last Lightning run,
+    # a grouped 8-worker job is ~13 min and the serial 8-job matrix
+    # ~106 min at ~$2/matrix — cost-neutral with 2 x g4dn.xlarge but
+    # with the fastest per-job feedback. The param-set xdist grouping
+    # (tests/conftest.py + --dist=loadgroup in addopts) keeps thread
+    # scaling near-linear, so the 8 vCPUs are fully used. Raise
+    # max-parallel only with a quota bump (each +1 needs +8 vCPU of
+    # G quota).
+    strategy:
+      fail-fast: false
+      max-parallel: 1
+      matrix:
+        os: [linux, windows]
+        python-version: ["3.10", "3.14"]
+        cuda: ["12", "13"]
+        include:
+          - cuda: "12"
+            extra: dev12
+          - cuda: "13"
+            extra: dev13
+          - os: linux
+            runner: gpu-linux
+          - os: windows
+            runner: gpu-windows
+    runs-on: "runs-on=${{ github.run_id }}/runner=${{ matrix.runner }}"
+
     steps:
-      - uses: actions/checkout@v4
+      # For comment-triggered runs the event ref is the default branch, so
+      # check out the PR's merge ref explicitly; otherwise the pushed/ref SHA.
+      - uses: actions/checkout@v7
+        with:
+          ref: ${{ github.event_name == 'issue_comment' && format('refs/pull/{0}/merge', github.event.issue.number) || github.sha }}
 
-      - uses: actions/setup-python@v5
-        with: { python-version: '3.12' }
+      - name: Set up Python ${{ matrix.python-version }}
+        uses: actions/setup-python@v6
+        with:
+          python-version: ${{ matrix.python-version }}
 
-      - run: python -m pip install lightning-sdk
+      - name: GPU sanity check
+        run: nvidia-smi
 
-      - name: Run tests in Lightning (T4, GHCR :latest)
-        id: lightning_tests
-        shell: bash
-        env:
-          LIGHTNING_API_KEY: ${{ secrets.LIGHTNING_API_KEY }}
-          LIGHTNING_USER_ID: ${{ secrets.LIGHTNING_USER_ID }}
-          LIGHTNING_USERNAME: ${{ secrets.LIGHTNING_USERNAME }}
-          TOKEN: ${{ secrets.GITHUB_TOKEN }}
-          GITHUB_RUN_ID: ${{ github.run_id }}
-          GH_PAT: ${{ secrets.CUDA_PAT }}
+      - name: Install cubie (${{ matrix.extra }})
         run: |
-          python - <<'PY'
-          import os, sys, urllib
-          from lightning_sdk import Studio, Machine, Job, Status
+          python -m pip install --upgrade pip
+          python -m pip install -e ".[${{ matrix.extra }}]"
 
-          owner  = os.environ["GITHUB_REPOSITORY_OWNER"]
-          repo   = os.environ["GITHUB_REPOSITORY"]
-          branch = os.environ.get("GITHUB_REF_NAME", "main")
-          run_id = os.environ.get("GITHUB_RUN_ID", "manual")
-          gh_pat = os.getenv("GH_PAT")
-          image  = f"ghcr.io/{owner}/ci-test-env:latest"
-          git_url_clone = f"https://{gh_pat}@github.com/{repo}.git"
-          git_url_push  = f"https://{owner}:{gh_pat}@github.com/{repo}.git"  # username:token
-          
-          cmd = (
-              f"bash -lc '"
-              f"set -o pipefail; "
-              f"export GIT_TERMINAL_PROMPT=0; "                # never prompt
-              f"git clone --depth 1 --branch {branch} {git_url_clone} repo && "
-              f"cd repo && "
-              f"python -m pip install -e . && "
-              # --------------------------------------------------------------------------------------- #
-              # Numba CUDA patch - compile time advantage
-              f"git clone https://github.com/ccam80/numba-cuda.git /tmp/numba-cuda && "
-              f"cd /tmp/numba-cuda && git checkout cubie_patch && python -m pip install -e . && "
-              f"cd /workspace/repo && "
-              # --------------------------------------------------------------------------------------- #
-              f"mkdir -p /artifacts && "
-              f"pytest -m \"not specific_algos and not sim_only\" -n logical --cov --cov-branch -vv -ra "
-              f"--junitxml=/artifacts/pytest-results.xml "
-              f"--cov-report=xml:coverage.xml | tee /artifacts/pytest-output.log; "
-              f"ec=$?; "
-              f"cp -f coverage.xml /artifacts/coverage.xml || true; "
-              f'PUSH=/tmp/push_artifacts; '
-              f'rm -rf \"$PUSH\" && mkdir -p \"$PUSH/runs/{run_id}\"; '
-              f'cp -r /artifacts/. \"$PUSH/runs/{run_id}/\" || true; '
-              f'git -C \"$PUSH\" init -q; '
-              f'git -C \"$PUSH\" config user.email ci@bot; '
-              f'git -C \"$PUSH\" config user.name ci-bot; '
-              f'git -C \"$PUSH\" checkout -b ci-artifacts || true; '
-              f'git -C \"$PUSH\" remote add origin \"{git_url_push}\" || '
-              f'git -C \"$PUSH\" remote set-url origin \"{git_url_push}\"; '   # idempotent
-              f'git -C \"$PUSH\" add -A \"runs/{run_id}\"; '
-              f'git -C \"$PUSH\" commit -m \"artifacts {run_id}\" || true; '
-              f'git -C \"$PUSH\" push -u --force origin ci-artifacts; '
-              f"exit $ec'"
-          )
-          try:
-            job = Job.run(command=cmd, 
-                          user=os.environ["LIGHTNING_USERNAME"],
-                          name=f"ci-job-{run_id}", 
-                          machine=Machine.T4,
-                          teamspace="Vision-model",
-                          image=image)
-            job.wait()
+      - name: Lint with flake8
+        run: flake8 . --count --select=E9,F63,F7,F82 --show-source --statistics
 
-            path = "lightning-job.log"
-            with open(path, "w", encoding="utf-8") as f:
-                f.write(job.logs)
-              
-            if job.status == Status.Completed:
-                sys.exit(0) 
-            else:
-                # for any other phase (failed, cancelled, etc.), exit with a non-zero code
-                sys.exit(1)
-          except urllib.error. HTTPError as e:
-              if e.code == 404:
-                  print(f"⚠️  Warning: HTTP 404 error encountered (likely image not found). Skipping test run.", file=sys.stderr)
-                  path = "lightning-job.log"
-                  with open(path, "w", encoding="utf-8") as f:
-                      f.write(f"Job skipped due to HTTP 404 error: {e}\n")
-                  sys.exit(0)
-              else: 
-                  raise
-          PY
-          
+      - name: Test with pytest
+        # -n logical (CLI) overrides pyproject's desktop-safe -n8 so the
+        # runner uses all its vCPUs; change the runner instance size freely
+        # and this scales automatically. Coverage/XML report come from addopts.
+        run: pytest -m "not specific_algos and not sim_only" -n logical --junitxml=pytest-results.xml
+
       - name: Upload pytest artefacts
         if: always()
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v7
         with:
-          name: pytest-artifacts
+          name: pytest-${{ matrix.os }}-py${{ matrix.python-version }}-cuda${{ matrix.cuda }}
           path: |
-            lightning-job.log
-
-      - name: Checkout artifacts branch
-        if: always()
-        continue-on-error: true
-        uses: actions/checkout@v4
-        with:
-          ref: ci-artifacts
-          path: artifacts_branch
+            pytest-results.xml
+            coverage.xml
 
       - name: Upload coverage to Codecov
         if: always()
-        uses: codecov/codecov-action@v5
+        uses: codecov/codecov-action@v7
         with:
-          files: artifacts_branch/runs/${{ github.run_id }}/coverage.xml
+          files: coverage.xml
+          flags: ${{ matrix.os }}-py${{ matrix.python-version }}-cuda${{ matrix.cuda }}
           disable_search: true
           fail_ci_if_error: false
-      
+
+      # test-results-action is node20-locked and deprecated; folded into
+      # codecov-action via report_type. Kept a separate step because
+      # report_type is single-valued (coverage vs test_results).
       - name: Upload test results to Codecov
         if: always()
-        uses: codecov/test-results-action@v1
+        uses: codecov/codecov-action@v7
         with:
-          files: artifacts_branch/runs/${{ github.run_id }}/pytest-results.xml
+          report_type: test_results
+          files: pytest-results.xml
+          flags: ${{ matrix.os }}-py${{ matrix.python-version }}-cuda${{ matrix.cuda }}
           disable_search: true
           fail_ci_if_error: false
