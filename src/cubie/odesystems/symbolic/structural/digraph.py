@@ -31,12 +31,11 @@ Published Functions
     :class:`DiCMOBiGraphF`.
 """
 
-from typing import Callable, Iterable, Iterator, List, Optional, Tuple
+from typing import Callable, Iterable, Iterator, List, Optional
 
 from cubie.odesystems.symbolic.structural.bipartite import (
     BipartiteGraph,
     Matching,
-    UNASSIGNED,
 )
 
 

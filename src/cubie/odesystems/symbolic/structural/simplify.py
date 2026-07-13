@@ -30,7 +30,6 @@ from cubie.odesystems.symbolic.structural.alias_elimination import (
 )
 from cubie.odesystems.symbolic.structural.bipartite import (
     Matching,
-    UNASSIGNED,
 )
 from cubie.odesystems.symbolic.structural.consistency import (
     check_consistency,
@@ -49,7 +48,6 @@ from cubie.odesystems.symbolic.structural.singularity_removal import (
 )
 from cubie.odesystems.symbolic.structural.symbolics import as_small_int
 from cubie.odesystems.symbolic.structural.system_structure import (
-    Equation,
     StructuralState,
 )
 

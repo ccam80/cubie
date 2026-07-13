@@ -23,7 +23,6 @@ Published Classes
 
 import warnings
 from typing import (
-    Callable,
     Dict,
     Iterable,
     List,

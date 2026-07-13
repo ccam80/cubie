@@ -20,7 +20,6 @@ Published Functions
 
 from typing import Callable, Dict, List, Optional, Tuple, Union
 
-from cubie.odesystems.symbolic.structural.bipartite import BipartiteGraph
 from cubie.odesystems.symbolic.structural.clil import (
     SparseMatrixCLIL,
     bareiss,

@@ -33,9 +33,6 @@ from cubie.odesystems.symbolic.structural.digraph import (
     DiCMOBiGraphF,
     toposort_equations,
 )
-from cubie.odesystems.symbolic.structural.singularity_removal import (
-    get_new_mm,
-)
 from cubie.odesystems.symbolic.structural.symbolics import (
     fixpoint_sub,
     linear_expansion,
@@ -756,8 +753,6 @@ def _get_linear_scc_linsol(
 
     structure = state.structure
     graph = structure.graph
-    diff_to_var = structure.var_to_diff.invview()
-
     all_torn = True
     for iv in alg_vars:
         all_torn = all_torn and (
