@@ -66,6 +66,7 @@ jobs:
       - release-build
     runs-on: ubuntu-latest
     permissions:
+      contents: read
       # IMPORTANT: this permission is mandatory for trusted publishing
       id-token: write
 
