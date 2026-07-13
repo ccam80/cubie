@@ -191,8 +191,8 @@ def run_reference_loop(
 
         if t32 + dt >= next_event_time:
             forced_dt = precision(next_event_time - t32)
-            # Only a positive gap clamps the step, mirroring the device
-            # loop; the due event still fires at this step's end.
+            # Only a positive gap clamps the step; the due event still
+            # fires at this step's end.
             if forced_dt > precision(0.0):
                 truncated = bool(forced_dt != dt)
                 dt = forced_dt

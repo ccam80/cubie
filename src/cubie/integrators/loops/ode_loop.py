@@ -770,9 +770,8 @@ class IVPLoop(CUDAFactory):
                     # accumulation drift or rounding can put the event
                     # time at or behind t_prec, and a non-positive
                     # dt_eff traps the loop. The due event fires at the
-                    # next accepted step instead. A schedule-forced
-                    # step length is flagged so the controller knows
-                    # its error norm does not reflect the stored dt.
+                    # next accepted step instead. truncated tells the
+                    # controller the step length was schedule-forced.
                     dt_eff = dt_raw
                     truncated = False
                     if do_save or do_update_summary:

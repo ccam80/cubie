@@ -35,9 +35,8 @@ class CPUAdaptiveController:
         self.kind = kind.lower()
         self.dt_min = precision(dt_min)
         self.dt_max = precision(dt_max)
-        # A user-provided dt seeds the first step for every controller
-        # kind, like the device configs; the geometric mean of the
-        # bounds is only a fallback when dt is absent.
+        # A user dt seeds the first step; the geometric mean of the
+        # bounds is only a fallback.
         if dt is not None:
             self.dt0 = precision(dt)
         else:
@@ -89,8 +88,7 @@ class CPUAdaptiveController:
             np.abs(state_prev), np.abs(state_new)
         )
         ratio = error / scale
-        # Multiply by a precision-typed reciprocal and guard against
-        # nan/inf, matching the device controllers.
+        # Reciprocal multiply, not division: rounding-sensitive.
         inv_n = precision(1.0 / len(error))
         nrm2 = precision(np.sum(ratio * ratio) * inv_n)
         if np.isnan(nrm2) or np.isinf(nrm2):
@@ -116,8 +114,7 @@ class CPUAdaptiveController:
 
         accept = errornorm <= self.precision(1.0)
 
-        # An accepted schedule-truncated step leaves dt and the error
-        # history unchanged, mirroring the device controllers.
+        # An accepted truncated step leaves dt and history unchanged.
         if truncated and accept:
             return accept
 
@@ -147,8 +144,7 @@ class CPUAdaptiveController:
         current_dt: float,
     ) -> float:
         precision = self.precision
-        # The device controllers divide the precision-typed gain by the
-        # integer denominator; mirror that rounding exactly.
+        # Integer denominator: rounding-sensitive.
         order_denominator = 2 * (self.order + 1)
         expo_fraction = precision(1.0 / order_denominator)
         kp_exp = precision(self.kp / order_denominator)

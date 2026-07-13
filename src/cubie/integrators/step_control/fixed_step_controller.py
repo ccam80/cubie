@@ -154,8 +154,8 @@ class FixedStepController(BaseStepController):
             niters : int32
                 Iteration counters from the integrator loop.
             truncated : bool
-                True when the loop shortened the step to land on an
-                output boundary instead of using ``dt``. Unused.
+                True when the loop forced the step onto an output
+                boundary. Unused.
             accept_out : device array
                 Output flag indicating acceptance of the step.
             shared_scratch : device array

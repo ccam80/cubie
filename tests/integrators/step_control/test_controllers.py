@@ -113,12 +113,8 @@ class TestControllers:
     def test_truncated_accepted_step_freezes_controller(
         self, step_controller, precision, system
     ):
-        """An accepted schedule-truncated step is a controller no-op.
-
-        The step length came from the output schedule, not the
-        controller, so a tiny error norm from a truncated step must
-        neither rescale dt nor enter the error history.
-        """
+        """An accepted truncated step rescales nothing: dt and the
+        error history are unchanged."""
         device_func = step_controller.device_function
         n = system.sizes.states
         dt0 = precision(0.017)
@@ -175,19 +171,15 @@ class TestControllers:
     def test_truncated_accepted_step_at_dt_min_returns_success(
         self, step_controller, precision, system
     ):
-        """A frozen truncated step at dt_min never trips STEP_TOO_SMALL.
+        """An accepted truncated step at dt_min reports SUCCESS.
 
-        With dt at dt_min, a truncated step whose error norm sits just
-        under one yields a sub-unity gain, so the (meaningless)
-        proposed step falls to or below dt_min. The loop treats
-        STEP_TOO_SMALL as irrecoverable, so the frozen step must
-        report success instead of staining the run.
+        Its sub-unity gain would otherwise propose dt <= dt_min and
+        end the run as irrecoverable.
         """
         device_func = step_controller.device_function
         n = system.sizes.states
         dt_min = precision(step_controller.dt_min)
-        # atol is 1e-3 and rtol 0, so this error norm is just below 1:
-        # accepted, but with gain < 1 for every controller.
+        # Error norm just below 1: accepted, with gain < 1.
         near_unity_error = np.full(n, 0.999e-3, dtype=precision)
         state = np.ones(n, dtype=precision)
 

@@ -94,12 +94,9 @@ def _scaled_norm_impl(
     atol: np.floating,
     rtol: np.floating,
 ) -> np.floating:
-    """Return the mean squared scaled norm of ``values``.
-
-    Mirrors the device ``ScaledNorm``:
-    ``sum((|values[i]| / tol_i)^2) / n`` with
-    ``tol_i = max(atol + rtol * |reference[i]|, 1e-16)``.
-    Convergence corresponds to a value <= 1.0.
+    """Return ``sum((|values[i]| / tol_i)^2) / n`` with
+    ``tol_i = max(atol + rtol * |reference[i]|, 1e-16)``; <= 1.0 is
+    converged.
     """
 
     size = values.shape[0]
@@ -298,9 +295,7 @@ def _krylov_solve_dense_impl(
 ) -> tuple[Array, bool, int]:
     """Return the Krylov solution for a dense operator matrix.
 
-    Convergence uses the device solvers' scaled norm: the mean
-    squared residual scaled by ``tolerance + rtol * |solution|``
-    must fall to or below one.
+    Converged when the scaled residual norm is <= 1.
     """
 
     solution = np.empty_like(rhs)
@@ -539,8 +534,8 @@ def newton_solve(
     newton_max_iters
         Maximum number of Newton updates to attempt.
     newton_rtol
-        Relative tolerance of the scaled convergence norm, applied
-        against the current iterate like the device solver.
+        Relative tolerance of the scaled convergence norm, scaled by
+        the current iterate.
     newton_damping
         Multiplicative factor applied to the step size during backtracking.
     newton_max_backtracks
@@ -616,8 +611,7 @@ def newton_solve(
         iterations_used = iteration + 1
         jacobian = np.asarray(jacobian_fn(state), dtype=dtype)
 
-        # The previous direction warm-starts the linear solve, like
-        # the device solver's persistent delta buffer.
+        # The previous direction warm-starts the linear solve.
         linear_kwargs: dict[str, Any] = {"initial_guess": direction}
         if instrumented:
             slot = stage_index * max(iteration_limit, 1) + iteration
@@ -636,8 +630,7 @@ def newton_solve(
             )
 
         # An unconverged linear solve still yields a usable search
-        # direction; the device solver proceeds with it, so mirror
-        # that rather than aborting the Newton iteration.
+        # direction; do not abort the Newton iteration.
         direction, _, _ = linear_solver(
             jacobian,
             -residual,
@@ -681,8 +674,8 @@ def newton_solve(
                 break
             scale = scalar_type(scale * damping_value)
 
-        # A failed backtracking search keeps the current iterate and
-        # retries with a refined direction, like the device solver.
+        # A failed backtrack keeps the iterate and retries with a
+        # refined direction.
 
         if (
             instrumented
@@ -951,8 +944,8 @@ def krylov_solve(
     precision
         Floating-point precision to use for the iteration.
     rtol
-        Relative tolerance of the scaled convergence norm, applied
-        against the solution iterate like the device solvers.
+        Relative tolerance of the scaled convergence norm, scaled by
+        the solution iterate.
     neumann_order
         Order of the truncated Neumann-series left preconditioner.
     correction_type

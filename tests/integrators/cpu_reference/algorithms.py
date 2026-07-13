@@ -1033,8 +1033,7 @@ class CPUERKStep(CPUStep):
             logging = self._create_logging_buffers(stage_count=stage_count)
 
         for stage_index in range(stage_count):
-            # Accumulate coupling terms first and scale by dt once,
-            # matching the device step's rounding order.
+            # Rounding-sensitive: scale by dt once, after accumulating.
             stage_accum = np.zeros_like(state_vector)
             for dependency in range(stage_index):
                 stage_accum = stage_accum + (
@@ -1066,9 +1065,8 @@ class CPUERKStep(CPUStep):
                 logging.stage_observables[stage_index, :] = observables_stage
                 logging.stage_increments[stage_index, :] = dt_value * derivative
 
-        # Mirror the device step's tableau shortcuts: a stage whose
-        # coupling row equals b (or b_hat) supplies the output (or the
-        # embedded solution) directly instead of re-accumulating it.
+        # A stage whose A row equals b (or b_hat) already holds the
+        # output (or embedded) solution.
         b_row = self.tableau.b_matches_a_row
         b_hat_row = self.tableau.b_hat_matches_a_row
         if b_row is not None:
@@ -1234,8 +1232,7 @@ class CPUDIRKStep(CPUStep):
         for stage_index in range(stage_count):
             guess = self._dirk_increment
 
-            # Accumulate coupling terms first and scale by dt once,
-            # matching the device step's rounding order.
+            # Rounding-sensitive: scale by dt once, after accumulating.
             stage_accum = np.zeros_like(state_vector)
             for dependency in range(stage_index):
                 stage_accum = stage_accum + (
@@ -1330,9 +1327,8 @@ class CPUDIRKStep(CPUStep):
                 logging.stage_drivers[stage_index, :] = drivers_stage
             self._dirk_increment = increment
 
-        # Mirror the device step's tableau shortcuts: a stage whose
-        # coupling row equals b (or b_hat) supplies the output (or the
-        # embedded solution) directly instead of re-accumulating it.
+        # A stage whose A row equals b (or b_hat) already holds the
+        # output (or embedded) solution.
         b_row = self.tableau.b_matches_a_row
         b_hat_row = self.tableau.b_hat_matches_a_row
         if b_row is not None:
@@ -1658,7 +1654,7 @@ class CPUFIRKStep(CPUStep):
                 logging.residuals[stage_idx, :] = self.residual(stage_increments_flat)[k_start:k_end]
 
         def kahan_weighted_increment_sum(weights):
-            """Kahan-sum weighted stage increments like the device step."""
+            """Kahan-sum the weighted stage increments."""
             accumulator = np.zeros(state_dim, dtype=self.precision)
             compensation = np.zeros(state_dim, dtype=self.precision)
             for summed_idx in range(stage_count):
@@ -1672,9 +1668,8 @@ class CPUFIRKStep(CPUStep):
                 accumulator = temp
             return accumulator
 
-        # Mirror the device step's tableau shortcuts and its use of the
-        # solved increments (which already include dt) rather than
-        # re-evaluated derivatives.
+        # Same A-row shortcut; sums use the solved increments, which
+        # already include dt.
         b_row = self.tableau.b_matches_a_row
         b_hat_row = self.tableau.b_hat_matches_a_row
         if b_row is not None:
