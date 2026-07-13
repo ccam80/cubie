@@ -65,6 +65,8 @@ class CPUStep:
         newton_max_iters: int,
         linear_tol: float,
         linear_max_iters: int,
+        newton_rtol: float = 0.0,
+        linear_rtol: float = 0.0,
         linear_correction_type: str = "minimal_residual",
         preconditioner_order: int = 2,
         instrument: bool = False,
@@ -78,8 +80,10 @@ class CPUStep:
         self._state_size = evaluator.system.sizes.states
         self._identity = np.eye(self._state_size, dtype=self.precision)
         self._newton_tol = self.precision(newton_tol)
+        self._newton_rtol = self.precision(newton_rtol)
         self._newton_max_iters = int(newton_max_iters)
         self._linear_tol = self.precision(linear_tol)
+        self._linear_rtol = self.precision(linear_rtol)
         self._linear_max_iters = int(linear_max_iters)
         correction = str(linear_correction_type)
         if correction not in {
@@ -454,6 +458,7 @@ class CPUStep:
             tolerance=self._linear_tol,
             max_iterations=self._linear_max_iters,
             precision=self.precision,
+            rtol=self._linear_rtol,
             neumann_order=self._preconditioner_order,
             correction_type=self._linear_correction_type,
             initial_guess=initial_guess,
@@ -595,6 +600,8 @@ class CPUBackwardEulerStep(CPUStep):
         linear_tol: float,
         linear_max_iters: int,
         *,
+        newton_rtol: float = 0.0,
+        linear_rtol: float = 0.0,
         linear_correction_type: str = "minimal_residual",
         preconditioner_order: int = 2,
         instrument: bool = False,
@@ -605,8 +612,10 @@ class CPUBackwardEulerStep(CPUStep):
             evaluator,
             driver_evaluator,
             newton_tol=newton_tol,
+            newton_rtol=newton_rtol,
             newton_max_iters=newton_max_iters,
             linear_tol=linear_tol,
+            linear_rtol=linear_rtol,
             linear_max_iters=linear_max_iters,
             linear_correction_type=linear_correction_type,
             preconditioner_order=preconditioner_order,
@@ -694,6 +703,7 @@ class CPUBackwardEulerStep(CPUStep):
             jacobian_fn=self.jacobian,
             linear_solver=self.linear_solve,
             newton_tol=self._newton_tol,
+            newton_rtol=self._newton_rtol,
             newton_max_iters=self._newton_max_iters,
             newton_damping=self._newton_damping,
             newton_max_backtracks=self._newton_max_backtracks,
@@ -750,6 +760,8 @@ class CPUCrankNicolsonStep(CPUStep):
         newton_max_iters: int,
         linear_tol: float,
         linear_max_iters: int,
+        newton_rtol: float = 0.0,
+        linear_rtol: float = 0.0,
         linear_correction_type: str = "minimal_residual",
         preconditioner_order: int = 2,
         backward_step: Optional[CPUBackwardEulerStep] = None,
@@ -761,8 +773,10 @@ class CPUCrankNicolsonStep(CPUStep):
             evaluator,
             driver_evaluator,
             newton_tol=newton_tol,
+            newton_rtol=newton_rtol,
             newton_max_iters=newton_max_iters,
             linear_tol=linear_tol,
+            linear_rtol=linear_rtol,
             linear_max_iters=linear_max_iters,
             linear_correction_type=linear_correction_type,
             preconditioner_order=preconditioner_order,
@@ -785,8 +799,10 @@ class CPUCrankNicolsonStep(CPUStep):
                 evaluator,
                 driver_evaluator,
                 newton_tol=newton_tol,
+                newton_rtol=newton_rtol,
                 newton_max_iters=newton_max_iters,
                 linear_tol=linear_tol,
+                linear_rtol=linear_rtol,
                 linear_max_iters=linear_max_iters,
                 linear_correction_type=linear_correction_type,
                 preconditioner_order=preconditioner_order,
@@ -890,6 +906,7 @@ class CPUCrankNicolsonStep(CPUStep):
             jacobian_fn=self.jacobian,
             linear_solver=self.linear_solve,
             newton_tol=self._newton_tol,
+            newton_rtol=self._newton_rtol,
             newton_max_iters=self._newton_max_iters,
             newton_damping=self._newton_damping,
             newton_max_backtracks=self._newton_max_backtracks,
@@ -955,6 +972,8 @@ class CPUERKStep(CPUStep):
         newton_max_iters: int,
         linear_tol: float,
         linear_max_iters: int,
+        newton_rtol: float = 0.0,
+        linear_rtol: float = 0.0,
         linear_correction_type: str = "minimal_residual",
         preconditioner_order: int = 2,
         tableau: Optional[ERKTableau] = None,
@@ -967,8 +986,10 @@ class CPUERKStep(CPUStep):
             evaluator,
             driver_evaluator,
             newton_tol=newton_tol,
+            newton_rtol=newton_rtol,
             newton_max_iters=newton_max_iters,
             linear_tol=linear_tol,
+            linear_rtol=linear_rtol,
             linear_max_iters=linear_max_iters,
             linear_correction_type=linear_correction_type,
             preconditioner_order=preconditioner_order,
@@ -1003,18 +1024,25 @@ class CPUERKStep(CPUStep):
             (stage_count, state_dim),
             dtype=self.precision,
         )
+        stage_states = np.zeros(
+            (stage_count, state_dim),
+            dtype=self.precision,
+        )
         logging = None
         if self.instrument:
             logging = self._create_logging_buffers(stage_count=stage_count)
 
         for stage_index in range(stage_count):
-            stage_state = state_vector.copy()
+            # Accumulate coupling terms first and scale by dt once,
+            # matching the device step's rounding order.
+            stage_accum = np.zeros_like(state_vector)
             for dependency in range(stage_index):
-                stage_state = stage_state + (
-                    dt_value
-                    * a_matrix[stage_index, dependency]
+                stage_accum = stage_accum + (
+                    a_matrix[stage_index, dependency]
                     * stage_derivatives[dependency]
                 )
+            stage_state = stage_accum * dt_value + state_vector
+            stage_states[stage_index, :] = stage_state
             stage_time = current_time + c_nodes[stage_index] * dt_value
             drivers_stage = self.drivers(stage_time)
             if logging:
@@ -1038,22 +1066,33 @@ class CPUERKStep(CPUStep):
                 logging.stage_observables[stage_index, :] = observables_stage
                 logging.stage_increments[stage_index, :] = dt_value * derivative
 
-        state_update = np.zeros_like(state_vector)
-        for stage_index in range(stage_count):
-            state_update = state_update + (
-                b_weights[stage_index] * stage_derivatives[stage_index]
-            )
-        new_state = state_vector + dt_value * state_update
+        # Mirror the device step's tableau shortcuts: a stage whose
+        # coupling row equals b (or b_hat) supplies the output (or the
+        # embedded solution) directly instead of re-accumulating it.
+        b_row = self.tableau.b_matches_a_row
+        b_hat_row = self.tableau.b_hat_matches_a_row
+        if b_row is not None:
+            new_state = stage_states[b_row].copy()
+        else:
+            state_update = np.zeros_like(state_vector)
+            for stage_index in range(stage_count):
+                state_update = state_update + (
+                    b_weights[stage_index] * stage_derivatives[stage_index]
+                )
+            new_state = state_vector + dt_value * state_update
 
         error = np.zeros_like(state_vector)
         if error_weights is not None:
-            error_update = np.zeros_like(state_vector)
-            for stage_index in range(stage_count):
-                error_update = error_update + (
-                    error_weights[stage_index]
-                    * stage_derivatives[stage_index]
-                )
-            error = dt_value * error_update
+            if b_hat_row is not None:
+                error = new_state - stage_states[b_hat_row]
+            else:
+                error_update = np.zeros_like(state_vector)
+                for stage_index in range(stage_count):
+                    error_update = error_update + (
+                        error_weights[stage_index]
+                        * stage_derivatives[stage_index]
+                    )
+                error = error_update * dt_value
 
         end_time = current_time + dt_value
         drivers_next = self.drivers(end_time)
@@ -1089,6 +1128,8 @@ class CPUDIRKStep(CPUStep):
         newton_max_iters: int,
         linear_tol: float,
         linear_max_iters: int,
+        newton_rtol: float = 0.0,
+        linear_rtol: float = 0.0,
         linear_correction_type: str = "minimal_residual",
         preconditioner_order: int = 2,
         tableau: Optional[DIRKTableau] = None,
@@ -1101,8 +1142,10 @@ class CPUDIRKStep(CPUStep):
             evaluator,
             driver_evaluator,
             newton_tol=newton_tol,
+            newton_rtol=newton_rtol,
             newton_max_iters=newton_max_iters,
             linear_tol=linear_tol,
+            linear_rtol=linear_rtol,
             linear_max_iters=linear_max_iters,
             linear_correction_type=linear_correction_type,
             preconditioner_order=preconditioner_order,
@@ -1177,6 +1220,10 @@ class CPUDIRKStep(CPUStep):
             (stage_count, state_dim),
             dtype=self.precision,
         )
+        stage_states = np.zeros(
+            (stage_count, state_dim),
+            dtype=self.precision,
+        )
         logging = None
         if self.instrument:
             logging = self._create_logging_buffers(stage_count=stage_count)
@@ -1187,13 +1234,15 @@ class CPUDIRKStep(CPUStep):
         for stage_index in range(stage_count):
             guess = self._dirk_increment
 
-            stage_state = state_vector.copy()
+            # Accumulate coupling terms first and scale by dt once,
+            # matching the device step's rounding order.
+            stage_accum = np.zeros_like(state_vector)
             for dependency in range(stage_index):
-                stage_state = stage_state + (
-                    dt_value
-                    * a_matrix[stage_index, dependency]
+                stage_accum = stage_accum + (
+                    a_matrix[stage_index, dependency]
                     * stage_derivatives[dependency]
                 )
+            stage_state = stage_accum * dt_value + state_vector
 
             stage_time = current_time + c_nodes[stage_index] * dt_value
             drivers_stage = self.drivers(stage_time)
@@ -1214,6 +1263,7 @@ class CPUDIRKStep(CPUStep):
                     stage_time,
                 )
                 stage_derivatives[stage_index, :] = derivative
+                stage_states[stage_index, :] = stage_state
                 if logging:
                     logging.stage_states[stage_index, :] = stage_state
                     logging.stage_observables[stage_index, :] = (
@@ -1245,6 +1295,7 @@ class CPUDIRKStep(CPUStep):
                 jacobian_fn=self.jacobian,
                 linear_solver=self.linear_solve,
                 newton_tol=self._newton_tol,
+                newton_rtol=self._newton_rtol,
                 newton_max_iters=self._newton_max_iters,
                 newton_damping=self._newton_damping,
                 newton_max_backtracks=self._newton_max_backtracks,
@@ -1252,6 +1303,7 @@ class CPUDIRKStep(CPUStep):
             )
 
             solved_state = base_state + diag_coeff * increment
+            stage_states[stage_index, :] = solved_state
             all_converged = all_converged and converged
             total_iters += niters
             observables_stage = self.observables(
@@ -1278,19 +1330,33 @@ class CPUDIRKStep(CPUStep):
                 logging.stage_drivers[stage_index, :] = drivers_stage
             self._dirk_increment = increment
 
-        state_accum = np.zeros_like(state_vector)
-        error_accum = np.zeros_like(state_vector)
-        for stage_index in range(stage_count):
-            state_accum = state_accum + (
-                b_weights[stage_index] * stage_derivatives[stage_index]
-            )
-            if error_weights is not None:
-                error_accum = error_accum + (
-                    error_weights[stage_index]
-                    * stage_derivatives[stage_index]
-                ) * dt_value
+        # Mirror the device step's tableau shortcuts: a stage whose
+        # coupling row equals b (or b_hat) supplies the output (or the
+        # embedded solution) directly instead of re-accumulating it.
+        b_row = self.tableau.b_matches_a_row
+        b_hat_row = self.tableau.b_hat_matches_a_row
+        if b_row is not None:
+            new_state = stage_states[b_row].copy()
+        else:
+            state_accum = np.zeros_like(state_vector)
+            for stage_index in range(stage_count):
+                state_accum = state_accum + (
+                    b_weights[stage_index] * stage_derivatives[stage_index]
+                )
+            new_state = state_vector + dt_value * state_accum
 
-        new_state = state_vector + dt_value * state_accum
+        error_accum = np.zeros_like(state_vector)
+        if error_weights is not None:
+            if b_hat_row is not None:
+                error_accum = new_state - stage_states[b_hat_row]
+            else:
+                for stage_index in range(stage_count):
+                    error_accum = error_accum + (
+                        error_weights[stage_index]
+                        * stage_derivatives[stage_index]
+                    )
+                error_accum = error_accum * dt_value
+
         end_time = current_time + dt_value
         drivers_next = self.drivers(end_time)
         observables = self.observables(
@@ -1325,6 +1391,8 @@ class CPUFIRKStep(CPUStep):
         newton_max_iters: int,
         linear_tol: float,
         linear_max_iters: int,
+        newton_rtol: float = 0.0,
+        linear_rtol: float = 0.0,
         linear_correction_type: str = "minimal_residual",
         preconditioner_order: int = 2,
         tableau: Optional[FIRKTableau] = None,
@@ -1337,8 +1405,10 @@ class CPUFIRKStep(CPUStep):
             evaluator,
             driver_evaluator,
             newton_tol=newton_tol,
+            newton_rtol=newton_rtol,
             newton_max_iters=newton_max_iters,
             linear_tol=linear_tol,
+            linear_rtol=linear_rtol,
             linear_max_iters=linear_max_iters,
             linear_correction_type=linear_correction_type,
             preconditioner_order=preconditioner_order,
@@ -1532,6 +1602,7 @@ class CPUFIRKStep(CPUStep):
             jacobian_fn=self.jacobian,
             linear_solver=self.linear_solve,
             newton_tol=self._newton_tol,
+            newton_rtol=self._newton_rtol,
             newton_max_iters=self._newton_max_iters,
             newton_damping=self._newton_damping,
             newton_max_backtracks=self._newton_max_backtracks,
@@ -1543,12 +1614,16 @@ class CPUFIRKStep(CPUStep):
             (stage_count, state_dim),
             dtype=self.precision,
         )
+        stage_states = np.zeros(
+            (stage_count, state_dim),
+            dtype=self.precision,
+        )
 
         for stage_idx in range(stage_count):
             k_start = stage_idx * state_dim
             k_end = (stage_idx + 1) * state_dim
             k_i = stage_increments_flat[k_start:k_end]
-            
+
             # Compute the stage state
             stage_state = state_vector.copy()
             for j in range(stage_count):
@@ -1556,7 +1631,8 @@ class CPUFIRKStep(CPUStep):
                 j_end = (j + 1) * state_dim
                 k_j = stage_increments_flat[j_start:j_end]
                 stage_state += a_matrix[stage_idx, j] * k_j
-            
+            stage_states[stage_idx, :] = stage_state
+
             stage_time = current_time + c_nodes[stage_idx] * dt_value
             drivers_stage = stage_drivers[stage_idx]
             observables_stage = self.observables(
@@ -1581,17 +1657,39 @@ class CPUFIRKStep(CPUStep):
                 logging.stage_increments[stage_idx, :] = k_i
                 logging.residuals[stage_idx, :] = self.residual(stage_increments_flat)[k_start:k_end]
 
-        # Compute the new state using b weights
-        state_accum = np.zeros_like(state_vector)
-        error_accum = np.zeros_like(state_vector)
-        for stage_idx in range(stage_count):
-            state_accum += b_weights[stage_idx] * stage_derivatives[stage_idx]
-            if error_weights is not None:
-                error_accum += (
-                    error_weights[stage_idx] * stage_derivatives[stage_idx]
-                ) * dt_value
+        def kahan_weighted_increment_sum(weights):
+            """Kahan-sum weighted stage increments like the device step."""
+            accumulator = np.zeros(state_dim, dtype=self.precision)
+            compensation = np.zeros(state_dim, dtype=self.precision)
+            for summed_idx in range(stage_count):
+                increment_slice = stage_increments_flat[
+                    summed_idx * state_dim : (summed_idx + 1) * state_dim
+                ]
+                weighted = weights[summed_idx] * increment_slice
+                term = weighted - compensation
+                temp = accumulator + term
+                compensation = (temp - accumulator) - term
+                accumulator = temp
+            return accumulator
 
-        new_state = state_vector + dt_value * state_accum
+        # Mirror the device step's tableau shortcuts and its use of the
+        # solved increments (which already include dt) rather than
+        # re-evaluated derivatives.
+        b_row = self.tableau.b_matches_a_row
+        b_hat_row = self.tableau.b_hat_matches_a_row
+        if b_row is not None:
+            new_state = stage_states[b_row].copy()
+        else:
+            new_state = state_vector + kahan_weighted_increment_sum(
+                b_weights
+            )
+
+        error_accum = np.zeros_like(state_vector)
+        if error_weights is not None:
+            if b_hat_row is not None:
+                error_accum = new_state - stage_states[b_hat_row]
+            else:
+                error_accum = kahan_weighted_increment_sum(error_weights)
         end_time = current_time + dt_value
         drivers_next = self.drivers(end_time)
         observables = self.observables(
@@ -1630,6 +1728,8 @@ class CPURosenbrockWStep(CPUStep):
         newton_max_iters: int,
         linear_tol: float,
         linear_max_iters: int,
+        newton_rtol: float = 0.0,
+        linear_rtol: float = 0.0,
         linear_correction_type: str = "minimal_residual",
         preconditioner_order: int = 2,
         tableau: Optional[RosenbrockTableau] = None,
@@ -1644,8 +1744,10 @@ class CPURosenbrockWStep(CPUStep):
             evaluator,
             driver_evaluator,
             newton_tol=newton_tol,
+            newton_rtol=newton_rtol,
             newton_max_iters=newton_max_iters,
             linear_tol=linear_tol,
+            linear_rtol=linear_rtol,
             linear_max_iters=linear_max_iters,
             linear_correction_type=linear_correction_type,
             preconditioner_order=preconditioner_order,
@@ -1904,6 +2006,8 @@ class CPUBackwardEulerPCStep(CPUStep):
         newton_max_iters: int,
         linear_tol: float,
         linear_max_iters: int,
+        newton_rtol: float = 0.0,
+        linear_rtol: float = 0.0,
         linear_correction_type: str = "minimal_residual",
         preconditioner_order: int = 2,
         corrector: Optional[CPUBackwardEulerStep] = None,
@@ -1915,8 +2019,10 @@ class CPUBackwardEulerPCStep(CPUStep):
             evaluator,
             driver_evaluator,
             newton_tol=newton_tol,
+            newton_rtol=newton_rtol,
             newton_max_iters=newton_max_iters,
             linear_tol=linear_tol,
+            linear_rtol=linear_rtol,
             linear_max_iters=linear_max_iters,
             linear_correction_type=linear_correction_type,
             preconditioner_order=preconditioner_order,
@@ -1929,8 +2035,10 @@ class CPUBackwardEulerPCStep(CPUStep):
                 evaluator,
                 driver_evaluator,
                 newton_tol=newton_tol,
+                newton_rtol=newton_rtol,
                 newton_max_iters=newton_max_iters,
                 linear_tol=linear_tol,
+                linear_rtol=linear_rtol,
                 linear_max_iters=linear_max_iters,
                 linear_correction_type=linear_correction_type,
                 preconditioner_order=preconditioner_order,
@@ -2060,6 +2168,8 @@ def get_ref_step_factory(
         newton_max_iters: int,
         linear_tol: float,
         linear_max_iters: int,
+        newton_rtol: float = 0.0,
+        linear_rtol: float = 0.0,
         linear_correction_type: str = "minimal_residual",
         preconditioner_order: int = 2,
         instrument: bool = False,
@@ -2071,8 +2181,10 @@ def get_ref_step_factory(
                 evaluator,
                 driver_evaluator,
                 newton_tol=newton_tol,
+                newton_rtol=newton_rtol,
                 newton_max_iters=newton_max_iters,
                 linear_tol=linear_tol,
+                linear_rtol=linear_rtol,
                 linear_max_iters=linear_max_iters,
                 linear_correction_type=linear_correction_type,
                 preconditioner_order=preconditioner_order,
@@ -2084,8 +2196,10 @@ def get_ref_step_factory(
             evaluator,
             driver_evaluator,
             newton_tol=newton_tol,
+            newton_rtol=newton_rtol,
             newton_max_iters=newton_max_iters,
             linear_tol=linear_tol,
+            linear_rtol=linear_rtol,
             linear_max_iters=linear_max_iters,
             linear_correction_type=linear_correction_type,
             preconditioner_order=preconditioner_order,
@@ -2107,6 +2221,8 @@ def get_ref_stepper(
     newton_max_iters: int,
     linear_tol: float,
     linear_max_iters: int,
+    newton_rtol: float = 0.0,
+    linear_rtol: float = 0.0,
     linear_correction_type: str = "minimal_residual",
     preconditioner_order: int = 2,
     tableau: Optional[Union[str, ButcherTableau]] = None,
@@ -2121,8 +2237,10 @@ def get_ref_stepper(
         evaluator,
         driver_evaluator,
         newton_tol=newton_tol,
+        newton_rtol=newton_rtol,
         newton_max_iters=newton_max_iters,
         linear_tol=linear_tol,
+        linear_rtol=linear_rtol,
         linear_max_iters=linear_max_iters,
         linear_correction_type=linear_correction_type,
         preconditioner_order=preconditioner_order,

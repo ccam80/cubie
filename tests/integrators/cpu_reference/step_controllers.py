@@ -35,7 +35,10 @@ class CPUAdaptiveController:
         self.kind = kind.lower()
         self.dt_min = precision(dt_min)
         self.dt_max = precision(dt_max)
-        if kind == "fixed":
+        # A user-provided dt seeds the first step for every controller
+        # kind, like the device configs; the geometric mean of the
+        # bounds is only a fallback when dt is absent.
+        if dt is not None:
             self.dt0 = precision(dt)
         else:
             self.dt0 = precision(np.sqrt(dt_min * dt_max))
@@ -80,13 +83,19 @@ class CPUAdaptiveController:
     def error_norm(
         self, state_prev: Array, state_new: Array, error: Array
     ) -> float:
-        error = np.maximum(np.abs(error), 1e-16)
+        precision = self.precision
+        error = np.maximum(np.abs(error), precision(1e-16))
         scale = self.atol + self.rtol * np.maximum(
             np.abs(state_prev), np.abs(state_new)
         )
         ratio = error / scale
-        nrm2 = np.sum(ratio * ratio) / len(error)
-        return self.precision(nrm2)
+        # Multiply by a precision-typed reciprocal and guard against
+        # nan/inf, matching the device controllers.
+        inv_n = precision(1.0 / len(error))
+        nrm2 = precision(np.sum(ratio * ratio) * inv_n)
+        if np.isnan(nrm2) or np.isinf(nrm2):
+            nrm2 = precision(1e16)
+        return nrm2
 
     def propose_dt(
         self,
@@ -132,13 +141,13 @@ class CPUAdaptiveController:
         current_dt: float,
     ) -> float:
         precision = self.precision
-        expo_fraction = precision(
-            precision(1.0)
-            / (precision(2) * (precision(self.order) + precision(1)))
-        )
-        kp_exp = precision(self.kp * expo_fraction)
-        ki_exp = precision(self.ki * expo_fraction)
-        kd_exp = precision(self.kd * expo_fraction)
+        # The device controllers divide the precision-typed gain by the
+        # integer denominator; mirror that rounding exactly.
+        order_denominator = 2 * (self.order + 1)
+        expo_fraction = precision(1.0 / order_denominator)
+        kp_exp = precision(self.kp / order_denominator)
+        ki_exp = precision(self.ki / order_denominator)
+        kd_exp = precision(self.kd / order_denominator)
 
         if self.kind == "i":
             exponent = -expo_fraction
