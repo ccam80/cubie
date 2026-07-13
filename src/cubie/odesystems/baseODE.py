@@ -110,6 +110,7 @@ class BaseODE(CUDAFactory):
         default_observable_names: Optional[Dict[str, float]] = None,
         num_drivers: int = 1,
         name: Optional[str] = None,
+        mass: Any = None,
     ) -> None:
         """Initialize the ODE system.
 
@@ -138,6 +139,9 @@ class BaseODE(CUDAFactory):
             Number of driver or forcing functions. Defaults to ``1``.
         name
             Printable identifier for the system. Defaults to ``None``.
+        mass
+            Solver mass matrix; ``None`` implies identity. Singular
+            diagonal matrices express semi-explicit DAE systems.
         """
         super().__init__()
         system_data = ODEData.from_BaseODE_initargs(
@@ -151,6 +155,7 @@ class BaseODE(CUDAFactory):
             default_observable_names=default_observable_names,
             precision=precision,
             num_drivers=num_drivers,
+            mass=mass,
         )
         self.setup_compile_settings(system_data)
         self.name = name

@@ -52,7 +52,7 @@ from typing import (
     Union,
 )
 
-from numpy import float32, ndarray
+from numpy import asarray, float32, ndarray
 import sympy as sp
 from cubie.array_interpolator import ArrayInterpolator
 from cubie.odesystems.symbolic.codegen.dxdt import (
@@ -86,6 +86,7 @@ from cubie.odesystems.symbolic.parsing import (
     ParsedEquations,
     parse_input,
 )
+from cubie.odesystems.symbolic.parsing.dae import parse_dae_input
 from cubie.odesystems.symbolic.codegen.time_derivative import (
     generate_time_derivative_fac_code,
 )
@@ -155,6 +156,10 @@ def create_ODE_system(
     user_function_derivatives: Optional[dict[str, Callable]] = None,
     name: Optional[str] = None,
     strict: bool = False,
+    simplify: bool = False,
+    state_priority: Optional[dict[str, float]] = None,
+    irreducible: Optional[Iterable[str]] = None,
+    simplify_options: Optional[dict[str, Any]] = None,
 ) -> "SymbolicODE":
     """Create a :class:`SymbolicODE` from SymPy definitions.
 
@@ -198,6 +203,22 @@ def create_ODE_system(
         Target floating-point precision used when compiling the system.
     strict
         When ``True`` require every symbol to be explicitly categorised.
+    simplify
+        When ``True``, run MTK-style structural simplification (alias
+        elimination, index reduction, tearing) before code
+        generation, enabling DAE input: implicit equations
+        (``0 = g(...)``), higher-order derivatives, and algebraic
+        unknowns. Torn systems carry a singular mass matrix and
+        require an implicit algorithm.
+    state_priority
+        Per-unknown state-selection priorities (higher values are
+        preferred as solver states). Only used with ``simplify``.
+    irreducible
+        Unknowns that must not be eliminated. Only used with
+        ``simplify``.
+    simplify_options
+        Extra keyword arguments forwarded to
+        :func:`~cubie.odesystems.symbolic.structural.simplify.structural_simplify`.
 
     Returns
     -------
@@ -216,6 +237,10 @@ def create_ODE_system(
         name=name,
         precision=precision,
         strict=strict,
+        simplify=simplify,
+        state_priority=state_priority,
+        irreducible=irreducible,
+        simplify_options=simplify_options,
     )
     return symbolic_ode
 
@@ -257,6 +282,7 @@ class SymbolicODE(BaseODE):
         fn_hash: Optional[str] = None,
         user_functions: Optional[dict[str, Callable]] = None,
         name: Optional[str] = None,
+        mass: Optional[ndarray] = None,
     ):
         """Initialise the symbolic system instance.
 
@@ -278,6 +304,10 @@ class SymbolicODE(BaseODE):
             Runtime callables referenced within the symbolic expressions.
         name
             Identifier used for generated modules.
+        mass
+            Solver mass matrix; ``None`` implies identity. Structural
+            simplification supplies a singular diagonal matrix for
+            systems with torn algebraic residual equations.
         """
         if all_symbols is None:
             all_symbols = all_indexed_bases.all_symbols
@@ -312,6 +342,7 @@ class SymbolicODE(BaseODE):
             precision=precision,
             num_drivers=ndriv,
             name=name,
+            mass=mass,
         )
         self._jacobian_aux_count: Optional[int] = None
         self._jvp_exprs: Optional[JVPEquations] = None
@@ -338,6 +369,10 @@ class SymbolicODE(BaseODE):
             Union[dict[str, str], Iterable[str]]
         ] = None,
         driver_units: Optional[Union[dict[str, str], Iterable[str]]] = None,
+        simplify: bool = False,
+        state_priority: Optional[dict[str, float]] = None,
+        irreducible: Optional[Iterable[str]] = None,
+        simplify_options: Optional[dict[str, Any]] = None,
     ) -> "SymbolicODE":
         """Parse user inputs and instantiate a :class:`SymbolicODE`.
 
@@ -385,6 +420,22 @@ class SymbolicODE(BaseODE):
             Optional units for observables. Defaults to "dimensionless".
         driver_units
             Optional units for drivers. Defaults to "dimensionless".
+        simplify
+            When ``True``, run MTK-style structural simplification
+            (alias elimination, index reduction, tearing) before code
+            generation. Enables DAE input: implicit equations
+            (``0 = g(...)``), higher-order derivatives, and algebraic
+            unknowns. Torn systems carry a singular mass matrix and
+            require an implicit algorithm.
+        state_priority
+            Per-unknown state-selection priorities (higher values are
+            preferred as solver states). Only used with ``simplify``.
+        irreducible
+            Unknowns that must not be eliminated. Only used with
+            ``simplify``.
+        simplify_options
+            Extra keyword arguments forwarded to
+            :func:`~cubie.odesystems.symbolic.structural.simplify.structural_simplify`.
 
         Returns
         -------
@@ -406,23 +457,58 @@ class SymbolicODE(BaseODE):
 
         # Start timing for parsing operation
         default_timelogger.start_event("symbolic_ode_parsing")
-        sys_components = parse_input(
-            states=states,
-            observables=observables,
-            parameters=parameters,
-            constants=constants,
-            drivers=drivers,
-            user_functions=user_functions,
-            user_function_derivatives=user_function_derivatives,
-            dxdt=dxdt,
-            strict=strict,
-            state_units=state_units,
-            parameter_units=parameter_units,
-            constant_units=constant_units,
-            observable_units=observable_units,
-            driver_units=driver_units,
-        )
-        index_map, all_symbols, functions, equations, fn_hash = sys_components
+        mass = None
+        if simplify:
+            (
+                index_map,
+                all_symbols,
+                functions,
+                equations,
+                fn_hash,
+                simplified,
+            ) = parse_dae_input(
+                dxdt=dxdt,
+                states=states,
+                observables=observables,
+                parameters=parameters,
+                constants=constants,
+                drivers=drivers,
+                user_functions=user_functions,
+                user_function_derivatives=user_function_derivatives,
+                strict=strict,
+                state_priority=state_priority,
+                irreducible=irreducible,
+                state_units=state_units,
+                parameter_units=parameter_units,
+                constant_units=constant_units,
+                observable_units=observable_units,
+                driver_units=driver_units,
+                **(simplify_options or {}),
+            )
+            if simplified.mass_matrix is not None:
+                mass = asarray(
+                    simplified.mass_matrix.tolist(), dtype=precision
+                )
+        else:
+            sys_components = parse_input(
+                states=states,
+                observables=observables,
+                parameters=parameters,
+                constants=constants,
+                drivers=drivers,
+                user_functions=user_functions,
+                user_function_derivatives=user_function_derivatives,
+                dxdt=dxdt,
+                strict=strict,
+                state_units=state_units,
+                parameter_units=parameter_units,
+                constant_units=constant_units,
+                observable_units=observable_units,
+                driver_units=driver_units,
+            )
+            index_map, all_symbols, functions, equations, fn_hash = (
+                sys_components
+            )
         symbolic_ode = cls(
             equations=equations,
             all_indexed_bases=index_map,
@@ -431,6 +517,7 @@ class SymbolicODE(BaseODE):
             fn_hash=fn_hash,
             user_functions=functions,
             precision=precision,
+            mass=mass,
         )
         default_timelogger.stop_event("symbolic_ode_parsing")
         return symbolic_ode
