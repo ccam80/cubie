@@ -29,13 +29,71 @@ jobs:
         run: packer init packer/windows-gpu.pkr.hcl
 
       - name: Build AMI
-        # AWS_BUILD_SUBNET_ID is optional: leave the repo variable unset to
-        # let Packer pick a subnet in the default VPC.
-        run: >
-          packer build
-          -var "region=${{ vars.AWS_REGION }}"
-          -var "subnet_id=${{ vars.AWS_BUILD_SUBNET_ID }}"
-          packer/windows-gpu.pkr.hcl
+        # Spot g4dn.xlarge capacity is per-Availability-Zone, and Packer
+        # pins a build to a single subnet (hence a single AZ). Sweep the
+        # default VPC's subnets (one per AZ) and take the first AZ with
+        # capacity -- automating AWS's own "choose another AZ" advice.
+        # Only an AZ-capacity error advances the sweep: any other Packer
+        # failure (WinRM timeout, driver install, security group, or a
+        # regional spot-quota miss that recurs in every AZ) short-circuits
+        # immediately, because a Windows bake can run 30-60 min per AZ and
+        # sweeping on a non-capacity error would waste hours. Set
+        # AWS_BUILD_SUBNET_ID to pin one subnet instead (e.g. no default
+        # VPC).
+        env:
+          AWS_REGION: ${{ vars.AWS_REGION }}
+          PINNED_SUBNET: ${{ vars.AWS_BUILD_SUBNET_ID }}
+        run: |
+          set -euo pipefail
+          if [ -n "${PINNED_SUBNET:-}" ]; then
+            SUBNETS="$PINNED_SUBNET"
+          else
+            VPC=$(aws ec2 describe-vpcs --region "$AWS_REGION" \
+              --filters Name=isDefault,Values=true \
+              --query 'Vpcs[0].VpcId' --output text)
+            SUBNETS=$(aws ec2 describe-subnets --region "$AWS_REGION" \
+              --filters "Name=vpc-id,Values=$VPC" \
+                        "Name=default-for-az,Values=true" \
+              --query 'Subnets[].SubnetId' --output text)
+          fi
+          if [ -z "${SUBNETS// /}" ]; then
+            echo "No candidate subnets found; set AWS_BUILD_SUBNET_ID." >&2
+            exit 1
+          fi
+          # Errors that mean "this AZ is out of capacity, try another". A
+          # regional spot-quota miss (MaxSpotInstanceCountExceeded) is
+          # intentionally excluded -- every AZ shares that quota.
+          CAP_RE='InsufficientInstanceCapacity|capacity-not-available|do not have sufficient .*capacity|insufficient .*capacity in the [Aa]vailability [Zz]one'
+          echo "Candidate subnets (one per AZ): $SUBNETS"
+          swept=0
+          last_rc=1
+          for SN in $SUBNETS; do
+            echo "::group::packer build on subnet $SN"
+            set +e
+            packer build \
+              -var "region=$AWS_REGION" \
+              -var "subnet_id=$SN" \
+              packer/windows-gpu.pkr.hcl 2>&1 | tee packer.out
+            rc=${PIPESTATUS[0]}
+            set -e
+            echo "::endgroup::"
+            if [ "$rc" -eq 0 ]; then
+              echo "Bake succeeded in subnet $SN."
+              exit 0
+            fi
+            if grep -Eq "$CAP_RE" packer.out; then
+              echo "Subnet $SN: no spot capacity in its AZ (rc=$rc);" \
+                   "trying the next AZ."
+              swept=1
+              last_rc=$rc
+              continue
+            fi
+            echo "Subnet $SN: Packer failed for a non-capacity reason" \
+                 "(rc=$rc); not sweeping further AZs." >&2
+            exit "$rc"
+          done
+          echo "Every candidate AZ was out of spot capacity (swept=$swept)." >&2
+          exit "$last_rc"
 
       - name: Deregister superseded cubie-win-gpu AMIs
         # Keep the most recent AMI; deregister older ones (and their
