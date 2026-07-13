@@ -3,10 +3,31 @@
 import numpy as np
 import pytest
 import sympy as sp
+from numba import cuda
 
 from cubie.odesystems.symbolic.parsing.dae import parse_dae_input
 from cubie.odesystems.symbolic.parsing.parser import EquationWarning
 from cubie.odesystems.symbolic.symbolicODE import create_ODE_system
+
+
+def launch_dxdt(device_fn, state, params, drivers, obs, out, t):
+    """Launch a dxdt device function through a single-thread kernel."""
+
+    @cuda.jit()
+    def kernel(state_, params_, drivers_, obs_, out_, t_):
+        device_fn(state_, params_, drivers_, obs_, out_, t_)
+
+    kernel[1, 1](state, params, drivers, obs, out, t)
+
+
+def launch_observables(device_fn, state, params, drivers, obs, t):
+    """Launch an observables device function via a kernel."""
+
+    @cuda.jit()
+    def kernel(state_, params_, drivers_, obs_, t_):
+        device_fn(state_, params_, drivers_, obs_, t_)
+
+    kernel[1, 1](state, params, drivers, obs, t)
 
 
 class TestParseDaeInput:
@@ -127,15 +148,18 @@ class TestSymbolicODEIntegration:
             name="dae_test_alias",
         )
         assert ode.compile_settings.mass is None
-        fn = ode.evaluate_f
         state = np.array([2.0], dtype=np.float64)
         params = np.array([0.5], dtype=np.float64)
         drivers = np.zeros(1, dtype=np.float64)
         obs = np.zeros(1, dtype=np.float64)
         out = np.zeros(1, dtype=np.float64)
-        fn(state, params, drivers, obs, out, 0.0)
+        launch_dxdt(
+            ode.evaluate_f, state, params, drivers, obs, out, 0.0
+        )
         assert out[0] == pytest.approx(3.0, abs=1e-13)
-        ode.evaluate_observables(state, params, drivers, obs, 0.0)
+        launch_observables(
+            ode.evaluate_observables, state, params, drivers, obs, 0.0
+        )
         assert obs[0] == pytest.approx(4.0, abs=1e-13)
 
     def test_torn_dae_mass_matrix_reaches_system(self):
@@ -155,13 +179,14 @@ class TestSymbolicODEIntegration:
         assert mass[0, 0] == 1.0 and mass[1, 1] == 0.0
         names = list(ode.indices.state_names)
         assert names == ["x", "z"]
-        fn = ode.evaluate_f
         state = np.array([2.0, 1.0], dtype=np.float64)
         params = np.zeros(1, dtype=np.float64)
         drivers = np.zeros(1, dtype=np.float64)
         obs = np.zeros(1, dtype=np.float64)
         out = np.zeros(2, dtype=np.float64)
-        fn(state, params, drivers, obs, out, 0.0)
+        launch_dxdt(
+            ode.evaluate_f, state, params, drivers, obs, out, 0.0
+        )
         # dx = -z = -1; residual = z^5 + z - x = 0 at (2, 1).
         assert out[0] == pytest.approx(-1.0, abs=1e-13)
         assert out[1] == pytest.approx(0.0, abs=1e-13)
