@@ -293,6 +293,9 @@ def run_single(cfg):
         print(json.dumps({"skip": True}))
         return
 
+    # auto_memory off on both sides: the sweep measures pure
+    # placements, and the heuristics under calibration must never
+    # leak into their own baseline.
     base_kwargs = dict(
         dt=DT,
         step_controller="fixed",
@@ -300,6 +303,7 @@ def run_single(cfg):
         output_types=["state"],
         time_logging_level="default",
         algorithm=cfg["algorithm"],
+        auto_memory=False,
     )
     if cfg["algorithm"] in IMPLICIT:
         base_kwargs["krylov_max_iters"] = 100
