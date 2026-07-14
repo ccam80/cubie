@@ -73,6 +73,7 @@ test = [
 dev12 = ["cubie[cuda12,test]"]
 dev13 = ["cubie[cuda13,test]"]
 dev-mlir12 = ["cubie[mlir-cuda12,test]"]
+dev-mlir13 = ["cubie[mlir-cuda13,test]"]
 dev = ["cubie[dev12]"]
 optional = [
     "pandas",
