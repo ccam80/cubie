@@ -13,14 +13,14 @@ optimisation conventions live in `src/cubie/writing_cuda_functions.md`.
 
 ## Setup
 - `pip install -e .[dev]` from the repo root (use a venv; some deps are version-pinned).
-- **Python 3.10–3.14**, **CUDA 12 or 13** (via the `cuda12`/`cuda13` extras, or a system
+- **Python 3.10-3.14**, **CUDA 12 or 13** (via the `cuda12`/`cuda13` extras, or a system
   toolkit), **NVIDIA GPU (compute capability ≥6.0)**.
 - CPU-only dev/test without a GPU: set `NUMBA_ENABLE_CUDASIM=1` (Numba's CUDA simulator).
   **CUDASIM is not production.** Behaviour under the simulator must never be considered when
   evaluating code: designs, fixes, and diagnostics are judged solely on their real-GPU
   behaviour. A path that works under CUDASIM but degrades or disappears on hardware is broken.
 - Dev shell is **PowerShell on Windows** — chain with `;`, not `&&`. Staying Windows-compatible is
-  a project goal; CI runs on Ubuntu (Python 3.10/3.11/3.12).
+  a project goal.
 
 ## Testing
 Run `pytest` from the repo root. `pyproject.toml` `addopts` already applies coverage and
@@ -66,6 +66,10 @@ change — the full suite is slow (run it as a pre-commit check only, and only w
   discard it and rerun. Run A (`main`) first, then pass A's printed mean/std to the B run via
   `--ref-fixed MEAN STD --ref-adaptive MEAN STD`; the script prints a Welch z per config and
   the verdict (`|z| >= 3` = the means differ; positive z on the PR branch = regression).
+- ** Any changes left uncommitted or unstaged will be programatically deleted **. The only place to
+  store work is in a branch off origin, pushed to main, with a PR open. PRs are the only format
+  reviewed by the user. Don't leave PRs draft, they must be marked ready and reviewed by Greptile
+  before the user can review.
 
 ## Cross-cutting code rules (details in `src/cubie/AGENTS.md`)
 - Never call a `CUDAFactory.build()` directly — access compiled functions via the cached properties.
