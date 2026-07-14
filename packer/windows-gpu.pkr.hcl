@@ -26,12 +26,17 @@ variable "spot_instance_types" {
   default = ["g4dn.xlarge", "g4dn.2xlarge", "g5.xlarge", "g6.xlarge"]
 }
 
-# Max hourly spot bid. AWS never charges above the on-demand price
-# (g4dn.xlarge is ~$0.75/h in ap-southeast-2), so this ceiling only has to
-# clear the market spot price; you pay the actual (lower) spot rate.
+# Max hourly spot bid. A ceiling only EXCLUDES pools -- AWS always charges
+# the live spot rate (itself capped at on-demand), never this number, so
+# it must clear the on-demand price of every type in spot_instance_types
+# or those types are dropped from the fleet ("Unable to fulfill capacity
+# due to your request configuration"). These are Windows instances (spot
+# carries a licensing premium) and g4dn.2xlarge/g5.xlarge on-demand are
+# ~$1.1-1.3/h, so 1.00 silently excluded them. 3.00 clears all four with
+# margin; the actual charge is still the (far lower) market spot rate.
 variable "spot_price" {
   type    = string
-  default = "1.00"
+  default = "3.00"
 }
 
 # Empty -> Packer picks a subnet in the default VPC. Set explicitly if the
