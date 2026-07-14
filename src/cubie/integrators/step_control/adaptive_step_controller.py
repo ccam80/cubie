@@ -23,11 +23,9 @@ See Also
 
 from abc import abstractmethod
 from typing import Callable, Optional
-from warnings import warn
 
 from numpy import asarray, ndarray, sqrt
 from attrs import Converter, define, field
-from numpy.typing import ArrayLike
 
 from cubie._utils import (
     PrecisionDType,
@@ -35,7 +33,6 @@ from cubie._utils import (
     getype_validator,
     nonnegative_float_array_validator,
     inrangetype_validator,
-    opt_getype_validator,
     tol_converter,
 )
 from cubie.integrators.step_control.base_step_controller import (

@@ -22,6 +22,13 @@ Published Device Functions
 ``syncwarp``, ``stwt``
     Wrappers around CUDA intrinsics with CUDASIM fallbacks.
 
+Published Classes
+-----------------
+:class:`JITFlags`
+    Managed ``cuda.jit`` compile options stored on every factory's
+    compile settings and rendered to decorator kwargs by
+    :func:`get_jit_kwargs`.
+
 Published Constants
 -------------------
 :data:`CUDA_SIMULATION`
@@ -49,8 +56,10 @@ from __future__ import annotations
 from ctypes import c_void_p
 import os
 from types import MappingProxyType
-from typing import Any, Callable, Mapping, Optional, Tuple
+from typing import Any, Callable, Mapping, Optional, Tuple, Union
 
+from attrs import Factory, define, field
+from attrs import validators as attrs_validators
 from numba import cuda
 from numba import from_dtype as numba_from_dtype
 from numpy import dtype
@@ -60,47 +69,154 @@ from cubie._env import lineinfo_default
 
 CUDA_SIMULATION: bool = os.environ.get("NUMBA_ENABLE_CUDASIM") == "1"
 
-# Base compile kwargs for cuda.jit decorators. Immutable: per-build
-# overrides (lineinfo) merge over a copy via get_jit_kwargs so no build
-# can leak state into another compilation unit.
-# lineinfo is not supported in CUDASIM mode; the env default applies to
-# device functions decorated at import time, which never see a factory
-# config. Factory builds pass their compile setting to get_jit_kwargs.
+
+@define
+class JITFlags:
+    """Per-factory ``cuda.jit`` compile flags.
+
+    Every managed jit option travels the same path: stored on the
+    factory's compile settings (hashed into the config, so a change
+    triggers a rebuild), then rendered to decorator keyword arguments
+    by :func:`get_jit_kwargs`. New jit options are added here as new
+    fields.
+
+    Attributes
+    ----------
+    lineinfo
+        Compile with source-line correlation data. Defaults to the
+        ``CUBIE_LINEINFO`` environment variable.
+    nsz
+        Treat signed zero as insignificant in floating-point ops.
+    contract
+        Allow floating-point contraction (fused multiply-add).
+    arcp
+        Allow reciprocal approximation of division.
+    afn
+        Allow approximate transcendental functions (``LG2``/``EX2``
+        hardware paths for ``log``/``exp``/``pow``).
+    lto
+        Enable link-time optimisation across device functions.
+    """
+
+    lineinfo: bool = field(
+        default=Factory(lineinfo_default),
+        validator=attrs_validators.instance_of(bool),
+    )
+    nsz: bool = field(
+        default=True, validator=attrs_validators.instance_of(bool)
+    )
+    contract: bool = field(
+        default=True, validator=attrs_validators.instance_of(bool)
+    )
+    arcp: bool = field(
+        default=True, validator=attrs_validators.instance_of(bool)
+    )
+    afn: bool = field(
+        default=True, validator=attrs_validators.instance_of(bool)
+    )
+    lto: bool = field(
+        default=True, validator=attrs_validators.instance_of(bool)
+    )
+
+    @property
+    def fastmath(self) -> set:
+        """Return the set of enabled LLVM fast-math flag names."""
+        enabled = {
+            "nsz": self.nsz,
+            "contract": self.contract,
+            "arcp": self.arcp,
+            "afn": self.afn,
+        }
+        return {name for name, on in enabled.items() if on}
+
+    def update(self, updates_dict=None, **kwargs):
+        """Update flag fields, following the config-update contract.
+
+        Parameters
+        ----------
+        updates_dict
+            Mapping of flag names to new boolean values. Unknown keys
+            are ignored so composite configs can broadcast one updates
+            dict to every nested attrs class.
+        **kwargs
+            Additional flag updates.
+
+        Returns
+        -------
+        tuple[set[str], set[str]]
+            Names of recognised settings and names of changed settings.
+        """
+        if updates_dict is None:
+            updates_dict = {}
+        updates_dict = {**updates_dict, **kwargs}
+        recognized = set()
+        changed = set()
+        flag_names = {
+            "lineinfo",
+            "nsz",
+            "contract",
+            "arcp",
+            "afn",
+            "lto",
+        }
+        for key, value in updates_dict.items():
+            if key not in flag_names:
+                continue
+            recognized.add(key)
+            if getattr(self, key) != value:
+                setattr(self, key, bool(value))
+                changed.add(key)
+        return recognized, changed
+
+
+# Base compile kwargs for cuda.jit decorators, from the default flag
+# set. Applies to device functions decorated at import time, which
+# never see a factory config; factory builds render their config's
+# JITFlags through get_jit_kwargs instead. GPU-only options are
+# omitted under the CUDA simulator.
 compile_kwargs: Mapping[str, Any] = MappingProxyType(
     {}
     if CUDA_SIMULATION
     else {
-        "fastmath": {
-            "nsz": True,
-            "contract": True,
-            "arcp": True,
-        },
+        "fastmath": JITFlags().fastmath,
         "lineinfo": lineinfo_default(),
+        "lto": JITFlags().lto,
     }
 )
 
 
-def get_jit_kwargs(lineinfo: Optional[bool] = None) -> dict[str, Any]:
-    """Return ``cuda.jit`` kwargs with an explicit ``lineinfo`` value.
+def get_jit_kwargs(
+    jit_flags: Optional[Union["JITFlags", bool]] = None,
+) -> dict[str, Any]:
+    """Return per-build ``cuda.jit`` keyword arguments.
 
     Parameters
     ----------
-    lineinfo
-        Whether to compile with source-line correlation data. ``None``
-        defers to the ``CUBIE_LINEINFO`` environment variable.
+    jit_flags
+        Flags for the build. A :class:`JITFlags` instance renders all
+        of its fields; a bare boolean is accepted as the ``lineinfo``
+        value with default fast-math flags (the form generated system
+        modules use); ``None`` uses the default flag set.
 
     Returns
     -------
     dict
-        Copy of :data:`compile_kwargs` with ``lineinfo`` set. Under the
-        CUDA simulator the flag is omitted (unsupported there).
+        ``{"fastmath": set, "lineinfo": bool, "lto": bool}``
+        rendered from the flags. Under the CUDA simulator every
+        GPU-only option is omitted and an empty dict is returned,
+        regardless of the flags passed.
     """
-    kwargs = dict(compile_kwargs)
-    if not CUDA_SIMULATION:
-        kwargs["lineinfo"] = (
-            lineinfo_default() if lineinfo is None else bool(lineinfo)
-        )
-    return kwargs
+    if CUDA_SIMULATION:
+        return {}
+    if jit_flags is None:
+        jit_flags = JITFlags()
+    elif isinstance(jit_flags, bool):
+        jit_flags = JITFlags(lineinfo=jit_flags)
+    return {
+        "fastmath": jit_flags.fastmath,
+        "lineinfo": jit_flags.lineinfo,
+        "lto": jit_flags.lto,
+    }
 
 
 class FakeStream:  # pragma: no cover - placeholder
@@ -419,6 +535,7 @@ __all__ = [
     "all_sync",
     "compile_kwargs",
     "get_jit_kwargs",
+    "JITFlags",
     "CUDA_SIMULATION",
     "CUDACache",
     "cupy",

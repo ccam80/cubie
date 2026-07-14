@@ -41,7 +41,7 @@ from numba import cuda, int32
 from numpy import eye
 
 from cubie._utils import PrecisionDType, build_config
-from cubie.cuda_simsafe import activemask, all_sync, get_jit_kwargs
+from cubie.cuda_simsafe import activemask, all_sync
 from cubie.result_codes import CUBIE_RESULT_CODES
 from cubie.integrators.algorithms.base_algorithm_step import (
     StepCache,
@@ -415,7 +415,7 @@ class DIRKStep(ODEImplicitStep):
             # ),
             device=True,
             inline=True,
-            **get_jit_kwargs(self.compile_settings.lineinfo),
+            **self.jit_kwargs,
         )
         def step(
             state,

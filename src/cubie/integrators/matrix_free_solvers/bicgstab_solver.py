@@ -38,7 +38,7 @@ from cubie.integrators.matrix_free_solvers.linear_solver_base import (
     LinearSolverCache,
 )
 from cubie.buffer_registry import buffer_registry
-from cubie.cuda_simsafe import activemask, all_sync, get_jit_kwargs, selp
+from cubie.cuda_simsafe import activemask, all_sync, selp
 from cubie.result_codes import CUBIE_RESULT_CODES
 
 
@@ -237,7 +237,7 @@ class BiCGSTABSolver(LinearSolverBase):
         preconditioned = preconditioner is not None
         cached = config.use_cached_auxiliaries
         chained_precond = config.preconditioner_is_chained
-        jit_kwargs = get_jit_kwargs(config.lineinfo)
+        jit_kwargs = self.jit_kwargs
 
         # Convert types for device function
         n_val = int32(n)

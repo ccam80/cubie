@@ -9,12 +9,28 @@ def test_compile_kwargs_in_cudasim_mode():
     assert CUDA_SIMULATION is True
     assert compile_kwargs == {}
 
+
 @pytest.mark.nocudasim
 def test_compile_kwargs_without_cudasim():
     """Test that compile_kwargs contains lineinfo when CUDASIM is disabled."""
     from cubie.cuda_simsafe import CUDA_SIMULATION, compile_kwargs
     assert CUDA_SIMULATION is False
     assert compile_kwargs != {}
+
+
+@pytest.mark.nocudasim
+def test_jit_flags_render_over_live_defaults():
+    """Overrides render without mutating the live default flag set."""
+    from cubie.cuda_simsafe import JITFlags, compile_kwargs, get_jit_kwargs
+
+    kwargs = get_jit_kwargs(JITFlags(afn=False, lto=False))
+
+    expected = set(compile_kwargs["fastmath"]) - {"afn"}
+    assert kwargs["fastmath"] == expected
+    assert "afn" in compile_kwargs["fastmath"]
+    assert kwargs["lineinfo"] == compile_kwargs["lineinfo"]
+    assert kwargs["lto"] is False
+    assert compile_kwargs["lto"] is True
 
 @pytest.mark.sim_only
 def test_selp_function_in_cudasim():

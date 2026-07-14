@@ -50,7 +50,6 @@ from attrs import define, field, evolve
 from cubie.odesystems import SymbolicODE
 from cubie.cuda_simsafe import (
     is_cudasim_enabled,
-    get_jit_kwargs,
     max_shared_memory_per_block,
 )
 from cubie.cubie_cache import (
@@ -320,15 +319,17 @@ class BatchSolverKernel(CUDAFactory):
             **cache_settings,
         )
 
-        lineinfo_kwargs = {} if lineinfo is None else {"lineinfo": lineinfo}
         initial_config = BatchSolverConfig(
             precision=precision,
             loop_fn=None,
             compile_flags=self.single_integrator.output_compile_flags,
-            **lineinfo_kwargs,
             **(kernel_settings or {}),
         )
         self.setup_compile_settings(initial_config)
+        if lineinfo is not None:
+            self.update_compile_settings(
+                {"lineinfo": lineinfo}, silent=True
+            )
 
         self.input_arrays = InputArrays.from_solver(self)
         self.output_arrays = OutputArrays.from_solver(self)
@@ -759,7 +760,7 @@ class BatchSolverKernel(CUDAFactory):
             buffer_registry.get_toplevel_allocators(self)
         )
 
-        jit_kwargs = get_jit_kwargs(config.lineinfo)
+        jit_kwargs = self.jit_kwargs
         if config.max_registers is not None and not is_cudasim_enabled():
             jit_kwargs["max_registers"] = config.max_registers
 

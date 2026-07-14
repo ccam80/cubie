@@ -28,7 +28,6 @@ See Also
 
 from attrs import define, field
 from numba import cuda, int32
-from cubie.cuda_simsafe import get_jit_kwargs
 from cubie.result_codes import CUBIE_RESULT_CODES
 
 from cubie._utils import getype_validator
@@ -126,7 +125,7 @@ class FixedStepController(BaseStepController):
         @cuda.jit(
             device=True,
             inline=True,
-            **get_jit_kwargs(self.compile_settings.lineinfo),
+            **self.jit_kwargs,
         )
         def controller_fixed_step(
             dt,

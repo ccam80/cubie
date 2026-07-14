@@ -61,7 +61,7 @@ from attrs import define, field, validators
 from numba import cuda, int32, from_dtype
 from numpy.typing import NDArray
 
-from cubie.cuda_simsafe import CUDA_SIMULATION, cupy, get_jit_kwargs, selp
+from cubie.cuda_simsafe import CUDA_SIMULATION, cupy, selp
 from cubie.CUDAFactory import (
     CUDAFactory,
     CUDAFactoryConfig,
@@ -427,7 +427,7 @@ class ArrayInterpolator(CUDAFactory):
             #  numba_precision[::1]),
             device=True,
             inline=True,
-            **get_jit_kwargs(self.compile_settings.lineinfo),
+            **self.jit_kwargs,
         )
         def evaluate_all(time, coefficients, out) -> None:
             """Evaluate all input polynomials at ``time`` on the device.
@@ -475,7 +475,7 @@ class ArrayInterpolator(CUDAFactory):
             #   numba_precision[::1])],
             device=True,
             inline=True,
-            **get_jit_kwargs(self.compile_settings.lineinfo),
+            **self.jit_kwargs,
         )
         def evaluate_time_derivative(
             time,
@@ -629,7 +629,7 @@ class ArrayInterpolator(CUDAFactory):
         device_eval = self.evaluation_function
 
         # no cover: start
-        @cuda.jit(**get_jit_kwargs(self.compile_settings.lineinfo))
+        @cuda.jit(**self.jit_kwargs)
         def _evaluate_kernel(times_device, coefficients_device, out_device):
             idx = cuda.grid(1)
             if idx < times_device.shape[0]:

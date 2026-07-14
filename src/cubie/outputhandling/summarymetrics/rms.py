@@ -14,7 +14,6 @@ See Also
 """
 
 from numba import cuda
-from cubie.cuda_simsafe import get_jit_kwargs
 from math import sqrt
 
 from cubie.outputhandling.summarymetrics import summary_metrics
@@ -60,7 +59,7 @@ class RMS(SummaryMetric):
         """
 
         precision = self.compile_settings.precision
-        jit_kwargs = get_jit_kwargs(self.compile_settings.lineinfo)
+        jit_kwargs = self.jit_kwargs
 
         # no cover: start
         @cuda.jit(

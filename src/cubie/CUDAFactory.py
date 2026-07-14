@@ -38,7 +38,6 @@ from abc import ABC, abstractmethod
 from typing import Set, Any, Tuple, Dict
 
 from attrs import (
-    Factory,
     define,
     field,
     fields,
@@ -62,7 +61,7 @@ from cubie._utils import (
     precision_validator,
     precision_converter,
 )
-from cubie._env import lineinfo_default
+from cubie.cuda_simsafe import JITFlags, get_jit_kwargs
 from cubie.cuda_simsafe import from_dtype as simsafe_dtype
 from cubie.buffer_registry import buffer_registry
 
@@ -306,14 +305,19 @@ class CUDAFactoryConfig(_CubieConfigBase):
         validator=precision_validator,
         converter=precision_converter,
     )
-    lineinfo: bool = field(
-        default=Factory(lineinfo_default),
-        validator=attrs_validators.instance_of(bool),
+    jit_flags: JITFlags = field(
+        factory=JITFlags,
+        validator=attrs_validators.instance_of(JITFlags),
         kw_only=True,
     )
 
     def __attrs_post_init__(self):
         super().__attrs_post_init__()
+
+    @property
+    def lineinfo(self) -> bool:
+        """Return the lineinfo flag from the jit compile flags."""
+        return self.jit_flags.lineinfo
 
     @property
     def numba_precision(self) -> type:
@@ -464,6 +468,22 @@ class CUDAFactory(ABC):
     def compile_settings(self):
         """Return the current compile settings object."""
         return self._compile_settings
+
+    @property
+    def jit_kwargs(self) -> dict:
+        """Return ``cuda.jit`` keyword arguments for this factory.
+
+        Renders the compile settings' :class:`JITFlags` through
+        :func:`cubie.cuda_simsafe.get_jit_kwargs` — the single route
+        by which jit arguments reach ``@cuda.jit`` decorators in
+        ``build()`` implementations.
+
+        Returns
+        -------
+        dict
+            Keyword arguments to splat into ``cuda.jit``.
+        """
+        return get_jit_kwargs(self.compile_settings.jit_flags)
 
     def update_compile_settings(
         self, updates_dict=None, silent=False, **kwargs

@@ -41,7 +41,6 @@ from cubie.CUDAFactory import (
     MultipleInstanceCUDAFactoryConfig,
     MultipleInstanceCUDAFactory,
 )
-from cubie.cuda_simsafe import get_jit_kwargs
 
 
 def resize_tolerances(instance, attribute, value):
@@ -218,7 +217,7 @@ class ScaledNorm(MultipleInstanceCUDAFactory):
         @cuda.jit(
             device=True,
             inline=True,
-            **get_jit_kwargs(config.lineinfo),
+            **self.jit_kwargs,
         )
         def scaled_norm(values, reference):
             """Compute mean squared scaled error norm.
