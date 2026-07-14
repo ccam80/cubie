@@ -384,6 +384,7 @@ class IncrementalCycleTracker:
             if levels[v] < levels[w]:
                 continue
             if v == w:
+                levels.revert()
                 return False
             levels[w] = levels[v] + 1
             worklist.append((v, w))

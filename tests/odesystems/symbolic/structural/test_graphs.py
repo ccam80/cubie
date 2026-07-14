@@ -206,6 +206,22 @@ class TestIncrementalCycleTracker:
         assert not assign(1, 1)
         assert dig.matching[1] is UNASSIGNED
 
+    def test_self_loop_reject_reverts_levels(self):
+        # A batch whose srcs include dst must be rejected without
+        # leaking level bumps applied for earlier srcs in the batch.
+        graph = build_graph(2, 2, [(0, 0), (0, 1), (1, 1)])
+        matching = Matching(2).complete(2)
+        dig = DiCMOBiGraphT(graph, matching)
+        ict = IncrementalCycleTracker(dig)
+
+        before = list(ict.levels.values)
+        accepted = ict.add_edge_checked(
+            lambda g: None, [1, 0], 0
+        )
+        assert not accepted
+        assert ict.levels.values == before
+        assert ict.levels.log == []
+
     def test_accepts_chain(self):
         graph = build_graph(2, 2, [(0, 0), (1, 0), (1, 1)])
         matching = Matching(2).complete(2)
