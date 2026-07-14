@@ -292,6 +292,30 @@ class TestPantelidesAndDummyDerivatives:
         assert y in result.differential_states
         assert vy in result.differential_states
 
+    def test_pendulum_bare_index_reduction(self):
+        # dummy_derivative=False runs bare Pantelides index
+        # reduction: the matched (differentiated) position
+        # equations are kept, so first-order lowering introduces
+        # velocity aliases x_t/y_t alongside vx/vy, and only the
+        # acceleration-level constraint survives as the residual.
+        state, symbols = self.make_pendulum()
+        result = structural_simplify(state, dummy_derivative=False)
+        x, y, vx, vy, Tn, g, L = symbols
+        assert set(result.algebraic_states) == {Tn}
+        assert len(result.residuals) == 1
+        assert len(result.differential_states) == 6
+        for sym in (x, y, vx, vy):
+            assert sym in result.differential_states
+        names = {s.name: s for s in result.differential_states}
+        x_t, y_t = names["x_t"], names["y_t"]
+        accel = (
+            2 * x_t**2
+            + 2 * Tn * x**2
+            + 2 * y_t**2
+            + 2 * y * (Tn * y - g)
+        )
+        assert sp.simplify(result.residuals[0] - accel) == 0
+
     def test_higher_order_input_lowered(self):
         x, w = syms("x w")
         registry = DerivativeRegistry({"x", "w", "t"})

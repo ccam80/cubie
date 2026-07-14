@@ -357,7 +357,11 @@ def structural_simplify(
         if state.structure.solvable_graph is None:
             state.find_solvables(**solve_kwargs)
         state.structure.complete()
-        var_eq_matching = pantelides(state, finalize=False)
+        # The reassembly step keeps one equation per matched
+        # highest-differentiated variable, so it needs the finalized
+        # matching (non-highest matches cleared), as in MTK's
+        # dae_index_lowering.
+        var_eq_matching = pantelides(state)
         state = _pantelides_reassemble_state(state, var_eq_matching)
         mm = alias_elimination(state, **solve_kwargs)
         state.mm = mm
