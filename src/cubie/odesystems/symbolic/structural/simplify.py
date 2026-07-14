@@ -259,7 +259,9 @@ def _topsort_observed(
                 f"observed equation LHS {lhs} is not a symbol"
             )
         if lhs in seen:
-            continue
+            raise AssertionError(
+                f"observed variable {lhs} is assigned more than once"
+            )
         seen.add(lhs)
         pairs.append((lhs, rhs))
     return topological_sort(pairs)
@@ -310,6 +312,10 @@ def structural_simplify(
         "conservative": conservative,
     }
 
+    # Two-phase alias elimination (MTK pattern): the first call
+    # clears obvious aliases before the integer-linear pass and its
+    # return maps are not needed; the second call catches aliases
+    # newly exposed by alias_elimination, and its maps rebase mm.
     eliminate_perfect_aliases(state)
     trivial_tearing(state)
     mm = alias_elimination(state, **solve_kwargs)

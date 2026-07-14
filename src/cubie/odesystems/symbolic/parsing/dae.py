@@ -55,6 +55,9 @@ from cubie.odesystems.symbolic.structural.system_structure import (
 from cubie.odesystems.symbolic.sym_utils import hash_system_definition
 
 _IDENTIFIER_PATTERN = re.compile(r"^[A-Za-z_]\w*$")
+_NUMERIC_LITERAL_PATTERN = re.compile(
+    r"^[+-]?(\d+\.?\d*|\.\d+)([eE][+-]?\d+)?$"
+)
 
 
 def _replace_derivative_calls(
@@ -224,8 +227,8 @@ def _parse_string_equations(
             rhs_expr, registry, unknown_names
         )
 
-        if lhs_str == "0":
-            lhs_expr = sp.S.Zero
+        if _NUMERIC_LITERAL_PATTERN.match(lhs_str):
+            lhs_expr = sp.Number(lhs_str)
         elif lhs_str.startswith("d") and "(" in lhs_str:
             lhs_expr = parse_expr(
                 lhs_str,
@@ -266,7 +269,8 @@ def _parse_string_equations(
         else:
             raise ValueError(
                 f"Unsupported left-hand side '{lhs_str}' in equation "
-                f"'{raw_line}'. Expected a symbol, dX, d(x, t), or 0."
+                f"'{raw_line}'. Expected a symbol, dX, d(x, t), or a "
+                "number (implicit equation)."
             )
 
         equations.append(Equation(lhs_expr, rhs_expr))
@@ -641,7 +645,10 @@ def parse_dae_input(
             if new_expr == expr:
                 return new_expr
             expr = new_expr
-        return expr
+        raise AssertionError(
+            "observable inlining did not converge; the observed "
+            "equations contain a cycle"
+        )
 
     equation_map = []
     for sym in simplified.differential_states:

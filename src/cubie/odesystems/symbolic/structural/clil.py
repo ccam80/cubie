@@ -158,7 +158,11 @@ def bareiss_update_virtual_colswap_clil(
     -----
     When ``|pivot| == |last_pivot|`` rows without an entry in the
     pivot column are left untouched (they would only be scaled by
-    ``±1``), which is the MTK-specific micro-optimisation.
+    ``±1``), which is the MTK-specific micro-optimisation. For
+    ``pivot == -last_pivot`` the skipped scaling is a global sign
+    flip of the row — harmless because stored rows are homogeneous
+    equations (``row = 0``), so the solution set, rank, and sparsity
+    are unchanged.
     """
 
     eadj = matrix.row_cols
@@ -297,10 +301,12 @@ def _dense_swaprows(matrix: List[List[int]], i: int, j: int) -> None:
 def _dense_update(
     matrix: List[List[int]],
     k: int,
-    swapto: Tuple[int, int],
+    _swapto: Tuple[int, int],
     pivot: int,
     prev_pivot: int,
 ) -> None:
+    # _swapto (the pivot's original position) is unused: the swap
+    # callbacks have already moved the pivot to (k, k).
     nrows = len(matrix)
     ncols = len(matrix[0]) if nrows else 0
     for i in range(k + 1, ncols):

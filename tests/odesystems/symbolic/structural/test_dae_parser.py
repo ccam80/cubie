@@ -97,6 +97,20 @@ class TestParseDaeInput:
         assert simplified.mass_matrix is not None
         assert len(simplified.residuals) == 3
 
+    def test_numeric_literal_implicit_lhs(self):
+        # Implicit equations accept any numeric-literal LHS, not
+        # just the exact token "0".
+        _im, _s, _f, _p, _h, simplified = parse_dae_input(
+            dxdt=["dx = -z", "0.0 = z + 2*x"],
+            states={"x": 1.0, "z": 0.0},
+        )
+        assert not simplified.residuals
+        x = sp.Symbol("x", real=True)
+        assert simplified.states == [x]
+        obs = dict(simplified.observed)
+        z = sp.Symbol("z", real=True)
+        assert sp.simplify(obs[z] + 2 * x) == 0
+
     def test_undeclared_symbol_inferred_parameter(self):
         index_map, _s, _f, _p, _h, _simplified = parse_dae_input(
             dxdt=["dx = -mu * x"],
