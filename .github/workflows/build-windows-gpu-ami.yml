@@ -29,25 +29,27 @@ jobs:
         run: packer init packer/windows-gpu.pkr.hcl
 
       - name: Build AMI
-        # Acquire a spot GPU instance, then bake. Two nested retries cope
-        # with this region's tight, fluctuating GPU spot capacity:
+        # Acquire a spot GPU instance, then bake. GPU spot capacity here is
+        # tight and shows up in brief, random windows (freed when some other
+        # load ends), so two nested retries chase it:
         #  * AZ sweep (spatial): Packer pins a build to one subnet = one AZ
         #    and capacity is per-AZ, so try each default-VPC subnet in turn.
-        #  * backoff rounds (temporal): if no AZ has capacity this round,
-        #    wait with exponential backoff and sweep again -- spot capacity
-        #    frees up over minutes.
+        #  * short fixed-interval rounds (temporal): a dry fleet fails in
+        #    ~6s, so poll frequently at a constant interval to catch a brief
+        #    window -- exponential backoff would just miss it by waiting
+        #    ever longer.
         # Only a spot-acquisition miss (fleet yielded no instance) retries.
         # A post-launch failure (WinRM, driver install) exits immediately
         # with Packer's real code -- it would recur in every AZ and a
         # Windows bake runs 30-60 min. A regional spot-quota miss
-        # (MaxSpotInstanceCountExceeded) skips the rest of the AZ sweep (all
-        # AZs share the quota) but still backs off and retries. Set
+        # (MaxSpotInstanceCountExceeded) skips the rest of that round's AZ
+        # sweep (all AZs share the quota) but still retries. Set
         # AWS_BUILD_SUBNET_ID to pin one subnet (e.g. no default VPC).
         env:
           AWS_REGION: ${{ vars.AWS_REGION }}
           PINNED_SUBNET: ${{ vars.AWS_BUILD_SUBNET_ID }}
-          MAX_ROUNDS: "4"
-          BASE_BACKOFF: "120"   # seconds between rounds; doubles each round
+          MAX_ROUNDS: "40"
+          RETRY_INTERVAL: "20"   # seconds between rounds; short and frequent
         run: |
           set -euo pipefail
           if [ -n "${PINNED_SUBNET:-}" ]; then
@@ -88,7 +90,7 @@ jobs:
               fi
               if grep -q "MaxSpotInstanceCountExceeded" packer.out; then
                 echo "Subnet $SN: regional spot quota exhausted (rc=$rc);" \
-                     "all AZs share it -- backing off." >&2
+                     "all AZs share it -- skipping to the next round." >&2
                 break
               fi
               if grep -Eq "$FLEET_MISS_RE" packer.out; then
@@ -101,10 +103,9 @@ jobs:
               exit "$rc"
             done
             if [ "$round" -lt "$MAX_ROUNDS" ]; then
-              backoff=$(( BASE_BACKOFF * (2 ** (round - 1)) ))
               echo "Round $round: no AZ had spot GPU capacity;" \
-                   "retrying in ${backoff}s..."
-              sleep "$backoff"
+                   "retrying in ${RETRY_INTERVAL}s..."
+              sleep "$RETRY_INTERVAL"
             fi
           done
           echo "No spot GPU capacity after $MAX_ROUNDS rounds." >&2

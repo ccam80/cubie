@@ -23,15 +23,20 @@ variable "region" {
 # CreateLaunchTemplate, DeleteLaunchTemplate) on the builder role.
 variable "spot_instance_types" {
   type    = list(string)
-  default = ["g4dn.xlarge", "g4dn.2xlarge", "g5.xlarge", "g6.xlarge"]
+  default = [
+    "g4dn.xlarge", "g4dn.2xlarge",
+    "g5.xlarge", "g5.2xlarge",
+    "g6.xlarge", "g6.2xlarge",
+  ]
 }
 
-# Max hourly spot bid. AWS never charges above the on-demand price
-# (g4dn.xlarge is ~$0.75/h in ap-southeast-2), so this ceiling only has to
-# clear the market spot price; you pay the actual (lower) spot rate.
+# Max hourly spot bid. A ceiling only EXCLUDES pools -- AWS charges the
+# live spot rate (itself capped at on-demand), never this number -- so it
+# just needs to clear every listed type's market spot price (all well
+# under $0.65 for these xlarge/2xlarge GPU types). 1.50 leaves headroom.
 variable "spot_price" {
   type    = string
-  default = "1.00"
+  default = "1.50"
 }
 
 # Empty -> Packer picks a subnet in the default VPC. Set explicitly if the
