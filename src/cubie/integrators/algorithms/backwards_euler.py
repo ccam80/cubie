@@ -12,8 +12,7 @@ Published Classes
 Constants
 ---------
 :data:`ALGO_CONSTANTS`
-    Beta, gamma, and mass matrix values for backward Euler
-    (all identity/unity).
+    Beta and gamma values for backward Euler (unity).
 
 :data:`BE_DEFAULTS`
     Default step controller settings (fixed-step, dt=1e-3).
@@ -30,7 +29,6 @@ from typing import Callable, Optional
 
 from attrs import define, field, validators
 from numba import cuda, int32
-from numpy import eye
 
 from cubie._utils import PrecisionDType, build_config
 from cubie.buffer_registry import buffer_registry
@@ -52,8 +50,7 @@ class BackwardsEulerStepConfig(ImplicitStepConfig):
 
 
 ALGO_CONSTANTS = {'beta': 1.0,
-                  'gamma': 1.0,
-                  'M': eye}
+                  'gamma': 1.0}
 
 BE_DEFAULTS = StepControlDefaults(
     step_controller={
@@ -97,7 +94,6 @@ class BackwardsEulerStep(ODEImplicitStep):
         """
         beta = ALGO_CONSTANTS['beta']
         gamma = ALGO_CONSTANTS['gamma']
-        M = ALGO_CONSTANTS['M'](n, dtype=precision)
 
         config = build_config(
             BackwardsEulerStepConfig,
@@ -110,7 +106,6 @@ class BackwardsEulerStep(ODEImplicitStep):
                 'get_solver_helper_fn': get_solver_helper_fn,
                 'beta': beta,
                 'gamma': gamma,
-                'M': M,
             },
             **kwargs
         )

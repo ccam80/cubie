@@ -195,6 +195,7 @@ class ODEData(CUDAFactoryConfig):
         default_constants: Optional[Dict[str, float]] = None,
         default_observable_names: Optional[Dict[str, float]] = None,
         num_drivers: int = 1,
+        mass: Any = None,
     ) -> "ODEData":
         """Create :class:`ODEData` from ``BaseODE`` initialization arguments.
 
@@ -220,6 +221,9 @@ class ODEData(CUDAFactoryConfig):
             Precision factory used for calculations.
         num_drivers
             Number of driver or forcing functions. Defaults to ``1``.
+        mass
+            Solver mass matrix; ``None`` implies identity. Singular
+            diagonal matrices express semi-explicit DAE systems.
 
         Returns
         -------
@@ -255,4 +259,5 @@ class ODEData(CUDAFactoryConfig):
             observables=observables,
             precision=precision,
             num_drivers=num_drivers,
+            mass=mass,
         )

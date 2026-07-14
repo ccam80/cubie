@@ -590,8 +590,6 @@ def test_algorithm(
                 abs=tolerance.abs_tight,
             ), "krylov_rtol set"
         else:
-            matrix = config.M
-            assert matrix.shape == (system.sizes.states, system.sizes.states)
             assert step_object.preconditioner_order == solver_settings[
                 "preconditioner_order"
             ], "preconditioner order set"

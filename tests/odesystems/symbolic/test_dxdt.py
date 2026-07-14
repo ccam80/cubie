@@ -273,8 +273,11 @@ class TestDxdtIntegration:
         assert isinstance(code, str)
         assert "def dxdt_factory" in code
 
-    def test_dxdt_reuses_observables_buffer(self):
-        """Generated dxdt code should not reassign the observables array."""
+    def test_dxdt_never_reads_observables_buffer(self):
+        """Observable definitions are inlined into consuming
+        dynamics, so the generated dxdt neither reads nor assigns
+        the observables array (its values are stale during stage
+        evaluation)."""
 
         dxdt_lines = [
             "a1 = x1**2",
@@ -287,7 +290,7 @@ class TestDxdtIntegration:
             "dx3 = x3 * a1",
         ]
 
-        index_map, _, _, equations, _ = parse_input(
+        index_map, _, _, equations, _, _ = parse_input(
             dxdt=dxdt_lines,
             states={"x1": 0.0, "x2": 0.0, "x3": 0.0},
             observables=["o1", "o2"],
@@ -299,11 +302,8 @@ class TestDxdtIntegration:
 
         code = generate_dxdt_fac_code(equations, index_map)
 
-        lines = code.splitlines()
-        assert any("observables[" in line for line in lines)
-        assert all(
-            not line.lstrip().startswith("observables[") for line in lines
-        )
+        body = code.split("def dxdt(", 1)[1]
+        assert "observables[" not in body
 
 
 class TestGenerateObservablesFacCode:

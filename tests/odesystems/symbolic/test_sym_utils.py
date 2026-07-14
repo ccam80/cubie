@@ -28,6 +28,40 @@ class TestTopologicalSort:
         assert result[1] == (y, x * 2)
         assert result[2] == (z, x + y)
 
+    def test_topological_sort_order_hash_seed_independent(self):
+        """Sibling assignments emit in a fixed order regardless of
+        the process hash seed (generated code must be identical
+        across processes)."""
+        import subprocess
+        import sys
+
+        script = (
+            "import sympy as sp;"
+            "from cubie.odesystems.symbolic.sym_utils import"
+            " topological_sort;"
+            "a, b, c, d = sp.symbols('alpha beta gamma delta');"
+            "result = topological_sort("
+            "[(b, a + 1), (c, a * 2), (d, a - 3),"
+            " (a, sp.Integer(1))]);"
+            "print([str(lhs) for lhs, _ in result])"
+        )
+        orders = set()
+        for seed in ("1", "77"):
+            out = subprocess.run(
+                [sys.executable, "-c", script],
+                capture_output=True,
+                text=True,
+                env={
+                    **__import__("os").environ,
+                    "PYTHONHASHSEED": seed,
+                    "NUMBA_ENABLE_CUDASIM": "1",
+                },
+                check=True,
+            )
+            orders.add(out.stdout.strip())
+        assert len(orders) == 1
+
+
     def test_topological_sort_dict_input(self):
         """Test topological sort with dictionary input."""
         x, y, z = sp.symbols("x y z")

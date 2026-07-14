@@ -88,13 +88,11 @@ class InstrumentedBackwardsEulerStep(InstrumentedODEImplicitStep):
         """
         beta = ALGO_CONSTANTS["beta"]
         gamma = ALGO_CONSTANTS["gamma"]
-        M = ALGO_CONSTANTS["M"](n, dtype=precision)
 
         config_kwargs = {
             "get_solver_helper_fn": get_solver_helper_fn,
             "beta": beta,
             "gamma": gamma,
-            "M": M,
             "n": n,
             "preconditioner_order": preconditioner_order,
             "evaluate_f": evaluate_f,

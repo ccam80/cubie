@@ -189,9 +189,12 @@ Preconditioner options:
     (e.g. ``["jacobi", "neumann"]``) to chain both.
 
 Advanced implicit options: **beta** and **gamma** (implicit-integration
-coefficients, default 1.0 each) and **M** (a mass-matrix override,
-default identity).  These change the equations being solved — leave
-them alone unless you know you need them.
+coefficients, default 1.0 each).  These change the equations being
+solved — leave them alone unless you know you need them.  The mass
+matrix is not a solver option: it is part of the system definition
+(pass ``mass=`` to ``create_ODE_system`` for a hand-formulated
+semi-explicit DAE, or let structural simplification derive it), and
+systems carrying one require an implicit algorithm.
 
 Choosing the method's coefficients
 ----------------------------------

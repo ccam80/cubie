@@ -46,7 +46,7 @@ from attrs import define, field, validators
 from numba import cuda, int32
 
 from cubie.result_codes import CUBIE_RESULT_CODES
-from numpy import eye, int32 as np_int32
+from numpy import int32 as np_int32
 
 from cubie._utils import PrecisionDType, build_config, is_device_validator
 from cubie.integrators.algorithms.base_algorithm_step import (
@@ -214,7 +214,6 @@ class GenericRosenbrockWStep(ODEImplicitStep):
         efficient for moderately stiff problems. The gamma parameter from the
         tableau controls the implicit treatment of the linearized system.
         """
-        mass = eye(n, dtype=precision)
         tableau_value = tableau
 
         config = build_config(
@@ -230,7 +229,6 @@ class GenericRosenbrockWStep(ODEImplicitStep):
                 "tableau": tableau_value,
                 "beta": 1.0,
                 "gamma": tableau_value.gamma,
-                "M": mass,
             },
             **kwargs,
         )
@@ -315,7 +313,6 @@ class GenericRosenbrockWStep(ODEImplicitStep):
         config = self.compile_settings
         beta = config.beta
         gamma = config.gamma
-        mass = config.M
         preconditioner_order = config.preconditioner_order
 
         get_fn = config.get_solver_helper_fn
@@ -326,14 +323,12 @@ class GenericRosenbrockWStep(ODEImplicitStep):
             preconditioner_type=config.preconditioner_type,
             beta=beta,
             gamma=gamma,
-            mass=mass,
             preconditioner_order=preconditioner_order,
         )
         operator = get_fn(
             "linear_operator_cached",
             beta=beta,
             gamma=gamma,
-            mass=mass,
             preconditioner_order=preconditioner_order,
         )
 

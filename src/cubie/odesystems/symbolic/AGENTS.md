@@ -30,7 +30,8 @@ attrs conventions; `BaseODE` (parent, `../AGENTS.md`) for `ODECache`/`config_has
 | Directory | Purpose |
 |-----------|---------|
 | `codegen/` | CUDA source emitters for dxdt, observables, Jacobian/JVP, linear operators, preconditioners, residuals, time derivatives, and the Numba-CUDA SymPy printer (see `codegen/AGENTS.md`). |
-| `parsing/` | Converts string / SymPy / callable / CellML input into `ParsedEquations` + `IndexedBases`, plus `JVPEquations` and auxiliary-caching heuristics (see `parsing/AGENTS.md`). |
+| `parsing/` | Converts string / SymPy / callable / CellML input into `ParsedEquations` + `IndexedBases`, plus `JVPEquations` and auxiliary-caching heuristics; one normalised front end classifies input as explicit or DAE and routes the latter through `structural/` (see `parsing/AGENTS.md`). |
+| `structural/` | MTK-style structural simplification and tearing (alias elimination, Pantelides index reduction, dummy derivatives, Carpanzano/Modia tearing); enabled automatically for DAE-shaped input or forced via `create_ODE_system(..., simplify=True)` (see `structural/AGENTS.md`). |
 
 ## For AI Agents
 
@@ -47,7 +48,8 @@ stage count (`f"{func_type}_{len(stage_nodes)}"`), so each stage count caches se
 cached helpers (`linear_operator_cached`, `neumann_preconditioner_cached`, `prepare_jac`,
 `calculate_cached_jvp`, `cached_aux_count`) are requested by `GenericRosenbrockWStep` and run
 every step; how many auxiliaries actually get precomputed is set by the caching planner's
-thresholds (see `parsing/` and `codegen/AGENTS.md`).
+thresholds (see `parsing/` and `codegen/AGENTS.md`). Mass-consuming helpers read the
+system's own `compile_settings.mass` — callers never pass a matrix.
 
 ### build() and system identity
 `build()` compiles `dxdt`+`observables` into the `ODECache`, first recomputing the system hash —
@@ -56,7 +58,8 @@ The identity is `fn_hash` from `hash_system_definition`: **equations + constant 
 observable labels — NOT parameter labels and NOT constant *values*** (constants and parameters
 together cover all non-state LHS symbols, so a constant↔parameter flip changes the hash and
 forces re-codegen; a constant *value* change only forces a rebuild). The hash is order-independent
-(sorted by LHS name), so string- and SymPy-input paths hit the same cache.
+(sorted by LHS name), so string- and SymPy-input paths hit the same cache. A non-identity mass
+matrix appends `_M<digest>` (`_mass_matrix_hash_tag`) because helper source bakes its entries in.
 
 ### Constant/parameter conversion
 `make_parameter`/`make_constant` update both `self.indices`

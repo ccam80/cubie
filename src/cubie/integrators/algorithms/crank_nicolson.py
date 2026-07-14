@@ -27,7 +27,6 @@ from typing import Callable, Optional
 
 from attrs import define, field, validators
 from numba import cuda, int32
-from numpy import eye
 
 from cubie._utils import PrecisionDType, build_config
 from cubie.buffer_registry import buffer_registry
@@ -37,8 +36,7 @@ from cubie.integrators.algorithms.base_algorithm_step import StepCache, \
 from cubie.integrators.algorithms.ode_implicitstep import ODEImplicitStep
 
 ALGO_CONSTANTS = {'beta': 1.0,
-                  'gamma': 1.0,
-                  'M': eye}
+                  'gamma': 1.0}
 
 CN_DEFAULTS = StepControlDefaults(
     step_controller={
@@ -106,7 +104,6 @@ class CrankNicolsonStep(ODEImplicitStep):
         """
         beta = ALGO_CONSTANTS['beta']
         gamma = ALGO_CONSTANTS['gamma']
-        M = ALGO_CONSTANTS['M'](n, dtype=precision)
 
         config = build_config(
             CrankNicolsonStepConfig,
@@ -116,7 +113,6 @@ class CrankNicolsonStep(ODEImplicitStep):
                 'get_solver_helper_fn': get_solver_helper_fn,
                 'beta': beta,
                 'gamma': gamma,
-                'M': M,
                 'evaluate_f': evaluate_f,
                 'evaluate_observables': evaluate_observables,
                 'evaluate_driver_at_t': evaluate_driver_at_t,

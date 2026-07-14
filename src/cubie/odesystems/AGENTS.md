@@ -52,9 +52,18 @@ because constants are captured into CUDA closures and so affect compiled output 
 mutating a value doesn't trip the attrs equality check.
 
 ### get_solver_helper at the base level
-`BaseODE.get_solver_helper(func_name, beta, gamma, mass, preconditioner_order)` ignores every
+`BaseODE.get_solver_helper(func_name, beta, gamma, preconditioner_order)` ignores every
 argument except `func_name` — it just delegates to `get_cached_output(func_name)`. Only
 `SymbolicODE` overrides it with parameterised codegen.
+
+### The mass matrix is system-owned
+The mass matrix is part of the system definition, fixed at construction (`mass=` on
+`BaseODE`/`create_ODE_system`, or derived by structural simplification). It lives in
+`ODEData._mass` (exposed as `BaseODE.mass`) and folds into `fn_hash`, so a different matrix
+re-keys the generated-code file. Algorithms never supply or store an `M`: mass-consuming
+solver helpers read the system's own matrix inside `get_solver_helper`, and
+`SingleIntegratorRunCore` rejects explicit algorithms (at construction and on hot-swap)
+whenever `system.mass` is not `None`.
 
 ### SystemValues
 - **A plain Python class, not attrs** — don't use `attrs.fields()`/`has()` on it.

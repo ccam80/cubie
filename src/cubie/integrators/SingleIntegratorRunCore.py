@@ -147,6 +147,14 @@ class SingleIntegratorRunCore(CUDAFactory):
         dt = step_control_settings.get("dt", None)
         algorithm_settings["n"] = n
         algorithm_settings["n_drivers"] = system_sizes.drivers
+        # The mass matrix belongs to the ODE system; algorithms read
+        # it from the system when building solver helpers.
+        if "M" in algorithm_settings:
+            raise ValueError(
+                "'M' is not an algorithm setting: the mass matrix is "
+                "part of the system definition. Pass mass= to "
+                "create_ODE_system instead."
+            )
         if dt is not None:
             algorithm_settings["dt"] = dt
         algorithm_settings["evaluate_driver_at_t"] = evaluate_driver_at_t
@@ -156,6 +164,7 @@ class SingleIntegratorRunCore(CUDAFactory):
                 precision=precision,
                 settings=algorithm_settings,
         )
+        self._check_algorithm_consumes_mass(algorithm_settings["algorithm"])
         # Fetch and override controller defaults from algorithm settings
         controller_settings = (
             self._algo_step.controller_defaults.step_controller.copy())
@@ -698,6 +707,7 @@ class SingleIntegratorRunCore(CUDAFactory):
                     settings=old_settings,
             )
             self.compile_settings.algorithm = new_algo
+            self._check_algorithm_consumes_mass(new_algo)
         updates_dict["algorithm"] = new_algo
 
         # Update any not-deliberately-updated controller settings with defaults
@@ -707,6 +717,32 @@ class SingleIntegratorRunCore(CUDAFactory):
                 updates_dict[key] = value
         updates_dict["algorithm_order"] = self._algo_step.order
         return {"algorithm"}
+
+    def _check_algorithm_consumes_mass(self, algorithm_name: str) -> None:
+        """Reject explicit algorithms on systems with a mass matrix.
+
+        Parameters
+        ----------
+        algorithm_name
+            Name of the algorithm being installed, used in the error
+            message.
+
+        Raises
+        ------
+        ValueError
+            If the system defines a mass matrix and the current
+            algorithm is not implicit. Explicit steps cannot consume
+            a mass matrix and would integrate algebraic constraint
+            residuals as derivatives.
+        """
+        if self._system.mass is None or self._algo_step.is_implicit:
+            return
+        raise ValueError(
+            "The system defines a mass matrix and requires an "
+            f"implicit algorithm; '{algorithm_name}' does not "
+            "consume a mass matrix and would integrate the "
+            "constraint residuals as derivatives."
+        )
 
     def _switch_controllers(self, updates_dict):
         """Replace the step controller when ``updates_dict`` contains a

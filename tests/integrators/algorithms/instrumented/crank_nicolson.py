@@ -99,7 +99,6 @@ class InstrumentedCrankNicolsonStep(InstrumentedODEImplicitStep):
 
         beta = ALGO_CONSTANTS["beta"]
         gamma = ALGO_CONSTANTS["gamma"]
-        M = ALGO_CONSTANTS["M"](n, dtype=precision)
 
         # Build config kwargs conditionally
         config_kwargs = {
@@ -108,7 +107,6 @@ class InstrumentedCrankNicolsonStep(InstrumentedODEImplicitStep):
             "get_solver_helper_fn": get_solver_helper_fn,
             "beta": beta,
             "gamma": gamma,
-            "M": M,
             "evaluate_f": evaluate_f,
             "evaluate_observables": evaluate_observables,
             "evaluate_driver_at_t": evaluate_driver_at_t,

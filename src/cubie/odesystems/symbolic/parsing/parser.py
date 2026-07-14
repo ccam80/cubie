@@ -1,4 +1,16 @@
-"""Parse symbolic ODE descriptions into structured SymPy objects.
+"""Parse symbolic ODE/DAE descriptions into structured SymPy objects.
+
+The single parsing entry point is :func:`parse_input`. String and
+SymPy equations converge on one normalised representation
+(:mod:`~cubie.odesystems.symbolic.parsing.normalise`); the parser
+then classifies the system and assembles it
+(:mod:`~cubie.odesystems.symbolic.parsing.assemble`): systems
+already in solved explicit form are packaged directly, while DAE
+constructs (implicit equations, higher-order or in-expression
+derivatives, algebraic unknowns) route through MTK-style structural
+simplification. Callable ``dxdt`` input is handled by
+:mod:`~cubie.odesystems.symbolic.parsing.function_parser` and is
+explicit-only.
 
 Published Classes
 -----------------
@@ -10,7 +22,7 @@ Published Classes
     >>> from cubie.odesystems.symbolic.parsing.parser import (
     ...     parse_input,
     ... )
-    >>> _, _, _, eqs, _ = parse_input(
+    >>> _, _, _, eqs, _, _ = parse_input(
     ...     dxdt="dx = -k * x",
     ...     states={"x": 1.0},
     ...     parameters={"k": 0.5},
@@ -24,11 +36,11 @@ Published Classes
 Published Functions
 -------------------
 :func:`parse_input`
-    Entry point that accepts string or SymPy equations plus symbol
-    metadata and returns structured components for
+    Entry point that accepts string, SymPy, or callable equations
+    plus symbol metadata and returns structured components for
     :class:`~cubie.odesystems.symbolic.symbolicODE.SymbolicODE`.
 
-    >>> index_map, syms, fns, eqs, h = parse_input(
+    >>> index_map, syms, fns, eqs, h, simplified = parse_input(
     ...     dxdt="dx = -x",
     ...     states={"x": 1.0},
     ... )
@@ -65,14 +77,13 @@ from typing import (
     Iterable,
     List,
     Optional,
-    Sequence,
     Tuple,
     Union,
 )
 from warnings import warn
 
 import sympy as sp
-from sympy.parsing.sympy_parser import T, parse_expr
+from sympy.parsing.sympy_parser import T
 from sympy.core.function import AppliedUndef
 import attrs
 
@@ -87,13 +98,6 @@ _INDEXED_NAME_PATTERN = re.compile(r"(?P<name>[A-Za-z_]\w*)\[(?P<index>\d+)\]")
 
 TIME_SYMBOL = sp.Symbol("t", real=True)
 DRIVER_SETTING_KEYS = {"time", "dt", "wrap", "order"}
-
-# Pattern for d(variable, t) function notation - matches explicit
-# derivative syntax like d(x, t), d( velocity , t ) with optional
-# whitespace
-_DERIVATIVE_FUNC_PATTERN = re.compile(
-    r"^d\s*\(\s*([A-Za-z_]\w*)\s*,\s*t\s*\)$"
-)
 
 
 def _detect_input_type(dxdt: Union[str, Iterable, Callable]) -> str:
@@ -129,6 +133,9 @@ def _detect_input_type(dxdt: Union[str, Iterable, Callable]) -> str:
     if isinstance(dxdt, str):
         return "string"
 
+    if isinstance(dxdt, (sp.Equality, sp.Expr)):
+        return "sympy"
+
     try:
         items = list(dxdt)
     except TypeError:
@@ -145,150 +152,27 @@ def _detect_input_type(dxdt: Union[str, Iterable, Callable]) -> str:
         return "string"
     elif isinstance(first_elem, (sp.Expr, sp.Equality)):
         return "sympy"
-    elif isinstance(first_elem, tuple):
-        if len(first_elem) == 2:
-            lhs, rhs = first_elem
-            # Accept both Symbol and Derivative as LHS
-            if isinstance(lhs, (sp.Symbol, sp.Derivative)) and isinstance(
-                rhs, sp.Expr
+    elif isinstance(first_elem, tuple) and len(first_elem) == 2:
+        # A (lhs, rhs) pair; both members must be convertible to
+        # SymPy expressions or the pair is rejected here rather
+        # than failing deep inside the normaliser.
+        for side, member in zip(("lhs", "rhs"), first_elem):
+            if not isinstance(
+                member, (sp.Basic, str, int, float, complex)
             ):
-                return "sympy"
+                raise TypeError(
+                    f"dxdt element 0 is a (lhs, rhs) tuple whose "
+                    f"{side} is {member!r} "
+                    f"({type(member).__name__}); each member must "
+                    f"be a SymPy expression, string, or number."
+                )
+        return "sympy"
 
     raise TypeError(
         f"dxdt elements must be strings or SymPy expressions, "
         f"got {type(first_elem).__name__}. "
-        f"Valid SymPy formats: sp.Equality, sp.Expr, or "
-        f"tuple of (sp.Symbol|sp.Derivative, sp.Expr)"
+        f"Valid SymPy formats: sp.Equality or a (lhs, rhs) tuple."
     )
-
-
-def _normalize_sympy_equations(
-    equations: Iterable[
-        Union[sp.Equality, Tuple[sp.Symbol, sp.Expr], sp.Expr]
-    ],
-    index_map: IndexedBases,
-) -> List[Tuple[sp.Symbol, sp.Expr]]:
-    """Normalize various SymPy equation formats to (lhs, rhs) tuples.
-
-    Converts sp.Equality objects and (Symbol, Expr) tuples into a standardized
-    format for downstream processing. Supports both direct Symbol LHS and
-    canonical Derivative LHS (e.g., sp.Derivative(x, t) for ODEs). When a
-    Derivative is encountered, the state variable is extracted and converted
-    to the corresponding dx symbol.
-
-    Parameters
-    ----------
-    equations
-        SymPy equations in various formats:
-        - sp.Eq(sp.Symbol('dx'), expr)
-        - sp.Eq(sp.Derivative(x, t), expr)  # Canonical ODE form
-        - (sp.Symbol('dx'), expr)
-        - (sp.Derivative(x, t), expr)
-    index_map
-        Indexed symbol collections for validation.
-
-    Returns
-    -------
-    list
-        Standardized list of (lhs_symbol, rhs_expr) tuples where LHS is
-        always a Symbol (Derivatives are converted to dx form).
-
-    Raises
-    ------
-    TypeError
-        If equations contain invalid format.
-    ValueError
-        If LHS symbols cannot be categorized or Derivative is invalid.
-
-    Examples
-    --------
-    >>> x, k, t = sp.symbols("x k t")
-    >>> # Canonical SymPy form
-    >>> eq = sp.Eq(sp.Derivative(x, t), -k * x)
-    >>> normalized = _normalize_sympy_equations([eq], index_map)
-    >>> # Returns: [(sp.Symbol('dx'), -k*x)]
-    """
-    try:
-        eq_list = list(equations)
-    except TypeError:
-        raise TypeError("equations must be iterable")
-
-    normalized = []
-
-    for i, eq in enumerate(eq_list):
-        if isinstance(eq, sp.Equality):
-            lhs = eq.lhs
-            rhs = eq.rhs
-
-            # Handle Derivative on LHS (canonical SymPy form for ODEs)
-            if isinstance(lhs, sp.Derivative):
-                # Extract state variable from Derivative(x, t)
-                state_var = lhs.args[0]
-                if not isinstance(state_var, sp.Symbol):
-                    raise ValueError(
-                        f"Equation {i}: Derivative argument must be Symbol, "
-                        f"got {type(state_var).__name__}"
-                    )
-                # Create dx symbol from state variable x
-                lhs_symbol = sp.Symbol(f"d{state_var.name}", real=True)
-                normalized.append((lhs_symbol, rhs))
-
-            elif isinstance(lhs, sp.Symbol):
-                normalized.append((lhs, rhs))
-
-            else:
-                raise ValueError(
-                    f"Equation {i}: LHS of sp.Equality must be sp.Symbol "
-                    f"or sp.Derivative, got {type(lhs).__name__}"
-                )
-
-        elif isinstance(eq, tuple):
-            if len(eq) != 2:
-                raise TypeError(
-                    f"Equation {i}: Tuple must have exactly 2 elements "
-                    f"(lhs, rhs), got {len(eq)}"
-                )
-
-            lhs, rhs = eq
-
-            # Handle Derivative in tuple format as well
-            if isinstance(lhs, sp.Derivative):
-                state_var = lhs.args[0]
-                if not isinstance(state_var, sp.Symbol):
-                    raise ValueError(
-                        f"Equation {i}: Derivative argument must be Symbol, "
-                        f"got {type(state_var).__name__}"
-                    )
-                lhs_symbol = sp.Symbol(f"d{state_var.name}", real=True)
-                normalized.append((lhs_symbol, rhs))
-
-            elif isinstance(lhs, sp.Symbol):
-                if not isinstance(rhs, sp.Expr):
-                    raise TypeError(
-                        f"Equation {i}: Tuple RHS must be sp.Expr, "
-                        f"got {type(rhs).__name__}"
-                    )
-                normalized.append((lhs, rhs))
-
-            else:
-                raise TypeError(
-                    f"Equation {i}: Tuple LHS must be sp.Symbol or "
-                    f"sp.Derivative, got {type(lhs).__name__}"
-                )
-
-        elif isinstance(eq, sp.Expr):
-            raise TypeError(
-                f"Equation {i}: Bare sp.Expr not supported. "
-                f"Use sp.Equality or tuple format to specify LHS."
-            )
-
-        else:
-            raise TypeError(
-                f"Equation {i}: Invalid type {type(eq).__name__}. "
-                f"Expected sp.Equality, tuple, or sp.Expr"
-            )
-
-    return normalized
 
 
 KNOWN_FUNCTIONS = {
@@ -328,23 +212,6 @@ KNOWN_FUNCTIONS = {
     "Max": sp.Max,
     "min": sp.Min,
     "max": sp.Max,
-    # Functions that need custom handling - placeholder will not
-    # work for differentiation.
-    # 'log10': sp.Function('log10'),
-    # 'log2': sp.Function('log2'),
-    # 'log1p': sp.Function('log1p'),
-    # 'hypot': sp.Function('hypot'),
-    # 'expm1': sp.Function('expm1'),
-    # 'copysign': sp.Function('copysign'),
-    # 'fmod': sp.Function('fmod'),
-    # 'modf': sp.Function('modf'),
-    # 'frexp': sp.Function('frexp'),
-    # 'ldexp': sp.Function('ldexp'),
-    # 'remainder': sp.Function('remainder'),
-    # 'fabs': sp.Abs,
-    # 'isnan': sp.Function('isnan'),
-    # 'isinf': sp.Function('isinf'),
-    # 'isfinite': sp.Function('isfinite'),
     "Piecewise": sp.Piecewise,
     "sign": sp.sign,
 }
@@ -721,48 +588,6 @@ def _inline_nondevice_calls(
     return expr
 
 
-def _process_calls(
-    equations_input: Iterable[str],
-    user_functions: Optional[Dict[str, Callable]] = None,
-) -> Dict[str, Callable]:
-    """Resolve callable names referenced in the user equations.
-
-    Parameters
-    ----------
-    equations_input
-        Equations describing the system dynamics.
-    user_functions
-        Mapping from user-provided function names to callables.
-
-    Returns
-    -------
-    dict
-        Resolved callables keyed by their names as they appear in equations.
-    """
-    calls = set()
-    if user_functions is None:
-        user_functions = {}
-    for line in equations_input:
-        calls |= set(_func_call_re.findall(line))
-    funcs = {}
-    for name in calls:
-        if name in user_functions:
-            funcs[name] = user_functions[name]
-        elif name in KNOWN_FUNCTIONS:
-            funcs[name] = KNOWN_FUNCTIONS[name]
-        else:
-            raise ValueError(
-                f"Your dxdt code contains a call to a "
-                f"function {name}() that isn't part of Sympy "
-                f"and wasn't provided in the user_functions "
-                f"dict."
-            )
-    # Tests: non-listed sympy function errors
-    # Tests: user function passes
-    # Tests: user function overrides listed sympy function
-    return funcs
-
-
 def _process_parameters(
     states: Union[Dict[str, float], Iterable[str]],
     parameters: Union[Dict[str, float], Iterable[str]],
@@ -820,625 +645,8 @@ def _process_parameters(
     return indexed_bases
 
 
-def _lhs_pass_sympy(
-    equations: List[Tuple[sp.Symbol, sp.Expr]],
-    indexed_bases: IndexedBases,
-    strict: bool = True,
-) -> Dict[str, sp.Symbol]:
-    """Validate LHS symbols in SymPy equations and infer auxiliaries.
-
-    Parallels _lhs_pass() but operates on SymPy objects directly instead of
-    parsing strings. Categorizes LHS symbols as derivatives, observables, or
-    auxiliaries, and validates against immutable inputs.
-
-    Parameters
-    ----------
-    equations
-        Normalized SymPy equations as (lhs, rhs) tuples.
-    indexed_bases
-        Indexed symbol collections from user inputs.
-    strict
-        When False, infer missing state derivatives automatically.
-
-    Returns
-    -------
-    dict
-        Anonymous auxiliary symbols introduced in equations.
-
-    See Also
-    --------
-    _lhs_pass : String-based equivalent for parsing string equations.
-    _rhs_pass_sympy : Validates RHS symbols in SymPy equations.
-
-    Notes
-    -----
-    Derivative notation is detected using state-aware logic:
-
-    1. Function notation ``d(x, t)`` explicitly marks state ``x``'s
-       derivative
-    2. Prefix notation ``dX`` is a derivative only if ``X`` is a
-       declared state
-    3. Symbols like ``delta_i`` where ``elta_i`` is not a state are
-       auxiliaries
-
-    In non-strict mode, unknown d-prefixed symbols infer new states only
-    when the entire symbol matches the ``dX`` pattern and ``X`` is a
-    valid identifier.
-
-    Anonymous auxiliaries ease model authoring but are not persisted as
-    saved observables; tracking them ensures generated SymPy code remains
-    consistent with the equations.
-
-    This function uses SymPy's Symbol and Expr objects directly,
-    extracting LHS symbols from equation tuples rather than parsing
-    strings. Symbol categorization logic matches _lhs_pass() to ensure
-    consistent behavior across both input pathways.
-
-    Raises
-    ------
-    ValueError
-        If LHS validation fails or required symbols are missing.
-    """
-    anonymous_auxiliaries = {}
-    assigned_obs = set()
-    underived_states = set(indexed_bases.dxdt_names)
-    state_names = set(indexed_bases.state_names)
-    # Track if user explicitly declared states; if so, don't infer new
-    # states from d-prefix in non-strict mode
-    had_initial_states = len(state_names) > 0
-    observable_names = set(indexed_bases.observable_names)
-    param_names = set(indexed_bases.parameter_names)
-    constant_names = set(indexed_bases.constant_names)
-    driver_names = set(indexed_bases.driver_names)
-    states = indexed_bases.states
-    observables = indexed_bases.observables
-    dxdt = indexed_bases.dxdt
-
-    for lhs_sym, rhs_expr in equations:
-        lhs_name = str(lhs_sym)
-
-        # Check for d-prefix with state-aware logic
-        if lhs_name.startswith("d") and len(lhs_name) > 1:
-            potential_state = lhs_name[1:]
-
-            # Only treat as derivative if remainder is a known state
-            if potential_state in state_names:
-                underived_states -= {lhs_name}
-
-            elif potential_state in observable_names:
-                s_sym = sp.Symbol(potential_state, real=True)
-                warn(
-                    f"Symbol d{potential_state} found in equations, but "
-                    f"{potential_state} was listed as an observable. "
-                    f"Converting to state.",
-                    EquationWarning,
-                )
-                states.push(s_sym)
-                dxdt.push(sp.Symbol(f"d{potential_state}", real=True))
-                observables.pop(s_sym)
-                state_names.add(potential_state)
-                observable_names.discard(potential_state)
-                underived_states -= {lhs_name}
-
-            elif not strict and not had_initial_states:
-                # Non-strict mode with no user-declared states: infer state
-                # from d-prefix; when states are explicitly declared, unknown
-                # d-prefixed symbols are treated as auxiliaries instead
-                s_sym = sp.Symbol(potential_state, real=True)
-                states.push(s_sym)
-                dxdt.push(sp.Symbol(f"d{potential_state}", real=True))
-                state_names.add(potential_state)
-                underived_states.add(f"d{potential_state}")
-                underived_states -= {lhs_name}
-
-            else:
-                # Not a known state - treat as auxiliary variable
-                if lhs_name not in observable_names:
-                    anonymous_auxiliaries[lhs_name] = lhs_sym
-                else:
-                    assigned_obs.add(lhs_name)
-
-        elif lhs_name in state_names:
-            raise ValueError(
-                f"State {lhs_name} cannot be assigned directly. "
-                f"States must be defined as derivatives: d{lhs_name} = ..."
-            )
-
-        elif (
-            lhs_name in param_names
-            or lhs_name in constant_names
-            or lhs_name in driver_names
-        ):
-            raise ValueError(
-                f"{lhs_name} is an immutable input "
-                f"(constant, parameter, or driver) but is being assigned. "
-                f"It must be a state, observable, or auxiliary."
-            )
-
-        else:
-            if lhs_name not in observable_names:
-                anonymous_auxiliaries[lhs_name] = lhs_sym
-            else:
-                assigned_obs.add(lhs_name)
-
-    missing_obs = set(indexed_bases.observable_names) - assigned_obs
-    if missing_obs:
-        raise ValueError(
-            f"Observables {missing_obs} were declared but never assigned."
-        )
-
-    if underived_states:
-        # underived_states holds dxdt names ("dz"); the state itself
-        # is the name with the derivative prefix stripped ("z").
-        underived_names = {name[1:] for name in underived_states}
-        warn(
-            f"States {underived_names} have no derivative equation. "
-            f"Converting to observables.",
-            EquationWarning,
-        )
-        for dx_name in underived_states:
-            state_name = dx_name[1:]
-            state_sym = sp.Symbol(state_name, real=True)
-            if state_name in observables.symbol_map:
-                raise ValueError(
-                    f"State {state_name} is both observable and state. "
-                    f"Cannot convert."
-                )
-            observables.push(state_sym)
-            states.pop(state_sym)
-            dxdt.pop(sp.Symbol(dx_name, real=True))
-            observable_names.add(state_name)
-
-    return anonymous_auxiliaries
-
-
-def _process_user_functions_for_rhs(
-    user_funcs: Optional[Dict[str, Callable]],
-    user_function_derivatives: Optional[Dict[str, Callable]],
-) -> Dict[str, Callable]:
-    """Process user functions for RHS validation.
-
-    Builds SymPy-compatible user function wrappers and collects them in a
-    mapping. Used by both _rhs_pass and _rhs_pass_sympy to ensure consistent
-    user function handling across string and SymPy input pathways.
-
-    Parameters
-    ----------
-    user_funcs
-        User-provided callable mapping.
-    user_function_derivatives
-        Derivative helpers for user functions.
-
-    Returns
-    -------
-    dict
-        Processed callable mapping ready for RHS validation.
-    """
-    funcs = {}
-    if user_funcs:
-        parse_locals, alias_map, dev_map = _build_sympy_user_functions(
-            user_funcs, {}, user_function_derivatives
-        )
-        funcs.update({name: fn for name, fn in user_funcs.items()})
-    return funcs
-
-
-def _rhs_pass_sympy(
-    equations: List[Tuple[sp.Symbol, sp.Expr]],
-    all_symbols: Dict[str, sp.Symbol],
-    indexed_bases: IndexedBases,
-    user_funcs: Optional[Dict[str, Callable]] = None,
-    user_function_derivatives: Optional[Dict[str, Callable]] = None,
-    strict: bool = True,
-) -> Tuple[
-    List[Tuple[sp.Symbol, sp.Expr]], Dict[str, Callable], List[sp.Symbol]
-]:
-    """Validate RHS symbols in SymPy equations.
-
-    Parallels _rhs_pass() but operates on SymPy expressions directly. Uses
-    free_symbols for extraction instead of parsing strings. Validates all
-    RHS symbols are declared or infers them in non-strict mode.
-
-    Parameters
-    ----------
-    equations
-        Normalized SymPy equations as (lhs, rhs) tuples.
-    all_symbols
-        Mapping from symbol names to SymPy symbols.
-    indexed_bases
-        Indexed symbol collections from user inputs.
-    user_funcs
-        Optional user-provided callable mapping.
-    user_function_derivatives
-        Optional derivative helpers for user functions.
-    strict
-        When False, infer missing symbols from free_symbols.
-
-    Returns
-    -------
-    tuple
-        Validated equations, callable mapping, and inferred symbols.
-
-    See Also
-    --------
-    _rhs_pass : String-based equivalent for parsing string equations.
-    _lhs_pass_sympy : Validates LHS symbols in SymPy equations.
-
-    Notes
-    -----
-    This function validates RHS expressions using SymPy's free_symbols
-    property to extract all referenced symbols. In strict mode, all symbols
-    must be declared in all_symbols or indexed_bases. In non-strict mode,
-    undeclared symbols are inferred as parameters.
-
-    User functions are processed through _build_sympy_user_functions to
-    create SymPy-compatible wrappers. The function validates that all
-    symbols referenced in RHS expressions are properly declared or
-    inferrable.
-    """
-    validated_equations = []
-    new_symbols = []
-
-    # Build set of declared symbol names (strings) for comparison
-    declared_symbol_names = {
-        str(value)
-        for value in all_symbols.values()
-        if isinstance(value, sp.Symbol)
-    }
-    # Also build a map from name to symbol for reuse
-    symbol_map = {
-        str(value): value
-        for value in all_symbols.values()
-        if isinstance(value, sp.Symbol)
-    }
-
-    funcs = _process_user_functions_for_rhs(
-        user_funcs, user_function_derivatives
-    )
-
-    for lhs_sym, rhs_expr in equations:
-        rhs_symbols = rhs_expr.free_symbols
-
-        if strict:
-            undeclared = {
-                sym
-                for sym in rhs_symbols
-                if str(sym) not in declared_symbol_names
-            }
-            if undeclared:
-                undeclared_names = sorted(str(s) for s in undeclared)
-                raise ValueError(
-                    f"Equation for {lhs_sym} contains undefined symbols: "
-                    f"{undeclared_names}"
-                )
-        else:
-            for sym in rhs_symbols:
-                sym_name = str(sym)
-                if sym_name not in declared_symbol_names:
-                    # Infer as parameter
-                    new_symbols.append(sym)
-                    declared_symbol_names.add(sym_name)
-                    all_symbols[sym_name] = sym
-                    symbol_map[sym_name] = sym
-
-        validated_equations.append((lhs_sym, rhs_expr))
-
-    return validated_equations, funcs, new_symbols
-
-
-def _lhs_pass(
-    lines: Sequence[str],
-    indexed_bases: IndexedBases,
-    strict: bool = True,
-) -> Dict[str, sp.Symbol]:
-    """Validate left-hand sides and infer anonymous auxiliaries.
-
-    Parameters
-    ----------
-    lines
-        Equations supplied by the user.
-    indexed_bases
-        Indexed symbol collections constructed from user inputs.
-    strict
-        When ``False``, unknown state derivatives are inferred automatically
-        but other assignments remain anonymous auxiliaries.
-
-    Returns
-    -------
-    dict
-        Symbols for auxiliary observables introduced implicitly in equations.
-
-    Notes
-    -----
-    Derivative notation is detected using state-aware logic:
-
-    1. Function notation ``d(x, t)`` explicitly marks state ``x``'s
-       derivative
-    2. Prefix notation ``dX`` is a derivative only if ``X`` is a
-       declared state
-    3. Symbols like ``delta_i`` where ``elta_i`` is not a state are
-       auxiliaries
-
-    In non-strict mode, unknown d-prefixed symbols infer new states only
-    when the entire symbol matches the ``dX`` pattern and ``X`` is a
-    valid identifier.
-
-    Anonymous auxiliaries ease model authoring but are not persisted as
-    saved observables; tracking them ensures generated SymPy code remains
-    consistent with the equations.
-    """
-    anonymous_auxiliaries = {}
-    assigned_obs = set()
-    underived_states = set(indexed_bases.dxdt_names)
-    state_names = set(indexed_bases.state_names)
-    # Track if user explicitly declared states; if so, don't infer new
-    # states from d-prefix in non-strict mode
-    had_initial_states = len(state_names) > 0
-    observable_names = set(indexed_bases.observable_names)
-    param_names = set(indexed_bases.parameter_names)
-    constant_names = set(indexed_bases.constant_names)
-    driver_names = set(indexed_bases.driver_names)
-    states = indexed_bases.states
-    observables = indexed_bases.observables
-    dxdt = indexed_bases.dxdt
-
-    for line in lines:
-        lhs, rhs = [p.strip() for p in line.split("=", 1)]
-
-        # Priority 1: Check for function notation d(name, t)
-        func_match = _DERIVATIVE_FUNC_PATTERN.match(lhs)
-        if func_match:
-            state_name = func_match.group(1)
-            s_sym = sp.Symbol(state_name, real=True)
-
-            if state_name not in state_names:
-                if state_name in observable_names:
-                    warn(
-                        f"Symbol d({state_name}, t) found in equations, "
-                        f"but {state_name} was listed as an observable. "
-                        f"It has been converted into a state.",
-                        EquationWarning,
-                    )
-                    states.push(s_sym)
-                    dxdt.push(sp.Symbol(f"d{state_name}", real=True))
-                    observables.pop(s_sym)
-                    state_names.add(state_name)
-                    observable_names.discard(state_name)
-                else:
-                    if strict:
-                        raise ValueError(
-                            f"Unknown state in derivative notation: "
-                            f"d({state_name}, t). No state called "
-                            f"{state_name} found."
-                        )
-                    else:
-                        states.push(s_sym)
-                        dxdt.push(sp.Symbol(f"d{state_name}", real=True))
-                        state_names.add(state_name)
-                        underived_states.add(f"d{state_name}")
-
-            underived_states -= {f"d{state_name}"}
-
-        # Priority 2: State-aware d-prefix check
-        elif lhs.startswith("d") and len(lhs) > 1:
-            potential_state = lhs[1:]
-
-            # Only treat as derivative if remainder is a known state
-            if potential_state in state_names:
-                underived_states -= {lhs}
-
-            elif potential_state in observable_names:
-                # Observable being used as state derivative
-                s_sym = sp.Symbol(potential_state, real=True)
-                warn(
-                    f"Your equation included d{potential_state}, but "
-                    f"{potential_state} was listed as an observable. It "
-                    f"has been converted into a state.",
-                    EquationWarning,
-                )
-                states.push(s_sym)
-                dxdt.push(sp.Symbol(f"d{potential_state}", real=True))
-                observables.pop(s_sym)
-                state_names.add(potential_state)
-                observable_names.discard(potential_state)
-                underived_states -= {lhs}
-
-            elif not strict and not had_initial_states:
-                # Non-strict mode with no user-declared states: infer state
-                # from d-prefix; when states are explicitly declared, unknown
-                # d-prefixed symbols are treated as auxiliaries instead
-                s_sym = sp.Symbol(potential_state, real=True)
-                states.push(s_sym)
-                dxdt.push(sp.Symbol(f"d{potential_state}", real=True))
-                state_names.add(potential_state)
-                underived_states.add(f"d{potential_state}")
-                underived_states -= {lhs}
-
-            else:
-                # Not a known state - treat as auxiliary variable
-                if lhs not in observable_names:
-                    anonymous_auxiliaries[lhs] = sp.Symbol(lhs, real=True)
-                else:
-                    assigned_obs.add(lhs)
-
-        elif lhs in state_names:
-            raise ValueError(
-                f"State {lhs} cannot be assigned directly. All "
-                f"states must be defined as derivatives with d"
-                f"{lhs} = [...]"
-            )
-
-        elif (
-            lhs in param_names or lhs in constant_names or lhs in driver_names
-        ):
-            raise ValueError(
-                f"{lhs} was entered as an immutable "
-                f"input (constant, parameter, or driver)"
-                ", but it is being assigned to. Cubie "
-                "can't handle this - if it's being "
-                "assigned to, it must be either a state, an "
-                "observable, or undefined."
-            )
-
-        else:
-            if lhs not in observable_names:
-                anonymous_auxiliaries[lhs] = sp.Symbol(lhs, real=True)
-            else:
-                assigned_obs.add(lhs)
-
-    missing_obs = set(indexed_bases.observable_names) - assigned_obs
-    if missing_obs:
-        raise ValueError(f"Observables {missing_obs} are never assigned to.")
-
-    if underived_states:
-        # underived_states holds dxdt names ("dz"); the state itself
-        # is the name with the derivative prefix stripped ("z").
-        underived_names = {name[1:] for name in underived_states}
-        warn(
-            f"States {underived_names} have no associated derivative "
-            f"term. In the Cubie world, this makes it an 'observable'. "
-            f"{underived_names} have been moved from states to observables.",
-            EquationWarning,
-        )
-        for dx_name in underived_states:
-            state_name = dx_name[1:]
-            state_sym = sp.Symbol(state_name, real=True)
-            if state_name in observables.symbol_map:
-                raise ValueError(
-                    f"State {state_name} is already both observable and "
-                    f"state. It needs to be an observable if it has no "
-                    f"derivative term."
-                )
-            observables.push(state_sym)
-            states.pop(state_sym)
-            dxdt.pop(sp.Symbol(dx_name, real=True))
-            observable_names.add(state_name)
-
-    return anonymous_auxiliaries
-
-
-def _rhs_pass(
-    lines: Iterable[str],
-    all_symbols: Dict[str, sp.Symbol],
-    user_funcs: Optional[Dict[str, Callable]] = None,
-    user_function_derivatives: Optional[Dict[str, Callable]] = None,
-    strict: bool = True,
-    raw_lines: Optional[Sequence[str]] = None,
-) -> Tuple[
-    List[Tuple[sp.Symbol, sp.Expr]], Dict[str, Callable], List[sp.Symbol]
-]:
-    """Parse right-hand sides, validating symbols and callable usage.
-
-    Parameters
-    ----------
-    lines
-        Equations supplied by the user.
-    all_symbols
-        Mapping from symbol names to SymPy symbols.
-    user_funcs
-        Optional mapping of user-provided callables referenced in equations.
-    user_function_derivatives
-        Optional mapping of user-provided derivative helpers.
-    strict
-        When ``False``, unknown symbols are inferred from expressions.
-    raw_lines
-        Optional representation of the original equations prior to indexed
-        token normalisation. When provided, error messages reference these
-        inputs.
-
-    Returns
-    -------
-    tuple
-        Parsed expressions, callable mapping, and any inferred symbols.
-    """
-    lines = list(lines)
-    expressions = []
-    # Detect all calls as before for erroring on unknown names and for returning funcs
-    funcs = _process_calls(lines, user_funcs)
-
-    # Prepare user function environment with underscore renaming to avoid collisions
-    sanitized_lines, rename = _rename_user_calls(lines, user_funcs or {})
-    if raw_lines is None:
-        raw_iter: Sequence[str] = lines
-    else:
-        raw_iter = list(raw_lines)
-    parse_locals, alias_map, dev_map = _build_sympy_user_functions(
-        user_funcs or {}, rename, user_function_derivatives
-    )
-
-    # Expose mapping for the printer via special key in all_symbols (copied by caller)
-    local_dict = all_symbols.copy()
-    local_dict.update(parse_locals)
-    local_dict.setdefault("t", TIME_SYMBOL)
-    new_symbols = []
-    for raw_line, line in zip(raw_iter, sanitized_lines):
-        lhs, rhs = [p.strip() for p in line.split("=", 1)]
-        rhs_expr = _sanitise_input_math(rhs)
-        if strict:
-            # don't auto-add symbols
-            try:
-                rhs_expr = parse_expr(
-                    rhs_expr,
-                    transformations=PARSE_TRANSFORMS,
-                    local_dict=local_dict,
-                )
-            except (NameError, TypeError) as e:
-                # Provide the original (unsanitized) line in message
-                raise ValueError(
-                    f"Undefined symbols in equation '{raw_line}'"
-                ) from e
-        else:
-            rhs_expr = parse_expr(
-                rhs_expr,
-                local_dict=local_dict,
-            )
-            new_inputs = [
-                sym
-                for sym in rhs_expr.free_symbols
-                if sym not in local_dict.values()
-            ]
-            for sym in new_inputs:
-                new_symbols.append(sym)
-
-        # Attempt to inline non-device functions that can accept SymPy args
-        rhs_expr = _inline_nondevice_calls(rhs_expr, user_funcs or {}, rename)
-
-        expressions.append(
-            [
-                local_dict.get(
-                    lhs,
-                    all_symbols[lhs]
-                    if lhs in all_symbols
-                    else sp.Symbol(lhs, real=True),
-                ),
-                rhs_expr,
-            ]
-        )
-
-    declared_symbols = {
-        value for value in all_symbols.values() if isinstance(value, sp.Symbol)
-    }
-    new_symbol_set = set(new_symbols)
-    rhs_symbols = {
-        symbol
-        for _, expression in expressions
-        for symbol in expression.free_symbols
-    }
-    unresolved_symbols = sorted(
-        str(symbol)
-        for symbol in rhs_symbols
-        if symbol not in declared_symbols and symbol not in new_symbol_set
-    )
-    if unresolved_symbols:
-        raise ValueError(
-            f"Equations reference undefined symbols: {unresolved_symbols}."
-        )
-
-    return expressions, funcs, new_symbols
-
-
 def parse_input(
-    dxdt: Union[str, Iterable[str], Callable],
+    dxdt: Union[str, Iterable, Callable],
     states: Optional[Union[Dict[str, float], Iterable[str]]] = None,
     observables: Optional[Iterable[str]] = None,
     parameters: Optional[Union[Dict[str, float], Iterable[str]]] = None,
@@ -1452,22 +660,26 @@ def parse_input(
     constant_units: Optional[Union[Dict[str, str], Iterable[str]]] = None,
     observable_units: Optional[Union[Dict[str, str], Iterable[str]]] = None,
     driver_units: Optional[Union[Dict[str, str], Iterable[str]]] = None,
-) -> Tuple[
-    IndexedBases,
-    Dict[str, object],
-    Dict[str, Callable],
-    ParsedEquations,
-    str,
-]:
+    simplify: bool = False,
+    state_priority: Optional[Dict[str, float]] = None,
+    irreducible: Optional[Iterable[str]] = None,
+    simplify_options: Optional[Dict[str, Any]] = None,
+):
     """Process user equations and symbol metadata into structured components.
 
     Parameters
     ----------
     dxdt
-        System equations, either as a newline-delimited string or iterable of
-        strings.
+        System equations as a newline-delimited string, an iterable
+        of strings, SymPy equations, or a callable. In addition to
+        explicit forms, implicit equations (``0 = g(...)``),
+        higher-order/nested derivatives, derivative terms inside
+        expressions, and algebraic unknowns are accepted (symbolic
+        input only); such systems route through structural
+        simplification automatically.
     states
-        State variables provided as names or a mapping to initial values.
+        All unknowns of the system (differential or algebraic) as
+        names or a mapping to initial values.
     observables
         Observable variable names whose trajectories should be saved.
     parameters
@@ -1496,12 +708,28 @@ def parse_input(
         Optional units for observables. Defaults to "dimensionless".
     driver_units
         Optional units for drivers. Defaults to "dimensionless".
+    simplify
+        Force MTK-style structural simplification (alias
+        elimination, index reduction, tearing) even for systems that
+        are already in explicit form. DAE-shaped input enables it
+        automatically.
+    state_priority
+        Per-unknown state-selection priorities (higher values are
+        preferred as solver states). Structural path only.
+    irreducible
+        Unknowns that must not be eliminated. Structural path only.
+    simplify_options
+        Extra keyword arguments forwarded to
+        :func:`~cubie.odesystems.symbolic.structural.simplify.structural_simplify`.
 
     Returns
     -------
     tuple
-        Indexed bases, combined symbol mapping, callable mapping, partitioned
-        equations, and the system hash.
+        ``(index_map, all_symbols, funcs, parsed_equations, fn_hash,
+        simplified)``. ``simplified`` is the
+        :class:`~cubie.odesystems.symbolic.structural.simplify.SimplifiedSystem`
+        when structural simplification ran (it carries the mass
+        matrix for torn systems) and ``None`` otherwise.
 
     Notes
     -----
@@ -1509,20 +737,172 @@ def parse_input(
     usage are added automatically, except for anonymous auxiliaries that are
     retained for intermediate computation but not persisted as observables.
     """
+    from .assemble import assemble_explicit, assemble_simplified
+    from .normalise import classify_system, normalise_input
+
     input_type = _detect_input_type(dxdt)
+
+    if input_type == "function":
+        if simplify:
+            raise TypeError(
+                "Callable dxdt input is explicit-ODE only and cannot be "
+                "combined with simplify=True."
+            )
+        return _parse_function_path(
+            dxdt,
+            states=states,
+            observables=observables,
+            parameters=parameters,
+            constants=constants,
+            drivers=drivers,
+            user_functions=user_functions,
+            user_function_derivatives=user_function_derivatives,
+            strict=strict,
+            state_units=state_units,
+            parameter_units=parameter_units,
+            constant_units=constant_units,
+            observable_units=observable_units,
+            driver_units=driver_units,
+        )
+
+    if states is None and strict:
+        raise ValueError(
+            "No state symbols were provided - if you want to build a model "
+            "from a set of equations alone, set strict=False"
+        )
+
+    states_dict = dict(states) if isinstance(states, dict) else {
+        str(name): 0.0 for name in (states or [])
+    }
+    observables = list(observables or [])
+    parameters = parameters if parameters is not None else {}
+    constants = constants if constants is not None else {}
+
+    driver_dict = None
+    if drivers is None:
+        driver_names = []
+    elif isinstance(drivers, dict):
+        driver_dict = drivers
+        driver_names = [
+            key for key in drivers.keys() if key not in DRIVER_SETTING_KEYS
+        ]
+        if not driver_names:
+            raise ValueError(
+                "Driver dictionary must include at least one driver symbol."
+            )
+    else:
+        driver_names = list(drivers)
+
+    known_symbol_map = {}
+    for name in list(parameters) + list(constants) + driver_names:
+        known_symbol_map[str(name)] = sp.Symbol(str(name), real=True)
+
+    unknown_names = {str(name) for name in states_dict}
+    unknown_names |= {str(name) for name in observables}
+
+    normalised = normalise_input(
+        dxdt,
+        unknown_names,
+        known_symbol_map,
+        user_functions,
+        user_function_derivatives,
+        strict,
+        set(states_dict),
+    )
+    for name in normalised.inferred_states:
+        states_dict[name] = 0.0
+
+    shape = classify_system(
+        normalised, states_dict.keys(), observables
+    )
+    use_structural = simplify or shape == "dae"
+    if use_structural and not simplify:
+        warn(
+            "DAE constructs detected (implicit equations, higher-order "
+            "or in-expression derivatives, or unknowns without "
+            "derivative equations); structural simplification enabled.",
+            EquationWarning,
+        )
+
+    if not use_structural:
+        return assemble_explicit(
+            normalised,
+            states_dict,
+            observables,
+            parameters,
+            constants,
+            driver_names,
+            driver_dict,
+            user_functions,
+            user_function_derivatives,
+            state_units=state_units,
+            parameter_units=parameter_units,
+            constant_units=constant_units,
+            observable_units=observable_units,
+            driver_units=driver_units,
+        )
+
+    if isinstance(parameters, dict):
+        parameters_dict = dict(parameters)
+    else:
+        parameters_dict = {str(name): 0.0 for name in parameters}
+    if isinstance(constants, dict):
+        constants_dict = dict(constants)
+    else:
+        constants_dict = {str(name): 0.0 for name in constants}
+
+    return assemble_simplified(
+        normalised,
+        states_dict,
+        observables,
+        parameters_dict,
+        constants_dict,
+        driver_names,
+        driver_dict,
+        known_symbol_map,
+        user_functions,
+        user_function_derivatives,
+        state_priority=state_priority,
+        irreducible=irreducible,
+        state_units=state_units,
+        parameter_units=parameter_units,
+        constant_units=constant_units,
+        observable_units=observable_units,
+        driver_units=driver_units,
+        simplify_options=simplify_options,
+    )
+
+
+def _parse_function_path(
+    dxdt: Callable,
+    states,
+    observables,
+    parameters,
+    constants,
+    drivers,
+    user_functions,
+    user_function_derivatives,
+    strict,
+    state_units,
+    parameter_units,
+    constant_units,
+    observable_units,
+    driver_units,
+):
+    """Parse callable ``dxdt`` input (explicit-ODE only)."""
+
+    from .function_parser import (
+        infer_function_states,
+        parse_function_input,
+    )
 
     if states is None:
         if strict:
             raise ValueError(
-                "No state symbols were provided - if you want to build a model "
-                "from a set of equations alone, set strict=False"
+                "No state symbols were provided - if you want to build a "
+                "model from a set of equations alone, set strict=False"
             )
-        if input_type == "function":
-            from .function_parser import infer_function_states
-
-            states = infer_function_states(dxdt)
-        else:
-            states = {}
+        states = infer_function_states(dxdt)
     if observables is None:
         observables = []
     if parameters is None:
@@ -1555,116 +935,16 @@ def parse_input(
         driver_units=driver_units,
     )
 
-    if input_type == "string":
-        if isinstance(dxdt, str):
-            lines = [
-                line.strip()
-                for line in dxdt.strip().splitlines()
-                if line.strip()
-            ]
-        elif isinstance(dxdt, list) or isinstance(dxdt, tuple):
-            lines = [line.strip() for line in dxdt if line.strip()]
-        else:
-            raise ValueError(
-                "dxdt must be a string or a list/tuple of strings"
-            )
-
-        raw_lines = list(lines)
-        lines = _normalise_indexed_tokens(lines)
-
-        anon_aux = _lhs_pass(lines, index_map, strict=strict)
-        all_symbols = index_map.all_symbols.copy()
-        all_symbols.setdefault("t", TIME_SYMBOL)
-        all_symbols.update(anon_aux)
-
-        equation_map, funcs, new_params = _rhs_pass(
-            lines=lines,
-            all_symbols=all_symbols,
-            user_funcs=user_functions,
-            user_function_derivatives=user_function_derivatives,
-            strict=strict,
-            raw_lines=raw_lines,
-        )
-
-    elif input_type == "sympy":
-        if isinstance(dxdt, (list, tuple)):
-            equations = list(dxdt)
-        else:
-            equations = [dxdt]
-
-        normalized_eqs = _normalize_sympy_equations(equations, index_map)
-
-        # Substitute user symbols with canonical symbols from index_map
-        # This ensures symbol identity matches for categorization
-        # Only substitute symbols that exist in index_map; leave others for inference
-        symbol_substitutions = {}
-        for sym_name, sym_obj in index_map.all_symbols.items():
-            if isinstance(sym_obj, sp.Symbol):
-                # Map both with and without real assumption to canonical symbol
-                symbol_substitutions[sp.Symbol(sym_name)] = sym_obj
-                symbol_substitutions[sp.Symbol(sym_name, real=True)] = sym_obj
-
-        substituted_eqs = []
-        for lhs, rhs in normalized_eqs:
-            # Only substitute if symbol exists in map; otherwise keep as-is
-            # This allows inference of new symbols in non-strict mode
-            new_lhs = (
-                lhs.subs(symbol_substitutions, simultaneous=True)
-                if lhs in symbol_substitutions
-                else lhs
-            )
-            new_rhs = rhs.subs(symbol_substitutions, simultaneous=True)
-            substituted_eqs.append((new_lhs, new_rhs))
-
-        anon_aux = _lhs_pass_sympy(substituted_eqs, index_map, strict=strict)
-
-        # After LHS pass, new states/dxdt may have been added (in non-strict mode)
-        # Substitute again to ensure all LHS symbols match canonical ones
-        final_symbol_substitutions = {}
-        for sym_name, sym_obj in index_map.all_symbols.items():
-            if isinstance(sym_obj, sp.Symbol):
-                final_symbol_substitutions[sp.Symbol(sym_name)] = sym_obj
-                final_symbol_substitutions[sp.Symbol(sym_name, real=True)] = (
-                    sym_obj
-                )
-
-        final_substituted_eqs = []
-        for lhs, rhs in substituted_eqs:
-            new_lhs = lhs.subs(final_symbol_substitutions, simultaneous=True)
-            new_rhs = rhs.subs(final_symbol_substitutions, simultaneous=True)
-            final_substituted_eqs.append((new_lhs, new_rhs))
-
-        all_symbols = index_map.all_symbols.copy()
-        all_symbols.setdefault("t", TIME_SYMBOL)
-        all_symbols.update(anon_aux)
-
-        equation_map, funcs, new_params = _rhs_pass_sympy(
-            equations=final_substituted_eqs,
-            all_symbols=all_symbols,
-            indexed_bases=index_map,
-            user_funcs=user_functions,
-            user_function_derivatives=user_function_derivatives,
-            strict=strict,
-        )
-
-    elif input_type == "function":
-        from .function_parser import parse_function_input
-
-        equation_map, funcs, new_params = parse_function_input(
-            func=dxdt,
-            index_map=index_map,
-            observables=list(observables),
-            user_functions=user_functions,
-            user_function_derivatives=user_function_derivatives,
-            strict=strict,
-        )
-        all_symbols = index_map.all_symbols.copy()
-        all_symbols.setdefault("t", TIME_SYMBOL)
-
-    else:
-        raise RuntimeError(
-            f"Invalid input_type '{input_type}' from _detect_input_type"
-        )
+    equation_map, funcs, new_params = parse_function_input(
+        func=dxdt,
+        index_map=index_map,
+        observables=list(observables),
+        user_functions=user_functions,
+        user_function_derivatives=user_function_derivatives,
+        strict=strict,
+    )
+    all_symbols = index_map.all_symbols.copy()
+    all_symbols.setdefault("t", TIME_SYMBOL)
 
     for param in new_params:
         index_map.parameters.push(param)
@@ -1673,11 +953,8 @@ def parse_input(
     if driver_dict is not None:
         index_map.drivers.set_passthrough_defaults(driver_dict)
 
-    # Expose user functions in the returned symbols dict (original names)
-    # and alias mapping for the printer under a special key
     if user_functions:
         all_symbols.update({name: fn for name, fn in user_functions.items()})
-        # Also expose derivative callables if provided
         if user_function_derivatives:
             all_symbols.update(
                 {
@@ -1686,21 +963,13 @@ def parse_input(
                     if callable(fn)
                 }
             )
-        # Build alias map underscored -> original for the printer
-        # (only applicable to string pathway where renaming occurs)
-        if input_type == "string":
-            _, rename = _rename_user_calls(lines, user_functions or {})
-            if rename:
-                alias_map = {v: k for k, v in rename.items()}
-                all_symbols["__function_aliases__"] = alias_map
 
     parsed_equations = ParsedEquations.from_equations(equation_map, index_map)
 
-    # Compute hash from canonical ParsedEquations form
     fn_hash = hash_system_definition(
         parsed_equations,
         index_map.constants.default_values,
         observable_labels=index_map.observables.ref_map.keys(),
     )
 
-    return index_map, all_symbols, funcs, parsed_equations, fn_hash
+    return index_map, all_symbols, funcs, parsed_equations, fn_hash, None

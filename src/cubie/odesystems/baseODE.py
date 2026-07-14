@@ -110,6 +110,7 @@ class BaseODE(CUDAFactory):
         default_observable_names: Optional[Dict[str, float]] = None,
         num_drivers: int = 1,
         name: Optional[str] = None,
+        mass: Any = None,
     ) -> None:
         """Initialize the ODE system.
 
@@ -138,6 +139,9 @@ class BaseODE(CUDAFactory):
             Number of driver or forcing functions. Defaults to ``1``.
         name
             Printable identifier for the system. Defaults to ``None``.
+        mass
+            Solver mass matrix; ``None`` implies identity. Singular
+            diagonal matrices express semi-explicit DAE systems.
         """
         super().__init__()
         system_data = ODEData.from_BaseODE_initargs(
@@ -151,9 +155,25 @@ class BaseODE(CUDAFactory):
             default_observable_names=default_observable_names,
             precision=precision,
             num_drivers=num_drivers,
+            mass=mass,
         )
         self.setup_compile_settings(system_data)
         self.name = name
+
+    @property
+    def mass(self) -> Any:
+        """Return the system's mass matrix.
+
+        ``None`` implies identity. The matrix is part of the system
+        definition, fixed at construction: structural simplification
+        supplies a singular diagonal matrix for systems with torn
+        algebraic residual equations, and hand-formulated
+        semi-explicit DAEs supply theirs through the ``mass``
+        constructor argument. Systems with a mass matrix require an
+        implicit algorithm.
+        """
+
+        return self.compile_settings.mass
 
     def __repr__(self) -> str:
         if self.name is None:
@@ -380,10 +400,13 @@ class BaseODE(CUDAFactory):
         func_name: str,
         beta: float = 1.0,
         gamma: float = 1.0,
-        mass: Any = 1.0,
         preconditioner_order: int = 0,
     ) -> Callable:
         """Retrieve a cached solver helper function.
+
+        Helpers that consume a mass matrix read the system's own
+        :attr:`mass`; the matrix is part of the system definition,
+        not an algorithm parameter.
 
         Parameters
         ----------
@@ -397,8 +420,6 @@ class BaseODE(CUDAFactory):
         preconditioner_order
             Polynomial order of the preconditioner. Defaults to ``0``. Unused
             when generating the linear operator.
-        mass
-            Mass matrix used by the linear operator. Defaults to identity.
 
         Returns
         -------

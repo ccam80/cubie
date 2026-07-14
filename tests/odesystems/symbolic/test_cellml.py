@@ -465,7 +465,7 @@ def test_multiple_time_variables_raise(cellml_fixtures_dir):
 
 def test_constant_as_observable_raises(cellml_fixtures_dir):
     """Requesting a numeric-valued variable as an observable raises."""
-    with pytest.raises(ValueError, match="never assigned"):
+    with pytest.raises(ValueError, match="no defining equation"):
         load_cellml_model(
             str(cellml_fixtures_dir / "basic_ode.cellml"),
             observables=["main_a"],

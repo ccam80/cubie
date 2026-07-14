@@ -581,18 +581,37 @@ class TestInfoGetters:
         assert "y" in names
 
 
-class TestMassMatrixCacheTag:
-    """Cover mass-matrix suffix derivation."""
+class TestMassMatrixHashTag:
+    """Cover the fn_hash mass-matrix component."""
 
     def test_identity_matrix_has_empty_tag(self):
-        """An identity mass matrix maps to an empty suffix."""
-        tag = symbolic_ode_module._mass_matrix_cache_tag([[1, 0], [0, 1]])
+        """An identity mass matrix maps to an empty component."""
+        tag = symbolic_ode_module._mass_matrix_hash_tag([[1, 0], [0, 1]])
         assert tag == ""
 
     def test_non_identity_matrix_has_suffix(self):
-        """A non-identity mass matrix produces a hashed suffix."""
-        tag = symbolic_ode_module._mass_matrix_cache_tag([[2, 0], [0, 1]])
+        """A non-identity mass matrix produces a hashed component."""
+        tag = symbolic_ode_module._mass_matrix_hash_tag([[2, 0], [0, 1]])
         assert tag.startswith("_M")
+
+    def test_mass_matrix_moves_fn_hash(self):
+        """Same-definition systems with different mass hash apart."""
+        kwargs = dict(
+            dxdt=["dx = -x", "dz = z - x"],
+            states={"x": 1.0, "z": 1.0},
+            precision=np.float64,
+            name="mass_hash_sys",
+        )
+        plain = SymbolicODE.create(**kwargs)
+        massed = SymbolicODE.create(
+            **kwargs, mass=np.diag([1.0, 0.0])
+        )
+        assert plain.fn_hash != massed.fn_hash
+        assert massed.fn_hash.endswith(
+            symbolic_ode_module._mass_matrix_hash_tag(
+                np.diag([1.0, 0.0])
+            )
+        )
 
 
 class TestSymbolicODEConstructorDefaults:
@@ -600,7 +619,7 @@ class TestSymbolicODEConstructorDefaults:
 
     def test_derives_symbols_and_hash_when_omitted(self):
         """A None all_symbols and fn_hash are derived from inputs."""
-        index_map, _, _, equations, _ = parse_input(
+        index_map, _, _, equations, _, _ = parse_input(
             dxdt=["dx = -k * x"],
             states={"x": 1.0},
             parameters={"k": 0.5},

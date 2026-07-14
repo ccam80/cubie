@@ -41,7 +41,6 @@ from attrs import define, field, validators
 from numba import cuda, int32
 
 from cubie.result_codes import CUBIE_RESULT_CODES
-from numpy import eye
 
 from cubie._utils import PrecisionDType, build_config
 from cubie.integrators.algorithms.base_algorithm_step import (
@@ -197,8 +196,6 @@ class FIRKStep(ODEImplicitStep):
         simultaneously, which is more computationally expensive than DIRK
         methods but can achieve higher orders of accuracy for stiff systems.
         """
-        mass = eye(n, dtype=precision)
-
         config = build_config(
             FIRKStepConfig,
             required={
@@ -212,7 +209,6 @@ class FIRKStep(ODEImplicitStep):
                 "tableau": tableau,
                 "beta": 1.0,
                 "gamma": 1.0,
-                "M": mass,
             },
             **kwargs,
         )
@@ -274,7 +270,6 @@ class FIRKStep(ODEImplicitStep):
         tableau = config.tableau
         beta = config.beta
         gamma = config.gamma
-        mass = config.M
 
         get_fn = config.get_solver_helper_fn
 
@@ -285,7 +280,6 @@ class FIRKStep(ODEImplicitStep):
             "n_stage_residual",
             beta=beta,
             gamma=gamma,
-            mass=mass,
             stage_coefficients=stage_coefficients,
             stage_nodes=stage_nodes,
         )
@@ -294,7 +288,6 @@ class FIRKStep(ODEImplicitStep):
             "n_stage_linear_operator",
             beta=beta,
             gamma=gamma,
-            mass=mass,
             stage_coefficients=stage_coefficients,
             stage_nodes=stage_nodes,
         )

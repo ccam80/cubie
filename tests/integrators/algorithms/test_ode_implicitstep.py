@@ -94,7 +94,7 @@ def test_implicit_config_settings_dict_includes_implicit_fields(precision):
     settings = step.compile_settings.settings_dict
     assert settings['beta'] == step.compile_settings.beta
     assert settings['gamma'] == step.compile_settings.gamma
-    assert settings['M'] is step.compile_settings.M
+    assert 'M' not in settings
     assert (
         settings['preconditioner_order']
         == step.compile_settings.preconditioner_order
@@ -109,12 +109,11 @@ def test_implicit_config_settings_dict_includes_implicit_fields(precision):
     )
 
 
-def test_implicit_step_beta_gamma_mass_matrix_properties(precision):
-    """beta, gamma, and mass_matrix forward to compile_settings."""
+def test_implicit_step_beta_gamma_properties(precision):
+    """beta and gamma forward to compile_settings."""
     step = BackwardsEulerStep(precision=precision, n=3)
     assert step.beta == step.compile_settings.beta
     assert step.gamma == step.compile_settings.gamma
-    assert step.mass_matrix is step.compile_settings.M
 
 
 def test_implicit_step_preconditioner_type_property(precision):
