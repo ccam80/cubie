@@ -38,7 +38,6 @@ from typing import Callable, Optional
 
 from attrs import define, field, validators
 from numba import cuda, int32
-from numpy import eye
 
 from cubie._utils import PrecisionDType, build_config
 from cubie.cuda_simsafe import activemask, all_sync, get_jit_kwargs
@@ -185,8 +184,6 @@ class DIRKStep(ODEImplicitStep):
         This automatic selection prevents incompatible configurations where
         an adaptive controller is paired with an errorless tableau.
         """
-        mass = eye(n, dtype=precision)
-
         config = build_config(
             DIRKStepConfig,
             required={
@@ -200,7 +197,6 @@ class DIRKStep(ODEImplicitStep):
                 'tableau': tableau,
                 'beta': 1.0,
                 'gamma': 1.0,
-                'M': mass,
             },
             **kwargs
         )
@@ -279,7 +275,6 @@ class DIRKStep(ODEImplicitStep):
         config = self.compile_settings
         beta = config.beta
         gamma = config.gamma
-        mass = config.M
         preconditioner_order = config.preconditioner_order
 
         get_fn = config.get_solver_helper_fn
@@ -289,7 +284,6 @@ class DIRKStep(ODEImplicitStep):
             preconditioner_type=config.preconditioner_type,
             beta=beta,
             gamma=gamma,
-            mass=mass,
             preconditioner_order=preconditioner_order,
         )
 
@@ -297,7 +291,6 @@ class DIRKStep(ODEImplicitStep):
             "stage_residual",
             beta=beta,
             gamma=gamma,
-            mass=mass,
             preconditioner_order=preconditioner_order,
         )
 
@@ -305,7 +298,6 @@ class DIRKStep(ODEImplicitStep):
             "linear_operator",
             beta=beta,
             gamma=gamma,
-            mass=mass,
             preconditioner_order=preconditioner_order,
         )
 

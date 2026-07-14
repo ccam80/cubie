@@ -119,7 +119,6 @@ class InstrumentedRosenbrockWStep(InstrumentedODEImplicitStep):
         tableau controls the implicit treatment of the linearized system.
         """
 
-        mass = np.eye(n, dtype=precision)
         tableau_value = tableau
 
         # Build config first so buffer registration can use config defaults
@@ -135,7 +134,6 @@ class InstrumentedRosenbrockWStep(InstrumentedODEImplicitStep):
             "tableau": tableau_value,
             "beta": 1.0,
             "gamma": tableau_value.gamma,
-            "M": mass,
         }
         if stage_rhs_location is not None:
             config_kwargs["stage_rhs_location"] = stage_rhs_location
@@ -246,7 +244,6 @@ class InstrumentedRosenbrockWStep(InstrumentedODEImplicitStep):
         config = self.compile_settings
         beta = config.beta
         gamma = config.gamma
-        mass = config.M
         preconditioner_order = config.preconditioner_order
 
         get_fn = config.get_solver_helper_fn
@@ -256,14 +253,12 @@ class InstrumentedRosenbrockWStep(InstrumentedODEImplicitStep):
             "neumann_preconditioner_cached",
             beta=beta,
             gamma=gamma,
-            mass=mass,
             preconditioner_order=preconditioner_order,
         )
         operator = get_fn(
             "linear_operator_cached",
             beta=beta,
             gamma=gamma,
-            mass=mass,
             preconditioner_order=preconditioner_order,
         )
 

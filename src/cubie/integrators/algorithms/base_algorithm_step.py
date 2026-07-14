@@ -64,7 +64,6 @@ ALL_ALGORITHM_STEP_PARAMETERS = {
     "driver_del_t",
     "beta",
     "gamma",
-    "M",
     "preconditioner_order",
     "preconditioner_type",
     "krylov_atol",

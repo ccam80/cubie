@@ -164,8 +164,6 @@ class InstrumentedFIRKStep(InstrumentedODEImplicitStep):
         methods but can achieve higher orders of accuracy for stiff systems.
         """
 
-        mass = np.eye(n, dtype=precision)
-
         # Build config first so buffer registration can use config defaults
         config_kwargs = {
             "precision": precision,
@@ -179,7 +177,6 @@ class InstrumentedFIRKStep(InstrumentedODEImplicitStep):
             "tableau": tableau,
             "beta": 1.0,
             "gamma": 1.0,
-            "M": mass,
         }
         if stage_increment_location is not None:
             config_kwargs["stage_increment_location"] = (
@@ -280,7 +277,6 @@ class InstrumentedFIRKStep(InstrumentedODEImplicitStep):
 
         beta = config.beta
         gamma = config.gamma
-        mass = config.M
 
         stage_coefficients = [list(row) for row in tableau.a]
         stage_nodes = list(tableau.c)
@@ -297,7 +293,6 @@ class InstrumentedFIRKStep(InstrumentedODEImplicitStep):
             'n_stage_residual',
             beta=beta,
             gamma=gamma,
-            mass=mass,
             stage_coefficients=stage_coefficients,
             stage_nodes=stage_nodes,
         )
@@ -305,7 +300,6 @@ class InstrumentedFIRKStep(InstrumentedODEImplicitStep):
             'n_stage_linear_operator',
             beta=beta,
             gamma=gamma,
-            mass=mass,
             stage_coefficients=stage_coefficients,
             stage_nodes=stage_nodes,
         )

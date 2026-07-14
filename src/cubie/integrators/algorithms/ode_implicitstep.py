@@ -4,8 +4,7 @@ Published Classes
 -----------------
 :class:`ImplicitStepConfig`
     Configuration container extending :class:`BaseStepConfig` with
-    implicit-specific fields (beta, gamma, mass matrix,
-    preconditioner order).
+    implicit-specific fields (beta, gamma, preconditioner order).
 
 :class:`ODEImplicitStep`
     Abstract base for implicit algorithms. Owns a
@@ -29,7 +28,6 @@ from typing import Callable, Optional, Union, Set
 
 from attrs import define, field, validators
 from numpy import ndarray
-import sympy as sp
 
 from cubie._utils import inrangetype_validator, is_device_validator
 from cubie.integrators.matrix_free_solvers.linear_solver import (
@@ -59,10 +57,14 @@ class ImplicitStepConfig(BaseStepConfig):
         Implicit integration coefficient applied to the stage derivative.
     gamma
         Implicit integration coefficient applied to the mass matrix product.
-    M
-        Mass matrix used when evaluating residuals and Jacobian actions.
     preconditioner_order
         Order of the truncated Neumann preconditioner.
+
+    Notes
+    -----
+    The mass matrix is not an algorithm parameter: it belongs to the
+    ODE system, and mass-consuming solver helpers read it from the
+    system when generated through ``get_solver_helper_fn``.
     """
 
     _beta: float = field(
@@ -71,7 +73,6 @@ class ImplicitStepConfig(BaseStepConfig):
     _gamma: float = field(
         default=1.0, validator=inrangetype_validator(float, 0, 1)
     )
-    M: Union[ndarray, sp.Matrix] = field(default=sp.eye(1))
     preconditioner_order: int = field(
         default=2, validator=inrangetype_validator(int, 1, 32)
     )
@@ -115,7 +116,6 @@ class ImplicitStepConfig(BaseStepConfig):
             {
                 "beta": self.beta,
                 "gamma": self.gamma,
-                "M": self.M,
                 "preconditioner_order": self.preconditioner_order,
                 "preconditioner_type": self.preconditioner_type,
                 "get_solver_helper_fn": self.get_solver_helper_fn,
@@ -353,7 +353,6 @@ class ODEImplicitStep(BaseAlgorithmStep):
         config = self.compile_settings
         beta = config.beta
         gamma = config.gamma
-        mass = config.M
         preconditioner_order = config.preconditioner_order
 
         get_fn = config.get_solver_helper_fn
@@ -364,21 +363,18 @@ class ODEImplicitStep(BaseAlgorithmStep):
             preconditioner_type=config.preconditioner_type,
             beta=beta,
             gamma=gamma,
-            mass=mass,
             preconditioner_order=preconditioner_order,
         )
         residual = get_fn(
             "stage_residual",
             beta=beta,
             gamma=gamma,
-            mass=mass,
             preconditioner_order=preconditioner_order,
         )
         operator = get_fn(
             "linear_operator",
             beta=beta,
             gamma=gamma,
-            mass=mass,
             preconditioner_order=preconditioner_order,
         )
 
@@ -412,12 +408,6 @@ class ODEImplicitStep(BaseAlgorithmStep):
         """Return the implicit integration gamma coefficient."""
 
         return self.compile_settings.gamma
-
-    @property
-    def mass_matrix(self):
-        """Return the mass matrix used by the implicit scheme."""
-
-        return self.compile_settings.M
 
     @property
     def preconditioner_order(self) -> int:
@@ -481,7 +471,7 @@ class ODEImplicitStep(BaseAlgorithmStep):
     def settings_dict(self) -> dict:
         """Return merged algorithm and solver settings.
 
-        Combines implicit step configuration (beta, gamma, M, etc.)
+        Combines implicit step configuration (beta, gamma, etc.)
         with solver settings (Newton and linear solver parameters).
 
         Returns
@@ -489,7 +479,7 @@ class ODEImplicitStep(BaseAlgorithmStep):
         dict
             Merged configuration dictionary containing:
             - Base step settings (n, n_drivers, precision) from BaseStepConfig
-            - Implicit step settings (beta, gamma, M, preconditioner_order,
+            - Implicit step settings (beta, gamma, preconditioner_order,
               get_solver_helper_fn) from ImplicitStepConfig
             - Solver settings (newton_atol, krylov_rtol, etc.)
               from NewtonKrylov or LinearSolverBase

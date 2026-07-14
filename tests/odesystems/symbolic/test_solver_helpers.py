@@ -1591,18 +1591,21 @@ def test_mass_matrix_selects_distinct_cached_helpers(
     precision,
     tolerance,
 ):
-    """Changing the mass matrix yields freshly generated helpers.
+    """Systems differing only in mass generate distinct helpers.
 
-    The generated source bakes mass entries in, so requesting the same
-    helper type with a different mass matrix must not return the
-    previously cached device function (in memory or from the
+    The generated source bakes mass entries in, and the mass matrix
+    is part of the system definition (folded into ``fn_hash``), so a
+    same-named system with a different mass matrix must not reuse the
+    other system's cached device function (in memory or from the
     generated-code file on disk).
     """
+    equations = [
+        "dx0 = -k0*x0 + x0*x1",
+        "dx1 = -k1*x1 + x0*x0",
+    ]
+    mass = np.diag([2.0, 3.0]).astype(precision)
     system = create_ODE_system(
-        [
-            "dx0 = -k0*x0 + x0*x1",
-            "dx1 = -k1*x1 + x0*x0",
-        ],
+        equations,
         states=["x0", "x1"],
         constants={"k0": 1.0, "k1": 2.0},
         precision=precision,
@@ -1631,9 +1634,20 @@ def test_mass_matrix_selects_distinct_cached_helpers(
         out_eye,
     )
 
-    mass = np.diag([2.0, 3.0])
-    pre_mass = system.get_solver_helper(
-        "jacobi_preconditioner", beta=1.0, gamma=1.0, mass=mass
+    # A same-named system with a different mass has a different
+    # fn_hash, so it re-keys the generated-code file rather than
+    # reusing the identity-mass helper cached above.
+    system_mass = create_ODE_system(
+        equations,
+        states=["x0", "x1"],
+        constants={"k0": 1.0, "k1": 2.0},
+        precision=precision,
+        name="mass_cache_key_sys",
+        mass=mass,
+    )
+    assert system_mass.fn_hash != system.fn_hash
+    pre_mass = system_mass.get_solver_helper(
+        "jacobi_preconditioner", beta=1.0, gamma=1.0
     )
     out_mass = np.zeros(2, dtype=precision)
     jacobi_kernel(pre_mass)[1, 1](

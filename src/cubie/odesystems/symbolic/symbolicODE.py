@@ -103,23 +103,13 @@ _NEUMANN_PRECONDITIONER_TYPES = frozenset((
 ))
 
 
-# Helper types whose generated source bakes in mass-matrix entries.
-# Their disk-cache names must encode the mass matrix so different
-# matrices do not collide in the generated-code file.
-_MASS_CONSUMING_HELPERS = frozenset((
-    "linear_operator",
-    "linear_operator_cached",
-    "stage_residual",
-    "n_stage_residual",
-    "n_stage_linear_operator",
-    "jacobi_preconditioner",
-    "jacobi_preconditioner_cached",
-    "n_stage_jacobi_preconditioner",
-))
+def _mass_matrix_hash_tag(mass):
+    """Return a system-hash component identifying a mass matrix.
 
-
-def _mass_matrix_cache_tag(mass):
-    """Return a factory-name suffix identifying a mass matrix.
+    The mass matrix is part of the system definition and is baked
+    into generated solver-helper source, so it participates in
+    ``fn_hash`` and thereby invalidates the generated-code file
+    through the same channel as an equation or constant change.
 
     Parameters
     ----------
@@ -129,8 +119,8 @@ def _mass_matrix_cache_tag(mass):
     Returns
     -------
     str
-        Empty string for an omitted or identity mass matrix (default
-        cache entries keep their unsuffixed names), otherwise
+        Empty string for an omitted or identity mass matrix (plain
+        ODE systems keep their untagged hashes), otherwise
         ``"_M<8-hex-digest>"`` derived from the matrix entries.
     """
     if mass is None:
@@ -159,6 +149,7 @@ def create_ODE_system(
     state_priority: Optional[dict[str, float]] = None,
     irreducible: Optional[Iterable[str]] = None,
     simplify_options: Optional[dict[str, Any]] = None,
+    mass: Optional[ndarray] = None,
 ) -> "SymbolicODE":
     """Create a :class:`SymbolicODE` from SymPy definitions.
 
@@ -219,6 +210,13 @@ def create_ODE_system(
     simplify_options
         Extra keyword arguments forwarded to
         :func:`~cubie.odesystems.symbolic.structural.simplify.structural_simplify`.
+    mass
+        Solver mass matrix for hand-formulated semi-explicit DAEs,
+        paired row-for-row with the declared state order; ``None``
+        implies identity. Part of the system definition — fixed at
+        construction; algorithms read it from the system. Singular
+        matrices require an implicit algorithm. Incompatible with
+        structural simplification, which derives its own.
 
     Returns
     -------
@@ -241,6 +239,7 @@ def create_ODE_system(
         state_priority=state_priority,
         irreducible=irreducible,
         simplify_options=simplify_options,
+        mass=mass,
     )
     return symbolic_ode
 
@@ -320,6 +319,7 @@ class SymbolicODE(BaseODE):
                 constants,
                 observable_labels=all_indexed_bases.observables.ref_map.keys(),
             )
+        fn_hash = f"{fn_hash}{_mass_matrix_hash_tag(mass)}"
         if name is None:
             name = fn_hash
 
@@ -373,6 +373,7 @@ class SymbolicODE(BaseODE):
         state_priority: Optional[dict[str, float]] = None,
         irreducible: Optional[Iterable[str]] = None,
         simplify_options: Optional[dict[str, Any]] = None,
+        mass: Optional[ndarray] = None,
     ) -> "SymbolicODE":
         """Parse user inputs and instantiate a :class:`SymbolicODE`.
 
@@ -438,6 +439,13 @@ class SymbolicODE(BaseODE):
         simplify_options
             Extra keyword arguments forwarded to
             :func:`~cubie.odesystems.symbolic.structural.simplify.structural_simplify`.
+        mass
+            Solver mass matrix for hand-formulated semi-explicit
+            DAEs, paired row-for-row with the declared state order;
+            ``None`` implies identity. The matrix is part of the
+            system definition: it is fixed at construction and
+            algorithms read it from the system. Incompatible with
+            structural simplification, which derives its own.
 
         Returns
         -------
@@ -486,11 +494,19 @@ class SymbolicODE(BaseODE):
             irreducible=irreducible,
             simplify_options=simplify_options,
         )
-        mass = None
         if simplified is not None and simplified.mass_matrix is not None:
+            if mass is not None:
+                raise ValueError(
+                    "The system's mass matrix is derived by "
+                    "structural simplification and pairs with the "
+                    "simplifier's state ordering; a user-supplied "
+                    "'mass' cannot override it."
+                )
             mass = asarray(
                 simplified.mass_matrix.tolist(), dtype=precision
             )
+        elif mass is not None:
+            mass = asarray(mass, dtype=precision)
         symbolic_ode = cls(
             equations=equations,
             all_indexed_bases=index_map,
@@ -612,6 +628,10 @@ class SymbolicODE(BaseODE):
             self.equations,
             self.indices.constants.default_values,
             observable_labels=self.indices.observables.ref_map.keys(),
+        )
+        new_hash = (
+            f"{new_hash}"
+            f"{_mass_matrix_hash_tag(self.compile_settings.mass)}"
         )
         if new_hash != self.fn_hash:
             self.gen_file = ODEFile(self.name, new_hash)
@@ -902,7 +922,6 @@ class SymbolicODE(BaseODE):
         gamma: float = 1.0,
         preconditioner_order: int = 2,
         preconditioner_type: Union[str, list] = "neumann",
-        mass: Optional[Union[ndarray, sp.Matrix]] = None,
         stage_coefficients: Optional[
             Sequence[Sequence[Union[float, sp.Expr]]]
         ] = None,
@@ -934,9 +953,6 @@ class SymbolicODE(BaseODE):
             Weight applied to the Jacobian term in the linear operator.
         preconditioner_order
             Polynomial order of the Neumann preconditioner.
-        mass
-            Mass matrix applied by the linear operator. When omitted the
-            identity matrix is assumed.
         stage_coefficients
             FIRK tableau coefficients used to evaluate stage states. Required
             for flattened helpers.
@@ -955,12 +971,18 @@ class SymbolicODE(BaseODE):
         NotImplementedError
             Raised when ``func_type`` does not correspond to a supported
             helper.
+
+        Notes
+        -----
+        Helpers that consume a mass matrix read the system's own
+        ``compile_settings.mass``; the matrix is part of the system
+        definition, not an algorithm parameter.
         """
+        mass = self.compile_settings.mass
         solver_updates = {
             "beta": beta,
             "gamma": gamma,
             "preconditioner_order": preconditioner_order,
-            "mass": mass,
         }
         self.update(solver_updates, silent=True)
 
@@ -990,7 +1012,6 @@ class SymbolicODE(BaseODE):
                 func_type,
                 beta=beta,
                 gamma=gamma,
-                mass=mass,
                 preconditioner_order=preconditioner_order,
                 stage_coefficients=stage_coefficients,
                 stage_nodes=stage_nodes,
@@ -1038,11 +1059,6 @@ class SymbolicODE(BaseODE):
             factory_name = "jacobi_preconditioner_cached"
         else:
             factory_name = func_type
-
-        # Helpers that bake mass-matrix entries into their source get
-        # a mass-derived suffix so each matrix caches separately.
-        if func_type in _MASS_CONSUMING_HELPERS:
-            factory_name = f"{factory_name}{_mass_matrix_cache_tag(mass)}"
 
         # Handle cached_aux_count specially - it doesn't generate code
         # and doesn't depend on whether other functions are cached

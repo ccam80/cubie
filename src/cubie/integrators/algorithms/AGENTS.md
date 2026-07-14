@@ -27,7 +27,7 @@ attrs-config mechanics; CUDA-authoring *optimisation* patterns are in
 | `__init__.py` | Public surface: `get_algorithm_step()`, `_ALGORITHM_REGISTRY`, `_TABLEAU_REGISTRY_BY_ALGORITHM`, `resolve_alias`/`resolve_supplied_tableau`; re-exports every step class and tableau registry. |
 | `base_algorithm_step.py` | Core abstractions: `ButcherTableau` (typed accessors, FSAL/error detection), `BaseStepConfig`, `StepCache`, `StepControlDefaults`, `BaseAlgorithmStep` (CUDAFactory base), `ALL_ALGORITHM_STEP_PARAMETERS`. |
 | `ode_explicitstep.py` | `ExplicitStepConfig` + `ODEExplicitStep`: `build()` delegates to `build_step` (no solver); `is_implicit` → `False`. |
-| `ode_implicitstep.py` | `ImplicitStepConfig` (beta, gamma, M, preconditioner_order) + `ODEImplicitStep`: owns a `NewtonKrylov`/`LinearSolver`, builds operator/preconditioner/residual helpers, routes solver-param updates; `is_implicit` → `True`. |
+| `ode_implicitstep.py` | `ImplicitStepConfig` (beta, gamma, preconditioner_order — no mass: the matrix belongs to the ODE system) + `ODEImplicitStep`: owns a `NewtonKrylov`/`LinearSolver`, builds operator/preconditioner/residual helpers, routes solver-param updates; `is_implicit` → `True`. |
 | `explicit_euler.py` | `ExplicitEulerStep`: forward Euler, order 1, fixed-step. |
 | `generic_erk.py` | `ERKStep` + `ERKStepConfig`: streamed-accumulator explicit RK; FSAL caching; controller auto-selected from `tableau.has_error_estimate`. |
 | `generic_erk_tableaus.py` | `ERKTableau` + ERK sets (Heun, Ralston, Bogacki-Shampine, Dormand-Prince 5(4)/8(5,3), RK4, Cash-Karp, Fehlberg, Tsit5, Vern7); `ERK_TABLEAU_REGISTRY`, `DEFAULT_ERK_TABLEAU`. |
@@ -129,5 +129,4 @@ Tests under `tests/integrators/algorithms/` (+ the `instrumented/` mirror):
   `prepare_jac`, `time_derivative_rhs`, …).
 
 ### External
-- `numba` (`cuda`, `int32`); `attrs`; `numpy` (coefficient math, `eye` mass matrices,
-  embedded-weight solves); `sympy` (default symbolic mass matrix in `ImplicitStepConfig`).
+- `numba` (`cuda`, `int32`); `attrs`; `numpy` (coefficient math, embedded-weight solves).

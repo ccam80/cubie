@@ -48,7 +48,8 @@ stage count (`f"{func_type}_{len(stage_nodes)}"`), so each stage count caches se
 cached helpers (`linear_operator_cached`, `neumann_preconditioner_cached`, `prepare_jac`,
 `calculate_cached_jvp`, `cached_aux_count`) are requested by `GenericRosenbrockWStep` and run
 every step; how many auxiliaries actually get precomputed is set by the caching planner's
-thresholds (see `parsing/` and `codegen/AGENTS.md`).
+thresholds (see `parsing/` and `codegen/AGENTS.md`). Mass-consuming helpers read the
+system's own `compile_settings.mass` — callers never pass a matrix.
 
 ### build() and system identity
 `build()` compiles `dxdt`+`observables` into the `ODECache`, first recomputing the system hash —
@@ -57,7 +58,8 @@ The identity is `fn_hash` from `hash_system_definition`: **equations + constant 
 observable labels — NOT parameter labels and NOT constant *values*** (constants and parameters
 together cover all non-state LHS symbols, so a constant↔parameter flip changes the hash and
 forces re-codegen; a constant *value* change only forces a rebuild). The hash is order-independent
-(sorted by LHS name), so string- and SymPy-input paths hit the same cache.
+(sorted by LHS name), so string- and SymPy-input paths hit the same cache. A non-identity mass
+matrix appends `_M<digest>` (`_mass_matrix_hash_tag`) because helper source bakes its entries in.
 
 ### Constant/parameter conversion
 `make_parameter`/`make_constant` update both `self.indices`

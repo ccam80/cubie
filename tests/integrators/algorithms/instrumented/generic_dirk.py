@@ -2,7 +2,6 @@
 
 from typing import Callable, Optional
 
-import numpy as np
 from numba import cuda, int32
 
 from cubie._utils import PrecisionDType
@@ -137,8 +136,6 @@ class InstrumentedDIRKStep(InstrumentedODEImplicitStep):
         an adaptive controller is paired with an errorless tableau.
         """
 
-        mass = np.eye(n, dtype=precision)
-
         # Build config first so buffer registration can use config defaults
         config_kwargs = {
             "precision": precision,
@@ -152,7 +149,6 @@ class InstrumentedDIRKStep(InstrumentedODEImplicitStep):
             "tableau": tableau,
             "beta": 1.0,
             "gamma": 1.0,
-            "M": mass,
         }
         if stage_increment_location is not None:
             config_kwargs["stage_increment_location"] = (
@@ -268,7 +264,6 @@ class InstrumentedDIRKStep(InstrumentedODEImplicitStep):
         n = config.n
         beta = config.beta
         gamma = config.gamma
-        mass = config.M
         preconditioner_order = config.preconditioner_order
 
         get_fn = config.get_solver_helper_fn
@@ -277,7 +272,6 @@ class InstrumentedDIRKStep(InstrumentedODEImplicitStep):
             "neumann_preconditioner",
             beta=beta,
             gamma=gamma,
-            mass=mass,
             preconditioner_order=preconditioner_order,
         )
 
@@ -285,7 +279,6 @@ class InstrumentedDIRKStep(InstrumentedODEImplicitStep):
             "stage_residual",
             beta=beta,
             gamma=gamma,
-            mass=mass,
             preconditioner_order=preconditioner_order,
         )
 
@@ -293,7 +286,6 @@ class InstrumentedDIRKStep(InstrumentedODEImplicitStep):
             "linear_operator",
             beta=beta,
             gamma=gamma,
-            mass=mass,
             preconditioner_order=preconditioner_order,
         )
 

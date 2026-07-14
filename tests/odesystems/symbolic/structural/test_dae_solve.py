@@ -36,11 +36,10 @@ def test_torn_system_rejects_explicit_algorithm(torn_ode):
         Solver(torn_ode, algorithm="euler")
 
 
-def test_implicit_helper_mass_is_not_structural():
-    # Solver-helper requests store the requesting algorithm's M in
-    # compile_settings.mass for cache invalidation; that scratch
-    # state must not mark an explicit system as a torn DAE, and a
-    # later explicit-algorithm solver on the same system must build.
+def test_implicit_runs_leave_plain_system_massless():
+    # The mass matrix belongs to the system; building implicit
+    # solvers (whose helpers read it) must not mark a plain system
+    # as a DAE, and explicit solvers must still build afterwards.
     ode = create_ODE_system(
         dxdt="dx = -x",
         states={"x": 1.0},
@@ -49,20 +48,65 @@ def test_implicit_helper_mass_is_not_structural():
     )
     implicit = Solver(ode, algorithm="backwards_euler")
     implicit.update({"algorithm": "crank_nicolson"})
-    assert ode.compile_settings.mass is not None
-    assert ode.structural_mass is None
+    assert ode.mass is None
+    assert ode.compile_settings.mass is None
     Solver(ode, algorithm="euler")
 
 
-def test_torn_system_rejects_user_mass_matrix(torn_ode):
-    # The structural mass matrix is paired to the simplifier's
-    # state ordering; a user override is rejected.
-    with pytest.raises(ValueError, match="cannot override"):
+def test_hot_swap_to_explicit_rejected(torn_ode):
+    # Swapping algorithms after construction re-runs the mass
+    # guard: a torn system cannot swap to an explicit step.
+    solver = Solver(torn_ode, algorithm="backwards_euler")
+    with pytest.raises(ValueError, match="implicit algorithm"):
+        solver.update({"algorithm": "euler"})
+
+
+def test_mass_is_not_an_algorithm_setting(torn_ode):
+    # The mass matrix is part of the system definition; 'M' is
+    # rejected as an algorithm setting on any system.
+    with pytest.raises(ValueError, match="not an algorithm setting"):
         Solver(
             torn_ode,
             algorithm="backwards_euler",
             algorithm_settings={"M": np.eye(2)},
         )
+
+
+def test_user_mass_cannot_override_structural():
+    # Structural simplification derives the mass matrix; a user
+    # supplied matrix is rejected at system construction.
+    with pytest.raises(ValueError, match="cannot override"):
+        create_ODE_system(
+            dxdt="""
+            dx = -z
+            0 = z**5 + z - x
+            """,
+            states={"x": 2.0, "z": 1.0},
+            precision=np.float64,
+            simplify=True,
+            mass=np.eye(2),
+            name="dae_guard_user_mass",
+        )
+
+
+def test_hand_formulated_mass_requires_implicit():
+    # A user-supplied singular mass matrix at system construction
+    # behaves like a structural one: implicit algorithms build,
+    # explicit algorithms are rejected.
+    ode = create_ODE_system(
+        dxdt="""
+        dx = -z
+        dz = z**5 + z - x
+        """,
+        states={"x": 2.0, "z": 1.0},
+        precision=np.float64,
+        mass=np.diag([1.0, 0.0]),
+        name="dae_guard_hand_mass",
+    )
+    assert ode.mass is not None
+    Solver(ode, algorithm="backwards_euler")
+    with pytest.raises(ValueError, match="implicit algorithm"):
+        Solver(ode, algorithm="euler")
 
 
 def z_of_x(x):
