@@ -25,20 +25,26 @@ runners:
   # is not grantable in this region), so every runner must be spot.
   # price-capacity-optimized (pco, RunsOn's default) picks a high-capacity
   # spot pool that is also among the cheapest -- cost matters here as this
-  # is personally funded. Listing three 8-vCPU GPU families widens the
-  # pools to cut launch misses. All three are 8 vCPU, so `-n logical`
-  # still fans the tests out to 8 workers regardless of which pool wins.
-  # The shared "All G and VT Spot" vCPU quota is fixed (AWS will not raise
-  # it further), so provisioning can still fail when it is momentarily
-  # exhausted; ci_cuda_tests.yml retries failed legs with backoff.
+  # is personally funded. Listing three GPU families widens the pools to
+  # cut launch misses.
+  # 4-vCPU (xlarge) sizing is deliberate. The "All G and VT Spot" quota is
+  # a fixed 8 vCPU (AWS will not raise it), so an 8-vCPU runner saturated
+  # it and the next serial job's spot request collided with the finishing
+  # one during teardown -> MaxSpotInstanceCountExceeded -> RunsOn's fixed
+  # 5-min on-demand snooze -> on-demand is 0 -> the leg failed. Two 4-vCPU
+  # instances fit within 8 vCPU, so the handoff no longer exceeds quota.
+  # `-n logical` fans the tests out to 4 workers (slower per leg than 8,
+  # but it removes the collision that no GitHub/RunsOn lever can space).
   gpu-linux:
-    family: ["g4dn.2xlarge", "g5.2xlarge", "g6.2xlarge"]
+    family: ["g4dn.xlarge", "g5.xlarge", "g6.xlarge"]
     image: ubuntu24-gpu-x64
     spot: price-capacity-optimized
 
   # Windows GPU: our baked AMI (GRID driver already installed). The AWS
   # GRID driver is multi-GPU, so the same AMI runs on the T4/A10G/L4 spot
-  # pools listed below.
+  # pools listed below. 4-vCPU (xlarge) for the same 8-vCPU-quota reason
+  # as gpu-linux above -- two runners fit within quota so serial handoffs
+  # do not collide.
   # NOTE: RunsOn's build config defines a stock `windows25-gpu-x64` image
   # (built but, as of this writing, undocumented/unannounced -- the docs
   # still say Windows GPU is unsupported). If it becomes available in your
@@ -46,6 +52,6 @@ runners:
   # build-windows-gpu-ami.yml, ci/tools/install_gpu_driver.ps1, the
   # `images:` block above) and set `image: windows25-gpu-x64` here instead.
   gpu-windows:
-    family: ["g4dn.2xlarge", "g5.2xlarge", "g6.2xlarge"]
+    family: ["g4dn.xlarge", "g5.xlarge", "g6.xlarge"]
     image: cubie-win-gpu
     spot: price-capacity-optimized
