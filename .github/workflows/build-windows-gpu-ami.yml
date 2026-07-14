@@ -60,10 +60,17 @@ jobs:
             echo "No candidate subnets found; set AWS_BUILD_SUBNET_ID." >&2
             exit 1
           fi
-          # Errors that mean "this AZ is out of capacity, try another". A
-          # regional spot-quota miss (MaxSpotInstanceCountExceeded) is
-          # intentionally excluded -- every AZ shares that quota.
-          CAP_RE='InsufficientInstanceCapacity|capacity-not-available|do not have sufficient .*capacity|insufficient .*capacity in the [Aa]vailability [Zz]one'
+          # A spot-provisioning miss = the fleet yielded no instance.
+          # Packer prints "Error waiting for fleet request" only when
+          # len(instances)==0 (step_run_spot_instance.go), and every AWS
+          # capacity phrasing ("insufficient ... capacity", "no Spot
+          # capacity available", ...) is wrapped by it -- so match the
+          # wrapper, not the wording. Post-launch failures (WinRM, driver
+          # install; 30-60 min) happen in later steps with other messages
+          # and fall through to fail-fast. A regional spot-quota miss
+          # (MaxSpotInstanceCountExceeded) is checked first and NOT swept:
+          # every AZ shares that quota.
+          FLEET_MISS_RE='Error waiting for fleet request|InsufficientInstanceCapacity|no Spot capacity available|capacity-not-available|insufficient .*capacity'
           echo "Candidate subnets (one per AZ): $SUBNETS"
           swept=0
           last_rc=1
@@ -81,15 +88,20 @@ jobs:
               echo "Bake succeeded in subnet $SN."
               exit 0
             fi
-            if grep -Eq "$CAP_RE" packer.out; then
-              echo "Subnet $SN: no spot capacity in its AZ (rc=$rc);" \
+            if grep -q "MaxSpotInstanceCountExceeded" packer.out; then
+              echo "Subnet $SN: regional spot quota exhausted (rc=$rc);" \
+                   "every AZ shares it, so not sweeping." >&2
+              exit "$rc"
+            fi
+            if grep -Eq "$FLEET_MISS_RE" packer.out; then
+              echo "Subnet $SN: fleet found no spot capacity (rc=$rc);" \
                    "trying the next AZ."
               swept=1
               last_rc=$rc
               continue
             fi
-            echo "Subnet $SN: Packer failed for a non-capacity reason" \
-                 "(rc=$rc); not sweeping further AZs." >&2
+            echo "Subnet $SN: Packer failed after launch / for a" \
+                 "non-capacity reason (rc=$rc); not sweeping further." >&2
             exit "$rc"
           done
           echo "Every candidate AZ was out of spot capacity (swept=$swept)." >&2
