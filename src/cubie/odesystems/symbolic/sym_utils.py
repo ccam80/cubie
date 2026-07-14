@@ -138,7 +138,10 @@ def topological_sort(
         assignment = sym_map[defined_symbol]
         result.append((defined_symbol, assignment))
 
-        for dependent in graph[defined_symbol]:
+        # Sorted iteration keeps the output order independent of
+        # Symbol hash values (set order follows PYTHONHASHSEED), so
+        # generated code is identical across processes.
+        for dependent in sorted(graph[defined_symbol], key=str):
             incoming_edges[dependent] -= 1
             if incoming_edges[dependent] == 0:
                 queue.append(dependent)
