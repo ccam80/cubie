@@ -67,7 +67,8 @@ class TestControllers:
         assert callable(step_controller.device_function)
 
     @pytest.mark.parametrize(
-        "flag, value", [("afn", False), ("lineinfo", True)]
+        "flag, value",
+        [("afn", False), ("lto", False), ("lineinfo", True)],
     )
     def test_jit_flag_updates_reach_compile_settings(
         self, step_controller, flag, value

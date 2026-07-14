@@ -27,8 +27,6 @@ from typing import Callable, Optional
 from numpy import asarray, ndarray, sqrt
 from attrs import Converter, define, field
 
-from attrs import validators as attrs_validators
-
 from cubie._utils import (
     PrecisionDType,
     clamp_factory,
@@ -37,23 +35,11 @@ from cubie._utils import (
     inrangetype_validator,
     tol_converter,
 )
-from cubie.cuda_simsafe import JITFlags
 from cubie.integrators.step_control.base_step_controller import (
     BaseStepController,
     BaseStepControllerConfig,
     ControllerCache,
 )
-
-
-def _adaptive_jit_flags() -> JITFlags:
-    """Return the adaptive controllers' default jit compile flags.
-
-    Adaptive controller device functions lean on ``pow``/``log``/
-    ``exp`` for gain arithmetic, where approximate transcendentals
-    (``afn``) map onto the hardware ``LG2``/``EX2`` paths without
-    affecting step-acceptance behaviour.
-    """
-    return JITFlags(afn=True)
 
 
 @define
@@ -66,11 +52,6 @@ class AdaptiveStepControlConfig(BaseStepControllerConfig):
     functions are rebuilt when they change.
     """
 
-    jit_flags: JITFlags = field(
-        factory=_adaptive_jit_flags,
-        validator=attrs_validators.instance_of(JITFlags),
-        kw_only=True,
-    )
     _dt_min: float = field(default=1e-6, validator=getype_validator(float, 0))
     _dt_max: Optional[float] = field(
         default=1.0, validator=getype_validator(float, 0)

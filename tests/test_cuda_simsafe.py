@@ -20,15 +20,17 @@ def test_compile_kwargs_without_cudasim():
 
 @pytest.mark.nocudasim
 def test_jit_flags_render_over_live_defaults():
-    """Enabling afn extends the live default flag set without mutating it."""
+    """Overrides render without mutating the live default flag set."""
     from cubie.cuda_simsafe import JITFlags, compile_kwargs, get_jit_kwargs
 
-    kwargs = get_jit_kwargs(JITFlags(afn=True))
+    kwargs = get_jit_kwargs(JITFlags(afn=False, lto=False))
 
-    expected = set(compile_kwargs["fastmath"]) | {"afn"}
+    expected = set(compile_kwargs["fastmath"]) - {"afn"}
     assert kwargs["fastmath"] == expected
-    assert "afn" not in compile_kwargs["fastmath"]
+    assert "afn" in compile_kwargs["fastmath"]
     assert kwargs["lineinfo"] == compile_kwargs["lineinfo"]
+    assert kwargs["lto"] is False
+    assert compile_kwargs["lto"] is True
 
 @pytest.mark.sim_only
 def test_selp_function_in_cudasim():

@@ -25,9 +25,9 @@ Published Device Functions
 Published Classes
 -----------------
 :class:`JITFlags`
-    One boolean field per managed ``cuda.jit`` keyword argument;
-    stored on every factory's compile settings and rendered to
-    decorator kwargs by :func:`get_jit_kwargs`.
+    Managed ``cuda.jit`` compile options stored on every factory's
+    compile settings and rendered to decorator kwargs by
+    :func:`get_jit_kwargs`.
 
 Published Constants
 -------------------
@@ -74,11 +74,10 @@ CUDA_SIMULATION: bool = os.environ.get("NUMBA_ENABLE_CUDASIM") == "1"
 class JITFlags:
     """Per-factory ``cuda.jit`` compile flags.
 
-    One boolean field per managed ``cuda.jit`` keyword argument, so
-    every jit argument travels the same path: stored on the factory's
-    compile settings (hashed into the config, so a change triggers a
-    rebuild), rendered to decorator keyword arguments by
-    :func:`get_jit_kwargs`. New jit arguments are added here as new
+    Every managed jit option travels the same path: stored on the
+    factory's compile settings (hashed into the config, so a change
+    triggers a rebuild), then rendered to decorator keyword arguments
+    by :func:`get_jit_kwargs`. New jit options are added here as new
     fields.
 
     Attributes
@@ -95,6 +94,8 @@ class JITFlags:
     afn
         Allow approximate transcendental functions (``LG2``/``EX2``
         hardware paths for ``log``/``exp``/``pow``).
+    lto
+        Enable link-time optimisation across device functions.
     """
 
     lineinfo: bool = field(
@@ -111,7 +112,10 @@ class JITFlags:
         default=True, validator=attrs_validators.instance_of(bool)
     )
     afn: bool = field(
-        default=False, validator=attrs_validators.instance_of(bool)
+        default=True, validator=attrs_validators.instance_of(bool)
+    )
+    lto: bool = field(
+        default=True, validator=attrs_validators.instance_of(bool)
     )
 
     @property
@@ -147,7 +151,14 @@ class JITFlags:
         updates_dict = {**updates_dict, **kwargs}
         recognized = set()
         changed = set()
-        flag_names = {"lineinfo", "nsz", "contract", "arcp", "afn"}
+        flag_names = {
+            "lineinfo",
+            "nsz",
+            "contract",
+            "arcp",
+            "afn",
+            "lto",
+        }
         for key, value in updates_dict.items():
             if key not in flag_names:
                 continue
@@ -169,6 +180,7 @@ compile_kwargs: Mapping[str, Any] = MappingProxyType(
     else {
         "fastmath": JITFlags().fastmath,
         "lineinfo": lineinfo_default(),
+        "lto": JITFlags().lto,
     }
 )
 
@@ -189,10 +201,10 @@ def get_jit_kwargs(
     Returns
     -------
     dict
-        ``{"fastmath": set, "lineinfo": bool}`` rendered from the
-        flags. Under the CUDA simulator every GPU-only option is
-        omitted and an empty dict is returned, regardless of the
-        flags passed.
+        ``{"fastmath": set, "lineinfo": bool, "lto": bool}``
+        rendered from the flags. Under the CUDA simulator every
+        GPU-only option is omitted and an empty dict is returned,
+        regardless of the flags passed.
     """
     if CUDA_SIMULATION:
         return {}
@@ -203,6 +215,7 @@ def get_jit_kwargs(
     return {
         "fastmath": jit_flags.fastmath,
         "lineinfo": jit_flags.lineinfo,
+        "lto": jit_flags.lto,
     }
 
 

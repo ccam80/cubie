@@ -84,3 +84,4 @@ class TestJitKwargs:
     def test_base_defaults_preserved(self):
         kwargs = get_jit_kwargs(True)
         assert kwargs["fastmath"] == compile_kwargs["fastmath"]
+        assert kwargs["lto"] == compile_kwargs["lto"]
