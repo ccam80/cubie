@@ -22,10 +22,15 @@ from cubie.memory.chunk_buffer_pool import ChunkBufferPool, PinnedBuffer
 if not CUDA_SIMULATION:
     @cuda.jit
     def _busy_kernel(out):
-        """Single-thread kernel that runs long enough to stay pending."""
-        x = 0.0
+        """Single-thread kernel that runs long enough to stay pending.
+
+        The accumulator seeds from runtime data and carries a serial
+        multiply-add dependency chain, so the loop cannot be
+        constant-folded by any backend's optimizer.
+        """
+        x = out[0]
         for _ in range(20_000_000):
-            x += 1.0
+            x = x * 0.9999999 + 1.0
         out[0] = x
 
 
@@ -399,10 +404,17 @@ def test_shutdown_drains_and_completes_remaining_tasks():
 
 
 @pytest.mark.nocudasim
+@pytest.mark.numba_cuda_only
 def test_process_task_pending_event_returns_false_until_recorded():
     """A real, still-running CUDA event causes _process_task to report
     not-yet-complete (returns False) without copying data, then True
-    once the stream is synchronized."""
+    once the stream is synchronized.
+
+    numba-cuda only: numba-cuda-mlir's launcher synchronizes every
+    kernel launch (device-side error-code readback), so an event
+    recorded behind a still-running kernel cannot be constructed on
+    that backend.
+    """
     stream, event = _record_busy_event()
 
     w = WritebackWatcher()
