@@ -79,15 +79,17 @@ jobs:
     name: cuda (${{ matrix.os }}, ${{ matrix.python-version }}, ${{ matrix.cuda }})
     permissions:
       contents: read
-    # max-parallel: 1 keeps the matrix to one 8-vCPU GPU instance at a
-    # time. Runners are spot-only (ap-southeast-2 has zero On-Demand G/VT
-    # quota, not grantable here), so concurrency is bounded by the shared
-    # "All G and VT Spot" vCPU quota; one g4dn/g5/g6.2xlarge = 8 vCPU fits
-    # under it. That quota is fixed (AWS will not raise it), so a leg can
-    # still fail to get a spot GPU when it is momentarily exhausted -- the
-    # `retry` job re-dispatches those legs. The param-set xdist grouping
-    # (tests/conftest.py + --dist=loadgroup in addopts) keeps thread
-    # scaling near-linear, so the 8 vCPUs are fully used.
+    # max-parallel: 1 runs one 4-vCPU GPU instance at a time. Runners are
+    # spot-only (ap-southeast-2 has zero On-Demand G/VT quota, not grantable
+    # here) and the "All G and VT Spot" quota is a fixed 8 vCPU. A 4-vCPU
+    # (xlarge) runner leaves 8-4=4 vCPU of headroom, so a leg's spot request
+    # no longer collides with the previous, still-terminating leg's instance
+    # -- that collision tripped RunsOn's fixed 5-min on-demand snooze, and
+    # on-demand is 0, so the leg failed. GitHub/RunsOn expose no lever to
+    # space serial jobs, so right-sizing is the fix. The `retry` job still
+    # re-dispatches any leg that misses a spot GPU. The param-set xdist
+    # grouping (tests/conftest.py + --dist=loadgroup in addopts) keeps
+    # thread scaling near-linear across the 4 workers.
     strategy:
       fail-fast: false
       max-parallel: 1
@@ -169,12 +171,14 @@ jobs:
           disable_search: true
           fail_ci_if_error: false
 
-  # Re-dispatch legs that never got a spot GPU, with exponential backoff.
-  # This is the resilience layer for the fixed, un-raisable spot quota:
-  # RunsOn falls back to on-demand (which is 0 here, so it fails) for 5 min
-  # after a spot-quota miss, so the backoff starts at 5 min to outlast that
-  # snooze, and each retry is a fresh run (attempt resets on the runner, so
-  # RunsOn tries spot again rather than being forced onto on-demand).
+  # Re-dispatch legs that never got a spot GPU, at a fixed interval. With
+  # the runners right-sized (runs-on.yml) the quota-collision that tripped
+  # RunsOn's 5-min on-demand snooze is gone, so this is now a thin safety
+  # net for genuine transient capacity misses -- which appear in brief
+  # windows, so a fixed short interval catches them better than an ever-
+  # growing backoff (the same reasoning as the AMI-bake retry). Each retry
+  # is a fresh run (attempt resets on the runner, so RunsOn tries spot
+  # again rather than on-demand).
   retry:
     needs: [setup, cuda]
     if: always() && needs.setup.result == 'success'
@@ -198,8 +202,7 @@ jobs:
           MATRIX: ${{ needs.setup.outputs.matrix }}
           ATTEMPT: ${{ needs.setup.outputs.attempt }}
           MAX_ATTEMPTS: "5"
-          BASE_BACKOFF: "300"   # seconds; first retry waits out the 5-min snooze
-          MAX_BACKOFF: "1200"   # cap at 20 min
+          RETRY_INTERVAL: "180"   # seconds; fixed (capacity returns in brief windows)
           REF: ${{ github.ref_name }}
           GH_TOKEN: ${{ github.token }}
         run: |
@@ -226,11 +229,9 @@ jobs:
             echo "Reached MAX_ATTEMPTS=${MAX_ATTEMPTS}; leaving the run red."
             exit 0
           fi
-          BACKOFF=$(( BASE_BACKOFF * (2 ** (ATTEMPT - 1)) ))
-          [ "$BACKOFF" -gt "$MAX_BACKOFF" ] && BACKOFF="$MAX_BACKOFF"
-          echo "Retrying these legs in ${BACKOFF}s:"
+          echo "Retrying these legs in ${RETRY_INTERVAL}s:"
           printf '%s' "$RETRYABLE" | jq .
-          sleep "$BACKOFF"
+          sleep "$RETRY_INTERVAL"
           gh workflow run ci_cuda_tests.yml \
             --ref "$REF" \
             -f attempt="$(( ATTEMPT + 1 ))" \
