@@ -121,23 +121,13 @@ class CUDABuffer:
         persistent) that overlap. The allocator transparently provides
         the correct view without needing a separate parent reference.
         """
-        # Compile-time constants captured in closure. Zero-length
-        # buffers are anchored at offset 0: MLIR's subview verifier
-        # rejects empty views whose offset equals the parent size
-        # (scratch[n:n]), which numpy-style slicing would allow.
+        # Compile-time constants captured in closure
         _use_shared = shared_slice is not None
         _use_persistent = persistent_slice is not None
         _shared_slice = shared_slice if _use_shared else slice(0, 0)
-        if _use_shared and _shared_slice.start == _shared_slice.stop:
-            _shared_slice = slice(0, 0)
         _persistent_slice = (
             persistent_slice if _use_persistent else slice(0, 0)
         )
-        if (
-            _use_persistent
-            and _persistent_slice.start == _persistent_slice.stop
-        ):
-            _persistent_slice = slice(0, 0)
         _local_size = local_size if local_size is not None else 1
         _precision = self.precision
         _zero = zero
