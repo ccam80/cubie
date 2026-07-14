@@ -19,7 +19,7 @@ See Also
 """
 from typing import Callable
 
-from numba import cuda, int32
+from cubie.cuda_simsafe import cuda, int32
 from numpy import ndarray
 from math import isnan, isinf
 

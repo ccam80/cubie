@@ -16,7 +16,7 @@ from cubie.CUDAFactory import (
 )
 from cubie.buffer_registry import buffer_registry
 from cubie.cuda_simsafe import from_dtype as simsafe_dtype
-from numba import from_dtype
+from cubie.cuda_simsafe import numba_from_dtype as from_dtype
 from numpy import dtype as np_dtype
 
 

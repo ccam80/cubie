@@ -28,7 +28,7 @@ See Also
 
 from typing import Callable
 
-from numba import cuda, int32
+from cubie.cuda_simsafe import cuda, int32
 from numpy import ndarray
 from attrs import field, define, validators
 from math import isnan, isinf

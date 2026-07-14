@@ -24,7 +24,7 @@ See Also
 from typing import Dict, Any, Optional
 
 from attrs import define, field, validators
-from numba import cuda, int32, from_dtype
+from cubie.cuda_simsafe import cuda, int32, numba_from_dtype as from_dtype
 from numpy import (
     dtype as np_dtype,
     float32 as np_float32,

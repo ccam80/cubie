@@ -1,6 +1,6 @@
 import numpy as np
 import pytest
-from numba import cuda
+from cubie.cuda_simsafe import cuda
 from numpy.testing import assert_allclose
 
 from cubie.integrators.matrix_free_solvers.linear_solver import (
@@ -694,7 +694,7 @@ def test_newton_krylov_inherits_from_matrix_free_solver(precision):
 
 def test_newton_krylov_update_preserves_original_dict(precision):
     """Verify update() does not modify the input updates_dict."""
-    from numba import cuda
+    from cubie.cuda_simsafe import cuda
 
     @cuda.jit(device=True)
     def residual(state, parameters, drivers, t, h, a_ij, base_state, out):

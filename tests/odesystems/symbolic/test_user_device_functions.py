@@ -9,7 +9,7 @@ an identical system written without user functions.
 
 import numpy as np
 import pytest
-from numba import cuda
+from cubie.cuda_simsafe import cuda, INLINE_ALWAYS
 
 from cubie import create_ODE_system, solve_ivp
 from cubie.odesystems.symbolic.codegen.neumann_convergence import (
@@ -19,7 +19,7 @@ from cubie.odesystems.symbolic.codegen.neumann_convergence import (
 
 @pytest.fixture(scope="module")
 def cubed():
-    @cuda.jit(device=True, inline="always")
+    @cuda.jit(device=True, inline=INLINE_ALWAYS)
     def cubed(x):
         return x * x * x
 
@@ -28,7 +28,7 @@ def cubed():
 
 @pytest.fixture(scope="module")
 def d_cubed():
-    @cuda.jit(device=True, inline="always")
+    @cuda.jit(device=True, inline=INLINE_ALWAYS)
     def d_cubed(x, index):
         return 3.0 * x * x
 

@@ -41,7 +41,7 @@ from typing import Callable, Dict, Optional, Sequence, Union
 
 import numpy as np
 import sympy as sp
-from numba import cuda
+from cubie.cuda_simsafe import cuda
 
 from cubie.cuda_simsafe import CUDA_SIMULATION, get_jit_kwargs
 from cubie.odesystems.symbolic.indexedbasemaps import IndexedBases

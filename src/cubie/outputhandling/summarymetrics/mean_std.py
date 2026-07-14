@@ -13,7 +13,7 @@ See Also
     Global registry where this metric is registered.
 """
 
-from numba import cuda
+from cubie.cuda_simsafe import cuda
 
 from math import sqrt
 

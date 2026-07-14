@@ -2,7 +2,7 @@ import sympy as sp
 
 import numpy as np
 import pytest
-from numba import cuda
+from cubie.cuda_simsafe import cuda
 
 from cubie.odesystems.symbolic.codegen.dxdt import (
     DXDT_TEMPLATE,

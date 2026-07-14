@@ -29,7 +29,7 @@ if TYPE_CHECKING:
 
 from attrs import define, field
 from attrs.validators import instance_of as attrsval_instance_of
-from numba import cuda
+from cubie.cuda_simsafe import cuda
 from numpy import (
     float32 as np_float32,
     floating as np_floating,

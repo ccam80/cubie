@@ -4,7 +4,7 @@ import weakref
 
 import pytest
 
-from numba import cuda
+from cubie.cuda_simsafe import cuda
 
 from cubie.cuda_simsafe import (
     Stream,

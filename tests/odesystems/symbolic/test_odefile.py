@@ -223,8 +223,8 @@ def test_import_function_loads_from_module(codegen_dir):
 # ── HEADER constant ───────────────────────────────────────────── #
 
 def test_header_contains_required_imports():
-    """HEADER includes numba, math, and cuda_simsafe imports."""
-    assert "from numba import cuda" in HEADER
+    """HEADER includes hub, math, and cuda_simsafe star imports."""
+    assert "from cubie.cuda_simsafe import cuda, int32" in HEADER
     assert "import math" in HEADER
     assert "from cubie.cuda_simsafe import *" in HEADER
 

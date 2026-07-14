@@ -24,8 +24,10 @@ license-files = ["src/LICEN[CS]E*"]
 dependencies = [
     "numpy>=2.0", # vendoring cellmlmanip lifts the former <2.0 cap
     "numba",
-    "numba-cuda", # frontend; toolkit resolved from wheels (cuda12/cuda13
-                  # extras) or an existing system CUDA install
+    # The CUDA frontend is an extra, not a core dependency: exactly one
+    # of numba-cuda (cuda/cuda12/cuda13 extras) or numba-cuda-mlir
+    # (mlir/mlir-cuda12/mlir-cuda13 extras) must be installed; the two
+    # frontends are mutually exclusive (cubie.cuda_backend).
     "attrs",
     "sympy>=1.13.0",
     # cellmlmanip is vendored under cubie.vendored.cellmlmanip (it pins
@@ -45,10 +47,16 @@ Issues = "https://github.com/ccam80/cubie/issues"
 
 [project.optional-dependencies]
 # CuPy is cubie's single device memory allocator on a real GPU, so the
-# cuda12/cuda13 lanes pull in the matching cupy build alongside the
-# toolkit wheels.
+# toolkit lanes pull in the matching cupy build alongside the toolkit
+# wheels. The bare 'cuda'/'mlir' extras install a frontend without
+# toolkit wheels, for machines with a system CUDA install. The mlir
+# lanes need Python >= 3.11 (enforced by the numba-cuda-mlir wheel).
+cuda = ["numba-cuda"] # numba-cuda frontend, system toolkit
 cuda12 = ["numba-cuda[cu12]", "cupy-cuda12x"] # CUDA 12 toolkit + CuPy
 cuda13 = ["numba-cuda[cu13]", "cupy-cuda13x"] # CUDA 13 toolkit + CuPy
+mlir = ["numba-cuda-mlir"] # MLIR frontend, system toolkit
+mlir-cuda12 = ["numba-cuda-mlir[cu12]", "cupy-cuda12x"]
+mlir-cuda13 = ["numba-cuda-mlir[cu13]", "cupy-cuda13x"]
 test = [
     "pytest",
     "pytest-cov",
@@ -64,6 +72,7 @@ test = [
 # matrix is verified.
 dev12 = ["cubie[cuda12,test]"]
 dev13 = ["cubie[cuda13,test]"]
+dev-mlir12 = ["cubie[mlir-cuda12,test]"]
 dev = ["cubie[dev12]"]
 optional = [
     "pandas",
@@ -81,7 +90,9 @@ markers = [
     "cupy: Requires optional dependency CuPy, will fail if not installed",
     "slow: Marks tests that are slow to run, can be skipped with -m 'not slow'",
     "specific_algos: Marks tests covering non-default algorithm tableau aliases",
-    "sim_only: Marks tests that can only run on the CUDA simulator (debug tests only, otherwise what's the point?)"
+    "sim_only: Marks tests that can only run on the CUDA simulator (debug tests only, otherwise what's the point?)",
+    "mlir_only: Requires the numba-cuda-mlir backend; deselected automatically on numba-cuda",
+    "numba_cuda_only: Requires the numba-cuda backend; deselected automatically on numba-cuda-mlir"
 ]
 addopts = [
     "--import-mode=importlib",
@@ -108,9 +119,10 @@ omit = [
     # not cubie's tested surface.
     "*/vendored/cellmlmanip/*",
     "*/vendored/numba_cuda_cache.py",
-    # Compile-time numba-cuda patches; covered by the pull requests
-    # submitted to numba-cuda-mlir.
+    # Compile-time backend patches; covered by the pull requests
+    # submitted to numba-cuda and numba-cuda-mlir.
     "*/_numba_cuda_compat.py",
+    "*/_mlir_compat.py",
 ]
 relative_files = true
 

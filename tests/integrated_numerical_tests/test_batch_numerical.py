@@ -8,7 +8,7 @@ from __future__ import annotations
 
 import numpy as np
 import pytest
-from numba import cuda
+from cubie.cuda_simsafe import cuda
 
 from tests._utils import (
     LONG_RUN_PARAMS,

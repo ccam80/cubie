@@ -9,7 +9,7 @@ import pytest
 
 import cubie  # noqa: F401  (applies the compat patches on import)
 
-pytestmark = pytest.mark.nocudasim
+pytestmark = [pytest.mark.nocudasim, pytest.mark.numba_cuda_only]
 
 HELPER_SOURCE = """\
 from numba import cuda

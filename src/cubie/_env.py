@@ -32,6 +32,11 @@ Recognised Variables
     parse results, compiled kernels). Overridden by an explicit
     :func:`cubie.cache_root.set_cache_root` call; defaults to
     ``<current working directory>/generated`` when unset.
+``CUBIE_CUDA_BACKEND``
+    Explicit CUDA frontend selection, ``numba-cuda`` or ``mlir``.
+    Read by :mod:`cubie.cuda_backend` at import; only needed when
+    both frontend packages are installed (they are mutually
+    exclusive by default).
 """
 
 import os

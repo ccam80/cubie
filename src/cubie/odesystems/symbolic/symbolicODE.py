@@ -1353,7 +1353,7 @@ def _chain_two_preconditioners(p0, p1, cached=False, lineinfo=None):
     scratch arguments. Solvers allocate ``chain_scratch`` from the
     buffer registry when ``preconditioner_is_chained`` is set.
     """
-    from numba import cuda
+    from cubie.cuda_simsafe import cuda
 
     from cubie.cuda_simsafe import get_jit_kwargs
 

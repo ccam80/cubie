@@ -16,7 +16,7 @@ See Also
 
 from typing import Callable, Optional, Sequence, Union
 
-from numba import cuda, int32
+from cubie.cuda_simsafe import cuda, int32
 from numpy.typing import ArrayLike
 
 from cubie.cuda_simsafe import get_jit_kwargs, stwt

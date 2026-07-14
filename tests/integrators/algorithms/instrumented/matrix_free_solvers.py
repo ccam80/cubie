@@ -4,7 +4,7 @@ import attrs
 from typing import Callable
 
 import numpy as np
-from numba import cuda, int32, from_dtype
+from cubie.cuda_simsafe import cuda, int32, numba_from_dtype as from_dtype
 
 from cubie._utils import is_device_validator
 from cubie.buffer_registry import buffer_registry

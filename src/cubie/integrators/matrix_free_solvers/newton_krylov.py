@@ -31,7 +31,7 @@ See Also
 from typing import Callable, Optional, Set, Dict, Any
 
 from attrs import define, field, validators
-from numba import cuda, int32
+from cubie.cuda_simsafe import cuda, int32
 from numpy import int32 as np_int32
 from numpy import ndarray
 

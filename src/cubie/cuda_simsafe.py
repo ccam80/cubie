@@ -1,20 +1,29 @@
-"""Simulation-safe CUDA helpers and stand-ins.
+"""Shared CUDA import hub and simulation-safe helpers.
 
-This module centralises compatibility utilities for environments
-running with ``NUMBA_ENABLE_CUDASIM=1``. It exposes a consistent
-surface so callers can import CUDA-facing helpers without branching
-on simulator state.
+This module is the single surface through which the rest of CuBIE
+reaches its CUDA frontend. The active backend (``numba-cuda`` or
+``numba-cuda-mlir``) is resolved by :mod:`cubie.cuda_backend`; the
+``cuda`` module object, scalar types, ``from_dtype``, driver
+internals, and cache base classes are all re-exported here so no
+other module imports a frontend package directly.
+
+Under ``numba-cuda`` the module also centralises the CUDA-simulator
+(``NUMBA_ENABLE_CUDASIM=1``) stand-ins. numba-cuda-mlir has no
+simulator, so combining it with ``NUMBA_ENABLE_CUDASIM=1`` raises at
+import.
 
 Published Functions
 -------------------
 :func:`from_dtype`
     Return a CUDA-ready or simulator-safe dtype.
 :func:`is_devfunc`
-    Test whether a callable is a Numba CUDA device function.
+    Test whether a callable is a CUDA device function.
 :func:`is_cuda_array`
     Check whether a value should be treated as a CUDA array.
 :func:`is_cudasim_enabled`
     Return whether the CUDA simulator is active.
+:func:`get_jit_kwargs`
+    Render a :class:`JITFlags` to ``cuda.jit`` keyword arguments.
 
 Published Device Functions
 --------------------------
@@ -32,12 +41,21 @@ Published Classes
 Published Constants
 -------------------
 :data:`CUDA_SIMULATION`
-    ``True`` when ``NUMBA_ENABLE_CUDASIM=1``.
+    ``True`` when ``NUMBA_ENABLE_CUDASIM=1`` (never true under the
+    MLIR backend).
 :data:`compile_kwargs`
     Default keyword arguments for ``@cuda.jit`` decorators.
+:data:`INLINE_ALWAYS`
+    Backend-correct value for the ``cuda.jit`` ``inline`` argument
+    (``"always"`` on numba-cuda, ``True`` on numba-cuda-mlir).
+:data:`cuda`, :data:`int32`, :data:`float32`, :data:`float64`,
+:data:`bool_`
+    The frontend's ``cuda`` module object and scalar types.
 
 See Also
 --------
+:mod:`cubie.cuda_backend`
+    Backend resolution (installed packages + ``CUBIE_CUDA_BACKEND``).
 :mod:`cubie._utils`
     Imports ``compile_kwargs`` and ``is_devfunc`` from this module.
 :mod:`cubie.memory.mem_manager`
@@ -60,14 +78,55 @@ from typing import Any, Callable, Mapping, Optional, Tuple, Union
 
 from attrs import Factory, define, field
 from attrs import validators as attrs_validators
-from numba import cuda
-from numba import from_dtype as numba_from_dtype
 from numpy import dtype
 
+from cubie.cuda_backend import IS_MLIR
 from cubie._env import lineinfo_default
 
 
 CUDA_SIMULATION: bool = os.environ.get("NUMBA_ENABLE_CUDASIM") == "1"
+
+if IS_MLIR and CUDA_SIMULATION:
+    raise ImportError(
+        "NUMBA_ENABLE_CUDASIM=1 is set, but numba-cuda-mlir has no "
+        "CUDA simulator. Unset the variable and run on a real GPU, "
+        "or install numba-cuda for simulator work."
+    )
+
+if IS_MLIR:
+    from numba_cuda_mlir import cuda
+    from numba_cuda_mlir.types import (
+        boolean as bool_,
+        float32,
+        float64,
+        int32,
+    )
+    from numba_cuda_mlir.numba_cuda.np.numpy_support import (
+        from_dtype as numba_from_dtype,
+    )
+    from numba_cuda_mlir.caching import (
+        MLIRCache as CUDACache,
+        MLIRCacheImpl as CacheImpl,
+    )
+    from numba_cuda_mlir.numba_cuda.core.caching import (  # noqa: F401
+        _CacheLocator,
+        IndexDataCacheFile,
+    )
+
+    # The MLIR backend accepts a boolean cuda.jit inline argument;
+    # numba-cuda takes the string form and deprecates the boolean.
+    INLINE_ALWAYS: Union[str, bool] = True
+else:
+    from numba import cuda
+    from numba import bool_, float32, float64, int32
+    from numba import from_dtype as numba_from_dtype
+    from numba.cuda.core.caching import (  # noqa: F401
+        _CacheLocator,
+        CacheImpl,
+        IndexDataCacheFile,
+    )
+
+    INLINE_ALWAYS = "always"
 
 
 @define
@@ -173,7 +232,9 @@ class JITFlags:
 # set. Applies to device functions decorated at import time, which
 # never see a factory config; factory builds render their config's
 # JITFlags through get_jit_kwargs instead. GPU-only options are
-# omitted under the CUDA simulator.
+# omitted under the CUDA simulator. numba-cuda-mlir accepts per-flag
+# fastmath sets natively on patched builds and via the
+# selective-fastmath shims in cubie._mlir_compat on the stock wheel.
 compile_kwargs: Mapping[str, Any] = MappingProxyType(
     {}
     if CUDA_SIMULATION
@@ -234,7 +295,7 @@ class FakeMemoryInfo:  # pragma: no cover - placeholder
 
 if CUDA_SIMULATION:  # pragma: no cover - simulated
     from numba.cuda.simulator.cudadrv.devicearray import FakeCUDAArray
-    from cubie.vendored.numba_cuda_cache import CUDACache
+    from cubie.vendored.numba_cuda_cache import CUDACache  # noqa: F811
 
     # The simulator never touches real device memory, so CuPy is not
     # required; code paths guarded by CUDA_SIMULATION never use these.
@@ -259,24 +320,37 @@ else:  # pragma: no cover - exercised in GPU environments
     except ImportError as e:
         raise ImportError(
             "CuPy is required for CuBIE's device memory allocations "
-            "on a real GPU. Install it via the cuda12/cuda13 extra "
-            "(pip install cubie[cuda12]) or pip install cupy-cuda12x "
-            "directly (assuming CUDA toolkit 12.x)."
+            "on a real GPU. Install it via the cuda12/cuda13 or "
+            "mlir-cuda12/mlir-cuda13 extra, or pip install "
+            "cupy-cuda12x directly (assuming CUDA toolkit 12.x)."
         ) from e
 
-    from numba.cuda import (  # type: ignore[attr-defined]
-        is_cuda_array as _is_cuda_array,
-    )
-    from numba.cuda.cudadrv.driver import (  # type: ignore[attr-defined]
-        Stream,
-    )
-    from numba.cuda.cudadrv.devicearray import (  # type: ignore[attr-defined]
-        DeviceNDArrayBase,
-        DeviceNDArray,
-        MappedNDArray,
-    )
-    # Linter can't find cuda.dispatcher.
-    from numba.cuda.dispatcher import CUDACache  # noqa: F401
+    if IS_MLIR:
+        from numba_cuda_mlir.cuda import (
+            is_cuda_array as _is_cuda_array,
+        )
+        from numba_cuda_mlir.numba_cuda.cudadrv.driver import (
+            Stream,
+        )
+        from numba_cuda_mlir.numba_cuda.cudadrv.devicearray import (
+            DeviceNDArrayBase,
+            DeviceNDArray,
+            MappedNDArray,
+        )
+    else:
+        from numba.cuda import (  # type: ignore[attr-defined]
+            is_cuda_array as _is_cuda_array,
+        )
+        from numba.cuda.cudadrv.driver import (  # type: ignore[attr-defined]
+            Stream,
+        )
+        from numba.cuda.cudadrv.devicearray import (  # type: ignore[attr-defined]
+            DeviceNDArrayBase,
+            DeviceNDArray,
+            MappedNDArray,
+        )
+        # Linter can't find cuda.dispatcher.
+        from numba.cuda.dispatcher import CUDACache  # noqa: F401,F811
 
     def current_mem_info() -> Tuple[int, int]:
         """Return free and total memory from the active CUDA context."""
@@ -314,7 +388,7 @@ def from_dtype(dt: dtype):
 
 
 def is_devfunc(func: Callable[..., Any]) -> bool:
-    """Test whether ``func`` represents a Numba CUDA device function.
+    """Test whether ``func`` represents a CUDA device function.
 
     Parameters
     ----------
@@ -413,7 +487,7 @@ if CUDA_SIMULATION:  # pragma: no cover - simulated
         Returns
         -------
         bool
-            ``True`` if any masked thread satisfies ``predicate``.
+            ``True`` if any masked threads satisfy ``predicate``.
         """
         return predicate
 
@@ -500,6 +574,10 @@ else:  # pragma: no cover - relies on GPU runtime
         **compile_kwargs,
     )
     def stwt(array, index, value):
+        # On the MLIR backend this relies on the memref pointer-offset
+        # shim in cubie._mlir_compat (or a numba-cuda-mlir build
+        # carrying upstream #73): without it the cache-hint store
+        # lowering drops the offset of array views.
         cuda.stwt(array, index, value)
 
     # no cover: end
@@ -533,8 +611,14 @@ def max_shared_memory_per_block() -> int:
 __all__ = [
     "activemask",
     "all_sync",
+    "any_sync",
+    "bool_",
+    "CacheImpl",
     "compile_kwargs",
+    "cuda",
     "get_jit_kwargs",
+    "IndexDataCacheFile",
+    "INLINE_ALWAYS",
     "JITFlags",
     "CUDA_SIMULATION",
     "CUDACache",
@@ -545,7 +629,10 @@ __all__ = [
     "DeviceNDArrayBase",
     "FakeMemoryInfo",
     "FakeStream",
+    "float32",
+    "float64",
     "from_dtype",
+    "int32",
     "is_cuda_array",
     "is_cudasim_enabled",
     "max_shared_memory_per_block",

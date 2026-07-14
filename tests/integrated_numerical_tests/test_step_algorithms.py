@@ -9,7 +9,7 @@ from typing import Any, Optional
 
 import numpy as np
 import pytest
-from numba import cuda, from_dtype, int32
+from cubie.cuda_simsafe import cuda, numba_from_dtype as from_dtype, int32
 from numpy.testing import assert_allclose
 
 from cubie.integrators.algorithms import get_algorithm_step

@@ -58,7 +58,7 @@ from numpy import (
 )
 from numpy.linalg import solve as np_solve
 from attrs import define, field, validators
-from numba import cuda, int32, from_dtype
+from cubie.cuda_simsafe import cuda, int32, numba_from_dtype as from_dtype
 from numpy.typing import NDArray
 
 from cubie.cuda_simsafe import CUDA_SIMULATION, cupy, selp
