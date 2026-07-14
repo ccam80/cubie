@@ -97,18 +97,17 @@ class CUDAEvent:
             timelogger = default_timelogger
         self._verbosity = timelogger.verbosity
 
-        if not is_cudasim_enabled():
-            # CUDA mode: create event objects for GPU timeline recording
+        # Skip driver-event allocation when verbosity is None: every record/
+        # elapsed method is a no-op then, so the batch kernel's 4 events/solve
+        # would be created and discarded for nothing.
+        if self._verbosity is not None and not is_cudasim_enabled():
             self._start_event = cuda.event()
             self._end_event = cuda.event()
-            self._start_time = None
-            self._end_time = None
-        else:  # pragma: no cover - simulated
-            # CUDASIM mode: use wall-clock timestamps as fallback
+        else:  # pragma: no cover - simulated / timing disabled
             self._start_event = None
             self._end_event = None
-            self._start_time = None
-            self._end_time = None
+        self._start_time = None
+        self._end_time = None
 
         # Register with TimeLogger
         timelogger._register_cuda_event(self)

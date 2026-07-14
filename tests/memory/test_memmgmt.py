@@ -502,19 +502,21 @@ class TestMemoryManager:
 
     @pytest.mark.nocudasim
     @pytest.mark.cupy
-    def test_allocate_device_returns_cupy_array(self, mgr):
-        """Test that a "device" allocation is a CuPy array on a real GPU.
+    def test_allocate_device_returns_native_array(self, mgr):
+        """A "device" allocation is a native Numba device array.
 
-        CuPy is CuBIE's single device allocation provider; device
-        arrays are allocated straight from CuPy's memory pool rather
-        than through a Numba External Memory Manager plugin.
+        Device memory is drawn from CuPy's async pool through the EMM
+        plugin, so the returned object is a Numba DeviceNDArray (fast
+        kernel-launch path), not a raw CuPy ndarray.
         """
         import cupy as cp
 
         arr = mgr.allocate(
             shape=(4, 4), dtype=np.float32, memory_type="device"
         )
-        assert isinstance(arr, cp.ndarray)
+        assert not isinstance(arr, cp.ndarray)
+        assert hasattr(arr, "__cuda_array_interface__")
+        assert hasattr(arr, "copy_to_host")
 
     def test_free(self, registered_mgr, registered_instance):
         """Test free removes allocation by key from all instances."""
@@ -932,9 +934,9 @@ class TestMemoryManager:
         # Synchronize stream to ensure copy is complete
         stream.synchronize()
 
-        # Copy back to host and verify values
-        result_arr1 = device_arrays["arr1"].get()
-        result_arr2 = device_arrays["arr2"].get()
+        # Copy back to host and verify values (native device arrays)
+        result_arr1 = device_arrays["arr1"].copy_to_host()
+        result_arr2 = device_arrays["arr2"].copy_to_host()
 
         np.testing.assert_array_equal(result_arr1, host_arr1)
         np.testing.assert_array_equal(result_arr2, host_arr2)
@@ -1418,19 +1420,19 @@ def test_numba_stream_ptr(stream1):
 def test_cupy_stream_wrapper(stream1, stream2):
     """Verify current_cupy_stream always forwards a Numba stream.
 
-    CuPy is CuBIE's single device allocation provider, so the
-    forwarding context manager wraps every non-default stream it is
-    given.
+    Pool allocations are ordered on the Numba integration stream, so the
+    forwarding context manager wraps every non-default stream it is given
+    (via ``Stream.from_external``).
     """
     import cupy as cp
 
     with current_cupy_stream(stream1) as cupy_stream:
-        assert isinstance(cupy_stream.cupy_ext_stream, cp.cuda.ExternalStream)
+        assert isinstance(cupy_stream.cupy_ext_stream, cp.cuda.Stream)
         assert cupy_stream.cupy_ext_stream.ptr == _numba_stream_ptr(stream1)
         assert cp.cuda.get_current_stream().ptr == _numba_stream_ptr(stream1)
 
     with current_cupy_stream(stream2) as cupy_stream:
-        assert isinstance(cupy_stream.cupy_ext_stream, cp.cuda.ExternalStream)
+        assert isinstance(cupy_stream.cupy_ext_stream, cp.cuda.Stream)
         assert cupy_stream.cupy_ext_stream.ptr == _numba_stream_ptr(stream2)
         assert cp.cuda.get_current_stream().ptr == _numba_stream_ptr(stream2)
 

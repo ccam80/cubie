@@ -194,8 +194,31 @@ class InputArrays(BaseArrayManager):
         if driver_coefficients is not None:
             updates_dict["driver_coefficients"] = driver_coefficients
         self.update_from_solver(solver_instance)
-        self.update_host_arrays(updates_dict)
+        # Stage user inputs into persistent pinned buffers so the h2d is async
+        # (a pageable source forces Numba to stage per call). always_overwrite:
+        # the copy happens every solve regardless of value equality.
+        staged = {
+            name: self._stage_pinned(name, arr)
+            for name, arr in updates_dict.items()
+        }
+        self.update_host_arrays(staged, always_overwrite=True)
         self.allocate()  # Will queue request if in a stream group
+
+    def _stage_pinned(self, name: str, user_array: NDArray) -> NDArray:
+        """Copy a user input into a reused pinned host buffer for async h2d."""
+        slot = self.host.get_managed_array(name)
+        dtype = slot.dtype
+        buf = slot.array
+        if (
+            buf is None
+            or buf.shape != user_array.shape
+            or buf.dtype != dtype
+        ):
+            buf = self._memory_manager.create_host_array(
+                user_array.shape, dtype, "pinned"
+            )
+        buf[:] = user_array
+        return buf
 
     @property
     def initial_values(self) -> ArrayTypes:
@@ -267,6 +290,18 @@ class InputArrays(BaseArrayManager):
             The solver instance to update from.
 
         """
+        # Input sizes are system sizes scaled by num_runs; skip the rebuild
+        # (attrs construction) when those determinants are unchanged.
+        sysz = solver_instance.system_sizes
+        sig = (
+            solver_instance.num_runs,
+            solver_instance.precision,
+            sysz.states,
+            sysz.parameters,
+            sysz.drivers,
+        )
+        if sig == self._size_sig:
+            return
         self._sizes = BatchInputSizes.from_solver(solver_instance).nonzero
         self._precision = solver_instance.precision
         self.set_array_runs(solver_instance.num_runs)
@@ -274,6 +309,7 @@ class InputArrays(BaseArrayManager):
         for name, arr_obj in self._iter_managed_arrays:
             if np_issubdtype(np_dtype(arr_obj.dtype), np_floating):
                 arr_obj.dtype = self._precision
+        self._size_sig = sig
 
     def finalise(self, chunk_index: int) -> None:
         """Release buffers back to host."""

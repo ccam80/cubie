@@ -344,6 +344,9 @@ class BaseArrayManager(ABC):
     _needs_overwrite: list[str] = field(factory=list, init=False)
     _memory_manager: MemoryManager = field(default=default_memmgr)
     num_runs: int = field(default=1, validator=getype_validator(int, 1))
+    # Signature of the solver state that determines array sizes; when
+    # unchanged, update_from_solver skips rebuilding the size objects.
+    _size_sig: object = field(default=None, init=False)
 
     def __attrs_post_init__(self) -> None:
         """
@@ -531,6 +534,9 @@ class BaseArrayManager(ABC):
         self._needs_overwrite.clear()
         self.device.delete_all()
         self._needs_reallocation.extend(self.device.array_names())
+        # Force the next update_from_solver to rebuild sizes, in case an
+        # invalidating config change altered a size the signature misses.
+        self._size_sig = None
 
     def _arrays_equal(
         self,
@@ -728,6 +734,7 @@ class BaseArrayManager(ABC):
         current_array: Optional[NDArray],
         label: str,
         shape_only: bool = False,
+        always_overwrite: bool = False,
     ) -> None:
         """
         Mark host arrays for overwrite or reallocation based on updates.
@@ -743,6 +750,12 @@ class BaseArrayManager(ABC):
         shape_only
             Only check shape equality when comparing arrays. Faster for
             output arrays that will be overwritten. Defaults to ``False``.
+        always_overwrite
+            Skip the value comparison and always queue a host->device copy
+            when the shape matches. Used for inputs: comparing values is an
+            O(n) host scan that only pays off for identical re-submitted
+            arrays, whereas re-submitting equally-sized arrays with new
+            values is the common case and must go straight to an (async) h2d.
 
         Raises
         ------
@@ -755,8 +768,12 @@ class BaseArrayManager(ABC):
         managed = self.host.get_managed_array(label)
         # Fast path: if current exists and arrays have matching shape/dtype
         # (and optionally content when shape_only=False), skip update
-        if current_array is not None and self._arrays_equal(
-            new_array, current_array, shape_only=shape_only
+        if (
+            not always_overwrite
+            and current_array is not None
+            and self._arrays_equal(
+                new_array, current_array, shape_only=shape_only
+            )
         ):
             return None
 
@@ -783,7 +800,10 @@ class BaseArrayManager(ABC):
         return None
 
     def update_host_arrays(
-        self, new_arrays: Dict[str, NDArray], shape_only: bool = False
+        self,
+        new_arrays: Dict[str, NDArray],
+        shape_only: bool = False,
+        always_overwrite: bool = False,
     ) -> None:
         """
         Update host arrays and record allocation requirements.
@@ -795,6 +815,9 @@ class BaseArrayManager(ABC):
         shape_only
             Only check shape equality when comparing arrays. Faster for
             output arrays that will be overwritten. Defaults to ``False``.
+        always_overwrite
+            Forwarded to :meth:`_update_host_array`; skip value comparison and
+            always queue a copy when the shape matches (used for inputs).
 
         """
         host_names = set(self.host.array_names())
@@ -823,6 +846,7 @@ class BaseArrayManager(ABC):
                 current_array,
                 array_name,
                 shape_only=shape_only,
+                always_overwrite=always_overwrite,
             )
 
     def allocate(self) -> None:

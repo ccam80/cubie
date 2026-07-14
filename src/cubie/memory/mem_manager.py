@@ -75,7 +75,6 @@ from cubie.cuda_simsafe import (
     CUDA_SIMULATION,
     Stream,
     cupy,
-    cupyx,
     current_mem_info,
 )
 from cubie.memory.stream_groups import StreamGroups
@@ -300,7 +299,12 @@ class current_cupy_stream:
         """
         ptr = _numba_stream_ptr(self.nb_stream)
         if ptr:
-            self.cupy_ext_stream = cupy.cuda.ExternalStream(ptr)
+            # The Numba stream implements the __cuda_stream__ protocol, so
+            # from_external wraps it directly (ExternalStream(ptr) is
+            # deprecated).
+            self.cupy_ext_stream = cupy.cuda.Stream.from_external(
+                self.nb_stream
+            )
             self.cupy_ext_stream.__enter__()
         return self
 
@@ -355,13 +359,12 @@ def _pinned_host_array(shape: Tuple[int, ...], dtype: type) -> ndarray:
     Notes
     -----
     Pinned memory enables asynchronous host/device transfers. On a
-    real GPU this is provided by CuPy's pinned memory pool
-    (:func:`cupyx.empty_pinned`); the CUDA simulator has no device to
-    transfer to, so a plain NumPy array is used instead.
+    real GPU this uses Numba's ``cuda.pinned_array``; the CUDA simulator
+    has no device to transfer to, so a plain NumPy array is used instead.
     """
     if CUDA_SIMULATION:  # pragma: no cover - simulated
         return np_empty(shape, dtype=dtype)
-    return cupyx.empty_pinned(shape, dtype=dtype)
+    return cuda.pinned_array(shape, dtype=dtype)
 
 
 # These will be keys to a dict, so must be hashable: eq=False
@@ -1234,10 +1237,12 @@ class MemoryManager:
         """
         _ensure_cuda_context()
         if memory_type == "device":
+            # Native Numba array from the CuPy async pool (via the EMM).
+            # current_cupy_stream makes the pool allocation stream-ordered.
             if CUDA_SIMULATION:  # pragma: no cover - simulated
                 return cuda.device_array(shape, dtype)
             with current_cupy_stream(stream):
-                return cupy.empty(shape, dtype=dtype)
+                return cuda.device_array(shape, dtype)
         elif memory_type == "pinned":
             return _pinned_host_array(shape, dtype)
         else:
@@ -1291,13 +1296,20 @@ class MemoryManager:
         """
         _ensure_cuda_context()
         stream = self.get_stream(instance)
-        if CUDA_SIMULATION:  # pragma: no cover - simulated
-            for i, from_array in enumerate(from_arrays):
+        # Pinned host buffer -> device, streamed async H2D. The low-level
+        # driver copy skips copy_to_device's per-call np.array re-wrap and
+        # compatibility checks (~50us/call), which are unnecessary here: the
+        # source is an already-pinned, C-contiguous, size-matched buffer.
+        for i, from_array in enumerate(from_arrays):
+            if CUDA_SIMULATION:  # pragma: no cover - simulated
                 cuda.to_device(from_array, stream=stream, to=to_arrays[i])
-        else:
-            with current_cupy_stream(stream):
-                for i, from_array in enumerate(from_arrays):
-                    to_arrays[i].set(from_array)
+                continue
+            if from_array.size == 0:
+                continue
+            cuda.cudadrv.driver.host_to_device(
+                to_arrays[i], from_array, to_arrays[i].alloc_size,
+                stream=stream,
+            )
 
     def from_device(
         self,
@@ -1320,13 +1332,18 @@ class MemoryManager:
         """
         _ensure_cuda_context()
         stream = self.get_stream(instance)
-        if CUDA_SIMULATION:  # pragma: no cover - simulated
-            for i, from_array in enumerate(from_arrays):
+        # Device -> pinned host buffer, streamed async D2H via the low-level
+        # driver copy (to_arrays are pinned, C-contiguous, size-matched).
+        for i, from_array in enumerate(from_arrays):
+            if CUDA_SIMULATION:  # pragma: no cover - simulated
                 from_array.copy_to_host(to_arrays[i], stream=stream)
-        else:
-            with current_cupy_stream(stream):
-                for i, from_array in enumerate(from_arrays):
-                    from_array.get(out=to_arrays[i], blocking=False)
+                continue
+            if from_array.size == 0:
+                continue
+            cuda.cudadrv.driver.device_to_host(
+                to_arrays[i], from_array, from_array.alloc_size,
+                stream=stream,
+            )
 
     def sync_stream(self, instance: object) -> None:
         """

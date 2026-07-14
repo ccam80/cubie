@@ -330,20 +330,24 @@ class TestOutputArrays:
 
         # Simulate computation by modifying device arrays
         # (In reality, CUDA kernels would write to these device arrays)
-        original_device_state = output_arrays_manager.device_state.get()
+        original_device_state = output_arrays_manager.device_state.copy_to_host()
         original_device_observables = (
-            output_arrays_manager.device_observables.get()
+            output_arrays_manager.device_observables.copy_to_host()
         )
         original_status_codes = np.arange(
             output_arrays_manager.device_status_codes.size, dtype=np.int32
         )
 
         # Modify device arrays to simulate kernel output
-        output_arrays_manager.device_state.set(original_device_state * 2)
-        output_arrays_manager.device_observables.set(
+        output_arrays_manager.device_state.copy_to_device(
+            original_device_state * 2
+        )
+        output_arrays_manager.device_observables.copy_to_device(
             original_device_observables * 3
         )
-        output_arrays_manager.device_status_codes.set(original_status_codes)
+        output_arrays_manager.device_status_codes.copy_to_device(
+            original_status_codes
+        )
 
         # Set up chunking
         output_arrays_manager._chunks = 1
@@ -361,15 +365,15 @@ class TestOutputArrays:
         # Verify that host arrays now contain the modified device data
         np.testing.assert_array_equal(
             output_arrays_manager.state,
-            output_arrays_manager.device_state.get(),
+            output_arrays_manager.device_state.copy_to_host(),
         )
         np.testing.assert_array_equal(
             output_arrays_manager.observables,
-            output_arrays_manager.device_observables.get(),
+            output_arrays_manager.device_observables.copy_to_host(),
         )
         np.testing.assert_array_equal(
             output_arrays_manager.status_codes,
-            output_arrays_manager.device_status_codes.get(),
+            output_arrays_manager.device_status_codes.copy_to_host(),
         )
 
 
