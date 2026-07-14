@@ -1629,6 +1629,9 @@ def test_solver_set_verbosity(solver_mutable):
         "output_types": ["state"],
         "saved_observable_indices": [],
         "summarised_observable_indices": [],
+        # The baseline must stay genuinely all-local: auto memory
+        # heuristics would move buffers to shared on this system.
+        "auto_memory": False,
     }],
     indirect=True,
 )
