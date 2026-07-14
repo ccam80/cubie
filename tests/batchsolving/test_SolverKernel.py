@@ -2,6 +2,7 @@ import numpy as np
 import pytest
 
 from cubie.batchsolving.BatchSolverKernel import BatchSolverKernel
+from cubie.buffer_registry import buffer_registry
 from cubie.outputhandling.output_sizes import BatchOutputSizes
 from cubie.outputhandling.output_config import OutputCompileFlags
 from cubie.batchsolving.BatchSolverConfig import ActiveOutputs
@@ -542,3 +543,17 @@ def test_limit_blocksize_leaves_fitting_requests_alone(solverkernel):
     )
     assert new_blocksize == 256
     assert new_smem == 16384
+
+
+def test_persistent_array_sized_from_persistent_layout(solverkernel):
+    """The persistent scratch array is sized by the persistent layout.
+
+    The loop's persistent slices index into the array that
+    ``buffer_registry.get_toplevel_allocators`` sizes from
+    ``persistent_local_elements``; any other sizing source lets the
+    slices run past the array end and corrupt per-thread storage.
+    """
+    loop = solverkernel.single_integrator._loop
+    assert solverkernel.persistent_local_elements == (
+        buffer_registry.persistent_local_buffer_size(loop)
+    )

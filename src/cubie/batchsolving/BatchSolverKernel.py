@@ -976,9 +976,9 @@ class BatchSolverKernel(CUDAFactory):
         self.output_arrays.wait_pending()
 
     @property
-    def local_memory_elements(self) -> int:
-        """Number of precision elements required in local memory per run."""
-        return self.single_integrator.local_memory_elements
+    def persistent_local_elements(self) -> int:
+        """Number of elements in the per-thread persistent local array."""
+        return self.single_integrator.persistent_local_elements
 
     @property
     def shared_memory_elements(self) -> int:

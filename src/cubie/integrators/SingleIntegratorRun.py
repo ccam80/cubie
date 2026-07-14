@@ -78,11 +78,6 @@ class SingleIntegratorRun(SingleIntegratorRunCore):
         return element_count * itemsize
 
     @property
-    def local_memory_elements(self) -> int:
-        """Return total persistent local-memory requirement."""
-        return self._loop.local_buffer_size
-
-    @property
     def persistent_local_elements(self) -> int:
         """Return total persistent local-memory elements required by the loop."""
         return self._loop.persistent_local_buffer_size

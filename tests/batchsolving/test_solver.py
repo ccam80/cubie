@@ -3,6 +3,8 @@ from typing import Iterable
 import pytest
 import numpy as np
 
+from tests._utils import _build_solver_instance
+
 from cubie import create_ODE_system
 from cubie.batchsolving.solver import Solver, solve_ivp
 from cubie.batchsolving.solveresult import SolveResult, SolveSpec
@@ -1616,3 +1618,73 @@ def test_solver_set_verbosity(solver_mutable):
     assert default_timelogger.verbosity == "verbose"
     solver.set_verbosity(None)
     assert default_timelogger.verbosity is None
+
+
+@pytest.mark.parametrize(
+    "solver_settings_override",
+    [{
+        "system_type": "large",
+        "algorithm": "dirk",
+        "duration": 0.02,
+        "output_types": ["state"],
+        "saved_observable_indices": [],
+        "summarised_observable_indices": [],
+    }],
+    indirect=True,
+)
+def test_shared_loop_buffers_leave_results_unchanged(
+    solver,
+    solver_settings,
+    system,
+    driver_array,
+    driver_settings,
+    thread_mem_manager,
+    simple_initial_values,
+    simple_parameters,
+):
+    """Buffer placement is storage-only: moving every movable loop
+    buffer to shared memory reproduces the all-local trajectories.
+
+    On the 100-state system these placements shrink the loop's
+    plain-local pool far below the DIRK step's persistent
+    requirement, so this fails loudly if the persistent scratch
+    array is ever again sized from the plain-local total instead
+    of the persistent layout. The all-local baseline is the shared
+    ``solver`` fixture; only the relocated comparison solver is
+    built fresh, because buffer placement is a construction
+    setting.
+    """
+    shared_locations = {
+        "state_location": "shared",
+        "proposed_state_location": "shared",
+        "parameters_location": "shared",
+        "drivers_location": "shared",
+        "proposed_drivers_location": "shared",
+        "observables_location": "shared",
+        "proposed_observables_location": "shared",
+        "error_location": "shared",
+    }
+
+    def run_solve(active_solver):
+        result = active_solver.solve(
+            initial_values=simple_initial_values,
+            parameters=simple_parameters,
+            drivers=driver_settings,
+            duration=solver_settings["duration"],
+        )
+        return np.asarray(result.time_domain_array)
+
+    local_output = run_solve(solver)
+
+    shared_settings = dict(solver_settings)
+    shared_settings.update(shared_locations)
+    shared_solver = _build_solver_instance(
+        system=system,
+        solver_settings=shared_settings,
+        driver_array=driver_array,
+        memory_manager=thread_mem_manager,
+    )
+    shared_output = run_solve(shared_solver)
+
+    assert np.all(np.isfinite(local_output))
+    np.testing.assert_array_equal(shared_output, local_output)

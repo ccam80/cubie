@@ -970,8 +970,8 @@ class BufferRegistry:
         Parameters
         ----------
         kernel
-            Kernel instance with `local_memory_elements` and `precision`
-            properties.
+            Kernel instance with `persistent_local_elements` and
+            `precision` properties.
 
         Returns
         -------
@@ -981,7 +981,7 @@ class BufferRegistry:
             - alloc_persistent: (shared) -> persistent local array
         """
 
-        persistent_size = max(1, kernel.local_memory_elements)
+        persistent_size = max(1, kernel.persistent_local_elements)
         precision = kernel.precision
         numba_precision = from_dtype(precision)
 
