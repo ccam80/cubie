@@ -73,6 +73,24 @@ class TestClil:
         assert nullspace_rank([[1, 0], [0, 1]]) == 2
         assert nullspace_rank([[0, 0], [0, 0]]) == 0
 
+    def test_nullspace_rank_column_swap_order(self):
+        # A zero leading column forces a column swap; col_order's
+        # first `rank` entries are the pivot columns in elimination
+        # order, the remainder the free columns.
+        col_order = []
+        rank = nullspace_rank([[0, 2, 1], [0, 4, 3]], col_order)
+        assert rank == 2
+        assert col_order == [1, 2, 0]
+
+    def test_nullspace_rank_no_swap_identity_order(self):
+        col_order = []
+        rank = nullspace_rank(
+            [[1, 2, 3], [2, 4, 6], [0, 1, 1]], col_order
+        )
+        assert rank == 2
+        assert col_order[:2] == [0, 1]
+        assert sorted(col_order) == [0, 1, 2]
+
 
 class TestLinearExpansion:
     x, y, k = sp.symbols("x y k", real=True)

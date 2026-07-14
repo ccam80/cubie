@@ -242,6 +242,177 @@ class TestAlgebraicSystems:
         assert sp.simplify(u_val - (x + 2) / 7) == 0
 
 
+class TestAliasEdgeCases:
+    def test_conflicting_aliases_force_zero(self):
+        # x = y and x = -y can only hold together at zero: the
+        # conflict group pins both variables to 0.
+        x, y, z, k = syms("x y z k")
+        registry = DerivativeRegistry({"x", "y", "z", "k", "t"})
+        dz = registry.derivative(z)
+        state = StructuralState(
+            [
+                Equation(dz, -k * z + x),
+                Equation(sp.S.Zero, x - y),
+                Equation(sp.S.Zero, x + y),
+            ],
+            [x, y, z],
+            registry,
+            {k},
+            T,
+        )
+        result = structural_simplify(state)
+        obs = dict(result.observed)
+        assert obs[x] == 0
+        assert obs[y] == 0
+        assert result.states == [z]
+        assert sp.simplify(result.dxdt[z] + k * z) == 0
+
+    def test_sign_chain_three_variables(self):
+        # x = -y, y = -z: signs compose along the chain.
+        x, y, z, k = syms("x y z k")
+        registry = DerivativeRegistry({"x", "y", "z", "k", "t"})
+        dx = registry.derivative(x)
+        state = StructuralState(
+            [
+                Equation(dx, -k * x),
+                Equation(sp.S.Zero, x + y),
+                Equation(sp.S.Zero, y + z),
+            ],
+            [x, y, z],
+            registry,
+            {k},
+            T,
+        )
+        result = structural_simplify(state)
+        assert result.states == [x]
+        obs = dict(result.observed)
+        assert obs[y] == -x
+        assert obs[z] == x
+
+    def test_derivative_chain_sign_propagation(self):
+        # y = -x where x carries a second-order derivative chain:
+        # the alias must propagate through the derivative chain.
+        x, y = syms("x y")
+        registry = DerivativeRegistry({"x", "y", "t"})
+        d1 = registry.derivative(x)
+        d2 = registry.derivative(d1)
+        state = StructuralState(
+            [
+                Equation(d2, -x),
+                Equation(sp.S.Zero, y + x),
+            ],
+            [x, y],
+            registry,
+            set(),
+            T,
+        )
+        result = structural_simplify(state)
+        assert len(result.differential_states) == 2
+        obs = dict(result.observed)
+        assert obs[y] == -x
+
+    def test_priority_tie_warns(self):
+        x, y, z = syms("x y z")
+        registry = DerivativeRegistry({"x", "y", "z", "t"})
+        dz = registry.derivative(z)
+        state = StructuralState(
+            [
+                Equation(dz, x + y),
+                Equation(sp.S.Zero, x - y),
+                Equation(sp.S.Zero, x + y - z),
+            ],
+            [x, y, z],
+            registry,
+            set(),
+            T,
+            state_priorities={x: 100, y: 100},
+        )
+        with pytest.warns(UserWarning, match="state_priority"):
+            structural_simplify(state)
+
+
+class TestSingularIntegerSCC:
+    def _singular_state(self):
+        x, y, z, w = syms("x y z w")
+        registry = DerivativeRegistry({"x", "y", "z", "w", "t"})
+        dz = registry.derivative(z)
+        return StructuralState(
+            [
+                Equation(dz, w),
+                Equation(sp.S.Zero, x + y + w),
+                Equation(sp.S.Zero, 2 * x + 2 * y - w),
+                Equation(sp.S.Zero, w**5 + w - z),
+            ],
+            [x, y, z, w],
+            registry,
+            set(),
+            T,
+        )
+
+    def test_singular_integer_block_raises(self):
+        # 2*eq1 - eq2 pins w = 0, leaving x, y underdetermined:
+        # singularity removal exposes the deficiency and the
+        # consistency check reports a structurally singular system.
+        from cubie.odesystems.symbolic.structural.errors import (
+            InvalidSystemError,
+        )
+
+        with pytest.raises(InvalidSystemError):
+            structural_simplify(self._singular_state())
+
+    def test_conservative_excludes_nonunit_rows(self):
+        # Conservative mode admits only unit coefficients into the
+        # integer subsystem; the 2x + 2y - w row must leave mm
+        # entirely rather than desync its coefficient row, and the
+        # system tears structurally.
+        x, y = syms("x y")
+        result = structural_simplify(
+            self._singular_state(), conservative=True
+        )
+        assert len(result.residuals) == len(result.algebraic_states)
+        obs = dict(result.observed)
+        assert obs[y].has(x)
+
+    def test_exact_scc_matching_singular_warns(self):
+        # Unit-level pin of the rank-deficient fallback: an SCC of
+        # integer-linear rows that is exactly singular over its own
+        # variables warns and reports no exact matching.
+        from cubie.odesystems.symbolic.structural.bipartite import (
+            Matching,
+        )
+        from cubie.odesystems.symbolic.structural.tearing import (
+            exact_scc_matching,
+        )
+
+        x, y = syms("x y")
+        registry = DerivativeRegistry({"x", "y", "t"})
+        state = StructuralState(
+            [
+                Equation(sp.S.Zero, x + y),
+                Equation(sp.S.Zero, 2 * x + 2 * y),
+            ],
+            [x, y],
+            registry,
+            set(),
+            T,
+        )
+        mm = state.linear_subsys_adjmat()
+        mm_row_of = {e: i for i, e in enumerate(mm.nzrows)}
+        matching = Matching(2).complete(2)
+        with pytest.warns(UserWarning, match="exactly singular"):
+            exact = exact_scc_matching(
+                state.structure,
+                mm,
+                mm_row_of,
+                matching,
+                [0, 1],
+                [0, 1],
+                None,
+                [],
+            )
+        assert not exact
+
+
 class TestPantelidesAndDummyDerivatives:
     def make_pendulum(self, priorities=None):
         x, y, vx, vy, Tn, g, L = syms("x y vx vy T g L")

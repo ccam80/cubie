@@ -734,6 +734,11 @@ class StructuralState:
                     solvable_graph.add_edge(ieq, j)
                     continue
             elif conservative and abs(a_int) > 1:
+                # Conservative mode admits only unit coefficients:
+                # the variable is not solvable here and the equation
+                # leaves the integer subsystem (a partial coeffs row
+                # would desync from the incidence columns).
+                all_int_vars = False
                 continue
             if coeffs is not None and (a_int != 0 or not may_be_zero):
                 coeffs.append(a_int)
