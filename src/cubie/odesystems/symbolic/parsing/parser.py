@@ -153,6 +153,19 @@ def _detect_input_type(dxdt: Union[str, Iterable, Callable]) -> str:
     elif isinstance(first_elem, (sp.Expr, sp.Equality)):
         return "sympy"
     elif isinstance(first_elem, tuple) and len(first_elem) == 2:
+        # A (lhs, rhs) pair; both members must be convertible to
+        # SymPy expressions or the pair is rejected here rather
+        # than failing deep inside the normaliser.
+        for side, member in zip(("lhs", "rhs"), first_elem):
+            if not isinstance(
+                member, (sp.Basic, str, int, float, complex)
+            ):
+                raise TypeError(
+                    f"dxdt element 0 is a (lhs, rhs) tuple whose "
+                    f"{side} is {member!r} "
+                    f"({type(member).__name__}); each member must "
+                    f"be a SymPy expression, string, or number."
+                )
         return "sympy"
 
     raise TypeError(

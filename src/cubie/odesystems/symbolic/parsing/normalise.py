@@ -531,8 +531,16 @@ def _parse_sympy_equations(
                 f"Equation {i}: expected sp.Eq or a (lhs, rhs) "
                 f"tuple, got {type(eq).__name__}."
             )
-        lhs = sp.sympify(lhs).subs(canonical, simultaneous=True)
-        rhs = sp.sympify(rhs).subs(canonical, simultaneous=True)
+        try:
+            lhs = sp.sympify(lhs).subs(canonical, simultaneous=True)
+            rhs = sp.sympify(rhs).subs(canonical, simultaneous=True)
+        except (sp.SympifyError, TypeError) as exc:
+            raise TypeError(
+                f"Equation {i}: could not convert "
+                f"({lhs!r}, {rhs!r}) to SymPy expressions; each "
+                f"side must be a SymPy expression, string, or "
+                f"number."
+            ) from exc
         lhs = _replace_sympy_derivatives(lhs, registry, unknown_names)
         rhs = _replace_sympy_derivatives(rhs, registry, unknown_names)
         lhs = bind_lhs(lhs)

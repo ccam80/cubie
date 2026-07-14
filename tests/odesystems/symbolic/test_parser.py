@@ -1,10 +1,8 @@
-import functools
 import math
 import warnings
 
 import pytest
 import sympy as sp
-from numba import cuda
 
 from cubie.odesystems.symbolic.codegen import (
     generate_operator_apply_code,
@@ -20,7 +18,6 @@ from cubie.odesystems.symbolic.parsing.normalise import (
 from cubie.odesystems.symbolic.parsing.parser import (
     EquationWarning,
     TIME_SYMBOL,
-    _build_sympy_user_functions,
     _detect_input_type,
     _process_parameters,
     _replace_if,
@@ -172,6 +169,18 @@ class TestDetectInputType:
         with pytest.raises(TypeError, match="must be strings or SymPy"):
             _detect_input_type([123, 456])
 
+    def test_detect_tuple_with_unconvertible_member(self):
+        """A (lhs, rhs) tuple with a non-expression member errors."""
+        with pytest.raises(TypeError, match="lhs is"):
+            _detect_input_type([(object(), sp.Symbol("x"))])
+        with pytest.raises(TypeError, match="rhs is"):
+            _detect_input_type([(sp.Symbol("dx"), {"a": 1})])
+
+    def test_detect_tuple_with_string_members_accepted(self):
+        """Strings and numbers are sympifiable tuple members."""
+        assert _detect_input_type([("dx", "-k*x")]) == "sympy"
+        assert _detect_input_type([(sp.Symbol("dx"), -1.5)]) == "sympy"
+
 
 class TestSympyEquationErrors:
     """Error paths for SymPy equation input."""
@@ -181,6 +190,18 @@ class TestSympyEquationErrors:
         x = sp.Symbol("x")
         with pytest.raises(TypeError, match="expected sp.Eq or a"):
             parse_input(dxdt=[x + 1], states=["x"])
+
+    def test_unconvertible_member_mid_list_names_equation(self):
+        """Garbage after the first element errors with its index."""
+        x = sp.Symbol("x")
+        equations = [
+            (sp.Symbol("dx"), -x),
+            (sp.Symbol("dy"), object()),
+        ]
+        with pytest.raises(
+            TypeError, match="Equation 1: could not convert"
+        ):
+            parse_input(dxdt=equations, states=["x", "y"])
 
     def test_derivative_of_function_rejected(self):
         """Derivative of a function application is unsupported."""
