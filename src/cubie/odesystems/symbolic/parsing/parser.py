@@ -83,7 +83,7 @@ from typing import (
 from warnings import warn
 
 import sympy as sp
-from sympy.parsing.sympy_parser import T, parse_expr
+from sympy.parsing.sympy_parser import T
 from sympy.core.function import AppliedUndef
 import attrs
 

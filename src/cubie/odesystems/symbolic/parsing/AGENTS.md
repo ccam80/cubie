@@ -3,19 +3,25 @@
 # parsing
 
 ## Purpose
-Front end of the symbolic codegen pipeline. Converts every supported ODE input form —
+Front end of the symbolic codegen pipeline. Converts every supported input form —
 newline/iterable equation strings, raw SymPy equations, a Python callable, or a CellML file —
-into the common triple `(equation_map, funcs, new_params)` and ultimately a frozen
-`ParsedEquations` container plus an `IndexedBases` symbol map and a system hash. `parse_input` is
-the single entry point used by `SymbolicODE.create`; CellML loading (`load_cellml_model`) and the
-Jacobian-vector-product structures (`JVPEquations`, `plan_auxiliary_cache`) used later by
-`codegen` also live here.
+into a frozen `ParsedEquations` container plus an `IndexedBases` symbol map and a system hash.
+String and SymPy equations converge on one normalised structural representation
+(`normalise.py`); the parser classifies the system and assembles it (`assemble.py`): solved
+explicit systems are packaged directly, while DAE constructs (implicit equations, higher-order
+or in-expression derivatives, algebraic unknowns) route through
+`structural.structural_simplify` — automatically, or forced with `simplify=True`. `parse_input`
+is the single entry point used by `SymbolicODE.create`; CellML loading (`load_cellml_model`)
+and the Jacobian-vector-product structures (`JVPEquations`, `plan_auxiliary_cache`) used later
+by `codegen` also live here.
 
 ## Key Files
 | File | Description |
 |------|-------------|
 | `__init__.py` | Star-imports `auxiliary_caching`, `cellml`, `jvp_equations`, `parser`; declares `__all__ = ["load_cellml_model"]` (the rest is re-exported via star imports). |
-| `parser.py` | Core parser. `parse_input` dispatches on input type; `ParsedEquations` (frozen attrs) partitions equations into state-derivatives/observables/auxiliaries; `EquationWarning`; constants `PARSE_TRANSFORMS`, `KNOWN_FUNCTIONS`, `TIME_SYMBOL`, `DRIVER_SETTING_KEYS`. Holds the string and SymPy LHS/RHS validation passes. |
+| `parser.py` | Orchestrator. `parse_input` dispatches on input type (callable → `function_parser`; symbolic → normalise/classify/assemble); `ParsedEquations` (frozen attrs) partitions equations into state-derivatives/observables/auxiliaries; `EquationWarning`; constants `PARSE_TRANSFORMS`, `KNOWN_FUNCTIONS`, `TIME_SYMBOL`, `DRIVER_SETTING_KEYS`; shared lexing/user-function machinery (`_sanitise_input_math`, `_rename_user_calls`, `_build_sympy_user_functions`, `_inline_nondevice_calls`). |
+| `normalise.py` | The single symbolic front end. `normalise_input` parses string or SymPy equations into structural `Equation` objects with `DerivativeRegistry` derivative symbols (`NormalisedSystem`); `classify_system` labels the result `"explicit"` or `"dae"`. Holds the state-aware LHS rules and symbol inference. |
+| `assemble.py` | The two backends. `assemble_explicit` packages an explicit-shaped system directly (hash-stable with the pre-unification parser); `assemble_simplified` runs `structural_simplify` and maps the result back (declaration-order states, residuals paired by state, mass matrix rebuilt over the final order, eliminated-state warnings). Both inline observable definitions into consuming dynamics. |
 | `cellml.py` | `load_cellml_model` — wraps optional `cellmlmanip`, sanitises symbol names, splits differential vs algebraic equations, classifies constants/parameters/observables, then calls `parse_input`. Cache-aware (early + post-GUI checks). |
 | `cellml_cache.py` | `CellMLCache` — disk LRU cache (≤5 configs per model) of pickled parse results under `generated/<model>/`, keyed by file-content SHA-256 + serialised args, tracked in `cellml_cache_manifest.json`. |
 | `jvp_equations.py` | `JVPEquations` (mutable attrs) — holds ordered JVP/auxiliary assignments and derives dependency graphs, op-cost, JVP usage/closure, dependency levels, and slot limits; lazily computes/stores a `CacheSelection`; `cached_partition()` splits into cached/runtime/prepare. |
@@ -26,21 +32,38 @@ Jacobian-vector-product structures (`JVPEquations`, `plan_auxiliary_cache`) used
 ## For AI Agents
 
 ### parse_input — the entry point
-Returns `(index_map, all_symbols, funcs, parsed_equations, fn_hash)` — a 5-tuple consumed directly
-by `SymbolicODE.create` and `cellml.load_cellml_model`. `_detect_input_type` dispatches to
-`"string"`, `"sympy"`, or `"function"` (the function branch imports `function_parser` lazily). All
-three branches must produce the same `equation_map` shape (list of `(sp.Symbol, sp.Expr)`).
-`strict=False` is the default: undeclared RHS symbols are inferred as parameters and pushed onto
-`index_map.parameters`; anonymous `dX`/aux LHS symbols become auxiliaries. `strict=True` requires
-every symbol declared and refuses a stateless system.
+Returns `(index_map, all_symbols, funcs, parsed_equations, fn_hash, simplified)` — a 6-tuple
+consumed directly by `SymbolicODE.create` and `cellml.load_cellml_model`. `simplified` is the
+`SimplifiedSystem` when structural simplification ran (it carries the mass matrix for torn
+systems) and `None` on the explicit fast path. `_detect_input_type` dispatches to `"string"`,
+`"sympy"`, or `"function"` (the function branch imports `function_parser` lazily; callable input
+is explicit-only and rejects `simplify=True`). `strict=False` is the default: undeclared RHS
+symbols are inferred as parameters; `strict=True` requires every RHS symbol declared and refuses
+a stateless system. An LHS assignment defines its symbol, so anonymous auxiliaries are admitted
+in both modes. `normalise`/`assemble` are imported inside `parse_input` (the file's established
+cycle-breaking pattern, like `function_parser`).
 
-### Two parallel validation-pass pairs
-`_lhs_pass`/`_rhs_pass` (string) and `_lhs_pass_sympy`/`_rhs_pass_sympy` (SymPy) must stay
-behaviourally aligned: same state-aware d-prefix detection (`dX` is a derivative only if `X` is a
-declared state; `d(x, t)` function notation honoured) and same conversion of underived states →
-observables. Symbols are created `real=True` throughout (`TIME_SYMBOL = sp.Symbol("t",
-real=True)`); the SymPy branch substitutes user symbols to canonical index-map symbols twice
-(before and after the LHS pass) so identity matches.
+### One normalisation layer, two backends
+`normalise_input` handles string and SymPy input with the same state-aware rules: `dX` on the
+LHS is a derivative only if `X` is a declared unknown (with no declared states, non-strict `dX`
+assignments infer state `X`); `d(x, t)` calls and `sympy.Derivative` (any order, nested) are the
+explicit derivative notations and may appear inside expressions; a bare `dX` token on an RHS is
+*not* a derivative — it binds to the `dX` assignment emitted for state `X`. Numeric-literal LHS
+(`0 = g(...)`) marks an implicit equation. `classify_system` returns `"explicit"` only for fully
+solved systems (each declared state exactly one first-order derivative equation, no RHS
+derivatives, no repeated or implicit LHS, every declared observable assigned) — anything else
+goes through structural simplification, with an `EquationWarning` when the user did not pass
+`simplify=True`. States are unknowns everywhere: a declared state assigned algebraically is
+*reduced* (eliminated with a warning), not an error, and there is no underived-state→observable
+conversion. Observable definitions consumed by the dynamics are inlined on both backends so the
+generated dxdt never reads the stale observables buffer. Symbols are created `real=True`
+throughout (`TIME_SYMBOL = sp.Symbol("t", real=True)`).
+
+### Hash stability contract
+For explicit-shaped systems whose dynamics do not consume declared observables,
+`assemble_explicit` must produce byte-identical `ParsedEquations` and `fn_hash` to the
+pre-unification parser — codegen caches key on the hash. Guard this when touching the
+normaliser or the explicit assembler.
 
 ### ParsedEquations & JVPEquations
 `ParsedEquations` is frozen — build a new one via `from_equations`, don't mutate; its

@@ -203,18 +203,19 @@ def create_ODE_system(
     strict
         When ``True`` require every symbol to be explicitly categorised.
     simplify
-        When ``True``, run MTK-style structural simplification (alias
+        Force MTK-style structural simplification (alias
         elimination, index reduction, tearing) before code
-        generation, enabling DAE input: implicit equations
-        (``0 = g(...)``), higher-order derivatives, and algebraic
-        unknowns. Torn systems carry a singular mass matrix and
-        require an implicit algorithm.
+        generation, even for systems already in explicit form. DAE
+        input — implicit equations (``0 = g(...)``), higher-order
+        derivatives, derivative terms inside expressions, and
+        algebraic unknowns — enables it automatically. Torn systems
+        carry a singular mass matrix and require an implicit
+        algorithm.
     state_priority
         Per-unknown state-selection priorities (higher values are
-        preferred as solver states). Only used with ``simplify``.
+        preferred as solver states). Structural path only.
     irreducible
-        Unknowns that must not be eliminated. Only used with
-        ``simplify``.
+        Unknowns that must not be eliminated. Structural path only.
     simplify_options
         Extra keyword arguments forwarded to
         :func:`~cubie.odesystems.symbolic.structural.simplify.structural_simplify`.
@@ -420,18 +421,20 @@ class SymbolicODE(BaseODE):
         driver_units
             Optional units for drivers. Defaults to "dimensionless".
         simplify
-            When ``True``, run MTK-style structural simplification
-            (alias elimination, index reduction, tearing) before code
-            generation. Enables DAE input: implicit equations
-            (``0 = g(...)``), higher-order derivatives, and algebraic
-            unknowns. Torn systems carry a singular mass matrix and
-            require an implicit algorithm.
+            Force MTK-style structural simplification (alias
+            elimination, index reduction, tearing) before code
+            generation, even for systems already in explicit form.
+            DAE input — implicit equations (``0 = g(...)``),
+            higher-order derivatives, derivative terms inside
+            expressions, and algebraic unknowns — enables it
+            automatically. Torn systems carry a singular mass matrix
+            and require an implicit algorithm.
         state_priority
             Per-unknown state-selection priorities (higher values are
-            preferred as solver states). Only used with ``simplify``.
+            preferred as solver states). Structural path only.
         irreducible
-            Unknowns that must not be eliminated. Only used with
-            ``simplify``.
+            Unknowns that must not be eliminated. Structural path
+            only.
         simplify_options
             Extra keyword arguments forwarded to
             :func:`~cubie.odesystems.symbolic.structural.simplify.structural_simplify`.

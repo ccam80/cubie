@@ -27,7 +27,6 @@ from cubie.odesystems.symbolic.parsing.parser import (
     TIME_SYMBOL,
 )
 from cubie.odesystems.symbolic.structural.simplify import (
-    SimplifiedSystem,
     structural_simplify,
 )
 from cubie.odesystems.symbolic.structural.system_structure import (

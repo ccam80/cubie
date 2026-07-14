@@ -11,8 +11,9 @@ perfect-alias elimination, trivial tearing, exact integer-linear singularity rem
 Pantelides index reduction, dummy-derivative state selection, and Carpanzano/Modia tearing,
 and reassembles an explicit ODE — or, when algebraic loops cannot be torn symbolically, a
 semi-explicit index-1 system with residual rows under a singular diagonal mass matrix.
-Entry point: `structural_simplify(StructuralState) -> SimplifiedSystem`; the DAE parser
-front end (`parsing/dae.py`) builds the state and consumes the result.
+Entry point: `structural_simplify(StructuralState) -> SimplifiedSystem`; the parsing front
+end (`parsing/normalise.py` + `parsing/assemble.py`) builds the state and consumes the
+result.
 
 ## Key Files
 | File | Description |
@@ -83,6 +84,7 @@ solve of a torn DAE against a reference). Pure-Python except the solve test.
 ## Dependencies
 ### Internal
 - `cubie.odesystems.symbolic.sym_utils` (`topological_sort` for observed sorting). The
-  DAE front end `parsing/dae.py` consumes this package; nothing here imports upward.
+  parsing front end (`parsing/normalise.py`, `parsing/assemble.py`) consumes this package;
+  nothing here imports upward.
 ### External
 - `sympy`. Stdlib `bisect`, `heapq`, `warnings`, `os`, `re`.
