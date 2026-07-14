@@ -1629,8 +1629,11 @@ def test_solver_set_verbosity(solver_mutable):
         "output_types": ["state"],
         "saved_observable_indices": [],
         "summarised_observable_indices": [],
-        # The baseline must stay genuinely all-local: auto memory
-        # heuristics would move buffers to shared on this system.
+        # This test compares an all-local reference against a
+        # fully-shared solver to prove placement never changes
+        # results. Auto placement would move this system's state
+        # pair to shared on both sides, shrinking the local-vs-
+        # shared contrast the comparison exists to exercise.
         "auto_memory": False,
     }],
     indirect=True,

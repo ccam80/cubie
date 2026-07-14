@@ -350,11 +350,13 @@ class Solver:
     auto_memory : bool, default=True
         Apply measured shared-memory placements for buffer
         configurations where they beat the all-local defaults (see
-        :mod:`cubie.integrators.memory_heuristics`). Explicit
-        ``*_location`` arguments always take precedence; pass
-        ``False`` to keep every unspecified buffer local. Placement
-        is chosen at construction and is not revisited by later
-        :meth:`update` calls.
+        :mod:`cubie.integrators.memory_heuristics`). Thresholds are
+        calibrated per GPU architecture; cards without a calibrated
+        entry use the default entry. Explicit ``*_location``
+        arguments always take precedence; pass ``False`` to keep
+        every unspecified buffer local. Placement is chosen at
+        construction and is not revisited by later :meth:`update`
+        calls.
     **kwargs
         Additional keyword arguments forwarded to internal components. See
         "Optional Arguments" in the docs for the possibilities.

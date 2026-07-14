@@ -486,6 +486,7 @@ def solver_settings(solver_settings_override, system, precision):
         "deadband_max": precision(1.05),
         "fix_singularities": True,
         "voltage_variable": None,
+        "auto_memory": True,
     }
 
     float_keys = {

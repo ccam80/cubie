@@ -3,7 +3,12 @@
 import pytest
 
 from cubie.buffer_registry import buffer_registry
-from cubie.integrators.memory_heuristics import auto_memory_locations
+from cubie.integrators.memory_heuristics import (
+    DEFAULT_ARCH,
+    THRESHOLDS_BY_ARCH,
+    auto_memory_locations,
+    resolve_thresholds,
+)
 
 
 def loop_and_algo_shared_buffers(solver):
@@ -14,9 +19,8 @@ def loop_and_algo_shared_buffers(solver):
         group = buffer_registry._groups.get(parent)
         if group is None:
             continue
-        for name, entry in group.entries.items():
-            if name.endswith(("_shared", "_persistent")):
-                continue
+        for name in buffer_registry.relocatable_buffer_names(parent):
+            entry = group.entries[name]
             if entry.location == "shared" and entry.size > 0:
                 names.add(name)
     return names
@@ -57,6 +61,13 @@ def test_small_system_keeps_all_buffers_local(solver):
         {
             "system_type": "large",
             "algorithm": "backwards_euler",
+            "output_types": ["state"],
+            "saved_observable_indices": [],
+            "summarised_observable_indices": [],
+        },
+        {
+            "system_type": "large",
+            "algorithm": "backwards_euler_pc",
             "output_types": ["state"],
             "saved_observable_indices": [],
             "summarised_observable_indices": [],
@@ -131,3 +142,11 @@ def test_resolver_skips_unmeasured_families(solver):
     respects explicitly supplied keys."""
     run = solver.kernel.single_integrator
     assert auto_memory_locations(run) == {}
+
+
+def test_unknown_architecture_falls_back_to_default():
+    """Cards without a calibrated entry receive the default
+    architecture's thresholds."""
+    default = THRESHOLDS_BY_ARCH[DEFAULT_ARCH]
+    assert resolve_thresholds("0.0") == default
+    assert resolve_thresholds(DEFAULT_ARCH) == default
