@@ -10,8 +10,41 @@ Newton solve for ``z``.
 import numpy as np
 import pytest
 
-from cubie import solve_ivp
+from cubie import Solver, solve_ivp
 from cubie.odesystems.symbolic.symbolicODE import create_ODE_system
+
+
+@pytest.fixture(scope="module")
+def torn_ode():
+    return create_ODE_system(
+        dxdt="""
+        dx = -z
+        0 = z**5 + z - x
+        """,
+        states={"x": 2.0, "z": 1.0},
+        precision=np.float64,
+        simplify=True,
+        name="dae_guard_torn",
+    )
+
+
+def test_torn_system_rejects_explicit_algorithm(torn_ode):
+    # The singular mass matrix cannot be consumed by an explicit
+    # step; silently ignoring it would integrate the constraint
+    # residuals as derivatives.
+    with pytest.raises(ValueError, match="implicit algorithm"):
+        Solver(torn_ode, algorithm="euler")
+
+
+def test_torn_system_rejects_user_mass_matrix(torn_ode):
+    # The structural mass matrix is paired to the simplifier's
+    # state ordering; a user override is rejected.
+    with pytest.raises(ValueError, match="cannot override"):
+        Solver(
+            torn_ode,
+            algorithm="backwards_euler",
+            algorithm_settings={"M": np.eye(2)},
+        )
 
 
 def z_of_x(x):

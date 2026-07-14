@@ -148,10 +148,17 @@ class SingleIntegratorRunCore(CUDAFactory):
         algorithm_settings["n"] = n
         algorithm_settings["n_drivers"] = system_sizes.drivers
         # Systems carrying a mass matrix (structurally simplified
-        # DAEs) supply it as the algorithm default; an explicit user
-        # M wins.
+        # DAEs) supply it to the algorithm. The matrix is paired to
+        # the simplifier's state ordering, so a user override would
+        # silently change the problem and is rejected.
         system_mass = getattr(system.compile_settings, "mass", None)
-        if system_mass is not None and "M" not in algorithm_settings:
+        if system_mass is not None:
+            if "M" in algorithm_settings:
+                raise ValueError(
+                    "The system defines its mass matrix through "
+                    "structural simplification; a user-supplied 'M' "
+                    "cannot override it."
+                )
             algorithm_settings["M"] = system_mass
         if dt is not None:
             algorithm_settings["dt"] = dt
@@ -162,6 +169,14 @@ class SingleIntegratorRunCore(CUDAFactory):
                 precision=precision,
                 settings=algorithm_settings,
         )
+        if system_mass is not None and not self._algo_step.is_implicit:
+            raise ValueError(
+                "The system has algebraic constraints (singular mass "
+                "matrix) and requires an implicit algorithm; "
+                f"'{algorithm_settings['algorithm']}' does not "
+                "consume a mass matrix and would integrate the "
+                "constraint residuals as derivatives."
+            )
         # Fetch and override controller defaults from algorithm settings
         controller_settings = (
             self._algo_step.controller_defaults.step_controller.copy())
