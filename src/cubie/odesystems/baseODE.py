@@ -158,7 +158,24 @@ class BaseODE(CUDAFactory):
             mass=mass,
         )
         self.setup_compile_settings(system_data)
+        # The constructor-supplied matrix is the system's own
+        # (structural) mass. compile_settings.mass is separate scratch
+        # state: solver-helper requests overwrite it with the
+        # requesting algorithm's M for cache invalidation.
+        self._structural_mass = mass
         self.name = name
+
+    @property
+    def structural_mass(self) -> Any:
+        """Return the mass matrix the system was constructed with.
+
+        ``None`` implies identity. Structural simplification supplies
+        a singular diagonal matrix for systems with torn algebraic
+        residual equations; such systems require an implicit
+        algorithm.
+        """
+
+        return self._structural_mass
 
     def __repr__(self) -> str:
         if self.name is None:

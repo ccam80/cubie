@@ -151,7 +151,9 @@ class SingleIntegratorRunCore(CUDAFactory):
         # DAEs) supply it to the algorithm. The matrix is paired to
         # the simplifier's state ordering, so a user override would
         # silently change the problem and is rejected.
-        system_mass = getattr(system.compile_settings, "mass", None)
+        # compile_settings.mass is NOT consulted: solver-helper
+        # requests overwrite it with the requesting algorithm's M.
+        system_mass = getattr(system, "structural_mass", None)
         if system_mass is not None:
             if "M" in algorithm_settings:
                 raise ValueError(

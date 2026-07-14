@@ -36,6 +36,24 @@ def test_torn_system_rejects_explicit_algorithm(torn_ode):
         Solver(torn_ode, algorithm="euler")
 
 
+def test_implicit_helper_mass_is_not_structural():
+    # Solver-helper requests store the requesting algorithm's M in
+    # compile_settings.mass for cache invalidation; that scratch
+    # state must not mark an explicit system as a torn DAE, and a
+    # later explicit-algorithm solver on the same system must build.
+    ode = create_ODE_system(
+        dxdt="dx = -x",
+        states={"x": 1.0},
+        precision=np.float64,
+        name="dae_guard_explicit",
+    )
+    implicit = Solver(ode, algorithm="backwards_euler")
+    implicit.update({"algorithm": "crank_nicolson"})
+    assert ode.compile_settings.mass is not None
+    assert ode.structural_mass is None
+    Solver(ode, algorithm="euler")
+
+
 def test_torn_system_rejects_user_mass_matrix(torn_ode):
     # The structural mass matrix is paired to the simplifier's
     # state ordering; a user override is rejected.
