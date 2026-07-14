@@ -19,8 +19,8 @@ together as one coupled Newton–Krylov system with the shared
 defaults listed in :ref:`algorithm-defaults`. The default tableau
 has no embedded error estimate, so it runs under fixed-step
 control; tableaus that provide one — ``radau`` (Radau IIA-5), for
-example — enable the family's adaptive PID defaults (``kp=0.6``,
-``ki=-0.4``, step-size growth clamped to 0.5–2.0×). Named schemes
+example — enable the family's Gustafsson predictive defaults
+(step-size growth clamped to 0.2–8.0×). Named schemes
 are listed on the
 :doc:`FIRK tableau registry <generic_firk_tableaus>` page.
 

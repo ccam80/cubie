@@ -5,7 +5,7 @@
 ## Purpose
 SymPy-driven CUDA codegen pipeline that turns symbolic ODE definitions into JIT-compiled
 Numba-CUDA device functions. This top level holds the user-facing system class (`SymbolicODE`),
-the disk-backed source cache (`ODEFile`/`GENERATED_DIR`), the symbol-to-device-index maps
+the disk-backed source cache (`ODEFile`), the symbol-to-device-index maps
 (`IndexedBaseMap`/`IndexedBases`), and shared SymPy utilities (CSE, topological sort, hashing,
 assignment pruning). Equation parsing lives in `parsing/`; the CUDA source emitters live in
 `codegen/`. `SymbolicODE` orchestrates both: parse via `parsing.parse_input`, generate
@@ -22,7 +22,7 @@ attrs conventions; `BaseODE` (parent, `../AGENTS.md`) for `ODECache`/`config_has
 |------|-------------|
 | `__init__.py` | Star-imports `codegen`, `parsing`, `indexedbasemaps`, `odefile`, `symbolicODE`, `sym_utils`; declares `__all__ = ["SymbolicODE", "create_ODE_system", "load_cellml_model"]`. |
 | `symbolicODE.py` | `SymbolicODE(BaseODE)` plus `create_ODE_system()`. Owns parsing, codegen caching, constant/parameter conversion, units, optional Qt GUIs, and `get_solver_helper()` which dispatches to every `codegen` emitter. |
-| `odefile.py` | `ODEFile` disk cache and `GENERATED_DIR` (`./generated/`). Writes generated factory source to `generated/<name>/<name>.py`, hash-guards staleness, checks per-function caching, and imports factories via `importlib`. |
+| `odefile.py` | `ODEFile` disk cache. Writes generated factory source to `<cache root>/<name>/<name>.py` (root from `cubie.cache_root`), hash-guards staleness, checks per-function caching, and imports factories via `importlib`. |
 | `indexedbasemaps.py` | `IndexedBaseMap` (named scalar symbols → fixed-size `sympy.IndexedBase`) and `IndexedBases` (bundle of state/parameter/constant/observable/driver/dxdt maps). Provides `from_user_inputs`, constant↔parameter conversion, units, ref/index/symbol maps. |
 | `sym_utils.py` | Stateless SymPy helpers: `topological_sort` (Kahn), `cse_and_stack`, `hash_system_definition` (SHA-256, order-independent), `render_constant_assignments`, `prune_unused_assignments`. |
 
@@ -69,8 +69,9 @@ to `BaseODE.set_constants`; it does not override `update`.
 - `function_is_cached` parses the generated file textually: it needs a top-level `def <name>(`
   with a `return` one indent level in. A generator that emits a factory without a `return` is
   treated as uncached forever.
-- `GENERATED_DIR` is `Path(getcwd())/"generated"` computed at import, so output lands relative to
-  the process CWD, not the package.
+- Output lands under `cubie.cache_root.get_cache_root()` — by default
+  `<cwd>/generated`, evaluated at `ODEFile` construction, relocatable with
+  `set_cache_root()` — not under the package.
 
 ### IndexedBaseMap rebuilds on structural change
 `push`/`pop` rebuild the `sympy.IndexedBase` (shape change), so any `ref_map` array reference

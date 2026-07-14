@@ -73,11 +73,11 @@ same family.
      - Crank–Nicolson with an embedded backward-Euler error
        estimate
      - 2
-     - PID: ``kp=0.7``, ``ki=-0.4``, gain clamp 0.5–2.0
+     - Gustafsson predictive: gain clamp 0.2–8.0
    * - ``erk``
      - ``dormand-prince-54`` (explicit, seven stages)
      - 5(4)
-     - PID: ``kp=0.7``, ``ki=-0.4``, gain clamp 0.1–5.0
+     - PI: ``kp=0.7``, ``ki=-0.4``, gain clamp 0.2–10.0
    * - ``dirk``
      - ``lobatto_iiic_3`` (diagonally implicit, three stages)
      - 4
@@ -90,15 +90,17 @@ same family.
    * - ``rosenbrock``
      - ``ros3p`` (linearly implicit, three stages)
      - 3
-     - PID: ``kp=0.6``, ``ki=-0.4``, gain clamp 0.5–2.0
+     - Gustafsson predictive: gain clamp 0.2–8.0
 
 How the step controller is chosen
 ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
 
 Adaptive step control needs an embedded error estimate. When an
 algorithm or tableau is named without setting ``step_controller``,
-CuBIE selects the family's tuned PID controller if the scheme
-provides an estimate, and a fixed-step controller if it does not.
+CuBIE selects the family's tuned controller if the scheme provides
+an estimate — a PI controller for explicit Runge–Kutta, the
+Gustafsson predictive controller for the implicit families — and a
+fixed-step controller if it does not.
 This is why ``dirk`` and ``firk`` run fixed-step out of the box:
 their default tableaus carry no embedded estimate. Aliases that do
 (``radau``, for example) enable the family's adaptive defaults
@@ -106,11 +108,13 @@ automatically. Explicitly pairing an adaptive controller with an
 estimate-free scheme falls back to fixed stepping with a
 ``UserWarning``.
 
-The adaptive family defaults all use a 1.0–1.2 deadband (step-size
-increases smaller than 20% are skipped; decreases always apply). Every value can be overridden
-per solve — see :doc:`/user_guide/configuration` for how kwargs
-reach the controller and :doc:`/user_guide/optional_arguments` for
-the full parameter list.
+The implicit family defaults use a 1.0–1.2 deadband (step-size
+increases smaller than 20% are skipped; decreases always apply),
+matching RADAU5's step-freeze band; the explicit ``erk`` defaults
+apply no deadband. Every value can be overridden per solve — see
+:doc:`/user_guide/configuration` for how kwargs reach the controller
+and :doc:`/user_guide/optional_arguments` for the full parameter
+list.
 
 Implicit solver defaults
 ~~~~~~~~~~~~~~~~~~~~~~~~

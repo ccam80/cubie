@@ -17,8 +17,8 @@ Defaults
 (L-stable Lobatto IIIC, three stages, order 4). That tableau has no
 embedded error estimate, so the default is fixed-step control;
 choosing a DIRK tableau that provides an estimate enables the
-family's adaptive PID defaults (``kp=0.7``, ``ki=-0.4``, step-size
-growth clamped to 0.1–5.0×). Each stage runs one Newton–Krylov
+family's Gustafsson predictive defaults (step-size growth clamped
+to 0.2–8.0×). Each stage runs one Newton–Krylov
 solve with the shared defaults listed in
 :ref:`algorithm-defaults`. The implicit-midpoint, SDIRK, and
 Hairer–Wanner L-stable schemes on the

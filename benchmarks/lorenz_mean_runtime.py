@@ -53,7 +53,7 @@ import timeit
 import numpy as np
 
 import cubie as qb
-from cubie.odesystems.symbolic.odefile import GENERATED_DIR
+from cubie.cache_root import get_cache_root
 from cubie.time_logger import default_timelogger
 
 discarded_solves = 20
@@ -135,8 +135,9 @@ def benchmark(label, solver, n_runs, repeats, reference):
 
 def main():
     """Parse arguments, build the solvers, and run both configs."""
-    shutil.rmtree(GENERATED_DIR, ignore_errors=True)
-    os.makedirs(GENERATED_DIR, exist_ok=True)
+    cache_root = get_cache_root()
+    shutil.rmtree(cache_root, ignore_errors=True)
+    os.makedirs(cache_root, exist_ok=True)
 
     # CUDA events (kernel / h2d / d2h per chunk) are recorded only
     # when the time logger is armed. Solver construction resets the

@@ -17,7 +17,7 @@ Notes
 The module defines two sets of default step controller settings:
 
 - :data:`FIRK_ADAPTIVE_DEFAULTS`: Used when the tableau has an embedded
-  error estimate. Defaults to PI controller with adaptive stepping.
+  error estimate. Defaults to Gustafsson controller with adaptive stepping.
 - :data:`FIRK_FIXED_DEFAULTS`: Used when the tableau lacks an error
   estimate. Defaults to fixed-step controller.
 
@@ -84,8 +84,8 @@ class InstrumentedFIRKStep(InstrumentedODEImplicitStep):
         This constructor creates a FIRK step object and automatically selects
         appropriate default step controller settings based on whether the
         tableau has an embedded error estimate. Tableaus with error estimates
-        default to adaptive stepping (PI controller), while errorless tableaus
-        default to fixed stepping.
+        default to adaptive stepping (Gustafsson controller), while
+        errorless tableaus default to fixed stepping.
 
         Parameters
         ----------
@@ -152,7 +152,7 @@ class InstrumentedFIRKStep(InstrumentedODEImplicitStep):
         The step controller defaults are selected dynamically:
 
         - If ``tableau.has_error_estimate`` is ``True``:
-          Uses :data:`FIRK_ADAPTIVE_DEFAULTS` (PI controller)
+          Uses :data:`FIRK_ADAPTIVE_DEFAULTS` (Gustafsson controller)
         - If ``tableau.has_error_estimate`` is ``False``:
           Uses :data:`FIRK_FIXED_DEFAULTS` (fixed-step controller)
 

@@ -396,7 +396,7 @@ class TestCustomCacheDir:
         assert Path(cache._cache_path) == custom_dir / "CUDA_cache_abc123"
 
     def test_custom_cache_dir_none_uses_default(self, tmp_path, precision):
-        """Verify None cache_dir uses GENERATED_DIR path."""
+        """Verify None cache_dir uses the shared cache root path."""
         compile_settings = BatchSolverConfig(
             precision=precision,
         )
@@ -407,7 +407,7 @@ class TestCustomCacheDir:
             config_hash=DEFAULT_CUBIE_CACHE_CONFIG_HASH,
         )
 
-        # Should use default path based on GENERATED_DIR
+        # Should use default path based on the shared cache root
         assert "test_system" in cache._cache_path
         assert cache._cache_path.endswith("CUDA_cache_abc123")
 

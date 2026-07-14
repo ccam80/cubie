@@ -1,8 +1,9 @@
 """Disk-based caching for parsed CellML objects.
 
 This module manages serialization and deserialization of parsed CellML
-data structures using pickle. Cache files are stored in the generated/
-directory alongside compiled code, with hash-based invalidation.
+data structures using pickle. Cache files are stored under the shared
+cache root (:mod:`cubie.cache_root`) alongside generated source and
+compiled kernels, with hash-based invalidation.
 """
 
 from pathlib import Path
@@ -12,6 +13,7 @@ from hashlib import sha256
 import json
 import time
 
+from cubie.cache_root import get_cache_root
 from cubie.time_logger import default_timelogger
 
 
@@ -66,9 +68,7 @@ class CellMLCache:
 
         self.model_name = model_name
         self.cellml_path = cellml_path
-        # Generated directory computed relative to current working directory
-        generated_dir = Path.cwd() / "generated"
-        self.cache_dir = generated_dir / model_name
+        self.cache_dir = get_cache_root() / model_name
         self.manifest_file = self.cache_dir / "cellml_cache_manifest.json"
         self.max_entries = 5  # LRU cache limit
 

@@ -13,7 +13,7 @@ Published Classes
 Constants
 ---------
 :data:`CN_DEFAULTS`
-    Default PID adaptive controller settings.
+    Default Gustafsson adaptive controller settings.
 
 See Also
 --------
@@ -42,15 +42,22 @@ ALGO_CONSTANTS = {'beta': 1.0,
 
 CN_DEFAULTS = StepControlDefaults(
     step_controller={
-        "step_controller": "pid",
-        "kp": 0.7,
-        "ki": -0.4,
+        "step_controller": "gustafsson",
         "deadband_min": 1.0,
-        "deadband_max": 1.1,
-        "min_gain": 0.5,
-        "max_gain": 2.0,
+        "deadband_max": 1.2,
+        "min_gain": 0.2,
+        "max_gain": 8.0,
+        "safety": 0.9,
     }
 )
+"""Default step controller settings for Crank--Nicolson.
+
+The Gustafsson predictive controller is the standard choice for
+Newton-based implicit methods (Gustafsson 1994). Step-ratio limits,
+deadband, and safety factor follow Hairer & Wanner's RADAU5
+(``facl = 0.2``, ``facr = 8``, ``quot1 = 1.0``, ``quot2 = 1.2``,
+``safe = 0.9``).
+"""
 
 
 @define

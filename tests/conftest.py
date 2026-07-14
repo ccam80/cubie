@@ -1,10 +1,10 @@
+import hashlib
+import os
 from pathlib import Path
 from types import SimpleNamespace
-import os
 
 import numpy as np
 import pytest
-from pytest import MonkeyPatch
 
 from tests._utils import (
     _build_solver_instance,
@@ -75,17 +75,75 @@ np.set_printoptions(linewidth=120, threshold=np.inf, precision=12)
 # --------------------------------------------------------------------------- #
 #                           Test ordering hook                                #
 # --------------------------------------------------------------------------- #
+
+
+def _canonical_param(value):
+    """Return a stable repr for a param value, dict-order independent."""
+    if isinstance(value, dict):
+        return repr(
+            sorted((k, _canonical_param(v)) for k, v in value.items())
+        )
+    return repr(value)
+
+
+def _session_param_signature(item):
+    """Signature of the session-scoped indirect params an item carries.
+
+    Session-scoped parametrised fixtures (solver_settings_override and
+    friends) tear down and rebuild the compiled fixture chain whenever
+    consecutive tests carry different param sets, so tests sharing a
+    signature must run contiguously on one xdist worker for each param
+    set to compile once. Returns None for tests using pure defaults.
+    """
+    callspec = getattr(item, "callspec", None)
+    if callspec is None:
+        return None
+    name2fixturedefs = item._fixtureinfo.name2fixturedefs
+    parts = []
+    for name in sorted(callspec.params):
+        fixturedefs = name2fixturedefs.get(name)
+        if not fixturedefs or fixturedefs[-1].scope != "session":
+            continue
+        parts.append(f"{name}={_canonical_param(callspec.params[name])}")
+    return "; ".join(parts) if parts else None
+
+
 @pytest.hookimpl(trylast=True)
 def pytest_collection_modifyitems(config, items):
-    # move tests which close the CUDA context to the very end, so that the
-    # streams used in session-scoped fixtures don't disappear on them mid-run
+    """Group override-param tests for xdist and order the collection.
+
+    Under ``--dist=loadgroup`` each non-default session param set
+    becomes one xdist_group, so each set is compiled by exactly one
+    worker. Grouped items run first (largest groups first, for
+    balance); default-param tests follow as individually scheduled
+    items, so every worker builds the default fixture chain exactly
+    once, after its override groups are done. Tests which close the
+    CUDA context stay at the very end, ungrouped, so the streams used
+    in session-scoped fixtures don't disappear on them mid-run.
+    """
     final_basenames = {"test_cupyemm.py", "test_memmgmt.py"}
-    # iterate over a shallow copy to allow safe in-place removals/appends
-    for item in items[:]:
+    grouped = []
+    default = []
+    final = []
+    group_sizes = {}
+    for item in items:
         if item.fspath.basename in final_basenames:
-            items.remove(item)
-            items.append(item)
-    pass
+            final.append(item)
+            continue
+        signature = _session_param_signature(item)
+        if signature is None:
+            default.append(item)
+            continue
+        digest = hashlib.sha1(signature.encode()).hexdigest()[:10]
+        item.add_marker(pytest.mark.xdist_group(name=f"pg-{digest}"))
+        grouped.append((digest, item))
+        group_sizes[digest] = group_sizes.get(digest, 0) + 1
+
+    group_order = {}
+    for index, (digest, _) in enumerate(grouped):
+        group_order.setdefault(digest, (-group_sizes[digest], index))
+    grouped.sort(key=lambda pair: group_order[pair[0]])
+    items[:] = [item for _, item in grouped] + default + final
 
 
 # --------------------------------------------------------------------------- #
@@ -95,43 +153,61 @@ def pytest_collection_modifyitems(config, items):
 
 @pytest.fixture(scope="session", autouse=True)
 def codegen_dir():
-    """Redirect code generation to a temporary directory for the whole session.
+    """Redirect every disk cache to a temporary session directory.
 
-    Use tempfile.mkdtemp instead of pytest's tmp path so the directory isn't
-    removed automatically between parameterized test cases. Remove the
-    directory at session teardown.
+    Sets the shared cache root (:mod:`cubie.cache_root`), which the
+    codegen, CellML parse, and compiled-kernel caches all resolve
+    through, so no cache artefacts leak into or out of the session.
+    Use tempfile.mkdtemp instead of pytest's tmp path so the directory
+    isn't removed automatically between parameterized test cases.
+    Remove the directory at session teardown.
 
-    Toggle: set environment variable `CUBIE_GENERATED_DIR_REDIRECT` to `0` to
-    disable the temporary redirect and keep the original
-    `odefile.GENERATED_DIR`.
+    Toggle: set environment variable `CUBIE_GENERATED_DIR_REDIRECT` to
+    `0` to disable the temporary redirect and keep the default
+    ``<cwd>/generated`` cache root.
     """
     import tempfile
     import shutil
     import os
-    from cubie.odesystems.symbolic import odefile
+    from cubie import cache_root
 
-    original_dir = getattr(odefile, "GENERATED_DIR", None)
     redirect_enabled = int(os.environ.get("CUBIE_GENERATED_DIR_REDIRECT", "1"))
 
     if not redirect_enabled:
-        # Don't change odefile.GENERATED_DIR; yield the original value (or None).
-        yield Path(original_dir) if original_dir is not None else None
+        yield cache_root.get_cache_root()
         return
 
     gen_dir = Path(tempfile.mkdtemp(prefix="cubie_generated_"))
-    mp = MonkeyPatch()
-    mp.setattr(odefile, "GENERATED_DIR", gen_dir, raising=True)
+    previous = cache_root.get_cache_root_override()
+    cache_root.set_cache_root(gen_dir)
     try:
         yield gen_dir
     finally:
-        # restore original attribute and remove temporary dir. Wrap in
-        # try/except in case multiple workers attempt to delete the same
-        # directory when running tests in parallel.
+        # restore the previous root and remove the temporary dir. Wrap
+        # in try/except in case multiple workers attempt to delete the
+        # same directory when running tests in parallel.
         try:
-            mp.undo()
+            cache_root.set_cache_root(previous)
             shutil.rmtree(gen_dir, ignore_errors=True)
         except PermissionError:
             pass
+
+
+@pytest.fixture(scope="function")
+def isolated_cache_root(tmp_path):
+    """Point every disk cache layer at a fresh per-test directory.
+
+    Cache-behaviour tests need a root no other test has written to;
+    the session-wide redirect is shared, so cold-cache assertions
+    would otherwise depend on execution order.
+    """
+    from cubie import cache_root
+
+    previous = cache_root.get_cache_root_override()
+    root = tmp_path / "generated"
+    cache_root.set_cache_root(root)
+    yield root
+    cache_root.set_cache_root(previous)
 
 
 # ========================================

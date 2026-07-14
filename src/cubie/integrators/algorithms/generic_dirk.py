@@ -12,7 +12,7 @@ Published Classes
 Constants
 ---------
 :data:`DIRK_ADAPTIVE_DEFAULTS`
-    Default PID controller settings for adaptive tableaus.
+    Default Gustafsson controller settings for adaptive tableaus.
 
 :data:`DIRK_FIXED_DEFAULTS`
     Default fixed-step settings for errorless tableaus.
@@ -21,7 +21,7 @@ Notes
 -----
 The step controller defaults are selected dynamically based on whether
 the tableau has an embedded error estimate. Tableaus with error
-estimates default to adaptive stepping (PID controller), while
+estimates default to adaptive stepping (Gustafsson controller), while
 errorless tableaus default to fixed stepping.
 
 See Also
@@ -63,13 +63,12 @@ from cubie.buffer_registry import buffer_registry
 
 DIRK_ADAPTIVE_DEFAULTS = StepControlDefaults(
     step_controller={
-        "step_controller": "pid",
-        "kp": 0.7,
-        "ki": -0.4,
+        "step_controller": "gustafsson",
         "deadband_min": 1.0,
-        "deadband_max": 1.1,
-        "min_gain": 0.1,
-        "max_gain": 5.0,
+        "deadband_max": 1.2,
+        "min_gain": 0.2,
+        "max_gain": 8.0,
+        "safety": 0.9,
     }
 )
 """Default step controller settings for adaptive DIRK tableaus.
@@ -77,9 +76,13 @@ DIRK_ADAPTIVE_DEFAULTS = StepControlDefaults(
 This configuration is used when the DIRK tableau has an embedded error
 estimate (``tableau.has_error_estimate == True``).
 
-The PI controller provides robust adaptive stepping with proportional and
-derivative terms to smooth step size adjustments. The deadband prevents
-unnecessary step size changes for small variations in the error estimate.
+The Gustafsson predictive controller is the standard choice for
+implicit Runge--Kutta methods (Gustafsson 1994; the default for SDIRK
+families in OrdinaryDiffEq.jl). Step-ratio limits, deadband, and
+safety factor follow Hairer & Wanner's RADAU5 (``facl = 0.2``,
+``facr = 8``, ``quot1 = 1.0``, ``quot2 = 1.2``, ``safe = 0.9``); the
+deadband keeps the step unchanged for small gains so warp-coherent
+threads avoid needless step-size churn.
 
 Notes
 -----
@@ -146,8 +149,8 @@ class DIRKStep(ODEImplicitStep):
         This constructor creates a DIRK step object and automatically selects
         appropriate default step controller settings based on whether the
         tableau has an embedded error estimate. Tableaus with error estimates
-        default to adaptive stepping (PI controller), while errorless tableaus
-        default to fixed stepping.
+        default to adaptive stepping (Gustafsson controller), while
+        errorless tableaus default to fixed stepping.
 
         Parameters
         ----------
@@ -178,7 +181,7 @@ class DIRKStep(ODEImplicitStep):
         The step controller defaults are selected dynamically:
 
         - If ``tableau.has_error_estimate`` is ``True``:
-          Uses :data:`DIRK_ADAPTIVE_DEFAULTS` (PI controller)
+          Uses :data:`DIRK_ADAPTIVE_DEFAULTS` (Gustafsson controller)
         - If ``tableau.has_error_estimate`` is ``False``:
           Uses :data:`DIRK_FIXED_DEFAULTS` (fixed-step controller)
 

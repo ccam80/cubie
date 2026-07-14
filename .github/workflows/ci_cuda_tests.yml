@@ -1,153 +1,237 @@
 name: CUDA tests
 on:
-    # Running CUDA tests every second weekday at 3am and on dispatch with "test_cuda" in commit message
-  create:
   workflow_dispatch:
+    inputs:
+      attempt:
+        description: "Retry counter (internal; leave as 1 for manual runs)."
+        default: "1"
+      legs:
+        description: >
+          JSON array of matrix legs to run (internal; empty = full matrix).
+        default: ""
   schedule:
-    - cron: "0 16 * * 1,3,5"
-  # We're limited to 15 "credits" per month using the Lightning AI runner. One run on one image costs ~0.25 credits at 31/07/2025, including machine spinup. A single hanging job quickly eats up 
-  # budget, so we run every second day. This may give us some overhead to increase matrixed CUDA/OS versions.
+    - cron: "0 16 * * 1,3,5"   # Mon/Wed/Fri 16:00 UTC
   push:
     branches: ["main"]
-  # The git clone used in the workflow doesn't work on PR branches, so we can't run the tests on PRs.
-  #  pull_request:
-  #    branches: ["main"]
-    
+  # PRs opt in via a maintainer comment (see the `setup` job `if`) rather
+  # than running the paid GPU matrix on every PR.
+  issue_comment:
+    types: [created]
+
+# Cancel superseded runs on the same PR/ref to avoid paying for stale jobs.
+concurrency:
+  group: cuda-${{ github.event.issue.number || github.ref }}
+  cancel-in-progress: true
+
 jobs:
-  cuda:
+  # Resolve the matrix once so the retry path can re-run a subset of legs.
+  # A fresh workflow_dispatch (attempt=1, legs="") runs the full 8-leg
+  # matrix; a retry dispatch passes only the legs that never got a GPU.
+  setup:
+    # Real-GPU runs on paid AWS runners. Trigger on schedule/dispatch, on a
+    # push whose commit message opts in, or when a maintainer comments
+    # `/test on cuda` on a PR. The author_association gate stops external
+    # commenters from spending GPU budget.
     if: >
       github.event_name == 'schedule' ||
       github.event_name == 'workflow_dispatch' ||
-      github.base_ref ||
+      (github.event_name == 'issue_comment' &&
+       github.event.issue.pull_request &&
+       github.event.issue.state == 'open' &&
+       contains(github.event.comment.body, '/test on cuda') &&
+       contains(fromJSON('["OWNER","MEMBER","COLLABORATOR"]'), github.event.comment.author_association)) ||
       contains(github.event.head_commit.message, 'test_cuda') ||
       contains(github.event.head_commit.message, 'test_all')
-    # github.base_ref is only true if the current event is a pull request
-    permissions: 
-      contents: read
-      packages: read
     runs-on: ubuntu-latest
+    permissions:
+      contents: read
+    outputs:
+      matrix: ${{ steps.gen.outputs.matrix }}
+      attempt: ${{ steps.gen.outputs.attempt }}
     steps:
-      - uses: actions/checkout@v4
-
-      - uses: actions/setup-python@v5
-        with: { python-version: '3.12' }
-
-      - run: python -m pip install lightning-sdk
-
-      - name: Run tests in Lightning (T4, GHCR :latest)
-        id: lightning_tests
-        shell: bash
+      - name: Resolve matrix and attempt
+        id: gen
         env:
-          LIGHTNING_API_KEY: ${{ secrets.LIGHTNING_API_KEY }}
-          LIGHTNING_USER_ID: ${{ secrets.LIGHTNING_USER_ID }}
-          LIGHTNING_USERNAME: ${{ secrets.LIGHTNING_USERNAME }}
-          TOKEN: ${{ secrets.GITHUB_TOKEN }}
-          GITHUB_RUN_ID: ${{ github.run_id }}
-          GH_PAT: ${{ secrets.CUDA_PAT }}
+          IN_LEGS: ${{ inputs.legs }}
+          IN_ATTEMPT: ${{ inputs.attempt }}
         run: |
-          python - <<'PY'
-          import os, sys, urllib
-          from lightning_sdk import Studio, Machine, Job, Status
+          set -euo pipefail
+          if [ -n "${IN_LEGS:-}" ]; then
+            MATRIX="$IN_LEGS"
+          else
+            MATRIX='[
+              {"os":"linux","python-version":"3.10","cuda":"12","extra":"dev12","runner":"gpu-linux"},
+              {"os":"linux","python-version":"3.10","cuda":"13","extra":"dev13","runner":"gpu-linux"},
+              {"os":"linux","python-version":"3.14","cuda":"12","extra":"dev12","runner":"gpu-linux"},
+              {"os":"linux","python-version":"3.14","cuda":"13","extra":"dev13","runner":"gpu-linux"},
+              {"os":"windows","python-version":"3.10","cuda":"12","extra":"dev12","runner":"gpu-windows"},
+              {"os":"windows","python-version":"3.10","cuda":"13","extra":"dev13","runner":"gpu-windows"},
+              {"os":"windows","python-version":"3.14","cuda":"12","extra":"dev12","runner":"gpu-windows"},
+              {"os":"windows","python-version":"3.14","cuda":"13","extra":"dev13","runner":"gpu-windows"}
+            ]'
+          fi
+          MATRIX=$(printf '%s' "$MATRIX" | jq -c '.')
+          echo "matrix=$MATRIX" >> "$GITHUB_OUTPUT"
+          echo "attempt=${IN_ATTEMPT:-1}" >> "$GITHUB_OUTPUT"
 
-          owner  = os.environ["GITHUB_REPOSITORY_OWNER"]
-          repo   = os.environ["GITHUB_REPOSITORY"]
-          branch = os.environ.get("GITHUB_REF_NAME", "main")
-          run_id = os.environ.get("GITHUB_RUN_ID", "manual")
-          gh_pat = os.getenv("GH_PAT")
-          image  = f"ghcr.io/{owner}/ci-test-env:latest"
-          git_url_clone = f"https://{gh_pat}@github.com/{repo}.git"
-          git_url_push  = f"https://{owner}:{gh_pat}@github.com/{repo}.git"  # username:token
-          
-          cmd = (
-              f"bash -lc '"
-              f"set -o pipefail; "
-              f"export GIT_TERMINAL_PROMPT=0; "                # never prompt
-              f"git clone --depth 1 --branch {branch} {git_url_clone} repo && "
-              f"cd repo && "
-              f"python -m pip install -e . && "
-              # --------------------------------------------------------------------------------------- #
-              # Numba CUDA patch - compile time advantage
-              f"git clone https://github.com/ccam80/numba-cuda.git /tmp/numba-cuda && "
-              f"cd /tmp/numba-cuda && git checkout cubie_patch && python -m pip install -e . && "
-              f"cd /workspace/repo && "
-              # --------------------------------------------------------------------------------------- #
-              f"mkdir -p /artifacts && "
-              f"pytest -m \"not specific_algos and not sim_only\" -n logical --cov --cov-branch -vv -ra "
-              f"--junitxml=/artifacts/pytest-results.xml "
-              f"--cov-report=xml:coverage.xml | tee /artifacts/pytest-output.log; "
-              f"ec=$?; "
-              f"cp -f coverage.xml /artifacts/coverage.xml || true; "
-              f'PUSH=/tmp/push_artifacts; '
-              f'rm -rf \"$PUSH\" && mkdir -p \"$PUSH/runs/{run_id}\"; '
-              f'cp -r /artifacts/. \"$PUSH/runs/{run_id}/\" || true; '
-              f'git -C \"$PUSH\" init -q; '
-              f'git -C \"$PUSH\" config user.email ci@bot; '
-              f'git -C \"$PUSH\" config user.name ci-bot; '
-              f'git -C \"$PUSH\" checkout -b ci-artifacts || true; '
-              f'git -C \"$PUSH\" remote add origin \"{git_url_push}\" || '
-              f'git -C \"$PUSH\" remote set-url origin \"{git_url_push}\"; '   # idempotent
-              f'git -C \"$PUSH\" add -A \"runs/{run_id}\"; '
-              f'git -C \"$PUSH\" commit -m \"artifacts {run_id}\" || true; '
-              f'git -C \"$PUSH\" push -u --force origin ci-artifacts; '
-              f"exit $ec'"
-          )
-          try:
-            job = Job.run(command=cmd, 
-                          user=os.environ["LIGHTNING_USERNAME"],
-                          name=f"ci-job-{run_id}", 
-                          machine=Machine.T4,
-                          teamspace="Vision-model",
-                          image=image)
-            job.wait()
+  cuda:
+    needs: setup
+    name: cuda (${{ matrix.os }}, ${{ matrix.python-version }}, ${{ matrix.cuda }})
+    permissions:
+      contents: read
+    # max-parallel: 1 keeps the matrix to one 8-vCPU GPU instance at a
+    # time. Runners are spot-only (ap-southeast-2 has zero On-Demand G/VT
+    # quota, not grantable here), so concurrency is bounded by the shared
+    # "All G and VT Spot" vCPU quota; one g4dn/g5/g6.2xlarge = 8 vCPU fits
+    # under it. That quota is fixed (AWS will not raise it), so a leg can
+    # still fail to get a spot GPU when it is momentarily exhausted -- the
+    # `retry` job re-dispatches those legs. The param-set xdist grouping
+    # (tests/conftest.py + --dist=loadgroup in addopts) keeps thread
+    # scaling near-linear, so the 8 vCPUs are fully used.
+    strategy:
+      fail-fast: false
+      max-parallel: 1
+      matrix:
+        include: ${{ fromJSON(needs.setup.outputs.matrix) }}
+    runs-on: "runs-on=${{ github.run_id }}/runner=${{ matrix.runner }}"
 
-            path = "lightning-job.log"
-            with open(path, "w", encoding="utf-8") as f:
-                f.write(job.logs)
-              
-            if job.status == Status.Completed:
-                sys.exit(0) 
-            else:
-                # for any other phase (failed, cancelled, etc.), exit with a non-zero code
-                sys.exit(1)
-          except urllib.error. HTTPError as e:
-              if e.code == 404:
-                  print(f"⚠️  Warning: HTTP 404 error encountered (likely image not found). Skipping test run.", file=sys.stderr)
-                  path = "lightning-job.log"
-                  with open(path, "w", encoding="utf-8") as f:
-                      f.write(f"Job skipped due to HTTP 404 error: {e}\n")
-                  sys.exit(0)
-              else: 
-                  raise
-          PY
-          
+    steps:
+      # For comment-triggered runs the event ref is the default branch, so
+      # check out the PR's merge ref explicitly; otherwise the pushed/ref SHA.
+      - uses: actions/checkout@v7
+        with:
+          ref: ${{ github.event_name == 'issue_comment' && format('refs/pull/{0}/merge', github.event.issue.number) || github.sha }}
+
+      - name: Set up Python ${{ matrix.python-version }}
+        uses: actions/setup-python@v6
+        with:
+          python-version: ${{ matrix.python-version }}
+
+      - name: GPU sanity check
+        run: nvidia-smi
+
+      # A leg that reaches here got a real GPU, so any later failure is a
+      # genuine test failure, not a spot-provisioning miss. The `retry` job
+      # re-runs only legs WITHOUT this marker, so real failures stay red
+      # and are never wastefully re-run on the GPU.
+      - name: Mark GPU acquired
+        if: success()
+        run: echo ok > gpu-marker.txt
+      - name: Upload GPU marker
+        if: success()
+        uses: actions/upload-artifact@v7
+        with:
+          name: gpu-${{ matrix.os }}-py${{ matrix.python-version }}-cuda${{ matrix.cuda }}
+          path: gpu-marker.txt
+
+      - name: Install cubie (${{ matrix.extra }})
+        run: |
+          python -m pip install --upgrade pip
+          python -m pip install -e ".[${{ matrix.extra }}]"
+
+      - name: Lint with flake8
+        run: flake8 . --count --select=E9,F63,F7,F82 --show-source --statistics
+
+      - name: Test with pytest
+        # -n logical (CLI) overrides pyproject's desktop-safe -n8 so the
+        # runner uses all its vCPUs; change the runner instance size freely
+        # and this scales automatically. Coverage/XML report come from addopts.
+        run: pytest -m "not specific_algos and not sim_only" -n logical --junitxml=pytest-results.xml
+
       - name: Upload pytest artefacts
         if: always()
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v7
         with:
-          name: pytest-artifacts
+          name: pytest-${{ matrix.os }}-py${{ matrix.python-version }}-cuda${{ matrix.cuda }}
           path: |
-            lightning-job.log
-
-      - name: Checkout artifacts branch
-        if: always()
-        continue-on-error: true
-        uses: actions/checkout@v4
-        with:
-          ref: ci-artifacts
-          path: artifacts_branch
+            pytest-results.xml
+            coverage.xml
 
       - name: Upload coverage to Codecov
         if: always()
-        uses: codecov/codecov-action@v5
+        uses: codecov/codecov-action@v7
         with:
-          files: artifacts_branch/runs/${{ github.run_id }}/coverage.xml
+          files: coverage.xml
+          flags: ${{ matrix.os }}-py${{ matrix.python-version }}-cuda${{ matrix.cuda }}
           disable_search: true
           fail_ci_if_error: false
-      
+
+      # test-results-action is node20-locked and deprecated; folded into
+      # codecov-action via report_type. Kept a separate step because
+      # report_type is single-valued (coverage vs test_results).
       - name: Upload test results to Codecov
         if: always()
-        uses: codecov/test-results-action@v1
+        uses: codecov/codecov-action@v7
         with:
-          files: artifacts_branch/runs/${{ github.run_id }}/pytest-results.xml
+          report_type: test_results
+          files: pytest-results.xml
+          flags: ${{ matrix.os }}-py${{ matrix.python-version }}-cuda${{ matrix.cuda }}
           disable_search: true
           fail_ci_if_error: false
+
+  # Re-dispatch legs that never got a spot GPU, with exponential backoff.
+  # This is the resilience layer for the fixed, un-raisable spot quota:
+  # RunsOn falls back to on-demand (which is 0 here, so it fails) for 5 min
+  # after a spot-quota miss, so the backoff starts at 5 min to outlast that
+  # snooze, and each retry is a fresh run (attempt resets on the runner, so
+  # RunsOn tries spot again rather than being forced onto on-demand).
+  retry:
+    needs: [setup, cuda]
+    if: always() && needs.setup.result == 'success'
+    runs-on: ubuntu-latest
+    permissions:
+      actions: write
+      contents: read
+    steps:
+      - name: Download GPU markers
+        # Do not fail the retry when zero legs got a GPU (no markers to
+        # download) -- that total-failure case is exactly when we must
+        # still re-dispatch. The compute step treats "no markers" as
+        # "every leg is retryable".
+        continue-on-error: true
+        uses: actions/download-artifact@v7
+        with:
+          pattern: gpu-*
+          path: markers
+      - name: Re-dispatch legs that never got a GPU
+        env:
+          MATRIX: ${{ needs.setup.outputs.matrix }}
+          ATTEMPT: ${{ needs.setup.outputs.attempt }}
+          MAX_ATTEMPTS: "5"
+          BASE_BACKOFF: "300"   # seconds; first retry waits out the 5-min snooze
+          MAX_BACKOFF: "1200"   # cap at 20 min
+          REF: ${{ github.ref_name }}
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          # Markers are artifacts named gpu-<os>-py<pyver>-cuda<cuda>; a leg
+          # with a marker acquired a GPU and is not a provisioning failure.
+          if [ -d markers ]; then
+            ls markers | sed -n 's/^gpu-//p' | sort -u > acquired.txt
+          else
+            : > acquired.txt
+          fi
+          RETRYABLE=$(printf '%s' "$MATRIX" | jq -c --rawfile s acquired.txt '
+            ($s | split("\n") | map(select(length > 0))) as $ok
+            | map(select(
+                (.os + "-py" + (."python-version") + "-cuda" + .cuda) as $k
+                | ($ok | index($k)) == null))')
+          COUNT=$(printf '%s' "$RETRYABLE" | jq 'length')
+          echo "Attempt ${ATTEMPT}: ${COUNT} leg(s) never acquired a GPU."
+          if [ "$COUNT" -eq 0 ]; then
+            echo "No spot-provisioning failures to retry."
+            exit 0
+          fi
+          if [ "$ATTEMPT" -ge "$MAX_ATTEMPTS" ]; then
+            echo "Reached MAX_ATTEMPTS=${MAX_ATTEMPTS}; leaving the run red."
+            exit 0
+          fi
+          BACKOFF=$(( BASE_BACKOFF * (2 ** (ATTEMPT - 1)) ))
+          [ "$BACKOFF" -gt "$MAX_BACKOFF" ] && BACKOFF="$MAX_BACKOFF"
+          echo "Retrying these legs in ${BACKOFF}s:"
+          printf '%s' "$RETRYABLE" | jq .
+          sleep "$BACKOFF"
+          gh workflow run ci_cuda_tests.yml \
+            --ref "$REF" \
+            -f attempt="$(( ATTEMPT + 1 ))" \
+            -f legs="$RETRYABLE"

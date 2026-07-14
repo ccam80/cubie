@@ -17,7 +17,7 @@ Jacobian-vector-product structures (`JVPEquations`, `plan_auxiliary_cache`) used
 | `__init__.py` | Star-imports `auxiliary_caching`, `cellml`, `jvp_equations`, `parser`; declares `__all__ = ["load_cellml_model"]` (the rest is re-exported via star imports). |
 | `parser.py` | Core parser. `parse_input` dispatches on input type; `ParsedEquations` (frozen attrs) partitions equations into state-derivatives/observables/auxiliaries; `EquationWarning`; constants `PARSE_TRANSFORMS`, `KNOWN_FUNCTIONS`, `TIME_SYMBOL`, `DRIVER_SETTING_KEYS`. Holds the string and SymPy LHS/RHS validation passes. |
 | `cellml.py` | `load_cellml_model` — wraps optional `cellmlmanip`, sanitises symbol names, splits differential vs algebraic equations, classifies constants/parameters/observables, then calls `parse_input`. Cache-aware (early + post-GUI checks). |
-| `cellml_cache.py` | `CellMLCache` — disk LRU cache (≤5 configs per model) of pickled parse results under `generated/<model>/`, keyed by file-content SHA-256 + serialised args, tracked in `cellml_cache_manifest.json`. |
+| `cellml_cache.py` | `CellMLCache` — disk LRU cache (≤5 configs per model) of pickled parse results under `<cache root>/<model>/`, keyed by file-content SHA-256 + serialised args, tracked in `cellml_cache_manifest.json`. |
 | `jvp_equations.py` | `JVPEquations` (mutable attrs) — holds ordered JVP/auxiliary assignments and derives dependency graphs, op-cost, JVP usage/closure, dependency levels, and slot limits; lazily computes/stores a `CacheSelection`; `cached_partition()` splits into cached/runtime/prepare. |
 | `auxiliary_caching.py` | Heuristic cache planner. `CacheGroup`/`CacheSelection` (frozen attrs) and `plan_auxiliary_cache` — enumerate seed-rooted leaf groups, simulate runtime-op savings, and search group combinations under the slot limit to pick what to precompute. |
 | `function_inspector.py` | AST analysis of a callable ODE. `inspect_ode_function` → `FunctionInspection`; `_OdeAstVisitor` collects state/constant accesses, assignments (incl. annotated), calls, unrolls `for` (also inside if-branches), synthesises `IfExp` from if/elif/else, rejects unsupported constructs (`while`/`with`/`try`/`match`/nested `def`/comprehensions; branch bodies raise on statements other than assignments and nested `if`/`for`); `AstToSympyConverter` maps AST nodes to SymPy — resolves user-function calls before `KNOWN_FUNCTIONS` (inlining non-device callables), inlines dxdt-named locals, and (in `strict_names` mode) raises on unknown bare names, suggesting the container access when the name is declared. Extra args used only by bare name are `scalar_params` (SciPy `args=` convention), bound to the like-named declared symbol. |
@@ -59,10 +59,10 @@ symbols; they're stripped before building driver names and reattached via
 `ImportError` at call time when it's absent (never import it at top level unguarded). Numeric Dummy
 atoms (e.g. `_0.5`) are converted to `sp.Float`/`sp.Integer`; algebraic equations with a numeric
 RHS become constants (or parameters if named), non-numeric ones become observables/auxiliaries.
-`CellMLCache` is a disk LRU (≤5 configs per model) under `generated/<model>/`, keyed by
-file-content SHA-256 + serialised args in `cellml_cache_manifest.json`; both it and `cellml.py`
-compute `generated/` from `Path.cwd()` (matching `odefile.GENERATED_DIR`) and invalidate on any
-content change (whitespace included).
+`CellMLCache` is a disk LRU (≤5 configs per model) under `<cache root>/<model>/`, keyed by
+file-content SHA-256 + serialised args in `cellml_cache_manifest.json`; the root comes from
+`cubie.cache_root.get_cache_root()` (shared with codegen and kernel caches) and entries
+invalidate on any content change (whitespace included).
 
 ### User functions
 Renamed with a trailing underscore during string parsing to dodge SymPy name clashes; device

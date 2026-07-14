@@ -69,10 +69,14 @@ attrs-config mechanics; CUDA-authoring *optimisation* patterns are in
   `"erk"`, `"dirk"`, `"firk"`, `"rosenbrock"` use the class-default tableau; the
   **non-tableau methods** `"euler"`, `"backwards_euler"`, `"backwards_euler_pc"`,
   `"crank_nicolson"` are fixed schemes with no tableau.
-- `StepControlDefaults` are chosen from `tableau.has_error_estimate` (PID when an
-  embedded estimate exists, fixed otherwise). **Errorless tableaus must use a fixed
-  controller** — constructors enforce this; never pair an adaptive controller with an
-  errorless tableau.
+- `StepControlDefaults` are chosen from `tableau.has_error_estimate` (fixed when no
+  embedded estimate exists; otherwise PI for explicit RK, Gustafsson for the implicit
+  families — DIRK/FIRK/Rosenbrock-W/Crank-Nicolson — with RADAU5's gain limits and
+  deadband). **Errorless tableaus must use a fixed controller** — constructors enforce
+  this; never pair an adaptive controller with an errorless tableau. Controller-defaults
+  dicts must never contain keys that are also algorithm parameters (e.g. `gamma`,
+  `newton_max_iters`): on hot-swap the defaults merge into the shared `updates_dict`
+  and would overwrite the algorithm's own setting.
 - **`update` additions:** new keywords must be added to `ALL_ALGORITHM_STEP_PARAMETERS`
   (`base_algorithm_step.py`) or `update` rejects them; `ODEImplicitStep` routes solver
   params to its owned solver via `_LINEAR_SOLVER_PARAMS` / `_NEWTON_KRYLOV_PARAMS`.

@@ -205,7 +205,7 @@ def test_user_step_control_overrides_algorithm_defaults(
         algorithm_settings=algorithm_settings,
     )
 
-    assert run.step_controller == "pid"
+    assert run.step_controller == "gustafsson"
     assert run.dt_min == pytest.approx(override_settings["dt_min"])
     assert run.dt_max == pytest.approx(override_settings["dt_max"])
     controller_settings = run._step_controller.settings_dict

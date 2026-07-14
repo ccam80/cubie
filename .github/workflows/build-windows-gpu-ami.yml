@@ -1,0 +1,131 @@
+name: Build Windows GPU AMI
+on:
+  workflow_dispatch:
+  schedule:
+    # Days 1/15/29 (~14-day cadence) keeps the baked RunsOn agent well
+    # under GitHub's 30-day runner-dispatch cutoff.
+    - cron: "0 3 */14 * *"
+
+permissions:
+  id-token: write   # OIDC -> AWS
+  contents: read
+
+jobs:
+  build-ami:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+
+      - name: Configure AWS credentials (OIDC)
+        uses: aws-actions/configure-aws-credentials@v6
+        with:
+          role-to-assume: ${{ secrets.AWS_AMI_BUILDER_ROLE }}
+          aws-region: ${{ vars.AWS_REGION }}
+
+      - name: Set up Packer
+        uses: hashicorp/setup-packer@v3
+
+      - name: Packer init
+        run: packer init packer/windows-gpu.pkr.hcl
+
+      - name: Build AMI
+        # Spot g4dn.xlarge capacity is per-Availability-Zone, and Packer
+        # pins a build to a single subnet (hence a single AZ). Sweep the
+        # default VPC's subnets (one per AZ) and take the first AZ with
+        # capacity -- automating AWS's own "choose another AZ" advice.
+        # Only an AZ-capacity error advances the sweep: any other Packer
+        # failure (WinRM timeout, driver install, security group, or a
+        # regional spot-quota miss that recurs in every AZ) short-circuits
+        # immediately, because a Windows bake can run 30-60 min per AZ and
+        # sweeping on a non-capacity error would waste hours. Set
+        # AWS_BUILD_SUBNET_ID to pin one subnet instead (e.g. no default
+        # VPC).
+        env:
+          AWS_REGION: ${{ vars.AWS_REGION }}
+          PINNED_SUBNET: ${{ vars.AWS_BUILD_SUBNET_ID }}
+        run: |
+          set -euo pipefail
+          if [ -n "${PINNED_SUBNET:-}" ]; then
+            SUBNETS="$PINNED_SUBNET"
+          else
+            VPC=$(aws ec2 describe-vpcs --region "$AWS_REGION" \
+              --filters Name=isDefault,Values=true \
+              --query 'Vpcs[0].VpcId' --output text)
+            SUBNETS=$(aws ec2 describe-subnets --region "$AWS_REGION" \
+              --filters "Name=vpc-id,Values=$VPC" \
+                        "Name=default-for-az,Values=true" \
+              --query 'Subnets[].SubnetId' --output text)
+          fi
+          if [ -z "${SUBNETS// /}" ]; then
+            echo "No candidate subnets found; set AWS_BUILD_SUBNET_ID." >&2
+            exit 1
+          fi
+          # A spot-provisioning miss = the fleet yielded no instance.
+          # Packer prints "Error waiting for fleet request" only when
+          # len(instances)==0 (step_run_spot_instance.go), and every AWS
+          # capacity phrasing ("insufficient ... capacity", "no Spot
+          # capacity available", ...) is wrapped by it -- so match the
+          # wrapper, not the wording. Post-launch failures (WinRM, driver
+          # install; 30-60 min) happen in later steps with other messages
+          # and fall through to fail-fast. A regional spot-quota miss
+          # (MaxSpotInstanceCountExceeded) is checked first and NOT swept:
+          # every AZ shares that quota.
+          FLEET_MISS_RE='Error waiting for fleet request|InsufficientInstanceCapacity|no Spot capacity available|capacity-not-available|insufficient .*capacity'
+          echo "Candidate subnets (one per AZ): $SUBNETS"
+          swept=0
+          last_rc=1
+          for SN in $SUBNETS; do
+            echo "::group::packer build on subnet $SN"
+            set +e
+            packer build \
+              -var "region=$AWS_REGION" \
+              -var "subnet_id=$SN" \
+              packer/windows-gpu.pkr.hcl 2>&1 | tee packer.out
+            rc=${PIPESTATUS[0]}
+            set -e
+            echo "::endgroup::"
+            if [ "$rc" -eq 0 ]; then
+              echo "Bake succeeded in subnet $SN."
+              exit 0
+            fi
+            if grep -q "MaxSpotInstanceCountExceeded" packer.out; then
+              echo "Subnet $SN: regional spot quota exhausted (rc=$rc);" \
+                   "every AZ shares it, so not sweeping." >&2
+              exit "$rc"
+            fi
+            if grep -Eq "$FLEET_MISS_RE" packer.out; then
+              echo "Subnet $SN: fleet found no spot capacity (rc=$rc);" \
+                   "trying the next AZ."
+              swept=1
+              last_rc=$rc
+              continue
+            fi
+            echo "Subnet $SN: Packer failed after launch / for a" \
+                 "non-capacity reason (rc=$rc); not sweeping further." >&2
+            exit "$rc"
+          done
+          echo "Every candidate AZ was out of spot capacity (swept=$swept)." >&2
+          exit "$last_rc"
+
+      - name: Deregister superseded cubie-win-gpu AMIs
+        # Keep the most recent AMI; deregister older ones (and their
+        # snapshots) so snapshot storage cost does not grow unbounded.
+        run: |
+          set -euo pipefail
+          KEEP=$(aws ec2 describe-images --owners self \
+            --filters "Name=name,Values=cubie-win-gpu-*" \
+            --query 'sort_by(Images,&CreationDate)[-1].ImageId' --output text)
+          echo "Keeping newest AMI: $KEEP"
+          for AMI in $(aws ec2 describe-images --owners self \
+            --filters "Name=name,Values=cubie-win-gpu-*" \
+            --query 'Images[].ImageId' --output text); do
+            if [ "$AMI" != "$KEEP" ]; then
+              echo "Deregistering $AMI"
+              SNAPS=$(aws ec2 describe-images --image-ids "$AMI" \
+                --query 'Images[].BlockDeviceMappings[].Ebs.SnapshotId' --output text)
+              aws ec2 deregister-image --image-id "$AMI"
+              for SNAP in $SNAPS; do
+                aws ec2 delete-snapshot --snapshot-id "$SNAP" || true
+              done
+            fi
+          done

@@ -17,6 +17,8 @@ Published Functions
     Parse a boolean-valued environment variable.
 :func:`lineinfo_default`
     Default for the ``lineinfo`` compile setting (``CUBIE_LINEINFO``).
+:func:`cache_dir_default`
+    Default for the on-disk cache root (``CUBIE_CACHE_DIR``).
 
 Recognised Variables
 --------------------
@@ -25,9 +27,15 @@ Recognised Variables
     data (``-lineinfo``) for profilers such as Nsight Compute. Truthy
     values: ``1``, ``true``, ``yes``, ``on`` (case-insensitive). Default
     off.
+``CUBIE_CACHE_DIR``
+    Root directory for all on-disk caches (generated source, CellML
+    parse results, compiled kernels). Overridden by an explicit
+    :func:`cubie.cache_root.set_cache_root` call; defaults to
+    ``<current working directory>/generated`` when unset.
 """
 
 import os
+from typing import Optional
 
 _TRUTHY = frozenset({"1", "true", "yes", "on"})
 _FALSY = frozenset({"0", "false", "no", "off", ""})
@@ -74,3 +82,22 @@ def lineinfo_default() -> bool:
     ``Solver(lineinfo=...)`` arguments override this value.
     """
     return env_bool("CUBIE_LINEINFO", False)
+
+
+def cache_dir_default() -> Optional[str]:
+    """Return the environment-supplied on-disk cache root, if any.
+
+    Reads ``CUBIE_CACHE_DIR`` from the environment; an explicit
+    :func:`cubie.cache_root.set_cache_root` call overrides this value.
+    Empty and whitespace-only values are treated as unset.
+
+    Returns
+    -------
+    Optional[str]
+        The configured directory, or ``None`` when the variable is
+        unset or blank.
+    """
+    raw = os.environ.get("CUBIE_CACHE_DIR")
+    if raw is None or not raw.strip():
+        return None
+    return raw

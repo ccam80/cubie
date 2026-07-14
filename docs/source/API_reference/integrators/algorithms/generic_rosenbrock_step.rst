@@ -15,8 +15,8 @@ Defaults
 
 ``algorithm="rosenbrock"`` integrates with the ``ros3p`` tableau
 (three stages, order 3, with an embedded error estimate) under
-adaptive PID control (``kp=0.6``, ``ki=-0.4``, step-size growth
-clamped to 0.5–2.0×). Rosenbrock-W methods are linearly implicit —
+Gustafsson predictive control (step-size growth clamped to
+0.2–8.0×). Rosenbrock-W methods are linearly implicit —
 each stage performs one linear solve rather than a Newton
 iteration — so of the solver settings in
 :ref:`algorithm-defaults` only the Krylov and preconditioner
