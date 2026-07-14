@@ -29,20 +29,27 @@ jobs:
         run: packer init packer/windows-gpu.pkr.hcl
 
       - name: Build AMI
-        # Spot g4dn.xlarge capacity is per-Availability-Zone, and Packer
-        # pins a build to a single subnet (hence a single AZ). Sweep the
-        # default VPC's subnets (one per AZ) and take the first AZ with
-        # capacity -- automating AWS's own "choose another AZ" advice.
-        # Only an AZ-capacity error advances the sweep: any other Packer
-        # failure (WinRM timeout, driver install, security group, or a
-        # regional spot-quota miss that recurs in every AZ) short-circuits
-        # immediately, because a Windows bake can run 30-60 min per AZ and
-        # sweeping on a non-capacity error would waste hours. Set
-        # AWS_BUILD_SUBNET_ID to pin one subnet instead (e.g. no default
-        # VPC).
+        # Acquire a spot GPU instance, then bake. GPU spot capacity here is
+        # tight and shows up in brief, random windows (freed when some other
+        # load ends), so two nested retries chase it:
+        #  * AZ sweep (spatial): Packer pins a build to one subnet = one AZ
+        #    and capacity is per-AZ, so try each default-VPC subnet in turn.
+        #  * short fixed-interval rounds (temporal): a dry fleet fails in
+        #    ~6s, so poll frequently at a constant interval to catch a brief
+        #    window -- exponential backoff would just miss it by waiting
+        #    ever longer.
+        # Only a spot-acquisition miss (fleet yielded no instance) retries.
+        # A post-launch failure (WinRM, driver install) exits immediately
+        # with Packer's real code -- it would recur in every AZ and a
+        # Windows bake runs 30-60 min. A regional spot-quota miss
+        # (MaxSpotInstanceCountExceeded) skips the rest of that round's AZ
+        # sweep (all AZs share the quota) but still retries. Set
+        # AWS_BUILD_SUBNET_ID to pin one subnet (e.g. no default VPC).
         env:
           AWS_REGION: ${{ vars.AWS_REGION }}
           PINNED_SUBNET: ${{ vars.AWS_BUILD_SUBNET_ID }}
+          MAX_ROUNDS: "40"
+          RETRY_INTERVAL: "20"   # seconds between rounds; short and frequent
         run: |
           set -euo pipefail
           if [ -n "${PINNED_SUBNET:-}" ]; then
@@ -60,52 +67,49 @@ jobs:
             echo "No candidate subnets found; set AWS_BUILD_SUBNET_ID." >&2
             exit 1
           fi
-          # A spot-provisioning miss = the fleet yielded no instance.
-          # Packer prints "Error waiting for fleet request" only when
-          # len(instances)==0 (step_run_spot_instance.go), and every AWS
-          # capacity phrasing ("insufficient ... capacity", "no Spot
-          # capacity available", ...) is wrapped by it -- so match the
-          # wrapper, not the wording. Post-launch failures (WinRM, driver
-          # install; 30-60 min) happen in later steps with other messages
-          # and fall through to fail-fast. A regional spot-quota miss
-          # (MaxSpotInstanceCountExceeded) is checked first and NOT swept:
-          # every AZ shares that quota.
+          # "Error waiting for fleet request" is printed only when the fleet
+          # yields no instance (step_run_spot_instance.go); every AWS
+          # capacity phrasing is wrapped by it, so match the wrapper.
           FLEET_MISS_RE='Error waiting for fleet request|InsufficientInstanceCapacity|no Spot capacity available|capacity-not-available|insufficient .*capacity'
           echo "Candidate subnets (one per AZ): $SUBNETS"
-          swept=0
-          last_rc=1
-          for SN in $SUBNETS; do
-            echo "::group::packer build on subnet $SN"
-            set +e
-            packer build \
-              -var "region=$AWS_REGION" \
-              -var "subnet_id=$SN" \
-              packer/windows-gpu.pkr.hcl 2>&1 | tee packer.out
-            rc=${PIPESTATUS[0]}
-            set -e
-            echo "::endgroup::"
-            if [ "$rc" -eq 0 ]; then
-              echo "Bake succeeded in subnet $SN."
-              exit 0
-            fi
-            if grep -q "MaxSpotInstanceCountExceeded" packer.out; then
-              echo "Subnet $SN: regional spot quota exhausted (rc=$rc);" \
-                   "every AZ shares it, so not sweeping." >&2
+          for round in $(seq 1 "$MAX_ROUNDS"); do
+            echo "===== spot-acquisition round $round/$MAX_ROUNDS ====="
+            for SN in $SUBNETS; do
+              echo "::group::packer build on subnet $SN (round $round)"
+              set +e
+              packer build \
+                -var "region=$AWS_REGION" \
+                -var "subnet_id=$SN" \
+                packer/windows-gpu.pkr.hcl 2>&1 | tee packer.out
+              rc=${PIPESTATUS[0]}
+              set -e
+              echo "::endgroup::"
+              if [ "$rc" -eq 0 ]; then
+                echo "Bake succeeded in subnet $SN."
+                exit 0
+              fi
+              if grep -q "MaxSpotInstanceCountExceeded" packer.out; then
+                echo "Subnet $SN: regional spot quota exhausted (rc=$rc);" \
+                     "all AZs share it -- skipping to the next round." >&2
+                break
+              fi
+              if grep -Eq "$FLEET_MISS_RE" packer.out; then
+                echo "Subnet $SN: no spot capacity now (rc=$rc);" \
+                     "trying the next AZ."
+                continue
+              fi
+              echo "Subnet $SN: Packer failed after launch / for a" \
+                   "non-capacity reason (rc=$rc); not retrying." >&2
               exit "$rc"
+            done
+            if [ "$round" -lt "$MAX_ROUNDS" ]; then
+              echo "Round $round: no AZ had spot GPU capacity;" \
+                   "retrying in ${RETRY_INTERVAL}s..."
+              sleep "$RETRY_INTERVAL"
             fi
-            if grep -Eq "$FLEET_MISS_RE" packer.out; then
-              echo "Subnet $SN: fleet found no spot capacity (rc=$rc);" \
-                   "trying the next AZ."
-              swept=1
-              last_rc=$rc
-              continue
-            fi
-            echo "Subnet $SN: Packer failed after launch / for a" \
-                 "non-capacity reason (rc=$rc); not sweeping further." >&2
-            exit "$rc"
           done
-          echo "Every candidate AZ was out of spot capacity (swept=$swept)." >&2
-          exit "$last_rc"
+          echo "No spot GPU capacity after $MAX_ROUNDS rounds." >&2
+          exit 1
 
       - name: Deregister superseded cubie-win-gpu AMIs
         # Keep the most recent AMI; deregister older ones (and their

@@ -43,19 +43,24 @@ function Invoke-ExternalCommand {
 }
 
 function Get-LatestAwsGridDriverKey {
-    [xml]$listing = (Invoke-WebRequest -Uri "$driverBucketUrl/?prefix=latest/" -UseBasicParsing).Content
+    [xml]$listing = (Invoke-WebRequest -Uri "$driverBucketUrl/?prefix=latest/" `
+        -UseBasicParsing).Content
     $keys = @($listing.ListBucketResult.Contents | ForEach-Object { $_.Key })
 
+    # AWS ships one GRID DCH driver, e.g.
+    #   latest/596.36_grid_win10_win11_server2022_64bit_dch_international_aws_swl.exe
+    # It is a multi-OS DCH package that runs on Server 2025 too (there is no
+    # separate "server2025" build), so match any GRID .exe rather than a
+    # specific Windows version. The post-install Assert-CudaAtLeast13 guards
+    # against an unexpectedly old driver.
     $matchingKey = $keys |
-        Where-Object { $_ -match '^latest/.+server2025.+\.exe$' } |
+        Where-Object { $_ -match '^latest/.*grid.*\.exe$' } |
         Select-Object -First 1
 
-    # Fail loudly rather than fall back to an arbitrary .exe, which could be
-    # a wrong-OS (e.g. Server 2022) driver on this Server 2025 base.
     if (-not $matchingKey) {
         Write-Host "Available driver keys under latest/:"
         $keys | ForEach-Object { Write-Host "  $_" }
-        throw "No Windows Server 2025 GRID driver found under $driverBucketUrl/latest/."
+        throw "No AWS GRID driver (.exe) found under $driverBucketUrl/latest/."
     }
 
     return $matchingKey
