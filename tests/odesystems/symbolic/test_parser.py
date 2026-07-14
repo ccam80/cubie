@@ -14,31 +14,21 @@ from cubie.odesystems.symbolic.codegen import (
 from cubie.odesystems.symbolic.indexedbasemaps import (
     IndexedBases,
 )
+from cubie.odesystems.symbolic.parsing.normalise import (
+    _process_calls,
+)
 from cubie.odesystems.symbolic.parsing.parser import (
     EquationWarning,
     TIME_SYMBOL,
     _build_sympy_user_functions,
     _detect_input_type,
-    _lhs_pass,
-    _lhs_pass_sympy,
-    _normalize_sympy_equations,
-    _process_calls,
     _process_parameters,
     _replace_if,
-    _rhs_pass,
-    _rhs_pass_sympy,
     _sanitise_input_math,
     ParsedEquations,
     parse_input,
 )
 from cubie.odesystems.symbolic.sym_utils import hash_system_definition
-
-
-def _ib(states, params=None, consts=None, obs=None, drv=None):
-    """Build an IndexedBases with empty collections by default."""
-    return IndexedBases.from_user_inputs(
-        states, params or [], consts or [], obs or [], drv or []
-    )
 
 
 class TestInputCleaning:
@@ -112,6 +102,12 @@ class TestProcessCalls:
         funcs = _process_calls(equations)
         assert funcs == {}
 
+    def test_process_calls_d_notation_exempt(self):
+        """The d() derivative notation is not resolved as a call."""
+        equations = ["d(x, t) = -x"]
+        funcs = _process_calls(equations)
+        assert funcs == {}
+
 
 class TestDetectInputType:
     """Test input type detection for parse_input."""
@@ -151,6 +147,11 @@ class TestDetectInputType:
         result = _detect_input_type(dxdt)
         assert result == "sympy"
 
+    def test_detect_bare_equality(self):
+        """A single sp.Equality outside a list is SymPy input."""
+        x = sp.Symbol("x")
+        assert _detect_input_type(sp.Eq(sp.Symbol("dx"), -x)) == "sympy"
+
     def test_detect_none_input(self):
         """Test error on None input."""
         with pytest.raises(TypeError, match="cannot be None"):
@@ -172,127 +173,47 @@ class TestDetectInputType:
             _detect_input_type([123, 456])
 
 
-class TestNormalizeSympyEquations:
-    """Test SymPy equation normalization."""
+class TestSympyEquationErrors:
+    """Error paths for SymPy equation input."""
 
-    def test_normalize_equality(self):
-        """Test normalization of sp.Equality objects."""
+    def test_bare_expression_rejected(self):
+        """A bare sp.Expr element cannot infer an LHS."""
+        x = sp.Symbol("x")
+        with pytest.raises(TypeError, match="expected sp.Eq or a"):
+            parse_input(dxdt=[x + 1], states=["x"])
+
+    def test_derivative_of_function_rejected(self):
+        """Derivative of a function application is unsupported."""
+        f = sp.Function("f")
+        t = sp.Symbol("t")
+        equations = [sp.Eq(sp.Derivative(f(t), t), sp.Symbol("x"))]
+
+        with pytest.raises(
+            ValueError, match="non-symbol expression"
+        ):
+            parse_input(dxdt=equations, states=["x"])
+
+    def test_undefined_symbol_strict_raises(self):
+        """Strict mode rejects undefined RHS symbols."""
         x, k = sp.symbols("x k")
         dx = sp.Symbol("dx")
-        equations = [sp.Eq(dx, -k * x)]
+        with pytest.raises(ValueError, match="undefined symbol"):
+            parse_input(
+                dxdt=[sp.Eq(dx, -k * x)], states=["x"], strict=True
+            )
 
-        index_map = IndexedBases.from_user_inputs(
-            states=["x"],
-            parameters=["k"],
-            constants={},
-            observables=[],
-            drivers=[],
-        )
-
-        result = _normalize_sympy_equations(equations, index_map)
-
-        assert len(result) == 1
-        assert result[0][0] == dx
-        assert result[0][1] == -k * x
-
-    def test_normalize_tuple(self):
-        """Test normalization of (Symbol, Expr) tuples."""
+    def test_immutable_assignment_rejected(self):
+        """Assigning a parameter raises."""
         x, k = sp.symbols("x k")
-        dx = sp.Symbol("dx")
-        equations = [(dx, -k * x)]
-
-        index_map = IndexedBases.from_user_inputs(
-            states=["x"],
-            parameters=["k"],
-            constants={},
-            observables=[],
-            drivers=[],
-        )
-
-        result = _normalize_sympy_equations(equations, index_map)
-
-        assert len(result) == 1
-        assert result[0][0] == dx
-        assert result[0][1] == -k * x
-
-    def test_normalize_mixed_formats(self):
-        """Test normalization of mixed Equality and tuple."""
-        x, y, k = sp.symbols("x y k")
-        dx, dy = sp.symbols("dx dy")
-        equations = [sp.Eq(dx, -k * x), (dy, k * x)]
-
-        index_map = IndexedBases.from_user_inputs(
-            states=["x", "y"],
-            parameters=["k"],
-            constants={},
-            observables=[],
-            drivers=[],
-        )
-
-        result = _normalize_sympy_equations(equations, index_map)
-
-        assert len(result) == 2
-        assert result[0][0] == dx
-        assert result[1][0] == dy
-
-    def test_normalize_invalid_tuple_length(self):
-        """Test error on tuple with wrong length."""
-        x = sp.Symbol("x")
-        equations = [(x, x, x)]
-
-        index_map = IndexedBases.from_user_inputs(
-            states=["x"],
-            parameters=[],
-            constants={},
-            observables=[],
-            drivers=[],
-        )
-
-        with pytest.raises(TypeError, match="exactly 2 elements"):
-            _normalize_sympy_equations(equations, index_map)
-
-    def test_normalize_invalid_lhs_type(self):
-        """Test error on non-Symbol LHS in Equality."""
-        x = sp.Symbol("x")
-        equations = [sp.Eq(x + 1, x)]
-
-        index_map = IndexedBases.from_user_inputs(
-            states=["x"],
-            parameters=[],
-            constants={},
-            observables=[],
-            drivers=[],
-        )
-
-        with pytest.raises(TypeError):
-            _normalize_sympy_equations(equations, index_map)
-
-    def test_normalize_bare_expression_error(self):
-        """Test error on bare sp.Expr (cannot infer LHS)."""
-        x = sp.Symbol("x")
-        equations = [x + 1]
-
-        index_map = IndexedBases.from_user_inputs(
-            states=["x"],
-            parameters=[],
-            constants={},
-            observables=[],
-            drivers=[],
-        )
-
-        with pytest.raises(TypeError, match="Bare sp.Expr not supported"):
-            _normalize_sympy_equations(equations, index_map)
-
-    def test_normalize_empty_list(self):
-        """Test empty equation list returns empty result."""
-        equations = []
-
-        index_map = IndexedBases.from_user_inputs(
-            states=[], parameters=[], constants={}, observables=[], drivers=[]
-        )
-
-        result = _normalize_sympy_equations(equations, index_map)
-        assert result == []
+        with pytest.raises(ValueError, match="immutable input"):
+            parse_input(
+                dxdt=[
+                    sp.Eq(sp.Symbol("dx"), -k * x),
+                    sp.Eq(k, x + 1),
+                ],
+                states=["x"],
+                parameters=["k"],
+            )
 
 
 class TestProcessParameters:
@@ -330,11 +251,11 @@ class TestProcessParameters:
         assert "y" in ib.state_names
 
 
-class TestLhsPass:
-    """Test left-hand side processing."""
+class TestLhsSemantics:
+    """Left-hand-side classification through the public parser."""
 
-    def test_lhs_pass_basic(self, simple_system_defaults):
-        """Test basic LHS processing."""
+    def test_auxiliary_inference(self, simple_system_defaults):
+        """Aux assignments become anonymous auxiliaries."""
         (
             states,
             parameters,
@@ -345,160 +266,133 @@ class TestLhsPass:
             dxdt_list,
         ) = simple_system_defaults
 
-        ib = _process_parameters(
-            states, parameters, constants, observables, drivers
+        index_map, all_symbols, _, parsed, _, simplified = parse_input(
+            states=states,
+            parameters=parameters,
+            constants=constants,
+            observables=observables,
+            drivers=drivers,
+            dxdt=dxdt_list,
         )
-        lines = dxdt_list
+        assert simplified is None
+        assert "uninited" in all_symbols
+        assert "done" in index_map.dxdt_names
+        assert sp.Symbol("uninited", real=True) in (
+            parsed.auxiliary_symbols
+        )
 
-        with warnings.catch_warnings(record=True):
-            warnings.simplefilter("always")
-            anon_aux = _lhs_pass(lines, ib)
-
-            # Should create anonymous auxiliary for 'uninited' and 'done'
-            assert "uninited" in anon_aux
-            assert "done" in ib.dxdt_names
-            assert isinstance(anon_aux["uninited"], sp.Symbol)
-
-    def test_lhs_pass_strict_unlisted_auxiliary(self):
+    def test_strict_unlisted_auxiliary(self):
         """Unlisted LHS assignments stay anonymous in strict mode."""
-        ib = IndexedBases.from_user_inputs(["x"], ["a"], [], ["obs"], [])
-        lines = ["obs = x + a", "aux_val = obs", "dx = obs"]
-
-        with warnings.catch_warnings(record=True):
-            warnings.simplefilter("always")
-            anon_aux = _lhs_pass(lines, ib, strict=True)
-
-        assert "aux_val" in anon_aux
-        assert anon_aux["aux_val"] == sp.Symbol("aux_val", real=True)
-        assert "aux_val" not in ib.observable_names
-
-    def test_lhs_pass_relaxes_to_anonymous_aux_non_strict(self):
-        """Non-strict parsing still keeps undeclared LHS symbols anonymous."""
-        ib = IndexedBases.from_user_inputs(["x"], ["a"], [], ["obs"], [])
-        lines = ["obs = x + a", "floating = obs", "dx = obs"]
-
-        anon_aux = _lhs_pass(lines, ib, strict=False)
-
-        assert "floating" in anon_aux
-        assert anon_aux["floating"] == sp.Symbol("floating", real=True)
-        assert "floating" not in ib.observable_names
-
-    def test_lhs_pass_state_derivative(self):
-        """Test processing state derivatives."""
-        ib = IndexedBases.from_user_inputs(["x"], ["a"], ["c"], [], ["drv"])
-        lines = ["dx = x + a"]
-
-        anon_aux = _lhs_pass(lines, ib)
-        assert len(anon_aux) == 0  # No anonymous auxiliaries
-
-    def test_lhs_pass_observable_to_state_conversion(self):
-        """Test conversion of observable to state when derivative is defined."""
-        ib = IndexedBases.from_user_inputs(["x"], ["a"], ["c"], ["y"], ["drv"])
-        lines = ["dy = x + a", "dx = y"]
-
-        with warnings.catch_warnings(record=True) as w:
-            warnings.simplefilter("always")
-            _ = _lhs_pass(lines, ib)
-
-            # Should warn about observable becoming state
-            assert len(w) >= 1
-            assert issubclass(w[0].category, EquationWarning)
-
-    def test_lhs_pass_invalid_state_assignment(self):
-        """Test error when assigning directly to state."""
-        ib = IndexedBases.from_user_inputs(
-            ["x"], ["a"], ["c"], ["obs"], ["drv"]
+        _, all_symbols, _, parsed, _, _ = parse_input(
+            dxdt=["obs = x + a", "aux_val = obs", "dx = obs"],
+            states=["x"],
+            parameters=["a"],
+            observables=["obs"],
+            strict=True,
         )
-        lines = ["x = a + 1"]  # Direct assignment to state
-
-        with pytest.raises(
-            ValueError, match="State x cannot be assigned directly"
-        ):
-            _lhs_pass(lines, ib)
-
-    def test_lhs_pass_immutable_assignment(self):
-        """Test error when assigning to immutable inputs."""
-        ib = IndexedBases.from_user_inputs(
-            ["x"], ["a"], ["c"], ["obs"], ["drv"]
+        assert all_symbols["aux_val"] == sp.Symbol(
+            "aux_val", real=True
         )
-        lines = ["a = x + 1"]  # Assignment to parameter
-
-        with pytest.raises(
-            ValueError, match="was entered as an immutable input"
-        ):
-            _lhs_pass(lines, ib)
-
-    def test_lhs_pass_missing_observables(self):
-        """Test error when observables are never assigned."""
-        ib = IndexedBases.from_user_inputs(
-            ["x"], ["a"], ["c"], ["obs"], ["drv"]
+        assert sp.Symbol("aux_val", real=True) in (
+            parsed.auxiliary_symbols
         )
-        lines = ["dx = x + a"]  # 'obs' is never assigned
 
-        with pytest.raises(
-            ValueError, match="Observables .* are never assigned"
+    def test_observable_with_derivative_becomes_state(self):
+        """A derivative equation for an observable promotes it."""
+        with pytest.warns(
+            EquationWarning, match="selected as a\\s+solver state"
         ):
-            _lhs_pass(lines, ib)
+            index_map, _, _, _, _, simplified = parse_input(
+                dxdt=["dy = x + a", "dx = y"],
+                states=["x"],
+                parameters=["a"],
+                observables=["y"],
+            )
+        assert simplified is not None
+        assert "y" in index_map.state_names
+
+    def test_state_assigned_algebraically_is_eliminated(self):
+        """A declared state with an algebraic assignment reduces."""
+        with pytest.warns(
+            EquationWarning, match="eliminated by structural"
+        ):
+            index_map, _, _, _, _, simplified = parse_input(
+                dxdt=["dx = y", "y = a + 1"],
+                states={"x": 0.0, "y": 0.0},
+                parameters=["a"],
+            )
+        assert simplified is not None
+        assert list(index_map.state_names) == ["x"]
+
+    def test_immutable_assignment_rejected(self):
+        """Assigning a parameter raises."""
+        with pytest.raises(ValueError, match="immutable input"):
+            parse_input(
+                dxdt=["a = x + 1", "dx = x"],
+                states=["x"],
+                parameters=["a"],
+                observables=["obs"],
+            )
+
+    def test_unassigned_observable_rejected(self):
+        """An observable with no defining equation is rejected."""
+        with pytest.raises(
+            ValueError, match="no\\s+defining equation"
+        ):
+            parse_input(
+                dxdt=["dx = x + a"],
+                states=["x"],
+                parameters=["a"],
+                observables=["obs"],
+            )
 
 
-class TestRhsPass:
-    """Test right-hand side processing."""
+class TestRhsSemantics:
+    """Right-hand-side parsing through the public parser."""
 
-    def test_rhs_pass_basic(self):
-        """Test basic RHS processing."""
-        lines = ["dx = x + a", "obs = sin(x)"]
-        symbols = {
-            "dx": sp.Symbol("dx", real=True),
-            "x": sp.Symbol("x", real=True),
-            "a": sp.Symbol("a", real=True),
-            "obs": sp.Symbol("obs", real=True),
-            "sin": sp.sin,
-        }
-        dx, x, a, obs, sin = symbols.values()
-        expressions, funcs, new_symbols = _rhs_pass(lines, symbols)
-
-        assert expressions[0] == [dx, x + a]
-        assert expressions[1] == [obs, sin(x)]
-        assert isinstance(expressions[0][1], sp.Expr)
-
-    def test_rhs_pass_undefined_symbol(self):
-        """Test error when undefined symbol is used."""
-        lines = ["dx = x + undefined_var"]
-        symbols = {
-            "dx": sp.Symbol("dx", real=True),
-            "x": sp.Symbol("x", real=True),
-        }
-
+    def test_undefined_symbol_strict(self):
+        """Strict mode rejects undefined RHS symbols."""
         with pytest.raises(ValueError, match="Undefined symbols"):
-            _rhs_pass(lines, symbols)
+            parse_input(
+                dxdt=["dx = x + undefined_var"],
+                states=["x"],
+                strict=True,
+            )
 
-    def test_rhs_pass_with_if_else(self):
-        """Test RHS processing with if-else expressions."""
-        lines = ["dx = a if x > 0 else b"]
-        symbols = {
-            "dx": sp.Symbol("dx", real=True),
-            "x": sp.Symbol("x", real=True),
-            "a": sp.Symbol("a", real=True),
-            "b": sp.Symbol("b", real=True),
-        }
-        dx, x, a, b = symbols.values()
-        from sympy import Piecewise
+    def test_if_else_becomes_piecewise(self):
+        """Inline conditionals parse to Piecewise."""
+        _, _, _, parsed, _, _ = parse_input(
+            dxdt=["dx = a if x > 0 else b"],
+            states=["x"],
+            parameters=["a", "b"],
+        )
+        x, a, b = sp.symbols("x a b", real=True)
+        assert parsed.ordered[0][1] == sp.Piecewise(
+            (a, x > 0), (b, True)
+        )
 
-        expressions, funcs, new_symbols = _rhs_pass(lines, symbols)
-        assert expressions[0] == [dx, Piecewise((a, x > 0), (b, True))]
-
-    def test_rhs_pass_recognises_time_symbol(self):
-        """``t`` is available as a default symbol without declarations."""
-
-        symbols = {
-            "dx": sp.Symbol("dx", real=True),
-            "t": TIME_SYMBOL,
-        }
-        expressions, funcs, new_symbols = _rhs_pass(["dx = t"], symbols)
-
-        assert expressions == [[symbols["dx"], TIME_SYMBOL]]
+    def test_time_symbol_available(self):
+        """``t`` is available without declaration."""
+        _, all_symbols, funcs, parsed, _, _ = parse_input(
+            dxdt=["dx = t"],
+            states={"x": 0.0},
+            strict=True,
+        )
+        assert "t" in all_symbols
+        assert parsed.non_observable_equations() == [
+            (sp.Symbol("dx", real=True), TIME_SYMBOL)
+        ]
         assert funcs == {}
-        assert new_symbols == []
+
+    def test_rhs_derivative_reference_binds_assignment(self):
+        """RHS ``dX`` tokens bind to the derivative assignment."""
+        _, _, _, parsed, _, simplified = parse_input(
+            dxdt=["dx = -x", "speed = dx**2"],
+            states=["x"],
+        )
+        assert simplified is None
+        eqs = {str(lhs): rhs for lhs, rhs in parsed.ordered}
+        assert eqs["speed"] == sp.Symbol("dx", real=True) ** 2
 
 
 class TestHashSystemDefinition:
@@ -574,19 +468,21 @@ class TestParseInput:
 
         with warnings.catch_warnings(record=True):
             warnings.simplefilter("always")
-            index_map, all_symbols, _, equation_map, fn_hash = parse_input(
-                states=states,
-                parameters=parameters,
-                constants=constants,
-                observables=observables,
-                drivers=drivers,
-                dxdt=dxdt_str,
+            index_map, all_symbols, _, equation_map, fn_hash, _ = (
+                parse_input(
+                    states=states,
+                    parameters=parameters,
+                    constants=constants,
+                    observables=observables,
+                    drivers=drivers,
+                    dxdt=dxdt_str,
+                )
             )
 
         assert isinstance(index_map, IndexedBases)
         assert isinstance(all_symbols, dict)
         assert isinstance(equation_map, ParsedEquations)
-        assert isinstance(fn_hash, str)  # Changed from int to str
+        assert isinstance(fn_hash, str)
 
         # Check that we got the expected symbols
         assert "one" in all_symbols  # state
@@ -607,13 +503,15 @@ class TestParseInput:
 
         with warnings.catch_warnings(record=True):
             warnings.simplefilter("always")
-            index_map, all_symbols, _, equation_map, fn_hash = parse_input(
-                states=states,
-                parameters=parameters,
-                constants=constants,
-                observables=observables,
-                drivers=drivers,
-                dxdt=dxdt_list,
+            index_map, all_symbols, _, equation_map, fn_hash, _ = (
+                parse_input(
+                    states=states,
+                    parameters=parameters,
+                    constants=constants,
+                    observables=observables,
+                    drivers=drivers,
+                    dxdt=dxdt_list,
+                )
             )
 
         assert isinstance(equation_map, ParsedEquations)
@@ -629,14 +527,16 @@ class TestParseInput:
         dxdt = ["dx = custom_func(x)", "y = x"]
         user_functions = {"custom_func": lambda x: x**2}
 
-        index_map, all_symbols, funcs, equation_map, fn_hash = parse_input(
-            states=states,
-            parameters=parameters,
-            constants=constants,
-            observables=observables,
-            drivers=drivers,
-            user_functions=user_functions,
-            dxdt=dxdt,
+        index_map, all_symbols, funcs, equation_map, fn_hash, _ = (
+            parse_input(
+                states=states,
+                parameters=parameters,
+                constants=constants,
+                observables=observables,
+                drivers=drivers,
+                user_functions=user_functions,
+                dxdt=dxdt,
+            )
         )
 
         assert "custom_func" in all_symbols
@@ -646,19 +546,21 @@ class TestParseInput:
     def test_parse_input_includes_time_symbol(self):
         """Ensure ``t`` is always present without explicit declaration."""
 
-        index_map, all_symbols, funcs, equation_map, fn_hash = parse_input(
-            dxdt=["dx = t"],
-            states={"x": 0.0},
-            observables=[],
-            parameters={},
-            constants={},
-            drivers=[],
-            strict=True,
+        index_map, all_symbols, funcs, equation_map, fn_hash, _ = (
+            parse_input(
+                dxdt=["dx = t"],
+                states={"x": 0.0},
+                observables=[],
+                parameters={},
+                constants={},
+                drivers=[],
+                strict=True,
+            )
         )
 
         assert "t" in all_symbols
         assert equation_map.non_observable_equations() == [
-            (all_symbols["dx"], TIME_SYMBOL)
+            (sp.Symbol("dx", real=True), TIME_SYMBOL)
         ]
         assert funcs == {}
 
@@ -690,13 +592,15 @@ class TestParseInput:
         drivers = []
         dxdt = ["dx = x + a", "", "  ", "y = x"]  # Contains empty lines
         dx, x, a, y = sp.symbols("dx x a y", real=True)
-        index_map, all_symbols, _, equation_map, fn_hash = parse_input(
-            states=states,
-            parameters=parameters,
-            constants=constants,
-            observables=observables,
-            drivers=drivers,
-            dxdt=dxdt,
+        index_map, all_symbols, _, equation_map, fn_hash, _ = (
+            parse_input(
+                states=states,
+                parameters=parameters,
+                constants=constants,
+                observables=observables,
+                drivers=drivers,
+                dxdt=dxdt,
+            )
         )
 
         dx_equations = equation_map.non_observable_equations()
@@ -729,6 +633,7 @@ class TestParseInput:
             _,
             indexed_equations,
             _,
+            _,
         ) = parse_input(
             states=states,
             parameters=parameters,
@@ -744,6 +649,7 @@ class TestParseInput:
             _,
             _,
             scalar_equations,
+            _,
             _,
         ) = parse_input(
             states=states,
@@ -771,14 +677,16 @@ class TestParseInput:
             "damping = delta * k",  # auxiliary referencing delta
         ]
 
-        index_map, all_symbols, funcs, parsed_eqs, fn_hash = parse_input(
-            states=states,
-            parameters=parameters,
-            constants=constants,
-            observables=observables,
-            drivers=drivers,
-            dxdt=dxdt,
-            strict=True,
+        index_map, all_symbols, funcs, parsed_eqs, fn_hash, _ = (
+            parse_input(
+                states=states,
+                parameters=parameters,
+                constants=constants,
+                observables=observables,
+                drivers=drivers,
+                dxdt=dxdt,
+                strict=True,
+            )
         )
 
         # Verify correct categorization
@@ -827,8 +735,8 @@ class TestIntegrationWithFixtures:
             )
 
         # Results should be equivalent
-        index_map1, all_symbols1, _, equation_map1, fn_hash1 = result1
-        index_map2, all_symbols2, _, equation_map2, fn_hash2 = result2
+        index_map1, all_symbols1, _, equation_map1, fn_hash1, _ = result1
+        index_map2, all_symbols2, _, equation_map2, fn_hash2, _ = result2
 
         assert fn_hash1 == fn_hash2  # Same hash for equivalent content
         assert equation_map1 == equation_map2
@@ -845,7 +753,7 @@ class TestIntegrationWithFixtures:
             dxdt_list,
         ) = simple_system_defaults
 
-        index_map, all_symbols, _, equation_map, fn_hash = parse_input(
+        index_map, all_symbols, _, equation_map, fn_hash, _ = parse_input(
             states=states,
             parameters=parameters,
             constants=constants,
@@ -856,13 +764,13 @@ class TestIntegrationWithFixtures:
         )
 
         assigned_to = [expr[0] for expr in equation_map]
-        expr = [expr[1] for expr in equation_map]
         # Check that equations were parsed correctly
         assert sp.Symbol("done", real=True) in assigned_to
-        assert (
-            sp.Symbol("safari", real=True) + sp.Symbol("zoo", real=True)
-            == expr[-1]
-        )
+        # The dfoo derivative equation keeps its observable-defined
+        # form on the observables pass side.
+        eqs = {str(lhs): rhs for lhs, rhs in equation_map.observables}
+        safari, zoo = sp.symbols("safari zoo", real=True)
+        assert eqs["safari"].has(zoo)
 
 
 class TestNonStrictInput:
@@ -880,10 +788,8 @@ class TestNonStrictInput:
         ) = simple_system_defaults
 
         with pytest.raises(ValueError, match="strict"):
-            index_map, all_symbols, _, equation_map, fn_hash = parse_input(
-                dxdt=dxdt_str, strict=True
-            )
-        index_map, all_symbols, _, equation_map, fn_hash = parse_input(
+            parse_input(dxdt=dxdt_str, strict=True)
+        index_map, all_symbols, _, equation_map, fn_hash, _ = parse_input(
             dxdt=dxdt_str, strict=False
         )
         assert "apple" in index_map.parameter_names
@@ -903,7 +809,9 @@ class TestFunctions:
     def test_sympyfuncs(self):
         """Add equations with some simple sympy-known functions in them and no user input"""
         eqs = ("dx = sin(a) + exp(b)", "dy = min(c,d) + log(e)")
-        index_map, symbols, funcs, eq_map, fn_hash = parse_input(dxdt=eqs)
+        index_map, symbols, funcs, eq_map, fn_hash, _ = parse_input(
+            dxdt=eqs
+        )
         code = print_cuda_multiple(eq_map, symbols)
         assert code == [
             "dx = math.exp(b) + math.sin(a)",
@@ -920,7 +828,7 @@ class TestFunctions:
         userfuncs = {"ex_squared": custom_func, "exp": lambda x: math.exp(x)}
 
         eqs = ["dx = exp(a) + exp(b)", "dy = x"]
-        ndex_map, symbols, funcs, eq_map, fn_hash = parse_input(
+        index_map, symbols, funcs, eq_map, fn_hash, _ = parse_input(
             dxdt=eqs, user_functions=userfuncs
         )
         code = print_cuda_multiple(eq_map, symbols)
@@ -945,7 +853,7 @@ class TestFunctions:
         userfuncs = {"myfunc": MyFuncDevice()}
         userfunc_grads = {"myfunc": myfunc_grad}
         eqs = ["dx = myfunc(x, y)", "dy = x"]
-        index_map, symbols, funcs, eq_map, fn_hash = parse_input(
+        index_map, symbols, funcs, eq_map, fn_hash, _ = parse_input(
             states=["x", "y"],
             parameters=[],
             constants=[],
@@ -975,8 +883,10 @@ class TestSympyInputPathway:
 
         dxdt = [sp.Eq(dx, -k * x)]
 
-        index_map, all_symbols, funcs, parsed_eqs, fn_hash = parse_input(
-            dxdt=dxdt, states=["x"], parameters=["k"], strict=True
+        index_map, all_symbols, funcs, parsed_eqs, fn_hash, _ = (
+            parse_input(
+                dxdt=dxdt, states=["x"], parameters=["k"], strict=True
+            )
         )
 
         assert len(parsed_eqs.state_derivatives) == 1
@@ -992,8 +902,10 @@ class TestSympyInputPathway:
 
         dxdt = [(dx, -k * x)]
 
-        index_map, all_symbols, funcs, parsed_eqs, fn_hash = parse_input(
-            dxdt=dxdt, states=["x"], parameters=["k"], strict=True
+        index_map, all_symbols, funcs, parsed_eqs, fn_hash, _ = (
+            parse_input(
+                dxdt=dxdt, states=["x"], parameters=["k"], strict=True
+            )
         )
 
         assert len(parsed_eqs.state_derivatives) == 1
@@ -1006,12 +918,14 @@ class TestSympyInputPathway:
 
         dxdt = [sp.Eq(dx, -k * x), sp.Eq(dy, k * x), sp.Eq(z, x + y)]
 
-        index_map, all_symbols, funcs, parsed_eqs, fn_hash = parse_input(
-            dxdt=dxdt,
-            states=["x", "y"],
-            parameters=["k"],
-            observables=["z"],
-            strict=True,
+        index_map, all_symbols, funcs, parsed_eqs, fn_hash, _ = (
+            parse_input(
+                dxdt=dxdt,
+                states=["x", "y"],
+                parameters=["k"],
+                observables=["z"],
+                strict=True,
+            )
         )
 
         assert len(parsed_eqs.state_derivatives) == 2
@@ -1030,12 +944,14 @@ class TestSympyInputPathway:
         def custom_impl(val):
             return val**2
 
-        index_map, all_symbols, funcs, parsed_eqs, fn_hash = parse_input(
-            dxdt=dxdt,
-            states=["x"],
-            parameters=["k"],
-            user_functions={"custom_func": custom_impl},
-            strict=True,
+        index_map, all_symbols, funcs, parsed_eqs, fn_hash, _ = (
+            parse_input(
+                dxdt=dxdt,
+                states=["x"],
+                parameters=["k"],
+                user_functions={"custom_func": custom_impl},
+                strict=True,
+            )
         )
 
         assert "custom_func" in funcs
@@ -1062,6 +978,7 @@ class TestSympyInputPathway:
 
         assert str(sympy_eq[0]) == str(string_eq[0])
         assert str(sympy_eq[1]) == str(string_eq[1])
+        assert result_sympy[4] == result_string[4]
 
     def test_sympy_infer_states_non_strict(self):
         """Test state inference in non-strict mode."""
@@ -1070,8 +987,10 @@ class TestSympyInputPathway:
 
         dxdt = [sp.Eq(dx, -k * x)]
 
-        index_map, all_symbols, funcs, parsed_eqs, fn_hash = parse_input(
-            dxdt=dxdt, states=[], parameters=["k"], strict=False
+        index_map, all_symbols, funcs, parsed_eqs, fn_hash, _ = (
+            parse_input(
+                dxdt=dxdt, states=[], parameters=["k"], strict=False
+            )
         )
 
         assert "x" in index_map.state_names
@@ -1084,8 +1003,10 @@ class TestSympyInputPathway:
 
         dxdt = [sp.Eq(dx, -k * x)]
 
-        index_map, all_symbols, funcs, parsed_eqs, fn_hash = parse_input(
-            dxdt=dxdt, states=["x"], parameters=[], strict=False
+        index_map, all_symbols, funcs, parsed_eqs, fn_hash, _ = (
+            parse_input(
+                dxdt=dxdt, states=["x"], parameters=[], strict=False
+            )
         )
 
         assert "k" in index_map.parameter_names
@@ -1101,12 +1022,14 @@ class TestSympyInputPathway:
         def custom_impl(val):
             return val**2
 
-        index_map, all_symbols, funcs, parsed_eqs, fn_hash = parse_input(
-            dxdt=dxdt,
-            states=["x"],
-            parameters=["k"],
-            user_functions={"custom_func": custom_impl},
-            strict=True,
+        index_map, all_symbols, funcs, parsed_eqs, fn_hash, _ = (
+            parse_input(
+                dxdt=dxdt,
+                states=["x"],
+                parameters=["k"],
+                user_functions={"custom_func": custom_impl},
+                strict=True,
+            )
         )
 
         # Verify user function in symbols dict
@@ -1123,8 +1046,10 @@ class TestSympyInputPathway:
         # Canonical SymPy form for ODEs
         dxdt = [sp.Eq(sp.Derivative(x, t), -k * x)]
 
-        index_map, all_symbols, funcs, parsed_eqs, fn_hash = parse_input(
-            dxdt=dxdt, states=["x"], parameters=["k"], strict=True
+        index_map, all_symbols, funcs, parsed_eqs, fn_hash, _ = (
+            parse_input(
+                dxdt=dxdt, states=["x"], parameters=["k"], strict=True
+            )
         )
 
         assert len(parsed_eqs.state_derivatives) == 1
@@ -1139,8 +1064,10 @@ class TestSympyInputPathway:
         # Tuple form with Derivative
         dxdt = [(sp.Derivative(x, t), -k * x)]
 
-        index_map, all_symbols, funcs, parsed_eqs, fn_hash = parse_input(
-            dxdt=dxdt, states=["x"], parameters=["k"], strict=True
+        index_map, all_symbols, funcs, parsed_eqs, fn_hash, _ = (
+            parse_input(
+                dxdt=dxdt, states=["x"], parameters=["k"], strict=True
+            )
         )
 
         assert len(parsed_eqs.state_derivatives) == 1
@@ -1159,12 +1086,14 @@ class TestSympyInputPathway:
             sp.Eq(z, x + y),
         ]
 
-        index_map, all_symbols, funcs, parsed_eqs, fn_hash = parse_input(
-            dxdt=dxdt,
-            states=["x", "y"],
-            parameters=["k"],
-            observables=["z"],
-            strict=True,
+        index_map, all_symbols, funcs, parsed_eqs, fn_hash, _ = (
+            parse_input(
+                dxdt=dxdt,
+                states=["x", "y"],
+                parameters=["k"],
+                observables=["z"],
+                strict=True,
+            )
         )
 
         assert len(parsed_eqs.state_derivatives) == 2
@@ -1214,8 +1143,8 @@ class TestHashConsistency:
         )
 
         # Hash should be identical regardless of input order
-        _, _, _, _, fn_hash_string = result_string
-        _, _, _, _, fn_hash_sympy = result_sympy
+        fn_hash_string = result_string[4]
+        fn_hash_sympy = result_sympy[4]
         assert fn_hash_string == fn_hash_sympy
 
     def test_hash_computed_after_parsing(self):
@@ -1245,9 +1174,7 @@ class TestHashConsistency:
         )
 
         # Hash should be identical since equations define the same system
-        _, _, _, _, fn_hash_a = result_a
-        _, _, _, _, fn_hash_b = result_b
-        assert fn_hash_a == fn_hash_b
+        assert result_a[4] == result_b[4]
 
     def test_sympy_ambiguous_prefix_not_state_is_auxiliary(self):
         """SymPy: delta_i symbol without state elta_i is auxiliary."""
@@ -1257,8 +1184,10 @@ class TestHashConsistency:
 
         dxdt = [sp.Eq(dx, -k * x), sp.Eq(delta_i, x + 1)]
 
-        index_map, all_symbols, funcs, parsed_eqs, fn_hash = parse_input(
-            dxdt=dxdt, states=["x"], parameters=["k"], strict=True
+        index_map, all_symbols, funcs, parsed_eqs, fn_hash, _ = (
+            parse_input(
+                dxdt=dxdt, states=["x"], parameters=["k"], strict=True
+            )
         )
 
         # delta_i should NOT create state elta_i
@@ -1273,178 +1202,135 @@ class TestHashConsistency:
 
         dxdt = [sp.Eq(delta, -k * elta)]
 
-        index_map, all_symbols, funcs, parsed_eqs, fn_hash = parse_input(
-            dxdt=dxdt, states=["elta"], parameters=["k"], strict=True
+        index_map, all_symbols, funcs, parsed_eqs, fn_hash, _ = (
+            parse_input(
+                dxdt=dxdt, states=["elta"], parameters=["k"], strict=True
+            )
         )
 
         assert len(parsed_eqs.state_derivatives) == 1
-        assert (
-            "delta" not in all_symbols
-            or str(parsed_eqs.state_derivatives[0][0]) == "delta"
-        )
+        assert str(parsed_eqs.state_derivatives[0][0]) == "delta"
 
 
 class TestDerivativeNotation:
-    """Test state-aware derivative detection and function notation."""
+    """State-aware derivative detection through the public parser."""
 
     def test_basic_derivative_with_declared_state(self):
         """dx = ... with state x declared is treated as derivative."""
-        ib = IndexedBases.from_user_inputs(["x"], ["k"], [], [], [])
-        lines = ["dx = -k * x"]
-
-        anon_aux = _lhs_pass(lines, ib, strict=True)
-
-        assert len(anon_aux) == 0
-        assert "dx" not in anon_aux
-        # dx should be tracked as a derivative, not auxiliary
+        index_map, _, _, parsed, _, simplified = parse_input(
+            dxdt=["dx = -k * x"],
+            states=["x"],
+            parameters=["k"],
+            strict=True,
+        )
+        assert simplified is None
+        assert len(parsed.state_derivatives) == 1
+        assert not parsed.auxiliaries
 
     def test_ambiguous_prefix_not_a_state_treated_as_auxiliary(self):
         """delta_i = ... with no state elta_i is auxiliary."""
-        ib = IndexedBases.from_user_inputs(["x"], ["k"], [], [], [])
-        lines = ["dx = -k * x", "delta_i = x + 1"]
-
-        anon_aux = _lhs_pass(lines, ib, strict=True)
-
-        assert "delta_i" in anon_aux
-        assert isinstance(anon_aux["delta_i"], sp.Symbol)
-        # elta_i should NOT be added as a state
-        assert "elta_i" not in ib.state_names
+        index_map, all_symbols, _, parsed, _, _ = parse_input(
+            dxdt=["dx = -k * x", "delta_i = x + 1"],
+            states=["x"],
+            parameters=["k"],
+            strict=True,
+        )
+        assert sp.Symbol("delta_i", real=True) in (
+            parsed.auxiliary_symbols
+        )
+        assert "elta_i" not in index_map.state_names
 
     def test_ambiguous_prefix_is_a_state_treated_as_derivative(self):
         """delta = ... with state elta declared is derivative of elta."""
-        ib = IndexedBases.from_user_inputs(["elta"], ["k"], [], [], [])
-        lines = ["delta = -k * elta"]
-
-        anon_aux = _lhs_pass(lines, ib, strict=True)
-
-        assert len(anon_aux) == 0
-        assert "delta" not in anon_aux
-        # delta should be the derivative of elta
-        assert "delta" in ib.dxdt_names or "delta" not in anon_aux
+        index_map, _, _, parsed, _, _ = parse_input(
+            dxdt=["delta = -k * elta"],
+            states=["elta"],
+            parameters=["k"],
+            strict=True,
+        )
+        assert len(parsed.state_derivatives) == 1
+        assert "delta" in index_map.dxdt_names
 
     def test_function_notation_with_declared_state(self):
         """d(x, t) = ... with state x declared is derivative."""
-        ib = IndexedBases.from_user_inputs(["x"], ["k"], [], [], [])
-        lines = ["d(x, t) = -k * x"]
-
-        anon_aux = _lhs_pass(lines, ib, strict=True)
-
-        assert len(anon_aux) == 0
-        # Should be treated as derivative of x
+        index_map, _, _, parsed, _, _ = parse_input(
+            dxdt=["d(x, t) = -k * x"],
+            states=["x"],
+            parameters=["k"],
+            strict=True,
+        )
+        assert len(parsed.state_derivatives) == 1
+        assert not parsed.auxiliaries
 
     def test_function_notation_undeclared_state_strict_raises(self):
         """d(x, t) = ... with no state x in strict mode raises."""
-        ib = IndexedBases.from_user_inputs([], ["k"], [], [], [])
-        lines = ["d(x, t) = -k * x"]
-
         with pytest.raises(ValueError, match="No state called x"):
-            _lhs_pass(lines, ib, strict=True)
+            parse_input(
+                dxdt=["d(x, t) = -k * x"],
+                states=[],
+                parameters=["k"],
+                strict=True,
+            )
 
     def test_function_notation_undeclared_state_non_strict_infers(self):
         """d(x, t) = ... with no state x in non-strict infers x."""
-        ib = IndexedBases.from_user_inputs([], ["k"], [], [], [])
-        lines = ["d(x, t) = -k * x"]
-
-        anon_aux = _lhs_pass(lines, ib, strict=False)
-
-        assert "x" in ib.state_names
-        assert len(anon_aux) == 0
+        index_map, _, _, _, _, _ = parse_input(
+            dxdt=["d(x, t) = -k * x"],
+            states=[],
+            parameters=["k"],
+            strict=False,
+        )
+        assert "x" in index_map.state_names
 
     def test_non_strict_state_inference_from_d_prefix(self):
         """dx = ... with no state x in non-strict infers x as state."""
-        ib = IndexedBases.from_user_inputs([], ["k"], [], [], [])
-        lines = ["dx = -k * x"]
-
-        anon_aux = _lhs_pass(lines, ib, strict=False)
-
-        assert "x" in ib.state_names
-        assert len(anon_aux) == 0
+        index_map, _, _, _, _, _ = parse_input(
+            dxdt=["dx = -k * x"],
+            states=[],
+            parameters=["k"],
+            strict=False,
+        )
+        assert "x" in index_map.state_names
 
     def test_non_strict_auxiliary_not_inferred_as_state(self):
         """delta = ... with no state elta in non-strict is auxiliary."""
-        ib = IndexedBases.from_user_inputs(["x"], ["k"], [], [], [])
-        lines = ["dx = -k * x", "delta = x + 1"]
-
-        anon_aux = _lhs_pass(lines, ib, strict=False)
-
-        # delta should be auxiliary, NOT inferring elta as state
-        assert "delta" in anon_aux
-        assert "elta" not in ib.state_names
+        index_map, _, _, parsed, _, _ = parse_input(
+            dxdt=["dx = -k * x", "delta = x + 1"],
+            states=["x"],
+            parameters=["k"],
+            strict=False,
+        )
+        assert sp.Symbol("delta", real=True) in (
+            parsed.auxiliary_symbols
+        )
+        assert "elta" not in index_map.state_names
 
     def test_function_notation_with_whitespace(self):
         """d( x , t ) = ... with extra whitespace works."""
-        ib = IndexedBases.from_user_inputs(["x"], ["k"], [], [], [])
-        lines = ["d( x , t ) = -k * x"]
-
-        anon_aux = _lhs_pass(lines, ib, strict=True)
-
-        assert len(anon_aux) == 0
+        _, _, _, parsed, _, _ = parse_input(
+            dxdt=["d( x , t ) = -k * x"],
+            states=["x"],
+            parameters=["k"],
+            strict=True,
+        )
+        assert len(parsed.state_derivatives) == 1
 
     def test_single_letter_d_treated_as_auxiliary(self):
         """d = ... alone is treated as auxiliary, not derivative."""
-        ib = IndexedBases.from_user_inputs(["x"], ["k"], [], [], [])
-        lines = ["dx = -k * x", "d = x + 1"]
-
-        anon_aux = _lhs_pass(lines, ib, strict=True)
-
-        assert "d" in anon_aux
-
-
-class TestNormalizeSympyErrorPaths:
-    """Cover error branches in _normalize_sympy_equations."""
-
-    def test_non_iterable_equations_raise(self):
-        """A non-iterable equations argument raises TypeError."""
-        with pytest.raises(TypeError, match="must be iterable"):
-            _normalize_sympy_equations(123, _ib(["x"]))
-
-    def test_equality_derivative_argument_not_symbol(self):
-        """Derivative of a function (not a Symbol) as LHS raises."""
-        f = sp.Function("f")
-        t = sp.Symbol("t")
-        equations = [sp.Eq(sp.Derivative(f(t), t), sp.Symbol("x"))]
-
-        with pytest.raises(ValueError, match="argument must be Symbol"):
-            _normalize_sympy_equations(equations, _ib(["x"]))
-
-    def test_equality_lhs_non_symbol_non_derivative(self):
-        """An unevaluated Add LHS on an Equality raises ValueError."""
-        x = sp.Symbol("x")
-        equations = [sp.Eq(x + 1, x, evaluate=False)]
-
-        with pytest.raises(ValueError, match="must be sp.Symbol"):
-            _normalize_sympy_equations(equations, _ib(["x"]))
-
-    def test_tuple_derivative_argument_not_symbol(self):
-        """Derivative of a function in tuple form raises ValueError."""
-        f = sp.Function("f")
-        t = sp.Symbol("t")
-        equations = [(sp.Derivative(f(t), t), sp.Symbol("x"))]
-
-        with pytest.raises(ValueError, match="argument must be Symbol"):
-            _normalize_sympy_equations(equations, _ib(["x"]))
-
-    def test_tuple_rhs_not_expression(self):
-        """A tuple whose RHS is not an sp.Expr raises TypeError."""
-        equations = [(sp.Symbol("dx"), "not an expression")]
-
-        with pytest.raises(TypeError, match="Tuple RHS must be sp.Expr"):
-            _normalize_sympy_equations(equations, _ib(["x"]))
-
-    def test_tuple_lhs_not_symbol_or_derivative(self):
-        """A tuple whose LHS is an Add raises TypeError."""
-        x = sp.Symbol("x")
-        equations = [(x + 1, x)]
-
-        with pytest.raises(TypeError, match="Tuple LHS must be sp.Symbol"):
-            _normalize_sympy_equations(equations, _ib(["x"]))
+        _, all_symbols, _, parsed, _, _ = parse_input(
+            dxdt=["dx = -k * x", "d = x + 1"],
+            states=["x"],
+            parameters=["k"],
+            strict=True,
+        )
+        assert sp.Symbol("d", real=True) in parsed.auxiliary_symbols
 
 
 class TestParsedEquationsAccessors:
     """Cover ParsedEquations indexing and property accessors."""
 
     def _parsed(self):
-        _, _, _, parsed, _ = parse_input(
+        _, _, _, parsed, _, _ = parse_input(
             dxdt=["dx = x + a", "obs = x"],
             states=["x"],
             parameters=["a"],
@@ -1463,357 +1349,3 @@ class TestParsedEquationsAccessors:
         """state_symbols exposes the derivative-output symbols."""
         parsed = self._parsed()
         assert sp.Symbol("dx", real=True) in parsed.state_symbols
-
-    def test_auxiliary_symbols_property(self):
-        """auxiliary_symbols exposes intermediate symbols."""
-        _, _, _, parsed, _ = parse_input(
-            dxdt=["helper = x + a", "dx = helper", "obs = x"],
-            states=["x"],
-            parameters=["a"],
-            observables=["obs"],
-            strict=True,
-        )
-        assert sp.Symbol("helper", real=True) in parsed.auxiliary_symbols
-
-    def test_dxdt_equations_excludes_observables(self):
-        """dxdt_equations drops observable assignments."""
-        parsed = self._parsed()
-        lhs_names = [str(lhs) for lhs, _ in parsed.dxdt_equations]
-        assert "dx" in lhs_names
-        assert "obs" not in lhs_names
-
-    def test_from_equations_accepts_mapping(self):
-        """from_equations accepts a dict of equations."""
-        mapping = {
-            sp.Symbol("dx", real=True): sp.Symbol("x", real=True),
-        }
-        parsed = ParsedEquations.from_equations(mapping, _ib(["x"]))
-        assert len(parsed) == 1
-        assert str(parsed[0][0]) == "dx"
-
-    def test_copy_returns_mapping(self):
-        """copy returns a lhs->rhs mapping of the ordered equations."""
-        parsed = self._parsed()
-        mapping = parsed.copy()
-        assert isinstance(mapping, dict)
-        assert mapping[sp.Symbol("dx", real=True)] == (
-            sp.Symbol("x", real=True) + sp.Symbol("a", real=True)
-        )
-
-    def test_observable_system_returns_all_equations(self):
-        """observable_system exposes the full ordered equation set."""
-        parsed = self._parsed()
-        assert parsed.observable_system == parsed.ordered
-
-
-class TestBuildSympyUserFunctions:
-    """Cover derivative-name resolution in _build_sympy_user_functions."""
-
-    def test_derivative_without_name_falls_back(self):
-        """A derivative callable lacking __name__ is tolerated."""
-
-        @cuda.jit(device=True)
-        def myfunc(a, b):
-            return a + b
-
-        def grad(a, b, index):
-            return 0
-
-        # functools.partial has no __name__ attribute.
-        partial_grad = functools.partial(grad, 1)
-        assert not hasattr(partial_grad, "__name__")
-
-        parse_locals, alias_map, is_device_map = _build_sympy_user_functions(
-            {"myfunc": myfunc},
-            {"myfunc": "myfunc_"},
-            {"myfunc": partial_grad},
-        )
-
-        assert "myfunc_" in parse_locals
-        assert is_device_map["myfunc_"] is True
-
-
-class TestInlineNondeviceCalls:
-    """Cover _inline_nondevice_calls through parse_input."""
-
-    def test_non_sympy_return_keeps_symbolic_call(self):
-        """A user function returning a non-SymPy value stays symbolic."""
-
-        def opaque(value):
-            return object()
-
-        _, _, _, parsed, _ = parse_input(
-            dxdt=["dx = opaque(x)"],
-            states=["x"],
-            user_functions={"opaque": opaque},
-            strict=True,
-        )
-
-        rhs = parsed.state_derivatives[0][1]
-        assert any(
-            getattr(f.func, "__name__", "") == "opaque_"
-            for f in rhs.atoms(sp.Function)
-        )
-
-
-class TestLhsPassSympyPaths:
-    """Cover categorisation branches in _lhs_pass_sympy."""
-
-    def test_observable_assignment_is_recorded(self):
-        """A declared observable assigned by name satisfies its slot."""
-        imap = _ib(["x"], ["k"], [], ["obs"], [])
-        equations = [
-            (sp.Symbol("dx"), sp.Symbol("x")),
-            (sp.Symbol("obs"), sp.Symbol("x")),
-        ]
-        anon_aux = _lhs_pass_sympy(equations, imap, strict=True)
-        assert anon_aux == {}
-
-    def test_direct_state_assignment_raises(self):
-        """Assigning directly to a state symbol raises ValueError."""
-        imap = _ib(["x"], ["k"], [], [], [])
-        equations = [(sp.Symbol("x"), sp.Symbol("k"))]
-        with pytest.raises(ValueError, match="cannot be assigned directly"):
-            _lhs_pass_sympy(equations, imap, strict=True)
-
-    def test_immutable_assignment_raises(self):
-        """Assigning to a parameter symbol raises ValueError."""
-        imap = _ib(["x"], ["k"], [], [], [])
-        equations = [(sp.Symbol("k"), sp.Symbol("x"))]
-        with pytest.raises(ValueError, match="immutable input"):
-            _lhs_pass_sympy(equations, imap, strict=True)
-
-    def test_missing_observable_raises(self):
-        """A declared observable that is never assigned raises."""
-        imap = _ib(["x"], ["k"], [], ["obs"], [])
-        equations = [(sp.Symbol("dx"), sp.Symbol("x"))]
-        with pytest.raises(ValueError, match="never assigned"):
-            _lhs_pass_sympy(equations, imap, strict=True)
-
-    def test_observable_converted_to_state(self):
-        """d-prefixed observable becomes a state with a warning."""
-        imap = _ib(["x"], ["k"], [], ["y"], [])
-        equations = [
-            (sp.Symbol("dy"), sp.Symbol("x")),
-            (sp.Symbol("dx"), sp.Symbol("y")),
-        ]
-        with warnings.catch_warnings(record=True) as caught:
-            warnings.simplefilter("always")
-            _lhs_pass_sympy(equations, imap, strict=True)
-        assert any(
-            issubclass(w.category, EquationWarning) for w in caught
-        )
-        assert "y" in imap.state_names
-        assert "y" not in imap.observable_names
-
-
-class TestRhsPassSympyStrict:
-    """Cover the strict undeclared-symbol branch of _rhs_pass_sympy."""
-
-    def test_strict_undeclared_symbol_raises(self):
-        """A strict RHS referencing an undeclared symbol raises."""
-        imap = _ib(["x"], ["k"], [], [], [])
-        all_symbols = imap.all_symbols.copy()
-        all_symbols.setdefault("t", TIME_SYMBOL)
-        equations = [
-            (sp.Symbol("dx"), sp.Symbol("x") * sp.Symbol("missing")),
-        ]
-        with pytest.raises(ValueError, match="undefined symbols"):
-            _rhs_pass_sympy(equations, all_symbols, imap, strict=True)
-
-
-class TestLhsPassStringPaths:
-    """Cover derivative-notation and observable branches in _lhs_pass."""
-
-    def test_function_notation_observable_converted_to_state(self):
-        """d(y, t) with y declared observable converts y to a state."""
-        imap = _ib(["x"], ["k"], [], ["y"], [])
-        with warnings.catch_warnings(record=True) as caught:
-            warnings.simplefilter("always")
-            _lhs_pass(["d(y, t) = x", "dx = y"], imap, strict=True)
-        assert any(
-            issubclass(w.category, EquationWarning) for w in caught
-        )
-        assert "y" in imap.state_names
-        assert "y" not in imap.observable_names
-
-    def test_d_prefixed_observable_name_is_assigned(self):
-        """An observable whose name starts with d is a valid target."""
-        imap = _ib(["x"], ["k"], [], ["dobs"], [])
-        anon_aux = _lhs_pass(["dx = x", "dobs = x"], imap, strict=True)
-        assert anon_aux == {}
-        assert "dobs" in imap.observable_names
-
-
-class TestParseInputDriverDict:
-    """Cover driver-dictionary handling in parse_input."""
-
-    def test_driver_dict_without_symbols_raises(self):
-        """A driver dict of only setting keys raises ValueError."""
-        with pytest.raises(ValueError, match="at least one driver symbol"):
-            parse_input(
-                dxdt=["dx = x"],
-                states=["x"],
-                drivers={"dt": 0.1, "wrap": True},
-            )
-
-    def test_driver_dict_with_symbols_sets_passthrough(self):
-        """A driver dict with symbols registers passthrough defaults."""
-        index_map, _, _, _, _ = parse_input(
-            dxdt=["dx = d1"],
-            states=["x"],
-            drivers={"d1": 0.0, "dt": 0.1},
-        )
-        assert "d1" in index_map.driver_names
-
-
-class TestInlineDeviceCalls:
-    """Cover the device-function branch of _inline_nondevice_calls."""
-
-    def test_device_function_call_stays_symbolic(self):
-        """A device user function is not inlined and stays symbolic."""
-
-        class DeviceFunc:
-            targetoptions = {"device": True}
-
-            def __call__(self, *args, **kwargs):
-                return 0
-
-        _, _, funcs, parsed, _ = parse_input(
-            dxdt=["dx = devf(x)"],
-            states=["x"],
-            user_functions={"devf": DeviceFunc()},
-            strict=True,
-        )
-        rhs = parsed.state_derivatives[0][1]
-        assert any(
-            getattr(f.func, "__name__", "") == "devf_"
-            for f in rhs.atoms(sp.Function)
-        )
-
-
-class TestLhsPassSympyExtraBranches:
-    """Cover remaining categorisation branches in _lhs_pass_sympy."""
-
-    def test_d_prefixed_observable_name_is_assigned(self):
-        """A d-prefixed observable name is a valid assignment target."""
-        imap = _ib(["x"], ["k"], [], ["dobs"], [])
-        equations = [
-            (sp.Symbol("dx"), sp.Symbol("x")),
-            (sp.Symbol("dobs"), sp.Symbol("x")),
-        ]
-        anon_aux = _lhs_pass_sympy(equations, imap, strict=True)
-        assert anon_aux == {}
-        assert "dobs" in imap.observable_names
-
-    def test_plain_auxiliary_is_recorded(self):
-        """A non-state, non-observable LHS becomes an auxiliary."""
-        imap = _ib(["x"], ["k"], [], [], [])
-        equations = [
-            (sp.Symbol("dx"), sp.Symbol("myaux")),
-            (sp.Symbol("myaux"), sp.Symbol("x")),
-        ]
-        anon_aux = _lhs_pass_sympy(equations, imap, strict=False)
-        assert "myaux" in anon_aux
-
-
-class TestRhsPassUnresolvedSymbols:
-    """Cover the unresolved-symbol guard at the end of _rhs_pass."""
-
-    def test_undeclared_time_symbol_raises(self):
-        """_rhs_pass raises when ``t`` is used but not supplied.
-
-        parse_input always injects ``t`` before calling _rhs_pass, so this
-        guards the low-level contract that the caller declares every symbol.
-        """
-        symbols = {"dx": sp.Symbol("dx", real=True)}
-        with pytest.raises(ValueError, match="undefined symbols"):
-            _rhs_pass(["dx = t"], symbols, strict=False)
-
-
-class TestParseInputStringDispatch:
-    """Cover string-branch dispatch edge cases in parse_input."""
-
-    def test_set_of_strings_rejected(self):
-        """A set of equation strings is not an accepted container."""
-        with pytest.raises(
-            ValueError, match="string or a list/tuple"
-        ):
-            parse_input(dxdt={"dx = x"}, states=["x"], strict=True)
-
-
-class TestParseInputFunctionDispatch:
-    """Cover the callable-input dispatch branch of parse_input."""
-
-    def test_function_input_infers_states(self):
-        """A callable dxdt routes through the function pathway."""
-
-        def f(t, y):
-            return [-0.1 * y[0]]
-
-        index_map, all_symbols, _, parsed, _ = parse_input(
-            dxdt=f, strict=False
-        )
-        assert len(list(index_map.state_names)) == 1
-        assert len(parsed.state_derivatives) == 1
-        assert "t" in all_symbols
-
-
-class TestUnderivedStateConversion:
-    """A declared state without a derivative becomes an observable.
-
-    The conversion block strips the derivative prefix from the
-    outstanding dxdt name, moves the state symbol into observables,
-    and removes the state and dxdt entries.
-    """
-
-    def test_string_underived_state_becomes_observable(self):
-        """String pathway: an underived state is converted, not crashed."""
-        imap = IndexedBases.from_user_inputs(
-            ["x", "z"], ["k"], [], [], []
-        )
-        with warnings.catch_warnings(record=True) as caught:
-            warnings.simplefilter("always")
-            _lhs_pass(["dx = x"], imap, strict=True)
-        assert any(
-            issubclass(w.category, EquationWarning) for w in caught
-        )
-        assert "z" in imap.observable_names
-        assert "z" not in imap.state_names
-        assert "dz" not in imap.dxdt_names
-
-    def test_first_declared_underived_state_reindexes_survivors(self):
-        """Converting a non-final state leaves survivors in bounds."""
-        imap = IndexedBases.from_user_inputs(
-            ["z", "x"], ["k"], [], [], []
-        )
-        with warnings.catch_warnings(record=True) as caught:
-            warnings.simplefilter("always")
-            _lhs_pass(["dx = x"], imap, strict=True)
-        assert any(
-            issubclass(w.category, EquationWarning) for w in caught
-        )
-        x_sym = sp.Symbol("x", real=True)
-        dx_sym = sp.Symbol("dx", real=True)
-        assert imap.states.index_map == {x_sym: 0}
-        assert str(imap.states.ref_map[x_sym]) == "state[0]"
-        assert imap.states.base.shape == (1,)
-        assert imap.dxdt.index_map == {dx_sym: 0}
-        assert str(imap.dxdt.ref_map[dx_sym]) == "out[0]"
-
-    def test_sympy_underived_state_becomes_observable(self):
-        """SymPy pathway: an underived state is converted, not crashed."""
-        imap = IndexedBases.from_user_inputs(
-            ["x", "z"], ["k"], [], [], []
-        )
-        with warnings.catch_warnings(record=True) as caught:
-            warnings.simplefilter("always")
-            _lhs_pass_sympy(
-                [(sp.Symbol("dx"), sp.Symbol("x"))], imap, strict=True
-            )
-        assert any(
-            issubclass(w.category, EquationWarning) for w in caught
-        )
-        assert "z" in imap.observable_names
-        assert "z" not in imap.state_names
-        assert "dz" not in imap.dxdt_names

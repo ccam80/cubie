@@ -86,7 +86,6 @@ from cubie.odesystems.symbolic.parsing import (
     ParsedEquations,
     parse_input,
 )
-from cubie.odesystems.symbolic.parsing.dae import parse_dae_input
 from cubie.odesystems.symbolic.codegen.time_derivative import (
     generate_time_derivative_fac_code,
 )
@@ -457,57 +456,37 @@ class SymbolicODE(BaseODE):
 
         # Start timing for parsing operation
         default_timelogger.start_event("symbolic_ode_parsing")
+        (
+            index_map,
+            all_symbols,
+            functions,
+            equations,
+            fn_hash,
+            simplified,
+        ) = parse_input(
+            dxdt=dxdt,
+            states=states,
+            observables=observables,
+            parameters=parameters,
+            constants=constants,
+            drivers=drivers,
+            user_functions=user_functions,
+            user_function_derivatives=user_function_derivatives,
+            strict=strict,
+            state_units=state_units,
+            parameter_units=parameter_units,
+            constant_units=constant_units,
+            observable_units=observable_units,
+            driver_units=driver_units,
+            simplify=simplify,
+            state_priority=state_priority,
+            irreducible=irreducible,
+            simplify_options=simplify_options,
+        )
         mass = None
-        if simplify:
-            (
-                index_map,
-                all_symbols,
-                functions,
-                equations,
-                fn_hash,
-                simplified,
-            ) = parse_dae_input(
-                dxdt=dxdt,
-                states=states,
-                observables=observables,
-                parameters=parameters,
-                constants=constants,
-                drivers=drivers,
-                user_functions=user_functions,
-                user_function_derivatives=user_function_derivatives,
-                strict=strict,
-                state_priority=state_priority,
-                irreducible=irreducible,
-                state_units=state_units,
-                parameter_units=parameter_units,
-                constant_units=constant_units,
-                observable_units=observable_units,
-                driver_units=driver_units,
-                **(simplify_options or {}),
-            )
-            if simplified.mass_matrix is not None:
-                mass = asarray(
-                    simplified.mass_matrix.tolist(), dtype=precision
-                )
-        else:
-            sys_components = parse_input(
-                states=states,
-                observables=observables,
-                parameters=parameters,
-                constants=constants,
-                drivers=drivers,
-                user_functions=user_functions,
-                user_function_derivatives=user_function_derivatives,
-                dxdt=dxdt,
-                strict=strict,
-                state_units=state_units,
-                parameter_units=parameter_units,
-                constant_units=constant_units,
-                observable_units=observable_units,
-                driver_units=driver_units,
-            )
-            index_map, all_symbols, functions, equations, fn_hash = (
-                sys_components
+        if simplified is not None and simplified.mass_matrix is not None:
+            mass = asarray(
+                simplified.mass_matrix.tolist(), dtype=precision
             )
         symbolic_ode = cls(
             equations=equations,

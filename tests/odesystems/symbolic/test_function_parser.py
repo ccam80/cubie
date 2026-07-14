@@ -36,7 +36,7 @@ class TestParseInput:
         def f(t, y):
             return [-0.1 * y[0]]
 
-        index_map, syms, fns, eqs, h = parse_input(
+        index_map, syms, fns, eqs, h, _ = parse_input(
             dxdt=f,
             states={"x": 1.0},
         )
@@ -48,7 +48,7 @@ class TestParseInput:
         def f(t, y, p):
             return [-p[0] * y[1], y[0]]
 
-        index_map, syms, fns, eqs, h = parse_input(
+        index_map, syms, fns, eqs, h, _ = parse_input(
             dxdt=f,
             states={"velocity": 1.0, "position": 0.0},
             parameters={"k": 0.5},
@@ -60,7 +60,7 @@ class TestParseInput:
         def f(t, y):
             return [-y[0], y[0] - y[1]]
 
-        index_map, syms, fns, eqs, h = parse_input(
+        index_map, syms, fns, eqs, h, _ = parse_input(
             dxdt=f,
             states={"a": 0.0, "b": 1.0},
         )
@@ -71,7 +71,7 @@ class TestParseInput:
         def f(t, y):
             return [-y["velocity"]]
 
-        index_map, syms, fns, eqs, h = parse_input(
+        index_map, syms, fns, eqs, h, _ = parse_input(
             dxdt=f,
             states={"velocity": 1.0},
         )
@@ -82,7 +82,7 @@ class TestParseInput:
         def f(t, y, c):
             return [-c.damping * y[0]]
 
-        index_map, syms, fns, eqs, h = parse_input(
+        index_map, syms, fns, eqs, h, _ = parse_input(
             dxdt=f,
             states={"x": 1.0},
             constants={"damping": 0.1},
@@ -94,7 +94,7 @@ class TestParseInput:
         def f(t, y, c):
             return [-c["damping"] * y[0]]
 
-        index_map, syms, fns, eqs, h = parse_input(
+        index_map, syms, fns, eqs, h, _ = parse_input(
             dxdt=f,
             states={"x": 1.0},
             constants={"damping": 0.1},
@@ -106,12 +106,12 @@ class TestParseInput:
         def f(t, y):
             return [-0.1 * y[0]]
 
-        _, _, _, eqs_func, _ = parse_input(
+        _, _, _, eqs_func, _, _ = parse_input(
             dxdt=f,
             states={"x": 1.0},
         )
 
-        _, _, _, eqs_str, _ = parse_input(
+        _, _, _, eqs_str, _, _ = parse_input(
             dxdt="dx = -0.1 * x",
             states={"x": 1.0},
         )
@@ -130,7 +130,7 @@ class TestParseInput:
             from math import sin
             return [sin(y[0])]
 
-        index_map, syms, fns, eqs, h = parse_input(
+        index_map, syms, fns, eqs, h, _ = parse_input(
             dxdt=f,
             states={"x": 1.0},
         )
@@ -142,7 +142,7 @@ class TestParseInput:
             v = y[0]
             return [-0.1 * v]
 
-        _, _, _, eqs, _ = parse_input(
+        _, _, _, eqs, _, _ = parse_input(
             dxdt=f,
             states={"x": 1.0},
         )
@@ -159,7 +159,7 @@ class TestParseInput:
             total += y[2]
             return [-total, total * 0.5, -total * 0.25]
 
-        _, _, _, eqs, _ = parse_input(
+        _, _, _, eqs, _, _ = parse_input(
             dxdt=f,
             states={"a": 1.0, "b": 0.5, "c": 0.0},
         )
@@ -185,7 +185,7 @@ class TestParseInput:
                 total += y[i] * p[i]
             return [-total, total * 0.5, -total * 0.25]
 
-        _, _, _, eqs, _ = parse_input(
+        _, _, _, eqs, _, _ = parse_input(
             dxdt=f,
             states={"a": 1.0, "b": 0.5, "c": 0.0},
             parameters={"p0": 0.1, "p1": 0.2, "p2": 0.3},
@@ -211,7 +211,7 @@ class TestParseInput:
             a, b = y[0], y[1]
             return [-a, b]
 
-        _, _, _, eqs, _ = parse_input(
+        _, _, _, eqs, _, _ = parse_input(
             dxdt=f,
             states={"x": 1.0, "v": 0.5},
         )
@@ -226,7 +226,7 @@ class TestParseInput:
                 result = -y[0]
             return [-result]
 
-        _, _, _, eqs, _ = parse_input(
+        _, _, _, eqs, _, _ = parse_input(
             dxdt=f,
             states={"x": 1.0},
         )
@@ -246,7 +246,7 @@ class TestParseInput:
                 rate = 0.0
             return [-rate]
 
-        _, _, _, eqs, _ = parse_input(
+        _, _, _, eqs, _, _ = parse_input(
             dxdt=f,
             states={"x": 1.0},
         )
@@ -265,7 +265,7 @@ class TestParseInput:
                 rate = 0.0
             return [-rate]
 
-        _, _, _, eqs, _ = parse_input(
+        _, _, _, eqs, _, _ = parse_input(
             dxdt=f,
             states={"x": 1.0},
             parameters={"k1": 1.0, "k2": 2.0},
@@ -287,7 +287,7 @@ class TestParseInput:
                 total = 1.0
             return [-total, total]
 
-        _, _, _, eqs, _ = parse_input(
+        _, _, _, eqs, _, _ = parse_input(
             dxdt=f,
             states={"a": 1.0, "b": 0.5},
             parameters={"k0": 0.1, "k1": 0.2},
@@ -385,7 +385,7 @@ class TestParseInput:
             a: float = 2.0 * y[0]
             return [-a]
 
-        _, _, _, eqs, _ = parse_input(dxdt=f, states={"x": 1.0})
+        _, _, _, eqs, _, _ = parse_input(dxdt=f, states={"x": 1.0})
         assert len(eqs.auxiliaries) == 1
         _, aux_rhs = eqs.auxiliaries[0]
         x = sp.Symbol("x", real=True)
@@ -451,7 +451,7 @@ class TestDriverAccess:
             dv = -y.x + p.forcing
             return [dx, dv]
 
-        index_map, _, _, eqs, _ = parse_input(
+        index_map, _, _, eqs, _, _ = parse_input(
             dxdt=f,
             states={"x": 1.0, "v": 0.0},
             drivers=["forcing"],
@@ -470,7 +470,7 @@ class TestDriverAccess:
             dv = -p.k * y.x + d.forcing
             return [dx, dv]
 
-        index_map, _, _, eqs, _ = parse_input(
+        index_map, _, _, eqs, _, _ = parse_input(
             dxdt=f,
             states={"x": 1.0, "v": 0.0},
             parameters={"k": 2.0},
@@ -487,7 +487,7 @@ class TestDriverAccess:
         def f(t, y, p):
             return [-y["x"] + p["forcing"]]
 
-        index_map, _, _, eqs, _ = parse_input(
+        index_map, _, _, eqs, _, _ = parse_input(
             dxdt=f,
             states={"x": 1.0},
             drivers=["forcing"],
@@ -518,7 +518,7 @@ class TestStateInference:
             dv = y.x
             return {"x": dx, "v": dv}
 
-        index_map, _, _, eqs, _ = parse_input(
+        index_map, _, _, eqs, _, _ = parse_input(
             dxdt=f,
             parameters={"k": 0.5},
         )
@@ -531,7 +531,7 @@ class TestStateInference:
         def f(t, y):
             return [-0.1 * y[0], y[0] - y[1]]
 
-        index_map, _, _, eqs, _ = parse_input(dxdt=f)
+        index_map, _, _, eqs, _, _ = parse_input(dxdt=f)
         assert index_map.state_names == ["y0", "y1"]
         assert len(eqs.state_derivatives) == 2
 
@@ -540,7 +540,7 @@ class TestStateInference:
         def f(t, y):
             return -0.5 * y[0]
 
-        index_map, _, _, eqs, _ = parse_input(dxdt=f)
+        index_map, _, _, eqs, _, _ = parse_input(dxdt=f)
         assert index_map.state_names == ["y0"]
         assert len(eqs.state_derivatives) == 1
 
@@ -566,10 +566,10 @@ class TestStateInference:
             dx = -p.k * y.x
             return {"x": dx}
 
-        _, _, _, eqs_inferred, _ = parse_input(
+        _, _, _, eqs_inferred, _, _ = parse_input(
             dxdt=f, parameters={"k": 0.5}
         )
-        _, _, _, eqs_explicit, _ = parse_input(
+        _, _, _, eqs_explicit, _, _ = parse_input(
             dxdt=f, parameters={"k": 0.5}, states={"x": 0.0}
         )
         lhs_i, rhs_i = eqs_inferred.state_derivatives[0]
@@ -619,7 +619,7 @@ class TestUndeclaredSymbols:
             return [-p.k_new * y.x]
 
         with pytest.warns(EquationWarning, match="k_new"):
-            index_map, _, _, _, _ = parse_input(
+            index_map, _, _, _, _, _ = parse_input(
                 dxdt=f, states={"x": 1.0}
             )
         assert "k_new" in index_map.parameter_names
@@ -679,7 +679,7 @@ class TestUserFunctions:
             dx = -hill(y.x, p.km)
             return [dx]
 
-        index_map, _, funcs, eqs, _ = parse_input(
+        index_map, _, funcs, eqs, _, _ = parse_input(
             dxdt=f,
             states={"x": 1.0},
             parameters={"km": 0.5},
@@ -699,7 +699,7 @@ class TestUserFunctions:
         def my_exp(v):
             return 2 * v
 
-        _, _, _, eqs, _ = parse_input(
+        _, _, _, eqs, _, _ = parse_input(
             dxdt=f,
             states={"x": 1.0},
             user_functions={"exp": my_exp},
@@ -719,7 +719,7 @@ class TestUserFunctions:
             dx = -myfunc(y.x, y.v)  # noqa: F821
             return [dx, y.x]
 
-        index_map, _, _, eqs, _ = parse_input(
+        index_map, _, _, eqs, _, _ = parse_input(
             dxdt=f,
             states={"x": 1.0, "v": 0.0},
             user_functions={"myfunc": MyFuncDevice()},
@@ -746,7 +746,7 @@ class TestUserFunctions:
             dx = -myfunc(y.x, y.v)  # noqa: F821
             return [dx, y.x]
 
-        index_map, _, _, eqs, _ = parse_input(
+        index_map, _, _, eqs, _, _ = parse_input(
             dxdt=f,
             states={"x": 1.0, "v": 0.0},
             user_functions={"myfunc": MyFuncDevice()},
@@ -774,7 +774,7 @@ class TestScalarArguments:
         def f(t, y, mu):
             return [y[1], mu * (1 - y[0] ** 2) * y[1] - y[0]]
 
-        index_map, _, _, eqs, _ = parse_input(
+        index_map, _, _, eqs, _, _ = parse_input(
             dxdt=f,
             states={"x": 1.0, "v": 0.0},
             parameters={"mu": 1.5},
@@ -790,7 +790,7 @@ class TestScalarArguments:
         def f(t, y, k, forcing):
             return [-k * y[0] + forcing]
 
-        index_map, _, _, eqs, _ = parse_input(
+        index_map, _, _, eqs, _, _ = parse_input(
             dxdt=f,
             states={"x": 1.0},
             parameters={"k": 0.5},
@@ -805,7 +805,7 @@ class TestScalarArguments:
             return [-k_new * y[0]]
 
         with pytest.warns(EquationWarning, match="k_new"):
-            index_map, _, _, _, _ = parse_input(
+            index_map, _, _, _, _, _ = parse_input(
                 dxdt=f, states={"x": 1.0}
             )
         assert "k_new" in index_map.parameter_names
@@ -823,7 +823,7 @@ class TestScalarArguments:
         def f(t, y, mu, p):
             return [-mu * y[0] + p.k]
 
-        _, _, _, eqs, _ = parse_input(
+        _, _, _, eqs, _, _ = parse_input(
             dxdt=f,
             states={"x": 1.0},
             parameters={"mu": 1.0, "k": 2.0},
@@ -837,7 +837,7 @@ class TestScalarArguments:
         def f(t, y, p):
             return [-0.5 * y[0]]
 
-        index_map, _, _, _, _ = parse_input(dxdt=f, states={"x": 1.0})
+        index_map, _, _, _, _, _ = parse_input(dxdt=f, states={"x": 1.0})
         assert "p" not in index_map.parameter_names
 
     def test_scalar_arg_matching_state_raises(self):
@@ -859,7 +859,7 @@ class TestDerivativeAliasReference:
             flux = dx * 2.0  # noqa: F841
             return [dx]
 
-        _, _, _, eqs, _ = parse_input(
+        _, _, _, eqs, _, _ = parse_input(
             dxdt=f,
             states={"x": 1.0},
             observables=["flux"],
@@ -978,7 +978,7 @@ class TestParseFunctionErrors:
             k = 2.0  # noqa: F841
             return [-k * y[0]]
 
-        _, _, _, eqs, _ = parse_input(
+        _, _, _, eqs, _, _ = parse_input(
             dxdt=f, states={"x": 1.0}, parameters={"k": 1.0}
         )
         assert len(eqs.state_derivatives) == 1
@@ -991,7 +991,7 @@ class TestParseFunctionErrors:
             y = y[0]
             return [-y]
 
-        _, _, _, eqs, _ = parse_input(dxdt=f, states={"x": 1.0})
+        _, _, _, eqs, _, _ = parse_input(dxdt=f, states={"x": 1.0})
         assert len(eqs.state_derivatives) == 1
         assert len(eqs.auxiliaries) == 0
 
@@ -1055,7 +1055,7 @@ class TestParseFunctionErrors:
             return [-p.k_new * y[0] + p.k_new]
 
         with pytest.warns(EquationWarning, match="k_new"):
-            index_map, _, _, eqs, _ = parse_input(
+            index_map, _, _, eqs, _, _ = parse_input(
                 dxdt=f, states={"x": 1.0}
             )
         assert index_map.parameter_names.count("k_new") == 1
@@ -1066,7 +1066,7 @@ class TestParseFunctionErrors:
             return [-p.k_new * y[0] + k_new]
 
         with pytest.warns(EquationWarning, match="k_new"):
-            index_map, _, _, eqs, _ = parse_input(
+            index_map, _, _, eqs, _, _ = parse_input(
                 dxdt=f, states={"x": 1.0}
             )
         assert index_map.parameter_names.count("k_new") == 1
@@ -1077,7 +1077,7 @@ class TestParseFunctionErrors:
             v = y["x"]
             return [-v]
 
-        _, _, _, eqs, _ = parse_input(dxdt=f, states={"x": 1.0})
+        _, _, _, eqs, _, _ = parse_input(dxdt=f, states={"x": 1.0})
         assert len(eqs.state_derivatives) == 1
         assert len(eqs.auxiliaries) == 0
         x = sp.Symbol("x", real=True)
@@ -1089,7 +1089,7 @@ class TestParseFunctionErrors:
             a = p.k
             return [-a * y[0]]
 
-        _, _, _, eqs, _ = parse_input(
+        _, _, _, eqs, _, _ = parse_input(
             dxdt=f, states={"x": 1.0}, parameters={"k": 1.0}
         )
         assert len(eqs.state_derivatives) == 1

@@ -266,6 +266,7 @@ class CellMLCache:
         fn_hash: str,
         precision,
         name: str,
+        mass=None,
     ) -> None:
         """Save cached data for given args_hash. Handles LRU eviction.
 
@@ -287,6 +288,9 @@ class CellMLCache:
             Floating-point precision
         name : str
             Model name
+        mass : ndarray or None
+            Solver mass matrix from structural simplification;
+            ``None`` implies identity.
         """
         try:
             self.cache_dir.mkdir(parents=True, exist_ok=True)
@@ -300,6 +304,7 @@ class CellMLCache:
                 "fn_hash": fn_hash,
                 "precision": precision,
                 "name": name,
+                "mass": mass,
             }
 
             # Save pickle file

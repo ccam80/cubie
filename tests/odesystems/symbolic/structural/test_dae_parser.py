@@ -5,9 +5,17 @@ import pytest
 import sympy as sp
 from numba import cuda
 
-from cubie.odesystems.symbolic.parsing.dae import parse_dae_input
-from cubie.odesystems.symbolic.parsing.parser import EquationWarning
+from cubie.odesystems.symbolic.parsing.parser import (
+    EquationWarning,
+    parse_input,
+)
 from cubie.odesystems.symbolic.symbolicODE import create_ODE_system
+
+
+def parse_dae_input(**kwargs):
+    """Parse with structural simplification forced."""
+
+    return parse_input(simplify=True, **kwargs)
 
 
 def launch_dxdt(device_fn, state, params, drivers, obs, out, t):

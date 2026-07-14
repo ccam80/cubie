@@ -600,7 +600,7 @@ class TestSymbolicODEConstructorDefaults:
 
     def test_derives_symbols_and_hash_when_omitted(self):
         """A None all_symbols and fn_hash are derived from inputs."""
-        index_map, _, _, equations, _ = parse_input(
+        index_map, _, _, equations, _, _ = parse_input(
             dxdt=["dx = -k * x"],
             states={"x": 1.0},
             parameters={"k": 0.5},
