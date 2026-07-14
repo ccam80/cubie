@@ -2,6 +2,7 @@ import numpy as np
 import pytest
 
 from cubie.batchsolving.BatchSolverKernel import BatchSolverKernel
+from cubie.buffer_registry import buffer_registry
 from cubie.outputhandling.output_sizes import BatchOutputSizes
 from cubie.outputhandling.output_config import OutputCompileFlags
 from cubie.batchsolving.BatchSolverConfig import ActiveOutputs
@@ -552,8 +553,6 @@ def test_persistent_array_sized_from_persistent_layout(solverkernel):
     ``persistent_local_elements``; any other sizing source lets the
     slices run past the array end and corrupt per-thread storage.
     """
-    from cubie.buffer_registry import buffer_registry
-
     loop = solverkernel.single_integrator._loop
     assert solverkernel.persistent_local_elements == (
         buffer_registry.persistent_local_buffer_size(loop)
