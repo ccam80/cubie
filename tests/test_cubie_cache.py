@@ -86,7 +86,7 @@ def test_environment_hash_is_stable_hex_digest():
     """Verify the environment hash is a deterministic sha256 digest."""
     digest = environment_hash()
     assert len(digest) == 64
-    assert int(digest, 16) >= 0
+    assert all(c in "0123456789abcdef" for c in digest)
     assert environment_hash() == digest
 
 
@@ -95,7 +95,8 @@ def test_environment_hash_covers_installed_packages():
     entries = []
     for distribution in distributions():
         name = distribution.metadata["Name"] or "unknown"
-        entries.append(f"{name}=={distribution.version}")
+        version = distribution.metadata["Version"] or "unknown"
+        entries.append(f"{name}=={version}")
     joined = "\n".join(sorted(entries))
     expected = sha256(joined.encode("utf-8")).hexdigest()
     assert environment_hash() == expected

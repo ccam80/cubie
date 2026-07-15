@@ -104,7 +104,8 @@ def environment_hash() -> str:
     entries = []
     for distribution in distributions():
         name = distribution.metadata["Name"] or "unknown"
-        entries.append(f"{name}=={distribution.version}")
+        version = distribution.metadata["Version"] or "unknown"
+        entries.append(f"{name}=={version}")
     joined = "\n".join(sorted(entries))
     return sha256(joined.encode("utf-8")).hexdigest()
 
