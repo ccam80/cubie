@@ -511,6 +511,21 @@ def is_cudasim_enabled() -> bool:
     return CUDA_SIMULATION
 
 
+def compute_capability_code() -> Optional[str]:
+    """Return the current device's compute capability as ``"M.m"``.
+
+    Returns
+    -------
+    str or None
+        Architecture code such as ``"8.9"``, or ``None`` under
+        CUDASIM, where no physical architecture exists.
+    """
+    if CUDA_SIMULATION:  # pragma: no cover - simulated
+        return None
+    major, minor = cuda.get_current_device().compute_capability
+    return f"{major}.{minor}"
+
+
 def max_shared_memory_per_block() -> int:
     """Return the device's dynamic shared-memory limit per block.
 
@@ -534,6 +549,7 @@ __all__ = [
     "activemask",
     "all_sync",
     "compile_kwargs",
+    "compute_capability_code",
     "get_jit_kwargs",
     "JITFlags",
     "CUDA_SIMULATION",

@@ -61,6 +61,7 @@ from cubie.array_interpolator import ArrayInterpolator
 from cubie.integrators.algorithms.base_algorithm_step import (
     ALL_ALGORITHM_STEP_PARAMETERS,
 )
+from cubie.integrators.memory_heuristics import auto_memory_locations
 from cubie.integrators.loops.ode_loop import (
     ALL_LOOP_SETTINGS,
 )
@@ -346,6 +347,16 @@ class Solver:
     time_logging_level : str or None, default='default'
         Time logging verbosity level. Options are 'default', 'verbose',
         'debug', None, or 'None' to disable timing.
+    auto_memory : bool, default=True
+        Apply measured shared-memory placements for buffer
+        configurations where they beat the all-local defaults (see
+        :mod:`cubie.integrators.memory_heuristics`). Thresholds are
+        calibrated per GPU architecture; cards without a calibrated
+        entry use the default entry. Explicit ``*_location``
+        arguments always take precedence; pass ``False`` to keep
+        every unspecified buffer local. Placement is chosen at
+        construction and is not revisited by later :meth:`update`
+        calls.
     **kwargs
         Additional keyword arguments forwarded to internal components. See
         "Optional Arguments" in the docs for the possibilities.
@@ -376,6 +387,7 @@ class Solver:
         loop_settings: Optional[Dict[str, object]] = None,
         time_logging_level: Optional[str] = None,
         cache: Union[bool, str, Path] = True,
+        auto_memory: bool = True,
         **kwargs: Any,
     ) -> None:
         if output_settings is None:
@@ -486,6 +498,25 @@ class Solver:
                 "Unrecognized keyword arguments: "
                 f"{set(kwargs) - recognized_kwargs}"
             )
+
+        if auto_memory:
+            user_location_keys = {
+                key
+                for source in (
+                    kwargs,
+                    algorithm_settings,
+                    loop_settings,
+                    step_control_settings,
+                )
+                for key in source
+                if key.endswith("_location")
+            }
+            placements = auto_memory_locations(
+                self.kernel.single_integrator,
+                user_location_keys,
+            )
+            if placements:
+                self.kernel.update(placements)
 
     def convert_output_labels(
         self,

@@ -221,8 +221,10 @@ class DIRKStep(ODEImplicitStep):
         n = config.n
         tableau = config.tableau
 
-        # Clear any existing buffer registrations
-        buffer_registry.clear_parent(self)
+        # Clear this step's own registrations only: the nonlinear
+        # solver child keeps its still-valid declarations, and
+        # register_child below re-records it with fresh sizes.
+        buffer_registry.clear_own(self)
 
         # Calculate buffer sizes
         accumulator_length = max(tableau.stage_count - 1, 0) * n
