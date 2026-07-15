@@ -68,6 +68,12 @@ retried. Finalizers use cleanup calls that do not capture the manager.
 Host arrays are `"pinned"` (page-locked → async transfer) for non-chunked runs, converted to
 plain `"host"` numpy for chunked runs with per-chunk pinned staging from `ChunkBufferPool`
 (`_convert_host_to_pinned`/`_convert_host_to_numpy`, run in `_on_allocation_complete`).
+A fourth slot type, `"memmap"`, marks a disk-backed host array: `create_host_array` returns a
+`numpy.memmap` when a host buffer exceeds the memory manager's spill threshold, and every
+creation/conversion site follows the returned type (`isinstance(arr, np.memmap)` → slot
+becomes `"memmap"`). Memmap slots are never converted to pinned (they cannot be page-locked;
+the transfer paths accept pageable targets) and pass through the chunked writeback unchanged —
+the watcher copies staging buffers into memmap slices exactly as into numpy ones.
 
 ### Async writeback
 Transfer watchers release pinned buffers after their CUDA event completes.

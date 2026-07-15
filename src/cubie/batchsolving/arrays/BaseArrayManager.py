@@ -44,6 +44,7 @@ from attrs.validators import (
 from numpy import (
     array_equal as np_array_equal,
     float32 as np_float32,
+    memmap as np_memmap,
     zeros as np_zeros,
     ndarray,
 )
@@ -85,7 +86,7 @@ class ManagedArray:
     )
     memory_type: str = field(
         default="device",
-        validator=attrsval_in(["device", "pinned", "host"]),
+        validator=attrsval_in(["device", "pinned", "host", "memmap"]),
     )
     is_chunked: bool = field(
         default=True, validator=attrsval_instance_of(bool)
@@ -462,30 +463,39 @@ class BaseArrayManager(ABC):
         chunk_length = response.chunk_length
 
         for array_label in self._needs_reallocation:
-            try:
-                self.device.attach(array_label, arrays[array_label])
-                # Store chunked_shape and chunk parameters in ManagedArray
-                if array_label in response.chunked_shapes:
-                    for container in (self.device, self.host):
-                        array = container.get_managed_array(array_label)
-                        array.chunked_shape = chunked_shapes[array_label]
-                        array.chunk_length = chunk_length
-                        array.num_chunks = chunks
-            except KeyError:
-                warn(
-                    f"Device array {array_label} not found in allocation "
-                    f"response. See "
-                    f"BaseArrayManager._on_allocation_complete docstring "
-                    f"for more info.",
-                    UserWarning,
-                )
+            if array_label not in arrays:
+                # An empty response (notary: same stream group, nothing
+                # queued) leaves pending reallocations pending — e.g. a
+                # manager evicted under pressure reallocates on its own
+                # next solve, not on a peer's.
+                if arrays:
+                    warn(
+                        f"Device array {array_label} not found in "
+                        f"allocation response. See "
+                        f"BaseArrayManager._on_allocation_complete "
+                        f"docstring for more info.",
+                        UserWarning,
+                    )
+                continue
+            self.device.attach(array_label, arrays[array_label])
+            # Store chunked_shape and chunk parameters in ManagedArray
+            if array_label in response.chunked_shapes:
+                for container in (self.device, self.host):
+                    array = container.get_managed_array(array_label)
+                    array.chunked_shape = chunked_shapes[array_label]
+                    array.chunk_length = chunk_length
+                    array.num_chunks = chunks
 
         self._chunks = response.chunks
         if self.is_chunked:
             self._convert_host_to_numpy()
         else:
             self._convert_host_to_pinned()
-        self._needs_reallocation.clear()
+        self._needs_reallocation = [
+            label
+            for label in self._needs_reallocation
+            if label not in arrays
+        ]
 
     def register_with_memory_manager(self) -> None:
         """
@@ -844,6 +854,10 @@ class BaseArrayManager(ABC):
             )
             staged[...] = new_array
             new_array = staged
+            if isinstance(staged, np_memmap):
+                # The buffer exceeded the spill threshold and came
+                # back disk-backed; the slot follows it.
+                managed.memory_type = "memmap"
         self.host.attach(label, new_array)
         return None
 
@@ -982,9 +996,13 @@ class BaseArrayManager(ABC):
         """Convert regular numpy host arrays to pinned for non-chunked mode.
 
         When a run is not chunked, the host arrays should be pinned to
-        enable asynchronous transfers.
+        enable asynchronous transfers. Disk-backed (``"memmap"``) slots
+        are left as they are — they cannot be page-locked, and the
+        transfer path accepts pageable targets.
         """
         for name, slot in self.host.iter_managed_arrays():
+            if slot.memory_type == "memmap":
+                continue
             old_array = slot.array
             if old_array is not None:
                 if slot.memory_type == "host":
@@ -995,14 +1013,16 @@ class BaseArrayManager(ABC):
                         like=old_array,
                     )
                     slot.array = new_array
-        self.host.set_memory_type("pinned")
+            slot.memory_type = "pinned"
 
     def _convert_host_to_numpy(self) -> None:
         """Convert pinned host arrays to regular numpy for chunked mode.
 
         When chunking is active, host arrays should be regular numpy
         to limit pinned memory usage. Per-chunk pinned buffers are
-        used for staging during transfers.
+        used for staging during transfers. An array whose size exceeds
+        the memory manager's spill threshold comes back disk-backed;
+        its slot is marked ``"memmap"``.
         """
         for name, slot in self.host.iter_managed_arrays():
             # Convert to regular numpy only for arrays with chunked transfers
@@ -1016,4 +1036,7 @@ class BaseArrayManager(ABC):
                         like=old_array,
                     )
                     slot.array = new_array
-                    slot.memory_type = "host"
+                    if isinstance(new_array, np_memmap):
+                        slot.memory_type = "memmap"
+                    else:
+                        slot.memory_type = "host"

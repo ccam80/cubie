@@ -42,6 +42,11 @@ simulator never touches CuPy — it keeps its own numpy-backed fakes. Supporting
 - Allocation, copies, launch, and release use the run's stream. Memory caps
   cause chunking without device-wide synchronization or garbage collection.
 
+### Host RAM: spill files & RAM-capped chunking
+- Host arrays above their owner's spill threshold use a temporary memmap.
+- Memmap transfers use bounded pinned staging buffers.
+- Spill settings belong to the solver owner, not the shared manager.
+
 ### Single allocation provider
 CuPy's async pool is the only device allocator, reached through the EMM plugin; `cupy`/`cupyx`
 come from `cubie.cuda_simsafe`, which imports them at package import on a real GPU.

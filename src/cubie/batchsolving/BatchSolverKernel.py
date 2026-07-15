@@ -85,6 +85,8 @@ DEFAULT_MEMORY_SETTINGS = {
     "memory_manager": default_memmgr,
     "stream_group": "solver",
     "mem_proportion": None,
+    "host_spill_threshold": None,
+    "spill_directory": None,
 }
 
 
@@ -363,6 +365,12 @@ class BatchSolverKernel(CUDAFactory):
         memory_manager = merged_settings["memory_manager"]
         stream_group = merged_settings["stream_group"]
         mem_proportion = merged_settings["mem_proportion"]
+        host_spill_threshold = merged_settings["host_spill_threshold"]
+        spill_directory = merged_settings["spill_directory"]
+        if host_spill_threshold is not None:
+            memory_manager.host_spill_threshold = host_spill_threshold
+        if spill_directory is not None:
+            memory_manager.spill_directory = spill_directory
         memory_manager.register(
             self,
             stream_group=stream_group,
@@ -547,6 +555,41 @@ class BatchSolverKernel(CUDAFactory):
                 "This solver has been closed and its GPU resources "
                 "released; build a new Solver to run again."
             )
+        clients = (self, self.input_arrays, self.output_arrays)
+        for client in clients:
+            self._memory_manager.mark_active(client)
+        try:
+            self._execute_run(
+                inits,
+                params,
+                driver_coefficients,
+                duration,
+                blocksize,
+                stream,
+                warmup,
+                t0,
+            )
+        finally:
+            for client in clients:
+                self._memory_manager.mark_idle(client)
+
+    def _execute_run(
+        self,
+        inits: NDArray[floating],
+        params: NDArray[floating],
+        driver_coefficients: Optional[NDArray[floating]],
+        duration: float,
+        blocksize: int,
+        stream: Optional[Any],
+        warmup: float,
+        t0: float,
+    ) -> None:
+        """Allocate, chunk, and launch the batch kernel (body of run).
+
+        Runs with this kernel and its array managers marked active in
+        the memory manager, so allocation-pressure eviction never
+        frees the buffers of the solve in flight.
+        """
         if stream is None:
             stream = self.stream
         self._last_stream = stream

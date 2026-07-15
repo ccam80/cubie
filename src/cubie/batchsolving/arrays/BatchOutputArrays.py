@@ -36,6 +36,7 @@ from numpy import (
     int32 as np_int32,
     integer as np_integer,
     issubdtype as np_issubdtype,
+    memmap as np_memmap,
 )
 from numpy.typing import NDArray
 
@@ -383,9 +384,20 @@ class OutputArrays(BaseArrayManager):
             ):
                 new_arrays[name] = current
             else:
-                new_arrays[name] = self._memory_manager.create_host_array(
-                    newshape, dtype, slot.memory_type
+                # Request the slot's base type; an array whose size
+                # exceeds the manager's spill threshold comes back
+                # disk-backed and the slot follows it.
+                base_type = slot.memory_type
+                if base_type == "memmap":
+                    base_type = "pinned"
+                new_array = self._memory_manager.create_host_array(
+                    newshape, dtype, base_type
                 )
+                if isinstance(new_array, np_memmap):
+                    slot.memory_type = "memmap"
+                else:
+                    slot.memory_type = base_type
+                new_arrays[name] = new_array
         for name, slot in self.device.iter_managed_arrays():
             dtype = slot.dtype
             if np_issubdtype(dtype, np_floating):

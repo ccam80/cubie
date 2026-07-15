@@ -58,6 +58,14 @@ deregisters the kernel and array managers. Explicit failures are reported and
 the close can be retried. `solve_ivp` closes its temporary solver before it
 returns. Finalizers provide best-effort cleanup for abandoned solvers.
 
+When several **live** solvers compete for VRAM, the memory manager evicts the device scratch
+of solvers that are not mid-solve (`kernel.run` brackets each solve with
+`mark_active`/`mark_idle`); the evicted solver's invalidate hooks queue reallocation, so its
+next solve rebuilds its buffers transparently. Host arrays bigger than the spill threshold
+(default half of available RAM; `host_spill_threshold`/`spill_directory` memory kwargs) are
+disk-backed `numpy.memmap`s, and batches too large for RAM are chunked, so solutions larger
+than system RAM stream through bounded staging.
+
 ### Grids
 `BatchInputHandler` converts user dicts/arrays into `(variable, run)` arrays via the
 module-level grid builders. Two grid types: `combinatorial` (cartesian product across inputs)

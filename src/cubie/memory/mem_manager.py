@@ -48,13 +48,15 @@ See Also
     Manages CUDA stream groups used by the memory manager.
 """
 
+from tempfile import gettempdir, mkstemp
 from types import TracebackType
 from typing import Any, Optional, Callable, Dict, Tuple
 from warnings import warn
 from copy import deepcopy
 from inspect import ismethod
-from weakref import WeakMethod, ref as weakref_ref
+from weakref import WeakMethod, finalize, ref as weakref_ref
 import ctypes
+import os
 
 from cubie.cuda_simsafe import cuda
 from attrs import define, Factory as attrsFactory, field
@@ -65,6 +67,8 @@ from attrs.validators import (
 )
 from numpy import (
     ceil as np_ceil,
+    dtype as np_dtype,
+    memmap as np_memmap,
     ndarray,
     empty as np_empty,
     floor as np_floor,
@@ -88,6 +92,8 @@ ALL_MEMORY_MANAGER_PARAMETERS = {
     "memory_manager",
     "stream_group",
     "mem_proportion",
+    "host_spill_threshold",
+    "spill_directory",
 }
 """All keyword arguments accepted by :class:`MemoryManager` registration
 and solver-level memory configuration.
@@ -107,10 +113,85 @@ and solver-level memory configuration.
    * - ``mem_proportion``
      - :meth:`MemoryManager.register`
      - Proportion of VRAM to assign (0.0--1.0).
+   * - ``host_spill_threshold``
+     - :class:`MemoryManager`
+     - Bytes above which a host array is backed by a disk spill
+       file. ``None`` derives the threshold from available RAM.
+   * - ``spill_directory``
+     - :class:`MemoryManager`
+     - Directory for spill files. ``None`` uses the system temp
+       directory.
 """
 
 
 MIN_AUTOPOOL_SIZE = 0.05
+
+HOST_SPILL_FRACTION = 0.5
+"""Fraction of currently available system RAM a single host array may
+occupy before it is backed by a disk spill file, and the fraction used
+to cap the no-chunking budget so oversized batches stream through
+chunk-sized staging instead of a full-size pinned mirror."""
+
+
+def available_system_ram() -> Optional[int]:
+    """
+    Return the bytes of physical RAM currently available.
+
+    Uses ``sysconf`` where available (POSIX) and
+    ``GlobalMemoryStatusEx`` on Windows. Returns ``None`` when neither
+    source is usable; callers treat an unknown budget as unlimited (no
+    spill, no RAM-capped chunking).
+
+    Returns
+    -------
+    int or None
+        Available physical memory in bytes, or ``None`` if unknown.
+    """
+    try:
+        pages = os.sysconf("SC_AVPHYS_PAGES")
+        page_size = os.sysconf("SC_PAGE_SIZE")
+        if pages > 0 and page_size > 0:
+            return pages * page_size
+    except (AttributeError, ValueError, OSError):
+        pass
+    try:  # pragma: no cover - Windows-only path
+        class _MemoryStatusEx(ctypes.Structure):
+            _fields_ = [
+                ("dwLength", ctypes.c_ulong),
+                ("dwMemoryLoad", ctypes.c_ulong),
+                ("ullTotalPhys", ctypes.c_ulonglong),
+                ("ullAvailPhys", ctypes.c_ulonglong),
+                ("ullTotalPageFile", ctypes.c_ulonglong),
+                ("ullAvailPageFile", ctypes.c_ulonglong),
+                ("ullTotalVirtual", ctypes.c_ulonglong),
+                ("ullAvailVirtual", ctypes.c_ulonglong),
+                ("ullAvailExtendedVirtual", ctypes.c_ulonglong),
+            ]
+
+        status = _MemoryStatusEx()
+        status.dwLength = ctypes.sizeof(_MemoryStatusEx)
+        if ctypes.windll.kernel32.GlobalMemoryStatusEx(
+            ctypes.byref(status)
+        ):
+            return int(status.ullAvailPhys)
+    except (AttributeError, OSError):
+        pass
+    return None
+
+
+def _remove_spill_file(path: str) -> None:
+    """
+    Delete the spill file backing a collected memmap array.
+
+    Parameters
+    ----------
+    path
+        Filesystem path of the spill file to remove.
+    """
+    try:
+        os.remove(path)
+    except OSError:  # pragma: no cover - may still be mapped on Windows
+        pass
 
 
 def placeholder_invalidate() -> None:
@@ -443,6 +524,9 @@ class InstanceMemorySettings:
         validator=attrsval_optional(attrsval_instance_of(weakref_ref)),
     )
     last_stream: Optional[Any] = field(default=None)
+    active: bool = field(
+        default=False, validator=attrsval_instance_of(bool)
+    )
 
     def add_allocation(self, key: str, arr: Any) -> None:
         """Add an allocation to the instance's allocations list.
@@ -558,6 +642,17 @@ class MemoryManager:
     )
     _group_chunk_parameters: Dict[str, Tuple[int, int]] = field(
         default=attrsFactory(dict), validator=attrsval_instance_of(dict)
+    )
+    # Bytes above which a host array is backed by a disk spill file;
+    # None derives the threshold from available RAM at creation time.
+    host_spill_threshold: Optional[int] = field(
+        default=None,
+        validator=attrsval_optional(attrsval_instance_of(int)),
+    )
+    # Directory for spill files; None uses the system temp directory.
+    spill_directory: Optional[str] = field(
+        default=None,
+        validator=attrsval_optional(attrsval_instance_of(str)),
     )
 
     def __attrs_post_init__(self) -> None:
@@ -982,6 +1077,73 @@ class MemoryManager:
         self._drop_instance(instance_id)
         self._rebalance_auto_pool()
 
+    def mark_active(self, instance: object) -> None:
+        """
+        Flag an instance's allocations as in use by a running solve.
+
+        Active instances are never evicted by allocation-pressure
+        reclamation. Unregistered instances are ignored.
+
+        Parameters
+        ----------
+        instance
+            Registered instance to mark.
+        """
+        settings = self.registry.get(id(instance))
+        if settings is not None:
+            settings.active = True
+
+    def mark_idle(self, instance: object) -> None:
+        """
+        Clear an instance's active flag once its solve completes.
+
+        Idle instances' device buffers may be evicted when another
+        instance's request cannot fit in free memory; the evicted
+        instance's invalidate hook marks its arrays for reallocation,
+        so its next solve rebuilds them. Unregistered instances are
+        ignored.
+
+        Parameters
+        ----------
+        instance
+            Registered instance to mark.
+        """
+        settings = self.registry.get(id(instance))
+        if settings is not None:
+            settings.active = False
+
+    def _evict_idle_instances(self, exclude_ids: set) -> int:
+        """
+        Free the device allocations of idle registered instances.
+
+        Second-stage pressure response after :meth:`_reclaim_memory`:
+        drops the allocations of every registered instance that is not
+        active and not excluded, and calls its invalidate hook so the
+        instance queues reallocation on its next solve. The registry
+        entries themselves are kept — the instances are alive and will
+        allocate again.
+
+        Parameters
+        ----------
+        exclude_ids
+            Instance identifiers whose allocations must be kept (the
+            instances participating in the current allocation).
+
+        Returns
+        -------
+        int
+            Bytes of allocations released.
+        """
+        released = 0
+        for instance_id, settings in self.registry.items():
+            if instance_id in exclude_ids or settings.active:
+                continue
+            if not settings.allocations:
+                continue
+            released += settings.allocated_bytes
+            settings.free_all()
+            settings.invalidate_hook()
+        return released
     def _rebalance_auto_pool(self) -> None:
         """
         Redistribute available memory equally among auto-allocated instances.
@@ -1066,8 +1228,13 @@ class MemoryManager:
         dtype
             Data type for the array elements.
         memory_type
-            Memory type for the host array. Must be ``"pinned"`` or
-            ``"host"``. Defaults to ``"pinned"``.
+            Memory type for the host array. Must be ``"pinned"``,
+            ``"host"``, or ``"memmap"``. Defaults to ``"pinned"``.
+            ``"pinned"`` and ``"host"`` requests whose size exceeds
+            the spill threshold (``host_spill_threshold``, or
+            ``HOST_SPILL_FRACTION`` of available RAM when unset) are
+            returned as ``"memmap"`` arrays backed by a spill file
+            that is deleted when the array is collected.
         like
             A source array to copy data from. If provided, the new array has
             the same data as like; if not, it is filled with zeros
@@ -1075,27 +1242,87 @@ class MemoryManager:
         Returns
         -------
         numpy.ndarray
-            C-contiguous host array.
+            C-contiguous host array. A :class:`numpy.memmap` when the
+            array spilled to disk.
 
         Raises
         ------
         ValueError
-            If ``memory_type`` is not ``"pinned"`` or ``"host"``.
+            If ``memory_type`` is not ``"pinned"``, ``"host"``, or
+            ``"memmap"``.
         """
         _ensure_cuda_context()
-        if memory_type not in ("pinned", "host"):
+        if memory_type not in ("pinned", "host", "memmap"):
             raise ValueError(
-                f"memory_type must be 'pinned' or 'host', got '{memory_type}'"
+                f"memory_type must be 'pinned', 'host', or 'memmap', "
+                f"got '{memory_type}'"
             )
-        use_pinned = memory_type == "pinned"
-        if use_pinned:
+        if memory_type in ("pinned", "host"):
+            threshold = self._resolved_spill_threshold()
+            nbytes = int(prod(shape)) * np_dtype(dtype).itemsize
+            if threshold is not None and nbytes > threshold:
+                memory_type = "memmap"
+        if memory_type == "memmap":
+            arr = self._create_spill_array(shape, dtype)
+        elif memory_type == "pinned":
             arr = _pinned_host_array(shape, dtype)
         else:
             arr = np_empty(shape, dtype=dtype)
         if like is not None:
             arr[:] = like
-        else:
+        elif memory_type != "memmap":
+            # A fresh memmap is already zero-filled by the filesystem;
+            # touching it here would page the whole file into RAM.
             arr.fill(0.0)
+        return arr
+
+    def _resolved_spill_threshold(self) -> Optional[int]:
+        """
+        Return the host-array spill threshold in bytes.
+
+        Returns
+        -------
+        int or None
+            ``host_spill_threshold`` when set, otherwise
+            ``HOST_SPILL_FRACTION`` of the RAM currently available.
+            ``None`` disables spilling (RAM availability unknown).
+        """
+        if self.host_spill_threshold is not None:
+            return self.host_spill_threshold
+        ram_available = available_system_ram()
+        if ram_available is None:
+            return None
+        return int(ram_available * HOST_SPILL_FRACTION)
+
+    def _create_spill_array(
+        self, shape: tuple[int, ...], dtype: Callable
+    ) -> np_memmap:
+        """
+        Create a disk-backed host array in the spill directory.
+
+        The backing file is deleted when the array is garbage
+        collected.
+
+        Parameters
+        ----------
+        shape
+            Shape of the array to create.
+        dtype
+            Constructor returning the precision object for the array
+            elements.
+
+        Returns
+        -------
+        numpy.memmap
+            Writeable zero-initialised disk-backed array.
+        """
+        directory = self.spill_directory or gettempdir()
+        handle, path = mkstemp(
+            prefix="cubie-spill-", suffix=".dat", dir=directory
+        )
+        os.close(handle)
+        arr = np_memmap(path, dtype=dtype, mode="w+", shape=shape)
+        finalize(arr, _remove_spill_file, path)
         return arr
 
     def get_available_memory(self, group: str) -> int:
@@ -1554,6 +1781,9 @@ class MemoryManager:
 
         request_size = chunkable_size + unchunkable_size
 
+        if request_size >= available_memory:
+            if self._evict_idle_instances(set(requests.keys())):
+                available_memory = self.get_available_memory(stream_group)
         if request_size < available_memory:
             return axis_length, 1  # No chunking needed
 

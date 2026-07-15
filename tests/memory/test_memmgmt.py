@@ -1993,6 +1993,126 @@ def test_allocation_pressure_does_not_run_cyclic_gc(mgr):
         gc.enable()
 
 
+def test_mark_active_and_idle_flags(mgr):
+    """mark_active/mark_idle toggle the registry flag; unregistered
+    instances are ignored."""
+    inst = DummyClass()
+    mgr.register(inst, stream_group="flags")
+    assert mgr.registry[id(inst)].active is False
+    mgr.mark_active(inst)
+    assert mgr.registry[id(inst)].active is True
+    mgr.mark_idle(inst)
+    assert mgr.registry[id(inst)].active is False
+    mgr.mark_active(DummyClass())
+    mgr.mark_idle(DummyClass())
+
+
+@pytest.mark.parametrize(
+    "fixed_mem_override",
+    [{"free": 2048, "total": 8 * 1024**3}],
+    indirect=True,
+)
+def test_pressure_evicts_idle_but_not_active_instances(mgr):
+    """A request that exceeds free memory evicts idle live clients.
+
+    The idle client's allocations are freed and its invalidate hook
+    runs (so it reallocates on its next solve); a client marked
+    active keeps its allocations.
+    """
+    idle = DummyClass()
+    busy = DummyClass()
+    mgr.register(
+        idle,
+        invalidate_cache_hook=idle.notice_invalidate,
+        stream_group="evict_idle",
+    )
+    mgr.register(
+        busy,
+        invalidate_cache_hook=busy.notice_invalidate,
+        stream_group="evict_busy",
+    )
+    for instance in (idle, busy):
+        mgr.queue_request(
+            instance,
+            {
+                "buf": ArrayRequest(
+                    shape=(4, 4, 4),
+                    dtype=np.float32,
+                    memory="device",
+                    total_runs=4,
+                ),
+            },
+        )
+        mgr.allocate_queue(instance)
+        assert mgr.registry[id(instance)].allocated_bytes > 0
+
+    # Sentinel values: notice_invalidate resets proportion to None.
+    idle.proportion = "armed"
+    busy.proportion = "armed"
+    mgr.mark_active(busy)
+
+    requester = DummyClass()
+    mgr.register(requester, stream_group="evict_requester")
+    mgr.queue_request(
+        requester,
+        {
+            "big": ArrayRequest(
+                shape=(2, 2, 1024),
+                dtype=np.float32,
+                memory="device",
+                chunk_axis_index=2,
+                total_runs=1024,
+            ),
+        },
+    )
+    mgr.allocate_queue(requester)
+
+    assert mgr.registry[id(idle)].allocated_bytes == 0
+    assert idle.proportion is None
+    assert mgr.registry[id(busy)].allocated_bytes > 0
+    assert busy.proportion == "armed"
+
+
+def test_available_system_ram_reports_positive():
+    """The RAM probe returns a positive byte count on CI platforms."""
+    from cubie.memory.mem_manager import available_system_ram
+
+    ram_available = available_system_ram()
+    assert ram_available is not None
+    assert ram_available > 0
+
+
+def test_create_host_array_spills_over_threshold(mgr, tmp_path):
+    """Host arrays above the spill threshold come back disk-backed.
+
+    Small requests keep their requested type, oversized pinned/host
+    requests spill to a memmap in the spill directory, explicit
+    ``"memmap"`` requests always spill, ``like`` data is copied, and
+    the backing file is deleted when the array is collected.
+    """
+    mgr.spill_directory = str(tmp_path)
+    mgr.host_spill_threshold = 1024
+
+    small = mgr.create_host_array((4, 4), np.float64, "host")
+    assert not isinstance(small, np.memmap)
+
+    big = mgr.create_host_array((64, 64), np.float64, "host")
+    assert isinstance(big, np.memmap)
+    assert (np.asarray(big) == 0.0).all()
+    assert len(list(tmp_path.iterdir())) == 1
+
+    source = np.arange(16, dtype=np.float64).reshape(4, 4)
+    explicit = mgr.create_host_array(
+        (4, 4), np.float64, "memmap", like=source
+    )
+    assert isinstance(explicit, np.memmap)
+    assert np.array_equal(np.asarray(explicit), source)
+
+    del big, explicit
+    gc.collect()
+    assert len(list(tmp_path.iterdir())) == 0
+
+
 class TestDeadInstanceRelease:
     """The registry releases instances once they are collected."""
 
