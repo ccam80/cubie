@@ -98,6 +98,7 @@ def test_newton_krylov_placeholder(placeholder_system, precision, tolerance):
     x = cuda.to_device(x0)
     out_flag = cuda.to_device(np.array([0], dtype=np.int32))
     kernel[1, 1](x, base_state, out_flag, h)
+    cuda.synchronize()
     status_code = int(out_flag.copy_to_host()[0]) & STATUS_MASK
 
     assert status_code == CUBIE_RESULT_CODES.SUCCESS
@@ -200,6 +201,7 @@ def test_newton_krylov_symbolic(
     x = system_setup["state_init"]
     out_flag = cuda.to_device(np.array([0], dtype=np.int32))
     kernel[1, 1](x, base_state, out_flag, h)
+    cuda.synchronize()
     status_code = int(out_flag.copy_to_host()[0]) & STATUS_MASK
     # Nonlinear system needs preconditioning.
     # if system_setup["id"] == "nonlinear" and precond_order == 0:
@@ -279,6 +281,7 @@ def test_newton_krylov_failure(precision):
 
     out_flag = cuda.to_device(np.array([1], dtype=np.int32))
     kernel[1, 1](out_flag, precision(0.01))
+    cuda.synchronize()
     status_code = int(out_flag.copy_to_host()[0]) & STATUS_MASK
     assert status_code in (
         CUBIE_RESULT_CODES.MAX_NEWTON_ITERATIONS_EXCEEDED,
@@ -361,6 +364,7 @@ def test_newton_krylov_newton_max_iters_exceeded(
     )  # ensures residual>tol
     out_flag = cuda.to_device(np.array([0], dtype=np.int32))
     kernel[1, 1](x, base_state, out_flag, h)
+    cuda.synchronize()
     status_code = int(out_flag.copy_to_host()[0]) & STATUS_MASK
     assert status_code == CUBIE_RESULT_CODES.MAX_NEWTON_ITERATIONS_EXCEEDED
 
@@ -432,6 +436,7 @@ def test_newton_krylov_linear_solver_failure_propagates(precision):
 
     out_flag = cuda.to_device(np.array([0], dtype=np.int32))
     kernel[1, 1](out_flag, precision(0.01))
+    cuda.synchronize()
     status_code = int(out_flag.copy_to_host()[0]) & STATUS_MASK
     assert status_code == (
         CUBIE_RESULT_CODES.MAX_NEWTON_ITERATIONS_EXCEEDED
@@ -554,6 +559,7 @@ def test_newton_krylov_scaled_tolerance_converges(precision, tolerance):
     x = cuda.to_device(x0)
     out_flag = cuda.to_device(np.array([0], dtype=np.int32))
     kernel[1, 1](x, base, out_flag, h)
+    cuda.synchronize()
     status_code = int(out_flag.copy_to_host()[0]) & STATUS_MASK
 
     assert status_code == CUBIE_RESULT_CODES.SUCCESS
