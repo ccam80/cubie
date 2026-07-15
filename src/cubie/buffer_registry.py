@@ -499,6 +499,35 @@ class BufferGroup:
             return 0
         return max(s.stop for s in layout.values())
 
+    def relocatable_names(self) -> Tuple[str, ...]:
+        """Return buffer names registered directly on this group.
+
+        Excludes the ``{child}_shared`` and ``{child}_persistent``
+        roll-up entries created by
+        :meth:`BufferRegistry.register_child`, leaving only buffers
+        whose location is set through a ``{name}_location`` setting.
+        """
+        rollups = set()
+        for base in self.children:
+            rollups.add(f"{base}_shared")
+            rollups.add(f"{base}_persistent")
+        return tuple(
+            name for name in self.entries if name not in rollups
+        )
+
+    def nonaliased_elements(self, names: Tuple[str, ...]) -> int:
+        """Return total elements the named buffers would allocate.
+
+        Aliased buffers overlap their parent's allocation, so only
+        non-aliased entries contribute. Unknown names count zero.
+        """
+        total = 0
+        for name in names:
+            entry = self.entries.get(name)
+            if entry is not None and entry.aliases is None:
+                total += entry.size
+        return total
+
     def get_allocator(self, name: str, zero: bool = False) -> Callable:
         """Generate CUDA device function for buffer allocation.
 
@@ -668,6 +697,23 @@ class BufferRegistry:
         if parent in self._groups:
             self._groups[parent].invalidate_layouts()
 
+    def clear_own(self, parent: object) -> None:
+        """Remove a parent's own registrations, sparing its children.
+
+        Unlike :meth:`clear_parent` this does not cascade: children
+        keep their registrations, so a parent refreshing its own
+        entries (re-running its ``register_buffers``) does not wipe
+        the still-valid declarations of the components it hosts.
+        The parent is expected to re-record its children via
+        :meth:`register_child` afterwards.
+
+        Parameters
+        ----------
+        parent
+            Parent instance whose own registrations are removed.
+        """
+        self._groups.pop(parent, None)
+
     def clear_parent(self, parent: object) -> None:
         """Remove a parent's buffer registrations and its children's.
 
@@ -821,6 +867,86 @@ class BufferRegistry:
         if parent not in self._groups:
             return 0
         return self._groups[parent].persistent_local_buffer_size()
+
+    def relocatable_buffer_names(self, parent: object) -> Tuple[str, ...]:
+        """Return buffer names registered directly on a parent.
+
+        Excludes child roll-up entries, leaving the buffers whose
+        location is set through a ``{name}_location`` setting.
+        Parents with no registered group return an empty tuple.
+
+        Parameters
+        ----------
+        parent
+            Parent instance to query.
+
+        Returns
+        -------
+        Tuple[str, ...]
+            Names of the parent's own registered buffers.
+        """
+        if parent not in self._groups:
+            return ()
+        return self._groups[parent].relocatable_names()
+
+    def nonaliased_elements(
+        self,
+        parent: object,
+        names: Tuple[str, ...],
+    ) -> int:
+        """Return total elements the named buffers would allocate.
+
+        Aliased buffers overlap their parent's allocation, so only
+        non-aliased entries contribute. Unknown parents or names
+        count zero.
+
+        Parameters
+        ----------
+        parent
+            Parent instance to query.
+        names
+            Buffer names registered on the parent.
+
+        Returns
+        -------
+        int
+            Total non-aliased elements across the named buffers.
+        """
+        if parent not in self._groups:
+            return 0
+        return self._groups[parent].nonaliased_elements(names)
+
+    def declared_local_elements(self, parent: object) -> int:
+        """Return the declared per-thread local footprint in elements.
+
+        Sums plain-local buffer sizes across the parent and every
+        child recorded by :meth:`register_child`, recursively, plus
+        the parent's persistent-local total (children's persistent
+        totals already roll up into the parent's child entries).
+
+        Parameters
+        ----------
+        parent
+            Parent instance to query.
+
+        Returns
+        -------
+        int
+            Declared local plus persistent elements per thread.
+        """
+        group = self._groups.get(parent)
+        if group is None:
+            return 0
+
+        def plain_local(current: BufferGroup) -> int:
+            total = current.local_buffer_size()
+            for child in current.children.values():
+                child_group = self._groups.get(child)
+                if child_group is not None:
+                    total += plain_local(child_group)
+            return total
+
+        return plain_local(group) + group.persistent_local_buffer_size()
 
     def get_allocator(
         self,

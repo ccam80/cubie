@@ -1620,6 +1620,29 @@ def test_solver_set_verbosity(solver_mutable):
     assert default_timelogger.verbosity is None
 
 
+MOVABLE_LOCATION_KEYS = (
+    "state_location",
+    "proposed_state_location",
+    "parameters_location",
+    "drivers_location",
+    "proposed_drivers_location",
+    "observables_location",
+    "proposed_observables_location",
+    "error_location",
+    "stage_increment_location",
+    "stage_base_location",
+    "accumulator_location",
+    "stage_rhs_location",
+)
+"""Every movable loop and DIRK work-buffer location setting.
+
+Pinning all of them makes both solvers fully explicit: every auto
+placement group contains a user-set key, so the heuristics are
+blocked on both sides and each solver's layout is exactly what the
+test states.
+"""
+
+
 @pytest.mark.parametrize(
     "solver_settings_override",
     [{
@@ -1629,6 +1652,7 @@ def test_solver_set_verbosity(solver_mutable):
         "output_types": ["state"],
         "saved_observable_indices": [],
         "summarised_observable_indices": [],
+        **{key: "local" for key in MOVABLE_LOCATION_KEYS},
     }],
     indirect=True,
 )
@@ -1642,27 +1666,23 @@ def test_shared_loop_buffers_leave_results_unchanged(
     simple_initial_values,
     simple_parameters,
 ):
-    """Buffer placement is storage-only: moving every movable loop
+    """Buffer placement is storage-only: moving every movable
     buffer to shared memory reproduces the all-local trajectories.
 
-    On the 100-state system these placements shrink the loop's
-    plain-local pool far below the DIRK step's persistent
-    requirement, so this fails loudly if the persistent scratch
-    array is ever again sized from the plain-local total instead
-    of the persistent layout. The all-local baseline is the shared
-    ``solver`` fixture; only the relocated comparison solver is
-    built fresh, because buffer placement is a construction
-    setting.
+    Both solvers pin every movable location explicitly - all local
+    on the reference, all shared on the comparison - so the auto
+    placement heuristics are blocked on both sides and the pair
+    differs only in buffer placement. On the 100-state system the
+    shared placements shrink the loop's plain-local pool far below
+    the DIRK step's persistent requirement, so this fails loudly if
+    the persistent scratch array is ever again sized from the
+    plain-local total instead of the persistent layout. The
+    all-local reference is the shared ``solver`` fixture; only the
+    relocated comparison solver is built fresh, because buffer
+    placement is a construction setting.
     """
     shared_locations = {
-        "state_location": "shared",
-        "proposed_state_location": "shared",
-        "parameters_location": "shared",
-        "drivers_location": "shared",
-        "proposed_drivers_location": "shared",
-        "observables_location": "shared",
-        "proposed_observables_location": "shared",
-        "error_location": "shared",
+        key: "shared" for key in MOVABLE_LOCATION_KEYS
     }
 
     def run_solve(active_solver):
