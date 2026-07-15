@@ -79,6 +79,15 @@ if not CUDA_SIMULATION:
             if self._mp:
                 self._mp.free_all_blocks(stream=stream)
 
+        def free_pool_blocks(self) -> None:
+            """Return the pool's unused cached blocks to the driver.
+
+            Trims the async pool so freed allocations become visible
+            to ``cuMemGetInfo``; live allocations are unaffected.
+            """
+            if self._mp is not None:
+                self._mp.free_all_blocks()
+
         @property
         def interface_version(self) -> int:
             return 1

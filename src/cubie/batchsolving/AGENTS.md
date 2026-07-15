@@ -56,10 +56,12 @@ result accessor on `kernel` and expose it as a `Solver` property.
 A `Solver` (via `kernel.close()` → each array manager's `close()`) frees its device buffers,
 pinned staging, and writeback watcher and deregisters from the memory manager. This happens
 **automatically when the solver is garbage collected** (each memory-manager client carries a
-`weakref.finalize`), so no cleanup call is required — a build/solve/drop loop does not
-accumulate registry entries. `Solver.close()` and the context-manager form (`with Solver(...)
-as s:`) run the same teardown eagerly for deterministic release; both are optional and
-idempotent, and a closed solver should not be reused.
+`weakref.finalize`). On the CUDA backend a solver graph is cyclic, so collection waits for
+the cyclic collector — the memory manager covers that gap by reclaiming (`gc.collect()` +
+purge) whenever a new request exceeds free memory, so a build/solve/drop loop does not
+accumulate buffers or registry entries. `Solver.close()` and the context-manager form
+(`with Solver(...) as s:`) run the same teardown eagerly for deterministic release; both are
+optional and idempotent, and `solve` on a closed solver raises `RuntimeError`.
 
 ### Grids
 `BatchInputHandler` converts user dicts/arrays into `(variable, run)` arrays via the

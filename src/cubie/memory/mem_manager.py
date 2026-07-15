@@ -48,6 +48,7 @@ See Also
     Manages CUDA stream groups used by the memory manager.
 """
 
+from gc import collect as gc_collect
 from types import TracebackType
 from typing import Any, Optional, Callable, Dict, Tuple
 from warnings import warn
@@ -992,8 +993,7 @@ class MemoryManager:
         This is the eager counterpart to :meth:`_purge_dead_instances`,
         invoked by an instance's teardown (its
         :class:`weakref.finalize` callback or an explicit ``close``)
-        rather than waiting for the next registration to notice the
-        instance is gone.
+        to free the instance's allocations immediately.
 
         Parameters
         ----------
@@ -1010,6 +1010,33 @@ class MemoryManager:
             return
         self._drop_instance(instance_id)
         self._rebalance_auto_pool()
+
+    def _reclaim_memory(self) -> None:
+        """
+        Reclaim device memory held by collectable registered clients.
+
+        Runs the cyclic garbage collector so that dead clients kept
+        alive only by reference cycles (solver graphs are cyclic on
+        the CUDA backend) are collected and their finalizers release
+        their registry entries, purges entries whose instances are
+        gone, flushes Numba's deferred-deallocation queue so the
+        dropped arrays return to the CuPy pool, and trims the pool
+        (after a device synchronisation, so stream-ordered frees have
+        landed) so the reclaimed blocks return to the driver and
+        appear in :meth:`get_memory_info`. Called when a queued
+        request does not fit in the memory currently reported as
+        free.
+        """
+        self._purge_dead_instances()
+        gc_collect()
+        self._purge_dead_instances()
+        if not CUDA_SIMULATION:  # pragma: no cover - device-only
+            context = cuda.current_context()
+            context.deallocations.clear()
+            cuda.synchronize()
+            emm = context.memory_manager
+            if getattr(emm, "is_cupy", False):
+                emm.free_pool_blocks()
 
     def _rebalance_auto_pool(self) -> None:
         """
@@ -1476,6 +1503,10 @@ class MemoryManager:
         )
         notaries = set(peers) - set(queued_requests.keys())
         for instance_id, requests_dict in queued_requests.items():
+            if instance_id not in self.registry:
+                # Entry reclaimed while chunk parameters were being
+                # computed: the instance is dead and its hook with it.
+                continue
             chunked_shapes = self.compute_chunked_shapes(
                 requests_dict,
                 chunk_length,
@@ -1498,7 +1529,10 @@ class MemoryManager:
             self.registry[instance_id].allocation_ready_hook(response)
 
         for peer in notaries:
-            self.registry[peer].allocation_ready_hook(
+            peer_settings = self.registry.get(peer)
+            if peer_settings is None:
+                continue
+            peer_settings.allocation_ready_hook(
                 ArrayResponse(
                     arr={},
                     chunks=num_chunks,
@@ -1540,13 +1574,20 @@ class MemoryManager:
         UserWarning
             If request exceeds available VRAM by more than 20x.
         """
-        free, _ = self.get_memory_info()
         available_memory = self.get_available_memory(stream_group)
         chunkable_size, unchunkable_size = get_portioned_request_size(
             requests,
         )
 
         request_size = chunkable_size + unchunkable_size
+
+        if request_size >= available_memory:
+            # Dead clients kept alive only by reference cycles still
+            # hold device buffers through their registry entries;
+            # reclaim them before deciding to chunk or fail.
+            self._reclaim_memory()
+            available_memory = self.get_available_memory(stream_group)
+        free, _ = self.get_memory_info()
 
         if request_size < available_memory:
             return axis_length, 1  # No chunking needed
@@ -1665,19 +1706,21 @@ def run_instance_teardown(
 
     Notes
     -----
-    Every step is wrapped so a failure during interpreter shutdown (when
-    the CUDA context may already be torn down) cannot raise out of the
-    finalizer.
+    Cleanups run before the allocations are released: a writeback
+    watcher drains its pending device-to-host copies while the device
+    buffers they read are still registered. Every step is wrapped so a
+    failure during interpreter shutdown (when the CUDA context may
+    already be torn down) cannot raise out of the finalizer.
     """
-    try:
-        memory_manager.release_instance(instance_id, settings)
-    except Exception:  # pragma: no cover - defensive at shutdown
-        pass
     for cleanup in cleanups:
         try:
             cleanup()
         except Exception:  # pragma: no cover - defensive at shutdown
             pass
+    try:
+        memory_manager.release_instance(instance_id, settings)
+    except Exception:  # pragma: no cover - defensive at shutdown
+        pass
 
 
 def get_portioned_request_size(

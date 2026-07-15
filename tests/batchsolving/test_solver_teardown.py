@@ -10,6 +10,7 @@ registry entries.
 import gc
 
 import numpy as np
+import pytest
 
 from cubie.batchsolving.solver import Solver
 
@@ -97,6 +98,20 @@ def test_close_releases_registry_immediately(
     # close is idempotent and safe to call again.
     solver.close()
     assert _still_registered(manager, ids) == []
+
+
+def test_closed_solver_raises_on_solve(
+    system, precision, thread_mem_manager
+):
+    """``solve`` on a closed solver raises a clear ``RuntimeError``."""
+    manager = thread_mem_manager
+    solver = Solver(system, algorithm="euler", dt=0.01, memory_manager=manager)
+    y0, params = _make_inputs(system, precision)
+    solver.solve(y0, params, duration=0.1)
+    solver.close()
+
+    with pytest.raises(RuntimeError, match="closed"):
+        solver.solve(y0, params, duration=0.1)
 
 
 def test_context_manager_releases_on_exit(

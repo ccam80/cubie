@@ -283,6 +283,7 @@ class BatchSolverKernel(CUDAFactory):
         self._cuda_events: List = []
         self._gpu_workload_event: Optional[CUDAEvent] = None
 
+        self._closed = False
         self._memory_manager = self._setup_memory_manager(memory_settings)
 
         # Build the single integrator to derive compile-critical metadata
@@ -536,7 +537,17 @@ class BatchSolverKernel(CUDAFactory):
         device loop on each chunked workload. Shared-memory demand may reduce
         the block size automatically, emitting a warning when the limit drops
         below a warp.
+
+        Raises
+        ------
+        RuntimeError
+            If the kernel has been closed.
         """
+        if self._closed:
+            raise RuntimeError(
+                "This solver has been closed and its GPU resources "
+                "released; build a new Solver to run again."
+            )
         if stream is None:
             stream = self.stream
 
@@ -998,13 +1009,16 @@ class BatchSolverKernel(CUDAFactory):
         the writeback watcher), and deregisters the kernel's own memory
         manager entry. Idempotent. The kernel and its owning solver also
         release automatically when garbage collected, so calling this is
-        optional; use it for deterministic release. A closed kernel should
-        not be reused.
+        optional; use it for deterministic release. A closed kernel
+        raises :class:`RuntimeError` from :meth:`run`.
+
+        Raises
+        ------
+        TimeoutError
+            If a pending writeback fails to drain.
         """
-        try:
-            self.wait_for_writeback()
-        except Exception:  # pragma: no cover - defensive
-            pass
+        self.wait_for_writeback()
+        self._closed = True
         self.input_arrays.close()
         self.output_arrays.close()
         finalizer = getattr(self, "_finalizer", None)

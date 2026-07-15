@@ -505,9 +505,8 @@ class BaseArrayManager(ABC):
         )
         settings = self._memory_manager.registry[id(self)]
         # Free this manager's device buffers and staging resources when it
-        # is collected, without waiting for the next registration to purge
-        # it. The callback holds the manager weakly (via finalize) and
-        # closes over no reference to self, so it never keeps self alive.
+        # is collected. The callback holds the manager weakly (via finalize)
+        # and closes over no reference to self, so it never keeps self alive.
         self._finalizer = finalize(
             self,
             run_instance_teardown,

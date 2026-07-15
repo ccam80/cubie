@@ -1859,6 +1859,69 @@ def test_get_chunk_parameters_computes_chunk_size_when_eligible(mgr):
     )
     assert 0 < chunk_length < 5_000_000
     assert num_chunks > 1
+
+
+@pytest.mark.parametrize(
+    "fixed_mem_override",
+    [{"free": 1024, "total": 8 * 1024**3}],
+    indirect=True,
+)
+def test_allocation_pressure_reclaims_cyclic_instances(mgr):
+    """A request that exceeds free memory reclaims dead cyclic clients.
+
+    A registered client trapped in a reference cycle is invisible to
+    the lazy purge (its weak reference stays live until the cyclic
+    collector runs). Allocating under memory pressure must collect it
+    and drop its registry entry before chunking.
+    """
+
+    class CyclicClient:
+        def __init__(self):
+            self._cycle = self
+
+    gc.disable()
+    try:
+        holder = CyclicClient()
+        mgr.register(holder, stream_group="pressure_holder")
+        mgr.queue_request(
+            holder,
+            {
+                "buf": ArrayRequest(
+                    shape=(4, 4, 4),
+                    dtype=np.float32,
+                    memory="device",
+                    total_runs=4,
+                ),
+            },
+        )
+        mgr.allocate_queue(holder)
+        dead_id = id(holder)
+        assert mgr.registry[dead_id].allocated_bytes > 0
+
+        del holder
+        assert dead_id in mgr.registry
+
+        requester = DummyClass()
+        mgr.register(requester, stream_group="pressure_requester")
+        mgr.queue_request(
+            requester,
+            {
+                "big": ArrayRequest(
+                    shape=(2, 2, 512),
+                    dtype=np.float32,
+                    memory="device",
+                    chunk_axis_index=2,
+                    total_runs=512,
+                ),
+            },
+        )
+        mgr.allocate_queue(requester)
+
+        assert dead_id not in mgr.registry
+    finally:
+        gc.enable()
+
+
 class TestDeadInstanceRelease:
     """The registry releases instances once they are collected."""
 

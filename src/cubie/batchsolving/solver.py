@@ -528,7 +528,8 @@ class Solver:
         use it as a context manager). Use ``close`` — or the context
         manager form — only when deterministic, immediate release is
         wanted, for example freeing one solver before building the next
-        in a loop. Idempotent; do not reuse a closed solver.
+        in a loop. Idempotent; :meth:`solve` on a closed solver raises
+        :class:`RuntimeError`.
         """
         kernel = getattr(self, "kernel", None)
         if kernel is not None:
