@@ -58,14 +58,18 @@ change — the full suite is slow (run it as a pre-commit check only, and only w
   `docs`, `chore`.
 - **Agents:** every fix or feature is developed on its own branch off `main`. When the work is
   done and verified, commit, push the branch, and open a PR.
-- **Performance gate (every PR):** run `benchmarks/lorenz_mean_runtime.py` A/B — A on `main`,
-  B on the PR branch (e.g. via `PYTHONPATH=<tree>/src`) — and include the results table in the
-  PR message. Script defaults are the gate settings. The script outputs kernel runtime only
-  (CUDA-event); one invocation per side suffices — means repeat to ~0.1% — but an invocation
-  where a config's std exceeds ~5% of its mean was contaminated by outside interference:
-  discard it and rerun. Run A (`main`) first, then pass A's printed mean/std to the B run via
-  `--ref-fixed MEAN STD --ref-adaptive MEAN STD`; the script prints a Welch z per config and
-  the verdict (`|z| >= 3` = the means differ; positive z on the PR branch = regression).
+- **Performance gate (every PR):** run `benchmarks/lorenz_mean_runtime.py` A/B on **both CUDA
+  backends** — A on `main`, B on the PR branch (e.g. via `PYTHONPATH=<tree>/src`) — keeping the
+  backend fixed across A and B, and include a separate results table for each backend in the PR
+  message. Select the backend with the `CUBIE_CUDA_BACKEND` environment variable: unset (or
+  `numba-cuda`) benchmarks stock numba-cuda, `mlir` benchmarks numba-cuda-mlir (both must be
+  installed in the venv). Script defaults are the gate settings. The script outputs kernel
+  runtime only (CUDA-event); one invocation per side suffices — means repeat to ~0.1% — but an
+  invocation where a config's std exceeds ~5% of its mean was contaminated by outside
+  interference: discard it and rerun. For each backend, run A (`main`) first, then pass A's
+  printed mean/std to the B run via `--ref-fixed MEAN STD --ref-adaptive MEAN STD`; the script
+  prints a Welch z per config and the verdict (`|z| >= 3` = the means differ; positive z on the
+  PR branch = regression).
 - ** Any changes left uncommitted or unstaged will be programatically deleted **. The only place to
   store work is in a branch off origin, pushed to main, with a PR open. PRs are the only format
   reviewed by the user. Don't leave PRs draft, they must be marked ready and reviewed by Greptile
