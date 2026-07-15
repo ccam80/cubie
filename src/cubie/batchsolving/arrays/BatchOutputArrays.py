@@ -506,3 +506,12 @@ class OutputArrays(BaseArrayManager):
         self._buffer_pool.clear()
         self._watcher.shutdown()
         self._pending_buffers.clear()
+
+    def _teardown_cleanups(self):
+        """Release the staging pool and stop the watcher when finalized.
+
+        Extends the base with this manager's staging buffer pool and its
+        writeback watcher thread so both are released when the manager is
+        garbage collected, not only on an explicit :meth:`reset`.
+        """
+        return [self._buffer_pool.clear, self._watcher.shutdown]

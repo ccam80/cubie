@@ -50,6 +50,18 @@ stage into a buffer of the slot's memory type and queue reallocation), and calls
 (non-chunked) or plain numpy (chunked). `_invalidate_hook` drops device refs and re-marks
 everything for reallocation.
 
+### Teardown
+Each manager registers a `weakref.finalize` (in `register_with_memory_manager`) that
+deregisters it from the memory manager and runs the callables from `_teardown_cleanups()`
+(`InputArrays`: pool `clear`; `OutputArrays`: pool `clear` + watcher `shutdown`) when the
+manager is garbage collected — so the registry's keepalive on the device buffers, the pinned
+staging pool, and the watcher thread are all released without waiting for the next
+registration to purge. The finalizer callback must never close over the manager (that would
+keep it alive); it holds only the memory manager, the instance id, the `settings` entry, and
+the detached cleanup callables. `close()` runs that finalizer early and then `reset()`s, for
+deterministic release; it is idempotent, and a closed manager should not be reused. Overriding
+`_teardown_cleanups()` is how a subclass adds its own resources to the finalizer.
+
 ### Per-chunk hooks (called by `BatchSolverKernel.run` around each launch)
 - `initialise(chunk_index)` — pre-launch. `InputArrays`: H2D (non-chunked copies the
   `_needs_overwrite` arrays; chunked stages each run-axis slice through a `ChunkBufferPool`

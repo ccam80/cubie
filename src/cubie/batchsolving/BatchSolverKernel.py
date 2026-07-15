@@ -40,6 +40,7 @@ from typing import (
 )
 from warnings import warn
 from pathlib import Path
+from weakref import finalize
 
 from numpy import ceil as np_ceil, float64 as np_float64, floating
 from cubie.cuda_simsafe import cuda, float64
@@ -61,6 +62,7 @@ from cubie.time_logger import CUDAEvent
 from numpy.typing import NDArray
 
 from cubie.memory import default_memmgr
+from cubie.memory.mem_manager import run_instance_teardown
 from cubie.buffer_registry import buffer_registry
 from cubie.CUDAFactory import CUDAFactory, CUDADispatcherCache
 from cubie.batchsolving.arrays.BatchInputArrays import InputArrays
@@ -363,6 +365,18 @@ class BatchSolverKernel(CUDAFactory):
             stream_group=stream_group,
             proportion=mem_proportion,
             allocation_ready_hook=self._on_allocation,
+        )
+        settings = memory_manager.registry[id(self)]
+        # Deregister the kernel's own registry entry when it is collected,
+        # mirroring the array managers' finalizers. The kernel holds no
+        # device allocations itself, so no extra cleanups are needed.
+        self._finalizer = finalize(
+            self,
+            run_instance_teardown,
+            memory_manager,
+            id(self),
+            settings,
+            (),
         )
         return memory_manager
 
@@ -975,6 +989,27 @@ class BatchSolverKernel(CUDAFactory):
     def wait_for_writeback(self):
         """Wait for async writebacks into host arrays after chunked runs"""
         self.output_arrays.wait_pending()
+
+    def close(self) -> None:
+        """Release all GPU resources held by this kernel.
+
+        Drains any pending writeback, closes the input and output array
+        managers (freeing their device buffers, pinned staging pools, and
+        the writeback watcher), and deregisters the kernel's own memory
+        manager entry. Idempotent. The kernel and its owning solver also
+        release automatically when garbage collected, so calling this is
+        optional; use it for deterministic release. A closed kernel should
+        not be reused.
+        """
+        try:
+            self.wait_for_writeback()
+        except Exception:  # pragma: no cover - defensive
+            pass
+        self.input_arrays.close()
+        self.output_arrays.close()
+        finalizer = getattr(self, "_finalizer", None)
+        if finalizer is not None:
+            finalizer()
 
     @property
     def persistent_local_elements(self) -> int:

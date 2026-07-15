@@ -30,8 +30,9 @@ See Also
 """
 
 from abc import ABC, abstractmethod
-from typing import Dict, Iterator, List, Optional, Union
+from typing import Callable, Dict, Iterator, List, Optional, Union
 from warnings import warn
+from weakref import finalize
 
 from attrs import define, field
 from attrs.validators import (
@@ -51,7 +52,12 @@ from numpy.typing import NDArray
 from cubie._utils import opt_gttype_validator, getype_validator
 from cubie.cuda_simsafe import DeviceNDArrayBase
 from cubie.memory import default_memmgr
-from cubie.memory.mem_manager import ArrayRequest, ArrayResponse, MemoryManager
+from cubie.memory.mem_manager import (
+    ArrayRequest,
+    ArrayResponse,
+    MemoryManager,
+    run_instance_teardown,
+)
 from cubie.outputhandling.output_sizes import ArraySizingClass
 
 
@@ -347,6 +353,9 @@ class BaseArrayManager(ABC):
     # Signature of the solver state that determines array sizes; when
     # unchanged, update_from_solver skips rebuilding the size objects.
     _size_sig: object = field(default=None, init=False)
+    # weakref.finalize handle that deregisters this manager and frees its
+    # buffers when the manager is collected (or when close() runs it early).
+    _finalizer: object = field(default=None, init=False, eq=False, repr=False)
 
     def __attrs_post_init__(self) -> None:
         """
@@ -494,6 +503,54 @@ class BaseArrayManager(ABC):
             allocation_ready_hook=self._on_allocation_complete,
             stream_group=self._stream_group,
         )
+        settings = self._memory_manager.registry[id(self)]
+        # Free this manager's device buffers and staging resources when it
+        # is collected, without waiting for the next registration to purge
+        # it. The callback holds the manager weakly (via finalize) and
+        # closes over no reference to self, so it never keeps self alive.
+        self._finalizer = finalize(
+            self,
+            run_instance_teardown,
+            self._memory_manager,
+            id(self),
+            settings,
+            tuple(self._teardown_cleanups()),
+        )
+
+    def _teardown_cleanups(self) -> List[Callable[[], None]]:
+        """
+        Return resource-release callables for finalization.
+
+        Each callable takes no arguments and releases a resource this
+        manager owns beyond its memory-manager registration (for example
+        a staging pool or a writeback watcher). Every callable must
+        reference only the resource it frees, never ``self`` — a
+        reference to ``self`` would keep the manager alive and its
+        finalizer would never run.
+
+        Returns
+        -------
+        list of callable
+            Empty for the base manager; subclasses override to add their
+            own pool or watcher teardown.
+        """
+        return []
+
+    def close(self) -> None:
+        """
+        Release this manager's GPU resources immediately.
+
+        Deregisters from the memory manager (freeing its device
+        allocations), drops the host and device array references, and
+        runs the resource cleanups from :meth:`_teardown_cleanups`
+        (staging pools, writeback watchers). Idempotent. Managers also
+        release automatically when garbage collected, so calling this is
+        optional; use it when deterministic release is wanted. A closed
+        manager should not be reused — build a fresh one.
+        """
+        if self._finalizer is not None:
+            self._finalizer()
+        self.reset()
 
     def request_allocation(
         self,

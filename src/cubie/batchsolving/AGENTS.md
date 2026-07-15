@@ -52,6 +52,15 @@ set consumes raises `KeyError`, and legacy timing spellings (`RENAMED_TIMING_KWA
 siblings must ignore each other's keys; only the top-level entry points enforce. Add a new
 result accessor on `kernel` and expose it as a `Solver` property.
 
+### Solver teardown
+A `Solver` (via `kernel.close()` → each array manager's `close()`) frees its device buffers,
+pinned staging, and writeback watcher and deregisters from the memory manager. This happens
+**automatically when the solver is garbage collected** (each memory-manager client carries a
+`weakref.finalize`), so no cleanup call is required — a build/solve/drop loop does not
+accumulate registry entries. `Solver.close()` and the context-manager form (`with Solver(...)
+as s:`) run the same teardown eagerly for deterministic release; both are optional and
+idempotent, and a closed solver should not be reused.
+
 ### Grids
 `BatchInputHandler` converts user dicts/arrays into `(variable, run)` arrays via the
 module-level grid builders. Two grid types: `combinatorial` (cartesian product across inputs)

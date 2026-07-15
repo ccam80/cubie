@@ -33,6 +33,11 @@ simulator never touches CuPy — it keeps its own numpy-backed fakes. Supporting
 - The registry is keyed by `id(instance)`. Keep a live reference to every registered object — GC frees the id and a new object can silently claim the slot.
 - Two limit modes (`_mode`, default `"passive"`): `"passive"` computes caps but doesn't enforce (returns raw free VRAM); `"active"` enforces per-instance caps. Switch via `set_limit_mode()`.
 
+### Deregistration & teardown
+- The registry entry (`InstanceMemorySettings.allocations`) is a **strong keepalive** for every device array it allocated, so a registered client's buffers live until its entry is dropped — not merely until the client is dropped.
+- Two paths drop an entry: `_purge_dead_instances()` (lazy — runs at the top of `register`/`set_manual_*`/pool-proportion queries and reaps entries whose weak `instance_ref` has died) and `release_instance(instance_id, settings)` (eager — frees the allocations and removes the entry immediately). Both funnel through `_drop_instance`, which frees allocations, drops pool/stream-group membership and queued requests, then the caller rebalances the auto pool.
+- Registered clients (the batch kernel and its array managers) attach a `weakref.finalize` that calls `release_instance` when the client is collected, so buffers are freed at collection time rather than waiting for the next registration. `run_instance_teardown` is the module-level finalizer body — it must stay free of any strong reference to the finalized client. `release_instance` is **identity-guarded** on the `settings` object so a late finalizer cannot evict a new client that reused the collected client's `id`.
+
 ### Single allocation provider
 CuPy's async pool is the only device allocator, reached through the EMM plugin; `cupy`/`cupyx`
 come from `cubie.cuda_simsafe`, which imports them at package import on a real GPU.

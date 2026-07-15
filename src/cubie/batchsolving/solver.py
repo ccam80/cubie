@@ -518,6 +518,30 @@ class Solver:
             if placements:
                 self.kernel.update(placements)
 
+    def close(self) -> None:
+        """Release all GPU resources held by this solver.
+
+        Frees device buffers, pinned host/staging buffers, and the
+        writeback watcher, and deregisters from the memory manager.
+        Calling this is optional: a solver releases the same resources
+        automatically when it is garbage collected (there is no need to
+        use it as a context manager). Use ``close`` — or the context
+        manager form — only when deterministic, immediate release is
+        wanted, for example freeing one solver before building the next
+        in a loop. Idempotent; do not reuse a closed solver.
+        """
+        kernel = getattr(self, "kernel", None)
+        if kernel is not None:
+            kernel.close()
+
+    def __enter__(self) -> "Solver":
+        """Return self so the solver can be used as a context manager."""
+        return self
+
+    def __exit__(self, exc_type, exc, traceback) -> None:
+        """Release GPU resources on exit from a ``with`` block."""
+        self.close()
+
     def convert_output_labels(
         self,
         output_settings: Dict[str, Any],

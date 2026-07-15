@@ -950,19 +950,66 @@ class MemoryManager:
             and settings.instance_ref() is None
         ]
         for instance_id in dead_ids:
-            self.registry.pop(instance_id)
-            if instance_id in self._manual_pool:
-                self._manual_pool.remove(instance_id)
-            if instance_id in self._auto_pool:
-                self._auto_pool.remove(instance_id)
-            self.stream_groups.remove_instance(instance_id)
-            for queued in self._queued_allocations.values():
-                queued.pop(instance_id, None)
+            self._drop_instance(instance_id)
         if dead_ids:
             # Freed reservations flow back to the surviving auto pool.
             # The nested purge this triggers finds nothing dead, so
             # the recursion terminates after one level.
             self._rebalance_auto_pool()
+
+    def _drop_instance(self, instance_id: int) -> None:
+        """
+        Remove a single instance's registry entry and reservations.
+
+        Frees the instance's allocations, drops its registry entry, and
+        clears its manual/auto pool membership, stream-group membership,
+        and any queued allocations. Does not rebalance the auto pool; the
+        caller decides when to rebalance so a batch of removals rebalances
+        once.
+
+        Parameters
+        ----------
+        instance_id
+            Identifier (``id(instance)``) of the entry to remove.
+        """
+        settings = self.registry.pop(instance_id, None)
+        if settings is not None:
+            settings.free_all()
+        if instance_id in self._manual_pool:
+            self._manual_pool.remove(instance_id)
+        if instance_id in self._auto_pool:
+            self._auto_pool.remove(instance_id)
+        self.stream_groups.remove_instance(instance_id)
+        for queued in self._queued_allocations.values():
+            queued.pop(instance_id, None)
+
+    def release_instance(
+        self, instance_id: int, settings: "InstanceMemorySettings"
+    ) -> None:
+        """
+        Deregister an instance and free its allocations immediately.
+
+        This is the eager counterpart to :meth:`_purge_dead_instances`,
+        invoked by an instance's teardown (its
+        :class:`weakref.finalize` callback or an explicit ``close``)
+        rather than waiting for the next registration to notice the
+        instance is gone.
+
+        Parameters
+        ----------
+        instance_id
+            Identifier (``id(instance)``) captured when the instance
+            registered.
+        settings
+            The registry entry recorded for that instance at
+            registration. Removal is guarded on this object's identity so
+            that a reused ``id`` (a new instance occupying the collected
+            instance's address) is never evicted by a late finalizer.
+        """
+        if self.registry.get(instance_id) is not settings:
+            return
+        self._drop_instance(instance_id)
+        self._rebalance_auto_pool()
 
     def _rebalance_auto_pool(self) -> None:
         """
@@ -1583,6 +1630,54 @@ class MemoryManager:
                 chunked_shapes[key] = request.shape
 
         return chunked_shapes
+
+
+def run_instance_teardown(
+    memory_manager: MemoryManager,
+    instance_id: int,
+    settings: InstanceMemorySettings,
+    cleanups: Tuple[Callable[[], None], ...],
+) -> None:
+    """
+    Release a registered instance's memory-manager resources.
+
+    This is the body of the :class:`weakref.finalize` callback attached
+    to memory-manager clients (the batch kernel and its array managers).
+    It runs once when the client is garbage collected, or eagerly when
+    the client's ``close`` invokes its finalizer.
+
+    Parameters
+    ----------
+    memory_manager
+        The manager the instance registered with. Held strongly here (a
+        process-wide singleton), which is safe: it never references the
+        finalized instance back.
+    instance_id
+        Identifier captured at registration.
+    settings
+        Registry entry recorded at registration, used to guard against
+        ``id`` reuse in :meth:`MemoryManager.release_instance`.
+    cleanups
+        Zero-argument callables releasing the instance's other resources
+        (staging pools, writeback watchers). Each must reference only the
+        resource it frees, never the finalized instance, so the finalizer
+        does not keep that instance alive.
+
+    Notes
+    -----
+    Every step is wrapped so a failure during interpreter shutdown (when
+    the CUDA context may already be torn down) cannot raise out of the
+    finalizer.
+    """
+    try:
+        memory_manager.release_instance(instance_id, settings)
+    except Exception:  # pragma: no cover - defensive at shutdown
+        pass
+    for cleanup in cleanups:
+        try:
+            cleanup()
+        except Exception:  # pragma: no cover - defensive at shutdown
+            pass
 
 
 def get_portioned_request_size(

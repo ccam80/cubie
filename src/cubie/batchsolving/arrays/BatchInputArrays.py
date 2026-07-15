@@ -359,3 +359,12 @@ class InputArrays(BaseArrayManager):
         super().reset()
         self._buffer_pool.clear()
         self._active_buffers.clear()
+
+    def _teardown_cleanups(self):
+        """Release the pinned staging pool when finalized.
+
+        Extends the base with this manager's staging buffer pool so the
+        pinned buffers are freed when the manager is garbage collected,
+        not only on an explicit :meth:`reset`.
+        """
+        return [self._buffer_pool.clear]
