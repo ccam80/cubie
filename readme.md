@@ -49,7 +49,15 @@ python -m venv cubie_env
 # source cubie_env/bin/activate # Linux/Mac
 pip install cubie[cuda12]  # CUDA 12 toolkit
 # pip install cubie[cuda13]  # CUDA 13 toolkit
+# pip install cubie[mlir-cuda12]  # MLIR backend, CUDA 12 toolkit
+# pip install cubie[mlir-cuda13]  # MLIR backend, CUDA 13 toolkit
 ```
+
+The extra picks Cubie's CUDA backend (numba-cuda for the `cuda*` extras, numba-cuda-mlir
+for the `mlir*` extras), so one of them is required: a bare `pip install cubie` installs no
+backend, and `import cubie` will stop with instructions to install one. The `mlir*` extras
+need Python 3.11 or later. If your machine already has a system CUDA toolkit, the bare
+`cubie[cuda]` / `cubie[mlir]` extras install a backend without the toolkit wheels.
 
 Then, when you fire up your Cubie project, run
 

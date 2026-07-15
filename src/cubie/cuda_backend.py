@@ -46,8 +46,8 @@ _INSTALL_HINT = (
     "Install a CUDA backend: 'pip install cubie[cuda12]' or "
     "'cubie[cuda13]' for numba-cuda, 'pip install "
     "cubie[mlir-cuda12]' or 'cubie[mlir-cuda13]' for numba-cuda-mlir "
-    "(the bare 'mlir' extra skips the toolkit wheels when a system "
-    "CUDA install is present)."
+    "(the bare 'cuda'/'mlir' extras skip the toolkit wheels when a "
+    "system CUDA install is present)."
 )
 
 

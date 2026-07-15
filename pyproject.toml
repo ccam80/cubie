@@ -24,10 +24,6 @@ license-files = ["src/LICEN[CS]E*"]
 dependencies = [
     "numpy>=2.0", # vendoring cellmlmanip lifts the former <2.0 cap
     "numba",
-    "numba-cuda", # default backend; toolkit resolved from wheels
-                  # (cuda12/cuda13 extras) or an existing system CUDA
-                  # install. numba-cuda-mlir (mlir* extras) may be
-                  # installed alongside; cubie.cuda_backend selects.
     "attrs",
     "sympy>=1.13.0",
     # cellmlmanip is vendored under cubie.vendored.cellmlmanip (it pins
@@ -46,11 +42,15 @@ Homepage = "https://github.com/ccam80/cubie.git"
 Issues = "https://github.com/ccam80/cubie/issues"
 
 [project.optional-dependencies]
-# CuPy is cubie's single device memory allocator on a real GPU, so the
-# toolkit lanes pull in the matching cupy build alongside the toolkit
-# wheels. The bare 'mlir' extra installs the MLIR backend without
-# toolkit wheels, for machines with a system CUDA install. The mlir
-# lanes need Python >= 3.11 (enforced by the numba-cuda-mlir wheel).
+# The CUDA backend is chosen by extra: one of the cuda*/mlir* lanes
+# installs numba-cuda or numba-cuda-mlir. A backendless install fails
+# at import with instructions (cubie.cuda_backend). CuPy is cubie's
+# single device memory allocator on a real GPU, so the toolkit lanes
+# pull in the matching cupy build alongside the toolkit wheels. The
+# bare 'cuda'/'mlir' extras install a backend without toolkit wheels,
+# for machines with a system CUDA install. The mlir lanes need
+# Python >= 3.11 (enforced by the numba-cuda-mlir wheel).
+cuda = ["numba-cuda"] # numba-cuda backend, system toolkit
 cuda12 = ["numba-cuda[cu12]", "cupy-cuda12x"] # CUDA 12 toolkit + CuPy
 cuda13 = ["numba-cuda[cu13]", "cupy-cuda13x"] # CUDA 13 toolkit + CuPy
 mlir = ["numba-cuda-mlir"] # MLIR backend, system toolkit
