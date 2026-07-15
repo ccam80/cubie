@@ -267,6 +267,18 @@ class InputArrays(BaseArrayManager):
             The solver instance to update from.
 
         """
+        # Input sizes are system sizes scaled by num_runs; skip the rebuild
+        # (attrs construction) when those determinants are unchanged.
+        sysz = solver_instance.system_sizes
+        sig = (
+            solver_instance.num_runs,
+            solver_instance.precision,
+            sysz.states,
+            sysz.parameters,
+            sysz.drivers,
+        )
+        if sig == self._size_sig:
+            return
         self._sizes = BatchInputSizes.from_solver(solver_instance).nonzero
         self._precision = solver_instance.precision
         self.set_array_runs(solver_instance.num_runs)
@@ -274,6 +286,7 @@ class InputArrays(BaseArrayManager):
         for name, arr_obj in self._iter_managed_arrays:
             if np_issubdtype(np_dtype(arr_obj.dtype), np_floating):
                 arr_obj.dtype = self._precision
+        self._size_sig = sig
 
     def finalise(self, chunk_index: int) -> None:
         """Release buffers back to host."""

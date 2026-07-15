@@ -191,6 +191,8 @@ class OutputArrays(BaseArrayManager):
     _buffer_pool: ChunkBufferPool = field(factory=ChunkBufferPool, init=False)
     _watcher: WritebackWatcher = field(factory=WritebackWatcher, init=False)
     _pending_buffers: List[PendingBuffer] = field(factory=list, init=False)
+    # Outputs the kernel writes this run; None means transfer all.
+    _active_names: Optional[frozenset] = field(default=None, init=False)
 
     def __attrs_post_init__(self) -> None:
         """
@@ -215,6 +217,19 @@ class OutputArrays(BaseArrayManager):
             The solver instance providing configuration and sizing information.
 
         """
+        cf = solver_instance.compile_flags
+        active = {"status_codes"}  # always written by the kernel
+        if cf.save_state:
+            active.add("state")
+        if cf.save_observables:
+            active.add("observables")
+        if cf.summarise_state:
+            active.add("state_summaries")
+        if cf.summarise_observables:
+            active.add("observable_summaries")
+        if cf.save_counters:
+            active.add("iteration_counters")
+        self._active_names = frozenset(active)
         new_arrays = self.update_from_solver(solver_instance)
         self.update_host_arrays(new_arrays, shape_only=True)
         self.allocate()
@@ -327,6 +342,28 @@ class OutputArrays(BaseArrayManager):
             Host arrays with updated shapes for ``update_host_arrays``.
             Arrays that already match are still included for consistency.
         """
+        # Output sizes depend on num_runs, precision, the time dimensions
+        # (output_length / summaries_length, which fold in duration and the
+        # save/summarise intervals) and the per-variable heights (which fold
+        # in the output selection). Skip the rebuild when all are unchanged;
+        # the current host arrays already match.
+        h = solver_instance.output_array_heights
+        sig = (
+            solver_instance.num_runs,
+            solver_instance.precision,
+            solver_instance.output_length,
+            solver_instance.summaries_length,
+            h.state,
+            h.observables,
+            h.state_summaries,
+            h.observable_summaries,
+            h.per_variable,
+        )
+        if sig == self._size_sig:
+            return {
+                name: slot.array
+                for name, slot in self.host.iter_managed_arrays()
+            }
         self._sizes = BatchOutputSizes.from_solver(solver_instance).nonzero
         self._precision = solver_instance.precision
         self.set_array_runs(solver_instance.num_runs)
@@ -353,6 +390,7 @@ class OutputArrays(BaseArrayManager):
             dtype = slot.dtype
             if np_issubdtype(dtype, np_floating):
                 slot.dtype = self._precision
+        self._size_sig = sig
         return new_arrays
 
     def finalise(self, chunk_index: int) -> None:
@@ -375,8 +413,13 @@ class OutputArrays(BaseArrayManager):
         from_ = []
         to_ = []
         stream = self._memory_manager.get_stream(self)
+        active = self._active_names
 
         for array_name, slot in self.host.iter_managed_arrays():
+            # Skip inactive outputs: their device array is a (1, 1, 1)
+            # placeholder, so transferring it just wastes a d2h dispatch.
+            if active is not None and array_name not in active:
+                continue
             device_array = self.device.get_array(array_name)
             host_array = slot.array
 

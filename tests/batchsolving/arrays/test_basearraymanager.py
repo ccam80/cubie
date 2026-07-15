@@ -539,15 +539,16 @@ class TestBaseArrayManager:
         assert test_arrmgr._arrays_equal(arr1, arr2, shape_only=True) is False
 
     def test_update_host_array_no_change(self, test_arrmgr):
-        """Test update_host_array when arrays are equal"""
+        """Equal-valued resubmission still queues a device copy."""
         test_arrmgr._needs_reallocation = []
-        current = np.array([1, 2, 3])
-        new = np.array([1, 2, 3])
+        dtype = test_arrmgr.host.arr1.dtype
+        current = np.array([1, 2, 3], dtype=dtype)
+        new = np.array([1, 2, 3], dtype=dtype)
 
         test_arrmgr._update_host_array(new, current, "arr1")
         test_arrmgr.allocate()
         assert "arr1" not in test_arrmgr._needs_reallocation
-        assert "arr1" not in test_arrmgr._needs_overwrite
+        assert "arr1" in test_arrmgr._needs_overwrite
 
     def test_update_host_array_shape_change(self, test_arrmgr):
         """Test update_host_array when array shape changes"""
@@ -573,17 +574,18 @@ class TestBaseArrayManager:
         assert "arr1" in test_arrmgr._needs_reallocation
 
     def test_update_host_array_value_change(self, test_arrmgr):
-        """Test update_host_array when array values change but shape stays same"""
+        """New values land in the existing buffer and queue a copy."""
         test_arrmgr._needs_reallocation = []
-        current = np.array([1, 2, 3])
-        new = np.array([4, 5, 6])
+        dtype = test_arrmgr.host.arr1.dtype
+        current = np.array([1, 2, 3], dtype=dtype)
+        new = np.array([4, 5, 6], dtype=dtype)
         test_arrmgr.allocate()
         test_arrmgr._update_host_array(new, current, "arr1")
 
         assert "arr1" not in test_arrmgr._needs_reallocation
         assert "arr1" in test_arrmgr._needs_overwrite
-        # Check that the array was attached to the host container
-        assert test_arrmgr.host.arr1.array is new
+        # Values are copied into the existing host buffer in place
+        np.testing.assert_array_equal(current, new)
 
     def test_chunk_placeholders(self, test_arrmgr):
         """Test next_chunk method (placeholder implementation)"""

@@ -344,6 +344,9 @@ class BaseArrayManager(ABC):
     _needs_overwrite: list[str] = field(factory=list, init=False)
     _memory_manager: MemoryManager = field(default=default_memmgr)
     num_runs: int = field(default=1, validator=getype_validator(int, 1))
+    # Signature of the solver state that determines array sizes; when
+    # unchanged, update_from_solver skips rebuilding the size objects.
+    _size_sig: object = field(default=None, init=False)
 
     def __attrs_post_init__(self) -> None:
         """
@@ -531,6 +534,9 @@ class BaseArrayManager(ABC):
         self._needs_overwrite.clear()
         self.device.delete_all()
         self._needs_reallocation.extend(self.device.array_names())
+        # Force the next update_from_solver to rebuild sizes, in case an
+        # invalidating config change altered a size the signature misses.
+        self._size_sig = None
 
     def _arrays_equal(
         self,
@@ -735,40 +741,50 @@ class BaseArrayManager(ABC):
         Parameters
         ----------
         new_array
-            Updated array that should replace the stored host array.
+            Updated array whose values should land in the host buffer.
         current_array
             Previously stored host array or ``None``.
         label
             Array name used to index tracking lists.
         shape_only
-            Only check shape equality when comparing arrays. Faster for
-            output arrays that will be overwritten. Defaults to ``False``.
+            The stored buffer only needs to match ``new_array``'s shape;
+            values are ignored. Used for output arrays, which the kernel
+            overwrites.
 
         Raises
         ------
         ValueError
             If ``new_array`` is ``None``.
 
+        Notes
+        -----
+        When the stored buffer already matches in shape and dtype, values
+        are copied into it in place and a host-to-device copy is queued
+        (unless ``shape_only``). Values are never compared: re-submitted
+        same-size arrays usually carry new values, and the copy is cheaper
+        than an element-wise comparison. Otherwise the array is staged
+        into a fresh buffer of the slot's memory type and queued for
+        reallocation.
         """
         if new_array is None:
             raise ValueError("New array is None")
         managed = self.host.get_managed_array(label)
-        # Fast path: if current exists and arrays have matching shape/dtype
-        # (and optionally content when shape_only=False), skip update
-        if current_array is not None and self._arrays_equal(
-            new_array, current_array, shape_only=shape_only
+
+        if (
+            current_array is not None
+            and current_array.shape == new_array.shape
+            and current_array.dtype == managed.dtype
         ):
+            if not shape_only:
+                current_array[...] = new_array
+                if label not in self._needs_overwrite:
+                    self._needs_overwrite.append(label)
             return None
 
-        # Handle new array (current is None)
         if current_array is None:
             self._needs_reallocation.append(label)
             self._needs_overwrite.append(label)
-            self.host.attach(label, new_array)
-            return None
-
-        # Arrays differ; determine if shape changed or just values
-        if current_array.shape != new_array.shape:
+        else:
             if label not in self._needs_reallocation:
                 self._needs_reallocation.append(label)
             if label not in self._needs_overwrite:
@@ -776,14 +792,23 @@ class BaseArrayManager(ABC):
             if 0 in new_array.shape:
                 newshape = (1,) * len(current_array.shape)
                 new_array = np_zeros(newshape, dtype=managed.dtype)
-        else:
-            self._needs_overwrite.append(label)
 
+        if not shape_only and managed.memory_type == "pinned":
+            # Incoming arrays are external; copy into a buffer of the
+            # slot's declared memory type so device transfers can run
+            # asynchronously from pinned memory.
+            staged = self._memory_manager.create_host_array(
+                new_array.shape, managed.dtype, "pinned"
+            )
+            staged[...] = new_array
+            new_array = staged
         self.host.attach(label, new_array)
         return None
 
     def update_host_arrays(
-        self, new_arrays: Dict[str, NDArray], shape_only: bool = False
+        self,
+        new_arrays: Dict[str, NDArray],
+        shape_only: bool = False,
     ) -> None:
         """
         Update host arrays and record allocation requirements.
@@ -793,8 +818,9 @@ class BaseArrayManager(ABC):
         new_arrays
             Dictionary mapping array names to new host arrays.
         shape_only
-            Only check shape equality when comparing arrays. Faster for
-            output arrays that will be overwritten. Defaults to ``False``.
+            Stored buffers only need to match the new arrays' shapes;
+            values are ignored. Used for output arrays, which the kernel
+            overwrites. Defaults to ``False``.
 
         """
         host_names = set(self.host.array_names())
