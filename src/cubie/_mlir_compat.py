@@ -57,6 +57,16 @@ numba-cuda-mlir also gives Python ``min`` and ``max`` NaN-propagating
 float semantics and leaves constant-zero floating powers for NVVM.
 This module selects the non-NaN operand and folds those powers to one.
 
+numba-cuda-mlir also rejects the compile-time-empty tail view
+``arr[n:n]`` of a size-``n`` array: the optimization pipeline folds
+the frozen bounds and parent shape static after inlining, and the
+``memref.subview`` bounds check then fails ("offset 0 is
+out-of-bounds: n >= n") although numpy-style slicing allows the
+view. This module anchors statically empty slices at offset zero,
+which stays in bounds under any folding (the registry's zero-length
+buffer views hit this on every statically sized shared or
+persistent scratch parent).
+
 Import this module before compiling any kernel; registrations are
 picked up when the MLIR target context refreshes its registries.
 These are stop-gaps that belong upstream in numba-cuda-mlir; patch
@@ -2659,3 +2669,126 @@ def register_selective_fastmath_shims() -> None:
 
 
 register_selective_fastmath_shims()
+
+
+def _lower_array_slice_getitem_empty_safe(builder, target, args, kwargs):
+    """Lower 1-D array slices, anchoring statically empty ones at 0.
+
+    A compile-time-empty slice ``arr[n:n]`` (bounds frozen into the
+    closure, as the buffer registry does for every zero-length
+    buffer view) survives initial lowering — the parent crosses the
+    device-function boundary as a dynamically shaped memref — but
+    the optimization pipeline's inlining and canonicalization fold
+    the parent shape and the slice bounds static again, and a
+    mid-pipeline verification then rejects the ``memref.subview``
+    bounds: "offset 0 is out-of-bounds: n >= n". numpy-style slicing
+    allows the empty tail view, and an empty view has no addressable
+    elements, so its anchor is arbitrary: statically empty slices
+    are rewritten to offset zero with zero size before the upstream
+    lowering logic runs. Offset zero stays in bounds no matter how
+    far canonicalization folds. SSA-normalizing the original bounds
+    instead does not survive: the canonicalizer folds
+    ``index_cast(constant)`` chains back into static attributes. The
+    body otherwise mirrors upstream.
+    """
+    from numba_cuda_mlir.lowering.numpy import trace as _np_trace
+
+    _np = _lowering_numpy
+    _np_trace()
+    mr = builder.load_var(args[0])
+    mr_type = mr.type
+    dtype = mr_type.element_type
+    rank = mr_type.rank
+    slc = builder.load_var(args[1])
+    start, stop, step = slc.start, slc.stop, slc.step
+
+    def _static_bound(value):
+        if value is None or isinstance(value, int):
+            return value
+        return lowering_utilities.try_extract_constant(value)
+
+    static_start = _static_bound(start)
+    static_stop = _static_bound(stop)
+    static_step = _static_bound(step)
+    statically_empty = (
+        isinstance(static_start, int)
+        and isinstance(static_stop, int)
+        and static_stop <= static_start
+        and (step is None or static_step == 1)
+    )
+    if statically_empty:
+        start = _np.index_of(0)
+        stop = _np.index_of(0)
+        step = _np.index_of(1)
+
+    if start is None:
+        start = _np.arith.index_cast(
+            _np.arith.constant(result=_np.T.i64(), value=0),
+            to=_np.T.index(),
+        )
+    if stop is None:
+        stop = _np.memref.dim(mr, _np.index_of(0))
+    if step is None:
+        step = _np.index_of(1)
+    starts, stops, steps = [start], [stop], [step]
+    for i in range(1, rank):
+        starts.append(_np.index_of(0))
+        stops.append(_np.memref.dim(mr, _np.index_of(i)))
+        steps.append(_np.index_of(1))
+
+    dyn = _np.ir.ShapedType.get_dynamic_stride_or_offset()
+    source_strides, _ = mr_type.get_strides_and_offset()
+    result_strides = []
+    for src_stride, step_value in zip(source_strides, steps):
+        step_const = lowering_utilities.try_extract_constant(step_value)
+        if step_const is not None and src_stride != dyn:
+            result_strides.append(src_stride * step_const)
+        else:
+            result_strides.append(dyn)
+    layout = _np.ir.StridedLayoutAttr.get(
+        offset=dyn, strides=result_strides
+    )
+    mrt = _np.ir.MemRefType.get(
+        element_type=dtype,
+        shape=[dyn for _ in range(rank)],
+        layout=layout,
+        memory_space=mr_type.memory_space,
+    )
+    sizes = [
+        (stop_v - start_v) // step_v
+        for start_v, stop_v, step_v in zip(starts, stops, steps)
+    ]
+    view = _np.memref.subview(
+        mr, offsets=starts, sizes=sizes, strides=steps, result_type=mrt
+    )
+    builder.store_var(target, view)
+
+
+def register_empty_slice_anchor_shim() -> None:
+    """Anchor statically empty array slices at offset zero.
+
+    Verifies the stock 1-D slice lowering still matches the copied
+    body before overriding it, mirroring the other source-checked
+    shims in this module.
+    """
+
+    stock_source = inspect.getsource(
+        _lowering_numpy.lower_array_slice_getitem
+    )
+    fragments = (
+        "starts, stops, steps = [start], [stop], [step]",
+        "memref.subview(mr, offsets=starts",
+        "(stop - start) // step",
+    )
+    if any(fragment not in stock_source for fragment in fragments):
+        raise RuntimeError(
+            "cubie._mlir_compat: numba-cuda-mlir's array slice "
+            "lowering no longer matches the stock implementation; "
+            "update the empty-slice anchor shim for this release."
+        )
+    _np_registry.lower(
+        operator.getitem, types.Array, types.SliceType
+    )(_lower_array_slice_getitem_empty_safe)
+
+
+register_empty_slice_anchor_shim()
