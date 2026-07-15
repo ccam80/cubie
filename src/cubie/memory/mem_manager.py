@@ -56,7 +56,7 @@ from inspect import ismethod
 from weakref import WeakMethod, ref as weakref_ref
 import ctypes
 
-from numba import cuda
+from cubie.cuda_simsafe import cuda
 from attrs import define, Factory as attrsFactory, field
 from attrs.validators import (
     in_ as attrsval_in,

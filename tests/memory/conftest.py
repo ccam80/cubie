@@ -1,5 +1,5 @@
 import pytest
-from numba import cuda
+from cubie.cuda_simsafe import cuda
 from cubie.memory.array_requests import ArrayRequest
 import numpy as np
 

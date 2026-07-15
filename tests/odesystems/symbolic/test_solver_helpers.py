@@ -1,7 +1,7 @@
 import numpy as np
 import pytest
 import sympy as sp
-from numba import cuda, from_dtype
+from cubie.cuda_simsafe import cuda, numba_from_dtype as from_dtype
 
 from cubie.odesystems.symbolic.codegen import (
     generate_cached_jvp_code,

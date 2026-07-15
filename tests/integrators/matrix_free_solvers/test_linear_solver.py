@@ -1,6 +1,6 @@
 import numpy as np
 import pytest
-from numba import cuda
+from cubie.cuda_simsafe import cuda
 from numpy.testing import assert_allclose
 
 from cubie.integrators.matrix_free_solvers.linear_solver import (

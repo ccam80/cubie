@@ -53,7 +53,7 @@ from numpy import (
     ndarray,
     dtype as np_dtype,
 )
-from numba import from_dtype
+from cubie.cuda_simsafe import numba_from_dtype as from_dtype
 
 from cubie._utils import (
     in_attr,

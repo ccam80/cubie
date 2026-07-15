@@ -23,7 +23,7 @@ See Also
 """
 
 from typing import Any, Optional, Union
-from numba import cuda
+from cubie.cuda_simsafe import cuda
 import attrs
 import attrs.validators as val
 

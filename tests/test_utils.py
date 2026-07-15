@@ -1,7 +1,7 @@
 import attrs
 import numpy as np
 import pytest
-from numba import cuda
+from cubie.cuda_simsafe import cuda
 from numpy import float32
 
 from cubie._utils import (

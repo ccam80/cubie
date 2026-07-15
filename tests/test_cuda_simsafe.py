@@ -32,6 +32,7 @@ def test_jit_flags_render_over_live_defaults():
     assert kwargs["lto"] is False
     assert compile_kwargs["lto"] is True
 
+
 @pytest.mark.sim_only
 def test_selp_function_in_cudasim():
     """Test that selp function works in CUDASIM mode."""

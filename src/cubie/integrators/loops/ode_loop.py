@@ -38,7 +38,7 @@ from typing import Callable, Optional, Set
 
 from attrs import define, field
 from numpy import int32 as np_int32
-from numba import cuda, int32, float64, bool_
+from cubie.cuda_simsafe import cuda, int32, float64, bool_
 
 from cubie.CUDAFactory import CUDAFactory, CUDADispatcherCache
 from cubie.buffer_registry import buffer_registry

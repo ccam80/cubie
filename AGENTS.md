@@ -86,12 +86,19 @@ change — the full suite is slow (run it as a pre-commit check only, and only w
 - No backwards-compatibility burden — breaking changes are expected pre-1.0.
 
 ## Dependencies
-- **Core:** numpy>=2.0, numba, numba-cuda, attrs, sympy>=1.13.0. cellmlmanip is vendored under
+- **Core:** numpy>=2.0, numba, attrs, sympy>=1.13.0. cellmlmanip is vendored under
   `src/cubie/vendored/cellmlmanip` (its `lxml`/`networkx`/`Pint>=0.24`/`rdflib` runtime deps are core).
-- **CUDA toolkit:** supplied by the `cuda12`/`cuda13` extras (`numba-cuda[cu12]`/`[cu13]`) or an
-  existing system install; a bare `pip install cubie` uses whatever toolkit numba-cuda can find.
+- **CUDA backend (installed by extra, so installs stay clean):** `numba-cuda`
+  (`cuda`/`cuda12`/`cuda13` extras) or `numba-cuda-mlir` (Python >= 3.11;
+  `mlir`/`mlir-cuda12`/`mlir-cuda13` extras). A backendless install fails at `import cubie` with
+  instructions. `cubie.cuda_backend` resolves the active backend at import: `CUBIE_CUDA_BACKEND`
+  overrides; otherwise the installed backend is used, preferring numba-cuda under CUDASIM and
+  (with a warning) when an environment ends up with both. The CUDA simulator exists only on
+  numba-cuda.
+- **CUDA toolkit:** supplied by the `cuda12`/`cuda13`/`mlir-cuda12`/`mlir-cuda13` extras or an
+  existing system install (the bare `cuda`/`mlir` extras use whatever toolkit the backend finds).
 - **CuPy is required for real-GPU execution** — it is cubie's single device memory allocator.
-  The `cuda12`/`cuda13` extras pull in the matching cupy build alongside the toolkit wheels.
+  The toolkit extras pull in the matching cupy build alongside the toolkit wheels.
   It is imported at `import cubie` through `cubie.cuda_simsafe`; the CUDA simulator
   (`NUMBA_ENABLE_CUDASIM=1`) never requires it.
 - **Optional:** pandas (DataFrame output), matplotlib (driver plots).

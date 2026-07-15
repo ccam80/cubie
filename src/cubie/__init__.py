@@ -13,10 +13,18 @@ import os
 
 os.environ["NUMBA_CUDA_LOW_OCCUPANCY_WARNINGS"] = "0"
 
-# Apply compile-time performance patches to stock numba-cuda before
-# anything can compile a kernel. No-op on the cubie_patch fork, under
-# CUDASIM, and for any patch already accepted upstream.
-import cubie._numba_cuda_compat  # noqa: F401
+# Apply the active backend's compatibility patches before anything
+# can compile a kernel. On numba-cuda these are compile-time
+# performance patches (no-op on the cubie_patch fork, under CUDASIM,
+# and for any patch already accepted upstream); on numba-cuda-mlir
+# they register missing lowerings and carry the frontend perf
+# patches.
+from cubie.cuda_backend import IS_MLIR as _IS_MLIR
+
+if _IS_MLIR:
+    import cubie._mlir_compat  # noqa: F401
+else:
+    import cubie._numba_cuda_compat  # noqa: F401
 
 from cubie.result_codes import CUBIE_RESULT_CODES
 from cubie.batchsolving import *  # noqa

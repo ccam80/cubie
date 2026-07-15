@@ -108,6 +108,24 @@ def _session_param_signature(item):
     return "; ".join(parts) if parts else None
 
 
+def pytest_configure(config):
+    """Silence the vendored performance warning on the MLIR backend.
+
+    pyproject's ``filterwarnings`` names numba's warning class, which
+    is importable on every backend; the MLIR frontend raises its own
+    vendored class, registered here only when that backend is active
+    (the class path does not import under numba-cuda).
+    """
+    from cubie.cuda_backend import IS_MLIR
+
+    if IS_MLIR:
+        config.addinivalue_line(
+            "filterwarnings",
+            "ignore::numba_cuda_mlir.numba_cuda.core.errors."
+            "NumbaPerformanceWarning",
+        )
+
+
 @pytest.hookimpl(trylast=True)
 def pytest_collection_modifyitems(config, items):
     """Group override-param tests for xdist and order the collection.

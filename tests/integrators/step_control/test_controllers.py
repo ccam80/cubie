@@ -2,7 +2,7 @@
 
 import numpy as np
 import pytest
-from numba import cuda
+from cubie.cuda_simsafe import cuda
 
 from cubie.result_codes import CUBIE_RESULT_CODES
 from tests._utils import run_controller_device_step

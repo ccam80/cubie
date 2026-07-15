@@ -19,6 +19,8 @@ Published Functions
     Default for the ``lineinfo`` compile setting (``CUBIE_LINEINFO``).
 :func:`cache_dir_default`
     Default for the on-disk cache root (``CUBIE_CACHE_DIR``).
+:func:`cuda_backend_requested`
+    Explicitly requested CUDA backend (``CUBIE_CUDA_BACKEND``).
 
 Recognised Variables
 --------------------
@@ -32,6 +34,11 @@ Recognised Variables
     parse results, compiled kernels). Overridden by an explicit
     :func:`cubie.cache_root.set_cache_root` call; defaults to
     ``<current working directory>/generated`` when unset.
+``CUBIE_CUDA_BACKEND``
+    Explicit CUDA backend selection, ``numba-cuda`` or ``mlir``.
+    Read by :mod:`cubie.cuda_backend` at import. When unset, the
+    installed backend is used; when both backends are installed,
+    numba-cuda is auto-selected with a warning.
 """
 
 import os
@@ -101,3 +108,33 @@ def cache_dir_default() -> Optional[str]:
     if raw is None or not raw.strip():
         return None
     return raw
+
+
+def cuda_backend_requested() -> Optional[str]:
+    """Return the explicitly requested CUDA backend, if any.
+
+    Reads ``CUBIE_CUDA_BACKEND`` from the environment; empty and
+    whitespace-only values are treated as unset.
+    :mod:`cubie.cuda_backend` resolves the active backend from this
+    value and the installed packages.
+
+    Returns
+    -------
+    Optional[str]
+        ``"numba-cuda"`` or ``"mlir"``, or ``None`` when unset.
+
+    Raises
+    ------
+    ValueError
+        If the variable is set to an unrecognised value.
+    """
+    raw = os.environ.get("CUBIE_CUDA_BACKEND")
+    if raw is None or not raw.strip():
+        return None
+    value = raw.strip().lower()
+    if value not in ("numba-cuda", "mlir"):
+        raise ValueError(
+            f"CUBIE_CUDA_BACKEND={raw!r} is not recognised; valid "
+            "values are 'numba-cuda' and 'mlir'."
+        )
+    return value

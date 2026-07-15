@@ -42,8 +42,8 @@ from warnings import warn
 from pathlib import Path
 
 from numpy import ceil as np_ceil, float64 as np_float64, floating
-from numba import cuda, float64
-from numba import int32
+from cubie.cuda_simsafe import cuda, float64
+from cubie.cuda_simsafe import int32
 
 from attrs import define, field, evolve
 

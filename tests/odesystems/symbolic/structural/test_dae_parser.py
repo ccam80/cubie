@@ -3,7 +3,7 @@
 import numpy as np
 import pytest
 import sympy as sp
-from numba import cuda
+from cubie.cuda_simsafe import cuda
 
 from cubie.odesystems.symbolic.parsing.parser import (
     EquationWarning,

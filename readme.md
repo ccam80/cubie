@@ -51,6 +51,17 @@ pip install cubie[cuda12]  # CUDA 12 toolkit
 # pip install cubie[cuda13]  # CUDA 13 toolkit
 ```
 
+The extra is required: it installs Cubie's CUDA backend (numba-cuda) alongside the matching
+toolkit wheels, and a bare `pip install cubie` has no backend to compile with (`import cubie`
+will stop with instructions). If your machine already has a system CUDA toolkit,
+`pip install cubie[cuda]` installs the backend without the toolkit wheels.
+
+An experimental MLIR-based backend (numba-cuda-mlir) is available via the
+`mlir-cuda12`/`mlir-cuda13` extras (or bare `mlir` for a system toolkit). It compiles
+slightly faster kernels in some cases, but is less mature than numba-cuda, has no
+CUDA-simulator support, and needs Python 3.11 or later — stick with the `cuda*` extras
+unless you want to experiment.
+
 Then, when you fire up your Cubie project, run
 
 ```

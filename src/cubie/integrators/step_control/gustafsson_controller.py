@@ -32,7 +32,7 @@ See Also
 from typing import Callable
 
 from numpy import ndarray
-from numba import cuda, int32
+from cubie.cuda_simsafe import cuda, int32
 from attrs import define, field
 from math import isnan, isinf
 

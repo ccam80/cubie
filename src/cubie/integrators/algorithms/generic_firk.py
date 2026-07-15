@@ -38,7 +38,7 @@ See Also
 from typing import Callable, Optional
 
 from attrs import define, field, validators
-from numba import cuda, int32
+from cubie.cuda_simsafe import cuda, int32
 
 from cubie.result_codes import CUBIE_RESULT_CODES
 

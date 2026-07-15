@@ -4,7 +4,7 @@ from typing import Tuple
 
 import numpy as np
 import pytest
-from numba import cuda
+from cubie.cuda_simsafe import cuda
 
 from cubie.array_interpolator import ArrayInterpolator
 from cubie.odesystems.symbolic.symbolicODE import SymbolicODE

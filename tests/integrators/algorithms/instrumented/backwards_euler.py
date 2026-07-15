@@ -2,7 +2,7 @@
 
 from typing import Callable, Optional
 
-from numba import cuda, int32
+from cubie.cuda_simsafe import cuda, int32
 
 from cubie._utils import PrecisionDType
 from cubie.buffer_registry import buffer_registry

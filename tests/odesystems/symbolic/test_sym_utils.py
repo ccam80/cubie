@@ -54,7 +54,6 @@ class TestTopologicalSort:
                 env={
                     **__import__("os").environ,
                     "PYTHONHASHSEED": seed,
-                    "NUMBA_ENABLE_CUDASIM": "1",
                 },
                 check=True,
             )

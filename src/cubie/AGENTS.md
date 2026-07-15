@@ -32,12 +32,14 @@ resolves `__version__` via `importlib.metadata.version("cubie")`.
 |------|-------------|
 | `__init__.py` | Package entry point: star-imports subpackages, sets the Numba occupancy-warning env var, defines `__all__` and `__version__`. |
 | `CUDAFactory.py` | Core cached-compilation framework: `CUDAFactory` (ABC; exposes `jit_kwargs`, the property every `build()` splats into `@cuda.jit`), `CUDAFactoryConfig`/`_CubieConfigBase` (hashing attrs config; carries the `jit_flags: JITFlags` compile setting every factory honours, with a read-only `lineinfo` passthrough), `CUDADispatcherCache`, the `MultipleInstance*` variants, and `hash_tuple`. |
-| `_env.py` | `CUBIE_*` environment-variable registry: `env_bool`, `lineinfo_default` (`CUBIE_LINEINFO`), `cache_dir_default` (`CUBIE_CACHE_DIR`). Env values are defaults; explicit solver arguments always win. |
+| `_env.py` | `CUBIE_*` environment-variable registry: `env_bool`, `lineinfo_default` (`CUBIE_LINEINFO`), `cache_dir_default` (`CUBIE_CACHE_DIR`), plus documentation of `CUBIE_CUDA_BACKEND`. Env values are defaults; explicit solver arguments always win. |
+| `cuda_backend.py` | Resolves which CUDA backend cubie compiles against: `CUDA_BACKEND` (`"numba-cuda"` or `"mlir"`) and `IS_MLIR`. `CUBIE_CUDA_BACKEND` picks explicitly; otherwise the installed backend is used (numba-cuda preferred under CUDASIM and, with a warning, when both are installed). Consumed by `cuda_simsafe`, `cubie_cache`, and `__init__` (which imports `_numba_cuda_compat` or `_mlir_compat` accordingly). |
+| `_mlir_compat.py` | numba-cuda-mlir compatibility shims, imported first thing from `__init__` on the MLIR backend: missing lowerings (Boolean bitwise/comparison ops, floored integer `%`//`//`, nested-tuple dynamic getitem, empty-slice anchoring), numpy-scalar constant handling, dynamic-shared-memory and array-literal fixes, memref pointer-offset routing, semantic local stack slots, float min/max semantics, zero-power folds, selective fastmath, and the compiler-frontend perf patches. Each shim feature-detects patched builds and no-ops there. |
 | `cache_root.py` | Single source of truth for the on-disk cache root (`get_cache_root`/`set_cache_root`/`get_cache_root_override`; precedence: `set_cache_root` override → `CUBIE_CACHE_DIR` → `<cwd>/generated`). The codegen, CellML parse, and compiled-kernel caches all resolve through it. |
 | `buffer_registry.py` | Singleton `buffer_registry` (`BufferRegistry`) managing CUDA buffer metadata, layout, aliasing, and allocator generation; defines `CUDABuffer` and `BufferGroup`. |
 | `_utils.py` | Shared helpers: `PrecisionDType`, precision/buffer validators + converters, attrs validator factories, `build_config`, `merge_kwargs_into_settings`, `ensure_nonzero_size`, `slice_variable_dimension`, `clamp_factory`. |
-| `cuda_simsafe.py` | CUDASIM compatibility layer: `CUDA_SIMULATION`, `compile_kwargs` (immutable base defaults), `JITFlags` (managed `cuda.jit` options — `lineinfo`, `lto`, and the `nsz`, `contract`, `arcp`, `afn` fast-math flags — stored on every factory's compile settings so option changes rehash and rebuild), `get_jit_kwargs(jit_flags)` (renders a `JITFlags` — or a bare lineinfo bool from generated modules — to decorator kwargs; factory builds reach it through the `CUDAFactory.jit_kwargs` property, the single sanctioned route for every runtime `@cuda.jit` site), `from_dtype`, `is_devfunc`, `is_cuda_array`, the warp intrinsics (`selp`, `activemask`, `all_sync`, `any_sync`, `syncwarp`), the store write-through hint `stwt`, and memory-manager/array stand-ins. |
-| `cubie_cache.py` | File-based persistence of compiled kernels: `CUBIECache*`, `CacheConfig`, `CubieCacheHandler`, `ALL_CACHE_PARAMETERS`. Depends on numba-cuda internals. |
+| `cuda_simsafe.py` | The CUDA import hub and CUDASIM compatibility layer. Re-exports the active backend's `cuda` module object, scalar types, `numba_from_dtype`, driver internals, cache base classes, and `INLINE_ALWAYS`; owns `CUDA_SIMULATION`, `compile_kwargs`, `JITFlags`/`get_jit_kwargs` (rendered via the `CUDAFactory.jit_kwargs` property, the single sanctioned route to `@cuda.jit` kwargs), `from_dtype`, `is_devfunc`/`is_cuda_array`, the warp intrinsics, `stwt`, and memory-manager/array stand-ins. Every other module imports CUDA symbols from here, never from a backend package. |
+| `cubie_cache.py` | File-based persistence of compiled kernels: `CUBIECache*`, `CacheConfig`, `CubieCacheHandler`, `ALL_CACHE_PARAMETERS`. Built on the backend's cache bases from `cuda_simsafe` (numba-cuda `_Kernel` serialization or the MLIR compile-result scheme). |
 | `time_logger.py` | `TimeLogger` (verbosity-gated timing), `CUDAEvent` (GPU event pair with CUDASIM fallback), `TimingEvent`, `default_timelogger`. |
 | `result_codes.py` | `CUBIE_RESULT_CODES(IntFlag)` — the package-central status vocabulary OR-combined into the per-run status word — plus `decode_status_codes` for host-side decoding. |
 | `array_interpolator.py` | `ArrayInterpolator(CUDAFactory)`: builds piecewise-polynomial (spline) coefficients from sampled driver arrays and compiles `evaluate_all` (Horner evaluation of all drivers at `t`) and `evaluate_time_derivative`. Owned by `Solver` as `driver_interpolator`; defines `ArrayInterpolatorConfig`, `InterpolatorCache`. |
@@ -140,11 +142,8 @@ Host-side array shapes are computed by small attrs helpers subclassing `ArraySiz
 of 1 — call it before allocating host or device buffers to avoid zero-length allocations.
 
 ### Device-code conventions
-- **Use `cuda_simsafe` for the CUDASIM-sensitive helpers it provides** — the warp
-  intrinsics (`selp`, `activemask`, `all_sync`, `any_sync`, `syncwarp`), the store
-  write-through hint `stwt`, `from_dtype`, `is_devfunc`/`is_cuda_array`, and the
-  memory-manager/array stand-ins — so device code runs under `NUMBA_ENABLE_CUDASIM=1`. Other `numba.cuda` features
-  (`cuda.jit`, `cuda.grid`, `shared.array`, …) are used directly. **Never set
+- **Import every CUDA symbol from `cuda_simsafe`** — never import a CUDA
+  backend package (`numba.cuda`, `numba_cuda_mlir`) directly, and **never set
   `NUMBA_ENABLE_CUDASIM` in source.**
 - **`# no cover` on device functions:** coverage cannot see inside compiled
   `@cuda.jit` code, so device-function bodies/closures are wrapped with

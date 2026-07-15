@@ -24,8 +24,6 @@ license-files = ["src/LICEN[CS]E*"]
 dependencies = [
     "numpy>=2.0", # vendoring cellmlmanip lifts the former <2.0 cap
     "numba",
-    "numba-cuda", # frontend; toolkit resolved from wheels (cuda12/cuda13
-                  # extras) or an existing system CUDA install
     "attrs",
     "sympy>=1.13.0",
     # cellmlmanip is vendored under cubie.vendored.cellmlmanip (it pins
@@ -44,11 +42,20 @@ Homepage = "https://github.com/ccam80/cubie.git"
 Issues = "https://github.com/ccam80/cubie/issues"
 
 [project.optional-dependencies]
-# CuPy is cubie's single device memory allocator on a real GPU, so the
-# cuda12/cuda13 lanes pull in the matching cupy build alongside the
-# toolkit wheels.
+# The CUDA backend is chosen by extra: one of the cuda*/mlir* lanes
+# installs numba-cuda or numba-cuda-mlir. A backendless install fails
+# at import with instructions (cubie.cuda_backend). CuPy is cubie's
+# single device memory allocator on a real GPU, so the toolkit lanes
+# pull in the matching cupy build alongside the toolkit wheels. The
+# bare 'cuda'/'mlir' extras install a backend without toolkit wheels,
+# for machines with a system CUDA install. The mlir lanes need
+# Python >= 3.11 (enforced by the numba-cuda-mlir wheel).
+cuda = ["numba-cuda"] # numba-cuda backend, system toolkit
 cuda12 = ["numba-cuda[cu12]", "cupy-cuda12x"] # CUDA 12 toolkit + CuPy
 cuda13 = ["numba-cuda[cu13]", "cupy-cuda13x"] # CUDA 13 toolkit + CuPy
+mlir = ["numba-cuda-mlir"] # MLIR backend, system toolkit
+mlir-cuda12 = ["numba-cuda-mlir[cu12]", "cupy-cuda12x"]
+mlir-cuda13 = ["numba-cuda-mlir[cu13]", "cupy-cuda13x"]
 test = [
     "pytest",
     "pytest-cov",
@@ -64,6 +71,8 @@ test = [
 # matrix is verified.
 dev12 = ["cubie[cuda12,test]"]
 dev13 = ["cubie[cuda13,test]"]
+dev-mlir12 = ["cubie[mlir-cuda12,test]"]
+dev-mlir13 = ["cubie[mlir-cuda13,test]"]
 dev = ["cubie[dev12]"]
 optional = [
     "pandas",
@@ -108,9 +117,10 @@ omit = [
     # not cubie's tested surface.
     "*/vendored/cellmlmanip/*",
     "*/vendored/numba_cuda_cache.py",
-    # Compile-time numba-cuda patches; covered by the pull requests
-    # submitted to numba-cuda-mlir.
+    # Compile-time backend patches; covered by the pull requests
+    # submitted to numba-cuda and numba-cuda-mlir.
     "*/_numba_cuda_compat.py",
+    "*/_mlir_compat.py",
 ]
 relative_files = true
 

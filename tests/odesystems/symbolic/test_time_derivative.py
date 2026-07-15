@@ -1,6 +1,6 @@
 import numpy as np
 import pytest
-from numba import cuda
+from cubie.cuda_simsafe import cuda
 
 from cubie.odesystems.symbolic.codegen.time_derivative import (
     generate_time_derivative_fac_code,
