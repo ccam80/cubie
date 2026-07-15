@@ -57,12 +57,18 @@ numba-cuda-mlir also gives Python ``min`` and ``max`` NaN-propagating
 float semantics and leaves constant-zero floating powers for NVVM.
 This module selects the non-NaN operand and folds those powers to one.
 
-numba-cuda-mlir also passes a frozen slice's bounds through as static
-``memref.subview`` offsets, so the empty tail view ``arr[n:n]`` of a
-statically shaped parent fails MLIR verification although numpy-style
-slicing allows it. This module anchors statically empty slices at a
-dynamic zero offset (the registry's zero-length buffer views hit this
-on every statically sized shared or persistent scratch array).
+numba-cuda-mlir also passes a closure-frozen slice's Python-int
+bounds through as static ``memref.subview`` offsets while declaring
+a dynamic-offset result type, so slicing a statically shaped parent
+with a frozen slice fails MLIR verification (the verifier demands
+the inferred static layout). Inline slices lower their bounds as SSA
+values and dynamically shaped parents infer a dynamic layout, so
+only the frozen-slice/static-parent intersection fires. This module
+anchors statically empty slices at a dynamic zero offset — the
+subset cubie hits: the registry freezes per-buffer slices into its
+allocator closures, and the never-taken ``slice(0, 0)`` placeholder
+branch is still compiled and verified against every statically
+sized shared or persistent scratch parent.
 
 Import this module before compiling any kernel; registrations are
 picked up when the MLIR target context refreshes its registries.
@@ -2671,15 +2677,20 @@ register_selective_fastmath_shims()
 def _lower_array_slice_getitem_empty_safe(builder, target, args, kwargs):
     """Lower 1-D array slices, anchoring statically empty ones at 0.
 
-    Upstream's ``lower_array_slice_getitem`` passes a frozen slice's
-    bounds through as static ``memref.subview`` offsets, so the empty
-    tail view ``arr[n:n]`` of a statically shaped parent (shared or
-    local arrays) fails MLIR verification with "offset 0 is
-    out-of-bounds: n >= n". numpy-style slicing allows the empty tail
-    view, and an empty view has no addressable elements, so its
-    anchor is arbitrary: statically empty slices are rewritten to a
-    dynamic zero offset with zero size before the upstream lowering
-    logic runs. The body otherwise mirrors upstream.
+    Upstream's ``lower_array_slice_getitem`` passes a closure-frozen
+    slice's Python-int bounds through as static ``memref.subview``
+    offsets while declaring a dynamic-offset result type, so slicing
+    a statically shaped parent (shared or local array) with a frozen
+    slice fails MLIR verification: "expected result type to be
+    'memref<?xf32, strided<[1], offset: N>>' ... (mismatch of result
+    layout)". numpy-style slicing allows every such view, and an
+    empty view has no addressable elements, so its anchor is
+    arbitrary: statically empty slices are rewritten to a dynamic
+    zero offset with zero size before the upstream lowering logic
+    runs, which makes the declared dynamic layout valid. Non-empty
+    frozen slices of statically shaped parents still fail upstream
+    and are not rewritten here; cubie never emits that combination.
+    The body otherwise mirrors upstream.
     """
     from numba_cuda_mlir.lowering.numpy import trace as _np_trace
 
