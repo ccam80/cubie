@@ -57,18 +57,19 @@ numba-cuda-mlir also gives Python ``min`` and ``max`` NaN-propagating
 float semantics and leaves constant-zero floating powers for NVVM.
 This module selects the non-NaN operand and folds those powers to one.
 
-numba-cuda-mlir also passes a closure-frozen slice's Python-int
-bounds through as static ``memref.subview`` offsets while declaring
-a dynamic-offset result type, so slicing a statically shaped parent
-with a frozen slice fails MLIR verification (the verifier demands
-the inferred static layout). Inline slices lower their bounds as SSA
-values and dynamically shaped parents infer a dynamic layout, so
-only the frozen-slice/static-parent intersection fires. This module
-anchors statically empty slices at a dynamic zero offset — the
-subset cubie hits: the registry freezes per-buffer slices into its
-allocator closures, and the never-taken ``slice(0, 0)`` placeholder
-branch is still compiled and verified against every statically
-sized shared or persistent scratch parent.
+numba-cuda-mlir also passes a compile-time slice constant's
+Python-int bounds through as static ``memref.subview`` offsets while
+declaring a dynamic-offset result type, so slicing a statically
+shaped parent with a frozen slice fails MLIR verification (the
+verifier demands the inferred static layout). Inline slices lower
+their bounds as SSA ``index_cast`` values and dynamically shaped
+parents infer a dynamic layout, so only the frozen-slice/
+static-parent intersection fires. This module materializes constant
+slice bounds in the inline form so both paths lower identically.
+The registry freezes per-buffer slices into its allocator closures,
+and the never-taken ``slice(0, 0)`` placeholder branch is still
+compiled and verified against every statically sized shared or
+persistent scratch parent.
 
 Import this module before compiling any kernel; registrations are
 picked up when the MLIR target context refreshes its registries.
@@ -2674,23 +2675,23 @@ def register_selective_fastmath_shims() -> None:
 register_selective_fastmath_shims()
 
 
-def _lower_array_slice_getitem_empty_safe(builder, target, args, kwargs):
-    """Lower 1-D array slices, anchoring statically empty ones at 0.
+def _lower_array_slice_getitem_frozen_safe(builder, target, args, kwargs):
+    """Lower 1-D array slices; frozen slices lower like inline ones.
 
-    Upstream's ``lower_array_slice_getitem`` passes a closure-frozen
-    slice's Python-int bounds through as static ``memref.subview``
-    offsets while declaring a dynamic-offset result type, so slicing
-    a statically shaped parent (shared or local array) with a frozen
-    slice fails MLIR verification: "expected result type to be
-    'memref<?xf32, strided<[1], offset: N>>' ... (mismatch of result
-    layout)". numpy-style slicing allows every such view, and an
-    empty view has no addressable elements, so its anchor is
-    arbitrary: statically empty slices are rewritten to a dynamic
-    zero offset with zero size before the upstream lowering logic
-    runs, which makes the declared dynamic layout valid. Non-empty
-    frozen slices of statically shaped parents still fail upstream
-    and are not rewritten here; cubie never emits that combination.
-    The body otherwise mirrors upstream.
+    Upstream's ``lower_array_slice_getitem`` passes a compile-time
+    slice constant's Python-int bounds through as static
+    ``memref.subview`` offsets while declaring a dynamic-offset
+    result type, so slicing a statically shaped parent (shared or
+    local array) with a frozen slice fails MLIR verification:
+    "expected result type to be 'memref<?xf32, strided<[1],
+    offset: N>>' ... (mismatch of result layout)". Constant bounds
+    are materialized here as ``arith.index_cast(arith.constant)``
+    values — the form inline slice bounds arrive in — so the
+    subview's operands stay dynamic and the declared layout is
+    valid. A bare index-typed constant is not enough: the subview
+    builder folds it back into a static attribute. Mirrors fork
+    branch fix-frozen-slice-static-subview-verification; the body
+    otherwise matches upstream.
     """
     from numba_cuda_mlir.lowering.numpy import trace as _np_trace
 
@@ -2701,28 +2702,22 @@ def _lower_array_slice_getitem_empty_safe(builder, target, args, kwargs):
     dtype = mr_type.element_type
     rank = mr_type.rank
     slc = builder.load_var(args[1])
+    if isinstance(slc, slice):
+
+        def _bound_of(value):
+            if value is None:
+                return None
+            return _np.arith.index_cast(
+                _np.arith.constant(result=_np.T.i64(), value=value),
+                to=_np.T.index(),
+            )
+
+        slc = _np.Slice(
+            _bound_of(slc.start),
+            _bound_of(slc.stop),
+            _bound_of(slc.step),
+        )
     start, stop, step = slc.start, slc.stop, slc.step
-
-    def _static_bound(value):
-        if value is None or isinstance(value, int):
-            return value
-        return lowering_utilities.try_extract_constant(value)
-
-    static_start = _static_bound(start)
-    static_stop = _static_bound(stop)
-    static_step = _static_bound(step)
-    statically_empty = (
-        isinstance(static_start, int)
-        and isinstance(static_stop, int)
-        and static_stop <= static_start
-        and (step is None or static_step == 1)
-    )
-    if statically_empty:
-        # Dynamic (SSA-value) bounds keep the subview verifier from
-        # judging the anchor against the parent's static extent.
-        start = _np.index_of(0)
-        stop = _np.index_of(0)
-        step = _np.index_of(1)
 
     if start is None:
         start = _np.arith.index_cast(
@@ -2767,17 +2762,20 @@ def _lower_array_slice_getitem_empty_safe(builder, target, args, kwargs):
     builder.store_var(target, view)
 
 
-def register_empty_slice_anchor_shim() -> None:
-    """Anchor statically empty array slices at offset zero.
+def register_frozen_slice_shim() -> None:
+    """Lower compile-time slice constants like inline slices.
 
-    Verifies the stock 1-D slice lowering still matches the copied
-    body before overriding it, mirroring the other source-checked
-    shims in this module.
+    No-ops on builds that already normalize raw slice constants.
+    Otherwise verifies the stock 1-D slice lowering still matches
+    the copied body before overriding it, mirroring the other
+    source-checked shims in this module.
     """
 
     stock_source = inspect.getsource(
         _lowering_numpy.lower_array_slice_getitem
     )
+    if "isinstance(slc, slice)" in stock_source:
+        return
     fragments = (
         "starts, stops, steps = [start], [stop], [step]",
         "memref.subview(mr, offsets=starts",
@@ -2787,11 +2785,11 @@ def register_empty_slice_anchor_shim() -> None:
         raise RuntimeError(
             "cubie._mlir_compat: numba-cuda-mlir's array slice "
             "lowering no longer matches the stock implementation; "
-            "update the empty-slice anchor shim for this release."
+            "update the frozen-slice shim for this release."
         )
     _np_registry.lower(
         operator.getitem, types.Array, types.SliceType
-    )(_lower_array_slice_getitem_empty_safe)
+    )(_lower_array_slice_getitem_frozen_safe)
 
 
-register_empty_slice_anchor_shim()
+register_frozen_slice_shim()
