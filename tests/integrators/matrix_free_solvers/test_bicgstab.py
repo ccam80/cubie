@@ -73,6 +73,7 @@ def test_bicgstab_breakdown_detection(precision):
 
     out_flag = cuda.to_device(np.array([0], dtype=np.int32))
     kernel[1, 1](out_flag, precision(0.01))
+    cuda.synchronize()
     status_code = int(out_flag.copy_to_host()[0]) & 0xFF
     # Zero operator: v = A(p) = 0 with a nonzero residual, so the
     # pivot quotient rho/<r0_hat, v> overflows on the first
@@ -246,6 +247,7 @@ def test_bicgstab_cached_auxiliaries(precision, tolerance, with_precond):
     flag = cuda.to_device(np.array([0], dtype=np.int32))
 
     kernel[1, 1](state, rhs_dev, base, aux, x_dev, flag)
+    cuda.synchronize()
 
     assert (flag.copy_to_host()[0] & 0xFF) == CUBIE_RESULT_CODES.SUCCESS
     assert_allclose(
