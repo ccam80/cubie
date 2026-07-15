@@ -7,9 +7,11 @@ import pytest
 from numba import cuda
 
 from cubie.cuda_simsafe import (
+    DeviceNDArray,
     Stream,
 )
 
+from cubie.memory.cupy_emm import CuPyAsyncNumbaManager
 from cubie.memory.mem_manager import (
     MemoryManager,
     ArrayRequest,
@@ -514,9 +516,10 @@ class TestMemoryManager:
         arr = mgr.allocate(
             shape=(4, 4), dtype=np.float32, memory_type="device"
         )
+        assert isinstance(arr, DeviceNDArray)
         assert not isinstance(arr, cp.ndarray)
-        assert hasattr(arr, "__cuda_array_interface__")
-        assert hasattr(arr, "copy_to_host")
+        context_manager = cuda.current_context().memory_manager
+        assert isinstance(context_manager, CuPyAsyncNumbaManager)
 
     def test_free(self, registered_mgr, registered_instance):
         """Test free removes allocation by key from all instances."""
@@ -934,7 +937,7 @@ class TestMemoryManager:
         # Synchronize stream to ensure copy is complete
         stream.synchronize()
 
-        # Copy back to host and verify values (native device arrays)
+        # Copy back to host and verify values
         result_arr1 = device_arrays["arr1"].copy_to_host()
         result_arr2 = device_arrays["arr2"].copy_to_host()
 

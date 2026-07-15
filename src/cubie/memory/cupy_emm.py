@@ -6,9 +6,6 @@ memory pool via the EMM plugin interface, so ``cuda.device_array`` returns a
 the fast kernel-launch path (no per-launch ``__cuda_array_interface__``
 re-parse) and let transfers use Numba's pinned + streamed async copies.
 
-Recovered from history (pre-#561); only the async pool is provided — the sync
-pool and Numba-default paths are intentionally omitted.
-
 See Also
 --------
 :class:`~cubie.memory.mem_manager.MemoryManager`
@@ -17,10 +14,9 @@ See Also
 
 import ctypes
 import logging
-from contextlib import contextmanager
-from typing import Any, Callable, Iterator, Optional
+from typing import Any, Callable, Optional
 
-from cubie.cuda_simsafe import cuda, CUDA_SIMULATION
+from cubie.cuda_simsafe import cuda, cupy, CUDA_SIMULATION
 
 logger = logging.getLogger(__name__)
 
@@ -45,11 +41,12 @@ if not CUDA_SIMULATION:
             self.is_cupy = True
 
         def initialize(self) -> None:
-            import cupy as cp
-
             super().initialize()
+            # Context.prepare_for_use calls initialize() on every context
+            # activation; the pool must persist across calls because live
+            # allocations hold blocks from it.
             if self._mp is None:
-                self._mp = cp.cuda.MemoryAsyncPool()
+                self._mp = cupy.cuda.MemoryAsyncPool()
 
         def memalloc(self, nbytes: int) -> "cuda.MemoryPointer":
             cp_mp = self._mp.malloc(nbytes)
@@ -74,22 +71,13 @@ if not CUDA_SIMULATION:
             # Real device free/total (cuMemGetInfo), not pool bytes: the
             # manager uses this to size chunks against the device, and the
             # pool's free_bytes() is 0 until it has cached blocks.
-            import cupy as cp
-
-            free, total = cp.cuda.runtime.memGetInfo()
+            free, total = cupy.cuda.runtime.memGetInfo()
             return cuda.MemoryInfo(free=free, total=total)
 
         def reset(self, stream: Optional[Any] = None) -> None:
             super().reset()
             if self._mp:
                 self._mp.free_all_blocks(stream=stream)
-
-        @contextmanager
-        def defer_cleanup(self) -> Iterator[None]:
-            # Returning memory to the pool never interrupts async work the
-            # way a real device_free would, so nothing extra to defer.
-            with super().defer_cleanup():
-                yield
 
         @property
         def interface_version(self) -> int:

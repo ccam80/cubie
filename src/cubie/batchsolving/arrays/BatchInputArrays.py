@@ -194,31 +194,8 @@ class InputArrays(BaseArrayManager):
         if driver_coefficients is not None:
             updates_dict["driver_coefficients"] = driver_coefficients
         self.update_from_solver(solver_instance)
-        # Stage user inputs into persistent pinned buffers so the h2d is async
-        # (a pageable source forces Numba to stage per call). always_overwrite:
-        # the copy happens every solve regardless of value equality.
-        staged = {
-            name: self._stage_pinned(name, arr)
-            for name, arr in updates_dict.items()
-        }
-        self.update_host_arrays(staged, always_overwrite=True)
+        self.update_host_arrays(updates_dict)
         self.allocate()  # Will queue request if in a stream group
-
-    def _stage_pinned(self, name: str, user_array: NDArray) -> NDArray:
-        """Copy a user input into a reused pinned host buffer for async h2d."""
-        slot = self.host.get_managed_array(name)
-        dtype = slot.dtype
-        buf = slot.array
-        if (
-            buf is None
-            or buf.shape != user_array.shape
-            or buf.dtype != dtype
-        ):
-            buf = self._memory_manager.create_host_array(
-                user_array.shape, dtype, "pinned"
-            )
-        buf[:] = user_array
-        return buf
 
     @property
     def initial_values(self) -> ArrayTypes:

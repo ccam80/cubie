@@ -41,8 +41,10 @@ field name. Iterate both via `_iter_managed_arrays` (device then host), one cont
 
 ### Lifecycle
 `from_solver(...)` builds a manager with sizes only (no allocation). `update(...)` refreshes
-sizes/precision/run-count, sets host arrays (`update_host_arrays`), and calls `allocate()`,
-which queues `ArrayRequest`s with the memory manager. The memory manager later drives
+sizes/precision/run-count, sets host arrays (`update_host_arrays` — same-shape updates copy
+values into the existing host buffer in place and queue `_needs_overwrite`; shape changes
+stage into a buffer of the slot's memory type and queue reallocation), and calls
+`allocate()`, which queues `ArrayRequest`s with the memory manager. The memory manager later drives
 `_on_allocation_complete(response)`: attach device arrays, record
 `chunked_shape`/`chunk_length`/`num_chunks`, set `_chunks`, and convert host arrays to pinned
 (non-chunked) or plain numpy (chunked). `_invalidate_hook` drops device refs and re-marks
@@ -52,9 +54,10 @@ everything for reallocation.
 - `initialise(chunk_index)` — pre-launch. `InputArrays`: H2D (non-chunked copies the
   `_needs_overwrite` arrays; chunked stages each run-axis slice through a `ChunkBufferPool`
   pinned buffer). `OutputArrays`: no-op.
-- `finalise(chunk_index)` — post-launch. `OutputArrays`: D2H; chunked copies into a pooled
-  pinned buffer and submits a `PendingBuffer` to the `WritebackWatcher`; non-chunked transfers
-  immediately (still async). `InputArrays`: releases its staging buffers.
+- `finalise(chunk_index)` — post-launch. `OutputArrays`: D2H for the outputs the compile
+  flags enable (placeholder arrays are skipped); chunked copies into a pooled pinned buffer
+  and submits a `PendingBuffer` to the `WritebackWatcher`; non-chunked transfers immediately
+  (still async). `InputArrays`: releases its staging buffers.
 
 ### Memory types
 Host arrays are `"pinned"` (page-locked → async transfer) for non-chunked runs, converted to

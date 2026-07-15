@@ -299,9 +299,8 @@ class current_cupy_stream:
         """
         ptr = _numba_stream_ptr(self.nb_stream)
         if ptr:
-            # The Numba stream implements the __cuda_stream__ protocol, so
-            # from_external wraps it directly (ExternalStream(ptr) is
-            # deprecated).
+            # Numba streams implement the __cuda_stream__ protocol, so
+            # from_external wraps the stream object directly.
             self.cupy_ext_stream = cupy.cuda.Stream.from_external(
                 self.nb_stream
             )
@@ -1306,8 +1305,10 @@ class MemoryManager:
                 continue
             if from_array.size == 0:
                 continue
+            # Sized by the pinned host buffer so the copy can never run
+            # past it, whatever the device allocation rounded up to.
             cuda.cudadrv.driver.host_to_device(
-                to_arrays[i], from_array, to_arrays[i].alloc_size,
+                to_arrays[i], from_array, from_array.nbytes,
                 stream=stream,
             )
 
@@ -1340,8 +1341,10 @@ class MemoryManager:
                 continue
             if from_array.size == 0:
                 continue
+            # Sized by the pinned host buffer so the copy can never run
+            # past it, whatever the device allocation rounded up to.
             cuda.cudadrv.driver.device_to_host(
-                to_arrays[i], from_array, from_array.alloc_size,
+                to_arrays[i], from_array, to_arrays[i].nbytes,
                 stream=stream,
             )
 

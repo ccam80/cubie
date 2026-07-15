@@ -191,9 +191,7 @@ class OutputArrays(BaseArrayManager):
     _buffer_pool: ChunkBufferPool = field(factory=ChunkBufferPool, init=False)
     _watcher: WritebackWatcher = field(factory=WritebackWatcher, init=False)
     _pending_buffers: List[PendingBuffer] = field(factory=list, init=False)
-    # Names of outputs actually produced this run; the rest are (1, 1, 1)
-    # placeholders skipped on transfer. None before first update() -> transfer
-    # all (safe fallback).
+    # Outputs the kernel writes this run; None means transfer all.
     _active_names: Optional[frozenset] = field(default=None, init=False)
 
     def __attrs_post_init__(self) -> None:
@@ -219,8 +217,6 @@ class OutputArrays(BaseArrayManager):
             The solver instance providing configuration and sizing information.
 
         """
-        # Built from compile_flags (0.05us) rather than solver.active_outputs,
-        # which reconstructs an attrs object (~17us) every solve.
         cf = solver_instance.compile_flags
         active = {"status_codes"}  # always written by the kernel
         if cf.save_state:
