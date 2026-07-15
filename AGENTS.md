@@ -86,16 +86,15 @@ change — the full suite is slow (run it as a pre-commit check only, and only w
 - No backwards-compatibility burden — breaking changes are expected pre-1.0.
 
 ## Dependencies
-- **Core:** numpy>=2.0, numba, attrs, sympy>=1.13.0. cellmlmanip is vendored under
+- **Core:** numpy>=2.0, numba, numba-cuda, attrs, sympy>=1.13.0. cellmlmanip is vendored under
   `src/cubie/vendored/cellmlmanip` (its `lxml`/`networkx`/`Pint>=0.24`/`rdflib` runtime deps are core).
-- **CUDA frontend (pick exactly one):** `numba-cuda` (default target; `cuda`/`cuda12`/`cuda13`
-  extras) or `numba-cuda-mlir` (MLIR compiler, Python >= 3.11; `mlir`/`mlir-cuda12`/`mlir-cuda13`
-  extras). The two are mutually exclusive; `cubie.cuda_backend` resolves the installed one at
-  import (`CUBIE_CUDA_BACKEND` picks explicitly if both are present) and `cubie.cuda_simsafe`
-  re-exports every CUDA-facing symbol, so library code never imports a frontend directly. The
-  CUDA simulator exists only on the numba-cuda frontend.
+- **CUDA backend:** numba-cuda (core) is the default; numba-cuda-mlir (Python >= 3.11;
+  `mlir`/`mlir-cuda12`/`mlir-cuda13` extras) may be installed alongside it. `cubie.cuda_backend`
+  resolves the active backend at import: `CUBIE_CUDA_BACKEND` overrides, otherwise numba-cuda is
+  preferred under CUDASIM and (with a warning) when both are installed. The CUDA simulator exists
+  only on numba-cuda.
 - **CUDA toolkit:** supplied by the `cuda12`/`cuda13`/`mlir-cuda12`/`mlir-cuda13` extras or an
-  existing system install (the bare `cuda`/`mlir` extras use whatever toolkit the frontend finds).
+  existing system install (the bare `mlir` extra uses whatever toolkit the backend finds).
 - **CuPy is required for real-GPU execution** — it is cubie's single device memory allocator.
   The toolkit extras pull in the matching cupy build alongside the toolkit wheels.
   It is imported at `import cubie` through `cubie.cuda_simsafe`; the CUDA simulator

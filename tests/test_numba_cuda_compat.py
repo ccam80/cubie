@@ -8,8 +8,16 @@ import sys
 import pytest
 
 import cubie  # noqa: F401  (applies the compat patches on import)
+from cubie.cuda_backend import IS_MLIR
 
-pytestmark = [pytest.mark.nocudasim, pytest.mark.numba_cuda_only]
+if IS_MLIR:
+    pytest.skip(
+        "the numba-cuda compat patches only load on the numba-cuda "
+        "backend",
+        allow_module_level=True,
+    )
+
+pytestmark = pytest.mark.nocudasim
 
 HELPER_SOURCE = """\
 from numba import cuda

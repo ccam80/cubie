@@ -10,8 +10,8 @@ provided as an argument to "cache".
 
 Notes
 -----
-This module depends on CUDA frontend internal classes and may require
-updates when frontend versions change. The cache base classes are
+This module depends on CUDA backend internal classes and may require
+updates when backend versions change. The cache base classes are
 imported from cubie.cuda_simsafe, which maps them per backend:
 numba-cuda's ``CacheImpl``/``CUDACache`` (a vendored ``CUDACache``
 under CUDASIM), or numba-cuda-mlir's ``MLIRCacheImpl``/``MLIRCache``

@@ -1,16 +1,18 @@
 """Shared CUDA import hub and simulation-safe helpers.
 
 This module is the single surface through which the rest of CuBIE
-reaches its CUDA frontend. The active backend (``numba-cuda`` or
+reaches its CUDA backend. The active backend (``numba-cuda`` or
 ``numba-cuda-mlir``) is resolved by :mod:`cubie.cuda_backend`; the
 ``cuda`` module object, scalar types, ``from_dtype``, driver
 internals, and cache base classes are all re-exported here so no
-other module imports a frontend package directly.
+other module imports a backend package directly.
 
 Under ``numba-cuda`` the module also centralises the CUDA-simulator
 (``NUMBA_ENABLE_CUDASIM=1``) stand-ins. numba-cuda-mlir has no
-simulator, so combining it with ``NUMBA_ENABLE_CUDASIM=1`` raises at
-import.
+simulator — backend resolution prefers numba-cuda when the simulator
+is requested, so the MLIR backend only reaches this module with
+``NUMBA_ENABLE_CUDASIM=1`` when it was explicitly selected or is the
+only backend installed, and that combination raises at import.
 
 Published Functions
 -------------------
@@ -27,9 +29,11 @@ Published Functions
 
 Published Device Functions
 --------------------------
-``selp``, ``activemask``, ``all_sync``, ``any_sync``,
-``syncwarp``, ``stwt``
+``selp``, ``activemask``, ``all_sync``, ``any_sync``, ``syncwarp``
     Wrappers around CUDA intrinsics with CUDASIM fallbacks.
+``stwt``
+    The backend's store write-through hint, re-exported directly on
+    a real GPU with a CUDASIM fallback.
 
 Published Classes
 -----------------
@@ -50,7 +54,7 @@ Published Constants
     (``"always"`` on numba-cuda, ``True`` on numba-cuda-mlir).
 :data:`cuda`, :data:`int32`, :data:`float32`, :data:`float64`,
 :data:`bool_`
-    The frontend's ``cuda`` module object and scalar types.
+    The backend's ``cuda`` module object and scalar types.
 
 See Also
 --------
@@ -90,7 +94,8 @@ if IS_MLIR and CUDA_SIMULATION:
     raise ImportError(
         "NUMBA_ENABLE_CUDASIM=1 is set, but numba-cuda-mlir has no "
         "CUDA simulator. Unset the variable and run on a real GPU, "
-        "or install numba-cuda for simulator work."
+        "or install numba-cuda (and leave CUBIE_CUDA_BACKEND unset "
+        "or set to 'numba-cuda') for simulator work."
     )
 
 if IS_MLIR:
@@ -568,19 +573,9 @@ else:  # pragma: no cover - relies on GPU runtime
     def syncwarp(mask):
         return cuda.syncwarp(mask)
 
-    @cuda.jit(
-        device=True,
-        inline=True,
-        **compile_kwargs,
-    )
-    def stwt(array, index, value):
-        # On the MLIR backend this relies on the memref pointer-offset
-        # shim in cubie._mlir_compat (or a numba-cuda-mlir build
-        # carrying upstream #73): without it the cache-hint store
-        # lowering drops the offset of array views.
-        cuda.stwt(array, index, value)
-
     # no cover: end
+
+    stwt = cuda.stwt
 
 
 def is_cudasim_enabled() -> bool:

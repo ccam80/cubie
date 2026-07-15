@@ -7,6 +7,7 @@ from numpy import array, float32
 
 from attrs import define, field
 
+from cubie.cuda_backend import IS_MLIR
 from cubie.cubie_cache import (
     CUBIECacheLocator,
     CUBIECacheImpl,
@@ -179,8 +180,6 @@ def test_cache_impl_check_cachable():
     scheme inspects targetoptions and refuses results that link
     external files.
     """
-    from cubie.cuda_backend import IS_MLIR
-
     impl = CUBIECacheImpl(
         system_name="test_system",
         system_hash="abc123",

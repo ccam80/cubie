@@ -130,11 +130,6 @@ def pytest_configure(config):
 def pytest_collection_modifyitems(config, items):
     """Group override-param tests for xdist and order the collection.
 
-    Tests marked for the other CUDA backend (``mlir_only`` /
-    ``numba_cuda_only``) are deselected first — they exercise
-    frontend-specific contracts that do not exist on the active
-    backend.
-
     Under ``--dist=loadgroup`` each non-default session param set
     becomes one xdist_group, so each set is compiled by exactly one
     worker. Grouped items run first (largest groups first, for
@@ -144,21 +139,6 @@ def pytest_collection_modifyitems(config, items):
     CUDA context stay at the very end, ungrouped, so the streams used
     in session-scoped fixtures don't disappear on them mid-run.
     """
-    from cubie.cuda_backend import IS_MLIR
-
-    wrong_backend_marker = "numba_cuda_only" if IS_MLIR else "mlir_only"
-    deselected = [
-        item for item in items if item.get_closest_marker(
-            wrong_backend_marker
-        )
-    ]
-    if deselected:
-        config.hook.pytest_deselected(items=deselected)
-        items[:] = [
-            item for item in items
-            if not item.get_closest_marker(wrong_backend_marker)
-        ]
-
     final_basenames = {"test_cupyemm.py", "test_memmgmt.py"}
     grouped = []
     default = []

@@ -1,16 +1,20 @@
-"""Resolve which CUDA frontend package CuBIE compiles against.
+"""Resolve which CUDA backend package CuBIE compiles against.
 
-CuBIE supports two mutually exclusive CUDA frontends: ``numba-cuda``
-(the default NVIDIA Numba target) and ``numba-cuda-mlir`` (the
-MLIR-based compiler). Exactly one must be installed; the backend is
-resolved once at import time from the installed packages, with the
-``CUBIE_CUDA_BACKEND`` environment variable as an explicit override
-(values ``"numba-cuda"`` or ``"mlir"``).
+CuBIE supports two CUDA backends: ``numba-cuda`` (the default NVIDIA
+Numba target) and ``numba-cuda-mlir`` (the MLIR-based compiler). The
+backend is resolved once at import time. An explicit
+``CUBIE_CUDA_BACKEND`` environment value (``"numba-cuda"`` or
+``"mlir"``, read through :mod:`cubie._env`) always wins; otherwise
+whichever backend is installed is used. When both are installed and
+no explicit choice is made, numba-cuda is selected and a warning
+explains how to pick the MLIR backend. Under the CUDA simulator
+(``NUMBA_ENABLE_CUDASIM=1``) numba-cuda is preferred when installed,
+because numba-cuda-mlir has no simulator.
 
 Every CUDA-facing symbol (the ``cuda`` module object, scalar types,
 ``from_dtype``, driver internals, cache base classes) is re-exported
 by :mod:`cubie.cuda_simsafe`, which consumes :data:`CUDA_BACKEND`
-from here. Library code never imports a frontend package directly.
+from here. Library code never imports a backend package directly.
 
 Published Constants
 -------------------
@@ -31,22 +35,30 @@ See Also
 
 import os
 from importlib.util import find_spec
+from warnings import warn
+
+from cubie._env import cuda_backend_requested
 
 NUMBA_CUDA_BACKEND = "numba-cuda"
 MLIR_BACKEND = "mlir"
-_VALID_BACKENDS = (NUMBA_CUDA_BACKEND, MLIR_BACKEND)
 
 _INSTALL_HINT = (
-    "Install exactly one CUDA frontend: 'pip install cubie[cuda12]' "
-    "or 'cubie[cuda13]' for numba-cuda, 'pip install "
+    "Install a CUDA backend: 'pip install cubie[cuda12]' or "
+    "'cubie[cuda13]' for numba-cuda, 'pip install "
     "cubie[mlir-cuda12]' or 'cubie[mlir-cuda13]' for numba-cuda-mlir "
-    "(the bare 'cuda'/'mlir' extras skip the toolkit wheels when a "
-    "system CUDA install is present)."
+    "(the bare 'mlir' extra skips the toolkit wheels when a system "
+    "CUDA install is present)."
 )
 
 
 def _resolve_backend() -> str:
-    """Return the active backend name from installs and environment.
+    """Return the active backend name from environment and installs.
+
+    An explicit ``CUBIE_CUDA_BACKEND`` value wins and its package
+    must be installed. Otherwise the installed backend is used; under
+    ``NUMBA_ENABLE_CUDASIM=1`` numba-cuda is preferred (the MLIR
+    backend has no simulator), and when both backends are installed
+    numba-cuda is selected with a warning.
 
     Returns
     -------
@@ -56,23 +68,17 @@ def _resolve_backend() -> str:
     Raises
     ------
     ImportError
-        If no frontend is installed, if both are installed without an
-        explicit ``CUBIE_CUDA_BACKEND`` choice, or if the requested
-        backend's package is missing.
+        If no backend is installed, or if the requested backend's
+        package is missing.
     ValueError
         If ``CUBIE_CUDA_BACKEND`` is set to an unrecognised value.
     """
     mlir_installed = find_spec("numba_cuda_mlir") is not None
     numba_cuda_installed = find_spec("numba_cuda") is not None
+    cudasim = os.environ.get("NUMBA_ENABLE_CUDASIM") == "1"
 
-    requested = os.environ.get("CUBIE_CUDA_BACKEND")
+    requested = cuda_backend_requested()
     if requested is not None:
-        requested = requested.strip().lower()
-        if requested not in _VALID_BACKENDS:
-            raise ValueError(
-                f"CUBIE_CUDA_BACKEND={requested!r} is not recognised; "
-                f"valid values are {_VALID_BACKENDS}."
-            )
         available = (
             mlir_installed
             if requested == MLIR_BACKEND
@@ -81,24 +87,26 @@ def _resolve_backend() -> str:
         if not available:
             raise ImportError(
                 f"CUBIE_CUDA_BACKEND={requested!r} is set but the "
-                f"matching frontend package is not installed. "
+                f"matching backend package is not installed. "
                 + _INSTALL_HINT
             )
         return requested
 
+    if cudasim and numba_cuda_installed:
+        return NUMBA_CUDA_BACKEND
     if mlir_installed and numba_cuda_installed:
-        raise ImportError(
-            "Both numba-cuda and numba-cuda-mlir are installed. The "
-            "CUDA frontends are mutually exclusive: uninstall one, or "
-            "set CUBIE_CUDA_BACKEND to 'numba-cuda' or 'mlir' to pick "
-            "one explicitly."
+        warn(
+            "Both numba-cuda and numba-cuda-mlir are installed; "
+            "auto-selecting numba-cuda. Set CUBIE_CUDA_BACKEND='mlir' "
+            "to use the MLIR backend."
         )
+        return NUMBA_CUDA_BACKEND
     if mlir_installed:
         return MLIR_BACKEND
     if numba_cuda_installed:
         return NUMBA_CUDA_BACKEND
     raise ImportError(
-        "No CUDA frontend is installed. " + _INSTALL_HINT
+        "No CUDA backend is installed. " + _INSTALL_HINT
     )
 
 
