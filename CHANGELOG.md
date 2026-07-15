@@ -1,5 +1,29 @@
 # Changelog
 
+## [0.2.0](https://github.com/ccam80/cubie/compare/v0.1.1...v0.2.0) (2026-07-15)
+
+
+### Features
+
+* measured heuristics choose buffer memory locations by system size ([#613](https://github.com/ccam80/cubie/issues/613)) ([71fbbb1](https://github.com/ccam80/cubie/commit/71fbbb1b8c270d007be722059d4909f462142975))
+* MTK.jl-style structural simplification and tearing for DAE systems ([#605](https://github.com/ccam80/cubie/issues/605)) ([a0e188b](https://github.com/ccam80/cubie/commit/a0e188b9ead3bd3cdfb0532dc0a124ff12e0d114))
+* Numba-cuda MLIR backend now supported (and fast/correct) ([#617](https://github.com/ccam80/cubie/issues/617)) ([7e811fd](https://github.com/ccam80/cubie/commit/7e811fd2f9046a2af1415dc234039aa603e4e393))
+
+
+### Bug Fixes
+
+* all three disk cache layers resolve one shared cache root ([#600](https://github.com/ccam80/cubie/issues/600)) ([947f745](https://github.com/ccam80/cubie/commit/947f745894ac5aa29bba8476000ca87aa0bf09b3))
+* compiled-kernel cache stamps carry an environment hash ([#615](https://github.com/ccam80/cubie/issues/615)) ([ec51161](https://github.com/ccam80/cubie/commit/ec511610d4cd398cabdfb82a1e3aa188136febe8))
+* per-file lineinfo for cross-file inlined device functions ([#599](https://github.com/ccam80/cubie/issues/599)) ([1744635](https://github.com/ccam80/cubie/commit/174463551a5ef77b5fb906b7e12f014269db32e1))
+* persistent local scratch array sized from the persistent layout ([#610](https://github.com/ccam80/cubie/issues/610)) ([fc95105](https://github.com/ccam80/cubie/commit/fc951054823c17ca590dd3e232052a3a781929e0))
+* step controllers freeze dt and error history on truncated steps ([#596](https://github.com/ccam80/cubie/issues/596)) ([8eb2cd9](https://github.com/ccam80/cubie/commit/8eb2cd93087c0497aa03b993a376c66dbc1695a9))
+* step-controller defaults are per-algorithm literature values ([#602](https://github.com/ccam80/cubie/issues/602)) ([38c7654](https://github.com/ccam80/cubie/commit/38c76542500deeccf74673231ac185a238c25567))
+
+
+### Performance Improvements
+
+* native pooled arrays + async transfers; cut per-solve host overhead ([#618](https://github.com/ccam80/cubie/issues/618)) ([f59650d](https://github.com/ccam80/cubie/commit/f59650d19b24468351c4f8c1e1a5890c2a51f5aa))
+
 ## [0.1.1](https://github.com/ccam80/cubie/compare/v0.1.0...v0.1.1) (2026-07-12)
 
 
