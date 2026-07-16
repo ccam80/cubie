@@ -1,8 +1,10 @@
 Code Generation Pipeline
 ========================
 
-CuBIE uses SymPy to transform symbolic ODE definitions into compiled CUDA
-device functions.  This page describes the pipeline.
+CuBIE transforms symbolic ODE definitions into compiled CUDA device
+functions.  SymPy parses the input; every later stage runs on a
+lightweight interned expression IR (the ``engine`` package).  This page
+describes the pipeline.
 
 Pipeline Overview
 -----------------
@@ -12,8 +14,9 @@ Pipeline Overview
    String equations
        → SymPy parser
        → IndexedBases (state/param/observable symbols)
+       → engine IR (hash-consed expression nodes)
        → JVPEquations (Jacobian-vector product expressions)
-       → CUDAPrinter → code strings
+       → IR printer → code strings
        → ODEFile (written to generated/ directory)
        → Numba JIT → CUDA device functions
 
@@ -40,18 +43,23 @@ with respect to every state variable, applies chain-rule grouping to
 share subexpressions, and produces a function
 :math:`(x, v) \mapsto J\,v`.  See :doc:`/theory/jacobians`.
 
-``CUDAPrinter``
----------------
+Expression engine and printer
+-----------------------------
 
-``CUDAPrinter`` is a SymPy code printer customised for Numba CUDA.  It
-handles:
+``src/cubie/odesystems/symbolic/engine/`` holds the expression IR that
+replaced SymPy in the compute phase: nodes are interned (structurally
+identical expressions are the same object), so substitution,
+differentiation, and common-subexpression elimination are single passes
+over a DAG.  The engine's printer renders IR as Numba-CUDA source:
 
-- Mapping SymPy functions to their NumPy/Numba equivalents.
-- Prefixing NumPy names with ``np_`` to avoid Numba namespace clashes.
-- Emitting scalar-typed intermediate variables.
+- Mapping function calls to their ``math.*``/builtin equivalents.
+- Wrapping numeric literals in ``precision(...)`` casts.
+- Rewriting small integer powers to multiplication chains and half
+  powers to ``math.sqrt``.
+- Emitting ``Piecewise`` selections as nested ternaries.
 
-``print_cuda_multiple`` batches multiple expressions into a single
-function body with shared subexpression elimination.
+``print_cuda_multiple`` renders a list of assignments as source lines;
+shared-subexpression extraction happens beforehand on the IR.
 
 Solver Helpers
 --------------
