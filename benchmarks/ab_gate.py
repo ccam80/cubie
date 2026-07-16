@@ -29,10 +29,12 @@ Usage::
         [--repeats M] [--min-count K] [--pairs P] [--threshold PCT]
         [--n-runs N] [--calibrate] [--keep]
 
-``--calibrate`` points B at ``main`` too (A-vs-A); rerun it a few times
-to measure this machine's null |delta| and set ``--threshold`` from it.
-Exit status is non-zero if any config regresses past ``--threshold``
-(default 0.20%).
+``--calibrate`` points B at ``main`` too (A-vs-A); rerun it a few
+times to measure this machine's null |delta| and set ``--threshold``
+to about twice the worst of it. On the reference machine (RTX 4070
+SUPER driving a live desktop) the four-pair null reaches ~0.26% on
+the fixed config, hence the 0.50% default. Exit status is non-zero if
+any config regresses past ``--threshold``.
 """
 import argparse
 import importlib.util
@@ -187,8 +189,9 @@ def main():
     parser.add_argument("--n-runs", type=int, default=None,
                         help="Trajectory count for both configs "
                              "(small values smoke-test the harness).")
-    parser.add_argument("--threshold", type=float, default=0.20,
-                        help="Regression threshold in percent.")
+    parser.add_argument("--threshold", type=float, default=0.50,
+                        help="Regression threshold in percent (about "
+                             "twice the calibrated null).")
     parser.add_argument("--calibrate", action="store_true",
                         help="Point B at main too (A-vs-A null).")
     parser.add_argument("--keep", action="store_true",
