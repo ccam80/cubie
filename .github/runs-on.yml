@@ -3,6 +3,11 @@
 #
 # Referenced by workflows via:
 #   runs-on: "runs-on=${{ github.run_id }}/runner=<name>"
+#
+# NOTE: ci_cuda_tests.yml no longer uses these Flex runners -- its GPU
+# matrix runs on the RunsOn Fleet scale sets defined in infra/fleet
+# (2xlarge, serialised by max-parallel). These definitions remain as a
+# fallback while Fleet beds in and for ad-hoc Flex jobs.
 
 images:
   # Custom Windows 2025 + NVIDIA GRID driver AMI, baked by
