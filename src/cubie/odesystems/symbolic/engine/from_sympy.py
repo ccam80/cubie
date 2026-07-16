@@ -119,6 +119,14 @@ def from_sympy(
 
 def _convert(current: sp.Basic, walk) -> ir.Expr:
     """Convert one SymPy node, recursing through ``walk``."""
+    if current is sp.oo or current is -sp.oo or current is sp.zoo:
+        raise ConversionError(
+            f"infinite quantity in equations: {current!r}. If this "
+            "arose from a symbol named like a SymPy constant "
+            "(e.g. 'zoo', 'oo'), declare the symbol before use."
+        )
+    if current is sp.nan:
+        raise ConversionError("NaN in equations")
     if isinstance(current, sp.Symbol):
         match = _BRACKET_NAME.match(current.name)
         if match is not None:
@@ -178,6 +186,17 @@ def _convert(current: sp.Basic, walk) -> ir.Expr:
         return ir.bool_op("not", walk(current.args[0]))
     if isinstance(current, sp.Abs):
         return ir.call("Abs", walk(current.args[0]))
+    if isinstance(current, sp.Heaviside):
+        argument = walk(current.args[0])
+        if len(current.args) > 1:
+            at_zero = walk(current.args[1])
+        else:
+            at_zero = ir.num(Fraction(1, 2))
+        return ir.piecewise(
+            (ir.ZERO, ir.rel("<", argument, ir.ZERO)),
+            (at_zero, ir.rel("==", argument, ir.ZERO)),
+            (ir.ONE, ir.TRUE),
+        )
     if isinstance(current, sp.Min):
         return ir.call("Min", *(walk(a) for a in current.args))
     if isinstance(current, sp.Max):
@@ -195,8 +214,6 @@ def _convert(current: sp.Basic, walk) -> ir.Expr:
         # the CUDA_FUNCTIONS lookup keys used by the printer.
         name = type(current).__name__
         return ir.call(name, *(walk(a) for a in current.args))
-    if isinstance(current, sp.ceiling):
-        return ir.call("ceiling", walk(current.args[0]))
     raise ConversionError(
         f"unsupported SymPy node in codegen: {type(current).__name__}"
         f" ({current!r})"
@@ -254,8 +271,8 @@ def to_sympy(node: ir.Expr) -> sp.Basic:
 
     Primarily a verification utility: tests convert engine results to
     SymPy to compare against ground-truth expressions. Array
-    references become bracket-named symbols (``out[0]``), matching
-    the naming the SymPy-era pipeline used.
+    references become bracket-named symbols (``out[0]``), the naming
+    :func:`from_sympy` maps back to :class:`~.expr.Arr`.
 
     Parameters
     ----------

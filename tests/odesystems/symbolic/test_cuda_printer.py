@@ -178,6 +178,23 @@ class TestFunctionsAndPiecewise:
     def test_unknown_function_prints_plainly(self):
         assert print_cuda(call("myfunc_", sym("x"))) == "myfunc_(x)"
 
+    def test_sign_emits_copysign_selection(self):
+        assert print_cuda(call("sign", sym("x"))) == (
+            "(precision(0) if x == precision(0) else "
+            "math.copysign(precision(1), x))"
+        )
+
+    def test_mod_emits_modulo_operator(self):
+        result = print_cuda(
+            call("Mod", add(sym("x"), sym("y")), num(3))
+        )
+        assert result == "(x + y) % precision(3)"
+
+    def test_heaviside_converts_to_piecewise(self):
+        result = print_cuda(from_sympy(sp.Heaviside(sp.Symbol("x"))))
+        assert " if " in result
+        assert "Heaviside" not in result
+
     def test_derivative_placeholder_prints_plainly(self):
         result = print_cuda(call("d_myfunc", sym("x"), num(0)))
         assert result == "d_myfunc(x, precision(0))"

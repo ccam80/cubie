@@ -1,9 +1,9 @@
 """Assignment-list transforms over engine IR expressions.
 
 Operates on ordered lists of ``(lhs, rhs)`` IR pairs — the working
-representation every generator builds before printing. Provides the
-IR equivalents of the SymPy-era helpers: topological sorting,
-dead-assignment pruning, and common-subexpression extraction.
+representation every generator builds before printing. Provides
+topological sorting, dead-assignment pruning, and
+common-subexpression extraction.
 
 Published Functions
 -------------------
@@ -74,6 +74,16 @@ def topological_sort(
     """
     pairs = list(assignments)
     sym_map: Dict[Expr, Expr] = {lhs: rhs for lhs, rhs in pairs}
+    if len(sym_map) != len(pairs):
+        seen: Dict[Expr, int] = {}
+        for lhs, _ in pairs:
+            seen[lhs] = seen.get(lhs, 0) + 1
+        duplicates = sorted(
+            str(lhs) for lhs, count in seen.items() if count > 1
+        )
+        raise ValueError(
+            f"Duplicate assignment targets: {duplicates}"
+        )
     order_index = {lhs: i for i, (lhs, _) in enumerate(pairs)}
     assignees = set(sym_map)
 
@@ -135,7 +145,7 @@ def prune_unused(
     list of tuple
         The assignments transitively required by the outputs, in
         their original relative order. Returned unchanged when no
-        output matches (mirrors the SymPy-era behaviour).
+        output matches.
     """
     pairs = list(assignments)
     if not pairs:
@@ -293,7 +303,7 @@ def cse_and_stack(
     symbol
         Prefix for generated locals. Defaults to ``"_cse"``.
         Numbering continues after any existing ``<symbol><n>``
-        left-hand sides, as the SymPy-era helper did.
+        left-hand sides.
 
     Returns
     -------

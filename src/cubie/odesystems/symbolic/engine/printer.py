@@ -317,6 +317,16 @@ class IRPrinter:
 
     def _render_call(self, node: Call) -> Tuple[str, int]:
         name = node.name
+        if name == "sign":
+            inner = self._print(node.args[0], _PREC_REL)
+            return (
+                f"(precision(0) if {inner} == precision(0) else "
+                f"math.copysign(precision(1), {inner}))"
+            ), _PREC_ATOM
+        if name == "Mod":
+            lhs = self._print(node.args[0], _PREC_MUL)
+            rhs = self._print(node.args[1], _PREC_UNARY)
+            return f"{lhs} % {rhs}", _PREC_MUL
         target = CUDA_FUNCTIONS.get(name)
         if target is None:
             target = self.function_aliases.get(name, name)

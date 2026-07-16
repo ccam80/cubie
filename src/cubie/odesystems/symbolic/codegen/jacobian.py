@@ -84,11 +84,24 @@ def _sympy_equation_list(equations) -> list:
     return eq_list
 
 
+def _derivative_names(equations) -> Dict[str, str]:
+    """Return user derivative placeholder names for ``equations``.
+
+    IR-native parser output carries the map on the container; SymPy
+    pairs recover it from the applied functions' ``fdiff`` classes.
+    """
+    names = getattr(equations, "derivative_names", None)
+    if names:
+        return dict(names)
+    return derivative_name_map(_sympy_equation_list(equations))
+
+
 def get_cache_key(
     equations: Iterable[Tuple[ir.Expr, ir.Expr]],
     input_order: Dict[ir.Sym, int],
     output_order: Dict[ir.Sym, int],
     cse: bool,
+    derivative_names: Optional[Dict[str, str]] = None,
 ) -> CacheKey:
     """Generate the cache key from IR equations, orders, and CSE flag.
 
@@ -102,6 +115,11 @@ def get_cache_key(
         Mapping from each output symbol to its position.
     cse
         Whether common-subexpression elimination is enabled.
+    derivative_names
+        User-function derivative placeholder names. Included so two
+        systems whose equations intern identically but bind
+        different derivative helpers to a same-named function do
+        not share a cache entry.
 
     Returns
     -------
@@ -114,7 +132,8 @@ def get_cache_key(
         eq_tuple = tuple(tuple(pair) for pair in equations)
     input_tuple = tuple(input_order.items())
     output_tuple = tuple(output_order.items())
-    return (eq_tuple, input_tuple, output_tuple, bool(cse))
+    names_tuple = tuple(sorted((derivative_names or {}).items()))
+    return (eq_tuple, input_tuple, output_tuple, bool(cse), names_tuple)
 
 
 def _chain_rule_jacobian(
@@ -244,14 +263,16 @@ def generate_jacobian(
     eq_list = _ir_equations(equations)
     ir_inputs = _ir_order(input_order)
     ir_outputs = _ir_order(output_order)
-    derivative_names = derivative_name_map(
-        _sympy_equation_list(equations)
-    )
+    derivative_names = _derivative_names(equations)
 
     cache_key = None
     if use_cache:
         cache_key = get_cache_key(
-            eq_list, ir_inputs, ir_outputs, cse=cache_cse
+            eq_list,
+            ir_inputs,
+            ir_outputs,
+            cse=cache_cse,
+            derivative_names=derivative_names,
         )
         cached_entry = _cache.get(cache_key)
         if isinstance(cached_entry, dict) and "jac" in cached_entry:
@@ -301,9 +322,7 @@ def generate_analytical_jvp(
     eq_list = _ir_equations(equations)
     ir_inputs = _ir_order(input_order)
     ir_outputs = _ir_order(output_order)
-    derivative_names = derivative_name_map(
-        _sympy_equation_list(equations)
-    )
+    derivative_names = _derivative_names(equations)
 
     obs_subs: Dict[ir.Expr, ir.Expr] = {}
     if observables is not None:
@@ -328,7 +347,11 @@ def generate_analytical_jvp(
         substituted = list(eq_list)
 
     cache_key = get_cache_key(
-        substituted, ir_inputs, ir_outputs, cse=cse
+        substituted,
+        ir_inputs,
+        ir_outputs,
+        cse=cse,
+        derivative_names=derivative_names,
     )
     cached_entry = _cache.get(cache_key)
     if isinstance(cached_entry, dict) and "jvp" in cached_entry:
@@ -394,7 +417,11 @@ def _cached_jacobian_for(
 ) -> List[List[ir.Expr]]:
     """Return the Jacobian for pre-substituted IR equations, cached."""
     cache_key = get_cache_key(
-        substituted, ir_inputs, ir_outputs, cse=cse
+        substituted,
+        ir_inputs,
+        ir_outputs,
+        cse=cse,
+        derivative_names=derivative_names,
     )
     cached_entry = _cache.get(cache_key)
     if isinstance(cached_entry, dict) and "jac" in cached_entry:

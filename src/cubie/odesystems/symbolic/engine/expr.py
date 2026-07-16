@@ -167,6 +167,9 @@ class Num(Expr):
     def __repr__(self) -> str:
         return f"Num({self.value!r})"
 
+    def __reduce__(self):
+        return (num, (self.value,))
+
 
 class Sym(Expr):
     """Named scalar symbol."""
@@ -179,6 +182,9 @@ class Sym(Expr):
 
     def __repr__(self) -> str:
         return f"Sym({self.name})"
+
+    def __reduce__(self):
+        return (sym, (self.name,))
 
 
 class Arr(Expr):
@@ -194,6 +200,9 @@ class Arr(Expr):
     def __repr__(self) -> str:
         return f"Arr({self.name}[{self.index}])"
 
+    def __reduce__(self):
+        return (arr, (self.name, self.index))
+
 
 class Add(Expr):
     """N-ary sum. Arguments are stored in sort-key order."""
@@ -206,6 +215,9 @@ class Add(Expr):
 
     def __repr__(self) -> str:
         return f"Add({', '.join(map(repr, self.args))})"
+
+    def __reduce__(self):
+        return (add, tuple(self.args))
 
 
 class Mul(Expr):
@@ -220,6 +232,9 @@ class Mul(Expr):
     def __repr__(self) -> str:
         return f"Mul({', '.join(map(repr, self.args))})"
 
+    def __reduce__(self):
+        return (mul, tuple(self.args))
+
 
 class Pow(Expr):
     """Power ``base ** exp``."""
@@ -233,6 +248,9 @@ class Pow(Expr):
 
     def __repr__(self) -> str:
         return f"Pow({self.base!r}, {self.exp!r})"
+
+    def __reduce__(self):
+        return (pow_, (self.base, self.exp))
 
 
 class Call(Expr):
@@ -253,6 +271,9 @@ class Call(Expr):
     def __repr__(self) -> str:
         return f"Call({self.name}, {', '.join(map(repr, self.args))})"
 
+    def __reduce__(self):
+        return (call, (self.name,) + tuple(self.args))
+
 
 class Piecewise(Expr):
     """Ordered ``(value, condition)`` selection.
@@ -272,6 +293,9 @@ class Piecewise(Expr):
     def __repr__(self) -> str:
         return f"Piecewise({self.pairs!r})"
 
+    def __reduce__(self):
+        return (piecewise, tuple(self.pairs))
+
 
 class Rel(Expr):
     """Binary relation ``lhs <op> rhs`` with op in <, <=, >, >=, ==, !=."""
@@ -287,6 +311,9 @@ class Rel(Expr):
     def __repr__(self) -> str:
         return f"Rel({self.lhs!r} {self.op} {self.rhs!r})"
 
+    def __reduce__(self):
+        return (rel, (self.op, self.lhs, self.rhs))
+
 
 class BoolOp(Expr):
     """Boolean combination: kind in {'and', 'or', 'not'}."""
@@ -301,6 +328,9 @@ class BoolOp(Expr):
     def __repr__(self) -> str:
         return f"BoolOp({self.kind}, {self.args!r})"
 
+    def __reduce__(self):
+        return (bool_op, (self.kind,) + tuple(self.args))
+
 
 class BoolConst(Expr):
     """Boolean literal (interned singletons :data:`TRUE`/:data:`FALSE`)."""
@@ -313,6 +343,9 @@ class BoolConst(Expr):
 
     def __repr__(self) -> str:
         return f"BoolConst({self.value})"
+
+    def __reduce__(self):
+        return (_bool_const, (self.value,))
 
 
 def _num_type_rank(value: NumberLike) -> int:
@@ -381,6 +414,11 @@ def arr(name: str, index: int) -> Arr:
 
 TRUE = _intern(("bool", True), lambda: BoolConst(True))
 FALSE = _intern(("bool", False), lambda: BoolConst(False))
+
+
+def _bool_const(value: bool) -> "BoolConst":
+    """Return the interned boolean literal (pickle restore hook)."""
+    return TRUE if value else FALSE
 
 
 def _as_expr(value: ExprLike) -> Expr:
@@ -453,18 +491,14 @@ def add(*terms: ExprLike) -> Expr:
     args: List[Expr] = []
     for rest in order:
         coeff = coeffs[rest]
-        if isinstance(coeff, (int, Fraction)) and coeff == 0:
+        if coeff == 0:
             continue
-        if isinstance(coeff, float) and coeff == 0.0:
-            continue
-        if isinstance(coeff, (int, Fraction)) and coeff == 1:
+        if coeff == 1:
             args.append(rest)
         else:
             args.append(_raw_mul_with_coeff(coeff, rest))
     args.sort(key=lambda node: node.sort_key)
-    if not (
-        isinstance(const, (int, Fraction)) and const == 0
-    ) and not (isinstance(const, float) and const == 0.0):
+    if const != 0:
         # Numeric term goes last so sums print naturally
         # (``x + precision(5)``); the position is canonical because
         # folding leaves at most one numeric term.
@@ -526,9 +560,7 @@ def mul(*factors: ExprLike) -> Expr:
     for factor in factors:
         absorb(_as_expr(factor))
 
-    if isinstance(const, (int, Fraction)) and const == 0:
-        return ZERO
-    if isinstance(const, float) and const == 0.0:
+    if const == 0:
         return ZERO
 
     args: List[Expr] = []
@@ -542,9 +574,11 @@ def mul(*factors: ExprLike) -> Expr:
             continue
         args.append(factor)
 
-    const_is_one = (
-        isinstance(const, (int, Fraction)) and const == 1
-    )
+    if const == 0:
+        # Power combination can fold a factor to a numeric zero
+        # (e.g. ``0**x * 0**(2 - x)``), so re-check after folding.
+        return ZERO
+    const_is_one = const == 1
     if not args:
         return num(const)
     if not const_is_one:
@@ -578,9 +612,9 @@ def pow_(base: ExprLike, exp: ExprLike) -> Expr:
     exp = _as_expr(exp)
 
     if isinstance(exp, Num):
-        if isinstance(exp.value, (int, Fraction)) and exp.value == 0:
+        if exp.value == 0:
             return ONE
-        if isinstance(exp.value, (int, Fraction)) and exp.value == 1:
+        if exp.value == 1:
             return base
         if isinstance(base, Num):
             folded = _fold_numeric_pow(base.value, exp.value)
@@ -589,9 +623,8 @@ def pow_(base: ExprLike, exp: ExprLike) -> Expr:
         if isinstance(base, Pow) and isinstance(exp.value, int):
             # (b**e1)**n -> b**(e1*n) is exact for integer n
             return pow_(base.base, mul(base.exp, exp))
-    if isinstance(base, Num):
-        if isinstance(base.value, (int, Fraction)) and base.value == 1:
-            return ONE
+    if isinstance(base, Num) and base.value == 1:
+        return ONE
     key = ("pow", id(base), id(exp))
     return _intern(key, lambda: Pow(base, exp))
 
@@ -973,6 +1006,14 @@ def _d_zero(args, dargs):
     return ZERO
 
 
+def _d_mod(args, dargs):
+    # Mod(a, b) = a - b*floor(a/b); floor differentiates to zero
+    # almost everywhere.
+    a, b = args
+    da, db = dargs
+    return sub(da, mul(call("floor", div(a, b)), db))
+
+
 def _d_min(args, dargs):
     return _minmax_derivative(args, dargs, "<=")
 
@@ -1020,6 +1061,7 @@ _DERIVATIVES: Dict[str, Callable] = {
     "ceiling": _d_zero,
     "Min": _d_min,
     "Max": _d_max,
+    "Mod": _d_mod,
 }
 
 _NO_DERIVATIVE = frozenset(

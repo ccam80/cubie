@@ -124,9 +124,17 @@ def system_ir(equations, index_map) -> SystemIR:
         return hit[2]
 
     memo: Dict = {}
-    eq_pairs = tuple(
-        convert_assignments(equations.to_equation_list(), memo)
-    )
+    eq_list = equations.to_equation_list()
+    if eq_list and isinstance(eq_list[0][0], ir.Expr):
+        # Parser output is already IR; the pairs pass through and
+        # derivative placeholder names ride on the container.
+        eq_pairs = tuple(eq_list)
+        derivative_names = dict(
+            getattr(equations, "derivative_names", None) or {}
+        )
+    else:
+        eq_pairs = tuple(convert_assignments(eq_list, memo))
+        derivative_names = derivative_name_map(eq_list)
 
     states, state_index = _ordered_syms(index_map.states.index_map)
     dxdt, dxdt_index = _ordered_syms(index_map.dxdt.index_map)
@@ -161,9 +169,7 @@ def system_ir(equations, index_map) -> SystemIR:
         arrayrefs=arrayrefs,
         constant_names=tuple(index_map.constants.symbol_map),
         function_aliases=aliases,
-        derivative_names=derivative_name_map(
-            equations.to_equation_list()
-        ),
+        derivative_names=derivative_names,
         time_symbol=ir.sym("t"),
     )
     _CACHE[key] = (equations, index_map, result)

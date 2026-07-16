@@ -3,13 +3,15 @@
 # engine
 
 ## Purpose
-Lightweight hash-consed expression IR and the compute passes symbolic codegen runs on
-it. Replaces SymPy in everything downstream of parsing: differentiation, substitution,
-common-subexpression elimination, dependency ordering, pruning, and CUDA source
-emission all operate on interned IR nodes. SymPy remains the front end (string/AST
-parsing, CellML, structural simplification) and the source of `fn_hash`; expressions
-convert to IR once per system through the adapter and never convert back on the hot
-path.
+Lightweight hash-consed expression IR and the compute passes the whole symbolic
+pipeline runs on: differentiation, substitution, common-subexpression elimination,
+dependency ordering, pruning, structural simplification, and CUDA source emission all
+operate on interned IR nodes. SymPy is a parse-boundary translation layer only
+(string/AST parsing and user-supplied SymPy input); the normaliser and the CellML
+loader convert every expression to IR via `from_sympy` before any downstream pass, and
+nothing converts back on the hot path (`to_sympy` exists for verification in tests).
+Nodes pickle through their constructor functions, so unpickled expressions re-intern
+(the CellML disk cache relies on this).
 
 ## Key Files
 | File | Description |

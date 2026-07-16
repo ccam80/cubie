@@ -32,13 +32,27 @@ from cubie.odesystems.symbolic.odefile import ODEFile
 # ── jacobian cache key / non-CSE JVP ────────────────────────────── #
 
 def test_get_cache_key_accepts_mapping():
-    """A dict of equations hashes to the same key as its item tuple."""
+    """A dict of equations hashes to the same key as its item tuple.
+
+    The key is a 5-tuple ending with a sorted ``derivative_names``
+    tuple, which is empty unless the kwarg is supplied.
+    """
     x, y = sp.symbols("x y")
     equations = {x: y, y: x}
     order = {x: 0, y: 1}
     key = get_cache_key(equations, order, order, cse=True)
     assert key[0] == tuple(equations.items())
-    assert key[-1] is True
+    assert key[3] is True
+    assert key[-1] == ()
+
+    named_key = get_cache_key(
+        equations,
+        order,
+        order,
+        cse=True,
+        derivative_names={"b": "d_b", "a": "d_a"},
+    )
+    assert named_key[-1] == (("a", "d_a"), ("b", "d_b"))
 
 
 def test_generate_analytical_jvp_without_cse():

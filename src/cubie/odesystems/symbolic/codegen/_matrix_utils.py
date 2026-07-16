@@ -20,7 +20,7 @@ def _entry_to_ir(entry) -> ir.Expr:
     """Convert one matrix entry to an IR expression.
 
     Integer entries become floats so emitted mass terms carry an
-    explicit float literal, matching the SymPy-era generators.
+    explicit float literal.
     """
     if isinstance(entry, ir.Expr):
         if isinstance(entry, ir.Num) and isinstance(

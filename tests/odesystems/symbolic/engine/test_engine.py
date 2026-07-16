@@ -80,6 +80,57 @@ class TestInterningAndFolding:
         collapsed = piecewise((x, TRUE))
         assert collapsed is x
 
+    def test_piecewise_drops_false_branches(self):
+        from cubie.odesystems.symbolic.engine import FALSE
+
+        x, y = sym("x"), sym("y")
+        cond = rel("<", x, num(0))
+        pruned = piecewise((y, FALSE), (x, cond), (y, TRUE))
+        assert pruned is piecewise((x, cond), (y, TRUE))
+        try:
+            piecewise((x, FALSE))
+        except ValueError:
+            pass
+        else:
+            raise AssertionError("all-false piecewise did not raise")
+
+    def test_count_ops_covers_conditionals(self):
+        x, y = sym("x"), sym("y")
+        cond = rel("<", add(x, y), num(0))
+        assert count_ops(cond) == 2
+        selection = piecewise((mul(x, y), cond), (x, TRUE))
+        assert count_ops(selection) == 5
+        from cubie.odesystems.symbolic.engine import bool_op
+
+        both = bool_op("and", cond, rel(">", x, num(0)))
+        assert count_ops(both) == 5
+
+    def test_float_one_folds_to_identity(self):
+        x = sym("x")
+        assert mul(num(1.0), x) is x
+        assert add(mul(num(0.5), x), mul(num(0.5), x)) is x
+        assert pow_(x, num(1.0)) is x
+        assert is_one(pow_(x, num(0.0)))
+        assert is_one(pow_(num(1.0), x))
+
+    def test_zero_after_power_combination(self):
+        x, y = sym("x"), sym("y")
+        vanishing = mul(pow_(num(0), x), pow_(num(0), sub(num(2), x)))
+        assert is_zero(mul(vanishing, y))
+
+    def test_pickle_round_trip_preserves_interning(self):
+        import pickle
+
+        x, y = sym("x"), sym("y")
+        node = add(
+            mul(num(2), x, y),
+            pow_(x, num(3)),
+            piecewise((x, rel("<", x, num(1))), (y, TRUE)),
+            call("exp", arr("state", 2)),
+        )
+        restored = pickle.loads(pickle.dumps(node))
+        assert restored is node
+
 
 class TestDifferentiation:
     def test_matches_sympy_on_rule_table(self):
@@ -151,6 +202,55 @@ class TestDifferentiation:
         )
         assert renamed is call("dfoo_dx", x, y, num(1))
 
+    def test_mod_differentiates_almost_everywhere(self):
+        x = sym("x")
+        derivative = diff(call("Mod", x, num(3)), x)
+        assert is_one(derivative)
+
+    def test_variable_exponent_uses_general_power_rule(self):
+        x = sp.Symbol("x", real=True)
+        y = sp.Symbol("y", real=True)
+        rng = random.Random(11)
+        for case, var in ((x**y, y), (x**x, x), (x**y, x)):
+            expected = sp.lambdify((x, y), sp.diff(case, var), "math")
+            produced = sp.lambdify(
+                (x, y),
+                to_sympy(diff(from_sympy(case), from_sympy(var))),
+                "math",
+            )
+            for _ in range(8):
+                px = rng.uniform(0.2, 2.0)
+                py = rng.uniform(0.2, 2.0)
+                assert math.isclose(
+                    produced(px, py),
+                    expected(px, py),
+                    rel_tol=1e-10,
+                    abs_tol=1e-12,
+                ), (case, var, px, py)
+
+    def test_no_derivative_rule_raises(self):
+        from cubie.odesystems.symbolic.engine import (
+            DifferentiationError,
+        )
+
+        x = sym("x")
+        for name in (
+            "gamma",
+            "loggamma",
+            "hypot",
+            "fmod",
+            "remainder",
+            "copysign",
+        ):
+            args = (x, x) if name in (
+                "hypot", "fmod", "remainder", "copysign"
+            ) else (x,)
+            try:
+                diff(call(name, *args), x)
+            except DifferentiationError:
+                continue
+            raise AssertionError(f"{name} did not raise")
+
     def test_array_reference_is_constant(self):
         x = sym("x")
         assert is_zero(diff(arr("v", 0), x))
@@ -170,6 +270,13 @@ class TestSubstitution:
         image = add(x, num(1))
         replaced = xreplace(mul(x, x), {x: image})
         assert replaced is pow_(image, num(2))
+
+    def test_composite_key_replacement(self):
+        x, y, z = sym("x"), sym("y"), sym("z")
+        inner = add(x, y)
+        expr = mul(num(3), pow_(inner, num(2)))
+        replaced = xreplace(expr, {inner: z})
+        assert replaced is mul(num(3), pow_(z, num(2)))
 
     def test_array_replacement(self):
         combo = add(arr("base", 0), mul(sym("a"), arr("u", 0)))
@@ -268,6 +375,15 @@ class TestOrderingAndPruning:
             assert "Circular" in str(error)
         else:
             raise AssertionError("cycle not detected")
+
+    def test_topological_sort_rejects_duplicate_targets(self):
+        a, b = sym("a"), sym("b")
+        try:
+            topological_sort([(a, b), (a, num(2))])
+        except ValueError as error:
+            assert "Duplicate assignment targets" in str(error)
+        else:
+            raise AssertionError("duplicate target not detected")
 
     def test_prune_drops_dead_assignments(self):
         a, dead = sym("a"), sym("dead")
