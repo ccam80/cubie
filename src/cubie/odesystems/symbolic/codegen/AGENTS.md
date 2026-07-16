@@ -94,9 +94,9 @@ accept a prebuilt `JVPEquations` via `jvp_equations=` so one differentiation fee
 set.
 
 ### Printer (engine)
-The printer lives in `engine/printer.py` (see `engine/AGENTS.md`); the emission rules are
-unchanged from the SymPy era: `precision(...)` wrapping except in indices and exponents,
-`x**2`/`x**3` multiplication chains (now structural Pow rules, not regex), Neumann/constant
+The printer lives in `engine/printer.py` (see `engine/AGENTS.md`). Emission rules:
+`precision(...)` wrapping of numeric literals (array indices stay plain integers),
+`x**2`/`x**3` multiplication chains via structural Pow rules, Neumann/constant
 integer-exponent aliases (`sym_utils.EXPONENT_ALIAS_PREFIX`), `CUDA_FUNCTIONS` → alias →
 `d_` passthrough → plain-call function resolution, Piecewise as nested ternaries, and
 scalar-to-array remapping via a name-keyed symbol map (generators pass `sysir.arrayrefs`).

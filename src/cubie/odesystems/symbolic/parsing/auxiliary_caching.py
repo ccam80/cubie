@@ -10,9 +10,8 @@ selection, it repeatedly adds the auxiliary whose caching yields the
 largest marginal saving in runtime operations, subject to the slot
 limit and plan validity, and stops when no addition improves the
 plan. Every candidate evaluation is a linear pass over the dependency
-graph, so planning time grows polynomially with system size — the
-subset-enumeration search it replaces grew exponentially and never
-terminated beyond roughly 16 states.
+graph, so planning time grows polynomially with system size
+(issue #603).
 
 Published Classes
 -----------------
@@ -258,9 +257,7 @@ def plan_auxiliary_cache(equations: JVPEquations) -> CacheSelection:
     while len(chosen) < slot_limit:
         # While the plan is below the ops threshold, any positive
         # marginal helps it qualify; once it qualifies, each extra
-        # cache slot must pay for itself with min_ops on its own
-        # (mirroring the improvement rule of the search this
-        # replaces).
+        # cache slot must pay for itself with min_ops on its own.
         if current_saved < min_ops:
             required = 1
         else:

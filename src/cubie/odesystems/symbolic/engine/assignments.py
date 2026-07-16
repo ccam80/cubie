@@ -63,8 +63,7 @@ def topological_sort(
     Returns
     -------
     list of tuple
-        Dependency-ordered assignments. Ties keep input order first,
-        then break deterministically by the dependent's sort key —
+        Dependency-ordered assignments. Ties break by input order,
         never by hash order.
 
     Raises

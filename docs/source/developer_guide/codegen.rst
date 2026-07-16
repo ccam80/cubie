@@ -51,8 +51,8 @@ share subexpressions, and produces a function
 Expression engine and printer
 -----------------------------
 
-``src/cubie/odesystems/symbolic/engine/`` holds the expression IR that
-replaced SymPy in the compute phase: nodes are interned (structurally
+``src/cubie/odesystems/symbolic/engine/`` holds the expression IR the
+compute phase runs on: nodes are interned (structurally
 identical expressions are the same object), so substitution,
 differentiation, and common-subexpression elimination are single passes
 over a DAG.  The engine's printer renders IR as Numba-CUDA source:

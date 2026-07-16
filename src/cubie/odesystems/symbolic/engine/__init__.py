@@ -3,9 +3,9 @@
 Hash-consed expression IR plus the compute passes codegen needs:
 conversion from SymPy (:mod:`from_sympy`), differentiation and
 substitution (:mod:`expr`), assignment-list transforms
-(:mod:`assignments`), and source emission (:mod:`printer`). SymPy
-remains the parsing front end; everything downstream of
-``ParsedEquations`` runs on this engine.
+(:mod:`assignments`), and source emission (:mod:`printer`). SymPy is
+the parse layer for string and SymPy input; expressions convert to
+the IR at the parse boundary and every downstream pass runs on it.
 """
 
 from cubie.odesystems.symbolic.engine.expr import (
