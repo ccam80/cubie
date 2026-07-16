@@ -20,9 +20,9 @@ by `codegen` also live here.
 |------|-------------|
 | `__init__.py` | Star-imports `auxiliary_caching`, `cellml`, `jvp_equations`, `parser`; declares `__all__ = ["load_cellml_model"]` (the rest is re-exported via star imports). |
 | `parser.py` | Orchestrator. `parse_input` dispatches on input type (callable → `function_parser`; symbolic → normalise/classify/assemble); `ParsedEquations` (frozen attrs) partitions equations into state-derivatives/observables/auxiliaries; `EquationWarning`; constants `PARSE_TRANSFORMS`, `KNOWN_FUNCTIONS`, `TIME_SYMBOL`, `DRIVER_SETTING_KEYS`; shared lexing/user-function machinery (`_sanitise_input_math`, `_rename_user_calls`, `_build_sympy_user_functions`, `_inline_nondevice_calls`). |
-| `normalise.py` | The single symbolic front end. `normalise_input` parses string or SymPy equations into structural `Equation` objects with `DerivativeRegistry` derivative symbols (`NormalisedSystem`); `classify_system` labels the result `"explicit"` or `"dae"`. Holds the state-aware LHS rules and symbol inference. |
-| `assemble.py` | The two backends. `assemble_explicit` packages an explicit-shaped system directly (hash-stable with the pre-unification parser); `assemble_simplified` runs `structural_simplify` and maps the result back (declaration-order states, residuals paired by state, mass matrix rebuilt over the final order, eliminated-state warnings). Both inline observable definitions into consuming dynamics. |
-| `cellml.py` | `load_cellml_model` — wraps optional `cellmlmanip`, sanitises symbol names, splits differential vs algebraic equations, classifies constants/parameters/observables, then calls `parse_input`. Cache-aware (early + post-GUI checks). |
+| `normalise.py` | The single symbolic front end and the SymPy→IR boundary. `normalise_input` parses string, SymPy, or pre-converted IR equations into structural `Equation` objects holding engine-IR expressions with `DerivativeRegistry` derivative symbols (`NormalisedSystem`); `classify_system` labels the result `"explicit"` or `"dae"`. Holds the state-aware LHS rules and symbol inference. SymPy appears only during string parsing, derivative-notation replacement, and non-device user-function inlining; every expression converts to IR before the normaliser returns. |
+| `assemble.py` | The two backends, computing on IR pairs throughout. `assemble_explicit` packages an explicit-shaped system directly; `assemble_simplified` runs `structural_simplify` and maps the result back (declaration-order states, residuals paired by state, mass matrix rebuilt over the final order as nested float lists, eliminated-state warnings). Both inline observable definitions into consuming dynamics. |
+| `cellml.py` | `load_cellml_model` — wraps optional `cellmlmanip`, sanitises symbol names, converts every model equation to engine IR in one pass (the Dummy→symbol/number replacements ride the conversion memo), splits differential vs algebraic equations, classifies constants/parameters/observables, then calls `parse_input` with IR pairs. Cache-aware (early + post-GUI checks). |
 | `cellml_cache.py` | `CellMLCache` — disk LRU cache (≤5 configs per model) of pickled parse results under `<cache root>/<model>/`, keyed by file-content SHA-256 + serialised args, tracked in `cellml_cache_manifest.json`. |
 | `jvp_equations.py` | `JVPEquations` (mutable attrs) — holds ordered JVP/auxiliary assignments as engine-IR pairs (JVP outputs are `Arr("jvp", i)` nodes) and derives dependency graphs, op-cost, JVP usage/closure, dependency levels, and slot limits; lazily computes/stores a `CacheSelection`; `cached_partition()` splits into cached/runtime/prepare. |
 | `auxiliary_caching.py` | Greedy polynomial cache planner. `CacheGroup`/`CacheSelection` (frozen attrs) and `plan_auxiliary_cache` — grow the cached-leaf set by best marginal runtime saving (any positive marginal while the plan is below `min_ops_threshold`, then `min_ops_threshold` per extra slot), simulating each addition in one linear pass; replaced the subset-enumeration search that never terminated beyond ~16 states (issue #603). |
@@ -60,10 +60,10 @@ generated dxdt never reads the stale observables buffer. Symbols are created `re
 throughout (`TIME_SYMBOL = sp.Symbol("t", real=True)`).
 
 ### Hash stability contract
-For explicit-shaped systems whose dynamics do not consume declared observables,
-`assemble_explicit` must produce byte-identical `ParsedEquations` and `fn_hash` to the
-pre-unification parser — codegen caches key on the hash. Guard this when touching the
-normaliser or the explicit assembler.
+`fn_hash` is computed over the IR pairs' reprs, so identical systems hash identically
+regardless of input pathway (string vs SymPy vs IR) — codegen caches key on the hash.
+Guard this cross-pathway equality when touching the normaliser or the assemblers; the
+IR's deterministic folding is what makes it hold.
 
 ### ParsedEquations & JVPEquations
 `ParsedEquations` is frozen — build a new one via `from_equations`, don't mutate; its

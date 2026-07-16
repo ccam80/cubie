@@ -1,13 +1,19 @@
-"""Normalise user equation input into structural equations.
+"""Normalise user equation input into structural IR equations.
 
 The single symbolic front end: string and SymPy input converge on
 one representation — a list of
 :class:`~cubie.odesystems.symbolic.structural.system_structure.Equation`
-objects whose derivatives are
+objects holding engine IR expressions, with derivatives replaced by
 :class:`~cubie.odesystems.symbolic.structural.symbolics.DerivativeRegistry`
 symbols — plus the resolved declarations. :func:`classify_system`
 then decides whether the system is already in solved explicit form
 (the fast assembly path) or needs structural simplification.
+
+SymPy is the parsing layer only: strings parse through
+``sympy.parse_expr`` and SymPy input is accepted directly, but every
+expression converts to engine IR here, at the parse boundary, before
+any downstream pass runs. Pre-converted IR ``(lhs, rhs)`` pairs (the
+CellML loader's output) pass through without touching SymPy.
 
 Left-hand sides are state-aware: ``dX`` names the derivative of
 ``X`` only when ``X`` is a declared unknown (otherwise ``dX`` is an
@@ -21,7 +27,7 @@ the explicit ``d(x, t)`` call (strings) or
 Published Functions
 -------------------
 :func:`normalise_input`
-    Parse string or SymPy equations into a
+    Parse string, SymPy, or IR equations into a
     :class:`NormalisedSystem`.
 :func:`classify_system`
     Return ``"explicit"`` or ``"dae"`` for a normalised system.
@@ -34,6 +40,8 @@ import sympy as sp
 from sympy.core.function import AppliedUndef
 from sympy.parsing.sympy_parser import parse_expr
 
+from cubie.odesystems.symbolic.engine import expr as ir
+from cubie.odesystems.symbolic.engine.from_sympy import from_sympy
 from cubie.odesystems.symbolic.parsing.parser import (
     KNOWN_FUNCTIONS,
     PARSE_TRANSFORMS,
@@ -67,7 +75,7 @@ class NormalisedSystem:
     Parameters
     ----------
     equations
-        Structural equations with registry derivative symbols.
+        Structural IR equations with registry derivative symbols.
     registry
         The derivative registry used by ``equations``.
     funcs
@@ -79,13 +87,16 @@ class NormalisedSystem:
     aux_names
         Names of auxiliaries inferred from assignments.
     new_params
-        Symbols inferred as parameters from equation usage.
+        Names inferred as parameters from equation usage.
     inferred_states
         State names inferred from derivative assignments when no
         states were declared (non-strict input only).
     rename
         User-function rename map from the string path (empty for
         SymPy input).
+    derivative_names
+        Renamed user-function name to derivative-placeholder print
+        name, for functions with user-supplied derivative helpers.
     """
 
     def __init__(
@@ -95,9 +106,10 @@ class NormalisedSystem:
         funcs: Dict[str, Callable],
         unknown_names: set,
         aux_names: List[str],
-        new_params: List[sp.Symbol],
+        new_params: List[str],
         inferred_states: List[str],
         rename: Dict[str, str],
+        derivative_names: Optional[Dict[str, str]] = None,
     ) -> None:
         self.equations = equations
         self.registry = registry
@@ -107,6 +119,7 @@ class NormalisedSystem:
         self.new_params = new_params
         self.inferred_states = inferred_states
         self.rename = rename
+        self.derivative_names = dict(derivative_names or {})
 
 
 def _process_calls(
@@ -135,6 +148,28 @@ def _process_calls(
     return funcs
 
 
+def _derivative_print_names(
+    user_functions: Optional[Dict[str, Callable]],
+    user_function_derivatives: Optional[Dict[str, Callable]],
+    rename: Dict[str, str],
+) -> Dict[str, str]:
+    """Map renamed function names to derivative placeholder names.
+
+    Only functions with a user-supplied derivative helper appear;
+    every other function differentiates to the default
+    ``d_<name>`` placeholder.
+    """
+
+    names: Dict[str, str] = {}
+    for orig, deriv in (user_function_derivatives or {}).items():
+        if user_functions is not None and orig not in user_functions:
+            continue
+        printed = getattr(deriv, "__name__", None)
+        if printed:
+            names[rename.get(orig, orig)] = printed
+    return names
+
+
 def _replace_derivative_calls(
     expr: sp.Expr,
     registry: DerivativeRegistry,
@@ -144,7 +179,9 @@ def _replace_derivative_calls(
 
     Nested calls resolve innermost-first, producing higher-order
     derivative symbols. Raises when the differentiated quantity is
-    not an unknown symbol.
+    not an unknown symbol. The registry works in IR symbols; the
+    replacement embeds a same-named SymPy symbol, which converts back
+    to the identical interned IR node at the conversion step.
     """
 
     def repl(call: sp.Expr) -> sp.Expr:
@@ -160,13 +197,14 @@ def _replace_derivative_calls(
                 f"Cannot differentiate non-symbol expression {inner} "
                 "in d() notation."
             )
-        base, _ = registry.base_and_order(inner)
+        inner_ir = ir.sym(inner.name)
+        base, _ = registry.base_and_order(inner_ir)
         if base.name not in unknown_names:
             raise ValueError(
                 f"d({inner}, t) differentiates {inner}, but "
-                f"{base} is not a declared state or unknown."
+                f"{base.name} is not a declared state or unknown."
             )
-        return registry.derivative(inner)
+        return sp.Symbol(registry.derivative(inner_ir).name, real=True)
 
     def is_d_call(node: sp.Basic) -> bool:
         return (
@@ -206,14 +244,48 @@ def _replace_sympy_derivatives(
                     f"{node}."
                 )
             order += int(count)
-        sym = inner
+        sym = ir.sym(inner.name)
         for _ in range(order):
             sym = registry.derivative(sym)
-        return sym
+        return sp.Symbol(sym.name, real=True)
 
     return expr.replace(
         lambda node: isinstance(node, sp.Derivative), repl
     )
+
+
+def _infer_parameters(
+    equations: List[Equation],
+    registry: DerivativeRegistry,
+    declared_names: set,
+    strict: bool,
+) -> List[str]:
+    """Collect undeclared free symbols as parameter names.
+
+    Iterates atoms in structural sort-key order so the inferred
+    parameter order is deterministic across processes.
+    """
+
+    new_params: List[str] = []
+    for eq in equations:
+        atoms = sorted(
+            eq.free_symbols(), key=lambda atom: atom.sort_key
+        )
+        for atom in atoms:
+            if not isinstance(atom, ir.Sym):
+                continue
+            if registry.is_derivative(atom):
+                continue
+            if atom.name in declared_names:
+                continue
+            if strict:
+                raise ValueError(
+                    f"Equations reference undefined symbol "
+                    f"{atom.name}."
+                )
+            new_params.append(atom.name)
+            declared_names.add(atom.name)
+    return new_params
 
 
 def _parse_string_equations(
@@ -227,7 +299,7 @@ def _parse_string_equations(
     strict,
     state_names,
 ):
-    """Parse ``lhs = rhs`` lines into structural equations.
+    """Parse ``lhs = rhs`` lines into structural IR equations.
 
     Returns ``(equations, funcs, new_params, aux_names,
     inferred_states, rename)``.
@@ -261,8 +333,18 @@ def _parse_string_equations(
             local_dict[dname] = sp.Symbol(dname, real=True)
             derivative_names.add(dname)
 
-    equations = []
-    new_params = []
+    # Pre-seed every assignment-target name so forward references
+    # bind to the assignment rather than to a same-named SymPy
+    # global (``zoo``, ``pi``, ``E``, ...).
+    for line in sanitized_lines:
+        target = line.split("=", 1)[0].strip()
+        if _NUMERIC_LITERAL_PATTERN.match(target):
+            continue
+        if not _IDENTIFIER_PATTERN.match(target):
+            continue
+        local_dict.setdefault(target, sp.Symbol(target, real=True))
+
+    sym_pairs = []
     aux_names = []
     inferred_states = []
 
@@ -271,8 +353,10 @@ def _parse_string_equations(
         inferred_states.append(name)
         local_dict.setdefault(name, sp.Symbol(name, real=True))
         dname = f"d{name}"
-        if dname not in local_dict:
-            local_dict[dname] = sp.Symbol(dname, real=True)
+        if dname not in known_symbol_map:
+            local_dict.setdefault(
+                dname, sp.Symbol(dname, real=True)
+            )
             derivative_names.add(dname)
 
     for raw_line, line in zip(raw_lines, sanitized_lines):
@@ -314,8 +398,9 @@ def _parse_string_equations(
                 and len(lhs_str) > 1
                 and lhs_str[1:] in unknown_names
             ):
-                lhs_expr = registry.derivative(
-                    sp.Symbol(lhs_str[1:], real=True)
+                lhs_expr = sp.Symbol(
+                    registry.derivative(ir.sym(lhs_str[1:])).name,
+                    real=True,
                 )
             elif (
                 lhs_str.startswith("d")
@@ -329,8 +414,9 @@ def _parse_string_equations(
                 # unknown d-prefixed names are auxiliaries instead.
                 name = lhs_str[1:]
                 infer_state(name)
-                lhs_expr = registry.derivative(
-                    sp.Symbol(name, real=True)
+                lhs_expr = sp.Symbol(
+                    registry.derivative(ir.sym(name)).name,
+                    real=True,
                 )
             elif lhs_str in known_symbol_map:
                 raise ValueError(
@@ -381,45 +467,28 @@ def _parse_string_equations(
             rhs_expr, registry, unknown_names
         )
 
-        equations.append(Equation(lhs_expr, rhs_expr))
+        sym_pairs.append((lhs_expr, rhs_expr))
+
+    # Convert to IR once, sharing conversion work across equations.
+    memo = {}
+    equations = [
+        Equation(from_sympy(lhs, memo), from_sympy(rhs, memo))
+        for lhs, rhs in sym_pairs
+    ]
 
     # Infer undeclared RHS symbols as parameters (non-strict), after
     # derivative replacement so derivative symbols don't count.
     # Exclusion is by name so a forward reference to a later ``dX``
     # assignment binds to it instead of becoming a parameter.
-    # Auto-created symbols lack the real assumption, so they are
-    # coerced to the canonical real symbols used everywhere else.
     declared_names = (
         set(known_symbol_map)
         | unknown_names
         | derivative_names
         | {"t"}
     )
-    inferred_subs = {}
-    new_param_names = set()
-    for eq in equations:
-        for sym in eq.free_symbols():
-            if sym in inferred_subs or registry.is_derivative(sym):
-                continue
-            if sym.name in declared_names:
-                if not sym.assumptions0.get("real"):
-                    inferred_subs[sym] = sp.Symbol(
-                        sym.name, real=True
-                    )
-                continue
-            if strict:
-                raise ValueError(
-                    f"Equations reference undefined symbol {sym}."
-                )
-            real_sym = sp.Symbol(sym.name, real=True)
-            inferred_subs[sym] = real_sym
-            if sym.name not in new_param_names:
-                new_param_names.add(sym.name)
-                new_params.append(real_sym)
-            declared_names.add(sym.name)
-    if inferred_subs:
-        for i in range(len(equations)):
-            equations[i] = equations[i].xreplace(inferred_subs)
+    new_params = _infer_parameters(
+        equations, registry, declared_names, strict
+    )
 
     return (
         equations,
@@ -441,10 +510,13 @@ def _parse_sympy_equations(
     strict,
     state_names,
 ):
-    """Normalise SymPy equation input into structural equations.
+    """Normalise SymPy or IR equation input into structural equations.
 
     Returns ``(equations, funcs, new_params, aux_names,
-    inferred_states, rename)``. User-function calls appearing as
+    inferred_states, rename)``. SymPy sides convert to engine IR
+    after derivative replacement and user-function resolution;
+    ``(lhs, rhs)`` pairs whose sides are already IR expressions pass
+    through without touching SymPy. User-function calls appearing as
     :class:`~sympy.core.function.AppliedUndef` nodes are resolved
     against ``user_functions``: non-device callables are inlined and
     device callables are kept as symbolic calls.
@@ -457,19 +529,6 @@ def _parse_sympy_equations(
 
     user_functions = user_functions or {}
     funcs = {}
-
-    canonical = {}
-    for name, sym in known_symbol_map.items():
-        canonical[sp.Symbol(name)] = sym
-        canonical[sp.Symbol(name, real=True)] = sym
-    for name in unknown_names:
-        canonical[sp.Symbol(name)] = sp.Symbol(name, real=True)
-    derivative_names = set()
-    for name in state_names:
-        dname = f"d{name}"
-        if dname not in known_symbol_map:
-            canonical[sp.Symbol(dname)] = sp.Symbol(dname, real=True)
-            derivative_names.add(dname)
 
     def resolve_calls(expr: sp.Expr) -> sp.Expr:
         called = {
@@ -498,10 +557,10 @@ def _parse_sympy_equations(
     aux_names = []
     inferred_states = []
 
-    def bind_lhs(lhs: sp.Expr) -> sp.Expr:
+    def bind_lhs(lhs: ir.Expr) -> ir.Expr:
         """Apply the state-aware ``dX`` rule to a symbol LHS."""
 
-        if not isinstance(lhs, sp.Symbol):
+        if not isinstance(lhs, ir.Sym):
             return lhs
         if registry.is_derivative(lhs):
             return lhs
@@ -510,7 +569,7 @@ def _parse_sympy_equations(
             return lhs
         base = name[1:]
         if base in unknown_names:
-            return registry.derivative(sp.Symbol(base, real=True))
+            return registry.derivative(ir.sym(base))
         if (
             not state_names
             and not strict
@@ -518,9 +577,10 @@ def _parse_sympy_equations(
         ):
             unknown_names.add(base)
             inferred_states.append(base)
-            return registry.derivative(sp.Symbol(base, real=True))
+            return registry.derivative(ir.sym(base))
         return lhs
 
+    memo = {}
     for i, eq in enumerate(raw_equations):
         if isinstance(eq, sp.Equality):
             lhs, rhs = eq.lhs, eq.rhs
@@ -531,35 +591,46 @@ def _parse_sympy_equations(
                 f"Equation {i}: expected sp.Eq or a (lhs, rhs) "
                 f"tuple, got {type(eq).__name__}."
             )
-        try:
-            lhs = sp.sympify(lhs).subs(canonical, simultaneous=True)
-            rhs = sp.sympify(rhs).subs(canonical, simultaneous=True)
-        except (sp.SympifyError, TypeError) as exc:
-            raise TypeError(
-                f"Equation {i}: could not convert "
-                f"({lhs!r}, {rhs!r}) to SymPy expressions; each "
-                f"side must be a SymPy expression, string, or "
-                f"number."
-            ) from exc
-        lhs = _replace_sympy_derivatives(lhs, registry, unknown_names)
-        rhs = _replace_sympy_derivatives(rhs, registry, unknown_names)
-        lhs = bind_lhs(lhs)
-        if isinstance(lhs, sp.Symbol) and lhs.name in known_symbol_map:
+        if isinstance(lhs, ir.Expr) and isinstance(rhs, ir.Expr):
+            lhs_ir, rhs_ir = lhs, rhs
+        else:
+            try:
+                lhs = sp.sympify(lhs)
+                rhs = sp.sympify(rhs)
+            except (sp.SympifyError, TypeError) as exc:
+                raise TypeError(
+                    f"Equation {i}: could not convert "
+                    f"({lhs!r}, {rhs!r}) to SymPy expressions; each "
+                    f"side must be a SymPy expression, string, or "
+                    f"number."
+                ) from exc
+            lhs = _replace_sympy_derivatives(
+                lhs, registry, unknown_names
+            )
+            rhs = _replace_sympy_derivatives(
+                rhs, registry, unknown_names
+            )
+            lhs = resolve_calls(lhs)
+            rhs = resolve_calls(rhs)
+            lhs_ir = from_sympy(lhs, memo)
+            rhs_ir = from_sympy(rhs, memo)
+        lhs_ir = bind_lhs(lhs_ir)
+        if (
+            isinstance(lhs_ir, ir.Sym)
+            and lhs_ir.name in known_symbol_map
+        ):
             raise ValueError(
-                f"{lhs.name} is an immutable input (constant, "
+                f"{lhs_ir.name} is an immutable input (constant, "
                 "parameter, or driver) but is being assigned. It "
                 "must be a state, observable, or auxiliary."
             )
-        lhs = resolve_calls(lhs)
-        rhs = resolve_calls(rhs)
-        equations.append(Equation(lhs, rhs))
+        equations.append(Equation(lhs_ir, rhs_ir))
 
-    new_params = []
-    declared = set(known_symbol_map.values()) | {TIME_SYMBOL}
-    declared |= {
-        sp.Symbol(name, real=True)
-        for name in unknown_names | derivative_names
-    }
+    derivative_names = set()
+    for name in state_names:
+        dname = f"d{name}"
+        if dname not in known_symbol_map:
+            derivative_names.add(dname)
     declared_names = (
         set(known_symbol_map)
         | unknown_names
@@ -569,7 +640,7 @@ def _parse_sympy_equations(
     for eq in equations:
         lhs = eq.lhs
         if (
-            isinstance(lhs, sp.Symbol)
+            isinstance(lhs, ir.Sym)
             and lhs.name not in declared_names
             and not registry.is_derivative(lhs)
         ):
@@ -578,19 +649,9 @@ def _parse_sympy_equations(
             aux_names.append(lhs.name)
             unknown_names.add(lhs.name)
             declared_names.add(lhs.name)
-    for eq in equations:
-        for sym in eq.free_symbols():
-            if (
-                sym.name in declared_names
-                or registry.is_derivative(sym)
-            ):
-                continue
-            if strict:
-                raise ValueError(
-                    f"Equations reference undefined symbol {sym}."
-                )
-            new_params.append(sym)
-            declared_names.add(sym.name)
+    new_params = _infer_parameters(
+        equations, registry, declared_names, strict
+    )
     return equations, funcs, new_params, aux_names, inferred_states, {}
 
 
@@ -603,14 +664,14 @@ def normalise_input(
     strict: bool,
     state_names: Iterable[str],
 ) -> NormalisedSystem:
-    """Normalise string or SymPy equations into structural form.
+    """Normalise string, SymPy, or IR equations into structural form.
 
     Parameters
     ----------
     dxdt
-        Equation strings (newline-joined or a sequence) or SymPy
+        Equation strings (newline-joined or a sequence), SymPy
         equations (:class:`~sympy.Equality` or ``(lhs, rhs)``
-        tuples).
+        tuples), or pre-converted IR ``(lhs, rhs)`` pairs.
     unknown_names
         Names of the declared unknowns (states and observables).
         Mutated: inferred auxiliaries and states are added.
@@ -697,6 +758,9 @@ def normalise_input(
         new_params=new_params,
         inferred_states=inferred_states,
         rename=rename,
+        derivative_names=_derivative_print_names(
+            user_functions, user_function_derivatives, rename
+        ),
     )
 
 
@@ -730,7 +794,7 @@ def classify_system(
             if base.name in derived_states:
                 return "dae"
             derived_states.add(base.name)
-        elif isinstance(lhs, sp.Symbol):
+        elif isinstance(lhs, ir.Sym):
             if lhs.name in state_set:
                 # Declared state assigned algebraically.
                 return "dae"
@@ -740,8 +804,8 @@ def classify_system(
         else:
             # Implicit equation (numeric or expression LHS).
             return "dae"
-        for sym in eq.rhs.free_symbols:
-            if registry.is_derivative(sym):
+        for atom in ir.free_atoms(eq.rhs):
+            if registry.is_derivative(atom):
                 return "dae"
 
     if derived_states != state_set:

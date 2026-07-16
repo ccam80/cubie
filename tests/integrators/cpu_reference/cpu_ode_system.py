@@ -37,7 +37,13 @@ class CPUODESystem:
         self._observable_index = indexed.observables.index_map
 
         self._dx_index = indexed.dxdt.index_map
-        ordered_equations = topological_sort(system.equations)
+        # The parser emits engine-IR pairs; the CPU reference
+        # lambdifies SymPy expressions, so convert once here.
+        sympy_equations = [
+            (to_sympy(lhs), to_sympy(rhs))
+            for lhs, rhs in system.equations.to_equation_list()
+        ]
+        ordered_equations = topological_sort(sympy_equations)
         self._equations = ordered_equations
         jacobian_rows = generate_jacobian(
             system.equations,

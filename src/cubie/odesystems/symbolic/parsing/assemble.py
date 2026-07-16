@@ -9,7 +9,10 @@ and :func:`assemble_simplified` runs MTK-style structural
 simplification first and maps the result back onto the same
 products, together with the
 :class:`~cubie.odesystems.symbolic.structural.simplify.SimplifiedSystem`
-carrying the mass matrix for torn systems.
+carrying the mass matrix for torn systems. Equations are engine IR
+pairs throughout; SymPy appears only in the name-facing
+``all_symbols`` table consumed by GUIs and device-function
+injection.
 """
 
 from typing import Any, Callable, Dict, Iterable, List, Optional
@@ -17,6 +20,7 @@ from warnings import warn
 
 import sympy as sp
 
+from cubie.odesystems.symbolic.engine import expr as ir
 from cubie.odesystems.symbolic.indexedbasemaps import IndexedBases
 from cubie.odesystems.symbolic.parsing.normalise import (
     NormalisedSystem,
@@ -37,17 +41,18 @@ from cubie.odesystems.symbolic.sym_utils import hash_system_definition
 
 def _observable_substitutions(
     definitions: List,
-) -> Dict[sp.Symbol, sp.Expr]:
+) -> Dict[ir.Expr, ir.Expr]:
     """Fully expand observable definitions against each other.
 
-    ``definitions`` is a list of ``(symbol, expression)`` pairs.
+    ``definitions`` is a list of ``(symbol, expression)`` IR pairs.
     Raises when the definitions contain a cycle.
     """
 
     subs = {sym: expr for sym, expr in definitions}
     for _ in range(len(subs) + 1):
         expanded = {
-            sym: expr.xreplace(subs) for sym, expr in subs.items()
+            sym: ir.xreplace(expr, subs)
+            for sym, expr in subs.items()
         }
         if expanded == subs:
             return subs
@@ -64,14 +69,15 @@ def _finalise_symbols_and_products(
     user_functions,
     user_function_derivatives,
     rename,
-    extra_symbols=(),
+    derivative_names=None,
+    extra_symbol_names=(),
 ):
     """Build ``all_symbols``, ``ParsedEquations``, and the hash."""
 
     all_symbols = index_map.all_symbols.copy()
     all_symbols.setdefault("t", TIME_SYMBOL)
-    for sym in extra_symbols:
-        all_symbols.setdefault(sym.name, sym)
+    for name in extra_symbol_names:
+        all_symbols.setdefault(name, sp.Symbol(name, real=True))
 
     if user_functions:
         all_symbols.update(
@@ -91,7 +97,9 @@ def _finalise_symbols_and_products(
             }
 
     parsed_equations = ParsedEquations.from_equations(
-        equation_map, index_map
+        equation_map,
+        index_map,
+        derivative_names=derivative_names,
     )
     fn_hash = hash_system_definition(
         parsed_equations,
@@ -139,8 +147,8 @@ def assemble_explicit(
         observable_units=observable_units,
         driver_units=driver_units,
     )
-    for param in normalised.new_params:
-        index_map.parameters.push(param)
+    for name in normalised.new_params:
+        index_map.parameters.push(sp.Symbol(name, real=True))
     if driver_dict is not None:
         index_map.drivers.set_passthrough_defaults(driver_dict)
 
@@ -150,23 +158,21 @@ def assemble_explicit(
         lhs = eq.lhs
         if registry.is_derivative(lhs):
             base, _ = registry.base_and_order(lhs)
-            lhs = sp.Symbol(f"d{base.name}", real=True)
+            lhs = ir.sym(f"d{base.name}")
         pairs.append((lhs, eq.rhs))
 
     observable_defs = [
         (lhs, rhs) for lhs, rhs in pairs if lhs.name in observable_set
     ]
     obs_subs = _observable_substitutions(observable_defs)
+    memo = {}
     equation_map = [
         (lhs, rhs)
         if lhs.name in observable_set
-        else (lhs, rhs.xreplace(obs_subs))
+        else (lhs, ir.xreplace(rhs, obs_subs, memo))
         for lhs, rhs in pairs
     ]
 
-    aux_syms = [
-        sp.Symbol(name, real=True) for name in normalised.aux_names
-    ]
     all_symbols, parsed_equations, fn_hash = (
         _finalise_symbols_and_products(
             equation_map,
@@ -174,11 +180,12 @@ def assemble_explicit(
             user_functions,
             user_function_derivatives,
             normalised.rename,
-            extra_symbols=aux_syms,
+            derivative_names=normalised.derivative_names,
+            extra_symbol_names=normalised.aux_names,
         )
     )
-    for param in normalised.new_params:
-        all_symbols[str(param)] = param
+    for name in normalised.new_params:
+        all_symbols[name] = sp.Symbol(name, real=True)
     return (
         index_map,
         all_symbols,
@@ -219,30 +226,28 @@ def assemble_simplified(
     """
 
     parameters = dict(parameters)
-    for param in normalised.new_params:
-        parameters.setdefault(str(param), 0.0)
+    for name in normalised.new_params:
+        parameters.setdefault(name, 0.0)
         known_symbol_map.setdefault(
-            str(param), sp.Symbol(str(param), real=True)
+            name, sp.Symbol(name, real=True)
         )
 
     unknown_syms = [
-        sp.Symbol(name, real=True)
-        for name in sorted(normalised.unknown_names)
+        ir.sym(name) for name in sorted(normalised.unknown_names)
     ]
     priorities = {}
     for name, value in (state_priority or {}).items():
-        priorities[sp.Symbol(str(name), real=True)] = value
+        priorities[ir.sym(str(name))] = value
     irreducible_syms = [
-        sp.Symbol(str(name), real=True)
-        for name in (irreducible or [])
+        ir.sym(str(name)) for name in (irreducible or [])
     ]
 
     structural_state = StructuralState(
         normalised.equations,
         unknown_syms,
         normalised.registry,
-        set(known_symbol_map.values()),
-        TIME_SYMBOL,
+        {ir.sym(name) for name in known_symbol_map},
+        ir.sym("t"),
         state_priorities=priorities,
         irreducibles=irreducible_syms,
     )
@@ -365,9 +370,10 @@ def assemble_simplified(
             if sym.name in final_observable_set
         ]
     )
+    inline_memo = {}
 
-    def _inline_observables(expr: sp.Expr) -> sp.Expr:
-        return expr.xreplace(observable_sub)
+    def _inline_observables(expr: ir.Expr) -> ir.Expr:
+        return ir.xreplace(expr, observable_sub, inline_memo)
 
     diff_set = set(simplified.differential_states)
     residual_for = dict(
@@ -375,7 +381,7 @@ def assemble_simplified(
     )
     equation_map = []
     for sym in final_states:
-        lhs = sp.Symbol(f"d{sym.name}", real=True)
+        lhs = ir.sym(f"d{sym.name}")
         if sym in diff_set:
             equation_map.append(
                 (lhs, _inline_observables(simplified.dxdt[sym]))
@@ -398,14 +404,14 @@ def assemble_simplified(
     mass = None
     if simplified.mass_matrix is not None:
         n = len(final_states)
-        mass = sp.zeros(n, n)
+        mass = [[0.0] * n for _ in range(n)]
         for i, sym in enumerate(final_states):
             if sym in diff_set:
-                mass[i, i] = sp.S.One
+                mass[i][i] = 1.0
     simplified.mass_matrix = mass
     simplified.states = final_states
 
-    observed_syms = [sym for sym, _ in simplified.observed]
+    observed_names = [sym.name for sym, _ in simplified.observed]
     all_symbols, parsed_equations, fn_hash = (
         _finalise_symbols_and_products(
             equation_map,
@@ -413,7 +419,8 @@ def assemble_simplified(
             user_functions,
             user_function_derivatives,
             normalised.rename,
-            extra_symbols=observed_syms,
+            derivative_names=normalised.derivative_names,
+            extra_symbol_names=observed_names,
         )
     )
     return (

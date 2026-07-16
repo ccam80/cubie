@@ -24,7 +24,7 @@ result.
 | `digraph.py` | Matching-oriented directed views (`DiCMOBiGraphT`/`F`), iterative Tarjan SCC, `find_var_sccs` (BLT ordering), BFS `neighborhood_in`, and the BFGT Algorithm-N `IncrementalCycleTracker` used to keep tearing assignments acyclic. |
 | `diffgraph.py` | `DiffGraph`: variable/equation differentiation chains with inverse view. |
 | `clil.py` | `SparseMatrixCLIL` integer matrix and fraction-free Bareiss elimination (`bareiss`, CLIL-specialised update, `nullspace_rank`). |
-| `symbolics.py` | SymPy primitives: structural `linear_expansion`, `solve_linear`, `fixpoint_sub`, `total_derivative`, small-int gate, and `DerivativeRegistry` (plain-symbol stand-in for MTK `Differential` terms, `x_t` dummy naming). |
+| `symbolics.py` | Engine-IR primitives: structural `linear_expansion`, `solve_linear`, `fixpoint_sub`, `total_derivative`, small-int gate, `solve_linear_system` (dense symbolic Gaussian elimination for small linear SCCs), and `DerivativeRegistry` (plain-symbol stand-in for MTK `Differential` terms, `x_t` dummy naming; keys are interned `ir.Sym` nodes). |
 | `alias_elimination.py` | Perfect-alias elimination (sign-tracking union-find, conflict groups force zeros), `trivial_tearing` (preemptive observed extraction), and the integer-linear `alias_elimination` driver. |
 | `singularity_removal.py` | Tiered-pivot Bareiss over the integer-linear subsystem (`structural_singularity_removal`, `aag_bareiss`), per-connected-component elimination, `get_new_mm`, `RestrictedBareissContext` for exact SCC matching. |
 | `pantelides.py` | Pantelides index reduction and `computed_highest_diff_variables`. |
@@ -72,7 +72,7 @@ afterwards; use the returned `old_to_new` maps, and rebuild `mm` via `get_new_mm
 `SimplifiedSystem.states` = differential states (BLT order) + torn algebraic states;
 `dxdt` maps differential states to explicit RHS; `residuals[i]` pairs with
 `algebraic_states[i]`; `mass_matrix` is `None` for fully torn systems, else the singular
-diagonal. Observed assignments are topologically sorted. Balanced inputs always pair
+diagonal as nested float lists. Observed assignments are topologically sorted. Balanced inputs always pair
 residuals with algebraic states; `fully_determined=False` outputs may not.
 
 ### Testing
@@ -83,8 +83,10 @@ solve of a torn DAE against a reference). Pure-Python except the solve test.
 
 ## Dependencies
 ### Internal
-- `cubie.odesystems.symbolic.sym_utils` (`topological_sort` for observed sorting). The
+- `cubie.odesystems.symbolic.engine` (all expression algebra: IR nodes, `xreplace`,
+  `diff`, `free_atoms`, and the `topological_sort` used for observed sorting). The
   parsing front end (`parsing/normalise.py`, `parsing/assemble.py`) consumes this package;
-  nothing here imports upward.
+  nothing here imports upward, and nothing here imports SymPy — expressions arrive as
+  engine IR from the parse boundary.
 ### External
-- `sympy`. Stdlib `bisect`, `heapq`, `warnings`, `os`, `re`.
+- Stdlib `bisect`, `heapq`, `warnings`, `os`, `re`, `fractions`.

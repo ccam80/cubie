@@ -87,6 +87,11 @@ from sympy.parsing.sympy_parser import T
 from sympy.core.function import AppliedUndef
 import attrs
 
+from ..engine import expr as ir_expr
+from ..engine.from_sympy import (
+    convert_assignments,
+    derivative_name_map,
+)
 from ..indexedbasemaps import IndexedBases
 from ..sym_utils import hash_system_definition
 from cubie._utils import is_devfunc
@@ -153,25 +158,27 @@ def _detect_input_type(dxdt: Union[str, Iterable, Callable]) -> str:
     elif isinstance(first_elem, (sp.Expr, sp.Equality)):
         return "sympy"
     elif isinstance(first_elem, tuple) and len(first_elem) == 2:
-        # A (lhs, rhs) pair; both members must be convertible to
-        # SymPy expressions or the pair is rejected here rather
-        # than failing deep inside the normaliser.
+        # A (lhs, rhs) pair; both members must be engine IR nodes or
+        # convertible to SymPy expressions, or the pair is rejected
+        # here rather than failing deep inside the normaliser.
         for side, member in zip(("lhs", "rhs"), first_elem):
             if not isinstance(
-                member, (sp.Basic, str, int, float, complex)
+                member,
+                (ir_expr.Expr, sp.Basic, str, int, float, complex),
             ):
                 raise TypeError(
                     f"dxdt element 0 is a (lhs, rhs) tuple whose "
                     f"{side} is {member!r} "
                     f"({type(member).__name__}); each member must "
-                    f"be a SymPy expression, string, or number."
+                    f"be an IR or SymPy expression, string, or "
+                    f"number."
                 )
         return "sympy"
 
     raise TypeError(
-        f"dxdt elements must be strings or SymPy expressions, "
+        f"dxdt elements must be strings or symbolic expressions, "
         f"got {type(first_elem).__name__}. "
-        f"Valid SymPy formats: sp.Equality or a (lhs, rhs) tuple."
+        f"Valid symbolic formats: sp.Equality or a (lhs, rhs) tuple."
     )
 
 
@@ -224,7 +231,8 @@ class ParsedEquations:
     Parameters
     ----------
     ordered
-        Equations in evaluation order exactly as supplied by the parser.
+        Equations in evaluation order exactly as supplied by the
+        parser, as engine IR ``(lhs, rhs)`` pairs.
     state_derivatives
         Equations whose left-hand side corresponds to ``dx/dt`` outputs.
     observables
@@ -238,17 +246,23 @@ class ParsedEquations:
         Symbols designating observables.
     auxiliary_symbols
         Symbols introduced for intermediate calculations.
+    derivative_names
+        Renamed user-function name to derivative-placeholder print
+        name, for user functions with supplied derivative helpers.
     """
 
-    ordered: Tuple[Tuple[sp.Symbol, sp.Expr], ...]
-    state_derivatives: Tuple[Tuple[sp.Symbol, sp.Expr], ...]
-    observables: Tuple[Tuple[sp.Symbol, sp.Expr], ...]
-    auxiliaries: Tuple[Tuple[sp.Symbol, sp.Expr], ...]
-    _state_symbols: frozenset[sp.Symbol] = attrs.field(repr=False)
-    _observable_symbols: frozenset[sp.Symbol] = attrs.field(repr=False)
-    _auxiliary_symbols: frozenset[sp.Symbol] = attrs.field(repr=False)
+    ordered: Tuple[Tuple[ir_expr.Expr, ir_expr.Expr], ...]
+    state_derivatives: Tuple[Tuple[ir_expr.Expr, ir_expr.Expr], ...]
+    observables: Tuple[Tuple[ir_expr.Expr, ir_expr.Expr], ...]
+    auxiliaries: Tuple[Tuple[ir_expr.Expr, ir_expr.Expr], ...]
+    _state_symbols: frozenset = attrs.field(repr=False)
+    _observable_symbols: frozenset = attrs.field(repr=False)
+    _auxiliary_symbols: frozenset = attrs.field(repr=False)
+    derivative_names: Dict[str, str] = attrs.field(
+        factory=dict, repr=False
+    )
 
-    def __iter__(self) -> Iterable[Tuple[sp.Symbol, sp.Expr]]:
+    def __iter__(self) -> Iterable[Tuple[ir_expr.Expr, ir_expr.Expr]]:
         """Iterate over all equations in the original evaluation order."""
 
         return iter(self.ordered)
@@ -258,53 +272,63 @@ class ParsedEquations:
 
         return len(self.ordered)
 
-    def __getitem__(self, index: int) -> Tuple[sp.Symbol, sp.Expr]:
+    def __getitem__(
+        self, index: int
+    ) -> Tuple[ir_expr.Expr, ir_expr.Expr]:
         """Return the equation at ``index`` from the original ordering."""
 
         return self.ordered[index]
 
-    def copy(self) -> Dict[sp.Symbol, sp.Expr]:
+    def copy(self) -> Dict[ir_expr.Expr, ir_expr.Expr]:
         """Return a mapping copy compatible with ``topological_sort``."""
 
         return {lhs: rhs for lhs, rhs in self.ordered}
 
-    def to_equation_list(self) -> list[Tuple[sp.Symbol, sp.Expr]]:
+    def to_equation_list(
+        self,
+    ) -> list[Tuple[ir_expr.Expr, ir_expr.Expr]]:
         """Return the stored equations as a mutable list."""
 
         return list(self.ordered)
 
     @property
-    def state_symbols(self) -> frozenset[sp.Symbol]:
+    def state_symbols(self) -> frozenset:
         """Symbols representing derivative outputs."""
 
         return self._state_symbols
 
     @property
-    def observable_symbols(self) -> frozenset[sp.Symbol]:
+    def observable_symbols(self) -> frozenset:
         """Symbols representing observable outputs."""
 
         return self._observable_symbols
 
     @property
-    def auxiliary_symbols(self) -> frozenset[sp.Symbol]:
+    def auxiliary_symbols(self) -> frozenset:
         """Symbols representing auxiliary assignments."""
 
         return self._auxiliary_symbols
 
-    def non_observable_equations(self) -> list[Tuple[sp.Symbol, sp.Expr]]:
+    def non_observable_equations(
+        self,
+    ) -> list[Tuple[ir_expr.Expr, ir_expr.Expr]]:
         """Return equations whose outputs are not observables."""
 
         observable_syms = self.observable_symbols
         return [eq for eq in self.ordered if eq[0] not in observable_syms]
 
     @property
-    def dxdt_equations(self) -> Tuple[Tuple[sp.Symbol, sp.Expr], ...]:
+    def dxdt_equations(
+        self,
+    ) -> Tuple[Tuple[ir_expr.Expr, ir_expr.Expr], ...]:
         """Return equations required to evaluate ``dx/dt`` outputs."""
 
         return tuple(self.non_observable_equations())
 
     @property
-    def observable_system(self) -> Tuple[Tuple[sp.Symbol, sp.Expr], ...]:
+    def observable_system(
+        self,
+    ) -> Tuple[Tuple[ir_expr.Expr, ir_expr.Expr], ...]:
         """Return equations contributing to observable evaluation."""
 
         return self.ordered
@@ -312,18 +336,30 @@ class ParsedEquations:
     @classmethod
     def from_equations(
         cls,
-        equations: Iterable[Tuple[sp.Symbol, sp.Expr]],
+        equations: Iterable[Tuple[ir_expr.Expr, ir_expr.Expr]],
         index_map: "IndexedBases",
+        derivative_names: Optional[Dict[str, str]] = None,
     ) -> "ParsedEquations":
-        """Partition equations according to their assigned symbols."""
+        """Partition equations according to their assigned symbols.
+
+        Membership is resolved by symbol name against the index
+        map's dxdt and observable collections, so the SymPy-facing
+        ``IndexedBases`` and the IR equation pairs interoperate.
+        """
 
         if isinstance(equations, dict):
             items = list(equations.items())
         else:
             items = list(equations)
         ordered = tuple((lhs, rhs) for lhs, rhs in items)
-        state_symbols = frozenset(index_map.dxdt.ref_map.keys())
-        observable_symbols = frozenset(index_map.observables.ref_map.keys())
+        state_symbols = frozenset(
+            ir_expr.sym(str(key))
+            for key in index_map.dxdt.ref_map.keys()
+        )
+        observable_symbols = frozenset(
+            ir_expr.sym(str(key))
+            for key in index_map.observables.ref_map.keys()
+        )
         state_eqs = tuple(eq for eq in ordered if eq[0] in state_symbols)
         observable_eqs = tuple(
             eq for eq in ordered if eq[0] in observable_symbols
@@ -342,6 +378,7 @@ class ParsedEquations:
             state_symbols=state_symbols,
             observable_symbols=observable_symbols,
             auxiliary_symbols=auxiliary_symbols,
+            derivative_names=dict(derivative_names or {}),
         )
 
 
@@ -943,6 +980,10 @@ def _parse_function_path(
         user_function_derivatives=user_function_derivatives,
         strict=strict,
     )
+    # Derivative placeholder names must be recovered from the SymPy
+    # function objects before the equations convert to IR.
+    function_derivative_names = derivative_name_map(equation_map)
+    equation_map = convert_assignments(equation_map)
     all_symbols = index_map.all_symbols.copy()
     all_symbols.setdefault("t", TIME_SYMBOL)
 
@@ -964,7 +1005,11 @@ def _parse_function_path(
                 }
             )
 
-    parsed_equations = ParsedEquations.from_equations(equation_map, index_map)
+    parsed_equations = ParsedEquations.from_equations(
+        equation_map,
+        index_map,
+        derivative_names=function_derivative_names,
+    )
 
     fn_hash = hash_system_definition(
         parsed_equations,

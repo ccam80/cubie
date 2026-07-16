@@ -2,19 +2,24 @@ Code Generation Pipeline
 ========================
 
 CuBIE transforms symbolic ODE definitions into compiled CUDA device
-functions.  SymPy parses the input; every later stage runs on a
-lightweight interned expression IR (the ``engine`` package).  This page
-describes the pipeline.
+functions.  SymPy is the parse layer for string and SymPy input; every
+expression converts to a lightweight interned expression IR (the
+``engine`` package) at the parse boundary, and every later stage —
+classification, structural simplification, differentiation, CSE,
+hashing, and printing — runs on the IR.  This page describes the
+pipeline.
 
 Pipeline Overview
 -----------------
 
 ::
 
-   String equations
-       → SymPy parser
-       → IndexedBases (state/param/observable symbols)
+   String / SymPy / CellML equations
+       → SymPy parse layer (strings via parse_expr; CellML converts
+         directly with the loader's replacement map)
        → engine IR (hash-consed expression nodes)
+       → normalise/classify → structural simplification for DAEs
+       → IndexedBases (state/param/observable symbols)
        → JVPEquations (Jacobian-vector product expressions)
        → IR printer → code strings
        → ODEFile (written to generated/ directory)
@@ -25,8 +30,8 @@ Parser
 
 The parser in ``src/cubie/odesystems/symbolic/parsing/`` tokenises the
 equation strings, identifies states (variables with ``d<name>`` on the
-left-hand side), parameters, constants, and observables, and produces
-SymPy expressions.
+left-hand side), parameters, constants, and observables, and converts
+every expression to engine IR before returning.
 
 IndexedBases
 ------------

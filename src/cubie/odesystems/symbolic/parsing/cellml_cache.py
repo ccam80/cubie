@@ -133,6 +133,10 @@ class CellMLCache:
             "name": name,
             "fix_singularities": fix_singularities,
             "voltage_variable": voltage_variable,
+            # Serialisation format of the pickled parse products;
+            # bumping it orphans cache entries written with an
+            # incompatible equation representation.
+            "parse_format": 2,
         }
         return json.dumps(args_dict, sort_keys=True)
 

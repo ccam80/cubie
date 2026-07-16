@@ -4,12 +4,16 @@
 
 ## Purpose
 CUDA codegen pipeline that turns symbolic ODE definitions into JIT-compiled Numba-CUDA
-device functions. SymPy is the parsing front end; all compute after parsing
-(differentiation, substitution, CSE, printing) runs on the hash-consed IR in `engine/`. This top level holds the user-facing system class (`SymbolicODE`),
-the disk-backed source cache (`ODEFile`), the symbol-to-device-index maps
-(`IndexedBaseMap`/`IndexedBases`), and shared SymPy utilities (CSE, topological sort, hashing,
-assignment pruning). Equation parsing lives in `parsing/`; the CUDA source emitters live in
-`codegen/`. `SymbolicODE` orchestrates both: parse via `parsing.parse_input`, generate
+device functions. SymPy is a parse-boundary translation layer only: string input parses
+through `sympy.parse_expr` and SymPy input is accepted directly, but every expression
+converts to the hash-consed IR in `engine/` inside `parsing/normalise.py`, and all
+compute (classification, structural simplification, differentiation, substitution, CSE,
+hashing, printing) runs on IR nodes. This top level holds the user-facing system class
+(`SymbolicODE`), the disk-backed source cache (`ODEFile`), the symbol-to-device-index maps
+(`IndexedBaseMap`/`IndexedBases`, SymPy-facing for GUIs and `SystemValues`), and shared
+utilities (hashing, constant-assignment rendering). Equation parsing lives in `parsing/`;
+the CUDA source emitters live in `codegen/`. `SymbolicODE` orchestrates both: parse via
+`parsing.parse_input`, generate
 `dxdt`/`observables`/solver-helper factories via `codegen`, write them to a per-system module on
 disk, and reload the compiled factories. As the sole concrete `BaseODE` subclass it is the main
 entry point for defining systems — users construct one via `create_ODE_system()` (string / SymPy
@@ -25,7 +29,7 @@ attrs conventions; `BaseODE` (parent, `../AGENTS.md`) for `ODECache`/`config_has
 | `symbolicODE.py` | `SymbolicODE(BaseODE)` plus `create_ODE_system()`. Owns parsing, codegen caching, constant/parameter conversion, units, optional Qt GUIs, and `get_solver_helper()` which dispatches to every `codegen` emitter. |
 | `odefile.py` | `ODEFile` disk cache. Writes generated factory source to `<cache root>/<name>/<name>.py` (root from `cubie.cache_root`), hash-guards staleness, checks per-function caching, and imports factories via `importlib`. |
 | `indexedbasemaps.py` | `IndexedBaseMap` (named scalar symbols → fixed-size `sympy.IndexedBase`) and `IndexedBases` (bundle of state/parameter/constant/observable/driver/dxdt maps). Provides `from_user_inputs`, constant↔parameter conversion, units, ref/index/symbol maps. |
-| `sym_utils.py` | SymPy-side helpers: `hash_system_definition` (SHA-256, order-independent), `render_constant_assignments`, `EXPONENT_ALIAS_PREFIX`, plus SymPy `topological_sort`/`cse_and_stack`/`prune_unused_assignments` retained for `structural/` and the CPU reference tests (codegen uses the IR equivalents in `engine/`). |
+| `sym_utils.py` | Shared helpers: `hash_system_definition` (SHA-256, order-independent, over the IR pairs' reprs), `render_constant_assignments`, `EXPONENT_ALIAS_PREFIX`, plus SymPy `topological_sort`/`cse_and_stack`/`prune_unused_assignments` retained for the CPU reference tests (production code uses the IR equivalents in `engine/`). |
 
 ## Subdirectories
 | Directory | Purpose |

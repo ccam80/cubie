@@ -502,9 +502,7 @@ class SymbolicODE(BaseODE):
                     "simplifier's state ordering; a user-supplied "
                     "'mass' cannot override it."
                 )
-            mass = asarray(
-                simplified.mass_matrix.tolist(), dtype=precision
-            )
+            mass = asarray(simplified.mass_matrix, dtype=precision)
         elif mass is not None:
             mass = asarray(mass, dtype=precision)
         symbolic_ode = cls(

@@ -1,7 +1,11 @@
-"""Exact linear algebra and SymPy-primitive tests."""
+"""Exact linear algebra and engine-IR primitive tests."""
+
+from fractions import Fraction
 
 import sympy as sp
 
+from cubie.odesystems.symbolic.engine import expr as ir
+from cubie.odesystems.symbolic.engine.from_sympy import to_sympy
 from cubie.odesystems.symbolic.structural.clil import (
     SparseMatrixCLIL,
     bareiss_update_virtual_colswap_clil,
@@ -93,17 +97,17 @@ class TestClil:
 
 
 class TestLinearExpansion:
-    x, y, k = sp.symbols("x y k", real=True)
+    x, y, k = ir.sym("x"), ir.sym("y"), ir.sym("k")
 
     def test_simple_linear(self):
         a, b, lin = linear_expansion(2 * self.x + self.y, self.x)
-        assert lin and a == 2 and b == self.y
+        assert lin and a is ir.num(2) and b is self.y
 
     def test_symbolic_coefficient(self):
         a, b, lin = linear_expansion(
             self.k * self.x + 1, self.x
         )
-        assert lin and a == self.k and b == 1
+        assert lin and a is self.k and b is ir.ONE
 
     def test_nonlinear_power(self):
         _, _, lin = linear_expansion(self.x**2, self.x)
@@ -111,7 +115,7 @@ class TestLinearExpansion:
 
     def test_nonlinear_function(self):
         _, _, lin = linear_expansion(
-            sp.sin(self.x) + self.y, self.x
+            ir.call("sin", self.x) + self.y, self.x
         )
         assert not lin
 
@@ -123,56 +127,60 @@ class TestLinearExpansion:
 
     def test_absent_variable(self):
         a, b, lin = linear_expansion(self.y + 1, self.x)
-        assert lin and a == 0 and b == self.y + 1
+        assert lin and a is ir.ZERO and b is self.y + 1
 
     def test_solve_linear(self):
         sol = solve_linear(
-            sp.S.Zero, 2 * self.x - self.y, self.x
+            ir.ZERO, 2 * self.x - self.y, self.x
         )
-        assert sp.simplify(sol - self.y / 2) == 0
+        assert sol is self.y / 2
 
     def test_solve_linear_singular(self):
         assert solve_linear(self.y, self.y, self.x) is None
 
 
 class TestSymbolics:
-    t = sp.Symbol("t", real=True)
+    t = ir.sym("t")
 
     def test_fixpoint_sub_chains(self):
-        a, b, c = sp.symbols("a b c", real=True)
+        a, b, c = ir.sym("a"), ir.sym("b"), ir.sym("c")
         result = fixpoint_sub(a, {a: b + 1, b: c})
-        assert result == c + 1
+        assert result is c + ir.ONE
 
     def test_as_small_int(self):
-        assert as_small_int(sp.Integer(-5)) == -5
-        assert as_small_int(sp.Float(3.0)) == 3
-        assert as_small_int(sp.Integer(1000)) is None
-        assert as_small_int(sp.Rational(1, 2)) is None
-        assert as_small_int(sp.Symbol("q")) is None
+        assert as_small_int(ir.num(-5)) == -5
+        assert as_small_int(ir.num(3.0)) == 3
+        assert as_small_int(ir.num(1000)) is None
+        assert as_small_int(ir.num(Fraction(1, 2))) is None
+        assert as_small_int(ir.sym("q")) is None
 
     def test_total_derivative(self):
-        x, dx, w = sp.symbols("x dx_sym w", real=True)
+        x, dx, w = ir.sym("x"), ir.sym("dx_sym"), ir.sym("w")
         expr = x**2 + self.t * w
         result = total_derivative(expr, {x: dx}, self.t)
-        assert sp.simplify(result - (2 * x * dx + w)) == 0
+        assert sp.simplify(
+            to_sympy(result - (2 * x * dx + w))
+        ) == 0
 
     def test_total_derivative_known_map(self):
-        x, dx, drv = sp.symbols("x dx_sym drv", real=True)
+        x, dx, drv = ir.sym("x"), ir.sym("dx_sym"), ir.sym("drv")
         result = total_derivative(
-            x * drv, {x: dx}, self.t, {drv: sp.S.One}
+            x * drv, {x: dx}, self.t, {drv: ir.ONE}
         )
-        assert sp.simplify(result - (dx * drv + x)) == 0
+        assert sp.simplify(
+            to_sympy(result - (dx * drv + x))
+        ) == 0
 
     def test_registry_chain_and_rename(self):
-        x = sp.Symbol("x", real=True)
+        x = ir.sym("x")
         reg = DerivativeRegistry({"x", "t"})
         d1 = reg.derivative(x)
         d2 = reg.derivative(d1)
         assert reg.base_and_order(d2) == (x, 2)
-        assert reg.lower_order(d2) == d1
-        x_t = sp.Symbol("x_t", real=True)
+        assert reg.lower_order(d2) is d1
+        x_t = ir.sym("x_t")
         reg.rename(d1, x_t)
-        assert reg.lower_order(d2) == x_t
+        assert reg.lower_order(d2) is x_t
         # x_t becomes an ordinary chain root (diff2term semantics).
         assert reg.base_and_order(d2) == (x_t, 1)
         assert reg.base_and_order(x_t) == (x_t, 0)

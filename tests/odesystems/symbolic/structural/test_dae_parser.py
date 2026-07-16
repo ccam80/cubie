@@ -5,6 +5,8 @@ import pytest
 import sympy as sp
 from cubie.cuda_simsafe import cuda
 
+from cubie.odesystems.symbolic.engine import expr as ir
+from cubie.odesystems.symbolic.engine.from_sympy import to_sympy
 from cubie.odesystems.symbolic.parsing.parser import (
     EquationWarning,
     parse_input,
@@ -51,11 +53,13 @@ class TestParseDaeInput:
         assert list(index_map.state_names) == ["x"]
         assert list(index_map.observable_names) == ["y"]
         assert simplified.mass_matrix is None
-        eqs = {str(lhs): rhs for lhs, rhs in parsed.ordered}
-        x, k = sp.symbols("x k", real=True)
+        eqs = {lhs.name: rhs for lhs, rhs in parsed.ordered}
+        x, k = ir.sym("x"), ir.sym("k")
         # Observable y inlined into the dynamics.
-        assert sp.simplify(eqs["dx"] - (-k * x + 2 * x)) == 0
-        assert sp.simplify(eqs["y"] - 2 * x) == 0
+        assert sp.simplify(
+            to_sympy(eqs["dx"] - (-k * x + 2 * x))
+        ) == 0
+        assert sp.simplify(to_sympy(eqs["y"] - 2 * x)) == 0
 
     def test_nested_derivative_string(self):
         index_map, _syms, _funcs, parsed, _h, simplified = (
@@ -118,18 +122,18 @@ class TestParseDaeInput:
             """,
             states={"x": 1.0, "y": 1.0, "z1": 0.5, "z2": 0.5},
         )
-        z1, z2 = sp.symbols("z1 z2", real=True)
+        z1, z2 = ir.sym("z1"), ir.sym("z2")
         assert len(simplified.residuals) == 2
         assert set(simplified.algebraic_states) == {z1, z2}
-        mass = simplified.mass_matrix
+        mass = np.asarray(simplified.mass_matrix)
         assert mass.shape == (4, 4)
         assert [mass[i, i] for i in range(4)] == [1, 1, 0, 0]
         for state_sym, residual in zip(
             simplified.algebraic_states, simplified.residuals
         ):
             other = z2 if state_sym == z1 else z1
-            assert state_sym in residual.free_symbols
-            assert other not in residual.free_symbols
+            assert state_sym in ir.free_atoms(residual)
+            assert other not in ir.free_atoms(residual)
 
     def test_numeric_literal_implicit_lhs(self):
         # Implicit equations accept any numeric-literal LHS, not
@@ -139,11 +143,11 @@ class TestParseDaeInput:
             states={"x": 1.0, "z": 0.0},
         )
         assert not simplified.residuals
-        x = sp.Symbol("x", real=True)
+        x = ir.sym("x")
         assert simplified.states == [x]
         obs = dict(simplified.observed)
-        z = sp.Symbol("z", real=True)
-        assert sp.simplify(obs[z] + 2 * x) == 0
+        z = ir.sym("z")
+        assert sp.simplify(to_sympy(obs[z] + 2 * x)) == 0
 
     def test_undeclared_symbol_inferred_parameter(self):
         index_map, _s, _f, _p, _h, _simplified = parse_dae_input(

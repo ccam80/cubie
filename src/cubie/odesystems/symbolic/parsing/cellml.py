@@ -44,6 +44,8 @@ import logging
 import warnings
 
 from cubie._utils import PrecisionDType
+from cubie.odesystems.symbolic.engine import expr as ir
+from cubie.odesystems.symbolic.engine.from_sympy import from_sympy
 from cubie.time_logger import default_timelogger
 from .cellml_cache import CellMLCache
 
@@ -342,20 +344,19 @@ def load_cellml_model(
     state_units = {}
     
     default_timelogger.start_event("codegen_cellml_symbol_conversion")
-    # Convert Dummy symbols to regular Symbols with sanitized names
-    # cellmlmanip returns Dummy symbols but we need regular Symbols
-    states = []
-    dummy_to_symbol = {}
+    # Map every cellmlmanip Dummy to its engine IR replacement with a
+    # sanitised name. The map doubles as the conversion memo, so each
+    # equation converts to IR in a single pass with the replacements
+    # applied at the leaves.
+    dummy_to_ir = {}
     for raw_state in raw_states:
         clean_name = _sanitize_symbol_name(raw_state.name)
-        symbol = sp.Symbol(clean_name)
-        dummy_to_symbol[raw_state] = symbol
-        states.append(symbol)
-        
+        dummy_to_ir[raw_state] = ir.sym(clean_name)
+
         # Get initial value if available
         if hasattr(raw_state, 'initial_value') and raw_state.initial_value is not None:
             initial_values[clean_name] = float(raw_state.initial_value)
-        
+
         # cellmlmanip Variables always carry units
         state_units[clean_name] = str(raw_state.units)
     
@@ -383,87 +384,86 @@ def load_cellml_model(
         if independent_variables:
             time_variable = next(iter(independent_variables))
             # Map time variable to standard 't' symbol
-            dummy_to_symbol[time_variable] = sp.Symbol("t", real=True)
+            dummy_to_ir[time_variable] = ir.sym("t")
     
     # Also convert any other Dummy symbols in the model equations
     # Special handling for numeric quantities (e.g., _0.5, _1.0, _3)
     for eq in model.equations:
         for atom in eq.atoms(sp.Dummy):
-            if atom not in dummy_to_symbol:
+            if atom not in dummy_to_ir:
                 clean_name = _sanitize_symbol_name(atom.name)
-                
+
                 # Check if this is a numeric quantity (name starts with _)
                 if atom.name.startswith('_'):
                     try:
                         # Try to parse as a float
                         value = float(atom.name[1:])
-                        # Use Integer for whole numbers, Float for decimals
+                        # Use int for whole numbers, float otherwise
                         if value == int(value):
-                            dummy_to_symbol[atom] = sp.Integer(int(value))
+                            dummy_to_ir[atom] = ir.num(int(value))
                         else:
-                            dummy_to_symbol[atom] = sp.Float(value)
+                            dummy_to_ir[atom] = ir.num(value)
                         continue
                     except (ValueError, IndexError):
                         # Not a numeric value, treat as regular symbol
                         pass
-                
+
                 # Regular symbol conversion
-                dummy_to_symbol[atom] = sp.Symbol(clean_name)
-                
+                dummy_to_ir[atom] = ir.sym(clean_name)
+
                 # cellmlmanip Variables and Quantities always carry
                 # units
                 all_symbol_units[clean_name] = str(atom.units)
     default_timelogger.stop_event("codegen_cellml_symbol_conversion")
-    
+
     default_timelogger.start_event("codegen_cellml_equation_processing")
-    # Filter differential equations and algebraic equations separately
-    differential_equations = []
-    algebraic_equations = []
-    
-    for eq in model.equations:
-        eq_substituted = eq.subs(dummy_to_symbol)
-        if eq.lhs in raw_derivatives:
-            differential_equations.append(eq_substituted)
-        else:
-            algebraic_equations.append(eq_substituted)
-    default_timelogger.stop_event("codegen_cellml_equation_processing")
-    
-    default_timelogger.start_event("codegen_cellml_sympy_preparation")
-    
+    # Convert each equation to IR in one pass; the Dummy replacements
+    # are applied through the pre-seeded conversion memo. Differential
+    # equations are recognised on the raw form, before conversion.
+    convert_memo = dict(dummy_to_ir)
     dxdt_equations = []
-    for eq in differential_equations:
-        state_var = eq.lhs.args[0]
-        lhs_sym = sp.Symbol(f"d{state_var.name}", real=True)
-        dxdt_equations.append((lhs_sym, eq.rhs))
-    
+    algebraic_pairs = []
+    for eq in model.equations:
+        rhs_ir = from_sympy(eq.rhs, convert_memo)
+        if eq.lhs in raw_derivatives:
+            state_name = dummy_to_ir[eq.lhs.args[0]].name
+            dxdt_equations.append((ir.sym(f"d{state_name}"), rhs_ir))
+        else:
+            algebraic_pairs.append(
+                (from_sympy(eq.lhs, convert_memo), rhs_ir)
+            )
+    default_timelogger.stop_event("codegen_cellml_equation_processing")
+
+    default_timelogger.start_event("codegen_cellml_sympy_preparation")
+
     constants_dict = {}
     parameters_dict = {}
     algebraic_equation_tuples = []
     observable_units = {}
-    
+
     if parameters is None:
         parameters_set = set()
     elif isinstance(parameters, dict):
         parameters_set = set(parameters.keys())
     else:
         parameters_set = set(parameters)
-    
-    for eq in algebraic_equations:
-        if isinstance(eq.rhs, sp.Number):
-            var_name = str(eq.lhs)
-            var_value = float(eq.rhs)
-            
+
+    for lhs_ir, rhs_ir in algebraic_pairs:
+        if isinstance(rhs_ir, ir.Num):
+            var_name = str(lhs_ir.name)
+            var_value = float(rhs_ir.value)
+
             if var_name in parameters_set:
                 parameters_dict[var_name] = var_value
             else:
                 constants_dict[var_name] = var_value
         else:
-            algebraic_equation_tuples.append((eq.lhs, eq.rhs))
-            
-            lhs_name = str(eq.lhs)
+            algebraic_equation_tuples.append((lhs_ir, rhs_ir))
+
+            lhs_name = lhs_ir.name
             if lhs_name in all_symbol_units:
                 observable_units[lhs_name] = all_symbol_units[lhs_name]
-    
+
     all_equations = dxdt_equations + algebraic_equation_tuples
     
     parameter_units = {}
@@ -578,7 +578,7 @@ def load_cellml_model(
     if simplified is not None and simplified.mass_matrix is not None:
         from numpy import asarray
 
-        mass = asarray(simplified.mass_matrix.tolist(), dtype=precision)
+        mass = asarray(simplified.mass_matrix, dtype=precision)
 
     # Save to cache
     cache.save_to_cache(

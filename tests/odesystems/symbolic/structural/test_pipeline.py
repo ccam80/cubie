@@ -3,6 +3,8 @@
 import pytest
 import sympy as sp
 
+from cubie.odesystems.symbolic.engine import expr as ir
+from cubie.odesystems.symbolic.engine.from_sympy import to_sympy
 from cubie.odesystems.symbolic.structural.errors import (
     ExtraEquationsSystemError,
     ExtraVariablesSystemError,
@@ -18,11 +20,11 @@ from cubie.odesystems.symbolic.structural.system_structure import (
     StructuralState,
 )
 
-T = sp.Symbol("t", real=True)
+T = ir.sym("t")
 
 
 def syms(names):
-    return sp.symbols(names, real=True)
+    return tuple(ir.sym(name) for name in names.split())
 
 
 def make_state(eqs, unknowns, knowns=(), priorities=None,
@@ -50,7 +52,7 @@ class TestExplicitSystems:
         )
         result = structural_simplify(state)
         assert result.states == [x]
-        assert sp.simplify(result.dxdt[x] + k * x) == 0
+        assert sp.simplify(to_sympy(result.dxdt[x] + k * x)) == 0
         assert result.residuals == []
         assert result.mass_matrix is None
 
@@ -77,8 +79,9 @@ class TestExplicitSystems:
         rhs = result.dxdt[x]
         full = rhs
         for _ in range(3):
-            full = full.xreplace(obs)
-        assert sp.simplify(full - (-k * x + 2 * x + 1)) == 0
+            full = ir.xreplace(full, obs)
+        expected = -k * x + 2 * x + 1
+        assert sp.simplify(to_sympy(full - expected)) == 0
 
     def test_perfect_alias_eliminated(self):
         x, y, k = syms("x y k")
@@ -87,7 +90,7 @@ class TestExplicitSystems:
         state = StructuralState(
             [
                 Equation(dx, -k * y),
-                Equation(sp.S.Zero, x - y),
+                Equation(ir.ZERO, x - y),
             ],
             [x, y],
             registry,
@@ -97,8 +100,8 @@ class TestExplicitSystems:
         result = structural_simplify(state)
         assert result.states == [x]
         obs = dict(result.observed)
-        assert obs[y] == x
-        assert sp.simplify(result.dxdt[x] + k * x) == 0
+        assert obs[y] is x
+        assert sp.simplify(to_sympy(result.dxdt[x] + k * x)) == 0
 
     def test_negated_alias_sign(self):
         x, y, k = syms("x y k")
@@ -107,7 +110,7 @@ class TestExplicitSystems:
         state = StructuralState(
             [
                 Equation(dx, -k * y),
-                Equation(sp.S.Zero, x + y),
+                Equation(ir.ZERO, x + y),
             ],
             [x, y],
             registry,
@@ -116,8 +119,8 @@ class TestExplicitSystems:
         )
         result = structural_simplify(state)
         obs = dict(result.observed)
-        assert obs[y] == -x
-        assert sp.simplify(result.dxdt[x] - k * x) == 0
+        assert obs[y] is -x
+        assert sp.simplify(to_sympy(result.dxdt[x] - k * x)) == 0
 
     def test_alias_target_prefers_priority(self):
         x, y = syms("x y")
@@ -132,7 +135,7 @@ class TestExplicitSystems:
             [
                 Equation(dx, -3 * x),
                 Equation(dy, -3 * y),
-                Equation(sp.S.Zero, x - y),
+                Equation(ir.ZERO, x - y),
             ],
             [x, y],
             registry,
@@ -142,8 +145,8 @@ class TestExplicitSystems:
         )
         result = structural_simplify(state)
         assert result.states == [y]
-        assert dict(result.observed)[x] == y
-        assert sp.simplify(result.dxdt[y] + 3 * y) == 0
+        assert dict(result.observed)[x] is y
+        assert sp.simplify(to_sympy(result.dxdt[y] + 3 * y)) == 0
 
     def test_irreducible_not_eliminated(self):
         x, y, k = syms("x y k")
@@ -168,13 +171,13 @@ class TestExplicitSystems:
 class TestAlgebraicSystems:
     def test_nonlinear_algebraic_solvable_becomes_observed(self):
         x, k = syms("x k")
-        z = sp.Symbol("z", real=True)
+        z = ir.sym("z")
         registry = DerivativeRegistry({"x", "z", "k", "t"})
         dx = registry.derivative(x)
         state = StructuralState(
             [
                 Equation(dx, -k * x + z),
-                Equation(sp.S.Zero, z - x**2),
+                Equation(ir.ZERO, z - x**2),
             ],
             [x, z],
             registry,
@@ -184,7 +187,7 @@ class TestAlgebraicSystems:
         result = structural_simplify(state)
         assert result.states == [x]
         obs = dict(result.observed)
-        assert sp.simplify(obs[z] - x**2) == 0
+        assert sp.simplify(to_sympy(obs[z] - x**2)) == 0
 
     def test_unsolvable_algebraic_torn_to_residual(self):
         x, z = syms("x z")
@@ -194,7 +197,7 @@ class TestAlgebraicSystems:
         state = StructuralState(
             [
                 Equation(dx, -z),
-                Equation(sp.S.Zero, z**5 + z - x),
+                Equation(ir.ZERO, z**5 + z - x),
             ],
             [x, z],
             registry,
@@ -205,12 +208,13 @@ class TestAlgebraicSystems:
         assert result.differential_states == [x]
         assert result.algebraic_states == [z]
         assert len(result.residuals) == 1
+        expected = z**5 + z - x
         assert sp.simplify(
-            result.residuals[0] - (z**5 + z - x)
+            to_sympy(result.residuals[0] - expected)
         ) == 0
         mass = result.mass_matrix
         assert mass is not None
-        assert mass[0, 0] == 1 and mass[1, 1] == 0
+        assert mass[0][0] == 1 and mass[1][1] == 0
 
     def test_inline_linear_scc_solves_analytically(self):
         x, u, v, p = syms("x u v p")
@@ -218,17 +222,19 @@ class TestAlgebraicSystems:
         dx = registry.derivative(x)
         # Coupled linear block: u + 2v = x; 3u - v = 1 with
         # non-integer-friendly structure kept linear.
-        state_fn = lambda: StructuralState(
-            [
-                Equation(dx, -u),
-                Equation(sp.S.Zero, u + 2 * v - x),
-                Equation(sp.S.Zero, 3 * u - v - 1),
-            ],
-            [x, u, v],
-            registry,
-            {p},
-            T,
-        )
+        def state_fn():
+            return StructuralState(
+                [
+                    Equation(dx, -u),
+                    Equation(ir.ZERO, u + 2 * v - x),
+                    Equation(ir.ZERO, 3 * u - v - 1),
+                ],
+                [x, u, v],
+                registry,
+                {p},
+                T,
+            )
+
         result = structural_simplify(
             state_fn(), inline_linear_sccs=True
         )
@@ -238,8 +244,9 @@ class TestAlgebraicSystems:
         obs = dict(result.observed)
         u_val = obs[u]
         for _ in range(3):
-            u_val = u_val.xreplace(obs)
-        assert sp.simplify(u_val - (x + 2) / 7) == 0
+            u_val = ir.xreplace(u_val, obs)
+        expected = (x + 2) / 7
+        assert sp.simplify(to_sympy(u_val - expected)) == 0
 
 
 class TestAliasEdgeCases:
@@ -252,8 +259,8 @@ class TestAliasEdgeCases:
         state = StructuralState(
             [
                 Equation(dz, -k * z + x),
-                Equation(sp.S.Zero, x - y),
-                Equation(sp.S.Zero, x + y),
+                Equation(ir.ZERO, x - y),
+                Equation(ir.ZERO, x + y),
             ],
             [x, y, z],
             registry,
@@ -262,10 +269,10 @@ class TestAliasEdgeCases:
         )
         result = structural_simplify(state)
         obs = dict(result.observed)
-        assert obs[x] == 0
-        assert obs[y] == 0
+        assert obs[x] is ir.ZERO
+        assert obs[y] is ir.ZERO
         assert result.states == [z]
-        assert sp.simplify(result.dxdt[z] + k * z) == 0
+        assert sp.simplify(to_sympy(result.dxdt[z] + k * z)) == 0
 
     def test_sign_chain_three_variables(self):
         # x = -y, y = -z: signs compose along the chain.
@@ -275,8 +282,8 @@ class TestAliasEdgeCases:
         state = StructuralState(
             [
                 Equation(dx, -k * x),
-                Equation(sp.S.Zero, x + y),
-                Equation(sp.S.Zero, y + z),
+                Equation(ir.ZERO, x + y),
+                Equation(ir.ZERO, y + z),
             ],
             [x, y, z],
             registry,
@@ -286,8 +293,8 @@ class TestAliasEdgeCases:
         result = structural_simplify(state)
         assert result.states == [x]
         obs = dict(result.observed)
-        assert obs[y] == -x
-        assert obs[z] == x
+        assert obs[y] is -x
+        assert obs[z] is x
 
     def test_derivative_chain_sign_propagation(self):
         # y = -x where x carries a second-order derivative chain:
@@ -299,7 +306,7 @@ class TestAliasEdgeCases:
         state = StructuralState(
             [
                 Equation(d2, -x),
-                Equation(sp.S.Zero, y + x),
+                Equation(ir.ZERO, y + x),
             ],
             [x, y],
             registry,
@@ -309,7 +316,7 @@ class TestAliasEdgeCases:
         result = structural_simplify(state)
         assert len(result.differential_states) == 2
         obs = dict(result.observed)
-        assert obs[y] == -x
+        assert obs[y] is -x
 
     def test_priority_tie_warns(self):
         x, y, z = syms("x y z")
@@ -318,8 +325,8 @@ class TestAliasEdgeCases:
         state = StructuralState(
             [
                 Equation(dz, x + y),
-                Equation(sp.S.Zero, x - y),
-                Equation(sp.S.Zero, x + y - z),
+                Equation(ir.ZERO, x - y),
+                Equation(ir.ZERO, x + y - z),
             ],
             [x, y, z],
             registry,
@@ -339,9 +346,9 @@ class TestSingularIntegerSCC:
         return StructuralState(
             [
                 Equation(dz, w),
-                Equation(sp.S.Zero, x + y + w),
-                Equation(sp.S.Zero, 2 * x + 2 * y - w),
-                Equation(sp.S.Zero, w**5 + w - z),
+                Equation(ir.ZERO, x + y + w),
+                Equation(ir.ZERO, 2 * x + 2 * y - w),
+                Equation(ir.ZERO, w**5 + w - z),
             ],
             [x, y, z, w],
             registry,
@@ -371,7 +378,7 @@ class TestSingularIntegerSCC:
         )
         assert len(result.residuals) == len(result.algebraic_states)
         obs = dict(result.observed)
-        assert obs[y].has(x)
+        assert x in ir.free_atoms(obs[y])
 
     def test_exact_scc_matching_singular_warns(self):
         # Unit-level pin of the rank-deficient fallback: an SCC of
@@ -388,8 +395,8 @@ class TestSingularIntegerSCC:
         registry = DerivativeRegistry({"x", "y", "t"})
         state = StructuralState(
             [
-                Equation(sp.S.Zero, x + y),
-                Equation(sp.S.Zero, 2 * x + 2 * y),
+                Equation(ir.ZERO, x + y),
+                Equation(ir.ZERO, 2 * x + 2 * y),
             ],
             [x, y],
             registry,
@@ -424,7 +431,7 @@ class TestPantelidesAndDummyDerivatives:
             Equation(registry.derivative(y), vy),
             Equation(registry.derivative(vx), Tn * x),
             Equation(registry.derivative(vy), Tn * y - g),
-            Equation(sp.S.Zero, x**2 + y**2 - L**2),
+            Equation(ir.ZERO, x**2 + y**2 - L**2),
         ]
         state = StructuralState(
             eqs,
@@ -447,14 +454,15 @@ class TestPantelidesAndDummyDerivatives:
         x, y = symbols[0], symbols[1]
         L = symbols[6]
         # The original constraint survives as a residual.
+        constraint = x**2 + y**2 - L**2
         assert any(
-            sp.simplify(r - (x**2 + y**2 - L**2)) == 0
+            sp.simplify(to_sympy(r - constraint)) == 0
             for r in result.residuals
         )
 
     def test_pendulum_priorities_select_states(self):
         state, symbols = self.make_pendulum()
-        x, y, vx, vy = symbols[0], symbols[1], symbols[2], symbols[3]
+        y, vy = symbols[1], symbols[3]
         state.structure.state_priorities = [
             10 if state.fullvars[i] in (y, vy) else 0
             for i in range(len(state.fullvars))
@@ -485,7 +493,9 @@ class TestPantelidesAndDummyDerivatives:
             + 2 * y_t**2
             + 2 * y * (Tn * y - g)
         )
-        assert sp.simplify(result.residuals[0] - accel) == 0
+        assert sp.simplify(
+            to_sympy(result.residuals[0] - accel)
+        ) == 0
 
     def test_higher_order_input_lowered(self):
         x, w = syms("x w")
@@ -509,8 +519,8 @@ class TestPantelidesAndDummyDerivatives:
         other = [
             s for s in result.differential_states if s != x
         ][0]
-        assert result.dxdt[x] == other
-        assert sp.simplify(result.dxdt[other] + x) == 0
+        assert result.dxdt[x] is other
+        assert sp.simplify(to_sympy(result.dxdt[other] + x)) == 0
 
 
 class TestConsistencyErrors:
@@ -521,8 +531,8 @@ class TestConsistencyErrors:
         state = StructuralState(
             [
                 Equation(dx, -k * x),
-                Equation(sp.S.Zero, x - 1),
-                Equation(sp.S.Zero, x - 2),
+                Equation(ir.ZERO, x - 1),
+                Equation(ir.ZERO, x - 2),
             ],
             [x],
             registry,
