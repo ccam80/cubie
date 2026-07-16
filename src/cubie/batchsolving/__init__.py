@@ -43,7 +43,11 @@ from cubie.batchsolving.arrays.BatchOutputArrays import (  # noqa: E402
     OutputArrays,
 )
 from cubie.batchsolving.solver import Solver, solve_ivp  # noqa: E402
-from cubie.batchsolving.solveresult import SolveResult, SolveSpec  # noqa: E402
+from cubie.batchsolving.solveresult import (  # noqa: E402
+    RawSolveResult,
+    SolveResult,
+    SolveSpec,
+)
 from cubie.outputhandling import summary_metrics  # noqa: E402
 
 
@@ -60,6 +64,7 @@ __all__ = [
     "ManagedArray",
     "OutputArrayContainer",
     "OutputArrays",
+    "RawSolveResult",
     "Solver",
     "SolveResult",
     "SolveSpec",

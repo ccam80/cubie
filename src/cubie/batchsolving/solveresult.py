@@ -9,6 +9,9 @@ Published Classes
 :class:`SolveSpec`
     Frozen attrs dataclass describing the configuration used for a solver run.
 
+:class:`RawSolveResult`
+    Owns copied raw output arrays.
+
 :class:`SolveResult`
     Aggregates output arrays, legends, and metadata from a completed batch
     integration.
@@ -47,6 +50,7 @@ from numpy import (
     concatenate as np_concatenate,
     nan as np_nan,
     ndarray,
+    memmap as np_memmap,
     squeeze as np_squeeze,
     where as np_where,
 )
@@ -54,6 +58,7 @@ from numpy.typing import NDArray
 from cubie.batchsolving.BatchSolverConfig import ActiveOutputs
 from cubie.batchsolving import ArrayTypes
 from cubie.result_codes import decode_status_codes
+from cubie.memory.mem_manager import HOST_STAGING_BYTES
 from cubie._utils import (
     slice_variable_dimension,
     opt_gttype_validator,
@@ -83,6 +88,44 @@ def _format_time_domain_label(label: str, unit: str) -> str:
     if unit != "dimensionless":
         return f"{label} [{unit}]"
     return label
+
+
+def _release_spill_arrays(memory_manager, arrays) -> None:
+    """Release each spill mapping once."""
+    cleanups = set()
+    for array in arrays:
+        owner = array
+        while isinstance(owner, ndarray):
+            cleanup = getattr(owner, "_cubie_spill_cleanup", None)
+            if cleanup is not None and id(cleanup) not in cleanups:
+                cleanups.add(id(cleanup))
+                memory_manager.release_host_array(owner)
+            owner = getattr(owner, "base", None)
+
+
+class RawSolveResult(dict):
+    """Own independent raw output arrays."""
+
+    def __init__(self, arrays, memory_manager) -> None:
+        super().__init__(arrays)
+        self._memory_manager = memory_manager
+        self._closed = False
+
+    def close(self) -> None:
+        """Release spill files owned by this result."""
+        if self._closed:
+            return
+        _release_spill_arrays(self._memory_manager, self.values())
+        self.clear()
+        self._closed = True
+
+    def __enter__(self) -> "RawSolveResult":
+        """Return this result."""
+        return self
+
+    def __exit__(self, exc_type, exc, traceback) -> None:
+        """Release spill files on context exit."""
+        self.close()
 
 
 @define
@@ -240,6 +283,10 @@ class SolveResult:
     _stride_order: Union[tuple[str, ...], list[str]] = field(
         default=("time", "variable", "run")
     )
+    _memory_manager: Optional[Any] = field(
+        default=None, repr=False, eq=False
+    )
+    _closed: bool = field(default=False, init=False, repr=False, eq=False)
 
     @classmethod
     def from_solver(
@@ -257,9 +304,8 @@ class SolveResult:
         results_type
             Format of the returned results. Options are ``"full"``, ``"numpy"``,
             ``"numpy_per_summary"``, ``raw``, and ``"pandas"``. Defaults to
-            ``"full"``. ``raw`` shortcuts all processing and outputs numpy
-            arrays that are a direct copy of the host, without legends or
-            supporting information.
+            ``"full"``. ``raw`` returns independent spill-aware copies without
+            legends or supporting information.
         nan_error_trajectories
             When ``True`` (default), trajectories with nonzero status codes
             are set to NaN. When ``False``, all trajectories are returned
@@ -273,14 +319,25 @@ class SolveResult:
             dictionary containing the requested representation.
         """
         if results_type == "raw":
-            return {
-                "state": solver.state,
-                "observables": solver.observables,
-                "state_summaries": solver.state_summaries,
-                "observable_summaries": solver.observable_summaries,
-                "iteration_counters": solver.iteration_counters,
-                "status_codes": solver.status_codes,
+            arrays = {
+                "state": cls._copy_result_array(solver, solver.state),
+                "observables": cls._copy_result_array(
+                    solver, solver.observables
+                ),
+                "state_summaries": cls._copy_result_array(
+                    solver, solver.state_summaries
+                ),
+                "observable_summaries": cls._copy_result_array(
+                    solver, solver.observable_summaries
+                ),
+                "iteration_counters": cls._copy_result_array(
+                    solver, solver.iteration_counters
+                ),
+                "status_codes": cls._copy_result_array(
+                    solver, solver.status_codes
+                ),
             }
+            return RawSolveResult(arrays, solver.kernel.memory_manager)
         active_outputs = solver.active_outputs
         state_active = active_outputs.state
         observables_active = active_outputs.observables
@@ -289,26 +346,28 @@ class SolveResult:
         solve_settings = solver.solve_info
 
         # Retrieve status codes for non-raw results
-        status_codes = solver.status_codes
-        iteration_counters = solver.iteration_counters
+        status_codes = cls._copy_result_array(solver, solver.status_codes)
+        iteration_counters = cls._copy_result_array(
+            solver, solver.iteration_counters
+        )
         time, state_less_time = cls.cleave_time(
             solver.state,
             time_saved=solver.save_time,
             stride_order=solver.kernel.output_arrays.host.state.stride_order,
         )
+        if time is not None:
+            time = cls._copy_result_array(solver, time)
 
-        time_domain_array = cls.combine_time_domain_arrays(
-            state_less_time,
-            solver.observables,
-            state_active,
-            observables_active,
+        time_domain_array = cls._combine_result_arrays(
+            solver,
+            (state_less_time, solver.observables),
+            (state_active, observables_active),
         )
 
-        summaries_array = cls.combine_summaries_array(
-            solver.state_summaries,
-            solver.observable_summaries,
-            state_summaries_active,
-            observable_summaries_active,
+        summaries_array = cls._combine_result_arrays(
+            solver,
+            (solver.state_summaries, solver.observable_summaries),
+            (state_summaries_active, observable_summaries_active),
         )
 
         # Process error trajectories when enabled
@@ -361,18 +420,107 @@ class SolveResult:
             solve_settings=solve_settings,
             stride_order=solver.kernel.output_arrays.host.state.stride_order,
             singlevar_summary_legend=singlevar_summary_legend,
+            memory_manager=solver.kernel.memory_manager,
         )
 
         if results_type == "full":
             return user_arrays
-        elif results_type == "numpy":
-            return user_arrays.as_numpy
-        elif results_type == "numpy_per_summary":
-            return user_arrays.as_numpy_per_summary
-        elif results_type == "pandas":
-            return user_arrays.as_pandas
-        else:
-            return user_arrays
+        try:
+            if results_type == "numpy":
+                result = user_arrays.as_numpy
+            elif results_type == "numpy_per_summary":
+                result = user_arrays.as_numpy_per_summary
+            elif results_type == "pandas":
+                result = user_arrays.as_pandas
+            else:
+                return user_arrays
+        finally:
+            if results_type in ("numpy", "numpy_per_summary", "pandas"):
+                user_arrays.close()
+        return result
+
+    def close(self) -> None:
+        """Release spill files owned by this result."""
+        if self._closed:
+            return
+        arrays = (
+            self.time_domain_array,
+            self.summaries_array,
+            self.time,
+            self.iteration_counters,
+            self.status_codes,
+        )
+        if self._memory_manager is not None:
+            _release_spill_arrays(self._memory_manager, arrays)
+        self.time_domain_array = np_array([])
+        self.summaries_array = np_array([])
+        self.time = None
+        self.iteration_counters = np_array([])
+        self.status_codes = None
+        self._closed = True
+
+    def __enter__(self) -> "SolveResult":
+        """Return this result."""
+        return self
+
+    def __exit__(self, exc_type, exc, traceback) -> None:
+        """Release spill files on context exit."""
+        self.close()
+
+    @staticmethod
+    def _copy_result_array(solver, source: ndarray) -> ndarray:
+        """Copy an output without forcing a spill file into RAM."""
+        manager = solver.kernel.memory_manager
+        owner = solver.kernel.output_arrays
+        memory_type = "memmap" if isinstance(source, np_memmap) else "host"
+        result = manager.create_host_array(
+            source.shape,
+            source.dtype,
+            memory_type,
+            instance=owner,
+        )
+        source_flat = source.reshape(-1)
+        result_flat = result.reshape(-1)
+        block_length = max(1, HOST_STAGING_BYTES // source.dtype.itemsize)
+        for start in range(0, source_flat.size, block_length):
+            stop = min(start + block_length, source_flat.size)
+            result_flat[start:stop] = source_flat[start:stop]
+        return result
+
+    @classmethod
+    def _combine_result_arrays(cls, solver, arrays, enabled) -> ndarray:
+        """Combine enabled outputs into a spill-aware result array."""
+        active = [array for array, use in zip(arrays, enabled) if use]
+        if not active:
+            return np_array([])
+        if len(active) == 1:
+            return cls._copy_result_array(solver, active[0])
+
+        shape = list(active[0].shape)
+        shape[1] = sum(array.shape[1] for array in active)
+        manager = solver.kernel.memory_manager
+        owner = solver.kernel.output_arrays
+        memory_type = (
+            "memmap"
+            if any(isinstance(array, np_memmap) for array in active)
+            else "host"
+        )
+        result = manager.create_host_array(
+            tuple(shape),
+            active[0].dtype,
+            memory_type,
+            instance=owner,
+        )
+        row_bytes = max(1, result[0].nbytes)
+        rows = max(1, HOST_STAGING_BYTES // row_bytes)
+        offset = 0
+        for source in active:
+            target = slice(offset, offset + source.shape[1])
+            for start in range(0, source.shape[0], rows):
+                stop = min(start + rows, source.shape[0])
+                result[start:stop, target, ...] = source[start:stop]
+            offset += source.shape[1]
+        return result
 
     @property
     def as_pandas(self) -> dict[str, "pd.DataFrame"]:
@@ -419,17 +567,23 @@ class SolveResult:
         time_index = None
         if self.time is not None and self.time.size > 0:
             if self.time.ndim > 1:
-                time_index = self.time[:, 0]
+                time_index = np_array(
+                    self.time[:, 0], copy=True, subok=False
+                )
             else:
-                time_index = self.time
+                time_index = np_array(self.time, copy=True, subok=False)
 
         for run in range(n_runs):
             run_slice = slice_variable_dimension(
                 slice(run, run + 1, None), run_index, ndim
             )
 
-            singlerun_array = np_squeeze(
-                self.time_domain_array[run_slice], axis=run_index
+            singlerun_array = np_array(
+                np_squeeze(
+                    self.time_domain_array[run_slice], axis=run_index
+                ),
+                copy=True,
+                subok=False,
             )
             df = pd.DataFrame(singlerun_array, columns=time_headings)
 
@@ -440,8 +594,12 @@ class SolveResult:
             time_dfs.append(df)
 
             if any_summaries:
-                singlerun_array = np_squeeze(
-                    self.summaries_array[run_slice], axis=run_index
+                singlerun_array = np_array(
+                    np_squeeze(
+                        self.summaries_array[run_slice], axis=run_index
+                    ),
+                    copy=True,
+                    subok=False,
                 )
                 df = pd.DataFrame(singlerun_array, columns=summary_headings)
                 summaries_dfs.append(df)
@@ -474,12 +632,22 @@ class SolveResult:
             iteration_counters.
         """
         return {
-            "time": self.time.copy() if self.time is not None else None,
-            "time_domain_array": self.time_domain_array.copy(),
-            "summaries_array": self.summaries_array.copy(),
+            "time": (
+                np_array(self.time, copy=True, subok=False)
+                if self.time is not None
+                else None
+            ),
+            "time_domain_array": np_array(
+                self.time_domain_array, copy=True, subok=False
+            ),
+            "summaries_array": np_array(
+                self.summaries_array, copy=True, subok=False
+            ),
             "time_domain_legend": self.time_domain_legend.copy(),
             "summaries_legend": self.summaries_legend.copy(),
-            "iteration_counters": self.iteration_counters.copy(),
+            "iteration_counters": np_array(
+                self.iteration_counters, copy=True, subok=False
+            ),
         }
 
     @property
@@ -494,10 +662,18 @@ class SolveResult:
             iteration counters, and individual summary arrays.
         """
         arrays = {
-            "time": self.time.copy() if self.time is not None else None,
-            "time_domain_array": self.time_domain_array.copy(),
+            "time": (
+                np_array(self.time, copy=True, subok=False)
+                if self.time is not None
+                else None
+            ),
+            "time_domain_array": np_array(
+                self.time_domain_array, copy=True, subok=False
+            ),
             "time_domain_legend": self.time_domain_legend.copy(),
-            "iteration_counters": self.iteration_counters.copy(),
+            "iteration_counters": np_array(
+                self.iteration_counters, copy=True, subok=False
+            ),
         }
         arrays.update(**self.per_summary_arrays)
 
@@ -534,7 +710,9 @@ class SolveResult:
             summ_slice = slice_variable_dimension(
                 summ_slice, variable_index, len(self._stride_order)
             )
-            per_summary_arrays[label] = self.summaries_array[summ_slice].copy()
+            per_summary_arrays[label] = np_array(
+                self.summaries_array[summ_slice], copy=True, subok=False
+            )
         per_summary_arrays["summary_legend"] = variable_legend
 
         return per_summary_arrays

@@ -36,7 +36,6 @@ from numpy import (
     int32 as np_int32,
     integer as np_integer,
     issubdtype as np_issubdtype,
-    memmap as np_memmap,
 )
 from numpy.typing import NDArray
 
@@ -48,6 +47,7 @@ from cubie.batchsolving.arrays.BaseArrayManager import (
 )
 from cubie.batchsolving import ArrayTypes
 from cubie.memory.chunk_buffer_pool import ChunkBufferPool
+from cubie.memory.mem_manager import HOST_STAGING_BYTES
 from cubie.batchsolving.writeback_watcher import (
     WritebackWatcher,
     PendingBuffer,
@@ -315,11 +315,20 @@ class OutputArrays(BaseArrayManager):
             A new OutputArrays instance configured for the solver.
         """
         sizes = BatchOutputSizes.from_solver(solver_instance).nonzero
+        owner = (
+            solver_instance
+            if hasattr(solver_instance, "_memory_manager")
+            else solver_instance.kernel
+        )
         return cls(
             sizes=sizes,
             precision=solver_instance.precision,
             memory_manager=solver_instance.memory_manager,
             stream_group=solver_instance.stream_group,
+            memory_owner=owner,
+            allow_memory_eviction=owner.allow_memory_eviction,
+            host_spill_threshold=owner.host_spill_threshold,
+            spill_directory=owner.spill_directory,
         )
 
     def update_from_solver(
@@ -391,12 +400,8 @@ class OutputArrays(BaseArrayManager):
                 if base_type == "memmap":
                     base_type = "pinned"
                 new_array = self._memory_manager.create_host_array(
-                    newshape, dtype, base_type
+                    newshape, dtype, base_type, instance=self
                 )
-                if isinstance(new_array, np_memmap):
-                    slot.memory_type = "memmap"
-                else:
-                    slot.memory_type = base_type
                 new_arrays[name] = new_array
         for name, slot in self.device.iter_managed_arrays():
             dtype = slot.dtype
@@ -436,32 +441,24 @@ class OutputArrays(BaseArrayManager):
             device_array = self.device.get_array(array_name)
             host_array = slot.array
 
-            to_target = host_array
-            from_target = device_array
-            if slot.needs_chunked_transfer:
-                host_slice = slot.chunk_slice(chunk_index)
-
-                # Chunked mode: use buffer pool and watcher
-                # Buffer must match device array shape for D2H copy
-                buffer = self._buffer_pool.acquire(
-                    array_name, device_array.shape, host_slice.dtype
+            host_slice = (
+                slot.chunk_slice(chunk_index)
+                if slot.needs_chunked_transfer
+                else host_array
+            )
+            needs_staging = slot.needs_chunked_transfer or (
+                self._requires_staging(host_slice, slot.memory_type)
+            )
+            if needs_staging:
+                self._stage_array(
+                    array_name, device_array, host_slice, stream
                 )
-                # Set pinned buffer as target and register for writeback
-                to_target = buffer.array
-                self._pending_buffers.append(
-                    PendingBuffer(
-                        buffer=buffer,
-                        target_array=host_slice,
-                        array_name=array_name,
-                        data_shape=host_slice.shape,
-                        buffer_pool=self._buffer_pool,
-                    )
-                )
+            else:
+                to_.append(host_slice)
+                from_.append(device_array)
 
-            to_.append(to_target)
-            from_.append(from_target)
-
-        self.from_device(from_, to_, stream=stream)
+        if from_:
+            self.from_device(from_, to_, stream=stream)
 
         # Record events and submit to watcher for chunked mode
         if self._pending_buffers:
@@ -477,6 +474,44 @@ class OutputArrays(BaseArrayManager):
                     pending_buffer=buffer,
                 )
             self._pending_buffers.clear()
+
+    def _stage_array(
+        self, array_name, device_array, host_array, stream
+    ) -> None:
+        """Stage one device output through bounded pinned buffers."""
+        device_flat = device_array.reshape(-1)
+        host_flat = host_array.reshape(-1)
+        block_length = max(1, HOST_STAGING_BYTES // host_array.dtype.itemsize)
+        for start in range(0, host_flat.size, block_length):
+            stop = min(start + block_length, host_flat.size)
+            buffer = self._buffer_pool.acquire(
+                array_name, (stop - start,), host_array.dtype
+            )
+            self.from_device(
+                [device_flat[start:stop]], [buffer.array], stream=stream
+            )
+            if CUDA_SIMULATION:
+                host_flat[start:stop] = buffer.array
+                self._buffer_pool.release(buffer)
+                continue
+            event = cuda.event()
+            event.record(stream)
+            if host_flat.size > block_length:
+                # Reuse waits only for this D2H slice. Smaller spill
+                # transfers stay fully asynchronous.
+                event.synchronize()
+                host_flat[start:stop] = buffer.array
+                self._buffer_pool.release(buffer)
+            else:
+                self._pending_buffers.append(
+                    PendingBuffer(
+                        buffer=buffer,
+                        target_array=host_flat[start:stop],
+                        array_name=array_name,
+                        data_shape=(stop - start,),
+                        buffer_pool=self._buffer_pool,
+                    )
+                )
 
     def wait_pending(self, timeout: Optional[float] = None) -> None:
         """Wait for all pending async writebacks to complete.

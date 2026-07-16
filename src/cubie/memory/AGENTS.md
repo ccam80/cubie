@@ -41,8 +41,10 @@ simulator never touches CuPy — it keeps its own numpy-backed fakes. Supporting
   best effort and do not raise during interpreter shutdown.
 - Allocation, copies, launch, and release use the run's stream. Memory caps
   cause chunking without device-wide synchronization or garbage collection.
+- Physical pressure may evict opted-in owners after their completion event.
+  Manual and external registrations are protected.
 
-### Host RAM: spill files & RAM-capped chunking
+### Host spill
 - Host arrays above their owner's spill threshold use a temporary memmap.
 - Memmap transfers use bounded pinned staging buffers.
 - Spill settings belong to the solver owner, not the shared manager.

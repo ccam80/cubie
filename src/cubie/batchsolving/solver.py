@@ -53,7 +53,11 @@ from cubie.result_codes import decode_status_codes
 from cubie.batchsolving.BatchSolverConfig import ActiveOutputs
 from cubie.batchsolving.BatchInputHandler import BatchInputHandler
 from cubie.batchsolving.BatchSolverKernel import BatchSolverKernel
-from cubie.batchsolving.solveresult import SolveResult, SolveSpec
+from cubie.batchsolving.solveresult import (
+    RawSolveResult,
+    SolveResult,
+    SolveSpec,
+)
 from cubie.batchsolving.SystemInterface import SystemInterface
 from cubie.memory.mem_manager import ALL_MEMORY_MANAGER_PARAMETERS
 from cubie.odesystems.baseODE import BaseODE
@@ -209,7 +213,7 @@ def solve_ivp(
     time_logging_level: Optional[str] = None,
     nan_error_trajectories: bool = True,
     **kwargs: Any,
-) -> SolveResult:
+) -> Union[SolveResult, RawSolveResult, Dict[str, Any]]:
     """Solve a batch initial value problem.
 
     Parameters
@@ -270,8 +274,9 @@ def solve_ivp(
 
     Returns
     -------
-    SolveResult
-        Results returned from :meth:`Solver.solve`.
+    SolveResult, RawSolveResult, or dict
+        Requested result form. Spill-backed full and raw results support
+        ``close()`` and context cleanup.
     """
     if not isinstance(system, BaseODE):
         system = _system_from_equations(
@@ -349,9 +354,10 @@ class Solver:
         selectors such as ``save_variables`` or index-based parameters may also
         be supplied as keyword arguments.
     memory_settings
-        Explicit memory configuration overriding solver defaults. Keys like
-        ``memory_manager`` or ``mem_proportion`` may likewise be provided as
-        keyword arguments.
+        Memory configuration. ``allow_memory_eviction`` lets completed solver
+        buffers be evicted. ``host_spill_threshold`` sets the largest host
+        array kept in RAM, in bytes. ``spill_directory`` selects an existing
+        directory for spill files. These keys may also be keyword arguments.
     loop_settings
         Explicit loop configuration overriding solver defaults. Keys such as
         ``save_every`` and ``summarise_every`` may also be supplied as loose
@@ -589,7 +595,7 @@ class Solver:
         results_type: str = "full",
         nan_error_trajectories: bool = True,
         **kwargs: Any,
-    ) -> SolveResult:
+    ) -> Union[SolveResult, RawSolveResult, Dict[str, Any]]:
         """Solve a batch initial value problem.
 
         Parameters
@@ -633,8 +639,9 @@ class Solver:
 
         Returns
         -------
-        SolveResult
-            Collected results from the integration run.
+        SolveResult, RawSolveResult, or dict
+            Requested result form. Spill-backed full and raw results support
+            ``close()`` and context cleanup.
 
         Notes
         -----

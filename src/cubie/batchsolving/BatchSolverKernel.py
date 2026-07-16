@@ -87,6 +87,7 @@ DEFAULT_MEMORY_SETTINGS = {
     "mem_proportion": None,
     "host_spill_threshold": None,
     "spill_directory": None,
+    "allow_memory_eviction": False,
 }
 
 
@@ -367,15 +368,19 @@ class BatchSolverKernel(CUDAFactory):
         mem_proportion = merged_settings["mem_proportion"]
         host_spill_threshold = merged_settings["host_spill_threshold"]
         spill_directory = merged_settings["spill_directory"]
-        if host_spill_threshold is not None:
-            memory_manager.host_spill_threshold = host_spill_threshold
-        if spill_directory is not None:
-            memory_manager.spill_directory = spill_directory
+        allow_eviction = merged_settings["allow_memory_eviction"]
+        self._host_spill_threshold = host_spill_threshold
+        self._spill_directory = spill_directory
+        self._allow_memory_eviction = allow_eviction
         memory_manager.register(
             self,
             stream_group=stream_group,
             proportion=mem_proportion,
             allocation_ready_hook=self._on_allocation,
+            owner=self,
+            evictable=allow_eviction,
+            host_spill_threshold=host_spill_threshold,
+            spill_directory=spill_directory,
         )
         settings = memory_manager.registry[id(self)]
         self._finalizer = finalize(
@@ -387,6 +392,21 @@ class BatchSolverKernel(CUDAFactory):
             (),
         )
         return memory_manager
+
+    @property
+    def allow_memory_eviction(self) -> bool:
+        """Whether pressure may evict this solver's idle buffers."""
+        return self._allow_memory_eviction
+
+    @property
+    def host_spill_threshold(self) -> Optional[int]:
+        """Host-array spill threshold in bytes."""
+        return self._host_spill_threshold
+
+    @property
+    def spill_directory(self) -> Optional[object]:
+        """Directory used for spill files."""
+        return self._spill_directory
 
     def _setup_cuda_events(self, chunks: int) -> None:
         """Create CUDA events for timing instrumentation.
@@ -555,9 +575,9 @@ class BatchSolverKernel(CUDAFactory):
                 "This solver has been closed and its GPU resources "
                 "released; build a new Solver to run again."
             )
-        clients = (self, self.input_arrays, self.output_arrays)
-        for client in clients:
-            self._memory_manager.mark_active(client)
+        if stream is None:
+            stream = self.stream
+        self._memory_manager.begin_work(self)
         try:
             self._execute_run(
                 inits,
@@ -570,8 +590,7 @@ class BatchSolverKernel(CUDAFactory):
                 t0,
             )
         finally:
-            for client in clients:
-                self._memory_manager.mark_idle(client)
+            self._memory_manager.end_work(self, stream)
 
     def _execute_run(
         self,
@@ -584,12 +603,7 @@ class BatchSolverKernel(CUDAFactory):
         warmup: float,
         t0: float,
     ) -> None:
-        """Allocate, chunk, and launch the batch kernel (body of run).
-
-        Runs with this kernel and its array managers marked active in
-        the memory manager, so allocation-pressure eviction never
-        frees the buffers of the solve in flight.
-        """
+        """Allocate, chunk, and launch the batch kernel."""
         if stream is None:
             stream = self.stream
         self._last_stream = stream

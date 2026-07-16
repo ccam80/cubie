@@ -351,6 +351,10 @@ class BaseArrayManager(ABC):
     _needs_reallocation: list[str] = field(factory=list, init=False)
     _needs_overwrite: list[str] = field(factory=list, init=False)
     _memory_manager: MemoryManager = field(default=default_memmgr)
+    _memory_owner: Optional[object] = field(default=None, eq=False)
+    _allow_memory_eviction: bool = field(default=False)
+    _host_spill_threshold: Optional[int] = field(default=None)
+    _spill_directory: Optional[object] = field(default=None)
     num_runs: int = field(default=1, validator=getype_validator(int, 1))
     # Signature of the solver state that determines array sizes; when
     # unchanged, update_from_solver skips rebuilding the size objects.
@@ -457,6 +461,8 @@ class BaseArrayManager(ABC):
         """
         chunked_shapes = response.chunked_shapes
         arrays = response.arr
+        if not arrays:
+            return
 
         # Extract chunk parameters from response
         chunks = response.chunks
@@ -464,10 +470,6 @@ class BaseArrayManager(ABC):
 
         for array_label in self._needs_reallocation:
             if array_label not in arrays:
-                # An empty response (notary: same stream group, nothing
-                # queued) leaves pending reallocations pending — e.g. a
-                # manager evicted under pressure reallocates on its own
-                # next solve, not on a peer's.
                 if arrays:
                     warn(
                         f"Device array {array_label} not found in "
@@ -513,6 +515,10 @@ class BaseArrayManager(ABC):
             invalidate_cache_hook=self._invalidate_hook,
             allocation_ready_hook=self._on_allocation_complete,
             stream_group=self._stream_group,
+            owner=self._memory_owner,
+            evictable=self._allow_memory_eviction,
+            host_spill_threshold=self._host_spill_threshold,
+            spill_directory=self._spill_directory,
         )
         settings = self._memory_manager.registry[id(self)]
         self._finalizer = finalize(
@@ -843,23 +849,59 @@ class BaseArrayManager(ABC):
                 self._needs_overwrite.append(label)
             if 0 in new_array.shape:
                 newshape = (1,) * len(current_array.shape)
-                new_array = np_zeros(newshape, dtype=managed.dtype)
+                if shape_only:
+                    requested_type = managed.memory_type
+                    if requested_type == "memmap":
+                        requested_type = "pinned"
+                    new_array = self._memory_manager.create_host_array(
+                        newshape,
+                        managed.dtype,
+                        requested_type,
+                        instance=self,
+                    )
+                else:
+                    new_array = np_zeros(newshape, dtype=managed.dtype)
 
-        if not shape_only and managed.memory_type == "pinned":
+        replacement_memory_type = managed.memory_type
+        if not shape_only and managed.memory_type in ("pinned", "memmap"):
             # Incoming arrays are external; copy into a buffer of the
             # slot's declared memory type so device transfers can run
             # asynchronously from pinned memory.
             staged = self._memory_manager.create_host_array(
-                new_array.shape, managed.dtype, "pinned"
+                new_array.shape,
+                managed.dtype,
+                "pinned",
+                instance=self,
             )
             staged[...] = new_array
             new_array = staged
-            if isinstance(staged, np_memmap):
-                # The buffer exceeded the spill threshold and came
-                # back disk-backed; the slot follows it.
-                managed.memory_type = "memmap"
+            replacement_memory_type = self._host_memory_type(
+                staged, "pinned"
+            )
+        elif shape_only:
+            requested_type = managed.memory_type
+            if requested_type == "memmap":
+                requested_type = "pinned"
+            replacement_memory_type = self._host_memory_type(
+                new_array, requested_type
+            )
+        if current_array is not new_array:
+            self._memory_manager.release_host_array(current_array)
         self.host.attach(label, new_array)
+        managed.memory_type = replacement_memory_type
         return None
+
+    @staticmethod
+    def _host_memory_type(array: NDArray, requested_type: str) -> str:
+        """Return the memory type of an allocated host array."""
+        if isinstance(array, np_memmap):
+            return "memmap"
+        return requested_type
+
+    @staticmethod
+    def _requires_staging(array: NDArray, memory_type: str) -> bool:
+        """Return whether a host array needs pinned staging."""
+        return memory_type != "pinned" or isinstance(array, np_memmap)
 
     def update_host_arrays(
         self,
@@ -941,10 +983,10 @@ class BaseArrayManager(ABC):
             self.request_allocation(requests)
 
     def reset(self) -> None:
-        """
-        Clear all cached arrays and reset allocation tracking.
-
-        """
+        """Clear cached arrays and allocation tracking."""
+        for _, managed in self.host.iter_managed_arrays():
+            if managed.array is not None:
+                self._memory_manager.release_host_array(managed.array)
         self.host.delete_all()
         self.device.delete_all()
         self._needs_reallocation.clear()
@@ -993,27 +1035,28 @@ class BaseArrayManager(ABC):
         )
 
     def _convert_host_to_pinned(self) -> None:
-        """Convert regular numpy host arrays to pinned for non-chunked mode.
-
-        When a run is not chunked, the host arrays should be pinned to
-        enable asynchronous transfers. Disk-backed (``"memmap"``) slots
-        are left as they are — they cannot be page-locked, and the
-        transfer path accepts pageable targets.
-        """
-        for name, slot in self.host.iter_managed_arrays():
-            if slot.memory_type == "memmap":
-                continue
+        """Use pinned or spill-backed arrays for unchunked transfers."""
+        for _, slot in self.host.iter_managed_arrays():
             old_array = slot.array
-            if old_array is not None:
-                if slot.memory_type == "host":
-                    new_array = self._memory_manager.create_host_array(
-                        old_array.shape,
-                        old_array.dtype,
-                        "pinned",
-                        like=old_array,
-                    )
-                    slot.array = new_array
-            slot.memory_type = "pinned"
+            if old_array is None:
+                continue
+            if isinstance(old_array, np_memmap):
+                slot.memory_type = "memmap"
+                continue
+            if slot.memory_type not in ("host", "memmap"):
+                slot.memory_type = "pinned"
+                continue
+            new_array = self._memory_manager.create_host_array(
+                old_array.shape,
+                old_array.dtype,
+                "pinned",
+                like=old_array,
+                instance=self,
+            )
+            new_type = self._host_memory_type(new_array, "pinned")
+            self._memory_manager.release_host_array(old_array)
+            slot.array = new_array
+            slot.memory_type = new_type
 
     def _convert_host_to_numpy(self) -> None:
         """Convert pinned host arrays to regular numpy for chunked mode.
@@ -1024,8 +1067,10 @@ class BaseArrayManager(ABC):
         the memory manager's spill threshold comes back disk-backed;
         its slot is marked ``"memmap"``.
         """
-        for name, slot in self.host.iter_managed_arrays():
-            # Convert to regular numpy only for arrays with chunked transfers
+        for _, slot in self.host.iter_managed_arrays():
+            if isinstance(slot.array, np_memmap):
+                slot.memory_type = "memmap"
+                continue
             if slot.memory_type == "pinned" and slot.needs_chunked_transfer:
                 old_array = slot.array
                 if old_array is not None:
@@ -1034,9 +1079,9 @@ class BaseArrayManager(ABC):
                         old_array.dtype,
                         "host",
                         like=old_array,
+                        instance=self,
                     )
+                    new_type = self._host_memory_type(new_array, "host")
+                    self._memory_manager.release_host_array(old_array)
                     slot.array = new_array
-                    if isinstance(new_array, np_memmap):
-                        slot.memory_type = "memmap"
-                    else:
-                        slot.memory_type = "host"
+                    slot.memory_type = new_type

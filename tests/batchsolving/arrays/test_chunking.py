@@ -1,5 +1,6 @@
 """Tests for chunking logic."""
 
+from pathlib import Path
 from time import sleep
 
 import numpy as np
@@ -135,6 +136,83 @@ def test_chunked_uses_numpy_host(chunked_solved_solver):
             assert slot.memory_type == "host"
             found_one = True
     assert found_one, "No chunked-transfer arrays found"
+
+
+def test_chunked_solver_changes_to_unchunked_backing(
+    chunked_solved_solver,
+    batch_input_arrays,
+    driver_settings,
+):
+    """A shape change commits unchunked backing and metadata together."""
+    solver, first_result = chunked_solved_solver
+    y0, params = batch_input_arrays
+    solver.memory_manager._custom_limit = 8192
+
+    second_result = solver.solve(
+        y0[:, :3],
+        params[:, :3],
+        drivers=driver_settings,
+        duration=0.05,
+        summarise_every=None,
+        save_every=0.01,
+        dt=0.01,
+    )
+    try:
+        assert solver.chunks == 1
+        for manager in (
+            solver.kernel.input_arrays,
+            solver.kernel.output_arrays,
+        ):
+            for _, slot in manager.host.iter_managed_arrays():
+                if isinstance(slot.array, np.memmap):
+                    assert slot.memory_type == "memmap"
+                else:
+                    assert slot.memory_type == "pinned"
+    finally:
+        first_result.close()
+        second_result.close()
+        solver.close()
+
+
+def test_pinned_conversion_tracks_policy_spill(
+    chunked_solved_solver,
+    tmp_path,
+):
+    """A pinned request that spills stays on the staging path."""
+    solver, result = chunked_solved_solver
+    managers = (
+        solver.kernel.input_arrays,
+        solver.kernel.output_arrays,
+    )
+    candidates = {}
+    for manager in managers:
+        candidates[id(manager)] = [
+            name
+            for name, slot in manager.host.iter_managed_arrays()
+            if slot.memory_type == "host"
+        ]
+        settings = solver.memory_manager.registry[id(manager)]
+        settings.host_spill_threshold = 1
+        settings.spill_directory = str(tmp_path)
+        manager._convert_host_to_pinned()
+
+    paths = []
+    try:
+        for manager in managers:
+            assert candidates[id(manager)]
+            for name in candidates[id(manager)]:
+                slot = manager.host.get_managed_array(name)
+                assert isinstance(slot.array, np.memmap)
+                assert slot.memory_type == "memmap"
+                assert manager._requires_staging(
+                    slot.array, slot.memory_type
+                )
+                paths.append(slot.array._cubie_spill_path)
+    finally:
+        result.close()
+        solver.close()
+    assert paths
+    assert all(not Path(path).exists() for path in paths)
 
 
 def test_pinned_buffers_created(chunked_solved_solver):

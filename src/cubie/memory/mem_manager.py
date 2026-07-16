@@ -73,6 +73,7 @@ from numpy import (
     empty as np_empty,
     floor as np_floor,
 )
+from numpy.typing import DTypeLike
 from math import prod
 
 from cubie.cuda_simsafe import (
@@ -94,59 +95,22 @@ ALL_MEMORY_MANAGER_PARAMETERS = {
     "mem_proportion",
     "host_spill_threshold",
     "spill_directory",
+    "allow_memory_eviction",
 }
-"""All keyword arguments accepted by :class:`MemoryManager` registration
-and solver-level memory configuration.
-
-.. list-table:: Parameter Summary
-   :header-rows: 1
-
-   * - Parameter
-     - Accepted By
-     - Description
-   * - ``memory_manager``
-     - :class:`MemoryManager`
-     - Memory manager instance to use.
-   * - ``stream_group``
-     - :meth:`MemoryManager.register`
-     - Name of the CUDA stream group.
-   * - ``mem_proportion``
-     - :meth:`MemoryManager.register`
-     - Proportion of VRAM to assign (0.0--1.0).
-   * - ``host_spill_threshold``
-     - :class:`MemoryManager`
-     - Bytes above which a host array is backed by a disk spill
-       file. ``None`` derives the threshold from available RAM.
-   * - ``spill_directory``
-     - :class:`MemoryManager`
-     - Directory for spill files. ``None`` uses the system temp
-       directory.
-"""
+"""Solver memory keyword names."""
 
 
 MIN_AUTOPOOL_SIZE = 0.05
 
 HOST_SPILL_FRACTION = 0.5
-"""Fraction of currently available system RAM a single host array may
-occupy before it is backed by a disk spill file, and the fraction used
-to cap the no-chunking budget so oversized batches stream through
-chunk-sized staging instead of a full-size pinned mirror."""
+"""Default host spill threshold as a fraction of free RAM."""
+
+HOST_STAGING_BYTES = 64 * 1024**2
+"""Maximum pinned staging bytes used by one host transfer."""
 
 
 def available_system_ram() -> Optional[int]:
-    """
-    Return the bytes of physical RAM currently available.
-
-    Uses ``sysconf`` where available (POSIX) and
-    ``GlobalMemoryStatusEx`` on Windows. Returns ``None`` when neither
-    source is usable; callers treat an unknown budget as unlimited (no
-    spill, no RAM-capped chunking).
-
-    Returns
-    -------
-    int or None
-        Available physical memory in bytes, or ``None`` if unknown.
-    """
+    """Return free physical RAM in bytes, if available."""
     try:
         pages = os.sysconf("SC_AVPHYS_PAGES")
         page_size = os.sysconf("SC_PAGE_SIZE")
@@ -179,19 +143,13 @@ def available_system_ram() -> Optional[int]:
     return None
 
 
-def _remove_spill_file(path: str) -> None:
-    """
-    Delete the spill file backing a collected memmap array.
-
-    Parameters
-    ----------
-    path
-        Filesystem path of the spill file to remove.
-    """
+def _remove_spill_file(mapping: Any, path: str) -> None:
+    """Close and delete one spill file."""
     try:
+        mapping.close()
         os.remove(path)
-    except OSError:  # pragma: no cover - may still be mapped on Windows
-        pass
+    except OSError as error:  # pragma: no cover - filesystem failure
+        warn(f"Could not remove spill file '{path}': {error}", ResourceWarning)
 
 
 def placeholder_invalidate() -> None:
@@ -524,9 +482,17 @@ class InstanceMemorySettings:
         validator=attrsval_optional(attrsval_instance_of(weakref_ref)),
     )
     last_stream: Optional[Any] = field(default=None)
-    active: bool = field(
+    submitting: bool = field(
         default=False, validator=attrsval_instance_of(bool)
     )
+    completion_event: Optional[Any] = field(default=None)
+    owner_id: Optional[int] = field(default=None)
+    evictable: bool = field(
+        default=False, validator=attrsval_instance_of(bool)
+    )
+    last_used: int = field(default=0, validator=attrsval_instance_of(int))
+    host_spill_threshold: Optional[int] = field(default=None)
+    spill_directory: Optional[str] = field(default=None)
 
     def add_allocation(self, key: str, arr: Any) -> None:
         """Add an allocation to the instance's allocations list.
@@ -584,6 +550,15 @@ class InstanceMemorySettings:
         for arr in self.allocations.values():
             total += arr.nbytes
         return total
+
+    @property
+    def work_complete(self) -> bool:
+        """Return whether the owner's submitted CUDA work is complete."""
+        if self.submitting:
+            return False
+        if self.completion_event is None or CUDA_SIMULATION:
+            return True
+        return bool(self.completion_event.query())
 
 
 @define
@@ -643,6 +618,7 @@ class MemoryManager:
     _group_chunk_parameters: Dict[str, Tuple[int, int]] = field(
         default=attrsFactory(dict), validator=attrsval_instance_of(dict)
     )
+    _usage_clock: int = field(default=0, init=False)
     # Bytes above which a host array is backed by a disk spill file;
     # None derives the threshold from available RAM at creation time.
     host_spill_threshold: Optional[int] = field(
@@ -650,13 +626,23 @@ class MemoryManager:
         validator=attrsval_optional(attrsval_instance_of(int)),
     )
     # Directory for spill files; None uses the system temp directory.
-    spill_directory: Optional[str] = field(
+    spill_directory: Optional[os.PathLike | str] = field(
         default=None,
-        validator=attrsval_optional(attrsval_instance_of(str)),
     )
 
     def __attrs_post_init__(self) -> None:
         """Initialise the manager with current GPU memory information."""
+        if (
+            self.host_spill_threshold is not None
+            and self.host_spill_threshold < 0
+        ):
+            raise ValueError("host_spill_threshold must be non-negative")
+        if self.spill_directory is not None:
+            self.spill_directory = os.fspath(self.spill_directory)
+            if not os.path.isdir(self.spill_directory):
+                raise ValueError(
+                    "spill_directory must be an existing directory"
+                )
         try:
             free, total = self.get_memory_info()
         except ValueError as e:
@@ -683,6 +669,10 @@ class MemoryManager:
         invalidate_cache_hook: Callable = placeholder_invalidate,
         allocation_ready_hook: Callable = placeholder_dataready,
         stream_group: str = "default",
+        owner: Optional[object] = None,
+        evictable: bool = False,
+        host_spill_threshold: Optional[int] = None,
+        spill_directory: Optional[os.PathLike | str] = None,
     ) -> None:
         """
         Register an instance and configure its memory allocation settings.
@@ -700,6 +690,14 @@ class MemoryManager:
             Function to call when allocations are ready.
         stream_group
             Name of the stream group to assign the instance to.
+        owner
+            Object that owns this registration.
+        evictable
+            Allow completed owner allocations to be evicted.
+        host_spill_threshold
+            Bytes above which this owner's host arrays spill to disk.
+        spill_directory
+            Directory for this owner's spill files.
 
         Raises
         ------
@@ -713,19 +711,30 @@ class MemoryManager:
         if instance_id in self.registry:
             raise ValueError("Instance already registered")
 
+        if host_spill_threshold is not None:
+            if not isinstance(host_spill_threshold, int):
+                raise TypeError("host_spill_threshold must be an integer")
+            if host_spill_threshold < 0:
+                raise ValueError("host_spill_threshold must be non-negative")
+        if spill_directory is not None:
+            spill_directory = os.fspath(spill_directory)
+            if not os.path.isdir(spill_directory):
+                raise ValueError("spill_directory must be an existing directory")
         self.stream_groups.add_instance(instance, stream_group)
 
         try:
             instance_ref = weakref_ref(instance)
         except TypeError:
-            # Instances without weak-reference support keep the
-            # pre-existing lifetime contract: registered until the
-            # process ends, never purged.
             instance_ref = None
+        owner_id = instance_id if owner is None else id(owner)
         settings = InstanceMemorySettings(
             invalidate_hook=invalidate_cache_hook,
             allocation_ready_hook=allocation_ready_hook,
             instance_ref=instance_ref,
+            owner_id=owner_id,
+            evictable=evictable,
+            host_spill_threshold=host_spill_threshold,
+            spill_directory=spill_directory,
         )
 
         self.registry[instance_id] = settings
@@ -1077,73 +1086,81 @@ class MemoryManager:
         self._drop_instance(instance_id)
         self._rebalance_auto_pool()
 
-    def mark_active(self, instance: object) -> None:
-        """
-        Flag an instance's allocations as in use by a running solve.
+    def _owner_settings(self, owner_id: int) -> list[InstanceMemorySettings]:
+        """Return registry entries owned by one client."""
+        return [
+            settings
+            for settings in self.registry.values()
+            if settings.owner_id == owner_id
+        ]
 
-        Active instances are never evicted by allocation-pressure
-        reclamation. Unregistered instances are ignored.
+    def begin_work(self, owner: object) -> None:
+        """Mark an owner as submitting CUDA work."""
+        self._usage_clock += 1
+        for settings in self._owner_settings(id(owner)):
+            settings.submitting = True
+            settings.last_used = self._usage_clock
 
-        Parameters
-        ----------
-        instance
-            Registered instance to mark.
-        """
-        settings = self.registry.get(id(instance))
-        if settings is not None:
-            settings.active = True
+    def end_work(self, owner: object, stream: Stream) -> None:
+        """Record completion of an owner's submitted CUDA work."""
+        event = None
+        if not CUDA_SIMULATION:
+            event = cuda.event()
+            event.record(stream)
+        for settings in self._owner_settings(id(owner)):
+            settings.last_stream = stream
+            settings.completion_event = event
+            settings.submitting = False
 
-    def mark_idle(self, instance: object) -> None:
-        """
-        Clear an instance's active flag once its solve completes.
+    def _evict_idle_owners(
+        self, exclude_ids: set[int], required_bytes: int
+    ) -> int:
+        """Evict the least-recently-used eligible owners."""
+        excluded_owners = {
+            self.registry[instance_id].owner_id
+            for instance_id in exclude_ids
+            if instance_id in self.registry
+        }
+        owners = {}
+        for settings in self.registry.values():
+            owners.setdefault(settings.owner_id, []).append(settings)
 
-        Idle instances' device buffers may be evicted when another
-        instance's request cannot fit in free memory; the evicted
-        instance's invalidate hook marks its arrays for reallocation,
-        so its next solve rebuilds them. Unregistered instances are
-        ignored.
+        candidates = []
+        for owner_id, owned in owners.items():
+            if owner_id in excluded_owners:
+                continue
+            if not all(settings.evictable for settings in owned):
+                continue
+            if not any(
+                settings.invalidate_hook.target()
+                not in (None, placeholder_invalidate)
+                for settings in owned
+            ):
+                continue
+            if any(
+                instance_id in self._manual_pool
+                for instance_id, settings in self.registry.items()
+                if settings.owner_id == owner_id
+            ):
+                continue
+            if not all(settings.work_complete for settings in owned):
+                continue
+            allocated = sum(settings.allocated_bytes for settings in owned)
+            if allocated:
+                candidates.append(
+                    (min(settings.last_used for settings in owned), owned)
+                )
 
-        Parameters
-        ----------
-        instance
-            Registered instance to mark.
-        """
-        settings = self.registry.get(id(instance))
-        if settings is not None:
-            settings.active = False
-
-    def _evict_idle_instances(self, exclude_ids: set) -> int:
-        """
-        Free the device allocations of idle registered instances.
-
-        Second-stage pressure response after :meth:`_reclaim_memory`:
-        drops the allocations of every registered instance that is not
-        active and not excluded, and calls its invalidate hook so the
-        instance queues reallocation on its next solve. The registry
-        entries themselves are kept — the instances are alive and will
-        allocate again.
-
-        Parameters
-        ----------
-        exclude_ids
-            Instance identifiers whose allocations must be kept (the
-            instances participating in the current allocation).
-
-        Returns
-        -------
-        int
-            Bytes of allocations released.
-        """
         released = 0
-        for instance_id, settings in self.registry.items():
-            if instance_id in exclude_ids or settings.active:
-                continue
-            if not settings.allocations:
-                continue
-            released += settings.allocated_bytes
-            settings.free_all()
-            settings.invalidate_hook()
+        for _, owned in sorted(candidates, key=lambda item: item[0]):
+            for settings in owned:
+                released += settings.allocated_bytes
+                settings.free_all()
+                settings.invalidate_hook()
+            if released >= required_bytes:
+                break
         return released
+
     def _rebalance_auto_pool(self) -> None:
         """
         Redistribute available memory equally among auto-allocated instances.
@@ -1214,9 +1231,10 @@ class MemoryManager:
     def create_host_array(
         self,
         shape: tuple[int, ...],
-        dtype: type,
+        dtype: DTypeLike,
         memory_type: str = "pinned",
         like: Optional[ndarray] = None,
+        instance: Optional[object] = None,
     ) -> ndarray:
         """
         Create a C-contiguous host array.
@@ -1228,16 +1246,11 @@ class MemoryManager:
         dtype
             Data type for the array elements.
         memory_type
-            Memory type for the host array. Must be ``"pinned"``,
-            ``"host"``, or ``"memmap"``. Defaults to ``"pinned"``.
-            ``"pinned"`` and ``"host"`` requests whose size exceeds
-            the spill threshold (``host_spill_threshold``, or
-            ``HOST_SPILL_FRACTION`` of available RAM when unset) are
-            returned as ``"memmap"`` arrays backed by a spill file
-            that is deleted when the array is collected.
+            ``"pinned"``, ``"host"``, or ``"memmap"``.
         like
-            A source array to copy data from. If provided, the new array has
-            the same data as like; if not, it is filled with zeros
+            Optional source data.
+        instance
+            Registered owner whose spill policy applies.
 
         Returns
         -------
@@ -1258,12 +1271,12 @@ class MemoryManager:
                 f"got '{memory_type}'"
             )
         if memory_type in ("pinned", "host"):
-            threshold = self._resolved_spill_threshold()
+            threshold = self._resolved_spill_threshold(instance)
             nbytes = int(prod(shape)) * np_dtype(dtype).itemsize
             if threshold is not None and nbytes > threshold:
                 memory_type = "memmap"
         if memory_type == "memmap":
-            arr = self._create_spill_array(shape, dtype)
+            arr = self._create_spill_array(shape, dtype, instance)
         elif memory_type == "pinned":
             arr = _pinned_host_array(shape, dtype)
         else:
@@ -1276,17 +1289,17 @@ class MemoryManager:
             arr.fill(0.0)
         return arr
 
-    def _resolved_spill_threshold(self) -> Optional[int]:
-        """
-        Return the host-array spill threshold in bytes.
-
-        Returns
-        -------
-        int or None
-            ``host_spill_threshold`` when set, otherwise
-            ``HOST_SPILL_FRACTION`` of the RAM currently available.
-            ``None`` disables spilling (RAM availability unknown).
-        """
+    def _resolved_spill_threshold(
+        self, instance: Optional[object] = None
+    ) -> Optional[int]:
+        """Return the applicable spill threshold in bytes."""
+        if instance is not None:
+            settings = self.registry.get(id(instance))
+            if (
+                settings is not None
+                and settings.host_spill_threshold is not None
+            ):
+                return settings.host_spill_threshold
         if self.host_spill_threshold is not None:
             return self.host_spill_threshold
         ram_available = available_system_ram()
@@ -1295,35 +1308,40 @@ class MemoryManager:
         return int(ram_available * HOST_SPILL_FRACTION)
 
     def _create_spill_array(
-        self, shape: tuple[int, ...], dtype: Callable
+        self,
+        shape: tuple[int, ...],
+        dtype: DTypeLike,
+        instance: Optional[object] = None,
     ) -> np_memmap:
-        """
-        Create a disk-backed host array in the spill directory.
-
-        The backing file is deleted when the array is garbage
-        collected.
-
-        Parameters
-        ----------
-        shape
-            Shape of the array to create.
-        dtype
-            Constructor returning the precision object for the array
-            elements.
-
-        Returns
-        -------
-        numpy.memmap
-            Writeable zero-initialised disk-backed array.
-        """
-        directory = self.spill_directory or gettempdir()
+        """Create a temporary disk-backed array."""
+        directory = self.spill_directory
+        if instance is not None:
+            settings = self.registry.get(id(instance))
+            if settings is not None and settings.spill_directory is not None:
+                directory = settings.spill_directory
+        directory = os.fspath(directory or gettempdir())
         handle, path = mkstemp(
             prefix="cubie-spill-", suffix=".dat", dir=directory
         )
         os.close(handle)
         arr = np_memmap(path, dtype=dtype, mode="w+", shape=shape)
-        finalize(arr, _remove_spill_file, path)
+        cleanup = finalize(arr, _remove_spill_file, arr._mmap, path)
+        arr._cubie_spill_path = path
+        arr._cubie_spill_cleanup = cleanup
         return arr
+
+    def release_host_array(self, array: ndarray) -> None:
+        """Release a spill-backed host array."""
+        cleanup = getattr(array, "_cubie_spill_cleanup", None)
+        if cleanup is None or not cleanup.alive:
+            return
+        path = array._cubie_spill_path
+        try:
+            array._mmap.close()
+            os.remove(path)
+        except OSError as error:
+            raise OSError(f"Could not remove spill file '{path}'") from error
+        cleanup.detach()
 
     def get_available_memory(self, group: str) -> int:
         """
@@ -1775,15 +1793,32 @@ class MemoryManager:
         """
         free, _ = self.get_memory_info()
         available_memory = self.get_available_memory(stream_group)
+        cap_headroom = None
+        if self._mode == "active":
+            members = self.stream_groups.get_instances_in_group(stream_group)
+            cap_headroom = sum(
+                self.registry[member].cap
+                - self.registry[member].allocated_bytes
+                for member in members
+            )
         chunkable_size, unchunkable_size = get_portioned_request_size(
             requests,
         )
 
         request_size = chunkable_size + unchunkable_size
 
-        if request_size >= available_memory:
-            if self._evict_idle_instances(set(requests.keys())):
-                available_memory = self.get_available_memory(stream_group)
+        physical_shortage = request_size >= free
+        cap_allows_request = (
+            cap_headroom is None or request_size < cap_headroom
+        )
+        if physical_shortage and cap_allows_request:
+            released = self._evict_idle_owners(
+                set(requests.keys()), request_size - free + 1
+            )
+            available_memory = min(
+                free + released,
+                cap_headroom if cap_headroom is not None else free + released,
+            )
         if request_size < available_memory:
             return axis_length, 1  # No chunking needed
 

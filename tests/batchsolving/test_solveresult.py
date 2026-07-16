@@ -1,12 +1,32 @@
+from pathlib import Path
+
 import numpy as np
 import pandas as pd
 import pytest
 
 from cubie.batchsolving.solver import Solver
 from cubie.batchsolving.BatchSolverConfig import ActiveOutputs
-from cubie.batchsolving.solveresult import SolveResult
+from cubie.batchsolving.solveresult import RawSolveResult, SolveResult
+from cubie.memory import MemoryManager
 
 Array = np.ndarray
+
+
+def test_spill_result_context_releases_shared_mapping(tmp_path):
+    """Result context cleanup releases each spill mapping once."""
+    manager = MemoryManager(spill_directory=tmp_path)
+    shared = manager.create_host_array((2, 2), np.float64, "memmap")
+    path = Path(shared._cubie_spill_path)
+    with SolveResult(
+        time_domain_array=shared,
+        summaries_array=shared,
+        iteration_counters=np.array([]),
+        memory_manager=manager,
+    ) as result:
+        assert path.exists()
+        assert result.time_domain_array is result.summaries_array
+    assert not path.exists()
+    result.close()
 
 
 @pytest.fixture(scope="session")
@@ -745,11 +765,12 @@ def test_status_messages_property(solver_with_arrays):
 
 
 def test_from_solver_raw_results_type(solver_with_arrays):
-    """results_type='raw' shortcuts to a plain dict of host arrays with
-    no legends or supporting information."""
+    """Raw results own copies of the solver host arrays."""
+    expected_state = solver_with_arrays.state.copy()
+    expected_status = solver_with_arrays.status_codes.copy()
     result = SolveResult.from_solver(solver_with_arrays, results_type="raw")
 
-    assert isinstance(result, dict)
+    assert isinstance(result, RawSolveResult)
     assert set(result.keys()) == {
         "state",
         "observables",
@@ -758,8 +779,11 @@ def test_from_solver_raw_results_type(solver_with_arrays):
         "iteration_counters",
         "status_codes",
     }
-    assert result["state"] is solver_with_arrays.state
-    assert result["status_codes"] is solver_with_arrays.status_codes
+    assert result["state"] is not solver_with_arrays.state
+    assert result["status_codes"] is not solver_with_arrays.status_codes
+    np.testing.assert_array_equal(result["state"], expected_state)
+    np.testing.assert_array_equal(result["status_codes"], expected_status)
+    result.close()
 
 
 @pytest.mark.parametrize(

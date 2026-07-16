@@ -40,6 +40,7 @@ if TYPE_CHECKING:
 
 from cubie.cuda_simsafe import cuda, CUDA_SIMULATION
 from cubie.memory.chunk_buffer_pool import ChunkBufferPool, PinnedBuffer
+from cubie.memory.mem_manager import HOST_STAGING_BYTES
 from cubie.batchsolving.writeback_watcher import WritebackWatcher
 from cubie.outputhandling.output_sizes import BatchInputSizes
 from cubie.batchsolving.arrays.BaseArrayManager import (
@@ -258,11 +259,20 @@ class InputArrays(BaseArrayManager):
             A new InputArrays instance configured for the solver.
         """
         sizes = BatchInputSizes.from_solver(solver_instance)
+        owner = (
+            solver_instance
+            if hasattr(solver_instance, "_memory_manager")
+            else solver_instance.kernel
+        )
         return cls(
             sizes=sizes,
             precision=solver_instance.precision,
             memory_manager=solver_instance.memory_manager,
             stream_group=solver_instance.stream_group,
+            memory_owner=owner,
+            allow_memory_eviction=owner.allow_memory_eviction,
+            host_spill_threshold=owner.host_spill_threshold,
+            spill_directory=owner.spill_directory,
         )
 
     def update_from_solver(self, solver_instance: "BatchSolverKernel") -> None:
@@ -326,31 +336,28 @@ class InputArrays(BaseArrayManager):
 
         for array_name in arrays_to_copy:
             device_obj = self.device.get_managed_array(array_name)
-            to_.append(device_obj.array)
-
             host_obj = self.host.get_managed_array(array_name)
-
-            # Direct transfer when shapes match; chunked transfer otherwise
-            if not host_obj.needs_chunked_transfer:
-                from_.append(host_obj.array)
-            else:
-                host_slice = host_obj.chunk_slice(chunk_index)
-
-                # Chunked mode: use buffer pool for pinned staging
-                # Buffer must match device array shape for H2D copy
-                device_shape = device_obj.array.shape
-                buffer = self._buffer_pool.acquire(
-                    array_name, device_shape, host_slice.dtype
+            host_slice = (
+                host_obj.chunk_slice(chunk_index)
+                if host_obj.needs_chunked_transfer
+                else host_obj.array
+            )
+            needs_staging = host_obj.needs_chunked_transfer or (
+                self._requires_staging(host_slice, host_obj.memory_type)
+            )
+            if needs_staging:
+                self._stage_array(
+                    array_name,
+                    host_slice,
+                    device_obj.array,
+                    stream,
                 )
-                # Copy host slice into smallest indices of buffer,
-                # as the final host slice may be smaller than the buffer.
-                data_slice = tuple(slice(0, s) for s in host_slice.shape)
-                buffer.array[data_slice] = host_slice
-                from_.append(buffer.array)
-                # Record that we're using this buffer for later release.
-                self._active_buffers.append((array_name, buffer))
+            else:
+                from_.append(host_slice)
+                to_.append(device_obj.array)
 
-        self.to_device(from_, to_, stream=stream)
+        if from_:
+            self.to_device(from_, to_, stream=stream)
         if not self._active_buffers:
             return
         if CUDA_SIMULATION:
@@ -366,6 +373,35 @@ class InputArrays(BaseArrayManager):
                 array_name,
             )
         self._active_buffers.clear()
+
+    def _stage_array(
+        self, array_name, host_array, device_array, stream
+    ) -> None:
+        """Stage one pageable input through bounded pinned buffers."""
+        host_flat = host_array.reshape(-1)
+        device_flat = device_array.reshape(-1)
+        block_length = max(1, HOST_STAGING_BYTES // host_array.dtype.itemsize)
+        for start in range(0, host_flat.size, block_length):
+            stop = min(start + block_length, host_flat.size)
+            buffer = self._buffer_pool.acquire(
+                array_name, (stop - start,), host_array.dtype
+            )
+            buffer.array[:] = host_flat[start:stop]
+            self.to_device(
+                [buffer.array], [device_flat[start:stop]], stream=stream
+            )
+            if CUDA_SIMULATION:
+                self._buffer_pool.release(buffer)
+                continue
+            event = cuda.event()
+            event.record(stream)
+            if host_flat.size > block_length:
+                # Reuse waits only for this H2D slice. The kernel has not
+                # launched yet, so no unrelated CUDA work is included.
+                event.synchronize()
+                self._buffer_pool.release(buffer)
+            else:
+                self._active_buffers.append((array_name, buffer))
 
     def release_buffers(self) -> None:
         """Release all active buffers back to the pool.

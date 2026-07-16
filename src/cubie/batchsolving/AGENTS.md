@@ -58,13 +58,11 @@ deregisters the kernel and array managers. Explicit failures are reported and
 the close can be retried. `solve_ivp` closes its temporary solver before it
 returns. Finalizers provide best-effort cleanup for abandoned solvers.
 
-When several **live** solvers compete for VRAM, the memory manager evicts the device scratch
-of solvers that are not mid-solve (`kernel.run` brackets each solve with
-`mark_active`/`mark_idle`); the evicted solver's invalidate hooks queue reallocation, so its
-next solve rebuilds its buffers transparently. Host arrays bigger than the spill threshold
-(default half of available RAM; `host_spill_threshold`/`spill_directory` memory kwargs) are
-disk-backed `numpy.memmap`s, and batches too large for RAM are chunked, so solutions larger
-than system RAM stream through bounded staging.
+`allow_memory_eviction=True` lets physical VRAM pressure evict a
+completed solver's buffers. Completion is checked with a CUDA event.
+Host arrays above `host_spill_threshold` use `numpy.memmap` and bounded
+pinned staging. Full and raw results keep disk backing and support close or
+context cleanup. `as_numpy` uses RAM.
 
 ### Grids
 `BatchInputHandler` converts user dicts/arrays into `(variable, run)` arrays via the
@@ -97,8 +95,8 @@ summarised defaults to saved when all summarise inputs are `None`.
   precision with an even element count (float64 never pads — it would misalign).
 
 ### Results
-`SolveResult.from_solver(results_type=…)` builds the requested representation: `"raw"` returns a
-plain dict, `"full"` the `SolveResult` itself; the instance exposes `as_numpy`,
+`SolveResult.from_solver(results_type=…)` builds the requested representation: `"raw"` returns
+owned spill-aware copies, while `"full"` returns `SolveResult`; the instance exposes `as_numpy`,
 `as_numpy_per_summary`, and `as_pandas` (lazy `pandas` import). Trajectories for runs that errored
 (nonzero `status_codes`) are NaN-masked. `SolveResult.status_messages` (and the `Solver`
 pass-through) decodes the per-run status word into named `CUBIE_RESULT_CODES` flags via

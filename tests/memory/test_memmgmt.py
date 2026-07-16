@@ -1,5 +1,6 @@
 import ctypes
 import gc
+from pathlib import Path
 import weakref
 
 import pytest
@@ -18,6 +19,7 @@ from cubie.memory.mem_manager import (
     ArrayRequest,
     ArrayResponse,
     InstanceMemorySettings,
+    available_system_ram,
     _numba_stream_ptr,
     _pinned_host_array,
     current_cupy_stream,
@@ -1993,18 +1995,19 @@ def test_allocation_pressure_does_not_run_cyclic_gc(mgr):
         gc.enable()
 
 
-def test_mark_active_and_idle_flags(mgr):
-    """mark_active/mark_idle toggle the registry flag; unregistered
-    instances are ignored."""
+def test_owner_work_state_tracks_submission(mgr):
+    """Owner work stays active until its completion event finishes."""
     inst = DummyClass()
     mgr.register(inst, stream_group="flags")
-    assert mgr.registry[id(inst)].active is False
-    mgr.mark_active(inst)
-    assert mgr.registry[id(inst)].active is True
-    mgr.mark_idle(inst)
-    assert mgr.registry[id(inst)].active is False
-    mgr.mark_active(DummyClass())
-    mgr.mark_idle(DummyClass())
+    settings = mgr.registry[id(inst)]
+    assert settings.work_complete
+    mgr.begin_work(inst)
+    assert settings.submitting
+    assert not settings.work_complete
+    mgr.end_work(inst, mgr.get_stream(inst))
+    assert not settings.submitting
+    mgr.get_stream(inst).synchronize()
+    assert settings.work_complete
 
 
 @pytest.mark.parametrize(
@@ -2012,8 +2015,8 @@ def test_mark_active_and_idle_flags(mgr):
     [{"free": 2048, "total": 8 * 1024**3}],
     indirect=True,
 )
-def test_pressure_evicts_idle_but_not_active_instances(mgr):
-    """A request that exceeds free memory evicts idle live clients.
+def test_pressure_evicts_opted_in_complete_owner(mgr):
+    """Physical pressure evicts only opted-in completed owners.
 
     The idle client's allocations are freed and its invalidate hook
     runs (so it reallocates on its next solve); a client marked
@@ -2025,11 +2028,13 @@ def test_pressure_evicts_idle_but_not_active_instances(mgr):
         idle,
         invalidate_cache_hook=idle.notice_invalidate,
         stream_group="evict_idle",
+        evictable=True,
     )
     mgr.register(
         busy,
         invalidate_cache_hook=busy.notice_invalidate,
         stream_group="evict_busy",
+        evictable=True,
     )
     for instance in (idle, busy):
         mgr.queue_request(
@@ -2049,7 +2054,7 @@ def test_pressure_evicts_idle_but_not_active_instances(mgr):
     # Sentinel values: notice_invalidate resets proportion to None.
     idle.proportion = "armed"
     busy.proportion = "armed"
-    mgr.mark_active(busy)
+    mgr.begin_work(busy)
 
     requester = DummyClass()
     mgr.register(requester, stream_group="evict_requester")
@@ -2073,10 +2078,111 @@ def test_pressure_evicts_idle_but_not_active_instances(mgr):
     assert busy.proportion == "armed"
 
 
+@pytest.mark.parametrize(
+    "fixed_mem_override",
+    [{"free": 2048, "total": 8 * 1024**3}],
+    indirect=True,
+)
+def test_external_and_inflight_owners_are_not_evicted(mgr):
+    """Pressure keeps external and in-flight allocations."""
+    external = DummyClass()
+    inflight = DummyClass()
+    no_invalidator = DummyClass()
+    mgr.register(external, stream_group="external")
+    mgr.register(inflight, stream_group="inflight", evictable=True)
+    mgr.register(
+        no_invalidator,
+        stream_group="no_invalidator",
+        evictable=True,
+    )
+    for instance in (external, inflight, no_invalidator):
+        mgr.queue_request(
+            instance,
+            {
+                "buf": ArrayRequest(
+                    shape=(4, 4, 4),
+                    dtype=np.float32,
+                    memory="device",
+                    total_runs=4,
+                )
+            },
+        )
+        mgr.allocate_queue(instance)
+    mgr.begin_work(inflight)
+
+    requester = DummyClass()
+    mgr.register(requester, stream_group="protected_requester")
+    mgr.queue_request(
+        requester,
+        {
+            "big": ArrayRequest(
+                shape=(2, 2, 1024),
+                dtype=np.float32,
+                memory="device",
+                total_runs=1024,
+            )
+        },
+    )
+    mgr.allocate_queue(requester)
+
+    assert mgr.registry[id(external)].allocated_bytes > 0
+    assert mgr.registry[id(inflight)].allocated_bytes > 0
+    assert mgr.registry[id(no_invalidator)].allocated_bytes > 0
+
+
+@pytest.mark.parametrize(
+    "fixed_mem_override",
+    [{"free": 2048, "total": 8 * 1024**3}],
+    indirect=True,
+)
+def test_pressure_evicts_only_required_lru_owner(mgr):
+    """Eviction stops after the oldest owner covers the shortage."""
+    owners = (DummyClass(), DummyClass())
+    for index, owner in enumerate(owners):
+        mgr.register(
+            owner,
+            stream_group=f"lru_{index}",
+            evictable=True,
+            invalidate_cache_hook=owner.notice_invalidate,
+        )
+        mgr.queue_request(
+            owner,
+            {
+                "buf": ArrayRequest(
+                    shape=(4, 4, 4),
+                    dtype=np.float32,
+                    memory="device",
+                    total_runs=4,
+                )
+            },
+        )
+        mgr.allocate_queue(owner)
+        mgr.begin_work(owner)
+        stream = mgr.get_stream(owner)
+        mgr.end_work(owner, stream)
+        stream.synchronize()
+
+    requester = DummyClass()
+    mgr.register(requester, stream_group="lru_requester")
+    mgr.queue_request(
+        requester,
+        {
+            "big": ArrayRequest(
+                shape=(1, 1, 574),
+                dtype=np.float32,
+                memory="device",
+                total_runs=574,
+            )
+        },
+    )
+    mgr.allocate_queue(requester)
+
+    assert mgr.registry[id(owners[0])].allocated_bytes == 0
+    assert mgr.registry[id(owners[1])].allocated_bytes > 0
+
+
 def test_available_system_ram_reports_positive():
     """The RAM probe returns a positive byte count on CI platforms."""
-    from cubie.memory.mem_manager import available_system_ram
-
     ram_available = available_system_ram()
     assert ram_available is not None
     assert ram_available > 0
@@ -2111,6 +2217,29 @@ def test_create_host_array_spills_over_threshold(mgr, tmp_path):
     del big, explicit
     gc.collect()
     assert len(list(tmp_path.iterdir())) == 0
+
+
+def test_manager_rejects_negative_spill_threshold():
+    """The manager rejects a negative spill threshold immediately."""
+    with pytest.raises(ValueError, match="must be non-negative"):
+        MemoryManager(host_spill_threshold=-1)
+
+
+def test_release_host_array_reports_unlink_failure(mgr, tmp_path):
+    """Explicit spill cleanup reports a filesystem failure."""
+    mgr.spill_directory = tmp_path
+    array = mgr.create_host_array((4,), np.float64, "memmap")
+    path = Path(array._cubie_spill_path)
+    cleanup = array._cubie_spill_cleanup
+    array._mmap.close()
+    path.unlink()
+    path.mkdir()
+    try:
+        with pytest.raises(OSError, match="Could not remove spill file"):
+            mgr.release_host_array(array)
+    finally:
+        cleanup.detach()
+        path.rmdir()
 
 
 class TestDeadInstanceRelease:
