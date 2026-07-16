@@ -136,7 +136,7 @@ class CellMLCache:
             # Serialisation format of the pickled parse products;
             # bumping it orphans cache entries written with an
             # incompatible equation representation.
-            "parse_format": 2,
+            "parse_format": 3,
         }
         return json.dumps(args_dict, sort_keys=True)
 

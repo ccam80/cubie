@@ -344,14 +344,17 @@ def load_cellml_model(
     state_units = {}
     
     default_timelogger.start_event("codegen_cellml_symbol_conversion")
-    # Map every cellmlmanip Dummy to its engine IR replacement with a
-    # sanitised name. The map doubles as the conversion memo, so each
-    # equation converts to IR in a single pass with the replacements
-    # applied at the leaves.
-    dummy_to_ir = {}
+    # Map every cellmlmanip Dummy to a sanitised SymPy replacement.
+    # The substitution runs in SymPy (one xreplace pass per equation)
+    # before conversion to IR: rebuilding with numeric leaves lets
+    # SymPy's automatic evaluation distribute numeric coefficients
+    # and split constant exponential offsets, which canonicalises the
+    # model's many exp(k*(V - offset)) variants onto shared exp(k*V)
+    # factors that CSE reuses in the generated kernels.
+    dummy_to_symbol = {}
     for raw_state in raw_states:
         clean_name = _sanitize_symbol_name(raw_state.name)
-        dummy_to_ir[raw_state] = ir.sym(clean_name)
+        dummy_to_symbol[raw_state] = sp.Symbol(clean_name)
 
         # Get initial value if available
         if hasattr(raw_state, 'initial_value') and raw_state.initial_value is not None:
@@ -384,13 +387,13 @@ def load_cellml_model(
         if independent_variables:
             time_variable = next(iter(independent_variables))
             # Map time variable to standard 't' symbol
-            dummy_to_ir[time_variable] = ir.sym("t")
+            dummy_to_symbol[time_variable] = sp.Symbol("t", real=True)
     
     # Also convert any other Dummy symbols in the model equations
     # Special handling for numeric quantities (e.g., _0.5, _1.0, _3)
     for eq in model.equations:
         for atom in eq.atoms(sp.Dummy):
-            if atom not in dummy_to_ir:
+            if atom not in dummy_to_symbol:
                 clean_name = _sanitize_symbol_name(atom.name)
 
                 # Check if this is a numeric quantity (name starts with _)
@@ -398,18 +401,18 @@ def load_cellml_model(
                     try:
                         # Try to parse as a float
                         value = float(atom.name[1:])
-                        # Use int for whole numbers, float otherwise
+                        # Use Integer for whole numbers, Float for decimals
                         if value == int(value):
-                            dummy_to_ir[atom] = ir.num(int(value))
+                            dummy_to_symbol[atom] = sp.Integer(int(value))
                         else:
-                            dummy_to_ir[atom] = ir.num(value)
+                            dummy_to_symbol[atom] = sp.Float(value)
                         continue
                     except (ValueError, IndexError):
                         # Not a numeric value, treat as regular symbol
                         pass
 
                 # Regular symbol conversion
-                dummy_to_ir[atom] = ir.sym(clean_name)
+                dummy_to_symbol[atom] = sp.Symbol(clean_name)
 
                 # cellmlmanip Variables and Quantities always carry
                 # units
@@ -417,20 +420,29 @@ def load_cellml_model(
     default_timelogger.stop_event("codegen_cellml_symbol_conversion")
 
     default_timelogger.start_event("codegen_cellml_equation_processing")
-    # Convert each equation to IR in one pass; the Dummy replacements
-    # are applied through the pre-seeded conversion memo. Differential
-    # equations are recognised on the raw form, before conversion.
-    convert_memo = dict(dummy_to_ir)
+    # Substitute in SymPy (exact leaf replacement, one pass per
+    # equation), then convert the re-evaluated result to IR with a
+    # shared memo. Differential equations are recognised on the raw
+    # form, before substitution.
+    convert_memo = {}
     dxdt_equations = []
     algebraic_pairs = []
     for eq in model.equations:
-        rhs_ir = from_sympy(eq.rhs, convert_memo)
+        rhs_ir = from_sympy(
+            eq.rhs.xreplace(dummy_to_symbol), convert_memo
+        )
         if eq.lhs in raw_derivatives:
-            state_name = dummy_to_ir[eq.lhs.args[0]].name
+            state_name = str(dummy_to_symbol[eq.lhs.args[0]])
             dxdt_equations.append((ir.sym(f"d{state_name}"), rhs_ir))
         else:
             algebraic_pairs.append(
-                (from_sympy(eq.lhs, convert_memo), rhs_ir)
+                (
+                    from_sympy(
+                        eq.lhs.xreplace(dummy_to_symbol),
+                        convert_memo,
+                    ),
+                    rhs_ir,
+                )
             )
     default_timelogger.stop_event("codegen_cellml_equation_processing")
 
