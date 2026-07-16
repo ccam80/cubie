@@ -31,27 +31,32 @@ See Also
 
 from typing import Dict, Iterable, List, Optional, Sequence, Tuple, Union
 
-import sympy as sp
-
-from cubie.odesystems.symbolic.codegen.numba_cuda_printer import (
+from cubie.odesystems.symbolic.engine import expr as ir
+from cubie.odesystems.symbolic.engine.adapter import SystemIR, system_ir
+from cubie.odesystems.symbolic.engine.assignments import (
+    cse_and_stack,
+    prune_unused,
+    topological_sort,
+)
+from cubie.odesystems.symbolic.engine.printer import (
     print_cuda_multiple,
 )
-from cubie.odesystems.symbolic.codegen.jacobian import generate_analytical_jvp
+from cubie.odesystems.symbolic.codegen.jacobian import (
+    generate_analytical_jvp,
+)
 from cubie.odesystems.symbolic.parsing.jvp_equations import JVPEquations
 from cubie.odesystems.symbolic.parsing.parser import (
     IndexedBases,
     ParsedEquations,
-    TIME_SYMBOL,
 )
 from cubie.odesystems.symbolic.sym_utils import (
     render_constant_assignments,
-    topological_sort,
-    prune_unused_assignments,
-    cse_and_stack,
 )
 from cubie.time_logger import default_timelogger
 
+from ._matrix_utils import mass_matrix_ir
 from ._stage_utils import build_stage_metadata, prepare_stage_data
+from .nonlinear_residuals import build_stage_substitutions
 
 # Register timing events for codegen functions
 # Module-level registration required since codegen functions return code
@@ -195,9 +200,9 @@ CACHED_JVP_TEMPLATE = (
 def _partition_cached_assignments(
     equations: JVPEquations,
 ) -> Tuple[
-    List[Tuple[sp.Symbol, sp.Expr]],
-    List[Tuple[sp.Symbol, sp.Expr]],
-    List[Tuple[sp.Symbol, sp.Expr]],
+    List[Tuple[ir.Expr, ir.Expr]],
+    List[Tuple[ir.Expr, ir.Expr]],
+    List[Tuple[ir.Expr, ir.Expr]],
 ]:
     """Partition assignments into cached, runtime, and preparation subsets.
 
@@ -213,7 +218,7 @@ def _partition_cached_assignments(
 
 def _inline_aux_assignments(
     equations: JVPEquations,
-) -> List[Tuple[sp.Symbol, sp.Expr]]:
+) -> List[Tuple[ir.Expr, ir.Expr]]:
     """Return auxiliary expressions in order for inline (non-cached) code
     generation.
 
@@ -228,160 +233,157 @@ def _inline_aux_assignments(
     ]
 
 
+def _state_increment_subs(sysir: SystemIR) -> Dict[ir.Expr, ir.Expr]:
+    """Map state symbols to ``base_state + a_ij * state`` eval points.
+
+    Used by the non-cached (Newton--Krylov) paths, where the ``state``
+    argument is the stage increment.
+    """
+    a_ij_sym = ir.sym("a_ij")
+    subs = {}
+    for i, state_sym in enumerate(sysir.state_symbols):
+        subs[state_sym] = ir.add(
+            ir.arr("base_state", i),
+            ir.mul(a_ij_sym, ir.arr("state", i)),
+        )
+    return subs
+
+
 def _build_operator_body(
-    runtime_assigns: List[Tuple[sp.Symbol, sp.Expr]],
-    jvp_terms: Dict[int, sp.Expr],
-    index_map: IndexedBases,
-    M: sp.Matrix,
+    runtime_assigns: List[Tuple[ir.Expr, ir.Expr]],
+    jvp_terms: Dict[int, ir.Expr],
+    sysir: SystemIR,
+    M: List[List[ir.Expr]],
     use_cached_aux: bool = False,
-    cached_assigns: Optional[List[Tuple[sp.Symbol, sp.Expr]]] = None,
-    prepare_assigns: Optional[List[Tuple[sp.Symbol, sp.Expr]]] = None,
+    cached_assigns: Optional[List[Tuple[ir.Expr, ir.Expr]]] = None,
+    prepare_assigns: Optional[List[Tuple[ir.Expr, ir.Expr]]] = None,
 ) -> str:
     """Build the CUDA body computing ``β·M·v − γ·h·J·v``."""
 
-    n_out = len(index_map.dxdt.ref_map)
-    n_in = len(index_map.states.index_map)
-    v = sp.IndexedBase("v")
-    # Use _cubie_codegen_ prefix to avoid conflicts with user-defined
-    # variables named beta or gamma (issue #373)
-    beta_sym = sp.Symbol("_cubie_codegen_beta")
-    gamma_sym = sp.Symbol("_cubie_codegen_gamma")
-    a_ij_sym = sp.Symbol("a_ij")
-    h_sym = sp.Symbol("h")
+    n_out = len(sysir.dxdt_symbols)
+    n_in = len(sysir.state_symbols)
+    beta_sym = ir.sym("_cubie_codegen_beta")
+    gamma_sym = ir.sym("_cubie_codegen_gamma")
+    a_ij_sym = ir.sym("a_ij")
+    h_sym = ir.sym("h")
 
-    # Add state substitution for inline evaluation when not using cached aux
-    # For Newton-Krylov (use_cached_aux=False): state param is stage_increment,
-    #   need to evaluate at base_state + a_ij * stage_increment
-    # For Rosenbrock (use_cached_aux=True): state param is actual state,
-    #   evaluate at state directly (no substitution needed)
-    state_subs = {}
-    if not use_cached_aux:
-        state_symbols = list(index_map.states.index_map.keys())
-        state_indexed = sp.IndexedBase("state")
-        base_state_indexed = sp.IndexedBase("base_state")
-        for i, state_sym in enumerate(state_symbols):
-            eval_point = base_state_indexed[i] + a_ij_sym * state_indexed[i]
-            state_subs[state_sym] = eval_point
+    # For Newton-Krylov (use_cached_aux=False): state param is the
+    # stage increment; evaluate at base_state + a_ij * stage_increment.
+    # For Rosenbrock (use_cached_aux=True): state param is the actual
+    # state; no substitution.
+    state_subs = {} if use_cached_aux else _state_increment_subs(sysir)
+    memo: dict = {}
 
-    mass_assigns = []
-    out_updates = []
+    mass_assigns: List[Tuple[ir.Expr, ir.Expr]] = []
+    out_updates: List[Tuple[ir.Expr, ir.Expr]] = []
     for i in range(n_out):
-        mv = sp.S.Zero
+        mv_terms = []
         for j in range(n_in):
-            entry = M[i, j]
-            if entry == 0:
+            entry = M[i][j]
+            if ir.is_zero(entry):
                 continue
-            sym = sp.Symbol(f"m_{i}{j}")
-            # Convert integer mass matrix entries to float for precision
-            if isinstance(entry, sp.Integer):
-                entry = sp.Float(float(entry))
-            mass_assigns.append((sym, entry))
-            mv += sym * v[j]
-        # Apply state substitution to jvp_terms (only for non-cached case)
-        jvp_substituted = jvp_terms[i].subs(state_subs) if state_subs else jvp_terms[i]
-        rhs = beta_sym * mv - gamma_sym * a_ij_sym * h_sym * jvp_substituted
-        out_updates.append((sp.Symbol(f"out[{i}]"), rhs))
+            m_sym = ir.sym(f"m_{i}{j}")
+            mass_assigns.append((m_sym, entry))
+            mv_terms.append(ir.mul(m_sym, ir.arr("v", j)))
+        mv = ir.add(*mv_terms) if mv_terms else ir.ZERO
+        jvp_term = jvp_terms.get(i, ir.ZERO)
+        if state_subs:
+            jvp_term = ir.xreplace(jvp_term, state_subs, memo)
+        rhs = ir.sub(
+            ir.mul(beta_sym, mv),
+            ir.mul(gamma_sym, a_ij_sym, h_sym, jvp_term),
+        )
+        out_updates.append((ir.arr("out", i), rhs))
 
     if use_cached_aux:
-        if cached_assigns:
-            cached = sp.IndexedBase(
-                "cached_aux", shape=(sp.Integer(len(cached_assigns)),)
-            )
-        else:
-            cached = sp.IndexedBase("cached_aux")
         aux_assignments = [
-            (lhs, cached[idx]) for idx, (lhs, _) in enumerate(cached_assigns)
+            (lhs, ir.arr("cached_aux", idx))
+            for idx, (lhs, _) in enumerate(cached_assigns or [])
         ] + runtime_assigns
     else:
-        combined = (list(prepare_assigns or []) +
-                    list(cached_assigns or []) +
-                    runtime_assigns)
+        combined = (
+            list(prepare_assigns or [])
+            + list(cached_assigns or [])
+            + runtime_assigns
+        )
         seen = set()
         aux_assignments = []
         for lhs, rhs in combined:
             if lhs in seen:
                 continue
             seen.add(lhs)
-            # Apply state substitution to auxiliary assignments (non-cached only)
-            rhs_substituted = rhs.subs(state_subs) if state_subs else rhs
-            aux_assignments.append((lhs, rhs_substituted))
+            if state_subs:
+                rhs = ir.xreplace(rhs, state_subs, memo)
+            aux_assignments.append((lhs, rhs))
 
     exprs = mass_assigns + aux_assignments + out_updates
-    exprs = prune_unused_assignments(exprs, outputsym_str='out')
+    exprs = prune_unused(exprs, output_name="out")
 
     lines = print_cuda_multiple(
         exprs,
-        symbol_map=index_map.all_arrayrefs,
-        constant_names=index_map.constants.symbol_map,
+        symbol_map=sysir.arrayrefs,
+        constant_names=sysir.constant_names,
+        function_aliases=sysir.function_aliases,
     )
     assert lines, "internal error: codegen produced an empty body"
     return "\n".join("        " + ln for ln in lines)
 
 
 def _build_cached_jvp_body(
-    cached_assigns: List[Tuple[sp.Symbol, sp.Expr]],
-    runtime_assigns: List[Tuple[sp.Symbol, sp.Expr]],
-    jvp_terms: Dict[int, sp.Expr],
-    index_map: IndexedBases,
+    cached_assigns: List[Tuple[ir.Expr, ir.Expr]],
+    runtime_assigns: List[Tuple[ir.Expr, ir.Expr]],
+    jvp_terms: Dict[int, ir.Expr],
+    sysir: SystemIR,
 ) -> str:
-    """Build the CUDA body computing ``J·v`` with optional cached auxiliaries."""
+    """Build the CUDA body computing ``J·v`` with cached auxiliaries."""
 
-    n_out = len(index_map.dxdt.ref_map)
-
-    if cached_assigns:
-        cached = sp.IndexedBase(
-            "cached_aux", shape=(sp.Integer(len(cached_assigns)),)
-        )
-    else:
-        cached = sp.IndexedBase("cached_aux")
-
+    n_out = len(sysir.dxdt_symbols)
     aux_assignments = [
-        (lhs, cached[idx]) for idx, (lhs, _) in enumerate(cached_assigns)
+        (lhs, ir.arr("cached_aux", idx))
+        for idx, (lhs, _) in enumerate(cached_assigns)
     ] + runtime_assigns
 
-    out_updates = []
-    for i in range(n_out):
-        rhs = jvp_terms.get(i, sp.S.Zero)
-        out_updates.append((sp.Symbol(f"out[{i}]"), rhs))
+    out_updates = [
+        (ir.arr("out", i), jvp_terms.get(i, ir.ZERO))
+        for i in range(n_out)
+    ]
 
     exprs = aux_assignments + out_updates
-    exprs = prune_unused_assignments(exprs, outputsym_str='out')
+    exprs = prune_unused(exprs, output_name="out")
 
     lines = print_cuda_multiple(
         exprs,
-        symbol_map=index_map.all_arrayrefs,
-        constant_names=index_map.constants.symbol_map,
+        symbol_map=sysir.arrayrefs,
+        constant_names=sysir.constant_names,
+        function_aliases=sysir.function_aliases,
     )
     assert lines, "internal error: codegen produced an empty body"
     return "\n".join("        " + ln for ln in lines)
 
 
 def _build_prepare_body(
-    cached_assigns: List[Tuple[sp.Symbol, sp.Expr]],
-    prepare_assigns: List[Tuple[sp.Symbol, sp.Expr]],
-    index_map: IndexedBases,
+    cached_assigns: List[Tuple[ir.Expr, ir.Expr]],
+    prepare_assigns: List[Tuple[ir.Expr, ir.Expr]],
+    sysir: SystemIR,
 ) -> str:
     """Build the CUDA body populating the cached Jacobian auxiliaries."""
 
-    if cached_assigns:
-        cached = sp.IndexedBase(
-            "cached_aux", shape=(sp.Integer(len(cached_assigns)),)
-        )
-    else:
-        cached = sp.IndexedBase("cached_aux")
-    exprs = []
-    cached_slots = {lhs: idx for idx, (lhs, _) in enumerate(cached_assigns)}
+    cached_slots = {
+        lhs: idx for idx, (lhs, _) in enumerate(cached_assigns)
+    }
+    exprs: List[Tuple[ir.Expr, ir.Expr]] = []
     for lhs, rhs in prepare_assigns:
         exprs.append((lhs, rhs))
         idx = cached_slots.get(lhs)
         if idx is not None:
-            exprs.append((cached[idx], lhs))
-    exprs = prune_unused_assignments(exprs, outputsym_str='cached_aux')
+            exprs.append((ir.arr("cached_aux", idx), lhs))
+    exprs = prune_unused(exprs, output_name="cached_aux")
 
     lines = print_cuda_multiple(
         exprs,
-        symbol_map=index_map.all_arrayrefs,
-        constant_names=index_map.constants.symbol_map,
+        symbol_map=sysir.arrayrefs,
+        constant_names=sysir.constant_names,
+        function_aliases=sysir.function_aliases,
     )
     if not lines:
         return "        pass"
@@ -390,10 +392,10 @@ def _build_prepare_body(
 
 def generate_operator_apply_code_from_jvp(
     equations: JVPEquations,
+    sysir: SystemIR,
     index_map: IndexedBases,
-    M: sp.Matrix,
+    M: List[List[ir.Expr]],
     func_name: str = "operator_apply_factory",
-    cse: bool = True,
 ) -> str:
     """Emit the operator apply factory from precomputed JVP expressions."""
 
@@ -401,7 +403,7 @@ def generate_operator_apply_code_from_jvp(
     body = _build_operator_body(
         runtime_assigns=runtime_aux,
         jvp_terms=equations.jvp_terms,
-        index_map=index_map,
+        sysir=sysir,
         M=M,
         use_cached_aux=False,
     )
@@ -413,8 +415,9 @@ def generate_operator_apply_code_from_jvp(
 
 def generate_cached_operator_apply_code_from_jvp(
     equations: JVPEquations,
+    sysir: SystemIR,
     index_map: IndexedBases,
-    M: sp.Matrix,
+    M: List[List[ir.Expr]],
     func_name: str = "linear_operator_cached",
 ) -> str:
     """Emit the cached linear operator factory from JVP expressions."""
@@ -424,7 +427,7 @@ def generate_cached_operator_apply_code_from_jvp(
         cached_assigns=cached_aux,
         runtime_assigns=runtime_aux,
         jvp_terms=equations.jvp_terms,
-        index_map=index_map,
+        sysir=sysir,
         M=M,
         use_cached_aux=True,
     )
@@ -438,13 +441,14 @@ def generate_cached_operator_apply_code_from_jvp(
 
 def generate_prepare_jac_code_from_jvp(
     equations: JVPEquations,
+    sysir: SystemIR,
     index_map: IndexedBases,
     func_name: str = "prepare_jac",
 ) -> Tuple[str, int]:
     """Emit the auxiliary preparation factory from JVP expressions."""
 
     cached_aux, _, prepare_assigns = _partition_cached_assignments(equations)
-    body = _build_prepare_body(cached_aux, prepare_assigns, index_map)
+    body = _build_prepare_body(cached_aux, prepare_assigns, sysir)
     const_block = render_constant_assignments(index_map.constants.symbol_map)
     aux_count = len(cached_aux)
     code = PREPARE_JAC_TEMPLATE.format(
@@ -456,6 +460,7 @@ def generate_prepare_jac_code_from_jvp(
 
 def generate_cached_jvp_code_from_jvp(
     equations: JVPEquations,
+    sysir: SystemIR,
     index_map: IndexedBases,
     func_name: str = "calculate_cached_jvp",
 ) -> str:
@@ -466,7 +471,7 @@ def generate_cached_jvp_code_from_jvp(
         cached_assigns=cached_aux,
         runtime_assigns=runtime_aux,
         jvp_terms=equations.jvp_terms,
-        index_map=index_map,
+        sysir=sysir,
     )
     const_block = render_constant_assignments(index_map.constants.symbol_map)
     code = CACHED_JVP_TEMPLATE.format(
@@ -475,10 +480,28 @@ def generate_cached_jvp_code_from_jvp(
     return code
 
 
+def _resolve_jvp(
+    equations: ParsedEquations,
+    index_map: IndexedBases,
+    cse: bool,
+    jvp_equations: Optional[JVPEquations],
+) -> JVPEquations:
+    """Return the JVP equations, generating them when not supplied."""
+    if jvp_equations is not None:
+        return jvp_equations
+    return generate_analytical_jvp(
+        equations,
+        input_order=index_map.states.index_map,
+        output_order=index_map.dxdt.index_map,
+        observables=index_map.observable_symbols,
+        cse=cse,
+    )
+
+
 def generate_operator_apply_code(
     equations: ParsedEquations,
     index_map: IndexedBases,
-    M: Optional[Union[sp.Matrix, Iterable[Iterable[sp.Expr]]]] = None,
+    M: Optional[Union[Iterable, object]] = None,
     func_name: str = "operator_apply_factory",
     cse: bool = True,
     jvp_equations: Optional[JVPEquations] = None,
@@ -486,25 +509,15 @@ def generate_operator_apply_code(
     """Generate the linear operator factory from system equations."""
     default_timelogger.start_event("codegen_generate_operator_apply_code")
 
-    if M is None:
-        n = len(index_map.states.index_map)
-        M_mat = sp.eye(n)
-    else:
-        M_mat = sp.Matrix(M)
-    if jvp_equations is None:
-        jvp_equations = generate_analytical_jvp(
-            equations,
-            input_order=index_map.states.index_map,
-            output_order=index_map.dxdt.index_map,
-            observables=index_map.observable_symbols,
-            cse=cse,
-        )
+    sysir = system_ir(equations, index_map)
+    mass = mass_matrix_ir(M, len(sysir.state_symbols))
+    jvp_equations = _resolve_jvp(equations, index_map, cse, jvp_equations)
     result = generate_operator_apply_code_from_jvp(
         equations=jvp_equations,
+        sysir=sysir,
         index_map=index_map,
-        M=M_mat,
+        M=mass,
         func_name=func_name,
-        cse=cse,
     )
     default_timelogger.stop_event("codegen_generate_operator_apply_code")
     return result
@@ -513,7 +526,7 @@ def generate_operator_apply_code(
 def generate_cached_operator_apply_code(
     equations: ParsedEquations,
     index_map: IndexedBases,
-    M: Optional[Union[sp.Matrix, Iterable[Iterable[sp.Expr]]]] = None,
+    M: Optional[Union[Iterable, object]] = None,
     func_name: str = "linear_operator_cached",
     cse: bool = True,
     jvp_equations: Optional[JVPEquations] = None,
@@ -521,23 +534,14 @@ def generate_cached_operator_apply_code(
     """Generate the cached linear operator factory."""
     default_timelogger.start_event("codegen_generate_cached_operator_apply_code")
 
-    if M is None:
-        n = len(index_map.states.index_map)
-        M_mat = sp.eye(n)
-    else:
-        M_mat = sp.Matrix(M)
-    if jvp_equations is None:
-        jvp_equations = generate_analytical_jvp(
-            equations,
-            input_order=index_map.states.index_map,
-            output_order=index_map.dxdt.index_map,
-            observables=index_map.observable_symbols,
-            cse=cse,
-        )
+    sysir = system_ir(equations, index_map)
+    mass = mass_matrix_ir(M, len(sysir.state_symbols))
+    jvp_equations = _resolve_jvp(equations, index_map, cse, jvp_equations)
     result = generate_cached_operator_apply_code_from_jvp(
         equations=jvp_equations,
+        sysir=sysir,
         index_map=index_map,
-        M=M_mat,
+        M=mass,
         func_name=func_name,
     )
     default_timelogger.stop_event("codegen_generate_cached_operator_apply_code")
@@ -554,16 +558,11 @@ def generate_prepare_jac_code(
     """Generate the cached auxiliary preparation factory."""
     default_timelogger.start_event("codegen_generate_prepare_jac_code")
 
-    if jvp_equations is None:
-        jvp_equations = generate_analytical_jvp(
-            equations,
-            input_order=index_map.states.index_map,
-            output_order=index_map.dxdt.index_map,
-            observables=index_map.observable_symbols,
-            cse=cse,
-        )
+    sysir = system_ir(equations, index_map)
+    jvp_equations = _resolve_jvp(equations, index_map, cse, jvp_equations)
     result = generate_prepare_jac_code_from_jvp(
         equations=jvp_equations,
+        sysir=sysir,
         index_map=index_map,
         func_name=func_name,
     )
@@ -581,16 +580,11 @@ def generate_cached_jvp_code(
     """Generate the cached Jacobian-vector product factory."""
     default_timelogger.start_event("codegen_generate_cached_jvp_code")
 
-    if jvp_equations is None:
-        jvp_equations = generate_analytical_jvp(
-            equations,
-            input_order=index_map.states.index_map,
-            output_order=index_map.dxdt.index_map,
-            observables=index_map.observable_symbols,
-            cse=cse,
-        )
+    sysir = system_ir(equations, index_map)
+    jvp_equations = _resolve_jvp(equations, index_map, cse, jvp_equations)
     result = generate_cached_jvp_code_from_jvp(
         equations=jvp_equations,
+        sysir=sysir,
         index_map=index_map,
         func_name=func_name,
     )
@@ -598,12 +592,89 @@ def generate_cached_jvp_code(
     return result
 
 
+def build_stage_jvp_assignments(
+    sysir: SystemIR,
+    jvp_equations: JVPEquations,
+    stage_idx: int,
+    coeff_symbols: List[List[ir.Sym]],
+    node_symbols: List[ir.Sym],
+    stage_coefficients: List[List[ir.Expr]],
+    direction_name: str = "v",
+) -> Tuple[List[Tuple[ir.Expr, ir.Expr]], Dict[int, ir.Sym]]:
+    """Instantiate the JVP auxiliary chain and terms for one stage.
+
+    The direction vector ``v`` is replaced by the stage coupling
+    ``sum_j a[stage][j] * <direction_name>[j*n + i]`` and every
+    auxiliary is renamed with a stage suffix so stages coexist in one
+    body.
+
+    Returns
+    -------
+    tuple
+        Stage-suffixed assignments (auxiliaries then JVP terms) and a
+        mapping from output index to the stage JVP symbol.
+    """
+    state_count = len(sysir.state_symbols)
+    stage_count = len(stage_coefficients)
+
+    subs_map = build_stage_substitutions(
+        sysir,
+        stage_idx,
+        coeff_symbols,
+        node_symbols,
+        stage_coefficients,
+        state_vector_name="state",
+    )
+
+    # v[i] -> sum over contributing stages of a_ij * v_flat[j*n + i]
+    for comp_idx in range(state_count):
+        combo_terms = []
+        for contrib_idx in range(stage_count):
+            if ir.is_zero(
+                stage_coefficients[stage_idx][contrib_idx]
+            ):
+                continue
+            coeff_sym = coeff_symbols[stage_idx][contrib_idx]
+            combo_terms.append(
+                ir.mul(
+                    coeff_sym,
+                    ir.arr(
+                        direction_name,
+                        contrib_idx * state_count + comp_idx,
+                    ),
+                )
+            )
+        combo = ir.add(*combo_terms) if combo_terms else ir.ZERO
+        subs_map[ir.arr("v", comp_idx)] = combo
+
+    # Stage-rename every JVP auxiliary; dependencies are topologically
+    # ordered, so one simultaneous rename map is exact.
+    for lhs in jvp_equations.non_jvp_order:
+        subs_map[lhs] = ir.sym(f"{lhs.name}_{stage_idx}")
+
+    memo: dict = {}
+    assignments: List[Tuple[ir.Expr, ir.Expr]] = []
+    for lhs in jvp_equations.non_jvp_order:
+        rhs = jvp_equations.non_jvp_exprs[lhs]
+        assignments.append(
+            (subs_map[lhs], ir.xreplace(rhs, subs_map, memo))
+        )
+
+    stage_jvp_symbols: Dict[int, ir.Sym] = {}
+    for idx, term in jvp_equations.jvp_terms.items():
+        stage_symbol = ir.sym(f"jvp_{stage_idx}_{idx}")
+        stage_jvp_symbols[idx] = stage_symbol
+        assignments.append(
+            (stage_symbol, ir.xreplace(term, subs_map, memo))
+        )
+    return assignments, stage_jvp_symbols
+
+
 def _build_n_stage_operator_lines(
-    equations: ParsedEquations,
-    index_map: IndexedBases,
-    M: sp.Matrix,
-    stage_coefficients: sp.Matrix,
-    stage_nodes: Tuple[sp.Expr, ...],
+    sysir: SystemIR,
+    M: List[List[ir.Expr]],
+    stage_coefficients: List[List[ir.Expr]],
+    stage_nodes: Tuple[ir.Expr, ...],
     jvp_equations: JVPEquations,
     cse: bool = True,
 ) -> str:
@@ -612,164 +683,63 @@ def _build_n_stage_operator_lines(
     metadata_exprs, coeff_symbols, node_symbols = build_stage_metadata(
         stage_coefficients, stage_nodes
     )
-    eq_list = equations.to_equation_list()
-    state_symbols = list(index_map.states.index_map.keys())
-    dx_symbols = list(index_map.dxdt.index_map.keys())
-    observable_symbols = list(index_map.observable_symbols)
-    driver_symbols = list(index_map.drivers.index_map.keys())
-    state_count = len(state_symbols)
-    stage_count = stage_coefficients.rows
+    state_count = len(sysir.state_symbols)
+    stage_count = len(stage_coefficients)
 
-    beta_sym = sp.Symbol("_cubie_codegen_beta")
-    gamma_sym = sp.Symbol("_cubie_codegen_gamma")
-    h_sym = sp.Symbol("h")
-    time_arg = sp.Symbol("t")
-    total_states = sp.Integer(stage_count * state_count)
-    state_vec = sp.IndexedBase("state", shape=(total_states,))
-    base_state = sp.IndexedBase("base_state", shape=(sp.Integer(state_count),))
-    direction_vec = sp.IndexedBase("v", shape=(total_states,))
-    out = sp.IndexedBase("out", shape=(total_states,))
+    beta_sym = ir.sym("_cubie_codegen_beta")
+    gamma_sym = ir.sym("_cubie_codegen_gamma")
+    h_sym = ir.sym("h")
 
-    driver_count = len(driver_symbols)
-    if driver_count:
-        drivers = sp.IndexedBase(
-            "drivers", shape=(sp.Integer(stage_count * driver_count),)
-        )
-    else:
-        drivers = sp.IndexedBase("drivers")
-
-    jvp_terms = jvp_equations.jvp_terms
-    aux_order = jvp_equations.non_jvp_order
-    aux_exprs = jvp_equations.non_jvp_exprs
-    eval_exprs: List[Tuple[sp.Symbol, sp.Expr]] = list(metadata_exprs)
+    eval_exprs: List[Tuple[ir.Expr, ir.Expr]] = list(metadata_exprs)
 
     for stage_idx in range(stage_count):
-        stage_dx_symbols = [
-            sp.Symbol(f"dx_{stage_idx}_{idx}")
-            for idx in range(len(dx_symbols))
-        ]
-        dx_subs = dict(zip(dx_symbols, stage_dx_symbols))
-
-        if observable_symbols:
-            stage_obs_symbols = [
-                sp.Symbol(f"aux_{stage_idx}_{idx + 1}")
-                for idx in range(len(observable_symbols))
-            ]
-            obs_subs = dict(zip(observable_symbols, stage_obs_symbols))
-        else:
-            obs_subs = {}
-        substitution_map = {**dx_subs, **obs_subs}
-        substitution_map[TIME_SYMBOL] = time_arg + h_sym * node_symbols[stage_idx]
-
-        if driver_count:
-            stage_driver_offset = stage_idx * driver_count
-            for driver_idx, driver_sym in enumerate(driver_symbols):
-                substitution_map[driver_sym] = drivers[
-                    stage_driver_offset + driver_idx
-                ]
-
-        stage_state_subs = {}
-        for state_idx, state_sym in enumerate(state_symbols):
-            expr = base_state[state_idx]
-            for contrib_idx in range(stage_count):
-                coeff_value = stage_coefficients[stage_idx, contrib_idx]
-                if coeff_value == 0:
-                    continue
-                coeff_sym = coeff_symbols[stage_idx][contrib_idx]
-                expr += coeff_sym * state_vec[
-                    contrib_idx * state_count + state_idx
-                ]
-            stage_state_subs[state_sym] = expr
-
-        substituted = [
-            (
-                lhs.subs(substitution_map),
-                rhs.subs(substitution_map).subs(stage_state_subs),
+        stage_assignments, stage_jvp_symbols = (
+            build_stage_jvp_assignments(
+                sysir,
+                jvp_equations,
+                stage_idx,
+                coeff_symbols,
+                node_symbols,
+                stage_coefficients,
             )
-            for lhs, rhs in eq_list
-        ]
-        eval_exprs.extend(substituted)
-
-        direction_combos = []
-        for comp_idx in range(state_count):
-            combo = sp.S.Zero
-            for contrib_idx in range(stage_count):
-                coeff_value = stage_coefficients[stage_idx, contrib_idx]
-                if coeff_value == 0:
-                    continue
-                coeff_sym = coeff_symbols[stage_idx][contrib_idx]
-                combo += coeff_sym * direction_vec[
-                    contrib_idx * state_count + comp_idx
-                ]
-            direction_combos.append(combo)
-        v_indexed = sp.IndexedBase("v")
-        v_subs = {
-            v_indexed[idx]: direction_combos[idx] for idx in range(state_count)
-        }
-
-        stage_aux_assignments: List[Tuple[sp.Symbol, sp.Expr]] = []
-        aux_subs: Dict[sp.Symbol, sp.Symbol] = {}
-        for lhs in aux_order:
-            stage_symbol = sp.Symbol(f"{str(lhs)}_{stage_idx}")
-            rhs = aux_exprs[lhs]
-            substituted_rhs = rhs.subs(substitution_map)
-            substituted_rhs = substituted_rhs.subs(stage_state_subs)
-            if aux_subs:
-                substituted_rhs = substituted_rhs.subs(aux_subs)
-            substituted_rhs = substituted_rhs.subs(v_subs)
-            stage_aux_assignments.append((stage_symbol, substituted_rhs))
-            aux_subs[lhs] = stage_symbol
-        eval_exprs.extend(stage_aux_assignments)
-
-        stage_jvp_symbols: Dict[int, sp.Symbol] = {}
-        for idx, expr in jvp_terms.items():
-            stage_symbol = sp.Symbol(f"jvp_{stage_idx}_{idx}")
-            stage_jvp_symbols[idx] = stage_symbol
-            substituted_expr = expr.subs(substitution_map)
-            substituted_expr = substituted_expr.subs(stage_state_subs)
-            if aux_subs:
-                substituted_expr = substituted_expr.subs(aux_subs)
-            eval_exprs.append(
-                (stage_symbol, substituted_expr.subs(v_subs))
-            )
+        )
+        eval_exprs.extend(stage_assignments)
 
         stage_offset = stage_idx * state_count
         for comp_idx in range(state_count):
-            mv = sp.S.Zero
+            mv_terms = []
             for col_idx in range(state_count):
-                entry = M[comp_idx, col_idx]
-                if entry == 0:
+                entry = M[comp_idx][col_idx]
+                if ir.is_zero(entry):
                     continue
-                mv += entry * direction_vec[stage_offset + col_idx]
-            jvp_value = stage_jvp_symbols.get(comp_idx, sp.S.Zero)
-            update_expr = beta_sym * mv - gamma_sym * h_sym * jvp_value
-            eval_exprs.append((out[stage_offset + comp_idx], update_expr))
+                mv_terms.append(
+                    ir.mul(
+                        entry,
+                        ir.arr("v", stage_offset + col_idx),
+                    )
+                )
+            mv = ir.add(*mv_terms) if mv_terms else ir.ZERO
+            jvp_value = stage_jvp_symbols.get(comp_idx, ir.ZERO)
+            update_expr = ir.sub(
+                ir.mul(beta_sym, mv),
+                ir.mul(gamma_sym, h_sym, jvp_value),
+            )
+            eval_exprs.append(
+                (ir.arr("out", stage_offset + comp_idx), update_expr)
+            )
 
     if cse:
         eval_exprs = cse_and_stack(eval_exprs)
     else:
         eval_exprs = topological_sort(eval_exprs)
 
-    symbol_map = dict(index_map.all_arrayrefs)
-    symbol_map.update(
-        {
-            "state": state_vec,
-            "base_state": base_state,
-            "v": direction_vec,
-            "out": out,
-            "_cubie_codegen_beta": beta_sym,
-            "_cubie_codegen_gamma": gamma_sym,
-            "h": h_sym,
-            "t": time_arg,
-        }
-    )
-    eval_exprs = prune_unused_assignments(eval_exprs,
-                                          outputsym_str='out')
+    eval_exprs = prune_unused(eval_exprs, output_name="out")
 
     lines = print_cuda_multiple(
         eval_exprs,
-        symbol_map=symbol_map,
-        constant_names=index_map.constants.symbol_map,
+        symbol_map=sysir.arrayrefs,
+        constant_names=sysir.constant_names,
+        function_aliases=sysir.function_aliases,
     )
     assert lines, "internal error: codegen produced an empty body"
     return "\n".join("        " + ln for ln in lines)
@@ -778,9 +748,9 @@ def _build_n_stage_operator_lines(
 def generate_n_stage_linear_operator_code(
     equations: ParsedEquations,
     index_map: IndexedBases,
-    stage_coefficients: Sequence[Sequence[Union[float, sp.Expr]]],
-    stage_nodes: Sequence[Union[float, sp.Expr]],
-    M: Optional[Union[sp.Matrix, Iterable[Iterable[sp.Expr]]]] = None,
+    stage_coefficients: Sequence[Sequence[Union[float, object]]],
+    stage_nodes: Sequence[Union[float, object]],
+    M: Optional[Union[Iterable, object]] = None,
     func_name: str = "n_stage_linear_operator",
     cse: bool = True,
     jvp_equations: Optional[JVPEquations] = None,
@@ -791,23 +761,12 @@ def generate_n_stage_linear_operator_code(
     coeff_matrix, node_values, stage_count = prepare_stage_data(
         stage_coefficients, stage_nodes
     )
-    if M is None:
-        state_dim = len(index_map.states.index_map)
-        mass_matrix = sp.eye(state_dim)
-    else:
-        mass_matrix = sp.Matrix(M)
-    if jvp_equations is None:
-        jvp_equations = generate_analytical_jvp(
-            equations,
-            input_order=index_map.states.index_map,
-            output_order=index_map.dxdt.index_map,
-            observables=index_map.observable_symbols,
-            cse=cse,
-        )
+    sysir = system_ir(equations, index_map)
+    mass = mass_matrix_ir(M, len(sysir.state_symbols))
+    jvp_equations = _resolve_jvp(equations, index_map, cse, jvp_equations)
     body = _build_n_stage_operator_lines(
-        equations=equations,
-        index_map=index_map,
-        M=mass_matrix,
+        sysir=sysir,
+        M=mass,
         stage_coefficients=coeff_matrix,
         stage_nodes=node_values,
         jvp_equations=jvp_equations,
@@ -861,4 +820,5 @@ __all__ = [
     "generate_prepare_jac_code",
     "generate_cached_jvp_code",
     "generate_n_stage_linear_operator_code",
+    "build_stage_jvp_assignments",
 ]

@@ -5,7 +5,15 @@ from cubie.odesystems.symbolic.codegen.jacobian import (
     generate_analytical_jvp,
     generate_jacobian,
 )
+from cubie.odesystems.symbolic.engine import to_sympy
 from cubie.odesystems.symbolic.parsing import IndexedBases, ParsedEquations
+
+
+def _jac_matrix(jac):
+    """Convert IR Jacobian rows to a SymPy matrix for comparison."""
+    return sp.Matrix(
+        [[to_sympy(entry) for entry in row] for row in jac]
+    )
 
 
 def _clear_cache():
@@ -52,7 +60,7 @@ def test_generate_jacobian_with_auxiliary():
         index_map.dxdt.index_map,
     )
     expected = sp.Matrix([[a - 1, b], [-a, -b + 1]])
-    assert jac.equals(expected)
+    assert _jac_matrix(jac).equals(expected)
 
 
 def test_generate_jacobian_coupled_nonlinear():
@@ -83,7 +91,7 @@ def test_generate_jacobian_coupled_nonlinear():
             [2 * x0, sp.exp(x1)],
         ]
     )
-    assert jac.equals(expected)
+    assert _jac_matrix(jac).equals(expected)
 
 
 def test_jacobian_caching():
