@@ -28,10 +28,12 @@ See Also
     instances.
 """
 
+from math import sqrt as math_sqrt
 from typing import Callable, Optional, Set, Dict, Any
 
 from attrs import define, field, validators
 from cubie.cuda_simsafe import cuda, int32
+from numpy import finfo as np_finfo
 from numpy import int32 as np_int32
 from numpy import ndarray
 
@@ -290,6 +292,16 @@ class NewtonKrylov(MatrixFreeSolver):
             config.krylov_iters_local_location,
             precision=np_int32,
         )
+        # Final eta of the previous solve seeds the next solve's
+        # first-iteration convergence estimate.
+        buffer_registry.register(
+            "newton_eta",
+            self,
+            1,
+            "local",
+            persistent=True,
+            precision=precision,
+        )
         # Record the linear solver as a child at registration time so
         # clear_parent cascades reach it before this solver has built;
         # build refreshes the same named registration with real sizes.
@@ -334,6 +346,8 @@ class NewtonKrylov(MatrixFreeSolver):
         )
         typed_one = numba_precision(1.0)
         typed_damping = numba_precision(newton_damping)
+        typed_eps = numba_precision(float(np_finfo(config.precision).eps))
+        typed_softening = numba_precision(0.8)
         n_val = int32(n)
 
         # Get allocators from buffer_registry
@@ -343,6 +357,7 @@ class NewtonKrylov(MatrixFreeSolver):
         alloc_residual_temp = get_alloc("residual_temp", self)
         alloc_stage_base_bt = get_alloc("stage_base_bt", self)
         alloc_krylov_iters_local = get_alloc("krylov_iters_local", self)
+        alloc_newton_eta = get_alloc("newton_eta", self)
 
         # Get child allocators for linear solver. Named registration
         # keeps re-registration idempotent if the linear solver
@@ -428,7 +443,25 @@ class NewtonKrylov(MatrixFreeSolver):
                 residual[i] = -residual[i]
                 delta[i] = typed_zero
 
-            converged = norm2_prev <= typed_one
+            # Convergence is update-based: eta * ||dz|| <= 1 bounds
+            # the error remaining after the full Newton step dz, with
+            # eta = theta / (1 - theta) and theta the contraction
+            # rate estimated from consecutive scaled update norms.
+            # The first iteration seeds eta from the previous solve's
+            # final value (softened by ^0.8); a fresh slot (zero)
+            # falls back to the conservative eta = 1, which demands
+            # the update itself sit inside tolerance.
+            newton_eta = alloc_newton_eta(shared_scratch, persistent_scratch)
+            eta_prev = newton_eta[0]
+            if eta_prev > typed_zero:
+                eta = numba_precision(
+                    max(eta_prev, typed_eps) ** typed_softening
+                )
+            else:
+                eta = typed_one
+            norm2_dz_prev = typed_zero
+
+            converged = False
             final_status = success
 
             krylov_iters_local = alloc_krylov_iters_local(
@@ -473,10 +506,53 @@ class NewtonKrylov(MatrixFreeSolver):
                 )
                 last_lin_status = selp(active, lin_status, last_lin_status)
 
+                # Contraction estimate from consecutive update norms.
+                norm2_dz = scaled_norm_fn(delta, stage_increment)
+                theta_known = (norm2_dz_prev > typed_zero) and (
+                    norm2_dz > typed_zero
+                )
+                contracting = True
+                new_eta = eta
+                if theta_known:
+                    if norm2_dz < norm2_dz_prev:
+                        theta = numba_precision(
+                            math_sqrt(norm2_dz / norm2_dz_prev)
+                        )
+                        new_eta = theta / (typed_one - theta)
+                    else:
+                        contracting = False
+                eta = selp(active, new_eta, eta)
+                norm2_dz_prev = selp(active, norm2_dz, norm2_dz_prev)
+
+                # A stalled update with an in-tolerance residual means
+                # the iterate sits at the rounding floor; accept it
+                # rather than iterating to failure.
+                stalled_ok = (
+                    active
+                    and theta_known
+                    and (not contracting)
+                    and (norm2_prev <= typed_one)
+                )
+                will_converge = (
+                    active
+                    and contracting
+                    and (lin_status == success)
+                    and (eta * eta * norm2_dz <= typed_one)
+                )
+                converged = converged or stalled_ok
+
                 for i in range(n_val):
                     stage_base_bt[i] = stage_increment[i]
                 found_step = False
                 alpha = typed_one
+
+                if will_converge:
+                    # The full step already meets the error bound:
+                    # apply it and skip the line search.
+                    for i in range(n_val):
+                        stage_increment[i] = stage_base_bt[i] + delta[i]
+                    converged = True
+                    found_step = True
 
                 for _ in range(max_backtracks):
                     active_bt = active and (not found_step) and (not converged)
@@ -504,10 +580,6 @@ class NewtonKrylov(MatrixFreeSolver):
                             residual_temp, stage_increment
                         )
 
-                        if norm2_new <= typed_one:
-                            converged = True
-                            found_step = True
-
                         if norm2_new < norm2_prev:
                             # Negate residual for return
                             for i in range(n_val):
@@ -526,6 +598,13 @@ class NewtonKrylov(MatrixFreeSolver):
                     # Revert increment to unscaled value for another damping attempt.
                     for i in range(n_val):
                         stage_increment[i] = stage_base_bt[i]
+
+            # Residual fallback at exit: never fail a solve the
+            # residual-based criterion would have accepted.
+            if (not converged) and (norm2_prev <= typed_one):
+                converged = True
+
+            newton_eta[0] = selp(converged, eta, eta_prev)
 
             # Compose status word on exit.
             if not converged:

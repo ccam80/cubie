@@ -502,6 +502,7 @@ def newton_solve(
     newton_damping: np.floating,
     newton_max_backtracks: int,
     newton_rtol: np.floating = 0.0,
+    eta_state: Optional[Array] = None,
     stage_index: int = 0,
     instrumented: bool = False,
     newton_initial_guesses: Optional[Array] = None,
@@ -540,6 +541,10 @@ def newton_solve(
         Multiplicative factor applied to the step size during backtracking.
     newton_max_backtracks
         Maximum number of damping attempts per iteration.
+    eta_state
+        Optional single-element array persisting the convergence-rate
+        estimate between solves, mirroring the device solver's
+        persistent eta slot.
     stage_index
         Index of the stage recorded in the logging buffers.
     instrumented
@@ -583,6 +588,24 @@ def newton_solve(
     residual = np.asarray(residual_fn(state), dtype=dtype)
     norm2_prev = _scaled_norm_impl(residual, state, atol_value, rtol_value)
     direction = np.zeros_like(residual)
+
+    # Update-based convergence mirrors the CUDA solver: the accepted
+    # error bound is eta * ||dz|| <= 1 with eta = theta / (1 - theta)
+    # and theta the contraction rate of consecutive scaled update
+    # norms; eta seeds from the previous solve (softened by ^0.8) or
+    # falls back to 1 on a fresh state.
+    typed_zero = scalar_type(0.0)
+    typed_eps = scalar_type(np.finfo(dtype).eps)
+    typed_softening = scalar_type(0.8)
+    eta_prev = scalar_type(eta_state[0]) if eta_state is not None else (
+        typed_zero
+    )
+    if eta_prev > typed_zero:
+        eta = scalar_type(max(eta_prev, typed_eps) ** typed_softening)
+    else:
+        eta = typed_one
+    norm2_dz_prev = typed_zero
+
     if instrumented and newton_initial_guesses is not None:
         newton_initial_guesses[stage_index, :] = state
 
@@ -599,9 +622,6 @@ def newton_solve(
         logging_squared_norms=newton_squared_norms,
     )
     log_index += 1
-
-    if norm2_prev <= typed_one:
-        return state, True, 0
 
     converged = False
     iterations_used = 0
@@ -631,13 +651,56 @@ def newton_solve(
 
         # An unconverged linear solve still yields a usable search
         # direction; do not abort the Newton iteration.
-        direction, _, _ = linear_solver(
+        direction, linear_converged, _ = linear_solver(
             jacobian,
             -residual,
             **linear_kwargs,
         )
 
         step = np.asarray(direction, dtype=dtype)
+
+        # Contraction estimate from consecutive update norms.
+        norm2_dz = _scaled_norm_impl(step, state, atol_value, rtol_value)
+        theta_known = norm2_dz_prev > typed_zero and norm2_dz > typed_zero
+        contracting = True
+        if theta_known:
+            if norm2_dz < norm2_dz_prev:
+                theta = scalar_type(np.sqrt(norm2_dz / norm2_dz_prev))
+                eta = scalar_type(theta / (typed_one - theta))
+            else:
+                contracting = False
+        norm2_dz_prev = norm2_dz
+
+        # A stalled update with an in-tolerance residual means the
+        # iterate sits at the rounding floor; accept it rather than
+        # iterating to failure.
+        if theta_known and not contracting and norm2_prev <= typed_one:
+            converged = True
+            break
+
+        if (
+            contracting
+            and linear_converged
+            and eta * eta * norm2_dz <= typed_one
+        ):
+            # The full step already meets the error bound: apply it
+            # and skip the line search.
+            state = np.asarray(state + step, dtype=dtype)
+            converged = True
+            _log_newton_iteration(
+                instrumented=instrumented,
+                stage_index=stage_index,
+                index=log_index,
+                candidate=state,
+                residual=np.zeros_like(residual),
+                squared_norm=scalar_type(eta * eta * norm2_dz),
+                logging_iteration_guesses=newton_iteration_guesses,
+                logging_residuals=newton_residuals,
+                logging_squared_norms=newton_squared_norms,
+            )
+            log_index += 1
+            break
+
         scale = typed_one
 
         for _ in range(backtrack_limit + 1):
@@ -660,13 +723,6 @@ def newton_solve(
             )
             log_index += 1
 
-            if trial_norm2 <= typed_one:
-                converged = True
-                state = trial_state
-                residual = trial_residual
-                if trial_norm2 < norm2_prev:
-                    norm2_prev = trial_norm2
-                break
             if trial_norm2 < norm2_prev:
                 state = trial_state
                 residual = trial_residual
@@ -683,6 +739,14 @@ def newton_solve(
             and iteration < newton_iteration_scale.shape[1]
         ):
             newton_iteration_scale[stage_index, iteration] = scale
+
+    # Residual fallback at exit: never fail a solve the residual-based
+    # criterion would have accepted.
+    if not converged and norm2_prev <= typed_one:
+        converged = True
+
+    if eta_state is not None and converged:
+        eta_state[0] = eta
 
     return state, converged, iterations_used
 

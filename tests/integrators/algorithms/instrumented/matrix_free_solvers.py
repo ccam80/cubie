@@ -1,6 +1,7 @@
 """Instrumented matrix-free solver factories for CUDA device kernels."""
 
 import attrs
+from math import sqrt as math_sqrt
 from typing import Callable
 
 import numpy as np
@@ -533,6 +534,8 @@ class InstrumentedNewtonKrylov(NewtonKrylov):
         )
         typed_one = numba_precision(1.0)
         typed_damping = numba_precision(damping)
+        typed_eps = numba_precision(float(np.finfo(precision_dtype).eps))
+        typed_softening = numba_precision(0.8)
         n_val = int32(n)
         max_iters_val = int32(max_iters)
         newton_max_backtracks_val = int32(newton_max_backtracks + 1)
@@ -550,7 +553,10 @@ class InstrumentedNewtonKrylov(NewtonKrylov):
         alloc_krylov_iters_local = buffer_registry.get_allocator(
             'krylov_iters_local', self
         )
-        
+        alloc_newton_eta = buffer_registry.get_allocator(
+            'newton_eta', self
+        )
+
         # Get child allocators for linear solver (same pattern as production)
         alloc_lin_shared, alloc_lin_persistent = (
             buffer_registry.get_child_allocators(self, self.linear_solver)
@@ -631,10 +637,25 @@ class InstrumentedNewtonKrylov(NewtonKrylov):
             newton_squared_norms[stage_index, log_index] = norm2_prev
             log_index += int32(1)
             
-            converged = norm2_prev <= typed_one
+            # Update-based convergence mirrors the production solver:
+            # eta * ||dz|| <= 1 with eta = theta / (1 - theta), theta
+            # estimated from consecutive scaled update norms, seeded
+            # from the previous solve's final eta (softened by ^0.8;
+            # zero slot falls back to eta = 1).
+            newton_eta = alloc_newton_eta(shared_scratch, persistent_scratch)
+            eta_prev = newton_eta[0]
+            if eta_prev > typed_zero:
+                eta = numba_precision(
+                    max(eta_prev, typed_eps) ** typed_softening
+                )
+            else:
+                eta = typed_one
+            norm2_dz_prev = typed_zero
+
+            converged = False
             has_error = False
             final_status = success
-            
+
             krylov_iters_local = alloc_krylov_iters_local(
                 shared_scratch, persistent_scratch
             )
@@ -688,14 +709,62 @@ class InstrumentedNewtonKrylov(NewtonKrylov):
                 total_krylov_iters += selp(
                     active, krylov_iters_local[0], int32(0)
                 )
-                
+
+                # Contraction estimate from consecutive update norms.
+                norm2_dz = scaled_norm_fn(delta, stage_increment)
+                theta_known = (norm2_dz_prev > typed_zero) and (
+                    norm2_dz > typed_zero
+                )
+                contracting = True
+                new_eta = eta
+                if theta_known:
+                    if norm2_dz < norm2_dz_prev:
+                        theta = numba_precision(
+                            math_sqrt(norm2_dz / norm2_dz_prev)
+                        )
+                        new_eta = theta / (typed_one - theta)
+                    else:
+                        contracting = False
+                eta = selp(active, new_eta, eta)
+                norm2_dz_prev = selp(active, norm2_dz, norm2_dz_prev)
+
+                # A stalled update with an in-tolerance residual means
+                # the iterate sits at the rounding floor; accept it
+                # rather than iterating to failure.
+                stalled_ok = (
+                    active
+                    and theta_known
+                    and (not contracting)
+                    and (norm2_prev <= typed_one)
+                )
+                will_converge = (
+                    active
+                    and contracting
+                    and (not lin_failed)
+                    and (eta * eta * norm2_dz <= typed_one)
+                )
+                converged = converged or stalled_ok
+
                 for i in range(n_val):
                     stage_base_bt[i] = stage_increment[i]
-                
+
                 alpha = typed_one
                 found_step = False
                 snapshot_ready = False
-                
+                norm2_new = typed_zero
+
+                if will_converge:
+                    # The full step already meets the error bound:
+                    # apply it and skip the line search.
+                    for i in range(n_val):
+                        stage_increment[i] = stage_base_bt[i] + delta[i]
+                        stage_increment_snapshot[i] = stage_increment[i]
+                        residual_snapshot[i] = typed_zero
+                    norm2_new = eta * eta * norm2_dz
+                    snapshot_ready = True
+                    converged = True
+                    found_step = True
+
                 for _ in range(newton_max_backtracks_val):
                     active_bt = active and (not found_step) and (not converged)
                     if not any_sync(mask, active_bt):
@@ -723,11 +792,7 @@ class InstrumentedNewtonKrylov(NewtonKrylov):
                             stage_increment_snapshot[i] = stage_increment[i]
                             residual_snapshot[i] = residual_temp[i]
                         snapshot_ready = True
-                        
-                        if norm2_new <= typed_one:
-                            converged = True
-                            found_step = True
-                        
+
                         if norm2_new < norm2_prev:
                             for i in range(n_val):
                                 residual[i] = -residual_temp[i]
@@ -764,6 +829,13 @@ class InstrumentedNewtonKrylov(NewtonKrylov):
                         log_index += int32(1)
                     newton_iteration_scale[stage_index, iter_slot] = alpha
             
+            # Residual fallback at exit: never fail a solve the
+            # residual-based criterion would have accepted.
+            if (not converged) and (norm2_prev <= typed_one):
+                converged = True
+
+            newton_eta[0] = selp(converged, eta, eta_prev)
+
             max_iters_exceeded = (not converged) and (not has_error)
             final_status = selp(
                 max_iters_exceeded,
