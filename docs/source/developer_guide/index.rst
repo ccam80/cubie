@@ -15,4 +15,5 @@ Python, NumPy, and CUDA concepts.
    codegen
    buffer_registry
    adding_metrics
+   mlir_patched_wheel
    testing

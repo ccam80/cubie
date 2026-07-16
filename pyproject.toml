@@ -50,12 +50,23 @@ Issues = "https://github.com/ccam80/cubie/issues"
 # bare 'cuda'/'mlir' extras install a backend without toolkit wheels,
 # for machines with a system CUDA install. The mlir lanes need
 # Python >= 3.11 (enforced by the numba-cuda-mlir wheel).
+#
+# numba-cuda-mlir-cubie is cubie's patched build of NVIDIA's
+# numba-cuda-mlir: stock source plus the native-code (C++) fixes
+# submitted upstream as NVIDIA/numba-cuda-mlir PRs 217/219/221/225/
+# 233, built from the cubie-wheel branch of ccam80/numba-cuda-mlir.
+# It installs the same numba_cuda_mlir import package, so it must
+# not share an environment with the stock numba-cuda-mlir wheel.
+# Python-side upstream fixes are not in the wheel; cubie applies
+# them at runtime via cubie._mlir_compat, which feature-detects and
+# no-ops once a fix is present natively. See
+# docs/source/developer_guide/mlir_patched_wheel.rst.
 cuda = ["numba-cuda"] # numba-cuda backend, system toolkit
 cuda12 = ["numba-cuda[cu12]", "cupy-cuda12x"] # CUDA 12 toolkit + CuPy
 cuda13 = ["numba-cuda[cu13]", "cupy-cuda13x"] # CUDA 13 toolkit + CuPy
-mlir = ["numba-cuda-mlir"] # MLIR backend, system toolkit
-mlir-cuda12 = ["numba-cuda-mlir[cu12]", "cupy-cuda12x"]
-mlir-cuda13 = ["numba-cuda-mlir[cu13]", "cupy-cuda13x"]
+mlir = ["numba-cuda-mlir-cubie>=0.4.1.1"] # MLIR backend, system toolkit
+mlir-cuda12 = ["numba-cuda-mlir-cubie[cu12]>=0.4.1.1", "cupy-cuda12x"]
+mlir-cuda13 = ["numba-cuda-mlir-cubie[cu13]>=0.4.1.1", "cupy-cuda13x"]
 test = [
     "pytest",
     "pytest-cov",
