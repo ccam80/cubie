@@ -24,8 +24,8 @@ by `codegen` also live here.
 | `assemble.py` | The two backends. `assemble_explicit` packages an explicit-shaped system directly (hash-stable with the pre-unification parser); `assemble_simplified` runs `structural_simplify` and maps the result back (declaration-order states, residuals paired by state, mass matrix rebuilt over the final order, eliminated-state warnings). Both inline observable definitions into consuming dynamics. |
 | `cellml.py` | `load_cellml_model` — wraps optional `cellmlmanip`, sanitises symbol names, splits differential vs algebraic equations, classifies constants/parameters/observables, then calls `parse_input`. Cache-aware (early + post-GUI checks). |
 | `cellml_cache.py` | `CellMLCache` — disk LRU cache (≤5 configs per model) of pickled parse results under `<cache root>/<model>/`, keyed by file-content SHA-256 + serialised args, tracked in `cellml_cache_manifest.json`. |
-| `jvp_equations.py` | `JVPEquations` (mutable attrs) — holds ordered JVP/auxiliary assignments and derives dependency graphs, op-cost, JVP usage/closure, dependency levels, and slot limits; lazily computes/stores a `CacheSelection`; `cached_partition()` splits into cached/runtime/prepare. |
-| `auxiliary_caching.py` | Heuristic cache planner. `CacheGroup`/`CacheSelection` (frozen attrs) and `plan_auxiliary_cache` — enumerate seed-rooted leaf groups, simulate runtime-op savings, and search group combinations under the slot limit to pick what to precompute. |
+| `jvp_equations.py` | `JVPEquations` (mutable attrs) — holds ordered JVP/auxiliary assignments as engine-IR pairs (JVP outputs are `Arr("jvp", i)` nodes) and derives dependency graphs, op-cost, JVP usage/closure, dependency levels, and slot limits; lazily computes/stores a `CacheSelection`; `cached_partition()` splits into cached/runtime/prepare. |
+| `auxiliary_caching.py` | Greedy polynomial cache planner. `CacheGroup`/`CacheSelection` (frozen attrs) and `plan_auxiliary_cache` — grow the cached-leaf set by best marginal runtime saving (any positive marginal while the plan is below `min_ops_threshold`, then `min_ops_threshold` per extra slot), simulating each addition in one linear pass; replaced the subset-enumeration search that never terminated beyond ~16 states (issue #603). |
 | `function_inspector.py` | AST analysis of a callable ODE. `inspect_ode_function` → `FunctionInspection`; `_OdeAstVisitor` collects state/constant accesses, assignments (incl. annotated), calls, unrolls `for` (also inside if-branches), synthesises `IfExp` from if/elif/else, rejects unsupported constructs (`while`/`with`/`try`/`match`/nested `def`/comprehensions; branch bodies raise on statements other than assignments and nested `if`/`for`); `AstToSympyConverter` maps AST nodes to SymPy — resolves user-function calls before `KNOWN_FUNCTIONS` (inlining non-device callables), inlines dxdt-named locals, and (in `strict_names` mode) raises on unknown bare names, suggesting the container access when the name is declared. Extra args used only by bare name are `scalar_params` (SciPy `args=` convention), bound to the like-named declared symbol. |
 | `function_parser.py` | `parse_function_input` — bridges `FunctionInspection` to the parser's `(equation_map, funcs, new_params)` triple: builds the symbol map (container accesses search parameters → constants → drivers; undeclared attribute/string accesses infer parameters in non-strict mode with `EquationWarning`), emits auxiliary/observable/dxdt equations, inlines `dx = expr; return [dx]` aliases. `infer_function_states` derives state names from dict-return keys or synthesises them for pure positional access when `states` is omitted. |
 
@@ -103,9 +103,10 @@ tuple-unpacking) raises `NotImplementedError`, as do `while`, comprehensions, ge
 `del`, `assert`, `raise`, `global`, `nonlocal`.
 
 ### auxiliary_caching
-`plan_auxiliary_cache` skips `_cse`-prefixed symbols when simulating removals and rejects a cache
-group if any removed node still has an external dependent (`_simulate_cached_leaves` returns
-`None`).
+`plan_auxiliary_cache` skips `_cse`-prefixed symbols when simulating removals and rejects an
+addition if any removed node still has a live dependent (`_simulate_cached_leaves` returns
+`None`). Planning cost is bounded: candidates are capped at a multiple of the slot limit and
+each greedy round is one simulation per candidate.
 
 ### Testing
 `tests/odesystems/symbolic/` (`test_parser`, `test_cellml`, `test_cellml_cache`,

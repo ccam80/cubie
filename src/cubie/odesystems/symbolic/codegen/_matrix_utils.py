@@ -8,7 +8,7 @@ Published Functions
     identity.
 """
 
-from typing import List, Optional
+from typing import List
 
 from cubie.odesystems.symbolic.engine import expr as ir
 from cubie.odesystems.symbolic.engine.from_sympy import from_sympy
@@ -17,16 +17,31 @@ __all__ = ["mass_matrix_ir"]
 
 
 def _entry_to_ir(entry) -> ir.Expr:
-    """Convert one matrix entry to an IR expression."""
+    """Convert one matrix entry to an IR expression.
+
+    Integer entries become floats so emitted mass terms carry an
+    explicit float literal, matching the SymPy-era generators.
+    """
     if isinstance(entry, ir.Expr):
+        if isinstance(entry, ir.Num) and isinstance(
+            entry.value, int
+        ):
+            return ir.num(float(entry.value))
         return entry
-    if isinstance(entry, (int, float)):
+    if isinstance(entry, int):
+        return ir.num(float(entry))
+    if isinstance(entry, float):
         return ir.num(entry)
     # NumPy scalars expose item(); SymPy scalars convert directly.
     item = getattr(entry, "item", None)
     if item is not None:
-        return ir.num(item())
-    return from_sympy(entry)
+        return ir.num(float(item()))
+    converted = from_sympy(entry)
+    if isinstance(converted, ir.Num) and isinstance(
+        converted.value, int
+    ):
+        return ir.num(float(converted.value))
+    return converted
 
 
 def mass_matrix_ir(M, n: int) -> List[List[ir.Expr]]:

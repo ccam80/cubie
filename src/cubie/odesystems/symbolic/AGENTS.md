@@ -3,8 +3,9 @@
 # symbolic
 
 ## Purpose
-SymPy-driven CUDA codegen pipeline that turns symbolic ODE definitions into JIT-compiled
-Numba-CUDA device functions. This top level holds the user-facing system class (`SymbolicODE`),
+CUDA codegen pipeline that turns symbolic ODE definitions into JIT-compiled Numba-CUDA
+device functions. SymPy is the parsing front end; all compute after parsing
+(differentiation, substitution, CSE, printing) runs on the hash-consed IR in `engine/`. This top level holds the user-facing system class (`SymbolicODE`),
 the disk-backed source cache (`ODEFile`), the symbol-to-device-index maps
 (`IndexedBaseMap`/`IndexedBases`), and shared SymPy utilities (CSE, topological sort, hashing,
 assignment pruning). Equation parsing lives in `parsing/`; the CUDA source emitters live in
@@ -24,12 +25,13 @@ attrs conventions; `BaseODE` (parent, `../AGENTS.md`) for `ODECache`/`config_has
 | `symbolicODE.py` | `SymbolicODE(BaseODE)` plus `create_ODE_system()`. Owns parsing, codegen caching, constant/parameter conversion, units, optional Qt GUIs, and `get_solver_helper()` which dispatches to every `codegen` emitter. |
 | `odefile.py` | `ODEFile` disk cache. Writes generated factory source to `<cache root>/<name>/<name>.py` (root from `cubie.cache_root`), hash-guards staleness, checks per-function caching, and imports factories via `importlib`. |
 | `indexedbasemaps.py` | `IndexedBaseMap` (named scalar symbols → fixed-size `sympy.IndexedBase`) and `IndexedBases` (bundle of state/parameter/constant/observable/driver/dxdt maps). Provides `from_user_inputs`, constant↔parameter conversion, units, ref/index/symbol maps. |
-| `sym_utils.py` | Stateless SymPy helpers: `topological_sort` (Kahn), `cse_and_stack`, `hash_system_definition` (SHA-256, order-independent), `render_constant_assignments`, `prune_unused_assignments`. |
+| `sym_utils.py` | SymPy-side helpers: `hash_system_definition` (SHA-256, order-independent), `render_constant_assignments`, `EXPONENT_ALIAS_PREFIX`, plus SymPy `topological_sort`/`cse_and_stack`/`prune_unused_assignments` retained for `structural/` and the CPU reference tests (codegen uses the IR equivalents in `engine/`). |
 
 ## Subdirectories
 | Directory | Purpose |
 |-----------|---------|
-| `codegen/` | CUDA source emitters for dxdt, observables, Jacobian/JVP, linear operators, preconditioners, residuals, time derivatives, and the Numba-CUDA SymPy printer (see `codegen/AGENTS.md`). |
+| `engine/` | Hash-consed expression IR and its compute passes: SymPy conversion, differentiation, substitution, CSE, ordering, pruning, and the CUDA printer (see `engine/AGENTS.md`). |
+| `codegen/` | CUDA source emitters for dxdt, observables, Jacobian/JVP, linear operators, preconditioners, residuals, and time derivatives, all computing on the `engine/` IR (see `codegen/AGENTS.md`). |
 | `parsing/` | Converts string / SymPy / callable / CellML input into `ParsedEquations` + `IndexedBases`, plus `JVPEquations` and auxiliary-caching heuristics; one normalised front end classifies input as explicit or DAE and routes the latter through `structural/` (see `parsing/AGENTS.md`). |
 | `structural/` | MTK-style structural simplification and tearing (alias elimination, Pantelides index reduction, dummy derivatives, Carpanzano/Modia tearing); enabled automatically for DAE-shaped input or forced via `create_ODE_system(..., simplify=True)` (see `structural/AGENTS.md`). |
 

@@ -22,7 +22,7 @@ Because IR nodes are hash-consed, "common subexpression" means
 reference-counting pass over the DAG, not a search.
 """
 
-from typing import Dict, Iterable, List, Optional, Sequence, Set, Tuple
+from typing import Dict, Iterable, List, Optional, Set, Tuple
 
 from cubie.odesystems.symbolic.engine.expr import (
     Add as AddNode,

@@ -268,6 +268,20 @@ class TestExpressionShapes:
         result = print_cuda(div(sym("a"), mul(sym("x"), sym("y"))))
         assert result == "a/(x*y)"
 
+    def test_subtracted_sum_keeps_parentheses(self):
+        from cubie.odesystems.symbolic.engine import sub
+
+        result = print_cuda(
+            sub(sym("x"), add(sym("y"), sym("z")))
+        )
+        assert result == "x - (y + z)"
+
+    def test_leading_negated_sum_keeps_parentheses(self):
+        from cubie.odesystems.symbolic.engine import neg
+
+        result = print_cuda(neg(add(sym("y"), sym("z"))))
+        assert result == "-(y + z)"
+
     def test_generated_source_compiles(self):
         expr = from_sympy(
             sp.sympify(

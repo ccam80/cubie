@@ -16,7 +16,7 @@ Published Functions
     Memoised ``(ParsedEquations, IndexedBases) -> SystemIR``.
 """
 
-from typing import Dict, List, Optional, Tuple
+from typing import Dict, List, Tuple
 
 import attrs
 

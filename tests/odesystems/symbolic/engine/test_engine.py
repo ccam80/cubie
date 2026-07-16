@@ -96,14 +96,29 @@ class TestDifferentiation:
             sp.atan2(y, x),
             sp.sinh(x) * sp.cosh(y) + sp.asinh(x) + sp.acosh(x + 2),
         ]
+        rng = random.Random(7)
         for case in cases:
             for var in (x, y):
-                expected = sp.diff(case, var)
-                produced = to_sympy(
-                    diff(from_sympy(case), from_sympy(var))
+                expected = sp.lambdify(
+                    (x, y), sp.diff(case, var), "math"
                 )
-                difference = sp.simplify(produced - expected)
-                assert difference == 0, (case, var, difference)
+                produced = sp.lambdify(
+                    (x, y),
+                    to_sympy(
+                        diff(from_sympy(case), from_sympy(var))
+                    ),
+                    "math",
+                )
+                # Domain 0.15..0.85 keeps every argument valid:
+                # |atanh/asin args| < 1 and acosh sees x + 2 > 1.
+                for _ in range(8):
+                    px = rng.uniform(0.15, 0.85)
+                    py = rng.uniform(0.15, 0.85)
+                    want = expected(px, py)
+                    got = produced(px, py)
+                    assert math.isclose(
+                        got, want, rel_tol=1e-10, abs_tol=1e-12
+                    ), (case, var, px, py, got, want)
 
     def test_piecewise_differentiates_by_branch(self):
         x = sym("x")

@@ -340,7 +340,10 @@ def derivative_name_map(
     for _, rhs in equations:
         if not isinstance(rhs, sp.Basic):
             continue
-        for node in rhs.atoms(AppliedUndef):
+        # The parser's dynamic device-function classes are *defined*
+        # Function subclasses (they implement eval/fdiff), so scan
+        # every applied function, not just AppliedUndef.
+        for node in rhs.atoms(sp.Function):
             func_name = type(node).__name__
             if func_name in names:
                 continue

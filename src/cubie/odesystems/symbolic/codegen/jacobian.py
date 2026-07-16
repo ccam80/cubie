@@ -27,9 +27,8 @@ See Also
     Consumes JVP expressions to generate linear operator code.
 """
 
-from typing import Dict, Iterable, List, Optional, Tuple, Union
+from typing import Dict, Iterable, List, Optional, Tuple
 
-import sympy as sp
 
 from cubie.odesystems.symbolic.engine import expr as ir
 from cubie.odesystems.symbolic.engine.assignments import (
@@ -109,7 +108,10 @@ def get_cache_key(
     CacheKey
         Hashable representation of the computation inputs.
     """
-    eq_tuple = tuple(tuple(pair) for pair in equations)
+    if isinstance(equations, dict):
+        eq_tuple = tuple(equations.items())
+    else:
+        eq_tuple = tuple(tuple(pair) for pair in equations)
     input_tuple = tuple(input_order.items())
     output_tuple = tuple(output_order.items())
     return (eq_tuple, input_tuple, output_tuple, bool(cse))

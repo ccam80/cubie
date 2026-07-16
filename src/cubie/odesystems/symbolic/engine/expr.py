@@ -48,7 +48,7 @@ every process regardless of ``PYTHONHASHSEED`` or session history.
 """
 
 from fractions import Fraction
-from typing import Callable, Dict, Iterable, List, Optional, Tuple, Union
+from typing import Callable, Dict, List, Optional, Tuple, Union
 
 __all__ = [
     "Expr",
@@ -327,17 +327,27 @@ def _num_type_rank(value: NumberLike) -> int:
 
 
 def _norm_number(value: NumberLike) -> NumberLike:
-    """Normalise a numeric payload to int / Fraction / float."""
+    """Normalise a numeric payload to builtin int / Fraction / float.
+
+    Subclass instances (``numpy.float64`` passes ``isinstance(x,
+    float)``) are coerced to the builtin type so ``repr`` in the
+    printer emits plain literals.
+    """
     if isinstance(value, bool):
         raise TypeError("bool is not a numeric literal")
     if isinstance(value, int):
-        return value
+        return int(value)
     if isinstance(value, Fraction):
         if value.denominator == 1:
             return int(value)
         return value
     if isinstance(value, float):
-        return value
+        return float(value)
+    item = getattr(value, "item", None)
+    if item is not None:
+        # NumPy scalar outside the float/int subclass hierarchy
+        # (e.g. float32); .item() yields the closest builtin.
+        return _norm_number(item())
     raise TypeError(f"unsupported numeric type: {type(value)!r}")
 
 

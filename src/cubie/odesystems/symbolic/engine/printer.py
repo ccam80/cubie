@@ -205,13 +205,20 @@ class IRPrinter:
         parts: List[str] = []
         for term in node.args:
             coeff_negative, positive = _split_negation(term)
-            rendered = self._print(positive, _PREC_ADD)
-            if not parts:
-                parts.append(f"-{rendered}" if coeff_negative else rendered)
-            elif coeff_negative:
-                parts.append(f"- {rendered}")
+            if coeff_negative:
+                # A subtracted sum must keep its parentheses:
+                # ``a - (b + c)``, never ``a - b + c``.
+                rendered = self._print(positive, _PREC_ADD + 1)
+                if not parts:
+                    parts.append(f"-{rendered}")
+                else:
+                    parts.append(f"- {rendered}")
             else:
-                parts.append(f"+ {rendered}")
+                rendered = self._print(positive, _PREC_ADD)
+                if not parts:
+                    parts.append(rendered)
+                else:
+                    parts.append(f"+ {rendered}")
         return " ".join(parts), _PREC_ADD
 
     def _render_mul(self, node: Mul) -> Tuple[str, int]:
@@ -378,19 +385,50 @@ def _pow_or_base(base: Expr, exponent) -> Expr:
     return pow_(base, num(exponent))
 
 
+def _coerce_node(node) -> Expr:
+    """Accept SymPy input at the printer boundary."""
+    if isinstance(node, Expr):
+        return node
+    from cubie.odesystems.symbolic.engine.from_sympy import (
+        from_sympy,
+    )
+
+    return from_sympy(node)
+
+
+def _coerce_symbol_map(
+    symbol_map,
+) -> Optional[Dict[str, Expr]]:
+    """Accept SymPy-keyed symbol maps at the printer boundary."""
+    if not symbol_map:
+        return symbol_map
+    coerced: Dict[str, Expr] = {}
+    for key, value in symbol_map.items():
+        if key == "__function_aliases__":
+            continue
+        if not isinstance(value, Expr) and not hasattr(
+            value, "free_symbols"
+        ):
+            # Symbol tables can carry device callables and function
+            # classes; only expression-valued entries remap symbols.
+            continue
+        coerced[str(key)] = _coerce_node(value)
+    return coerced
+
+
 def print_cuda(
     node: Expr,
     symbol_map: Optional[Dict[str, Expr]] = None,
     constant_names: Optional[Iterable[str]] = None,
     function_aliases: Optional[Dict[str, str]] = None,
 ) -> str:
-    """Render one IR expression as CUDA-compatible source text."""
+    """Render one IR (or SymPy) expression as CUDA source text."""
     printer = IRPrinter(
-        symbol_map=symbol_map,
+        symbol_map=_coerce_symbol_map(symbol_map),
         constant_names=constant_names,
         function_aliases=function_aliases,
     )
-    return printer.expression(node)
+    return printer.expression(_coerce_node(node))
 
 
 def print_cuda_multiple(
@@ -417,9 +455,16 @@ def print_cuda_multiple(
     list of str
         One source line per assignment.
     """
+    if function_aliases is None and isinstance(symbol_map, dict):
+        aliases = symbol_map.get("__function_aliases__")
+        if isinstance(aliases, dict):
+            function_aliases = aliases
     printer = IRPrinter(
-        symbol_map=symbol_map,
+        symbol_map=_coerce_symbol_map(symbol_map),
         constant_names=constant_names,
         function_aliases=function_aliases,
     )
-    return [printer.assignment(lhs, rhs) for lhs, rhs in assignments]
+    return [
+        printer.assignment(_coerce_node(lhs), _coerce_node(rhs))
+        for lhs, rhs in assignments
+    ]

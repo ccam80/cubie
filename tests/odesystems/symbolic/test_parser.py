@@ -836,7 +836,7 @@ class TestFunctions:
         code = print_cuda_multiple(eq_map, symbols)
         assert code == [
             "dx = math.exp(b) + math.sin(a)",
-            "dy = math.log(e) + min(c, d)",
+            "dy = min(c, d) + math.log(e)",
         ]
 
     def test_userfunc_priority(self):

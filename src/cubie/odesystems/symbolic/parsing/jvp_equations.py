@@ -18,12 +18,8 @@ See Also
     Consumes ``JVPEquations`` to generate CUDA linear operator code.
 """
 from typing import (
-    Dict,
-    Iterable,
     List,
     Mapping,
-    Optional,
-    Sequence,
     Set,
     Tuple,
     TYPE_CHECKING,

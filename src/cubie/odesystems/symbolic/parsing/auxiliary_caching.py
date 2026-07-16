@@ -256,6 +256,15 @@ def plan_auxiliary_cache(equations: JVPEquations) -> CacheSelection:
     current = (0, set(), set(), 0)
 
     while len(chosen) < slot_limit:
+        # While the plan is below the ops threshold, any positive
+        # marginal helps it qualify; once it qualifies, each extra
+        # cache slot must pay for itself with min_ops on its own
+        # (mirroring the improvement rule of the search this
+        # replaces).
+        if current_saved < min_ops:
+            required = 1
+        else:
+            required = min_ops
         best_symbol = None
         best_result = None
         best_key = None
@@ -270,7 +279,7 @@ def plan_auxiliary_cache(equations: JVPEquations) -> CacheSelection:
             if result is None:
                 continue
             marginal = result[0] - current_saved
-            if marginal <= 0:
+            if marginal < required:
                 continue
             key = (
                 -marginal,

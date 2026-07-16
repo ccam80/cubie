@@ -1,0 +1,78 @@
+<!-- Parent: ../AGENTS.md -->
+
+# engine
+
+## Purpose
+Lightweight hash-consed expression IR and the compute passes symbolic codegen runs on
+it. Replaces SymPy in everything downstream of parsing: differentiation, substitution,
+common-subexpression elimination, dependency ordering, pruning, and CUDA source
+emission all operate on interned IR nodes. SymPy remains the front end (string/AST
+parsing, CellML, structural simplification) and the source of `fn_hash`; expressions
+convert to IR once per system through the adapter and never convert back on the hot
+path.
+
+## Key Files
+| File | Description |
+|------|-------------|
+| `expr.py` | The IR core: node classes (`Num`, `Sym`, `Arr`, `Add`, `Mul`, `Pow`, `Call`, `Piecewise`, `Rel`, `BoolOp`, `BoolConst`), interning constructors with algebraic folding (`add`, `mul`, `pow_`, `call`, `piecewise`, …), `xreplace` (simultaneous memoised substitution), `diff` (analytic rule table + user-function placeholders), `free_atoms`, `count_ops`, `is_zero`/`is_one`. |
+| `from_sympy.py` | The only SymPy-importing module: `from_sympy`/`convert_assignments` (SymPy → IR, memoised), `to_sympy` (verification utility for tests), `derivative_name_map` (recovers `fdiff` placeholder names from the parser's dynamic device-function classes). |
+| `adapter.py` | `SystemIR` + `system_ir(equations, index_map)` — memoised one-shot conversion of `(ParsedEquations, IndexedBases)` into IR equations plus ordered symbol tables (states, dxdt, drivers, observables), printer array-reference maps, constant names, and derivative names. Every generator consumes this bundle. |
+| `assignments.py` | Assignment-list transforms: `topological_sort` (Kahn, deterministic tie-breaks), `prune_unused` (drop assignments not feeding outputs), `cse_and_stack` (reference-counting CSE over the DAG plus partial Add/Mul subset matching). |
+| `printer.py` | `IRPrinter` and `print_cuda`/`print_cuda_multiple`: renders IR as Numba-CUDA source with the same emission rules the SymPy printer guaranteed — `precision(...)` literal wrapping, `x**2`/`x**3` multiplication chains (structural, not regex), half powers to `math.sqrt`, guarded reciprocals, Piecewise ternaries, `CUDA_FUNCTIONS` mapping, scalar→array symbol remapping, constant integer-exponent aliases. Accepts SymPy input at the boundary (auto-converts). |
+
+## For AI Agents
+
+### Interning is the invariant everything relies on
+Structurally identical expressions are the same Python object: equality is `is`,
+hashing is `id`. Constructors fold algebra on the way in (flattening, like-term and
+power collection, numeric folding, zero/one identities). **Never instantiate node
+classes directly** — always build through the constructor functions, or interning
+breaks and `xreplace`/CSE silently stop matching.
+
+### Determinism
+Commutative arguments are ordered by the structural `sort_key` computed at
+construction — never by hash or intern order — so generated source is byte-identical
+across processes regardless of `PYTHONHASHSEED` or session history. Keep it that way:
+no set iteration may influence emitted structure.
+
+### Array references
+`Arr(name, index)` with a fixed Python int index is the engine's entire "IndexedBase".
+Bracket-named SymPy symbols (`sp.Symbol("jvp[0]")`) and 1-D `sp.Indexed` leaves both
+convert to `Arr`. JVP outputs are detected as `Arr("jvp", i)` — not by string prefix.
+
+### Differentiation
+`diff` uses an analytic rule table (`_DERIVATIVES`); `Min`/`Max` differentiate to
+Piecewise selections, `Abs` to `sign`, `sign`/`floor`/`ceiling` to zero. Unknown
+applied functions differentiate to `d_<name>` placeholders (chain rule appended as a
+trailing integer arg index) unless `derivative_names` overrides the target — the
+adapter recovers those names from the parser's `fdiff` classes via
+`derivative_name_map`. `gamma`/`loggamma` raise `DifferentiationError` (no CUDA-side
+polygamma exists).
+
+### Substitution maps compose, passes don't repeat
+`xreplace` applies one node-for-node map in a single memoised pass and does not
+revisit replacement images. Generators build one combined map per stage instead of
+chaining `.subs` calls; when sequential semantics are genuinely needed, compose the
+maps, don't re-walk the tree.
+
+### CSE
+`cse_and_stack` extracts every multiply-referenced composite node, then a partial
+subset pass recovers sharing that n-ary flattening hides (`2*e*a` vs `e*a` — see
+`_find_partial_subsets`). `_cse<N>` numbering continues after existing locals.
+Extraction produces the assignments; `topological_sort` orders them.
+
+### Testing
+`tests/odesystems/symbolic/engine/test_engine.py` (unit: folding, diff vs SymPy
+ground truth via `to_sympy` + numeric spot checks, subs, CSE numeric equivalence,
+ordering, pruning); `tests/odesystems/symbolic/test_cuda_printer.py` (printer
+emission rules, including the subtracted-sum parenthesisation and division
+regression guards). The generator/solver test suites exercise the engine end to end
+against finite-difference references.
+
+## Dependencies
+### Internal
+- `cubie.odesystems.symbolic.sym_utils` (`EXPONENT_ALIAS_PREFIX` only). Consumed by
+  every module in `codegen/`, plus `parsing/jvp_equations.py` and
+  `parsing/auxiliary_caching.py`.
+### External
+- `sympy` (only in `from_sympy.py`); `attrs` (`SystemIR`). Stdlib `fractions`.
