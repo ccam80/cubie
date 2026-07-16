@@ -9,6 +9,11 @@ from cubie.odesystems.symbolic.codegen import (
     print_cuda_multiple,
 )
 
+from cubie.odesystems.symbolic.engine import expr as ir
+from cubie.odesystems.symbolic.engine.from_sympy import (
+    from_sympy,
+)
+
 from cubie.odesystems.symbolic.indexedbasemaps import (
     IndexedBases,
 )
@@ -17,7 +22,6 @@ from cubie.odesystems.symbolic.parsing.normalise import (
 )
 from cubie.odesystems.symbolic.parsing.parser import (
     EquationWarning,
-    TIME_SYMBOL,
     _detect_input_type,
     _process_parameters,
     _replace_if,
@@ -166,7 +170,9 @@ class TestDetectInputType:
 
     def test_detect_invalid_element_type(self):
         """Test error on invalid element type."""
-        with pytest.raises(TypeError, match="must be strings or SymPy"):
+        with pytest.raises(
+            TypeError, match="must be strings or symbolic expressions"
+        ):
             _detect_input_type([123, 456])
 
     def test_detect_tuple_with_unconvertible_member(self):
@@ -184,6 +190,21 @@ class TestDetectInputType:
 
 class TestSympyEquationErrors:
     """Error paths for SymPy equation input."""
+
+    @pytest.mark.parametrize(
+        "equation",
+        [
+            (ir.sym("dx"), -sp.Symbol("x")),
+            (sp.Symbol("dx"), -ir.sym("x")),
+        ],
+    )
+    def test_mixed_ir_sympy_tuple(self, equation):
+        """Each tuple member converts independently."""
+
+        *_, parsed, _, _ = parse_input(
+            dxdt=[equation], states=["x"]
+        )
+        assert parsed.ordered == ((ir.sym("dx"), -ir.sym("x")),)
 
     def test_bare_expression_rejected(self):
         """A bare sp.Expr element cannot infer an LHS."""
@@ -298,9 +319,7 @@ class TestLhsSemantics:
         assert simplified is None
         assert "uninited" in all_symbols
         assert "done" in index_map.dxdt_names
-        assert sp.Symbol("uninited", real=True) in (
-            parsed.auxiliary_symbols
-        )
+        assert ir.sym("uninited") in parsed.auxiliary_symbols
 
     def test_strict_unlisted_auxiliary(self):
         """Unlisted LHS assignments stay anonymous in strict mode."""
@@ -314,9 +333,7 @@ class TestLhsSemantics:
         assert all_symbols["aux_val"] == sp.Symbol(
             "aux_val", real=True
         )
-        assert sp.Symbol("aux_val", real=True) in (
-            parsed.auxiliary_symbols
-        )
+        assert ir.sym("aux_val") in parsed.auxiliary_symbols
 
     def test_observable_with_derivative_becomes_state(self):
         """A derivative equation for an observable promotes it."""
@@ -388,8 +405,8 @@ class TestRhsSemantics:
             parameters=["a", "b"],
         )
         x, a, b = sp.symbols("x a b", real=True)
-        assert parsed.ordered[0][1] == sp.Piecewise(
-            (a, x > 0), (b, True)
+        assert parsed.ordered[0][1] is from_sympy(
+            sp.Piecewise((a, x > 0), (b, True))
         )
 
     def test_time_symbol_available(self):
@@ -401,7 +418,7 @@ class TestRhsSemantics:
         )
         assert "t" in all_symbols
         assert parsed.non_observable_equations() == [
-            (sp.Symbol("dx", real=True), TIME_SYMBOL)
+            (ir.sym("dx"), ir.sym("t"))
         ]
         assert funcs == {}
 
@@ -412,8 +429,10 @@ class TestRhsSemantics:
             states=["x"],
         )
         assert simplified is None
-        eqs = {str(lhs): rhs for lhs, rhs in parsed.ordered}
-        assert eqs["speed"] == sp.Symbol("dx", real=True) ** 2
+        eqs = {lhs.name: rhs for lhs, rhs in parsed.ordered}
+        assert eqs["speed"] is from_sympy(
+            sp.Symbol("dx", real=True) ** 2
+        )
 
 
 class TestHashSystemDefinition:
@@ -581,7 +600,7 @@ class TestParseInput:
 
         assert "t" in all_symbols
         assert equation_map.non_observable_equations() == [
-            (sp.Symbol("dx", real=True), TIME_SYMBOL)
+            (ir.sym("dx"), ir.sym("t"))
         ]
         assert funcs == {}
 
@@ -612,7 +631,6 @@ class TestParseInput:
         observables = ["y"]
         drivers = []
         dxdt = ["dx = x + a", "", "  ", "y = x"]  # Contains empty lines
-        dx, x, a, y = sp.symbols("dx x a y", real=True)
         index_map, all_symbols, _, equation_map, fn_hash, _ = (
             parse_input(
                 states=states,
@@ -625,11 +643,11 @@ class TestParseInput:
         )
 
         dx_equations = equation_map.non_observable_equations()
-        assert dx_equations[0][0] == dx
-        assert dx_equations[0][1] == x + a
+        assert dx_equations[0][0] is ir.sym("dx")
+        assert dx_equations[0][1] is ir.add(ir.sym("x"), ir.sym("a"))
         observable_equations = list(equation_map.observables)
-        assert observable_equations[0][0] == y
-        assert observable_equations[0][1] == x
+        assert observable_equations[0][0] is ir.sym("y")
+        assert observable_equations[0][1] is ir.sym("x")
 
     def test_parse_input_indexed_variable_equivalence(self):
         """Indexed tokens are parsed equivalently to scalar naming."""
@@ -786,12 +804,11 @@ class TestIntegrationWithFixtures:
 
         assigned_to = [expr[0] for expr in equation_map]
         # Check that equations were parsed correctly
-        assert sp.Symbol("done", real=True) in assigned_to
+        assert ir.sym("done") in assigned_to
         # The dfoo derivative equation keeps its observable-defined
         # form on the observables pass side.
-        eqs = {str(lhs): rhs for lhs, rhs in equation_map.observables}
-        safari, zoo = sp.symbols("safari zoo", real=True)
-        assert eqs["safari"].has(zoo)
+        eqs = {lhs.name: rhs for lhs, rhs in equation_map.observables}
+        assert ir.sym("zoo") in ir.free_atoms(eqs["safari"])
 
 
 class TestNonStrictInput:
@@ -836,7 +853,7 @@ class TestFunctions:
         code = print_cuda_multiple(eq_map, symbols)
         assert code == [
             "dx = math.exp(b) + math.sin(a)",
-            "dy = math.log(e) + min(c, d)",
+            "dy = min(c, d) + math.log(e)",
         ]
 
     def test_userfunc_priority(self):
@@ -911,10 +928,10 @@ class TestSympyInputPathway:
         )
 
         assert len(parsed_eqs.state_derivatives) == 1
-        assert str(parsed_eqs.state_derivatives[0][0]) == "dx"
-        rhs_syms = parsed_eqs.state_derivatives[0][1].free_symbols
-        assert any(str(s) == "k" for s in rhs_syms)
-        assert any(str(s) == "x" for s in rhs_syms)
+        assert parsed_eqs.state_derivatives[0][0].name == "dx"
+        rhs_syms = ir.free_atoms(parsed_eqs.state_derivatives[0][1])
+        assert any(s.name == "k" for s in rhs_syms)
+        assert any(s.name == "x" for s in rhs_syms)
 
     def test_simple_ode_sympy_tuple(self):
         """Test simple ODE via tuple input."""
@@ -930,7 +947,7 @@ class TestSympyInputPathway:
         )
 
         assert len(parsed_eqs.state_derivatives) == 1
-        assert str(parsed_eqs.state_derivatives[0][0]) == "dx"
+        assert parsed_eqs.state_derivatives[0][0].name == "dx"
 
     def test_ode_with_observables_sympy(self):
         """Test ODE with observables via SymPy input."""
@@ -951,7 +968,7 @@ class TestSympyInputPathway:
 
         assert len(parsed_eqs.state_derivatives) == 2
         assert len(parsed_eqs.observables) == 1
-        assert str(parsed_eqs.observables[0][0]) == "z"
+        assert parsed_eqs.observables[0][0].name == "z"
 
     def test_ode_with_user_functions_sympy(self):
         """Test ODE with user functions via SymPy input."""
@@ -1075,8 +1092,8 @@ class TestSympyInputPathway:
 
         assert len(parsed_eqs.state_derivatives) == 1
         lhs, rhs = parsed_eqs.state_derivatives[0]
-        assert str(lhs) == "dx"
-        assert str(rhs) == "-k*x"
+        assert lhs.name == "dx"
+        assert rhs is from_sympy(-k * x)
 
     def test_sympy_derivative_lhs_tuple(self):
         """Test tuple form with sp.Derivative as LHS."""
@@ -1093,8 +1110,8 @@ class TestSympyInputPathway:
 
         assert len(parsed_eqs.state_derivatives) == 1
         lhs, rhs = parsed_eqs.state_derivatives[0]
-        assert str(lhs) == "dx"
-        assert str(rhs) == "-k*x"
+        assert lhs.name == "dx"
+        assert rhs is from_sympy(-k * x)
 
     def test_sympy_derivative_multiple_states(self):
         """Test multiple states with Derivative form."""
@@ -1121,14 +1138,16 @@ class TestSympyInputPathway:
         assert len(parsed_eqs.observables) == 1
 
         # Check state derivatives
-        state_lhs = [str(lhs) for lhs, _ in parsed_eqs.state_derivatives]
+        state_lhs = [
+            lhs.name for lhs, _ in parsed_eqs.state_derivatives
+        ]
         assert "dx" in state_lhs
         assert "dy" in state_lhs
 
         # Check observable
         obs_lhs, obs_rhs = parsed_eqs.observables[0]
-        assert str(obs_lhs) == "z"
-        assert str(obs_rhs) == "x + y"
+        assert obs_lhs.name == "z"
+        assert obs_rhs is from_sympy(x + y)
 
 
 class TestHashConsistency:
@@ -1230,7 +1249,7 @@ class TestHashConsistency:
         )
 
         assert len(parsed_eqs.state_derivatives) == 1
-        assert str(parsed_eqs.state_derivatives[0][0]) == "delta"
+        assert parsed_eqs.state_derivatives[0][0].name == "delta"
 
 
 class TestDerivativeNotation:
@@ -1256,9 +1275,7 @@ class TestDerivativeNotation:
             parameters=["k"],
             strict=True,
         )
-        assert sp.Symbol("delta_i", real=True) in (
-            parsed.auxiliary_symbols
-        )
+        assert ir.sym("delta_i") in parsed.auxiliary_symbols
         assert "elta_i" not in index_map.state_names
 
     def test_ambiguous_prefix_is_a_state_treated_as_derivative(self):
@@ -1321,9 +1338,7 @@ class TestDerivativeNotation:
             parameters=["k"],
             strict=False,
         )
-        assert sp.Symbol("delta", real=True) in (
-            parsed.auxiliary_symbols
-        )
+        assert ir.sym("delta") in parsed.auxiliary_symbols
         assert "elta" not in index_map.state_names
 
     def test_function_notation_with_whitespace(self):
@@ -1344,7 +1359,7 @@ class TestDerivativeNotation:
             parameters=["k"],
             strict=True,
         )
-        assert sp.Symbol("d", real=True) in parsed.auxiliary_symbols
+        assert ir.sym("d") in parsed.auxiliary_symbols
 
 
 class TestParsedEquationsAccessors:
@@ -1364,9 +1379,9 @@ class TestParsedEquationsAccessors:
         """Indexing returns the equation in original order."""
         parsed = self._parsed()
         lhs, rhs = parsed[0]
-        assert str(lhs) == "dx"
+        assert lhs.name == "dx"
 
     def test_state_symbols_property(self):
         """state_symbols exposes the derivative-output symbols."""
         parsed = self._parsed()
-        assert sp.Symbol("dx", real=True) in parsed.state_symbols
+        assert ir.sym("dx") in parsed.state_symbols

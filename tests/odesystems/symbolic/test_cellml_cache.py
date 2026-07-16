@@ -3,7 +3,6 @@
 
 import pytest
 from pathlib import Path
-import pickle
 from numpy import float64
 
 from cubie.odesystems.symbolic.parsing.cellml_cache import CellMLCache
@@ -153,6 +152,55 @@ def test_compute_cache_key_different_args(tmp_cellml_file):
     assert len(key1) == 16
 
 
+def test_compute_cache_key_includes_edited_values(tmp_cellml_file):
+    """Edited model values change the cache key."""
+
+    cache = CellMLCache(model_name="test", cellml_path=tmp_cellml_file)
+    base = cache.compute_cache_key(
+        ["p"], None, float64, "test",
+        constant_values={"c": 1.0},
+        parameter_values={"p": 2.0},
+        initial_values={"x": 3.0},
+    )
+    changed_constant = cache.compute_cache_key(
+        ["p"], None, float64, "test",
+        constant_values={"c": 4.0},
+        parameter_values={"p": 2.0},
+        initial_values={"x": 3.0},
+    )
+    changed_parameter = cache.compute_cache_key(
+        ["p"], None, float64, "test",
+        constant_values={"c": 1.0},
+        parameter_values={"p": 4.0},
+        initial_values={"x": 3.0},
+    )
+    changed_initial = cache.compute_cache_key(
+        ["p"], None, float64, "test",
+        constant_values={"c": 1.0},
+        parameter_values={"p": 2.0},
+        initial_values={"x": 4.0},
+    )
+
+    assert len(
+        {base, changed_constant, changed_parameter, changed_initial}
+    ) == 4
+
+
+def test_compute_cache_key_includes_parameter_dict_values(
+    tmp_cellml_file,
+):
+    """Parameter dictionary values change the request cache key."""
+
+    cache = CellMLCache(model_name="test", cellml_path=tmp_cellml_file)
+    first = cache.compute_cache_key(
+        {"p": 1.0}, None, float64, "test"
+    )
+    second = cache.compute_cache_key(
+        {"p": 2.0}, None, float64, "test"
+    )
+    assert first != second
+
+
 
 def test_cache_valid_missing_file(basic_cellml_path, isolated_cache_root):
     """Verify cache_valid() returns False when cache file doesn't exist.
@@ -223,8 +271,6 @@ def test_save_and_load_roundtrip(tmp_cellml_file, isolated_cache_root):
     Tests the complete save/load cycle, ensuring that all data saved to
     the cache can be successfully retrieved with the same values.
     """
-    # Import required types for creating mock data
-    from attrs import define, field
     from sympy import symbols
     
     cache = CellMLCache(model_name="test", cellml_path=tmp_cellml_file)

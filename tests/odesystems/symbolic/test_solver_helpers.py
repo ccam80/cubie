@@ -14,8 +14,22 @@ from cubie.odesystems.symbolic.codegen import (
     generate_prepare_jac_code,
     generate_stage_residual_code,
 )
-from cubie.odesystems.symbolic.parsing import JVPEquations
+from cubie.odesystems.symbolic.engine import convert_assignments
+from cubie.odesystems.symbolic.engine import expr as ir_expr
+from cubie.odesystems.symbolic.parsing import (
+    JVPEquations as _JVPEquations,
+)
 from cubie.odesystems.symbolic.symbolicODE import create_ODE_system
+
+
+def JVPEquations(exprs, **kwargs):
+    """Build JVPEquations from SymPy pairs via IR conversion."""
+    return _JVPEquations(convert_assignments(exprs), **kwargs)
+
+
+def _ir(symbol):
+    """Return the IR symbol matching a SymPy symbol's name."""
+    return ir_expr.sym(str(symbol))
 
 
 @pytest.fixture(scope="session")
@@ -305,6 +319,9 @@ def test_split_jvp_expressions_caches_high_cost_terms():
     ]
 
     equations = JVPEquations(exprs)
+    dep0, heavy, j_00, j_01 = (
+        _ir(dep0), _ir(heavy), _ir(j_00), _ir(j_01),
+    )
     cached_aux, runtime_aux, prepare_assigns = equations.cached_partition()
     selection = equations.cache_selection
 
@@ -318,7 +335,10 @@ def test_split_jvp_expressions_caches_high_cost_terms():
     assert heavy in prepare_symbols
     assert dep0 not in runtime_symbols
     assert dep0 in prepare_symbols
-    assert equations.jvp_terms[0] == exprs[-1][1]
+    assert equations.jvp_terms[0] is ir_expr.add(
+        ir_expr.mul(j_00, ir_expr.arr("v", 0)),
+        ir_expr.mul(j_01, ir_expr.arr("v", 1)),
+    )
 
 
 def test_split_jvp_expressions_limits_cache_size():
@@ -368,9 +388,11 @@ def test_split_jvp_expressions_limits_cache_size():
     cached_symbols = [lhs for lhs, _ in cached_aux]
     runtime_symbols = [lhs for lhs, _ in runtime_aux]
 
-    assert cached_symbols == [j_00]
-    assert list(selection.cached_leaf_order) == [j_00]
-    assert all(sym not in runtime_symbols for sym in heavy_symbols)
+    assert cached_symbols == [_ir(j_00)]
+    assert list(selection.cached_leaf_order) == [_ir(j_00)]
+    assert all(
+        _ir(sym) not in runtime_symbols for sym in heavy_symbols
+    )
 
 
 def test_split_jvp_expressions_groups_cse_dependents():
@@ -411,6 +433,9 @@ def test_split_jvp_expressions_groups_cse_dependents():
     cached_aux, runtime_aux, prepare_assigns = equations.cached_partition()
     selection = equations.cache_selection
 
+    cse_sym, aux_a, aux_b, jac = (
+        _ir(cse_sym), _ir(aux_a), _ir(aux_b), _ir(jac),
+    )
     cached_symbols = [lhs for lhs, _ in cached_aux]
     runtime_symbols = [lhs for lhs, _ in runtime_aux]
     prepare_symbols = [lhs for lhs, _ in prepare_assigns]
@@ -421,7 +446,9 @@ def test_split_jvp_expressions_groups_cse_dependents():
     assert aux_a in prepare_symbols
     assert aux_b in prepare_symbols
     assert runtime_symbols == [cse_sym]
-    assert equations.jvp_terms[0] == exprs[-1][1]
+    assert equations.jvp_terms[0] is ir_expr.mul(
+        jac, ir_expr.arr("v", 0)
+    )
 
 
 def test_split_jvp_expressions_limits_cse_depth_for_slots():
@@ -469,6 +496,10 @@ def test_split_jvp_expressions_limits_cse_depth_for_slots():
     cached_aux, runtime_aux, prepare_assigns = equations.cached_partition()
     selection = equations.cache_selection
 
+    cse_root, cse_mid, aux_a, aux_b, aux_c, jac = (
+        _ir(cse_root), _ir(cse_mid), _ir(aux_a),
+        _ir(aux_b), _ir(aux_c), _ir(jac),
+    )
     cached_symbols = [lhs for lhs, _ in cached_aux]
     runtime_symbols = [lhs for lhs, _ in runtime_aux]
     prepare_symbols = {lhs for lhs, _ in prepare_assigns}
@@ -533,6 +564,10 @@ def test_cache_plan_shared_cse_with_slot_limit():
 
     assert len(selection.cached_leaf_order) == 1
     cached_leaf = selection.cached_leaf_order[0]
+    cse_sym, aux_a, aux_b, jac_a, jac_b = (
+        _ir(cse_sym), _ir(aux_a), _ir(aux_b),
+        _ir(jac_a), _ir(jac_b),
+    )
     runtime_symbols = [lhs for lhs, _ in runtime_aux]
     prepare_symbols = [lhs for lhs, _ in prepare_assigns]
 
@@ -574,6 +609,9 @@ def test_build_expression_costs_tracks_jvp_dependencies():
     exprs.append((sp.Symbol("jvp[0]"), jvp_terms[0]))
     equations = JVPEquations(exprs)
 
+    dep0, heavy, simple, j_00 = (
+        _ir(dep0), _ir(heavy), _ir(simple), _ir(j_00),
+    )
     assert equations.jvp_usage == {j_00: 1}
     assert equations.jvp_closure_usage[j_00] == 1
     assert equations.jvp_closure_usage[heavy] == 1
@@ -608,6 +646,10 @@ def test_equations_track_dependency_levels_and_costs():
 
     equations = JVPEquations(assignments)
 
+    seed, branch_a, branch_b = _ir(seed), _ir(branch_a), _ir(branch_b)
+    j_00, j_20, j_22, j_02 = (
+        _ir(j_00), _ir(j_20), _ir(j_22), _ir(j_02),
+    )
     levels = equations.dependency_levels[seed]
     assert len(levels) == 2
     assert set(levels[0]) == {branch_a, branch_b}
@@ -616,7 +658,7 @@ def test_equations_track_dependency_levels_and_costs():
     assert equations.order_index[seed] == 0
     assert equations.total_ops_cost[branch_a] == 2
     assert equations.total_ops_cost[j_00] == 3
-    assert equations.total_ops_cost[sp.Symbol("jvp[0]")] == 4
+    assert equations.total_ops_cost[ir_expr.arr("jvp", 0)] == 4
 
 
 @pytest.mark.parametrize(

@@ -3,12 +3,17 @@
 # symbolic
 
 ## Purpose
-SymPy-driven CUDA codegen pipeline that turns symbolic ODE definitions into JIT-compiled
-Numba-CUDA device functions. This top level holds the user-facing system class (`SymbolicODE`),
-the disk-backed source cache (`ODEFile`), the symbol-to-device-index maps
-(`IndexedBaseMap`/`IndexedBases`), and shared SymPy utilities (CSE, topological sort, hashing,
-assignment pruning). Equation parsing lives in `parsing/`; the CUDA source emitters live in
-`codegen/`. `SymbolicODE` orchestrates both: parse via `parsing.parse_input`, generate
+CUDA codegen pipeline that turns symbolic ODE definitions into JIT-compiled Numba-CUDA
+device functions. SymPy is a parse-boundary translation layer only: string input parses
+through `sympy.parse_expr` and SymPy input is accepted directly, but every expression
+converts to the hash-consed IR in `engine/` inside `parsing/normalise.py`, and all
+compute (classification, structural simplification, differentiation, substitution, CSE,
+hashing, printing) runs on IR nodes. This top level holds the user-facing system class
+(`SymbolicODE`), the disk-backed source cache (`ODEFile`), the symbol-to-device-index maps
+(`IndexedBaseMap`/`IndexedBases`, SymPy-facing for GUIs and `SystemValues`), and shared
+utilities (hashing, constant-assignment rendering). Equation parsing lives in `parsing/`;
+the CUDA source emitters live in `codegen/`. `SymbolicODE` orchestrates both: parse via
+`parsing.parse_input`, generate
 `dxdt`/`observables`/solver-helper factories via `codegen`, write them to a per-system module on
 disk, and reload the compiled factories. As the sole concrete `BaseODE` subclass it is the main
 entry point for defining systems — users construct one via `create_ODE_system()` (string / SymPy
@@ -24,12 +29,13 @@ attrs conventions; `BaseODE` (parent, `../AGENTS.md`) for `ODECache`/`config_has
 | `symbolicODE.py` | `SymbolicODE(BaseODE)` plus `create_ODE_system()`. Owns parsing, codegen caching, constant/parameter conversion, units, optional Qt GUIs, and `get_solver_helper()` which dispatches to every `codegen` emitter. |
 | `odefile.py` | `ODEFile` disk cache. Writes generated factory source to `<cache root>/<name>/<name>.py` (root from `cubie.cache_root`), hash-guards staleness, checks per-function caching, and imports factories via `importlib`. |
 | `indexedbasemaps.py` | `IndexedBaseMap` (named scalar symbols → fixed-size `sympy.IndexedBase`) and `IndexedBases` (bundle of state/parameter/constant/observable/driver/dxdt maps). Provides `from_user_inputs`, constant↔parameter conversion, units, ref/index/symbol maps. |
-| `sym_utils.py` | Stateless SymPy helpers: `topological_sort` (Kahn), `cse_and_stack`, `hash_system_definition` (SHA-256, order-independent), `render_constant_assignments`, `prune_unused_assignments`. |
+| `sym_utils.py` | Shared helpers: `hash_system_definition` (SHA-256, order-independent, over the IR pairs' reprs), `render_constant_assignments`, `EXPONENT_ALIAS_PREFIX`, plus SymPy `topological_sort`/`cse_and_stack`/`prune_unused_assignments` retained for the CPU reference tests (production code uses the IR equivalents in `engine/`). |
 
 ## Subdirectories
 | Directory | Purpose |
 |-----------|---------|
-| `codegen/` | CUDA source emitters for dxdt, observables, Jacobian/JVP, linear operators, preconditioners, residuals, time derivatives, and the Numba-CUDA SymPy printer (see `codegen/AGENTS.md`). |
+| `engine/` | Hash-consed expression IR and its compute passes: SymPy conversion, differentiation, substitution, CSE, ordering, pruning, and the CUDA printer (see `engine/AGENTS.md`). |
+| `codegen/` | CUDA source emitters for dxdt, observables, Jacobian/JVP, linear operators, preconditioners, residuals, and time derivatives, all computing on the `engine/` IR (see `codegen/AGENTS.md`). |
 | `parsing/` | Converts string / SymPy / callable / CellML input into `ParsedEquations` + `IndexedBases`, plus `JVPEquations` and auxiliary-caching heuristics; one normalised front end classifies input as explicit or DAE and routes the latter through `structural/` (see `parsing/AGENTS.md`). |
 | `structural/` | MTK-style structural simplification and tearing (alias elimination, Pantelides index reduction, dummy derivatives, Carpanzano/Modia tearing); enabled automatically for DAE-shaped input or forced via `create_ODE_system(..., simplify=True)` (see `structural/AGENTS.md`). |
 
@@ -43,8 +49,8 @@ attrs conventions; `BaseODE` (parent, `../AGENTS.md`) for `ODECache`/`config_has
 `n_stage_neumann_preconditioner`, `prepare_jac`, `calculate_cached_jvp`, `time_derivative_rhs`,
 and the non-codegen `cached_aux_count`. Adding a helper means a branch here **and** a generator
 in `codegen/`. The `_HELPERS_NEEDING_PRECONDITIONER_KWARGS` frozenset selects which helpers get
-`beta`/`gamma`/`order` factory kwargs. `n_stage_*` helpers suffix the factory name with the
-stage count (`f"{func_type}_{len(stage_nodes)}"`), so each stage count caches separately. The
+`beta`/`gamma`/`order` factory kwargs. `n_stage_*` helper names include the full tableau digest,
+so different coefficients and nodes cannot share source. The
 cached helpers (`linear_operator_cached`, `neumann_preconditioner_cached`, `prepare_jac`,
 `calculate_cached_jvp`, `cached_aux_count`) are requested by `GenericRosenbrockWStep` and run
 every step; how many auxiliaries actually get precomputed is set by the caching planner's
@@ -54,12 +60,11 @@ system's own `compile_settings.mass` — callers never pass a matrix.
 ### build() and system identity
 `build()` compiles `dxdt`+`observables` into the `ODECache`, first recomputing the system hash —
 swapping `self.gen_file` to a fresh `ODEFile` if constants↔parameters changed since construction.
-The identity is `fn_hash` from `hash_system_definition`: **equations + constant *labels* +
-observable labels — NOT parameter labels and NOT constant *values*** (constants and parameters
-together cover all non-state LHS symbols, so a constant↔parameter flip changes the hash and
-forces re-codegen; a constant *value* change only forces a rebuild). The hash is order-independent
-(sorted by LHS name), so string- and SymPy-input paths hit the same cache. A non-identity mass
-matrix appends `_M<digest>` (`_mass_matrix_hash_tag`) because helper source bakes its entries in.
+The identity is `fn_hash` from `hash_system_definition`: equations, ordered state/dxdt/parameter/
+driver/observable layouts, constant labels, derivative helpers, and function aliases. Constant
+values are compile settings, not source identity. Equations sort by LHS name, so string and SymPy
+input hit the same cache without discarding array order. A non-identity mass matrix appends
+`_M<digest>` because helper source embeds its entries.
 
 ### Constant/parameter conversion
 `make_parameter`/`make_constant` update both `self.indices`

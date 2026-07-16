@@ -1,4 +1,4 @@
-"""Emit CUDA ``dxdt`` and observables factory code from SymPy expressions.
+"""Emit CUDA ``dxdt`` and observables factory code from parsed equations.
 
 Published Functions
 -------------------
@@ -14,22 +14,27 @@ See Also
 --------
 :class:`~cubie.odesystems.symbolic.symbolicODE.SymbolicODE`
     Calls these generators inside :meth:`SymbolicODE.build`.
-:mod:`cubie.odesystems.symbolic.codegen.numba_cuda_printer`
-    Printer used to render SymPy assignments as CUDA code.
+:mod:`cubie.odesystems.symbolic.engine`
+    Expression engine used for manipulation and printing.
 :class:`~cubie.odesystems.symbolic.odefile.ODEFile`
     Disk cache that stores and imports the generated code.
 """
 
 from typing import Optional
 
-import sympy as sp
-
-from cubie.odesystems.symbolic.codegen import print_cuda_multiple
+from cubie.odesystems.symbolic.engine import expr as ir
+from cubie.odesystems.symbolic.engine.adapter import system_ir
+from cubie.odesystems.symbolic.engine.assignments import (
+    cse_and_stack,
+    prune_unused,
+    topological_sort,
+)
+from cubie.odesystems.symbolic.engine.printer import (
+    print_cuda_multiple,
+)
 from cubie.odesystems.symbolic.parsing import IndexedBases, ParsedEquations
 from cubie.odesystems.symbolic.sym_utils import (
-    cse_and_stack,
     render_constant_assignments,
-    topological_sort, prune_unused_assignments,
 )
 from cubie.time_logger import default_timelogger
 
@@ -107,36 +112,30 @@ def generate_dxdt_lines(
     -------
     list of str
         CUDA source lines that evaluate the ``dx/dt`` equations.
-
-    Notes
-    -----
-    ``index_map`` must expose ``all_arrayrefs`` containing each symbol in
-    ``equations``.
     """
-
-    working_equations = equations.non_observable_equations()
+    sysir = system_ir(equations, index_map)
+    working_equations = sysir.non_observable_equations()
 
     if cse:
         processed = cse_and_stack(working_equations)
     else:
         processed = topological_sort(working_equations)
 
-    symbol_map = None
-    if index_map is not None:
-        observable_symbols = set(index_map.observables.ref_map.keys())
-        processed = [
-            (lhs, rhs)
-            for lhs, rhs in processed
-            if lhs not in observable_symbols
-        ]
-        processed = prune_unused_assignments(processed,
-                                             output_symbols=index_map.dxdt.ref_map.keys())
-        symbol_map = index_map.all_arrayrefs
+    observable_symbols = sysir.observable_set
+    processed = [
+        (lhs, rhs)
+        for lhs, rhs in processed
+        if lhs not in observable_symbols
+    ]
+    processed = prune_unused(
+        processed, output_symbols=sysir.dxdt_symbols
+    )
 
     dxdt_lines = print_cuda_multiple(
         processed,
-        symbol_map=symbol_map,
-        constant_names=index_map.constants.symbol_map,
+        symbol_map=sysir.arrayrefs,
+        constant_names=sysir.constant_names,
+        function_aliases=sysir.function_aliases,
     )
     if not dxdt_lines:
         dxdt_lines = ["pass"]
@@ -163,46 +162,51 @@ def generate_observables_lines(
     -------
     list of str
         CUDA source lines that compute the observables.
-
-    Notes
-    -----
-    ``equations`` should support ``copy`` to avoid mutating the caller's
-    expression list when applying substitutions.
     """
     # Early return if no observables
     if not index_map.observables.ref_map:
         return ["pass"]
-    
-    working_equations = list(equations.observable_system)
+
+    sysir = system_ir(equations, index_map)
+    working_equations = list(sysir.equations)
 
     if cse:
         processed = cse_and_stack(working_equations)
     else:
         processed = topological_sort(working_equations)
-    out_subs = dict(
-        zip(
-            index_map.dxdt.ref_map.keys(),
-            sp.numbered_symbols("dxout_", start=1),
-        )
-    )
+
+    # dx/dt outputs are not written by the observables kernel; route
+    # them to throwaway locals instead of the out array.
+    out_subs = {
+        dx_sym: ir.sym(f"dxout_{position + 1}")
+        for position, dx_sym in enumerate(sysir.dxdt_symbols)
+    }
+    memo: dict = {}
     substituted = [
-        (lhs.subs(out_subs), rhs.subs(out_subs))
+        (
+            ir.xreplace(lhs, out_subs, memo),
+            ir.xreplace(rhs, out_subs, memo),
+        )
         for lhs, rhs in processed
     ]
 
-    arrayrefs = index_map.all_arrayrefs
-    substituted = [
-        (lhs.subs(arrayrefs), rhs.subs(arrayrefs))
-        for lhs, rhs in substituted
+    observable_targets = [
+        sysir.arrayrefs[obs.name] for obs in sysir.observable_symbols
     ]
-    substituted = prune_unused_assignments(substituted, "observables")
+    substituted = prune_unused(
+        substituted,
+        output_symbols=list(sysir.observable_symbols)
+        + observable_targets,
+    )
     obs_lines = print_cuda_multiple(
         substituted,
-        symbol_map=index_map.all_arrayrefs,
-        constant_names=index_map.constants.symbol_map,
+        symbol_map=sysir.arrayrefs,
+        constant_names=sysir.constant_names,
+        function_aliases=sysir.function_aliases,
     )
     assert obs_lines, "internal error: codegen produced an empty body"
     return obs_lines
+
 
 def generate_dxdt_fac_code(
     equations: ParsedEquations,
@@ -290,4 +294,3 @@ def generate_observables_fac_code(
     )
     default_timelogger.stop_event("codegen_generate_observables_fac_code")
     return code
-

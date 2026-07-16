@@ -7,6 +7,7 @@ from cubie.odesystems.symbolic.parsing.cellml import (
     load_cellml_model,
     _sanitize_symbol_name,
 )
+from cubie.odesystems.symbolic.parsing.cellml_cache import CellMLCache
 from cubie._utils import is_devfunc
 
 
@@ -14,6 +15,33 @@ def test_load_simple_cellml_model(basic_model):
     """Load a simple CellML model successfully."""
     assert basic_model.num_states == 1
     assert is_devfunc(basic_model.evaluate_f)
+
+
+def test_cache_hit_restores_mass(cellml_fixtures_dir, isolated_cache_root):
+    """A cached system keeps its mass matrix."""
+    path = cellml_fixtures_dir / "basic_ode.cellml"
+    name = "cellml_cached_mass"
+    load_cellml_model(str(path), name=name, precision=np.float64)
+
+    cache = CellMLCache(name, str(path))
+    key = cache.compute_cache_key(None, None, np.float64, name)
+    cached = cache.load_from_cache(key)
+    cache.save_to_cache(
+        key,
+        parsed_equations=cached["parsed_equations"],
+        indexed_bases=cached["indexed_bases"],
+        all_symbols=cached["all_symbols"],
+        user_functions=cached["user_functions"],
+        fn_hash=cached["fn_hash"],
+        precision=cached["precision"],
+        name=cached["name"],
+        mass=[[0.0]],
+    )
+
+    restored = load_cellml_model(
+        str(path), name=name, precision=np.float64
+    )
+    assert np.array_equal(restored.mass, [[0.0]])
 
 
 def test_load_complex_cellml_model(beeler_reuter_model):
@@ -488,17 +516,44 @@ def test_repeat_load_hits_persistent_cache(
     assert second.num_states == first.num_states
 
 
+def test_early_cache_hit_restores_mass(
+    cellml_fixtures_dir, isolated_cache_root
+):
+    """The early cache path restores the saved mass matrix."""
+
+    path = str(cellml_fixtures_dir / "basic_ode.cellml")
+    load_cellml_model(path, fix_singularities=False)
+    cache = CellMLCache("basic_ode", path)
+    args_hash = cache.compute_cache_key(
+        None,
+        None,
+        np.float32,
+        "basic_ode",
+        fix_singularities=False,
+    )
+    cached = cache.load_from_cache(args_hash)
+    assert cached is not None
+    mass = np.asarray([[2.0]], dtype=np.float32)
+    cache.save_to_cache(
+        args_hash=args_hash,
+        parsed_equations=cached["parsed_equations"],
+        indexed_bases=cached["indexed_bases"],
+        all_symbols=cached["all_symbols"],
+        user_functions=cached["user_functions"],
+        fn_hash=cached["fn_hash"],
+        precision=cached["precision"],
+        name=cached["name"],
+        mass=mass,
+    )
+
+    restored = load_cellml_model(path, fix_singularities=False)
+    np.testing.assert_array_equal(restored.mass, mass)
+
+
 def test_unknown_parameter_name_reuses_effective_cache(
     cellml_fixtures_dir, isolated_cache_root
 ):
-    """Parameter names absent from the model resolve to the plain config.
-
-    The pre-parse cache key is built from the requested parameter
-    names, while the post-parse key uses the parameters the model
-    actually yielded. A name that matches nothing therefore misses the
-    early check but lands on the cached plain-configuration entry
-    after parsing.
-    """
+    """Unknown parameter names do not change the parsed system."""
     path = str(cellml_fixtures_dir / "basic_ode.cellml")
     baseline = load_cellml_model(path, fix_singularities=False)
     aliased = load_cellml_model(

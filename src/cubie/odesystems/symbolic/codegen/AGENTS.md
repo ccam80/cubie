@@ -3,8 +3,9 @@
 # codegen
 
 ## Purpose
-SymPy-to-CUDA **source generators**. Each public `generate_*` function takes parsed symbolic
-equations (`ParsedEquations`/`JVPEquations`) plus an index map (`IndexedBases`) and returns a
+IR-to-CUDA **source generators**. Each public `generate_*` function takes parsed equations
+(`ParsedEquations`/`JVPEquations`) plus an index map (`IndexedBases`), converts them once to
+the `engine/` IR through `engine.adapter.system_ir`, and returns a
 **Python source string** defining a `*_factory(constants, precision, ...)` function. Nothing here
 compiles CUDA: `symbolicODE.get_solver_helper()` writes the string to disk via `ODEFile`, imports
 it, and calls the factory to JIT a Numba CUDA device function. This module is the source of the
@@ -22,15 +23,15 @@ with respect to the stage increment `u`. The `a_ij` placement differs between th
 ## Key Files
 | File | Description |
 |------|-------------|
-| `__init__.py` | Star-imports `linear_operators`, `nonlinear_residuals`, `preconditioners`, `numba_cuda_printer` (re-exports `print_cuda_multiple`). `dxdt`, `time_derivative`, `jacobian`, `_stage_utils` are imported by full path, not star-imported. |
-| `numba_cuda_printer.py` | `CUDAPrinter(PythonCodePrinter)` plus `print_cuda` / `print_cuda_multiple`. Renders SymPy as Numba-CUDA source: wraps numeric literals in `precision(...)` (except inside array indices / power exponents), maps functions via `CUDA_FUNCTIONS` to `math.*`, rewrites `x**2`→`x*x` and `x**3`→`x*x*x`, emits `Piecewise` as nested ternaries, and remaps scalar symbols to array refs via `symbol_map`. |
+| `__init__.py` | Star-imports `linear_operators`, `nonlinear_residuals`, `preconditioners` and re-exports the engine printer (`print_cuda`, `print_cuda_multiple`, `CUDA_FUNCTIONS`). `dxdt`, `time_derivative`, `jacobian`, `_stage_utils` are imported by full path, not star-imported. |
+| `_matrix_utils.py` | `mass_matrix_ir` — normalises a mass matrix (`None`/SymPy/NumPy/nested sequences) to row-major IR entries; integer entries become floats so emitted mass terms carry explicit float literals. |
 | `dxdt.py` | `generate_dxdt_fac_code` (emits `dxdt(state, parameters, drivers, observables, out, t)`) and `generate_observables_fac_code` (emits `get_observables(...)`). The explicit RHS used by all algorithms. |
 | `time_derivative.py` | `generate_time_derivative_fac_code`: emits `time_derivative_rhs(state, parameters, drivers, driver_dt, observables, out, t)` computing ∂RHS/∂t = direct ∂t + driver chain (via `driver_dt`) + chain rule through intermediates. Used by Rosenbrock-W. |
-| `jacobian.py` | Pure-symbolic (emits no CUDA): `generate_jacobian` (full analytic Jacobian via chain rule over auxiliary assignments) and `generate_analytical_jvp` (returns `JVPEquations` with `j_ij` entry symbols and `jvp[i]` product terms). Memoised in a module-level `_cache` keyed by `get_cache_key`. |
+| `jacobian.py` | Pure-symbolic (emits no CUDA): `generate_jacobian` (full analytic Jacobian via chain rule over auxiliary assignments; returns row-major lists of IR expressions) and `generate_analytical_jvp` (returns `JVPEquations` with `j_ij` entry symbols and `Arr("jvp", i)` product terms). Memoised in a module-level `_cache` keyed by `get_cache_key` over interned IR nodes. |
 | `linear_operators.py` | Emits the matrix-free linear operator and JVP cache helpers: `generate_operator_apply_code`, `generate_cached_operator_apply_code`, `generate_prepare_jac_code` (populates `cached_aux`, returns `(code, aux_count)`), `generate_cached_jvp_code`, `generate_n_stage_linear_operator_code` (flattened FIRK). `*_from_jvp` variants take a prebuilt `JVPEquations`. |
 | `preconditioners.py` | Emits truncated Neumann-series preconditioners: `generate_neumann_preconditioner_code` (inline state eval), `generate_neumann_preconditioner_cached_code`, `generate_n_stage_neumann_preconditioner_code` (FIRK, `A⊗J`). Device fn takes a caller-supplied `jvp` scratch buffer. The **only** generator whose `order` argument is live (Neumann truncation degree, factory default 1). |
 | `nonlinear_residuals.py` | Emits the Newton residual: `generate_residual_code` / `generate_stage_residual_code` (single stage, SDIRK/ESDIRK) and `generate_n_stage_residual_code` (flattened FIRK). |
-| `_stage_utils.py` | Shared FIRK helpers: `prepare_stage_data` (sympify Butcher `A`/`c` → matrix, nodes, stage count) and `build_stage_metadata` (emit `c_i`, `a_i_j` symbol assignments). Used by every `n_stage_*` generator. |
+| `_stage_utils.py` | Shared FIRK helpers: `prepare_stage_data` (Butcher `A`/`c` → IR rows, nodes, stage count) and `build_stage_metadata` (emit `c_i`, `a_i_j` symbol assignments). Used by every `n_stage_*` generator. |
 
 ## Generator variants
 Most callbacks come in up to three forms, differing only in how state/auxiliaries are supplied —
@@ -66,7 +67,7 @@ indentation-sensitive:** bodies come from `print_cuda_multiple(...)` then joined
 leading spaces (8 inside a factory body, 12 inside the preconditioner's `for _ in range(order)`
 loop). Preserve the exact counts or the generated source won't parse.
 
-### Sign/coefficient convention (load-bearing)
+### Sign and coefficient convention
 Operator `β·M·v − γ·a_ij·h·(J·v)` (explicit `a_ij`); residual `β·M·u − γ·h·f(base + a_ij·u)`
 (`a_ij` only inside the eval point, not multiplying `f`); preconditioner approximates
 `(β·I − γ·a_ij·h·J)⁻¹` with `h_eff = (γ·a_ij/β)·h`. The operator equals `∂residual/∂u` —
@@ -92,28 +93,23 @@ truncation degree, factory default `1`); operators/residuals accept and ignore i
 accept a prebuilt `JVPEquations` via `jvp_equations=` so one differentiation feeds the whole helper
 set.
 
-### Printer (`numba_cuda_printer`)
-- Numeric literals are wrapped in `precision(...)` **except** inside array subscripts and power
-  exponents — the `_in_index`/`_in_pow` context flags suppress wrapping (so indices stay integer
-  and the `x**2`→`x*x` / `x**3`→`x*x*x` rewrite can match). Set/restore them in any new `_print_*`
-  that recurses into indices or exponents.
-- A symbol exponent naming a factory-scope constant (passed via the printer's `constant_names`)
-  prints as its integer-exponent alias (`sym_utils.EXPONENT_ALIAS_PREFIX + name`);
-  `render_constant_assignments` emits the alias per constant (`int(value)` when integral and in
-  int64 range, else the precision-cast value), so integral constant exponents lower to
-  multiplication chains instead of `pow` calls while the generated source stays independent of
-  constant values. Generators pass `constant_names=index_map.constants.symbol_map` to
-  `print_cuda_multiple`.
-- Function resolution: `CUDA_FUNCTIONS` → `symbol_map["__function_aliases__"]` → `d_`-prefixed
-  derivative passthrough → plain-call fallback; it never raises `PrintMethodNotImplementedError`.
-- `Piecewise` emits as nested ternaries; scalar symbols remap to array refs via `symbol_map`.
+### Printer (engine)
+The printer lives in `engine/printer.py` (see `engine/AGENTS.md`). Emission rules:
+`precision(...)` wrapping of numeric literals (array indices stay plain integers),
+`x**2`/`x**3` multiplication chains via structural Pow rules, Neumann/constant
+integer-exponent aliases (`sym_utils.EXPONENT_ALIAS_PREFIX`), `CUDA_FUNCTIONS`, explicit
+user-function aliases, Piecewise ternaries, and
+scalar-to-array remapping via a name-keyed symbol map (generators pass `sysir.arrayrefs`).
 
 ### Codegen hygiene
-- `prune_unused_assignments(..., outputsym_str=...)` runs last in every `_build_*`, dropping
-  intermediates that don't feed the named output (`'out'`, `'jvp'`, `'cached_aux'`, …). Omitting it
-  bloats output and leaves dangling symbols.
-- `cse` toggles `cse_and_stack` vs `topological_sort` (either emits in dependency order); the
-  Jacobian/JVP cache normalises the CSE flag into its key.
+- `engine.prune_unused(..., output_name=...)` runs last in every `_build_*`, dropping
+  intermediates that don't feed the named output array (`'out'`, `'jvp'`, `'cached_aux'`, …).
+  Omitting it bloats output and leaves dangling symbols.
+- Stage builders construct **one combined substitution map per stage** and apply it with a
+  single `engine.xreplace` pass; all non-dx equation left-hand sides are stage-renamed by
+  `build_stage_substitutions` so repeated assignment targets never collapse across stages.
+- `cse` toggles the engine's `cse_and_stack` vs `topological_sort` (either emits in dependency
+  order); the Jacobian/JVP cache normalises the CSE flag into its key.
 - Jacobian `_cache` is process-global and unbounded, keyed by equation tuple + input/output orders
   + CSE flag; the Jacobian matrix and JVP share one entry (`"jac"`/`"jvp"`).
 - Each generator module registers `default_timelogger` events at import (the functions return
@@ -134,5 +130,5 @@ See root for CUDASIM/real-CUDA commands.
   (`default_timelogger` codegen timing). Consumed by `symbolicODE` and, downstream,
   `cubie.integrators.matrix_free_solvers` and the implicit algorithms.
 ### External
-- `sympy` (differentiation, expression manipulation, `PythonCodePrinter` base). `numba` (CUDA) is
-  the target of the emitted source, invoked downstream, not here.
+- `sympy` only at the conversion boundary (via `engine.from_sympy`). `numba` (CUDA) is the
+  target of the emitted source, invoked downstream, not here.
