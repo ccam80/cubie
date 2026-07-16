@@ -114,10 +114,16 @@ def remove_worktree(tree):
 
 
 def abba_order(pairs):
-    """Side sequence balancing time between A and B (ABBA...)."""
+    """Side sequence ABBA BAAB ... balancing time between A and B.
+
+    Even ``pairs`` cancels linear drift in the side means; ``pairs``
+    divisible by 4 also cancels quadratic drift (plain ABBA repetition
+    always leaves B on the inner positions, which biases B under
+    curving drift).
+    """
     seq = []
     for i in range(pairs):
-        seq.extend(("A", "B") if i % 2 == 0 else ("B", "A"))
+        seq.extend(("A", "B") if i % 4 in (0, 3) else ("B", "A"))
     return seq
 
 
@@ -175,8 +181,9 @@ def main():
     parser.add_argument("--repeats", type=int, default=300,
                         help="Solves per invocation (default 300).")
     parser.add_argument("--min-count", type=int, default=5)
-    parser.add_argument("--pairs", type=int, default=2,
-                        help="A/B pairs per backend; even is balanced.")
+    parser.add_argument("--pairs", type=int, default=4,
+                        help="A/B pairs per backend; multiples of 4 "
+                             "cancel linear and quadratic drift.")
     parser.add_argument("--n-runs", type=int, default=None,
                         help="Trajectory count for both configs "
                              "(small values smoke-test the harness).")
