@@ -204,6 +204,14 @@ def test_custom_stream_close_does_not_wait_for_unrelated_stream(
     ids = _instance_ids(target_solver)
     assert _registered_bytes(manager, ids) == 0
 
+    # Drain Numba's deferred-deallocation queue while nothing is in
+    # flight: a flush of queued driver frees from earlier tests
+    # (events, streams, modules) synchronizes the device, which this
+    # test would misread as close() waiting on the canary. Draining
+    # must happen before the run — executing queued frees under the
+    # in-flight run corrupts its results.
+    cuda.current_context().deallocations.clear()
+
     run_stream = cuda.stream()
     target_solver.kernel.run(
         y0,
@@ -214,12 +222,6 @@ def test_custom_stream_close_does_not_wait_for_unrelated_stream(
     )
     custom_stream_state_view = target_solver.kernel.state
     assert _registered_bytes(manager, ids) > 0
-    # Drain Numba's deferred-deallocation queue before launching the
-    # canary: a flush of unrelated queued driver frees (events,
-    # streams, modules from earlier tests) synchronizes the device,
-    # which this test would misread as close() waiting on the canary.
-    gc.collect()
-    cuda.current_context().deallocations.clear()
     work_output, unrelated_stream, unrelated_done = _start_cuda_work()
     try:
         target_solver.close()
