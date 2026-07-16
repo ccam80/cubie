@@ -34,10 +34,13 @@ simulator never touches CuPy — it keeps its own numpy-backed fakes. Supporting
 - Two limit modes (`_mode`, default `"passive"`): `"passive"` computes caps but doesn't enforce (returns raw free VRAM); `"active"` enforces per-instance caps. Switch via `set_limit_mode()`.
 
 ### Deregistration & teardown
-- The registry entry (`InstanceMemorySettings.allocations`) is a **strong keepalive** for every device array it allocated, so a registered client's buffers live until its entry is dropped — not merely until the client is dropped.
-- Two paths drop an entry: `_purge_dead_instances()` (lazy — runs at the top of `register`/`set_manual_*`/pool-proportion queries and reaps entries whose weak `instance_ref` has died) and `release_instance(instance_id, settings)` (eager — frees the allocations and removes the entry immediately). Both funnel through `_drop_instance`, which frees allocations, drops pool/stream-group membership and queued requests, then the caller rebalances the auto pool.
-- Registered clients (the batch kernel and its array managers) attach a `weakref.finalize` that calls `release_instance` when the client is collected, so buffers are freed at collection time. `run_instance_teardown` is the module-level finalizer body — it runs the client's cleanups (watcher drain, pool clear) before releasing the allocations and must stay free of any strong reference to the finalized client. `release_instance` is **identity-guarded** on the `settings` object so a late finalizer cannot evict a new client that reused the collected client's `id`.
-- **Collection is not prompt on the CUDA backend** — a solver graph is cyclic (numba dispatcher machinery), so `del solver` alone leaves it to the cyclic collector. `_reclaim_memory()` closes that gap under pressure: when a queued request exceeds the memory reported free, `get_chunk_parameters` purges dead entries, runs `gc.collect()` (firing the finalizers of cycle-trapped clients), purges again, flushes Numba's deferred-deallocation queue, and — after a device sync — trims the CuPy async pool (`free_pool_blocks()`), because freed blocks stay cached in the pool and invisible to `cuMemGetInfo` until trimmed. Only then does it decide to chunk or fail. `allocate_queue` tolerates entries that vanish during that reclaim.
+- Registry allocations keep device arrays alive until deregistration.
+- `release_instance` removes one exact registry entry. The identity check
+  protects against reused object IDs.
+- Explicit close reports cleanup failures and can be retried. Finalizers are
+  best effort and do not raise during interpreter shutdown.
+- Allocation, copies, launch, and release use the run's stream. Memory caps
+  cause chunking without device-wide synchronization or garbage collection.
 
 ### Single allocation provider
 CuPy's async pool is the only device allocator, reached through the EMM plugin; `cupy`/`cupyx`
@@ -82,10 +85,8 @@ must be allocated (via `allocate_queue`) before `to_device` copies into them.
   always forwards the given Numba stream into CuPy via `cupy.cuda.Stream.from_external`
   (Numba's default stream, handle `0`, is left as CuPy's ambient current stream instead of
   wrapped).
-- `MemoryManager.allocate` wraps device allocation in `current_cupy_stream(stream)` so the
-  async-pool allocation stays ordered on the instance's stream; `to_device`/`from_device`
-  pass the Numba stream to the driver copies directly. `get_memory_info()` still queries
-  whole-device free/total via the Numba context, not a CuPy pool's own accounting.
+- Allocation and release enter the same external CuPy stream. Transfers use
+  that Numba stream directly. `get_memory_info()` reports device-wide memory.
 
 ### ChunkBufferPool (internal, not exported)
 Reusable pinned staging buffers for chunked transfers, keyed by `(array_name, shape, dtype)`.

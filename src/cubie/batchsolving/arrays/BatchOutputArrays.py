@@ -393,7 +393,7 @@ class OutputArrays(BaseArrayManager):
         self._size_sig = sig
         return new_arrays
 
-    def finalise(self, chunk_index: int) -> None:
+    def finalise(self, chunk_index: int, stream=None) -> None:
         """Queue device-to-host transfers for a chunk.
 
         Parameters
@@ -412,7 +412,8 @@ class OutputArrays(BaseArrayManager):
         """
         from_ = []
         to_ = []
-        stream = self._memory_manager.get_stream(self)
+        if stream is None:
+            stream = self._memory_manager.get_stream(self)
         active = self._active_names
 
         for array_name, slot in self.host.iter_managed_arrays():
@@ -448,7 +449,7 @@ class OutputArrays(BaseArrayManager):
             to_.append(to_target)
             from_.append(from_target)
 
-        self.from_device(from_, to_)
+        self.from_device(from_, to_, stream=stream)
 
         # Record events and submit to watcher for chunked mode
         if self._pending_buffers:
@@ -479,7 +480,7 @@ class OutputArrays(BaseArrayManager):
         """
         self._watcher.wait_all(timeout=timeout)
 
-    def initialise(self, chunk_index: int) -> None:
+    def initialise(self, chunk_index: int, stream=None) -> None:
         """
         Initialize device arrays before kernel execution.
 
@@ -496,23 +497,16 @@ class OutputArrays(BaseArrayManager):
         pass
 
     def reset(self) -> None:
-        """Clear all cached arrays and reset allocation tracking.
-
-        Extends the base reset to also clear the buffer pool, shut down
-        the watcher thread, and clear any pending buffers.
-
-        """
+        """Drain transfers and clear all arrays and staging buffers."""
         super().reset()
-        self._buffer_pool.clear()
         self._watcher.shutdown()
+        self._buffer_pool.clear()
         self._pending_buffers.clear()
 
     def _teardown_cleanups(self):
-        """Stop the watcher and release the staging pool when finalized.
-
-        Extends the base with this manager's writeback watcher thread
-        and its staging buffer pool, released when the manager is
-        garbage collected. The watcher shuts down first so pending
-        writebacks drain before their staging buffers are freed.
-        """
-        return [self._watcher.shutdown, self._buffer_pool.clear]
+        """Return writeback cleanup calls."""
+        return [
+            self._watcher.shutdown,
+            self._buffer_pool.clear,
+            *super()._teardown_cleanups(),
+        ]

@@ -1,33 +1,37 @@
-"""Solver and array-manager GPU-resource teardown.
-
-These tests assert that a solver releases its memory-manager
-registration and device allocations when it is garbage collected, when
-its ``close`` is called, and when it is used as a context manager, and
-that repeatedly building and dropping solvers does not accumulate
-registry entries.
-"""
+"""Solver resource cleanup tests."""
 
 import gc
 
 import numpy as np
 import pytest
 
-from cubie.batchsolving.solver import Solver
+from cubie.batchsolving.solver import Solver, solve_ivp
+from cubie.cuda_simsafe import cuda, CUDA_SIMULATION
+from cubie.memory.mem_manager import MemoryManager
+from tests._utils import _build_solver_instance
 
 
-def _make_inputs(system, precision, n_runs=32):
-    """Build verbatim ``(variable, run)`` inits and parameters."""
-    y0 = np.repeat(
-        system.initial_values.values_array[:, None].astype(precision),
-        n_runs,
-        axis=1,
-    )
-    params = np.repeat(
-        system.parameters.values_array[:, None].astype(precision),
-        n_runs,
-        axis=1,
-    )
-    return y0, params
+if not CUDA_SIMULATION:
+    @cuda.jit
+    def _busy_kernel(out):
+        value = 0.0
+        for _ in range(20_000_000):
+            value += 1.0
+        out[0] = value
+
+
+    def _start_cuda_work():
+        stream = cuda.stream()
+        out = cuda.device_array(1, dtype=np.float32)
+        done = cuda.event()
+        _busy_kernel[1, 1, stream](out)
+        done.record(stream)
+        return out, stream, done
+
+
+    def _finish_cuda_work(out, stream, done):
+        stream.synchronize()
+        assert done.query()
 
 
 def _instance_ids(solver):
@@ -57,17 +61,12 @@ def _registered_bytes(manager, ids):
 
 
 def test_solver_releases_registry_on_gc(
-    system, precision, thread_mem_manager
+    system, batch_input_arrays, thread_mem_manager
 ):
-    """Dropping the last reference frees the registry and its buffers.
-
-    No further registration happens after the ``del``, so this only
-    passes if the finalizer runs at collection time rather than waiting
-    for a later purge.
-    """
+    """Collection releases registry entries and buffers."""
     manager = thread_mem_manager
     solver = Solver(system, algorithm="euler", dt=0.01, memory_manager=manager)
-    y0, params = _make_inputs(system, precision)
+    y0, params = batch_input_arrays
     solver.solve(y0, params, duration=0.1)
 
     ids = _instance_ids(solver)
@@ -81,13 +80,13 @@ def test_solver_releases_registry_on_gc(
 
 
 def test_close_releases_registry_immediately(
-    system, precision, thread_mem_manager
+    solver_mutable, batch_input_arrays, driver_settings, thread_mem_manager
 ):
     """``close`` deregisters without waiting for garbage collection."""
     manager = thread_mem_manager
-    solver = Solver(system, algorithm="euler", dt=0.01, memory_manager=manager)
-    y0, params = _make_inputs(system, precision)
-    solver.solve(y0, params, duration=0.1)
+    solver = solver_mutable
+    y0, params = batch_input_arrays
+    solver.solve(y0, params, drivers=driver_settings, duration=0.1)
 
     ids = _instance_ids(solver)
     assert _still_registered(manager, ids) == list(ids)
@@ -95,19 +94,17 @@ def test_close_releases_registry_immediately(
     solver.close()
 
     assert _still_registered(manager, ids) == []
-    # close is idempotent and safe to call again.
     solver.close()
     assert _still_registered(manager, ids) == []
 
 
 def test_closed_solver_raises_on_solve(
-    system, precision, thread_mem_manager
+    solver_mutable, batch_input_arrays, driver_settings
 ):
-    """``solve`` on a closed solver raises a clear ``RuntimeError``."""
-    manager = thread_mem_manager
-    solver = Solver(system, algorithm="euler", dt=0.01, memory_manager=manager)
-    y0, params = _make_inputs(system, precision)
-    solver.solve(y0, params, duration=0.1)
+    """A closed solver rejects another solve."""
+    solver = solver_mutable
+    y0, params = batch_input_arrays
+    solver.solve(y0, params, drivers=driver_settings, duration=0.1)
     solver.close()
 
     with pytest.raises(RuntimeError, match="closed"):
@@ -115,27 +112,145 @@ def test_closed_solver_raises_on_solve(
 
 
 def test_context_manager_releases_on_exit(
-    system, precision, thread_mem_manager
+    solver_mutable, batch_input_arrays, driver_settings, thread_mem_manager
 ):
-    """Using the solver as a context manager frees it at block exit."""
+    """Context exit releases the solver."""
     manager = thread_mem_manager
-    y0, params = _make_inputs(system, precision)
-    with Solver(
-        system, algorithm="euler", dt=0.01, memory_manager=manager
-    ) as solver:
-        solver.solve(y0, params, duration=0.1)
+    y0, params = batch_input_arrays
+    with solver_mutable as solver:
+        solver.solve(y0, params, drivers=driver_settings, duration=0.1)
         ids = _instance_ids(solver)
         assert _still_registered(manager, ids) == list(ids)
 
     assert _still_registered(manager, ids) == []
 
 
-def test_repeated_solvers_do_not_grow_registry(
-    system, precision, thread_mem_manager
+@pytest.mark.nocudasim
+def test_close_timeout_is_retryable(
+    solver_mutable, batch_input_arrays, driver_settings, thread_mem_manager
 ):
-    """A build/solve/drop loop leaves the registry no larger than before."""
+    """A timed-out close can be retried."""
     manager = thread_mem_manager
-    y0, params = _make_inputs(system, precision)
+    solver = solver_mutable
+    y0, params = batch_input_arrays
+    solver.solve(y0, params, drivers=driver_settings, duration=0.1)
+    input_arrays = solver.kernel.input_arrays
+    instance_id = id(input_arrays)
+    settings = manager.registry[instance_id]
+    group = manager.get_stream_group(input_arrays)
+    work_output, work_stream, work_done = _start_cuda_work()
+    buffer = input_arrays._buffer_pool.acquire(
+        "close_gate", (1,), np.dtype(np.float32)
+    )
+    input_arrays._transfer_watcher.submit_release(
+        work_done,
+        buffer,
+        input_arrays._buffer_pool,
+        "close_gate",
+    )
+
+    try:
+        with pytest.raises(TimeoutError, match="wait_all timed out"):
+            solver.close(shutdown_timeout=0.0)
+
+        assert manager.registry[instance_id] is settings
+        assert instance_id in manager._auto_pool
+        assert instance_id in manager.stream_groups.get_instances_in_group(
+            group
+        )
+    finally:
+        _finish_cuda_work(work_output, work_stream, work_done)
+
+    solver.close()
+    assert _still_registered(manager, _instance_ids(solver)) == []
+
+
+def test_solve_ivp_releases_temporary_solver(
+    system, batch_input_arrays, thread_mem_manager
+):
+    """solve_ivp releases its temporary solver."""
+    manager = thread_mem_manager
+    baseline = set(manager.registry)
+    y0, params = batch_input_arrays
+
+    solve_ivp(
+        system,
+        y0,
+        params,
+        duration=0.1,
+        grid_type="verbatim",
+        dt=0.01,
+        memory_manager=manager,
+    )
+
+    assert set(manager.registry) == baseline
+
+
+@pytest.mark.nocudasim
+def test_custom_stream_close_does_not_wait_for_unrelated_stream(
+    solver_mutable,
+    batch_input_arrays,
+    driver_array,
+    solver_settings,
+    system,
+    thread_mem_manager,
+):
+    """Close waits only for the run stream."""
+    manager = thread_mem_manager
+    target_solver = solver_mutable
+    y0, params = batch_input_arrays
+    ids = _instance_ids(target_solver)
+    assert _registered_bytes(manager, ids) == 0
+
+    run_stream = cuda.stream()
+    target_solver.kernel.run(
+        y0,
+        params,
+        target_solver.driver_interpolator.coefficients,
+        duration=0.1,
+        stream=run_stream,
+    )
+    custom_stream_state_view = target_solver.kernel.state
+    assert _registered_bytes(manager, ids) > 0
+    work_output, unrelated_stream, unrelated_done = _start_cuda_work()
+    try:
+        target_solver.close()
+
+        assert _still_registered(manager, ids) == []
+        custom_stream_state = custom_stream_state_view.copy()
+        assert not unrelated_done.query()
+    finally:
+        _finish_cuda_work(work_output, unrelated_stream, unrelated_done)
+
+    reference_settings = solver_settings.copy()
+    reference_settings["stream_group"] = "close_reference"
+    reference_solver = _build_solver_instance(
+        system=system,
+        solver_settings=reference_settings,
+        driver_array=driver_array,
+        memory_manager=MemoryManager(),
+    )
+    try:
+        reference_solver.kernel.run(
+            y0,
+            params,
+            reference_solver.driver_interpolator.coefficients,
+            duration=0.1,
+        )
+        reference_solver.kernel.synchronize()
+        reference_solver.kernel.wait_for_writeback()
+        expected_state = reference_solver.kernel.state.copy()
+    finally:
+        reference_solver.close()
+    np.testing.assert_array_equal(custom_stream_state, expected_state)
+
+
+def test_repeated_solvers_do_not_grow_registry(
+    system, batch_input_arrays, thread_mem_manager
+):
+    """Repeated solvers do not grow the registry."""
+    manager = thread_mem_manager
+    y0, params = batch_input_arrays
 
     gc.collect()
     baseline = len(manager.registry)

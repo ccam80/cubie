@@ -38,7 +38,9 @@ from typing import List, Optional, TYPE_CHECKING
 if TYPE_CHECKING:
     from cubie.batchsolving.BatchSolverKernel import BatchSolverKernel
 
+from cubie.cuda_simsafe import cuda, CUDA_SIMULATION
 from cubie.memory.chunk_buffer_pool import ChunkBufferPool, PinnedBuffer
+from cubie.batchsolving.writeback_watcher import WritebackWatcher
 from cubie.outputhandling.output_sizes import BatchInputSizes
 from cubie.batchsolving.arrays.BaseArrayManager import (
     ArrayContainer,
@@ -152,7 +154,12 @@ class InputArrays(BaseArrayManager):
         init=False,
     )
     _buffer_pool: ChunkBufferPool = field(factory=ChunkBufferPool, init=False)
-    _active_buffers: List[PinnedBuffer] = field(factory=list, init=False)
+    _active_buffers: List[tuple[str, PinnedBuffer]] = field(
+        factory=list, init=False
+    )
+    _transfer_watcher: WritebackWatcher = field(
+        factory=WritebackWatcher, init=False
+    )
 
     def __attrs_post_init__(self) -> None:
         """Ensure host and device containers use explicit memory types.
@@ -288,11 +295,10 @@ class InputArrays(BaseArrayManager):
                 arr_obj.dtype = self._precision
         self._size_sig = sig
 
-    def finalise(self, chunk_index: int) -> None:
-        """Release buffers back to host."""
-        self.release_buffers()
+    def finalise(self, chunk_index: int, stream=None) -> None:
+        """Finish input handling for a chunk."""
 
-    def initialise(self, chunk_index: int) -> None:
+    def initialise(self, chunk_index: int, stream=None) -> None:
         """Copy a batch chunk of host data to device buffers.
 
         Parameters
@@ -307,6 +313,8 @@ class InputArrays(BaseArrayManager):
         _active_buffers and released after the H2D transfer completes.
         For non-chunked mode, pinned buffers are allocated directly.
         """
+        if stream is None:
+            stream = self._memory_manager.get_stream(self)
         from_ = []
         to_ = []
 
@@ -340,9 +348,24 @@ class InputArrays(BaseArrayManager):
                 buffer.array[data_slice] = host_slice
                 from_.append(buffer.array)
                 # Record that we're using this buffer for later release.
-                self._active_buffers.append(buffer)
+                self._active_buffers.append((array_name, buffer))
 
-        self.to_device(from_, to_)
+        self.to_device(from_, to_, stream=stream)
+        if not self._active_buffers:
+            return
+        if CUDA_SIMULATION:
+            self.release_buffers()
+            return
+        event = cuda.event()
+        event.record(stream)
+        for array_name, buffer in self._active_buffers:
+            self._transfer_watcher.submit_release(
+                event,
+                buffer,
+                self._buffer_pool,
+                array_name,
+            )
+        self._active_buffers.clear()
 
     def release_buffers(self) -> None:
         """Release all active buffers back to the pool.
@@ -350,21 +373,25 @@ class InputArrays(BaseArrayManager):
         Should be called after H2D transfer completes to return pooled
         pinned buffers for reuse by subsequent chunks.
         """
-        for buffer in self._active_buffers:
+        for _, buffer in self._active_buffers:
             self._buffer_pool.release(buffer)
         self._active_buffers.clear()
+
+    def wait_pending(self, timeout: Optional[float] = None) -> None:
+        """Wait for pending staging-buffer releases."""
+        self._transfer_watcher.wait_all(timeout=timeout)
 
     def reset(self) -> None:
         """Clear all cached arrays and reset allocation tracking."""
         super().reset()
+        self._transfer_watcher.shutdown()
         self._buffer_pool.clear()
         self._active_buffers.clear()
 
     def _teardown_cleanups(self):
-        """Release the pinned staging pool when finalized.
-
-        Extends the base with this manager's staging buffer pool so the
-        pinned buffers are freed when the manager is garbage collected,
-        not only on an explicit :meth:`reset`.
-        """
-        return [self._buffer_pool.clear]
+        """Return transfer cleanup calls."""
+        return [
+            self._transfer_watcher.shutdown,
+            self._buffer_pool.clear,
+            *super()._teardown_cleanups(),
+        ]

@@ -30,7 +30,7 @@ See Also
 """
 
 from abc import ABC, abstractmethod
-from typing import Callable, Dict, Iterator, List, Optional, Union
+from typing import Any, Callable, Dict, Iterator, List, Optional, Union
 from warnings import warn
 from weakref import finalize
 
@@ -50,12 +50,13 @@ from numpy import (
 from numpy.typing import NDArray
 
 from cubie._utils import opt_gttype_validator, getype_validator
-from cubie.cuda_simsafe import DeviceNDArrayBase
+from cubie.cuda_simsafe import CUDA_SIMULATION, DeviceNDArrayBase
 from cubie.memory import default_memmgr
 from cubie.memory.mem_manager import (
     ArrayRequest,
     ArrayResponse,
     MemoryManager,
+    current_cupy_stream,
     run_instance_teardown,
 )
 from cubie.outputhandling.output_sizes import ArraySizingClass
@@ -504,9 +505,6 @@ class BaseArrayManager(ABC):
             stream_group=self._stream_group,
         )
         settings = self._memory_manager.registry[id(self)]
-        # Free this manager's device buffers and staging resources when it
-        # is collected. The callback holds the manager weakly (via finalize)
-        # and closes over no reference to self, so it never keeps self alive.
         self._finalizer = finalize(
             self,
             run_instance_teardown,
@@ -517,39 +515,27 @@ class BaseArrayManager(ABC):
         )
 
     def _teardown_cleanups(self) -> List[Callable[[], None]]:
-        """
-        Return resource-release callables for finalization.
-
-        Each callable takes no arguments and releases a resource this
-        manager owns beyond its memory-manager registration (for example
-        a staging pool or a writeback watcher). Every callable must
-        reference only the resource it frees, never ``self`` — a
-        reference to ``self`` would keep the manager alive and its
-        finalizer would never run.
-
-        Returns
-        -------
-        list of callable
-            Empty for the base manager; subclasses override to add their
-            own pool or watcher teardown.
-        """
-        return []
+        """Return cleanup calls that do not capture this manager."""
+        return [self.device.delete_all]
 
     def close(self) -> None:
-        """
-        Release this manager's GPU resources immediately.
-
-        Deregisters from the memory manager (freeing its device
-        allocations), drops the host and device array references, and
-        runs the resource cleanups from :meth:`_teardown_cleanups`
-        (staging pools, writeback watchers). Idempotent. Managers also
-        release automatically when garbage collected, so calling this is
-        optional; use it when deterministic release is wanted. A closed
-        manager should not be reused — build a fresh one.
-        """
+        """Release this manager's resources."""
+        settings = self._memory_manager.registry.get(id(self))
+        if settings is None:
+            return
+        if CUDA_SIMULATION or settings.last_stream is None:
+            for cleanup in self._teardown_cleanups():
+                cleanup()
+            self._memory_manager.release_instance(id(self), settings)
+            BaseArrayManager.reset(self)
+        else:
+            with current_cupy_stream(settings.last_stream):
+                for cleanup in self._teardown_cleanups():
+                    cleanup()
+                self._memory_manager.release_instance(id(self), settings)
+                BaseArrayManager.reset(self)
         if self._finalizer is not None:
-            self._finalizer()
-        self.reset()
+            self._finalizer.detach()
 
     def request_allocation(
         self,
@@ -951,7 +937,10 @@ class BaseArrayManager(ABC):
         self._needs_overwrite.clear()
 
     def to_device(
-        self, from_arrays: List[object], to_arrays: List[object]
+        self,
+        from_arrays: List[object],
+        to_arrays: List[object],
+        stream: Optional[Any] = None,
     ) -> None:
         """
         Copy host arrays to the device using the memory manager.
@@ -964,10 +953,15 @@ class BaseArrayManager(ABC):
             Destination device arrays.
 
         """
-        self._memory_manager.to_device(self, from_arrays, to_arrays)
+        self._memory_manager.to_device(
+            self, from_arrays, to_arrays, stream=stream
+        )
 
     def from_device(
-        self, from_arrays: List[object], to_arrays: List[object]
+        self,
+        from_arrays: List[object],
+        to_arrays: List[object],
+        stream: Optional[Any] = None,
     ) -> None:
         """
         Copy device arrays back to the host using the memory manager.
@@ -980,7 +974,9 @@ class BaseArrayManager(ABC):
             Destination host arrays.
 
         """
-        self._memory_manager.from_device(self, from_arrays, to_arrays)
+        self._memory_manager.from_device(
+            self, from_arrays, to_arrays, stream=stream
+        )
 
     def _convert_host_to_pinned(self) -> None:
         """Convert regular numpy host arrays to pinned for non-chunked mode.

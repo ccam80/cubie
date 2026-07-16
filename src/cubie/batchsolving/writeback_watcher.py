@@ -71,7 +71,9 @@ class WritebackTask:
 
     event: object = field()  # cuda.Event or None
     buffer: PinnedBuffer = field(validator=attrsval_instance_of(PinnedBuffer))
-    target_array: ndarray = field(validator=attrsval_instance_of(ndarray))
+    target_array: Optional[ndarray] = field(
+        validator=attrsval_optional(attrsval_instance_of(ndarray))
+    )
     buffer_pool: ChunkBufferPool = field(
         validator=attrsval_instance_of(ChunkBufferPool)
     )
@@ -211,7 +213,25 @@ class WritebackWatcher:
         )
         self._submit_task(task)
 
-    def wait_all(self, timeout: Optional[float] = 10) -> None:
+    def submit_release(
+        self,
+        event: object,
+        buffer: PinnedBuffer,
+        buffer_pool: ChunkBufferPool,
+        array_name: str,
+    ) -> None:
+        """Release a staging buffer after an event completes."""
+        self._submit_task(
+            WritebackTask(
+                event=event,
+                buffer=buffer,
+                target_array=None,
+                buffer_pool=buffer_pool,
+                array_name=array_name,
+            )
+        )
+
+    def wait_all(self, timeout: Optional[float] = None) -> None:
         """Block until all pending writebacks complete.
 
         Parameters
@@ -237,11 +257,13 @@ class WritebackWatcher:
                     )
             sleep(self._poll_interval)
 
-    def shutdown(self) -> None:
-        """Stop the polling thread gracefully."""
+    def shutdown(self, timeout: Optional[float] = None) -> None:
+        """Drain pending work and stop the polling thread."""
         self._stop_event.set()
         if self._thread is not None:
-            self._thread.join(timeout=1.0)
+            self._thread.join(timeout=timeout)
+            if self._thread.is_alive():
+                raise TimeoutError("writeback watcher did not stop")
             self._thread = None
 
     def _poll_loop(self) -> None:
@@ -318,11 +340,14 @@ class WritebackWatcher:
         if is_complete:
             # Copy buffer data to target array at specified slice
             # If data_shape provided, only copy that portion of the buffer
-            if task.data_shape is not None:
-                buffer_slice = tuple(slice(0, s) for s in task.data_shape)
-                task.target_array[:] = task.buffer.array[buffer_slice]
-            else:
-                task.target_array[:] = task.buffer.array
+            if task.target_array is not None:
+                if task.data_shape is not None:
+                    buffer_slice = tuple(
+                        slice(0, s) for s in task.data_shape
+                    )
+                    task.target_array[:] = task.buffer.array[buffer_slice]
+                else:
+                    task.target_array[:] = task.buffer.array
             # Release buffer back to pool
             task.buffer_pool.release(task.buffer)
             return True

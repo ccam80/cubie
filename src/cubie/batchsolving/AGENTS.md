@@ -53,15 +53,10 @@ siblings must ignore each other's keys; only the top-level entry points enforce.
 result accessor on `kernel` and expose it as a `Solver` property.
 
 ### Solver teardown
-A `Solver` (via `kernel.close()` → each array manager's `close()`) frees its device buffers,
-pinned staging, and writeback watcher and deregisters from the memory manager. This happens
-**automatically when the solver is garbage collected** (each memory-manager client carries a
-`weakref.finalize`). On the CUDA backend a solver graph is cyclic, so collection waits for
-the cyclic collector — the memory manager covers that gap by reclaiming (`gc.collect()` +
-purge) whenever a new request exceeds free memory, so a build/solve/drop loop does not
-accumulate buffers or registry entries. `Solver.close()` and the context-manager form
-(`with Solver(...) as s:`) run the same teardown eagerly for deterministic release; both are
-optional and idempotent, and `solve` on a closed solver raises `RuntimeError`.
+`Solver.close()` waits only for its last run stream, drains staging work, and
+deregisters the kernel and array managers. Explicit failures are reported and
+the close can be retried. `solve_ivp` closes its temporary solver before it
+returns. Finalizers provide best-effort cleanup for abandoned solvers.
 
 ### Grids
 `BatchInputHandler` converts user dicts/arrays into `(variable, run)` arrays via the

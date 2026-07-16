@@ -284,6 +284,8 @@ class BatchSolverKernel(CUDAFactory):
         self._gpu_workload_event: Optional[CUDAEvent] = None
 
         self._closed = False
+        self._last_stream = None
+        self._work_complete = True
         self._memory_manager = self._setup_memory_manager(memory_settings)
 
         # Build the single integrator to derive compile-critical metadata
@@ -368,9 +370,6 @@ class BatchSolverKernel(CUDAFactory):
             allocation_ready_hook=self._on_allocation,
         )
         settings = memory_manager.registry[id(self)]
-        # Deregister the kernel's own registry entry when it is collected,
-        # mirroring the array managers' finalizers. The kernel holds no
-        # device allocations itself, so no extra cleanups are needed.
         self._finalizer = finalize(
             self,
             run_instance_teardown,
@@ -550,6 +549,8 @@ class BatchSolverKernel(CUDAFactory):
             )
         if stream is None:
             stream = self.stream
+        self._last_stream = stream
+        self._work_complete = False
 
         # Time parameters always use float64 for accumulation accuracy
         duration = np_float64(duration)
@@ -581,7 +582,7 @@ class BatchSolverKernel(CUDAFactory):
         self.output_arrays.update(self)
 
         # Process allocations into chunks
-        self.memory_manager.allocate_queue(self)
+        self.memory_manager.allocate_queue(self, stream=stream)
 
         # ------------ from here on dimensions are "chunked" -----------------
         # self.run_params is updated in the on_allocation callback.
@@ -643,8 +644,8 @@ class BatchSolverKernel(CUDAFactory):
 
             # h2d transfer timing
             h2d_event.record_start(stream)
-            self.input_arrays.initialise(i)
-            self.output_arrays.initialise(i)
+            self.input_arrays.initialise(i, stream=stream)
+            self.output_arrays.initialise(i, stream=stream)
             h2d_event.record_end(stream)
 
             # Kernel execution timing
@@ -675,8 +676,8 @@ class BatchSolverKernel(CUDAFactory):
 
             # d2h transfer timing
             d2h_event.record_start(stream)
-            self.input_arrays.finalise(i)
-            self.output_arrays.finalise(i)
+            self.input_arrays.finalise(i, stream=stream)
+            self.output_arrays.finalise(i, stream=stream)
             d2h_event.record_end(stream)
 
         # Finalize GPU workload timing
@@ -997,33 +998,41 @@ class BatchSolverKernel(CUDAFactory):
         # Include unpacked dict keys in recognized set
         return recognised | unpacked_keys
 
-    def wait_for_writeback(self):
-        """Wait for async writebacks into host arrays after chunked runs"""
-        self.output_arrays.wait_pending()
+    def wait_for_writeback(
+        self, timeout: Optional[float] = None
+    ) -> None:
+        """Wait for pending staging-buffer work."""
+        self.input_arrays.wait_pending(timeout=timeout)
+        self.output_arrays.wait_pending(timeout=timeout)
 
-    def close(self) -> None:
-        """Release all GPU resources held by this kernel.
+    def synchronize(self) -> None:
+        """Wait for this kernel's last run stream."""
+        if self._work_complete or self._last_stream is None:
+            return
+        self.memory_manager.sync_stream(self, stream=self._last_stream)
+        self._work_complete = True
 
-        Drains any pending writeback, closes the input and output array
-        managers (freeing their device buffers, pinned staging pools, and
-        the writeback watcher), and deregisters the kernel's own memory
-        manager entry. Idempotent. The kernel and its owning solver also
-        release automatically when garbage collected, so calling this is
-        optional; use it for deterministic release. A closed kernel
-        raises :class:`RuntimeError` from :meth:`run`.
+    def close(self, shutdown_timeout: Optional[float] = None) -> None:
+        """Release resources after pending transfers finish.
 
-        Raises
-        ------
-        TimeoutError
-            If a pending writeback fails to drain.
+        Parameters
+        ----------
+        shutdown_timeout
+            Maximum seconds to wait. None waits until transfers finish.
         """
-        self.wait_for_writeback()
-        self._closed = True
+        if self._closed:
+            return
+        self.synchronize()
+        self.wait_for_writeback(timeout=shutdown_timeout)
         self.input_arrays.close()
         self.output_arrays.close()
         finalizer = getattr(self, "_finalizer", None)
+        settings = self.memory_manager.registry.get(id(self))
+        if settings is not None:
+            self.memory_manager.release_instance(id(self), settings)
         if finalizer is not None:
-            finalizer()
+            finalizer.detach()
+        self._closed = True
 
     @property
     def persistent_local_elements(self) -> int:

@@ -51,17 +51,9 @@ stage into a buffer of the slot's memory type and queue reallocation), and calls
 everything for reallocation.
 
 ### Teardown
-Each manager registers a `weakref.finalize` (in `register_with_memory_manager`) that runs
-the callables from `_teardown_cleanups()` (`InputArrays`: pool `clear`; `OutputArrays`:
-watcher `shutdown` then pool `clear`) and then deregisters it from the memory manager when
-the manager is garbage collected — so the watcher thread, the pinned staging pool, and the
-registry's keepalive on the device buffers are all released at collection time (cleanups
-run first so pending writebacks drain while their device buffers are still registered).
-The finalizer callback must never close over the manager (that would
-keep it alive); it holds only the memory manager, the instance id, the `settings` entry, and
-the detached cleanup callables. `close()` runs that finalizer early and then `reset()`s, for
-deterministic release; it is idempotent, and a closed manager should not be reused. Overriding
-`_teardown_cleanups()` is how a subclass adds its own resources to the finalizer.
+Explicit close drains transfer watchers before clearing staging pools and
+device registrations. Failures leave resources attached so close can be
+retried. Finalizers use cleanup calls that do not capture the manager.
 
 ### Per-chunk hooks (called by `BatchSolverKernel.run` around each launch)
 - `initialise(chunk_index)` — pre-launch. `InputArrays`: H2D (non-chunked copies the
@@ -78,11 +70,9 @@ plain `"host"` numpy for chunked runs with per-chunk pinned staging from `ChunkB
 (`_convert_host_to_pinned`/`_convert_host_to_numpy`, run in `_on_allocation_complete`).
 
 ### Async writeback
-Chunked outputs write back on a background `WritebackWatcher` thread: `finalise` records a CUDA
-event and submits `PendingBuffer`s; `wait_pending()` blocks until the watcher drains; `reset()`
-shuts the watcher down and clears the pool. Under `CUDA_SIMULATION` the event is `None` (treated
-as immediately complete). `OutputArrays.finalise` reassigns `event.handle = event.handle.value`
-to work around a numba event-handle issue — it is load-bearing, do not remove.
+Transfer watchers release pinned buffers after their CUDA event completes.
+Output tasks also copy staged data into the result arrays. Shutdown drains all
+tasks before it clears the pool.
 
 ### Container mechanics
 Containers use `@define(slots=False)` and discover their arrays by scanning `__dict__` for

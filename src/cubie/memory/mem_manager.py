@@ -48,7 +48,6 @@ See Also
     Manages CUDA stream groups used by the memory manager.
 """
 
-from gc import collect as gc_collect
 from types import TracebackType
 from typing import Any, Optional, Callable, Dict, Tuple
 from warnings import warn
@@ -443,6 +442,7 @@ class InstanceMemorySettings:
         default=None,
         validator=attrsval_optional(attrsval_instance_of(weakref_ref)),
     )
+    last_stream: Optional[Any] = field(default=None)
 
     def add_allocation(self, key: str, arr: Any) -> None:
         """Add an allocation to the instance's allocations list.
@@ -486,10 +486,12 @@ class InstanceMemorySettings:
             )
 
     def free_all(self) -> None:
-        """Drop all references to allocated arrays."""
-        to_free = self.allocations.copy()
-        for key in to_free:
-            self.free(key)
+        """Release allocations on their last stream."""
+        if CUDA_SIMULATION or self.last_stream is None:
+            self.allocations.clear()
+            return
+        with current_cupy_stream(self.last_stream):
+            self.allocations.clear()
 
     @property
     def allocated_bytes(self) -> int:
@@ -756,7 +758,6 @@ class MemoryManager:
         """
         self._purge_dead_instances()
         instance_id = id(instance)
-        settings = self.registry[instance_id]
         if instance_id in self._manual_pool:
             return
         self._auto_pool.remove(instance_id)
@@ -959,23 +960,11 @@ class MemoryManager:
             self._rebalance_auto_pool()
 
     def _drop_instance(self, instance_id: int) -> None:
-        """
-        Remove a single instance's registry entry and reservations.
-
-        Frees the instance's allocations, drops its registry entry, and
-        clears its manual/auto pool membership, stream-group membership,
-        and any queued allocations. Does not rebalance the auto pool; the
-        caller decides when to rebalance so a batch of removals rebalances
-        once.
-
-        Parameters
-        ----------
-        instance_id
-            Identifier (``id(instance)``) of the entry to remove.
-        """
-        settings = self.registry.pop(instance_id, None)
+        """Free and deregister one instance."""
+        settings = self.registry.get(instance_id)
         if settings is not None:
             settings.free_all()
+            self.registry.pop(instance_id)
         if instance_id in self._manual_pool:
             self._manual_pool.remove(instance_id)
         if instance_id in self._auto_pool:
@@ -987,56 +976,11 @@ class MemoryManager:
     def release_instance(
         self, instance_id: int, settings: "InstanceMemorySettings"
     ) -> None:
-        """
-        Deregister an instance and free its allocations immediately.
-
-        This is the eager counterpart to :meth:`_purge_dead_instances`,
-        invoked by an instance's teardown (its
-        :class:`weakref.finalize` callback or an explicit ``close``)
-        to free the instance's allocations immediately.
-
-        Parameters
-        ----------
-        instance_id
-            Identifier (``id(instance)``) captured when the instance
-            registered.
-        settings
-            The registry entry recorded for that instance at
-            registration. Removal is guarded on this object's identity so
-            that a reused ``id`` (a new instance occupying the collected
-            instance's address) is never evicted by a late finalizer.
-        """
+        """Release a matching registered instance."""
         if self.registry.get(instance_id) is not settings:
             return
         self._drop_instance(instance_id)
         self._rebalance_auto_pool()
-
-    def _reclaim_memory(self) -> None:
-        """
-        Reclaim device memory held by collectable registered clients.
-
-        Runs the cyclic garbage collector so that dead clients kept
-        alive only by reference cycles (solver graphs are cyclic on
-        the CUDA backend) are collected and their finalizers release
-        their registry entries, purges entries whose instances are
-        gone, flushes Numba's deferred-deallocation queue so the
-        dropped arrays return to the CuPy pool, and trims the pool
-        (after a device synchronisation, so stream-ordered frees have
-        landed) so the reclaimed blocks return to the driver and
-        appear in :meth:`get_memory_info`. Called when a queued
-        request does not fit in the memory currently reported as
-        free.
-        """
-        self._purge_dead_instances()
-        gc_collect()
-        self._purge_dead_instances()
-        if not CUDA_SIMULATION:  # pragma: no cover - device-only
-            context = cuda.current_context()
-            context.deallocations.clear()
-            cuda.synchronize()
-            emm = context.memory_manager
-            if getattr(emm, "is_cupy", False):
-                emm.free_pool_blocks()
 
     def _rebalance_auto_pool(self) -> None:
         """
@@ -1266,6 +1210,7 @@ class MemoryManager:
         """
         responses = {}
         instance_settings = self.registry[instance_id]
+        instance_settings.last_stream = stream
         for key, request in requests.items():
             arr = self.allocate(
                 shape=request.shape,
@@ -1273,7 +1218,11 @@ class MemoryManager:
                 memory_type=request.memory,
                 stream=stream,
             )
-            instance_settings.add_allocation(key, arr)
+            if CUDA_SIMULATION or request.memory != "device":
+                instance_settings.add_allocation(key, arr)
+            else:
+                with current_cupy_stream(stream):
+                    instance_settings.add_allocation(key, arr)
             responses[key] = arr
         return responses
 
@@ -1353,6 +1302,7 @@ class MemoryManager:
         instance: object,
         from_arrays: list[object],
         to_arrays: list[object],
+        stream: Optional[Stream] = None,
     ) -> None:
         """
         Copy data to device arrays using the instance's stream.
@@ -1368,7 +1318,9 @@ class MemoryManager:
 
         """
         _ensure_cuda_context()
-        stream = self.get_stream(instance)
+        if stream is None:
+            stream = self.get_stream(instance)
+        self.registry[id(instance)].last_stream = stream
         # Pinned host buffer -> device, streamed async H2D. The low-level
         # driver copy skips copy_to_device's per-call np.array re-wrap and
         # compatibility checks (~50us/call), which are unnecessary here: the
@@ -1391,6 +1343,7 @@ class MemoryManager:
         instance: object,
         from_arrays: list[object],
         to_arrays: list[object],
+        stream: Optional[Stream] = None,
     ) -> None:
         """
         Copy data from device arrays using the instance's stream.
@@ -1406,7 +1359,9 @@ class MemoryManager:
 
         """
         _ensure_cuda_context()
-        stream = self.get_stream(instance)
+        if stream is None:
+            stream = self.get_stream(instance)
+        self.registry[id(instance)].last_stream = stream
         # Device -> pinned host buffer, streamed async D2H via the low-level
         # driver copy (to_arrays are pinned, C-contiguous, size-matched).
         for i, from_array in enumerate(from_arrays):
@@ -1422,7 +1377,9 @@ class MemoryManager:
                 stream=stream,
             )
 
-    def sync_stream(self, instance: object) -> None:
+    def sync_stream(
+        self, instance: object, stream: Optional[Stream] = None
+    ) -> None:
         """
         Synchronize the CUDA stream for an instance.
 
@@ -1433,12 +1390,17 @@ class MemoryManager:
 
         """
         _ensure_cuda_context()
-        stream = self.get_stream(instance)
+        if stream is None:
+            settings = self.registry.get(id(instance))
+            stream = None if settings is None else settings.last_stream
+        if stream is None:
+            stream = self.get_stream(instance)
         stream.synchronize()
 
     def allocate_queue(
         self,
         triggering_instance: object,
+        stream: Optional[Stream] = None,
     ) -> None:
         """
         Process all queued requests for a stream group with coordinated chunking.
@@ -1483,7 +1445,12 @@ class MemoryManager:
                 )
             return None
 
-        stream = self.get_stream(triggering_instance)
+        if stream is None:
+            stream = self.get_stream(triggering_instance)
+        for peer in peers:
+            peer_settings = self.registry.get(peer)
+            if peer_settings is not None:
+                peer_settings.last_stream = stream
 
         # Get total_runs from first request
         num_runs = 1
@@ -1504,8 +1471,7 @@ class MemoryManager:
         notaries = set(peers) - set(queued_requests.keys())
         for instance_id, requests_dict in queued_requests.items():
             if instance_id not in self.registry:
-                # Entry reclaimed while chunk parameters were being
-                # computed: the instance is dead and its hook with it.
+                # The client was released while the group was prepared.
                 continue
             chunked_shapes = self.compute_chunked_shapes(
                 requests_dict,
@@ -1526,7 +1492,11 @@ class MemoryManager:
                 chunked_shapes=chunked_shapes,
             )
 
-            self.registry[instance_id].allocation_ready_hook(response)
+            if CUDA_SIMULATION:
+                self.registry[instance_id].allocation_ready_hook(response)
+            else:
+                with current_cupy_stream(stream):
+                    self.registry[instance_id].allocation_ready_hook(response)
 
         for peer in notaries:
             peer_settings = self.registry.get(peer)
@@ -1574,20 +1544,13 @@ class MemoryManager:
         UserWarning
             If request exceeds available VRAM by more than 20x.
         """
+        free, _ = self.get_memory_info()
         available_memory = self.get_available_memory(stream_group)
         chunkable_size, unchunkable_size = get_portioned_request_size(
             requests,
         )
 
         request_size = chunkable_size + unchunkable_size
-
-        if request_size >= available_memory:
-            # Dead clients kept alive only by reference cycles still
-            # hold device buffers through their registry entries;
-            # reclaim them before deciding to chunk or fail.
-            self._reclaim_memory()
-            available_memory = self.get_available_memory(stream_group)
-        free, _ = self.get_memory_info()
 
         if request_size < available_memory:
             return axis_length, 1  # No chunking needed
@@ -1679,48 +1642,20 @@ def run_instance_teardown(
     settings: InstanceMemorySettings,
     cleanups: Tuple[Callable[[], None], ...],
 ) -> None:
-    """
-    Release a registered instance's memory-manager resources.
-
-    This is the body of the :class:`weakref.finalize` callback attached
-    to memory-manager clients (the batch kernel and its array managers).
-    It runs once when the client is garbage collected, or eagerly when
-    the client's ``close`` invokes its finalizer.
-
-    Parameters
-    ----------
-    memory_manager
-        The manager the instance registered with. Held strongly here (a
-        process-wide singleton), which is safe: it never references the
-        finalized instance back.
-    instance_id
-        Identifier captured at registration.
-    settings
-        Registry entry recorded at registration, used to guard against
-        ``id`` reuse in :meth:`MemoryManager.release_instance`.
-    cleanups
-        Zero-argument callables releasing the instance's other resources
-        (staging pools, writeback watchers). Each must reference only the
-        resource it frees, never the finalized instance, so the finalizer
-        does not keep that instance alive.
-
-    Notes
-    -----
-    Cleanups run before the allocations are released: a writeback
-    watcher drains its pending device-to-host copies while the device
-    buffers they read are still registered. Every step is wrapped so a
-    failure during interpreter shutdown (when the CUDA context may
-    already be torn down) cannot raise out of the finalizer.
-    """
-    for cleanup in cleanups:
-        try:
-            cleanup()
-        except Exception:  # pragma: no cover - defensive at shutdown
-            pass
+    """Best-effort cleanup for a collected client."""
     try:
-        memory_manager.release_instance(instance_id, settings)
+        if CUDA_SIMULATION or settings.last_stream is None:
+            for cleanup in cleanups:
+                cleanup()
+            memory_manager.release_instance(instance_id, settings)
+        else:
+            with current_cupy_stream(settings.last_stream):
+                for cleanup in cleanups:
+                    cleanup()
+                memory_manager.release_instance(instance_id, settings)
     except Exception:  # pragma: no cover - defensive at shutdown
-        pass
+        # Keep the entry alive if cleanup could not safely finish.
+        settings.instance_ref = None
 
 
 def get_portioned_request_size(
