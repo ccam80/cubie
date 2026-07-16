@@ -23,8 +23,7 @@ Published Functions
 import warnings
 from typing import Dict, List, Optional, Tuple
 
-import sympy as sp
-
+from cubie.odesystems.symbolic.engine import expr as ir
 from cubie.odesystems.symbolic.structural.clil import SparseMatrixCLIL
 from cubie.odesystems.symbolic.structural.singularity_removal import (
     IgnoreUnderconstrainedVariable,
@@ -35,6 +34,37 @@ from cubie.odesystems.symbolic.structural.system_structure import (
     Equation,
     StructuralState,
 )
+
+
+def _term_coeff_rest(term: ir.Expr) -> Tuple[object, ir.Expr]:
+    """Split ``term`` into a numeric coefficient and the remainder.
+
+    A ``Mul`` with a leading ``Num`` factor splits into that factor's
+    value and the product of the remaining factors; a bare ``Num``
+    splits into its value and
+    :data:`~cubie.odesystems.symbolic.engine.expr.ONE`; anything else
+    has coefficient ``1``.
+    """
+
+    if isinstance(term, ir.Mul) and isinstance(term.args[0], ir.Num):
+        return term.args[0].value, ir.mul(*term.args[1:])
+    if isinstance(term, ir.Num):
+        return term.value, ir.ONE
+    return 1, term
+
+
+def _add_coeffs_dict(expr: ir.Add) -> Dict[ir.Expr, object]:
+    """Map each term's symbolic remainder to its summed coefficient.
+
+    Built from the terms of ``expr``; a constant term is keyed by
+    :data:`~cubie.odesystems.symbolic.engine.expr.ONE`.
+    """
+
+    coeffs = {}
+    for term in expr.args:
+        coeff, rest = _term_coeff_rest(term)
+        coeffs[rest] = coeffs.get(rest, 0) + coeff
+    return coeffs
 
 
 def _union_with_sign(
@@ -161,15 +191,15 @@ def _find_perfect_aliases(
         if var_to_diff.diff_to_primal[snbors[1]] is not None:
             continue
         eq = eqs[ieq]
-        if eq.lhs != sp.S.Zero:
+        if not ir.is_zero(eq.lhs):
             continue
         v1_sym = fullvars[snbors[0]]
         v2_sym = fullvars[snbors[1]]
         rhs = eq.rhs
-        if not rhs.is_Add:
+        if not isinstance(rhs, ir.Add):
             continue
-        coeffs = rhs.as_coefficients_dict()
-        if coeffs.get(sp.S.One, sp.S.Zero) != sp.S.Zero:
+        coeffs = _add_coeffs_dict(rhs)
+        if coeffs.get(ir.ONE, 0) != 0:
             continue
         if len(coeffs) != 2:
             continue
@@ -177,9 +207,9 @@ def _find_perfect_aliases(
         c2 = coeffs.get(v2_sym)
         if c1 is None or c2 is None:
             continue
-        if c1 + c2 == sp.S.Zero:
+        if c1 + c2 == 0:
             edge_sign = 1
-        elif c1 - c2 == sp.S.Zero:
+        elif c1 - c2 == 0:
             edge_sign = -1
         else:
             continue
@@ -191,7 +221,7 @@ def _find_perfect_aliases(
     group_target = {}
     eqs_to_substitute = []
     irrs_by_root = {}
-    zero = sp.S.Zero
+    zero = ir.ZERO
 
     def is_irreducible_v(v: int) -> bool:
         return fullvars[v] in state.irreducibles
@@ -238,7 +268,9 @@ def _find_perfect_aliases(
             s = parity[v] * target_p
             vars_to_rm.append(v)
             rhs_sym = (
-                fullvars[target] if s == 1 else -fullvars[target]
+                fullvars[target]
+                if s == 1
+                else ir.neg(fullvars[target])
             )
             subs[fullvars[v]] = rhs_sym
             state.additional_observed.append(
@@ -266,7 +298,7 @@ def _find_perfect_aliases(
                 dsub = (
                     fullvars[dtarget]
                     if s == 1
-                    else -fullvars[dtarget]
+                    else ir.neg(fullvars[dtarget])
                 )
                 subs[fullvars[dv]] = dsub
                 aliases[dv] = dtarget
@@ -496,9 +528,9 @@ def trivial_tearing(
 
 
 def _build_expr_from_coeffs_vars(
-    coeffs: List[int], cols: List[int], fullvars: List[sp.Symbol]
-) -> sp.Expr:
-    return sp.Add(
+    coeffs: List[int], cols: List[int], fullvars: List[ir.Sym]
+) -> ir.Expr:
+    return ir.add(
         *[cf * fullvars[v] for cf, v in zip(coeffs, cols)]
     )
 
@@ -547,7 +579,7 @@ def alias_elimination(
             eqs_to_rm.append(eq)
             continue
         rhs = _build_expr_from_coeffs_vars(rval, rcol, fullvars)
-        eqs[eq] = Equation(sp.S.Zero, rhs)
+        eqs[eq] = Equation(ir.ZERO, rhs)
         oeq = original_eqs[eq]
         lhs = oeq.lhs
         idx = fullvars_to_idx.get(lhs)

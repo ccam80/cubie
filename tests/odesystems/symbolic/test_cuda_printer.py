@@ -1,626 +1,327 @@
-import math
-import re
+"""Tests for the IR CUDA printer.
+
+Covers the printer emission rules:
+precision wrapping, power rewrites (squares/cubes to multiplication
+chains, halves to sqrt, negatives to guarded reciprocals), piecewise
+ternaries, function mapping, scalar-to-array symbol remapping, and
+the constant integer-exponent alias.
+"""
 
 import numpy as np
 import pytest
 import sympy as sp
 
 from cubie import create_ODE_system, solve_ivp
-from cubie.odesystems.symbolic.codegen import (
-    CUDAPrinter,
+from cubie.odesystems.symbolic.engine import (
+    TRUE,
+    add,
+    arr,
+    call,
+    div,
+    from_sympy,
+    mul,
+    num,
+    piecewise,
+    pow_,
     print_cuda,
     print_cuda_multiple,
+    rel,
+    sym,
 )
+from cubie.odesystems.symbolic.sym_utils import EXPONENT_ALIAS_PREFIX
 
 
-class TestCUDAPrinter:
-    """Test cases for CUDAPrinter class."""
+class TestPrecisionWrapping:
+    def test_integer_literals_wrapped(self):
+        assert print_cuda(add(sym("x"), num(5))) == "x + precision(5)"
+        assert print_cuda(mul(num(2), sym("x"))) == "precision(2)*x"
 
-    def test_init_default(self):
-        """Test CUDAPrinter initialization with default parameters."""
-        printer = CUDAPrinter()
-        assert printer.symbol_map == {}
-        assert isinstance(printer, CUDAPrinter)
+    def test_subtraction_prints_minus(self):
+        result = print_cuda(add(sym("x"), num(-3)))
+        assert result == "x - precision(3)"
 
-    def test_init_with_symbol_map(self):
-        """Test CUDAPrinter initialization with symbol map."""
-        x = sp.Symbol("x")
-        arr = sp.IndexedBase("arr")
-        symbol_map = {x: arr[0]}
-        printer = CUDAPrinter(symbol_map=symbol_map)
-        assert printer.symbol_map == symbol_map
+    def test_float_literals_wrapped(self):
+        assert print_cuda(num(0.5)) == "precision(0.5)"
+        assert print_cuda(num(0.0)) == "precision(0.0)"
 
-    def test_print_symbol_without_mapping(self):
-        """Test printing symbol without symbol map."""
-        printer = CUDAPrinter()
-        x = sp.Symbol("x")
-        result = printer._print_Symbol(x)
-        assert result == "x"
+    def test_scientific_notation_wrapped(self):
+        result = print_cuda(num(1.5e-10))
+        assert result.startswith("precision(")
+        assert "e-" in result.lower()
 
-    def test_print_symbol_with_mapping(self):
-        """Test printing symbol with symbol map."""
-        x = sp.Symbol("x")
-        arr = sp.IndexedBase("arr")
-        symbol_map = {x: arr[0]}
-        printer = CUDAPrinter(symbol_map=symbol_map)
-        result = printer._print_Symbol(x)
-        assert result == "arr[0]"
+    def test_rational_wrapped_as_ratio(self):
+        assert print_cuda(from_sympy(sp.Rational(1, 2))) == (
+            "precision(1/2)"
+        )
+        assert print_cuda(from_sympy(sp.Rational(-1, 3))) == (
+            "precision(-1/3)"
+        )
 
-    def test_replace_square_powers_simple(self):
-        """Test replacement of x**2 with x*x."""
-        printer = CUDAPrinter()
-        expr_str = "x**2"
-        result = printer._replace_square_powers(expr_str)
-        assert result == "(x*x)"
+    def test_array_indices_not_wrapped(self):
+        result = print_cuda(arr("state", 0))
+        assert result == "state[0]"
+        assert "precision" not in result
 
-    def test_replace_square_powers_indexed(self):
-        """Test replacement of indexed variable powers."""
-        printer = CUDAPrinter()
-        expr_str = "arr[0]**2"
-        result = printer._replace_square_powers(expr_str)
-        assert result == "(arr[0]*arr[0])"
+    def test_indexed_with_literal_expression(self):
+        result = print_cuda(mul(arr("state", 0), num(2.5)))
+        assert "state[0]" in result
+        assert result.count("precision(") == 1
 
-    def test_replace_square_powers_multiple(self):
-        """Test replacement of multiple square powers."""
-        printer = CUDAPrinter()
-        expr_str = "x**2 + y**2"
-        result = printer._replace_square_powers(expr_str)
-        assert result == "(x*x) + (y*y)"
 
-    def test_replace_cube_powers_simple(self):
-        """Test replacement of x**3 with x*x*x."""
-        printer = CUDAPrinter()
-        expr_str = "x**3"
-        result = printer._replace_cube_powers(expr_str)
-        assert result == "(x*x*x)"
+class TestPowerRewrites:
+    def test_square_becomes_multiplication(self):
+        assert print_cuda(pow_(sym("x"), num(2))) == "(x*x)"
 
-    def test_replace_cube_powers_indexed(self):
-        """Test replacement of indexed variable cube powers."""
-        printer = CUDAPrinter()
-        expr_str = "arr[0]**3"
-        result = printer._replace_cube_powers(expr_str)
-        assert result == "(arr[0]*arr[0]*arr[0])"
+    def test_cube_becomes_multiplication(self):
+        assert print_cuda(pow_(sym("x"), num(3))) == "(x*x*x)"
 
-    def test_replace_powers_with_multiplication(self):
-        """Test combined power replacements."""
-        printer = CUDAPrinter()
-        expr_str = "x**2 + y**3 + z**2"
-        result = printer._replace_powers_with_multiplication(expr_str)
-        assert result == "(x*x) + (y*y*y) + (z*z)"
+    def test_float_exponents_optimised(self):
+        assert print_cuda(pow_(sym("x"), num(2.0))) == "(x*x)"
+        assert print_cuda(pow_(sym("x"), num(3.0))) == "(x*x*x)"
 
-    def test_replace_powers_ignores_higher_powers(self):
-        """Test that higher powers are not replaced."""
-        printer = CUDAPrinter()
-        expr_str = "x**4 + y**5"
-        result = printer._replace_powers_with_multiplication(expr_str)
-        assert result == "x**4 + y**5"
+    def test_parenthesised_base_square(self):
+        base = add(sym("a"), sym("b"))
+        assert print_cuda(pow_(base, num(2))) == "((a + b)*(a + b))"
 
-    def test_replace_powers_ignores_fractional_exponents(self):
-        """Test that non-integer exponents are not replaced."""
-        printer = CUDAPrinter()
-        expr_str = "x**2.5 + y**3.5"
-        result = printer._replace_powers_with_multiplication(expr_str)
-        assert result == "x**2.5 + y**3.5"
-
-    def test_replace_square_powers_in_denominator(self):
-        """Test that a/x**2 rewrites to a/(x*x), not a/x*x."""
-        printer = CUDAPrinter()
-        result = printer._replace_square_powers("a/_cse0**2")
-        assert result == "a/(_cse0*_cse0)"
-        assert eval(result, {"a": 3.0, "_cse0": 2.0}) == 0.75
-
-    def test_replace_cube_powers_in_denominator(self):
-        """Test that a/x**3 rewrites to a/(x*x*x), not a/x*x*x."""
-        printer = CUDAPrinter()
-        result = printer._replace_cube_powers("a/_cse0**3")
-        assert result == "a/(_cse0*_cse0*_cse0)"
-        assert eval(result, {"a": 16.0, "_cse0": 2.0}) == 2.0
-
-    def test_replace_paren_powers_in_denominator(self):
-        """Test that a/(x + y)**2 keeps the squared denominator."""
-        printer = CUDAPrinter()
-        result = printer._replace_square_powers("a/(x + y)**2")
-        assert result == "a/((x + y)*(x + y))"
-        assert eval(result, {"a": 9.0, "x": 1.0, "y": 2.0}) == 1.0
-
-    def test_printed_division_by_square_evaluates_correctly(self):
-        """Test the full print path for x/c**2.
-
-        The printed string must divide by the squared denominator;
-        the unparenthesized rewrite cancelled it in generated
-        operator and preconditioner bodies.
-        """
-        x, c = sp.symbols("x _cse0")
-        result = print_cuda(x / c**2)
-        value = eval(result, {"x": 3.0, "_cse0": 2.0, "precision": float})
-        assert value == 0.75
-
-    def test_reciprocal_power_prints_cast_numerator(self):
-        """Test that x**-1 prints as a precision-cast reciprocal.
-
-        A raw integer exponent promotes float32 bases to float64 in
-        numba (rcp.rn.f64 in the emitted PTX), so standalone
-        CSE-extracted reciprocals must print as precision(1)/x.
-        """
-        c = sp.Symbol("_cse0")
-        result = print_cuda(sp.Pow(c, -1, evaluate=False))
-        assert "**" not in result
-        assert "precision(1)/" in result
-        value = eval(result, {"_cse0": 4.0, "precision": float})
-        assert value == 0.25
-
-    def test_negative_square_power_prints_cast_reciprocal(self):
-        """Test that x**-2 prints as precision(1) over the square."""
-        c = sp.Symbol("_cse0")
-        result = print_cuda(sp.Pow(c, -2, evaluate=False))
-        assert "precision(1)/" in result
-        assert "**" not in result
-        value = eval(result, {"_cse0": 2.0, "precision": float})
-        assert value == 0.25
-
-    def test_sqrt_prints_as_math_sqrt(self):
-        """sp.sqrt lowers to a math.sqrt call, not a pow."""
-        x = sp.Symbol("x")
-        result = print_cuda(sp.sqrt(x))
-        assert result == "math.sqrt(x)"
-        value = eval(result, {"x": 9.0, "math": math})
-        assert value == 3.0
-
-    def test_float_half_power_prints_as_math_sqrt(self):
-        """A Float 0.5 exponent lowers to math.sqrt like Rational 1/2."""
-        x = sp.Symbol("x")
-        result = print_cuda(x ** sp.Float(0.5))
-        assert result == "math.sqrt(x)"
-
-    def test_compound_base_sqrt_parenthesised(self):
-        """sqrt of a compound base keeps the base parenthesised."""
-        a, b = sp.symbols("a b")
-        result = print_cuda(sp.sqrt(a + b))
-        assert result == "math.sqrt((a + b))"
-
-    def test_negative_half_power_prints_reciprocal_sqrt(self):
-        """x**-1/2 prints as a precision-cast reciprocal of math.sqrt."""
-        x = sp.Symbol("x")
-        for exponent in (sp.Rational(-1, 2), sp.Float(-0.5)):
-            result = print_cuda(x ** exponent)
-            assert result == "(precision(1)/math.sqrt(x))"
-            value = eval(
-                result,
-                {"x": 4.0, "precision": float, "math": math},
-            )
-            assert value == 0.5
-
-    def test_three_half_power_keeps_pow(self):
-        """Non-half fractional exponents keep the precision-wrapped pow."""
-        x = sp.Symbol("x")
-        result = print_cuda(x ** sp.Rational(3, 2))
-        assert result == "x**precision(3/2)"
+    def test_indexed_base_square(self):
+        result = print_cuda(pow_(arr("state", 0), num(2)))
+        assert result == "(state[0]*state[0])"
 
     def test_higher_integer_power_wraps_exponent(self):
-        """Test that x**4 wraps its exponent with precision()."""
-        x = sp.Symbol("x")
-        result = print_cuda(x**4)
-        assert result == "x**precision(4)"
-        value = eval(result, {"x": 2.0, "precision": float})
-        assert value == 16.0
+        assert print_cuda(pow_(sym("x"), num(5))) == "x**precision(5)"
+        assert print_cuda(from_sympy(sp.Symbol("x") ** 4)) == (
+            "x**precision(4)"
+        )
 
-    def test_no_raw_integer_exponents_survive(self):
-        """Test that no printed integer exponent escapes uncast.
+    def test_half_power_is_sqrt(self):
+        assert print_cuda(pow_(sym("x"), num(0.5))) == "math.sqrt(x)"
+        assert print_cuda(from_sympy(sp.sqrt(sp.Symbol("x")))) == (
+            "math.sqrt(x)"
+        )
 
-        Exponents 2 and 3 are consumed by the multiplication rewrite;
-        anything else must be precision-wrapped or rewritten as a
-        reciprocal so float32 kernels never promote through float64.
-        """
-        x = sp.Symbol("x")
-        for exponent in (-3, -2, -1, 2, 3, 4, 5):
-            printed = print_cuda(sp.Pow(x, exponent, evaluate=False))
-            assert not re.search(r"\*\*-?\d", printed), (
-                f"exponent {exponent} printed as {printed}"
-            )
+    def test_sqrt_of_sum(self):
+        result = print_cuda(
+            from_sympy(sp.sqrt(sp.Symbol("a") + sp.Symbol("b")))
+        )
+        assert result == "math.sqrt(a + b)"
 
-    def test_doprint_simple_expression(self):
-        """Test doprint with simple expression."""
-        printer = CUDAPrinter()
-        x = sp.Symbol("x")
-        expr = x**2 + x
-        result = printer.doprint(expr)
-        assert "x*x" in result
+    def test_negative_half_power_is_reciprocal_sqrt(self):
+        result = print_cuda(pow_(sym("x"), num(-0.5)))
+        assert result == "(precision(1)/math.sqrt(x))"
 
-    def test_doprint_with_symbol_mapping(self):
-        """Test doprint with symbol mapping."""
-        x = sp.Symbol("x")
-        arr = sp.IndexedBase("arr")
-        symbol_map = {x: arr[0]}
-        printer = CUDAPrinter(symbol_map=symbol_map)
-        expr = x**2
-        result = printer.doprint(expr)
-        assert "arr[0]*arr[0]" in result
+    def test_reciprocal(self):
+        assert print_cuda(pow_(sym("c"), num(-1))) == (
+            "(precision(1)/c)"
+        )
 
+    def test_reciprocal_square(self):
+        assert print_cuda(pow_(sym("c"), num(-2))) == (
+            "(precision(1)/(c*c))"
+        )
 
+    def test_division_by_square_does_not_cancel(self):
+        # Regression guard for the regex-era denominator
+        # cancellation: x / c**2 must keep its denominator.
+        result = print_cuda(div(sym("x"), pow_(sym("c"), num(2))))
+        assert result == "x/(c*c)"
 
-class TestPrintCudaFunction:
-    """Test cases for print_cuda convenience function."""
-
-    def test_print_cuda_simple(self):
-        """Test print_cuda with simple expression."""
-        x = sp.Symbol("x")
-        expr = x**2
-        result = print_cuda(expr)
-        assert "x*x" in result
-
-    def test_print_cuda_with_symbol_map(self):
-        """Test print_cuda with symbol mapping."""
-        x = sp.Symbol("x")
-        arr = sp.IndexedBase("arr")
-        symbol_map = {x: arr[0]}
-        expr = x**2
-        result = print_cuda(expr, symbol_map=symbol_map)
-        assert "arr[0]*arr[0]" in result
-
-    def test_print_cuda_complex_expression(self):
-        """Test print_cuda with complex expression."""
-        x, y = sp.symbols("x y")
-        expr = x**2 + y**3 + sp.sin(x)
-        result = print_cuda(expr)
-        assert "x*x" in result
-        assert "y*y*y" in result
-        assert "sin" in result
-
-
-class TestPrintCudaMultiple:
-    """Test cases for print_cuda_multiple function."""
-
-    def test_print_cuda_multiple_simple(self):
-        """Test print_cuda_multiple with simple expressions."""
-        x, y = sp.symbols("x y")
-        a, b = sp.symbols("a b")
-        exprs = [(a, x**2), (b, y**3)]
-        result = print_cuda_multiple(exprs)
-        assert len(result) == 2
-        assert all(isinstance(line, str) for line in result)
-
-    def test_print_cuda_multiple_with_symbol_map(self):
-        """Test print_cuda_multiple with symbol mapping."""
-        x, y = sp.symbols("x y")
-        a, b = sp.symbols("a b")
-        arr = sp.IndexedBase("arr")
-        symbol_map = {x: arr[0], y: arr[1]}
-        exprs = [(a, x**2), (b, y**3)]
-        result = print_cuda_multiple(exprs, symbol_map=symbol_map)
-        assert len(result) == 2
-        # Check that symbol mapping was applied
-        combined = " ".join(result)
-        assert "arr[0]" in combined
-        assert "arr[1]" in combined
-
-    def test_print_cuda_multiple_empty(self):
-        """Test print_cuda_multiple with empty list."""
-        result = print_cuda_multiple([])
-        assert result == []
-
-    def test_print_cuda_multiple_single(self):
-        """Test print_cuda_multiple with single expression."""
-        x = sp.Symbol("x")
-        a = sp.Symbol("a")
-        exprs = [(a, x**2)]
-        result = print_cuda_multiple(exprs)
-        assert len(result) == 1
-        assert "x*x" in result[0]
-
-
-class TestEdgeCases:
-    """Test edge cases and error conditions."""
-
-    def test_power_replacement_with_whitespace(self):
-        """Test power replacement handles whitespace correctly."""
-        printer = CUDAPrinter()
-        expr_str = "x **2 + y** 3"
-        # Should now replace despite whitespace
-        result = printer._replace_powers_with_multiplication(expr_str)
-        assert result == "(x*x) + (y*y*y)"
-
-    def test_power_replacement_with_tabs(self):
-        """Test power replacement handles tabs correctly."""
-        printer = CUDAPrinter()
-        expr_str = "x\t**\t2 + y **\t3"
-        # Should replace despite tabs
-        result = printer._replace_powers_with_multiplication(expr_str)
-        assert result == "(x*x) + (y*y*y)"
-
-    def test_power_replacement_mixed_whitespace(self):
-        """Test power replacement with mixed spaces and tabs."""
-        printer = CUDAPrinter()
-        expr_str = "arr[0] \t** \t2 + var **  3"
-        result = printer._replace_powers_with_multiplication(expr_str)
-        assert result == "(arr[0]*arr[0]) + (var*var*var)"
-
-    def test_nested_indexed_variables(self):
-        """Test handling of nested indexed variables."""
-        printer = CUDAPrinter()
-        expr_str = "matrix[i][j]**2"
-        result = printer._replace_square_powers(expr_str)
-        # Should handle nested indexing properly
-        assert "matrix[i][j]*matrix[i][j]" in result
-
-    def test_symbol_map_with_complex_indexing(self):
-        """Test symbol mapping with complex indexed expressions."""
-        x = sp.Symbol("x")
-        i, j = sp.symbols("i j")
-        matrix = sp.IndexedBase('matrix')
-        symbol_map = {x: matrix[i, j]}
-        printer = CUDAPrinter(symbol_map=symbol_map)
-        result = printer._print_Symbol(x)
-        assert "matrix[i, j]" in result
-
-def _compact(s: str) -> str:
-    return re.sub(r"\s+", "", s)
-
-
-def test_piecewise_assignment_is_wrapped_outside():
-    aux_4, aux_2 = sp.symbols('aux_4 aux_2')
-    _cse1, _cse2, _cse3 = sp.symbols('_cse1 _cse2 _cse3')
-    expr = sp.Piecewise((_cse1 * (_cse2 + aux_2), _cse3), (0.0, True))
-
-    p = CUDAPrinter()
-    out = p.doprint(expr, assign_to=aux_4)
-
-    # Expect: aux_4 = (_cse1*(_cse2 + aux_2) if _cse3 else (precision(0)))
-    # Note: 0 is wrapped with precision() for type safety
-    assert _compact(out) == _compact("aux_4 = (_cse1*(_cse2 + aux_2) if "
-                                     "_cse3 else (precision(0.0)))")
-
-
-def test_piecewise_inside_expression_assignment():
-    _cse10, _cse1, _cse3, E_v = sp.symbols('_cse10 _cse1 _cse3 E_v')
-    expr = E_v * sp.Piecewise((_cse1, _cse3), (0.0, True))
-
-    p = CUDAPrinter()
-    out = p.doprint(expr, assign_to=_cse10)
-
-    # Expect: _cse10 = E_v*(_cse1 if _cse3 else (precision(0)))
-    # Note: 0 is wrapped with precision() for type safety
-    assert _compact(out) == _compact("_cse10 = E_v*(_cse1 if _cse3 else ("
-                                     "precision(0.0)))")
-
-def test_functions():
-    """Test that expressions containing SymPy functions are successfully
-    converted to CUDA-compatible functions as given by CUDA_FUNCTIONS"""
-    pass
-
-
-class TestNumericPrecisionWrapping:
-    """Test cases for numeric literal precision wrapping."""
-
-    def test_print_float_wrapped(self):
-        """Test that Float literals are wrapped with precision()."""
-        printer = CUDAPrinter()
-        expr = sp.Float(0.5)
-        result = printer.doprint(expr)
-        # SymPy uses full precision representation
-        assert result.startswith("precision(")
-        assert result.endswith(")")
-        assert "0.5" in result or "0.500000" in result
-
-    def test_print_rational_wrapped(self):
-        """Test that Rational literals are wrapped with precision()."""
-        printer = CUDAPrinter()
-        expr = sp.Rational(1, 2)
-        result = printer.doprint(expr)
-        assert result == "precision(1/2)"
-
-    def test_expression_with_literals(self):
-        """Test that all literals in expressions are wrapped."""
-        printer = CUDAPrinter()
-        x = sp.Symbol('x')
-        expr = x + sp.Float(1.0)
-        result = printer.doprint(expr)
-        # Verify literal is wrapped (SymPy may use full precision)
-        assert "precision(" in result
-        assert "x" in result
-        # Check structure: x + precision(...)
-        assert "+" in result
-
-    def test_negative_float(self):
-        """Test negative float literals are wrapped correctly."""
-        printer = CUDAPrinter()
-        expr = sp.Float(-0.5)
-        result = printer.doprint(expr)
-        assert result.startswith("precision(-")
-        assert "-0.5" in result or "-0.500000" in result
-
-    def test_scientific_notation(self):
-        """Test scientific notation floats are wrapped correctly."""
-        printer = CUDAPrinter()
-        expr = sp.Float(1.5e-10)
-        result = printer.doprint(expr)
-        assert result.startswith("precision(")
-        assert "e-" in result.lower() or "e-0" in result.lower()
-
-    def test_piecewise_with_literals(self):
-        """Test that literals in Piecewise expressions are wrapped."""
-        printer = CUDAPrinter()
-        x = sp.Symbol('x')
-        # Piecewise((0.5, x > 0), (0, True))
-        expr = sp.Piecewise((sp.Float(0.5), x > sp.Float(0.0)),
-                            (sp.Float(0.0), True))
-        result = printer.doprint(expr)
-        # Count precision() calls - should have at least 2
-        # (one for 0.5 and one for 0 in the condition)
-        assert result.count("precision(") >= 2
-        assert "if" in result  # Piecewise uses ternary
-
-    def test_zero_literal(self):
-        """Test zero literal is wrapped."""
-        printer = CUDAPrinter()
-        expr = sp.Float(0.0)
-        result = printer.doprint(expr)
-        assert result == "precision(0.0)"
-
-    def test_rational_negative(self):
-        """Test negative rational literals are wrapped."""
-        printer = CUDAPrinter()
-        expr = sp.Rational(-1, 3)
-        result = printer.doprint(expr)
-        assert result == "precision(-1/3)"
-
-    def test_mixed_expression_with_power_replacement(self):
-        """Test literals are wrapped and power replacement works."""
-        printer = CUDAPrinter()
-        x = sp.Symbol('x')
-        # x**2 + 0.5 should become x*x + precision(0.5...)
-        expr = x**2 + sp.Float(0.5)
-        result = printer.doprint(expr)
-        assert "x*x" in result  # Power replacement happens
-        assert "precision(" in result  # Literal wrapping happens
-        # Count precision calls - should be 1 (for the 0.5)
-        # The exponent 2 is NOT wrapped (handled by _print_Pow)
-        assert result.count("precision(") == 1
-
-    def test_indexed_indices_not_wrapped(self):
-        """Test that array indices are NOT wrapped with precision()."""
-        printer = CUDAPrinter()
-        arr = sp.IndexedBase('state')
-        # Test simple index
-        expr1 = arr[0]
-        result1 = printer.doprint(expr1)
-        assert result1 == "state[0]"
-        assert "precision" not in result1
-        
-        # Test multi-dimensional index
-        expr2 = arr[sp.Integer(0), sp.Integer(1)]
-        result2 = printer.doprint(expr2)
-        assert result2 == "state[0, 1]"
-        assert "precision" not in result2
-
-    def test_power_exponents_not_wrapped(self):
-        """Test that power exponents are NOT wrapped to preserve optimization."""
-        printer = CUDAPrinter()
-        x = sp.Symbol('x')
-        
-        # Test integer exponent (optimizable to x*x)
-        expr1 = x ** sp.Float(2.0)
-        result1 = printer.doprint(expr1)
-        assert result1 == "(x*x)"  # Power replacement works
-        assert "precision" not in result1
-
-        # Test cube exponent (optimizable to x*x*x)
-        expr2 = x ** sp.Integer(3)
-        result2 = printer.doprint(expr2)
-        assert result2 == "(x*x*x)"  # Power replacement works
-        assert "precision" not in result2
-        
-    def test_indexed_with_literal_expression(self):
-        """Test indexed expressions with literals in non-index positions."""
-        printer = CUDAPrinter()
-        arr = sp.IndexedBase('state')
-        
-        # arr[0] * 2.5 - literal should be wrapped, index should not
-        expr = arr[0] * sp.Float(2.5)
-        result = printer.doprint(expr)
-        assert "state[0]" in result  # Index not wrapped
-        assert "precision(" in result  # Literal is wrapped
-        # Only one precision call for the 2.5
-        assert result.count("precision(") == 1
-
-    def test_index_arithmetic_not_wrapped(self):
-        """Test that arithmetic in array indices is not wrapped with precision()."""
-        printer = CUDAPrinter()
-        arr = sp.IndexedBase('state')
-        i = sp.Symbol('i')
-        
-        # Test i + 1 as index
-        expr1 = arr[i + 1]
-        result1 = printer.doprint(expr1)
-        assert result1 == "state[i + 1]"
-        assert "precision" not in result1
-        
-        # Test 2*i + 1 as index
-        expr2 = arr[2*i + 1]
-        result2 = printer.doprint(expr2)
-        assert result2 == "state[2*i + 1]"
-        assert "precision" not in result2
-        
-        # Test that the same expression outside an index IS wrapped
-        expr3 = sp.Float(2)*i + sp.Integer(1)
-        result3 = printer.doprint(expr3)
-        assert "precision(" in result3
-
-    def test_integer_literals_wrapped(self):
-        """Test that integer literals in expressions are wrapped with precision()."""
-        printer = CUDAPrinter()
-        x = sp.Symbol('x')
-        
-        # Test integer addition
-        expr1 = x + sp.Integer(5)
-        result1 = printer.doprint(expr1)
-        assert result1 == "x + precision(5)"
-        
-        # Test integer multiplication
-        expr2 = sp.Integer(2) * x
-        result2 = printer.doprint(expr2)
-        assert result2 == "precision(2)*x"
-        
-        # Test integer subtraction (SymPy treats x - 3 as x + (-3))
-        expr3 = x - sp.Integer(3)
-        result3 = printer.doprint(expr3)
-        assert result3 == "x + precision(-3)"
-        
-    def test_integer_constants_not_upcasted(self):
-        """Test that integer constants prevent float64 upcasting."""
-        printer = CUDAPrinter()
-        x = sp.Symbol('x')
-        
-        # Ensure integer constants are wrapped with precision()
-        # This prevents mixed-precision arithmetic from upcasting to float64
-        expr = sp.Integer(2) * x + sp.Integer(1)
-        result = printer.doprint(expr)
-        assert result == "precision(2)*x + precision(1)"
-        # Verify no int32() usage
-        assert "int32" not in result
+    def test_rational_power_prints_wrapped(self):
+        result = print_cuda(
+            from_sympy(sp.Symbol("x") ** sp.Rational(3, 2))
+        )
+        assert result == "x**precision(3/2)"
 
 
 class TestConstantExponentAlias:
     """Constant exponents print as their integer-exponent alias."""
 
     def test_constant_exponent_prints_alias(self):
-        """A constant-symbol exponent prints the iexp alias."""
-        x, n = sp.symbols("x n")
-        printer = CUDAPrinter(constant_names={"n"})
-        result = printer.doprint(sp.Pow(x, n, evaluate=False))
-        assert result == "x**_cubie_codegen_iexp_n"
+        result = print_cuda(
+            pow_(sym("x"), sym("n")), constant_names={"n"}
+        )
+        assert result == f"x**{EXPONENT_ALIAS_PREFIX}n"
 
     def test_non_constant_symbol_exponent_unchanged(self):
-        """A runtime-symbol exponent prints its plain name."""
-        x, n = sp.symbols("x n")
-        printer = CUDAPrinter()
-        result = printer.doprint(sp.Pow(x, n, evaluate=False))
-        assert result == "x**n"
+        assert print_cuda(pow_(sym("x"), sym("n"))) == "x**n"
 
     def test_mapped_symbol_exponent_not_aliased(self):
-        """An array-mapped exponent keeps its array reference."""
-        x, n = sp.symbols("x n")
-        arr = sp.IndexedBase("parameters")
-        printer = CUDAPrinter(
-            symbol_map={n: arr[0]}, constant_names={"n"}
+        result = print_cuda(
+            pow_(sym("x"), sym("n")),
+            symbol_map={"n": arr("parameters", 0)},
+            constant_names={"n"},
         )
-        result = printer.doprint(sp.Pow(x, n, evaluate=False))
         assert result == "x**parameters[0]"
 
     def test_constant_base_not_aliased(self):
-        """A constant appearing as a base is printed normally."""
-        x, n = sp.symbols("x n")
-        printer = CUDAPrinter(constant_names={"n"})
-        result = printer.doprint(sp.Pow(n, x, evaluate=False))
+        result = print_cuda(
+            pow_(sym("n"), sym("x")), constant_names={"n"}
+        )
         assert result == "n**x"
 
     def test_alias_used_via_print_cuda_multiple(self):
-        """print_cuda_multiple forwards constant_names to the printer."""
-        x, n, out = sp.symbols("x n out")
         lines = print_cuda_multiple(
-            [(out, sp.Pow(x, n, evaluate=False))],
+            [(sym("out"), pow_(sym("x"), sym("n")))],
             constant_names={"n"},
         )
-        assert lines == ["out = x**_cubie_codegen_iexp_n"]
+        assert lines == [f"out = x**{EXPONENT_ALIAS_PREFIX}n"]
+
+
+class TestFunctionsAndPiecewise:
+    def test_known_functions_map_to_math(self):
+        assert print_cuda(call("exp", sym("x"))) == "math.exp(x)"
+        assert print_cuda(call("Abs", sym("x"))) == "math.fabs(x)"
+        assert print_cuda(call("ceiling", sym("x"))) == "math.ceil(x)"
+        assert print_cuda(call("Min", sym("x"), sym("y"))) == (
+            "min(x, y)"
+        )
+
+    def test_unknown_function_raises(self):
+        with pytest.raises(ValueError, match="unsupported function"):
+            print_cuda(call("myfunc_", sym("x")))
+
+    def test_sign_emits_copysign_selection(self):
+        assert print_cuda(call("sign", sym("x"))) == (
+            "(precision(0) if x == precision(0) else "
+            "math.copysign(precision(1), x))"
+        )
+
+    def test_mod_emits_modulo_operator(self):
+        result = print_cuda(
+            call("Mod", add(sym("x"), sym("y")), num(3))
+        )
+        assert result == "(x + y) % precision(3)"
+
+    def test_mod_factor_keeps_grouping(self):
+        product = mul(sym("z"), call("Mod", sym("x"), sym("y")))
+        assert print_cuda(product) == "z*(x % y)"
+
+    def test_mod_in_denominator_keeps_grouping(self):
+        quotient = div(sym("z"), call("Mod", sym("x"), sym("y")))
+        assert print_cuda(quotient) == "z/(x % y)"
+
+    def test_heaviside_converts_to_piecewise(self):
+        result = print_cuda(from_sympy(sp.Heaviside(sp.Symbol("x"))))
+        assert " if " in result
+        assert "Heaviside" not in result
+
+    def test_derivative_placeholder_prints_plainly(self):
+        result = print_cuda(
+            call("d_myfunc", sym("x"), num(0)),
+            function_aliases={"d_myfunc": "d_myfunc"},
+        )
+        assert result == "d_myfunc(x, precision(0))"
+
+    def test_function_alias_resolution(self):
+        result = print_cuda(
+            call("myfunc_", sym("x")),
+            function_aliases={"myfunc_": "myfunc"},
+        )
+        assert result == "myfunc(x)"
+
+    def test_piecewise_emits_nested_ternaries(self):
+        expr = piecewise(
+            (sym("a"), rel("<", sym("x"), num(0))),
+            (sym("b"), TRUE),
+        )
+        assert print_cuda(expr) == (
+            "(a if x < precision(0) else (b))"
+        )
+
+    def test_piecewise_assignment_is_wrapped_outside(self):
+        expr = from_sympy(
+            sp.Piecewise(
+                (
+                    sp.Symbol("_cse1")
+                    * (sp.Symbol("_cse2") + sp.Symbol("aux_2")),
+                    sp.Symbol("_cse3") > 0,
+                ),
+                (0.0, True),
+            )
+        )
+        line = print_cuda_multiple([(sym("aux_4"), expr)])[0]
+        assert line.startswith("aux_4 = (")
+        assert " if " in line
+        assert line.rstrip().endswith("(precision(0.0)))")
+
+    def test_piecewise_inside_expression(self):
+        inner = piecewise(
+            (sym("_cse1"), rel(">", sym("_cse3"), num(0))),
+            (num(0.0), TRUE),
+        )
+        result = print_cuda(mul(sym("E_v"), inner))
+        assert result == (
+            "E_v*(_cse1 if _cse3 > precision(0) else "
+            "(precision(0.0)))"
+        )
+
+    def test_piecewise_literals_wrapped(self):
+        expr = piecewise(
+            (num(0.5), rel(">", sym("x"), num(0.0))),
+            (num(0.0), TRUE),
+        )
+        result = print_cuda(expr)
+        assert result.count("precision(") >= 2
+        assert " if " in result
+
+
+class TestSymbolMapping:
+    def test_scalar_symbols_remap_to_arrays(self):
+        lines = print_cuda_multiple(
+            [(arr("out", 0), add(sym("p"), sym("x")))],
+            symbol_map={
+                "x": arr("state", 0),
+                "p": arr("parameters", 1),
+            },
+        )
+        assert lines == ["out[0] = parameters[1] + state[0]"]
+
+    def test_unmapped_symbols_print_by_name(self):
+        lines = print_cuda_multiple(
+            [(sym("local"), mul(sym("h"), sym("x")))],
+        )
+        assert lines == ["local = h*x"]
+
+    def test_assignment_target_remaps(self):
+        lines = print_cuda_multiple(
+            [(sym("dx"), sym("x"))],
+            symbol_map={"dx": arr("out", 2)},
+        )
+        assert lines == ["out[2] = x"]
+
+
+class TestExpressionShapes:
+    def test_negative_coefficient_prints_unary_minus(self):
+        assert print_cuda(mul(num(-1), sym("x"))) == "-x"
+
+    def test_division_groups_denominator(self):
+        result = print_cuda(div(sym("a"), mul(sym("x"), sym("y"))))
+        assert result == "a/(x*y)"
+
+    def test_subtracted_sum_keeps_parentheses(self):
+        from cubie.odesystems.symbolic.engine import sub
+
+        result = print_cuda(
+            sub(sym("x"), add(sym("y"), sym("z")))
+        )
+        assert result == "x - (y + z)"
+
+    def test_leading_negated_sum_keeps_parentheses(self):
+        from cubie.odesystems.symbolic.engine import neg
+
+        result = print_cuda(neg(add(sym("y"), sym("z"))))
+        assert result == "-(y + z)"
+
+    def test_generated_source_compiles(self):
+        expr = from_sympy(
+            sp.sympify(
+                "x**2*sin(y) + Piecewise((x, x > 0), (-x, True))"
+            )
+        )
+        line = print_cuda_multiple([(arr("out", 0), expr)])[0]
+        compile(line, "<generated>", "exec")
+
+    def test_empty_assignment_list(self):
+        assert print_cuda_multiple([]) == []
 
 
 @pytest.mark.parametrize(

@@ -9,7 +9,7 @@ differentiation hooks used by Pantelides.
 Published Classes
 -----------------
 :class:`Equation`
-    Immutable ``lhs ~ rhs`` pair of SymPy expressions.
+    Immutable ``lhs ~ rhs`` pair of engine IR expressions.
 
 :class:`SystemStructure`
     Integer-graph view of the system (incidence, solvability,
@@ -32,7 +32,8 @@ from typing import (
     Tuple,
 )
 
-import sympy as sp
+from cubie.odesystems.symbolic.engine import expr as ir
+from cubie.odesystems.symbolic.engine.expr import _children
 
 from cubie.odesystems.symbolic.structural.bipartite import (
     BipartiteGraph,
@@ -50,13 +51,36 @@ from cubie.odesystems.symbolic.structural.symbolics import (
 
 
 class Equation:
-    """An equation ``lhs ~ rhs`` of SymPy expressions."""
+    """An equation ``lhs ~ rhs`` of engine IR expressions."""
 
     __slots__ = ("lhs", "rhs")
 
-    def __init__(self, lhs: sp.Expr, rhs: sp.Expr) -> None:
-        self.lhs = sp.sympify(lhs)
-        self.rhs = sp.sympify(rhs)
+    def __init__(self, lhs: ir.Expr, rhs: ir.Expr) -> None:
+        self.lhs = self._coerce(lhs)
+        self.rhs = self._coerce(rhs)
+
+    @staticmethod
+    def _coerce(value) -> ir.Expr:
+        """Coerce an operand to an engine IR expression.
+
+        Plain Python ``int``/``float`` values are wrapped as numeric
+        literals. Any other non-IR value (in particular a SymPy
+        expression) raises ``TypeError``: conversion from SymPy
+        belongs at the parse boundary, before an ``Equation`` is
+        constructed.
+        """
+
+        if isinstance(value, ir.Expr):
+            return value
+        if isinstance(value, (int, float)):
+            return ir.num(value)
+        raise TypeError(
+            "Equation operands must be engine IR expressions "
+            "(cubie.odesystems.symbolic.engine.expr.Expr) or plain "
+            f"Python int/float; got {type(value).__name__}. Convert "
+            "SymPy expressions to IR at the parse boundary before "
+            "constructing an Equation."
+        )
 
     def __repr__(self) -> str:
         return f"{self.lhs} ~ {self.rhs}"
@@ -64,27 +88,29 @@ class Equation:
     def __eq__(self, other) -> bool:
         return (
             isinstance(other, Equation)
-            and self.lhs == other.lhs
-            and self.rhs == other.rhs
+            and self.lhs is other.lhs
+            and self.rhs is other.rhs
         )
 
     def __hash__(self) -> int:
         return hash((self.lhs, self.rhs))
 
-    def residual(self) -> sp.Expr:
+    def residual(self) -> ir.Expr:
         """Return ``rhs - lhs``."""
 
-        return self.rhs - self.lhs
+        return ir.sub(self.rhs, self.lhs)
 
-    def free_symbols(self) -> Set[sp.Symbol]:
+    def free_symbols(self) -> frozenset:
         """Free symbols of both sides."""
 
-        return self.lhs.free_symbols | self.rhs.free_symbols
+        return ir.free_atoms(self.lhs) | ir.free_atoms(self.rhs)
 
-    def xreplace(self, rules: Dict) -> "Equation":
+    def xreplace(self, rules: Dict[ir.Expr, ir.Expr]) -> "Equation":
         """Return a copy with ``rules`` structurally substituted."""
 
-        return Equation(self.lhs.xreplace(rules), self.rhs.xreplace(rules))
+        return Equation(
+            ir.xreplace(self.lhs, rules), ir.xreplace(self.rhs, rules)
+        )
 
 
 class SystemStructure:
@@ -308,7 +334,7 @@ def default_rm_eqs_vars(
 
 
 def _canonical_sort_key(
-    var: sp.Symbol, registry: DerivativeRegistry
+    var: ir.Sym, registry: DerivativeRegistry
 ) -> Tuple[Tuple[int, ...], str]:
     """Deterministic ordering key: derivative chain, then base name."""
 
@@ -350,13 +376,13 @@ class StructuralState:
     def __init__(
         self,
         equations: Sequence[Equation],
-        unknowns: Sequence[sp.Symbol],
+        unknowns: Sequence[ir.Sym],
         registry: DerivativeRegistry,
-        known_symbols: Iterable[sp.Symbol],
-        time_symbol: sp.Symbol,
-        known_derivative_map: Optional[Dict[sp.Symbol, sp.Expr]] = None,
-        state_priorities: Optional[Dict[sp.Symbol, int]] = None,
-        irreducibles: Optional[Iterable[sp.Symbol]] = None,
+        known_symbols: Iterable[ir.Sym],
+        time_symbol: ir.Sym,
+        known_derivative_map: Optional[Dict[ir.Sym, ir.Expr]] = None,
+        state_priorities: Optional[Dict[ir.Sym, int]] = None,
+        irreducibles: Optional[Iterable[ir.Sym]] = None,
         sort_eqs: bool = True,
     ) -> None:
         self.registry = registry
@@ -390,7 +416,7 @@ class StructuralState:
         fullvars = []
         seen = set()
 
-        def addvar(sym: sp.Symbol) -> None:
+        def addvar(sym: ir.Sym) -> None:
             if sym not in seen:
                 seen.add(sym)
                 fullvars.append(sym)
@@ -439,8 +465,8 @@ class StructuralState:
             isalgeq = all(
                 not registry.is_derivative(v) for v in incidence
             )
-            if isalgeq and eq.lhs != sp.S.Zero:
-                eqs[i] = Equation(sp.S.Zero, eq.residual())
+            if isalgeq and not ir.is_zero(eq.lhs):
+                eqs[i] = Equation(ir.ZERO, eq.residual())
 
         if sort_eqs:
             keys = [
@@ -486,7 +512,7 @@ class StructuralState:
 
     def _build_state_priorities(
         self,
-        priority_map: Dict[sp.Symbol, int],
+        priority_map: Dict[ir.Sym, int],
         var_to_diff: DiffGraph,
     ) -> List[int]:
         priorities = [
@@ -556,11 +582,11 @@ class StructuralState:
                 if dv is not None:
                     deriv_map[v] = self.fullvars[dv]
         residual = self.eqs[ieq].residual()
-        for v in residual.free_symbols:
+        for v in ir.free_atoms(residual):
             if (
                 v in self.var2idx
                 and v not in deriv_map
-                and v != self.time_symbol
+                and v is not self.time_symbol
             ):
                 raise ValueError(
                     f"Cannot differentiate equation {self.eqs[ieq]}: "
@@ -572,7 +598,7 @@ class StructuralState:
             self.time_symbol,
             self.known_derivative_map,
         )
-        new_eq = Equation(sp.S.Zero, new_rhs)
+        new_eq = Equation(ir.ZERO, new_rhs)
         self.eqs.append(new_eq)
         self.original_eqs.append(new_eq)
         if len(self.eqs) != eq_diff + 1:
@@ -597,7 +623,7 @@ class StructuralState:
             all_int_vars, rem = self.find_eq_solvables(
                 eq_diff, to_rm, coeffs, **solv_kwargs
             )
-            if self.mm is not None and all_int_vars and rem == sp.S.Zero:
+            if self.mm is not None and all_int_vars and ir.is_zero(rem):
                 if self.mm.nzrows and eq_diff <= self.mm.nzrows[-1]:
                     raise AssertionError("mm rows out of order")
                 self.mm.nzrows.append(eq_diff)
@@ -632,13 +658,13 @@ class StructuralState:
         mm.row_cols.append(rcol)
         mm.row_vals.append(rval)
 
-        rhs = sp.Add(
+        rhs = ir.add(
             *[
-                coeff * self.fullvars[c]
+                ir.mul(coeff, self.fullvars[c])
                 for c, coeff in zip(rcol, rval)
             ]
         )
-        new_eq = Equation(sp.S.Zero, rhs)
+        new_eq = Equation(ir.ZERO, rhs)
         self.eqs.append(new_eq)
         self.original_eqs.append(new_eq)
         if len(self.eqs) != eq_diff + 1:
@@ -651,7 +677,7 @@ class StructuralState:
 
     def _check_allow_symbolic_parameter(
         self,
-        denom: sp.Expr,
+        denom: ir.Expr,
         allow_symbolic: bool,
         allow_parameter: bool,
     ) -> bool:
@@ -660,10 +686,10 @@ class StructuralState:
         if allow_symbolic:
             return True
         if not allow_parameter:
-            return denom.is_number
+            return isinstance(denom, ir.Num)
         # Parameter-only denominators allowed; anything containing an
         # unknown is rejected.
-        for v in denom.free_symbols:
+        for v in ir.free_atoms(denom):
             if v in self.var2idx:
                 return False
             base, _ = self.registry.base_and_order(v)
@@ -681,7 +707,7 @@ class StructuralState:
         allow_parameter: bool = True,
         conservative: bool = False,
         **_ignored,
-    ) -> Tuple[bool, sp.Expr]:
+    ) -> Tuple[bool, ir.Expr]:
         """Populate the solvable graph for equation ``ieq``.
 
         Returns ``(all_int_vars, remainder)`` where ``all_int_vars``
@@ -713,7 +739,7 @@ class StructuralState:
             if not islinear:
                 all_int_vars = False
                 continue
-            if not a.is_number:
+            if not isinstance(a, ir.Num):
                 all_int_vars = False
                 if not self._check_allow_symbolic_parameter(
                     a, allow_symbolic, allow_parameter
@@ -727,7 +753,7 @@ class StructuralState:
                 all_int_vars = False
                 if conservative:
                     continue
-                a_int = 0 if a == sp.S.Zero else None
+                a_int = 0 if ir.is_zero(a) else None
                 if a_int is None:
                     # Non-small nonzero numeric coefficient: solvable,
                     # but not part of the integer subsystem.
@@ -789,7 +815,7 @@ class StructuralState:
             all_int_vars, rem = self.find_eq_solvables(
                 i, to_rm, coeffs, **kwargs
             )
-            if all_int_vars and rem == sp.S.Zero:
+            if all_int_vars and ir.is_zero(rem):
                 linear_equations.append(i)
                 eadj.append(list(graph.s_neighbors(i)))
                 cadj.append(list(coeffs))
@@ -848,7 +874,7 @@ class StructuralState:
         result = []
         for i, oeq in enumerate(self.original_eqs):
             lhs = oeq.lhs
-            if not isinstance(lhs, sp.Symbol):
+            if not isinstance(lhs, ir.Sym):
                 continue
             vidx = self.var2idx.get(lhs)
             if vidx is None:
@@ -856,9 +882,9 @@ class StructuralState:
             if lhs in self.irreducibles:
                 continue
             sys_eq = self.eqs[i]
-            if sys_eq.lhs == sp.S.Zero and sys_eq.rhs == sp.S.Zero:
+            if ir.is_zero(sys_eq.lhs) and ir.is_zero(sys_eq.rhs):
                 continue
-            if lhs in oeq.rhs.free_symbols:
+            if lhs in ir.free_atoms(oeq.rhs):
                 continue
             result.append((i, vidx))
         return result
@@ -883,9 +909,17 @@ class StructuralState:
         )
 
 
+def _num_float(node: ir.Expr) -> float:
+    """Return ``float(node.value)``; raise for a non-numeric node."""
+
+    if not isinstance(node, ir.Num):
+        raise TypeError(f"{node!r} is not a numeric IR node")
+    return float(node.value)
+
+
 def _expression_sort_key(
-    expr: sp.Expr,
-    var2idx: Dict[sp.Symbol, int],
+    expr: ir.Expr,
+    var2idx: Dict[ir.Sym, int],
     canonical_ranks: List[int],
     cache: Dict,
 ) -> List[Tuple[int, float, float]]:
@@ -905,25 +939,36 @@ def _expression_sort_key(
 
 
 def __expression_sort_key(
-    expr: sp.Expr,
-    var2idx: Dict[sp.Symbol, int],
+    expr: ir.Expr,
+    var2idx: Dict[ir.Sym, int],
     canonical_ranks: List[int],
     cache: Dict,
 ) -> List[Tuple[int, float, float]]:
-    if expr.is_number:
+    if isinstance(expr, ir.Num):
         try:
-            return [(0, float(expr), 1.0)]
+            return [(0, float(expr.value), 1.0)]
         except (TypeError, ValueError):
             return []
-    if isinstance(expr, sp.Symbol):
+    if isinstance(expr, ir.Sym):
         idx = var2idx.get(expr)
         if idx is None:
             return []
         return [(canonical_ranks[idx], 1.0, 1.0)]
-    if expr.is_Add:
+    if isinstance(expr, ir.Add):
         result = []
-        for term in sorted(expr.args, key=sp.default_sort_key):
-            coeff, rest = term.as_coeff_Mul()
+        # Add.args are already stored in sort_key order.
+        for term in expr.args:
+            if isinstance(term, ir.Mul) and isinstance(
+                term.args[0], ir.Num
+            ):
+                coeff = term.args[0].value
+                rest = ir.mul(*term.args[1:])
+            elif isinstance(term, ir.Num):
+                coeff = term.value
+                rest = ir.ONE
+            else:
+                coeff = 1
+                rest = term
             sub = _expression_sort_key(
                 rest, var2idx, canonical_ranks, cache
             )
@@ -937,20 +982,29 @@ def __expression_sort_key(
             if len(result) > 100:
                 break
         return result
-    if expr.is_Mul:
-        coeff, rest_factors = expr.as_coeff_mul()
+    if isinstance(expr, ir.Mul):
+        if isinstance(expr.args[0], ir.Num):
+            coeff = expr.args[0].value
+            rest_factors = expr.args[1:]
+        else:
+            coeff = 1
+            rest_factors = expr.args
         try:
             cf = abs(float(coeff))
         except (TypeError, ValueError):
             cf = 1.0
         result = []
-        for factor in sorted(rest_factors, key=sp.default_sort_key):
-            base, exponent = factor.as_base_exp()
+        # The remaining factors stay in sort_key order.
+        for factor in rest_factors:
+            if isinstance(factor, ir.Pow):
+                base, exponent = factor.base, factor.exp
+            else:
+                base, exponent = factor, ir.ONE
             sub = _expression_sort_key(
                 base, var2idx, canonical_ranks, cache
             )
             try:
-                ev = float(exponent)
+                ev = _num_float(exponent)
             except (TypeError, ValueError):
                 result.extend(sub)
                 continue
@@ -959,13 +1013,13 @@ def __expression_sort_key(
             if len(result) > 100:
                 break
         return result
-    if expr.is_Pow:
-        base, exponent = expr.as_base_exp()
+    if isinstance(expr, ir.Pow):
+        base, exponent = expr.base, expr.exp
         base_key = _expression_sort_key(
             base, var2idx, canonical_ranks, cache
         )
         try:
-            ev = float(exponent)
+            ev = _num_float(exponent)
         except (TypeError, ValueError):
             if len(base_key) > 100:
                 return base_key
@@ -974,7 +1028,7 @@ def __expression_sort_key(
             )
         return [(rank, abs(c) ** ev, e + ev) for rank, c, e in base_key]
     result = []
-    for arg in expr.args:
+    for arg in _children(expr):
         result.extend(
             _expression_sort_key(arg, var2idx, canonical_ranks, cache)
         )
@@ -985,7 +1039,7 @@ def __expression_sort_key(
 
 def _equation_sort_key(
     eq: Equation,
-    var2idx: Dict[sp.Symbol, int],
+    var2idx: Dict[ir.Sym, int],
     canonical_ranks: List[int],
 ) -> List[Tuple[int, float, float]]:
     """Sort key of an equation (over its RHS, matching MTK)."""

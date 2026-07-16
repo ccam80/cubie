@@ -1,12 +1,4 @@
-"""Source-level tests for linear-operator and residual generators.
-
-Exercises generator branches unreached by the default real-GPU
-configuration: the cached (Rosenbrock) operator/JVP/prepare paths, the
-no-cache ``prepare_jac`` fallback, lower-triangular FIRK stage coupling,
-default mass/JVP construction, and non-CSE emission. All assertions are
-on the emitted source string. Equation-set fixtures live in the local
-conftest.
-"""
+"""Test generated linear-operator and residual source."""
 
 import ast
 
@@ -15,11 +7,15 @@ from cubie.odesystems.symbolic.codegen.linear_operators import (
     generate_cached_jvp_code,
     generate_prepare_jac_code,
     generate_n_stage_linear_operator_code,
+    generate_operator_apply_code,
 )
 from cubie.odesystems.symbolic.codegen.nonlinear_residuals import (
     generate_residual_code,
     generate_n_stage_residual_code,
 )
+from cubie.odesystems.symbolic.engine import expr as ir
+from cubie.odesystems.symbolic.indexedbasemaps import IndexedBases
+from cubie.odesystems.symbolic.parsing import ParsedEquations
 
 
 # ── cached linear operator / JVP / prepare ──────────────────────── #
@@ -104,6 +100,38 @@ def test_n_stage_operator_without_cse(
         cse=False,
     )
     ast.parse(code)
+
+
+def test_wide_mass_matrix_names_are_unambiguous():
+    """Mass entries with multi-digit indices use distinct locals."""
+    state_count = 12
+    index_map = IndexedBases.from_user_inputs(
+        states=[f"x{i}" for i in range(state_count)],
+        parameters=[],
+        constants=[],
+        observables=[],
+        drivers=[],
+    )
+    equations = ParsedEquations.from_equations(
+        [
+            (ir.sym(f"dx{i}"), ir.sym(f"x{i}"))
+            for i in range(state_count)
+        ],
+        index_map,
+    )
+    mass = [[0] * state_count for _ in range(state_count)]
+    mass[1][10] = 2
+    mass[11][0] = 3
+
+    code = generate_operator_apply_code(
+        equations,
+        index_map,
+        M=mass,
+    )
+
+    assert "m_1_10 = precision(2.0)" in code
+    assert "m_11_0 = precision(3.0)" in code
+    assert "m_110" not in code
 
 
 # ── nonlinear residuals ─────────────────────────────────────────── #

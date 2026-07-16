@@ -285,8 +285,6 @@ class TestCseAndStack:
 
         result = cse_and_stack(equations, symbol="temp")
 
-        # Should use custom prefix for CSE symbols
-        cse_symbols = [sym for sym, _ in result if str(sym).startswith("temp")]
         # May or may not have CSE symbols depending on SymPy's optimization
         assert len(result) >= 2
 
@@ -306,7 +304,7 @@ class TestCseAndStack:
 
         with warnings.catch_warnings(record=True) as w:
             warnings.simplefilter("always")
-            result = cse_and_stack(equations)
+            cse_and_stack(equations)
 
             # Should warn about symbol collision
             if w:  # Only check if warnings were generated
@@ -504,8 +502,8 @@ class TestHashSystemDefinition:
         # Different observables should produce different hashes
         assert hash_obs_a != hash_obs_b
 
-    def test_hash_observable_labels_order_independent(self):
-        """Verify observable labels are sorted before hashing."""
+    def test_hash_observable_layout_order_included(self):
+        """Observable array order changes the source hash."""
         x = sp.symbols("x")
         dx = sp.symbols("dx")
         equations = [(dx, -x)]
@@ -518,7 +516,61 @@ class TestHashSystemDefinition:
             equations, observable_labels=["gamma", "alpha", "beta"]
         )
 
-        assert hash_a == hash_b
+        assert hash_a != hash_b
+
+    @pytest.mark.parametrize(
+        "keyword",
+        [
+            "state_labels",
+            "dxdt_labels",
+            "parameter_labels",
+            "driver_labels",
+        ],
+    )
+    def test_hash_array_layout_order_included(self, keyword):
+        """Every generated array layout changes the source hash."""
+        x = sp.Symbol("x")
+        dx = sp.Symbol("dx")
+        equations = [(dx, -x)]
+
+        hash_a = hash_system_definition(
+            equations, **{keyword: ["first", "second"]}
+        )
+        hash_b = hash_system_definition(
+            equations, **{keyword: ["second", "first"]}
+        )
+
+        assert hash_a != hash_b
+
+    def test_hash_derivative_helper_names_included(self):
+        """Derivative helper bindings change the source hash."""
+        x = sp.Symbol("x")
+        dx = sp.Symbol("dx")
+        equations = [(dx, -x)]
+
+        hash_a = hash_system_definition(
+            equations, derivative_names={"myfunc": "grad_a"}
+        )
+        hash_b = hash_system_definition(
+            equations, derivative_names={"myfunc": "grad_b"}
+        )
+
+        assert hash_a != hash_b
+
+    def test_hash_function_aliases_included(self):
+        """Function aliases change the source hash."""
+        x = sp.Symbol("x")
+        dx = sp.Symbol("dx")
+        equations = [(dx, -x)]
+
+        hash_a = hash_system_definition(
+            equations, function_aliases={"helper": "target_a"}
+        )
+        hash_b = hash_system_definition(
+            equations, function_aliases={"helper": "target_b"}
+        )
+
+        assert hash_a != hash_b
 
     def test_hash_all_components_combined(self):
         """Verify hash includes equations, constants, observables, params."""

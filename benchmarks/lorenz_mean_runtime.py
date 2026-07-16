@@ -64,9 +64,11 @@ min_count = 5
 precision = np.float32
 initial_conditions = {"x": 1.0, "y": 0.0, "z": 0.0}
 
+DISCARDED_SOLVES = 20
+Z_THRESHOLD = 3.0
+PRECISION = np.float32
+INITIAL_CONDITIONS = {"x": 1.0, "y": 0.0, "z": 0.0}
 
-def collect_kernel_time(solver, kernel_ms):
-    """Append one solve's kernel CUDA-event total (ms) to ``kernel_ms``.
 
     Sums the per-chunk ``kernel_chunk_i`` GPU-timeline times, which
     exclude host<->device transfer traffic.
@@ -75,7 +77,7 @@ def collect_kernel_time(solver, kernel_ms):
     kernel_ms.append(
         sum(
             event.elapsed_time_ms()
-            for event in events
+            for event in solver.kernel._cuda_events
             if event.name.startswith("kernel_chunk")
         )
     )
@@ -100,15 +102,14 @@ def build_solvers(n_fixed, n_adaptive):
         dy = x * (rho - z) - y
         dz = x * y - beta * z
         """,
-        states={"x": 1.0, "y": 0.0, "z": 0.0},
+        states=INITIAL_CONDITIONS,
         parameters={"rho": 21.0},
         constants={"sigma": 10.0, "beta": 8.0 / 3.0},
         name="Lorenz",
-        precision=precision,
+        precision=PRECISION,
     )
-
     fixed_solver = qb.Solver(
-        lorenz_system,
+        system,
         algorithm="classical-rk4",
         dt=0.001,
         save_every=1.0,
@@ -116,9 +117,8 @@ def build_solvers(n_fixed, n_adaptive):
         output_types=["state"],
         time_logging_level="default",
     )
-
     adaptive_solver = qb.Solver(
-        lorenz_system,
+        system,
         algorithm="tsit5",
         atol=1e-08,
         rtol=1e-08,

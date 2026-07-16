@@ -13,24 +13,28 @@ See Also
     Requests this helper via ``get_solver_helper("time_derivative_rhs")``.
 :mod:`cubie.odesystems.symbolic.codegen.dxdt`
     Companion module generating the primary ``dxdt`` factory.
-:mod:`cubie.odesystems.symbolic.codegen.numba_cuda_printer`
-    Printer used to render SymPy assignments as CUDA code.
+:mod:`cubie.odesystems.symbolic.engine`
+    Expression engine used for differentiation and printing.
 """
 
-from typing import Dict, List, Optional, Tuple
+from typing import Dict, List, Tuple
 
-import sympy as sp
-
-from cubie.odesystems.symbolic.codegen import print_cuda_multiple
+from cubie.odesystems.symbolic.engine import expr as ir
+from cubie.odesystems.symbolic.engine.adapter import SystemIR, system_ir
+from cubie.odesystems.symbolic.engine.assignments import (
+    cse_and_stack,
+    prune_unused,
+    topological_sort,
+)
+from cubie.odesystems.symbolic.engine.printer import (
+    print_cuda_multiple,
+)
 from cubie.odesystems.symbolic.parsing import (
     IndexedBases,
     ParsedEquations,
-    TIME_SYMBOL,
 )
 from cubie.odesystems.symbolic.sym_utils import (
-    cse_and_stack,
     render_constant_assignments,
-    topological_sort, prune_unused_assignments,
 )
 from cubie.time_logger import default_timelogger
 
@@ -70,80 +74,89 @@ TIME_DERIVATIVE_TEMPLATE = (
 
 
 def _build_time_derivative_assignments(
-    equations: ParsedEquations,
-    index_map: IndexedBases,
-) -> Tuple[List[Tuple[sp.Symbol, sp.Expr]], Dict[sp.Symbol, sp.Expr]]:
-    """Build symbolic assignments for time-derivative evaluation.
-
-    Parameters
-    ----------
-    equations
-        Parsed equations describing the ODE system.
-    index_map
-        Indexed bases mapping symbols to CUDA array references.
+    sysir: SystemIR,
+) -> List[Tuple[ir.Expr, ir.Expr]]:
+    """Build IR assignments for time-derivative evaluation.
 
     Returns
     -------
-    tuple[list, dict]
-        Tuple of (ordered assignments, final symbol map) where assignments
-        include both original equations and their time derivatives, and the
-        symbol map provides output array references.
+    list of tuple
+        Original equations, their total time derivatives, and the
+        final ``out[i]`` assignments.
     """
-
     sorted_equations = topological_sort(
-        equations.non_observable_equations()
+        sysir.non_observable_equations()
     )
-    output_symbols = set(index_map.dxdt.ref_map.keys())
-    driver_symbols = list(index_map.drivers.ref_map.keys())
-    driver_dt: Optional[sp.IndexedBase] = None
-    driver_indices = index_map.drivers.index_map
-    if driver_symbols:
-        driver_dt = sp.IndexedBase(
-            "driver_dt", shape=(index_map.drivers.length,)
-        )
+    driver_symbols = list(sysir.driver_symbols)
+    time_symbol = sysir.time_symbol
+    derivative_names = sysir.derivative_names
 
-    symbol_derivatives: Dict[sp.Symbol, sp.Expr] = {}
-    derivative_symbols: Dict[sp.Symbol, sp.Symbol] = {}
+    symbol_derivatives: Dict[ir.Expr, ir.Expr] = {}
+    derivative_symbols: Dict[ir.Expr, ir.Sym] = {}
 
-    assignments: List[Tuple[sp.Symbol, sp.Expr]] = list(sorted_equations)
-    derivative_assignments: List[Tuple[sp.Symbol, sp.Expr]] = []
+    assignments: List[Tuple[ir.Expr, ir.Expr]] = list(sorted_equations)
+    derivative_assignments: List[Tuple[ir.Expr, ir.Expr]] = []
 
-    processed: set[sp.Symbol] = set()
+    time_memo: Dict = {}
+    driver_memos: Dict[ir.Sym, Dict] = {
+        drv: {} for drv in driver_symbols
+    }
+
+    processed: set = set()
     for lhs, rhs in sorted_equations:
         processed.add(lhs)
-        direct_time = sp.diff(rhs, TIME_SYMBOL)
+        direct_time = ir.diff(
+            rhs,
+            time_symbol,
+            memo=time_memo,
+            derivative_names=derivative_names,
+        )
 
-        driver_term = sp.S.Zero
-        if driver_dt is not None:
-            for driver in driver_symbols:
-                if driver in rhs.free_symbols:
-                    partial = sp.diff(rhs, driver)
-                    driver_term += partial * driver_dt[driver_indices[driver]]
+        driver_terms: List[ir.Expr] = []
+        rhs_atoms = ir.free_atoms(rhs)
+        for driver in driver_symbols:
+            if driver in rhs_atoms:
+                partial = ir.diff(
+                    rhs,
+                    driver,
+                    memo=driver_memos[driver],
+                    derivative_names=derivative_names,
+                )
+                driver_terms.append(
+                    ir.mul(
+                        partial,
+                        ir.arr(
+                            "driver_dt",
+                            sysir.driver_index[driver],
+                        ),
+                    )
+                )
 
-        chain_term = sp.S.Zero
-        for dep in sorted(rhs.free_symbols & processed, key=str):
+        chain_terms: List[ir.Expr] = []
+        for dep in sorted(
+            rhs_atoms & processed, key=lambda node: node.sort_key
+        ):
             derivative = symbol_derivatives.get(dep)
-            chain_term += sp.diff(rhs, dep) * derivative
+            if derivative is None:
+                continue
+            partial = ir.diff(
+                rhs, dep, derivative_names=derivative_names
+            )
+            chain_terms.append(ir.mul(partial, derivative))
 
-        total = direct_time + driver_term + chain_term
-        deriv_symbol = sp.Symbol(f"time_{lhs}")
+        total = ir.add(direct_time, *driver_terms, *chain_terms)
+        deriv_symbol = ir.sym(f"time_{lhs.name}")
         symbol_derivatives[lhs] = total
         derivative_symbols[lhs] = deriv_symbol
         derivative_assignments.append((deriv_symbol, total))
 
     assignments.extend(derivative_assignments)
 
-    final_symbol_map: Dict[sp.Symbol, sp.Expr] = {}
-    for out_sym in sorted(
-        output_symbols, key=lambda sym: index_map.dxdt.index_map[sym]
-    ):
-        final_symbol = sp.Symbol(
-            f"time_rhs[{index_map.dxdt.index_map[out_sym]}]"
+    for position, dx_sym in enumerate(sysir.dxdt_symbols):
+        assignments.append(
+            (ir.arr("out", position), derivative_symbols[dx_sym])
         )
-        final_symbol_map[final_symbol] = index_map.dxdt.ref_map[out_sym]
-        assignments.append((final_symbol, derivative_symbols[out_sym]))
-
-    return assignments, final_symbol_map
+    return assignments
 
 
 def generate_time_derivative_lines(
@@ -167,26 +180,21 @@ def generate_time_derivative_lines(
     list[str]
         CUDA source lines computing the explicit time derivative.
     """
-
-    assignments, final_symbol_map = _build_time_derivative_assignments(
-        equations, index_map
-    )
+    sysir = system_ir(equations, index_map)
+    assignments = _build_time_derivative_assignments(sysir)
 
     if cse:
         processed = cse_and_stack(assignments)
     else:
         processed = topological_sort(assignments)
 
-    processed = prune_unused_assignments(processed, outputsym_str="time_rhs",
-                                         output_symbols=final_symbol_map.keys())
-
-    symbol_map = dict(index_map.all_arrayrefs)
-    symbol_map.update(final_symbol_map)
+    processed = prune_unused(processed, output_name="out")
 
     lines = print_cuda_multiple(
         processed,
-        symbol_map=symbol_map,
-        constant_names=index_map.constants.symbol_map,
+        symbol_map=sysir.arrayrefs,
+        constant_names=sysir.constant_names,
+        function_aliases=sysir.function_aliases,
     )
     assert lines, "internal error: codegen produced an empty body"
     return lines
