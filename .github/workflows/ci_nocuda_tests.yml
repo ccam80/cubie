@@ -61,6 +61,26 @@ jobs:
         flake8 . --count --exit-zero --max-complexity=10 --max-line-length=127 --statistics
 
     - name: Test with pytest
-      
+
       run: |
         pytest -m "not nocudasim and not cupy and not specific_algos" -n logical
+
+  mlir-extras-resolve:
+    # The mlir extras install cubie's patched backend wheel
+    # (numba-cuda-mlir-cubie, built from the cubie-wheel branch of
+    # ccam80/numba-cuda-mlir). This resolve-only check fails while
+    # the pinned version is absent from PyPI, so a PR that bumps the
+    # extras cannot merge green before the wheels are published.
+    runs-on: ubuntu-latest
+    if: github.base_ref || github.event_name == 'workflow_dispatch'
+    steps:
+    - uses: actions/checkout@v7
+    - name: Set up Python
+      uses: actions/setup-python@v6
+      with:
+        python-version: "3.12"
+    - name: Resolve mlir extras against PyPI
+      run: |
+        python -m pip install --upgrade pip uv
+        python -m uv pip install --system --dry-run ".[mlir-cuda12]"
+        python -m uv pip install --system --dry-run ".[mlir-cuda13]"
