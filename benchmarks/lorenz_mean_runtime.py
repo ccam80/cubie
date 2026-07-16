@@ -30,19 +30,14 @@ for the adaptive config (the adaptive kernel is fast enough at
 ``min_count = 5``. An explicit ``n_runs`` argument applies to both
 configs. Each config prints a human-readable line and a parseable
 ``RESULT <key> <ms>`` line; ``ab_gate.py`` drives the A/B comparison
-(main vs the active worktree, per backend) from those, and uses
-``--grid-cache`` / ``--no-clear-cache`` to reuse the grid and compile
-across its repeated invocations.
+from those.
 
 The generated-code and compiled-kernel caches are cleared on every
-invocation unless ``--no-clear-cache`` is given. The kernel cache is
-keyed by config hash, which does not include the package source, so a
-warm cache can serve kernels compiled from a different source tree —
-poisonous for A/B runs where only ``PYTHONPATH`` differs. Clearing
-forces each invocation to compile from the tree under benchmark; the
-compile cost is absorbed by the warm-up solve, outside the timed
-region. ``ab_gate.py`` keeps a separate cache directory per side
-instead, so it reuses the compile safely without clearing.
+invocation unless ``--no-clear-cache`` is given; the recompile lands
+in the warm-up solve, outside the timed region. Both cache layers key
+on a content hash of the imported cubie source, so cache reuse is
+safe even across source trees — ``ab_gate.py`` passes
+``--no-clear-cache`` to compile only once per side.
 """
 
 import argparse
@@ -67,9 +62,8 @@ initial_conditions = {"x": 1.0, "y": 0.0, "z": 0.0}
 def collect_kernel_time(solver, kernel_ms):
     """Append one solve's kernel CUDA-event total (ms) to ``kernel_ms``.
 
-    Reads the kernel's per-chunk ``kernel_chunk_i`` event objects
-    after the solve has synchronised the stream; the GPU-timeline
-    elapsed times exclude host<->device transfer traffic.
+    Sums the per-chunk ``kernel_chunk_i`` GPU-timeline times, which
+    exclude host<->device transfer traffic.
     """
     events = solver.kernel._cuda_events
     kernel_ms.append(
@@ -84,16 +78,13 @@ def collect_kernel_time(solver, kernel_ms):
 def benchmark(key, label, solver, n_runs, repeats, k, grid_cache=None):
     """Run ``repeats`` solves after a warm-up; print the mean-of-mins.
 
-    The reported statistic is the mean of the ``k`` lowest per-solve
-    kernel times. The lowest solves are the ones that ran at full boost
-    clock with no on-GPU contention, so they track the compiled
-    kernel's intrinsic cost and drift far less between invocations than
-    the mean. A machine-parseable ``RESULT <key> <ms>`` line follows the
-    human-readable line for the A/B driver (``ab_gate.py``) to consume.
+    Prints the mean of the ``k`` lowest per-solve kernel times (the
+    module docstring explains the choice of statistic), then a
+    parseable ``RESULT <key> <ms>`` line for ``ab_gate.py``.
 
-    When ``grid_cache`` is a directory, the input grid (identical every
-    invocation) is loaded from it if present, else built once and saved
-    there — this skips the large host-side grid build on reruns.
+    When ``grid_cache`` is a directory, the input grid (identical
+    every invocation) is loaded from it if present, else built once
+    and saved there.
     """
     gfile = (
         os.path.join(grid_cache, f"grid_{key}.npz")
@@ -153,12 +144,9 @@ def main():
         shutil.rmtree(cache_root, ignore_errors=True)
     os.makedirs(cache_root, exist_ok=True)
 
-    # CUDA events (kernel / h2d / d2h per chunk) are recorded only
-    # when the time logger is armed. Solver construction resets the
-    # global verbosity from its time_logging_level argument, so
-    # arming happens through that argument below; solve's printed
-    # summaries are swallowed by the stdout redirect inside the
-    # timed callable.
+    # Per-chunk CUDA events are recorded only while the time logger
+    # is armed; Solver construction re-arms it from each solver's
+    # time_logging_level argument.
     default_timelogger.set_verbosity("default")
 
     repeats = args.repeats

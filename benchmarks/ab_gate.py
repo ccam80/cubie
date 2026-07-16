@@ -6,27 +6,28 @@ several times, interleaving the A (``main``) and B (working-tree) sides
 in a drift-balancing ABBA order, and compares the mean-of-lowest-``k``
 kernel time each run reports.
 
-Why interleave: the per-run statistic is very precise, but the GPU's
-floor drifts monotonically as it warms (measured ~0.8% over a run of
-back-to-back invocations for the adaptive config). Running all of A then
-all of B turns that drift into a false regression on the later side; an
-ABBA order places each side at a balanced point in time so the drift
-cancels in the side medians. A throwaway warm-up run first absorbs the
-cold-start transient.
+Why interleave: the per-run statistic is precise, but the GPU's floor
+drifts upward as it warms (measured ~0.8% over back-to-back runs of
+the adaptive config). Running all of A then all of B turns that drift
+into a false regression on the later side; ABBA places each side at a
+balanced point in time so the drift cancels in the side medians. One
+throwaway warm-up run per side absorbs the cold-start transient and
+the compile cost.
 
-Cost is kept down by your suggestions: the input grid is cached to disk
-(shared across sides) and each side keeps its own persistent compile
-cache directory, so only the first invocation per side compiles.
+The input grid is written to disk once and shared across sides; each
+side keeps its own compile cache directory, so only the warm-up runs
+compile.
 
 The only input is the current worktree: A is an ephemeral ``git
-worktree`` at ``main`` (removed afterwards), B is this repository. Both
-import ``cubie`` from their own ``src`` via ``PYTHONPATH``.
+worktree`` at ``--main`` (default ``origin/main``; removed afterwards),
+B is this repository. Both sides run this repository's benchmark
+script but import ``cubie`` from their own ``src`` via ``PYTHONPATH``.
 
 Usage::
 
     python benchmarks/ab_gate.py [--main REF] [--backends numba-cuda,mlir]
         [--repeats M] [--min-count K] [--pairs P] [--threshold PCT]
-        [--calibrate] [--keep]
+        [--n-runs N] [--calibrate] [--keep]
 
 ``--calibrate`` points B at ``main`` too (A-vs-A); rerun it a few times
 to measure this machine's null |delta| and set ``--threshold`` from it.
@@ -64,27 +65,33 @@ def installed_backends():
     ]
 
 
-def run_side(tree, backend, cache_dir, grid_dir, repeats, min_count):
+def run_side(tree, backend, cache_dir, grid_dir, args):
     """Run one benchmark invocation; return {config_key: ms}."""
     env = dict(os.environ)
     env["PYTHONPATH"] = str(Path(tree) / "src")
     env["CUBIE_CUDA_BACKEND"] = BACKENDS[backend][1]
     env["CUBIE_CACHE_DIR"] = str(cache_dir)
+    cmd = [sys.executable, str(BENCH),
+           "--repeats", str(args.repeats),
+           "--min-count", str(args.min_count),
+           "--grid-cache", str(grid_dir), "--no-clear-cache"]
+    if args.n_runs is not None:
+        cmd.append(str(args.n_runs))
     proc = subprocess.run(
-        [sys.executable, str(BENCH),
-         "--repeats", str(repeats), "--min-count", str(min_count),
-         "--grid-cache", str(grid_dir), "--no-clear-cache"],
-        env=env, cwd=str(tree), capture_output=True, text=True,
+        cmd, env=env, cwd=str(tree), capture_output=True, text=True,
     )
     out = {}
     for line in proc.stdout.splitlines():
         m = RESULT_RE.match(line.strip())
         if m:
             out[m.group(1)] = float(m.group(2))
-    if not out:
+    if proc.returncode != 0 or not out:
         sys.stderr.write(proc.stdout)
         sys.stderr.write(proc.stderr)
-        raise SystemExit(f"no RESULT from {backend} in {tree}")
+        raise SystemExit(
+            f"benchmark exited {proc.returncode} with {len(out)} "
+            f"RESULT line(s) for {backend} in {tree}"
+        )
     return out
 
 
@@ -122,19 +129,27 @@ def run_backend(backend, main_tree, b_tree, base, args):
         "B": (b_tree, base / f"B_{backend}"),
     }
 
-    def invoke(side):
+    def invoke(side, note=""):
+        print(f"[{backend}] {side}{note}", file=sys.stderr)
         tree, cache_dir = sides[side]
-        return run_side(tree, backend, cache_dir, grid_dir,
-                        args.repeats, args.min_count)
+        return run_side(tree, backend, cache_dir, grid_dir, args)
 
-    invoke("A")  # throwaway warm-up: heats GPU, fills grid + A cache
+    # Throwaway warm-ups: heat the GPU, fill the grid cache and both
+    # compile caches so no measured run pays a compile.
+    invoke("A", " (warm-up)")
+    invoke("B", " (warm-up)")
     collected = {"A": defaultdict(list), "B": defaultdict(list)}
     for side in abba_order(args.pairs):
         for key, val in invoke(side).items():
             collected[side][key].append(val)
 
+    if set(collected["A"]) != set(collected["B"]):
+        raise SystemExit(
+            f"config keys differ between sides: "
+            f"A={sorted(collected['A'])} B={sorted(collected['B'])}"
+        )
     rows = []
-    for key in collected["A"]:
+    for key in sorted(collected["A"]):
         a = statistics.median(collected["A"][key])
         b = statistics.median(collected["B"][key])
         delta = 100.0 * (b - a) / a
@@ -151,13 +166,20 @@ def run_backend(backend, main_tree, b_tree, base, args):
 
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
-    parser.add_argument("--main", default="main")
-    parser.add_argument("--backends", default=None)
+    parser.add_argument("--main", default="origin/main",
+                        help="A-side ref (default origin/main; the "
+                             "local main branch is often stale).")
+    parser.add_argument("--backends", default=None,
+                        help="Comma-separated subset of: "
+                             + ", ".join(BACKENDS))
     parser.add_argument("--repeats", type=int, default=300,
                         help="Solves per invocation (default 300).")
     parser.add_argument("--min-count", type=int, default=5)
     parser.add_argument("--pairs", type=int, default=2,
                         help="A/B pairs per backend; even is balanced.")
+    parser.add_argument("--n-runs", type=int, default=None,
+                        help="Trajectory count for both configs "
+                             "(small values smoke-test the harness).")
     parser.add_argument("--threshold", type=float, default=0.20,
                         help="Regression threshold in percent.")
     parser.add_argument("--calibrate", action="store_true",
@@ -169,18 +191,27 @@ def main():
     backends = installed_backends()
     if args.backends:
         wanted = [b.strip() for b in args.backends.split(",")]
-        backends = [b for b in wanted if b in backends]
+        missing = [b for b in wanted if b not in backends]
+        if missing:
+            raise SystemExit(
+                f"backend(s) not installed: {', '.join(missing)}"
+            )
+        backends = wanted
     if not backends:
-        raise SystemExit("no requested CUDA backend is installed")
+        raise SystemExit("no CUDA backend is installed")
 
     branch = subprocess.run(
         ["git", "-C", str(REPO), "rev-parse", "--abbrev-ref", "HEAD"],
         capture_output=True, text=True,
     ).stdout.strip()
+    a_sha = subprocess.run(
+        ["git", "-C", str(REPO), "rev-parse", "--short", args.main],
+        capture_output=True, text=True,
+    ).stdout.strip()
     b_label = args.main if args.calibrate else f"{branch} (working tree)"
-    print(f"A = {args.main}   B = {b_label}   "
+    print(f"A = {args.main} ({a_sha})   B = {b_label}   "
           f"backends: {', '.join(backends)}   "
-          f"({args.repeats} solves x {2 * args.pairs} runs/side + warm-up)"
+          f"({args.repeats} solves x {args.pairs} runs/side + warm-ups)"
           f"\n")
 
     main_tree = add_main_worktree(args.main)

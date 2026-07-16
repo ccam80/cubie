@@ -59,20 +59,16 @@ change — the full suite is slow (run it as a pre-commit check only, and only w
 - **Agents:** every fix or feature is developed on its own branch off `main`. When the work is
   done and verified, commit, push the branch, and open a PR.
 - **Performance gate (every PR):** run `python benchmarks/ab_gate.py` and paste its table into
-  the PR message. It compares A (`main`, added as an ephemeral `git worktree`) against B (the
-  working tree) for **every installed CUDA backend** in one command — no manual `PYTHONPATH` or
-  backend juggling; both `numba-cuda` and `numba-cuda-mlir` must be installed in the venv, and it
-  iterates whichever are present (`CUBIE_CUDA_BACKEND` still forces a single backend for a manual
-  `lorenz_mean_runtime.py` run). The gate metric is the **mean of the lowest `k` per-solve kernel
-  times** (CUDA-event, kernel-only): the fastest solves ran at full boost clock with no on-GPU
-  contention, so they track the kernel's intrinsic cost and barely drift, where the mean is pulled
-  around by a thermal/contention upper tail. Because the floor itself drifts up as the GPU warms,
-  the driver **interleaves A/B in ABBA order** (so the drift cancels in the per-side medians) after
-  a throwaway warm-up run, and reuses a cached grid + per-side compile cache to stay fast. It
-  prints per backend and config the A and B medians, the percent delta, and a verdict against
-  `--threshold` (default 0.20%); positive delta on B = regression, and it exits non-zero if any
-  config regresses. Calibrate the threshold on the gate machine with `--calibrate` (points B at
-  `main` too and measures the A-vs-A null); tune `--repeats`/`--pairs` for more samples.
+  the PR message. One command compares A (`main`, an ephemeral `git worktree`) against B (the
+  working tree) on every installed CUDA backend — both `numba-cuda` and `numba-cuda-mlir` should
+  be in the venv. The metric is the mean of the lowest `k` per-solve kernel times (CUDA-event,
+  kernel-only): the fastest solves ran at full boost clock without contention, so they track the
+  kernel's intrinsic cost where the mean is pulled around by a thermal/contention tail. Because
+  even that floor rises as the GPU warms, the driver interleaves A/B runs in ABBA order after
+  throwaway warm-ups so the drift cancels in the per-side medians. It prints A/B medians, the
+  percent delta, and a verdict per backend and config against `--threshold` (default 0.20%), and
+  exits non-zero on any regression. `--calibrate` measures the A-vs-A null for setting the
+  threshold on a new machine; `--n-runs 1024` smoke-tests the harness cheaply.
 - ** Any changes left uncommitted or unstaged will be programatically deleted **. The only place to
   store work is in a branch off origin, pushed to main, with a PR open. PRs are the only format
   reviewed by the user. Don't leave PRs draft, they must be marked ready and reviewed by Greptile
