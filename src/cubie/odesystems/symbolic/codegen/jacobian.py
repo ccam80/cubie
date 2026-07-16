@@ -347,7 +347,11 @@ def generate_analytical_jvp(
             entry = jac[i][j]
             if entry is ir.ZERO:
                 continue
-            j_sym = ir.sym(f"j_{i}{j}")
+            # Underscore separator: j_{i}{j} is ambiguous from 11
+            # states up (J[1][10] and J[11][0] both read j_110),
+            # which silently corrupted wide Jacobians in the dict-
+            # based sort this engine replaced.
+            j_sym = ir.sym(f"j_{i}_{j}")
             prod_exprs.append((j_sym, entry))
             j_symbols[(i, j)] = j_sym
 
