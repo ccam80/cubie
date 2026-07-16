@@ -64,15 +64,16 @@ change — the full suite is slow (run it as a pre-commit check only, and only w
   be in the venv. The metric is the mean of the lowest `k` per-solve kernel times (CUDA-event,
   kernel-only): the fastest solves ran at full boost clock without contention, so they track the
   kernel's intrinsic cost where the mean is pulled around by a thermal/contention tail. Because
-  even that floor rises as the GPU warms, the driver interleaves A/B runs in ABBA/BAAB order
-  after throwaway warm-ups so the drift cancels in the per-side medians. It prints A/B medians,
-  the percent delta, and a verdict per backend and config against `--threshold` (default 0.50%,
-  about twice the calibrated A-vs-A null on the gate machine), and exits non-zero on any
-  regression. The gate resolves ~0.5% deltas on a live desktop; smaller effects need an idle
-  machine and a fresh `--calibrate` (A-vs-A null) to justify a lower threshold. `--n-runs 1024`
-  smoke-tests the harness cheaply. A full default run takes ~18 minutes for two backends on a
-  quiet GPU (`--repeats 100` halves that at the same null when the machine is known quiet);
-  constant background GPU load inflates the absolute times but cancels out of the deltas.
+  even that floor rises as the GPU warms, the driver interleaves A/B runs in ABBA order after
+  short throwaway warm-ups (compile + cache fill) so the drift cancels in the per-side medians.
+  It prints A/B medians, the percent delta, and a verdict per backend and config against
+  `--threshold` (default 0.50%, ~3x the calibrated A-vs-A null on the gate machine), and exits
+  non-zero on any regression. A default run takes ~4 minutes for two backends on a quiet GPU.
+  Background GPU load widens the per-run spread: rows marked NOISY need a rerun with
+  `--pairs 4 --repeats 300` (quadratic-drift cancellation, longer floor-sampling window) or a
+  quieter machine; constant load inflates absolute times but cancels out of the deltas.
+  `--calibrate` measures the A-vs-A null for setting the threshold on a new machine;
+  `--n-runs 1024` smoke-tests the harness cheaply.
 - ** Any changes left uncommitted or unstaged will be programatically deleted **. The only place to
   store work is in a branch off origin, pushed to main, with a PR open. PRs are the only format
   reviewed by the user. Don't leave PRs draft, they must be marked ready and reviewed by Greptile

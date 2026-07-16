@@ -26,15 +26,19 @@ script but import ``cubie`` from their own ``src`` via ``PYTHONPATH``.
 Usage::
 
     python benchmarks/ab_gate.py [--main REF] [--backends numba-cuda,mlir]
-        [--repeats M] [--min-count K] [--pairs P] [--threshold PCT]
-        [--n-runs N] [--calibrate] [--keep]
+        [--repeats M] [--min-count K] [--pairs P] [--warmup-repeats W]
+        [--threshold PCT] [--n-runs N] [--calibrate] [--keep]
 
-``--calibrate`` points B at ``main`` too (A-vs-A); rerun it a few
-times to measure this machine's null |delta| and set ``--threshold``
-to about twice the worst of it. On the reference machine (RTX 4070
-SUPER driving a live desktop) the four-pair null reaches ~0.26% on
-the fixed config, hence the 0.50% default. Exit status is non-zero if
-any config regresses past ``--threshold``.
+The defaults assume a quiet GPU and take ~4 minutes for two backends
+(A-vs-A null <=0.16% on the reference RTX 4070 SUPER; the 0.50%
+threshold is ~3x that). Background GPU load widens the per-run
+spread; rows whose within-side spread exceeds twice the threshold
+are marked NOISY — rerun those with ``--pairs 4 --repeats 300``
+(quadratic-drift cancellation and a longer floor-sampling window) or
+quiet the machine. ``--calibrate`` points B at ``main`` too (A-vs-A);
+rerun it a few times to measure this machine's null |delta| and set
+``--threshold`` to two to three times the worst of it. Exit status is
+non-zero if any config regresses past ``--threshold``.
 """
 import argparse
 import importlib.util
@@ -67,14 +71,14 @@ def installed_backends():
     ]
 
 
-def run_side(tree, backend, cache_dir, grid_dir, args):
+def run_side(tree, backend, cache_dir, grid_dir, args, repeats=None):
     """Run one benchmark invocation; return {config_key: ms}."""
     env = dict(os.environ)
     env["PYTHONPATH"] = str(Path(tree) / "src")
     env["CUBIE_CUDA_BACKEND"] = BACKENDS[backend][1]
     env["CUBIE_CACHE_DIR"] = str(cache_dir)
     cmd = [sys.executable, str(BENCH),
-           "--repeats", str(args.repeats),
+           "--repeats", str(repeats or args.repeats),
            "--min-count", str(args.min_count),
            "--grid-cache", str(grid_dir), "--no-clear-cache"]
     if args.n_runs is not None:
@@ -137,15 +141,17 @@ def run_backend(backend, main_tree, b_tree, base, args):
         "B": (b_tree, base / f"B_{backend}"),
     }
 
-    def invoke(side, note=""):
+    def invoke(side, note="", repeats=None):
         print(f"[{backend}] {side}{note}", file=sys.stderr)
         tree, cache_dir = sides[side]
-        return run_side(tree, backend, cache_dir, grid_dir, args)
+        return run_side(tree, backend, cache_dir, grid_dir, args,
+                        repeats)
 
-    # Throwaway warm-ups: heat the GPU, fill the grid cache and both
-    # compile caches so no measured run pays a compile.
-    invoke("A", " (warm-up)")
-    invoke("B", " (warm-up)")
+    # Throwaway warm-ups: fill the grid cache and both compile caches
+    # so no measured run pays a compile, and put some load on the GPU
+    # so measurement starts past the steepest warm-up drift.
+    invoke("A", " (warm-up)", args.warmup_repeats)
+    invoke("B", " (warm-up)", args.warmup_repeats)
     collected = {"A": defaultdict(list), "B": defaultdict(list)}
     for side in abba_order(args.pairs):
         for key, val in invoke(side).items():
@@ -158,8 +164,9 @@ def run_backend(backend, main_tree, b_tree, base, args):
         )
     rows = []
     for key in sorted(collected["A"]):
-        a = statistics.median(collected["A"][key])
-        b = statistics.median(collected["B"][key])
+        a_vals, b_vals = collected["A"][key], collected["B"][key]
+        a = statistics.median(a_vals)
+        b = statistics.median(b_vals)
         delta = 100.0 * (b - a) / a
         if delta > args.threshold:
             verdict = "REGRESSION"
@@ -167,8 +174,14 @@ def run_backend(backend, main_tree, b_tree, base, args):
             verdict = "improvement"
         else:
             verdict = "ok"
+        spread = 100.0 * max(
+            (max(v) - min(v)) / statistics.median(v)
+            for v in (a_vals, b_vals)
+        )
+        if spread > 2.0 * args.threshold:
+            verdict += " NOISY"
         rows.append((backend, key, a, b, delta, verdict,
-                     collected["A"][key], collected["B"][key]))
+                     a_vals, b_vals))
     return rows
 
 
@@ -180,15 +193,19 @@ def main():
     parser.add_argument("--backends", default=None,
                         help="Comma-separated subset of: "
                              + ", ".join(BACKENDS))
-    parser.add_argument("--repeats", type=int, default=300,
-                        help="Solves per invocation (default 300; 100 "
-                             "gives the same null on a quiet GPU in "
-                             "under half the wall time, but a longer "
-                             "window rides out bursty contention).")
+    parser.add_argument("--repeats", type=int, default=100,
+                        help="Solves per invocation (default 100; "
+                             "raise to 300 on a noisy GPU so the "
+                             "floor can sample quiet gaps).")
     parser.add_argument("--min-count", type=int, default=5)
-    parser.add_argument("--pairs", type=int, default=4,
-                        help="A/B pairs per backend; multiples of 4 "
-                             "cancel linear and quadratic drift.")
+    parser.add_argument("--warmup-repeats", type=int, default=25,
+                        help="Solves per warm-up invocation; the "
+                             "warm-up mainly exists to compile and "
+                             "fill caches.")
+    parser.add_argument("--pairs", type=int, default=2,
+                        help="A/B pairs per backend (default 2, one "
+                             "ABBA block); multiples of 4 also cancel "
+                             "quadratic drift on a noisy GPU.")
     parser.add_argument("--n-runs", type=int, default=None,
                         help="Trajectory count for both configs "
                              "(small values smoke-test the harness).")
@@ -231,13 +248,14 @@ def main():
     base = Path(tempfile.mkdtemp(prefix="cubie_abgate_"))
     b_tree = main_tree if args.calibrate else REPO
     regressed = False
+    noisy = False
     try:
         for backend in backends:
             for row in run_backend(backend, main_tree, b_tree, base,
                                    args):
                 bk, key, a, b, delta, verdict, av, bv = row
-                if verdict == "REGRESSION":
-                    regressed = True
+                regressed = regressed or verdict.startswith("REGRESSION")
+                noisy = noisy or verdict.endswith("NOISY")
                 spread = (f"  [A {min(av):.3f}-{max(av):.3f} "
                           f"B {min(bv):.3f}-{max(bv):.3f}]")
                 print(f"{bk:<11}{key:<10}A {a:8.3f}  B {b:8.3f}  "
@@ -249,6 +267,10 @@ def main():
 
     print(f"\nGATE: {'REGRESSION' if regressed else 'PASS'} "
           f"(threshold {args.threshold:.2f}%)")
+    if noisy:
+        print("NOISY = within-side spread exceeds twice the "
+              "threshold; rerun with --pairs 4 --repeats 300 on a "
+              "quieter GPU.")
     return 1 if regressed else 0
 
 
