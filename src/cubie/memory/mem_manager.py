@@ -1395,6 +1395,8 @@ class MemoryManager:
             stream = None if settings is None else settings.last_stream
         if stream is None:
             stream = self.get_stream(instance)
+        if stream == 0:
+            stream = self.get_stream(instance)
         stream.synchronize()
 
     def allocate_queue(
