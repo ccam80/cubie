@@ -70,7 +70,9 @@ change — the full suite is slow (run it as a pre-commit check only, and only w
   about twice the calibrated A-vs-A null on the gate machine), and exits non-zero on any
   regression. The gate resolves ~0.5% deltas on a live desktop; smaller effects need an idle
   machine and a fresh `--calibrate` (A-vs-A null) to justify a lower threshold. `--n-runs 1024`
-  smoke-tests the harness cheaply. A full default run takes ~45 minutes for two backends.
+  smoke-tests the harness cheaply. A full default run takes ~18 minutes for two backends on a
+  quiet GPU (`--repeats 100` halves that at the same null when the machine is known quiet);
+  constant background GPU load inflates the absolute times but cancels out of the deltas.
 - ** Any changes left uncommitted or unstaged will be programatically deleted **. The only place to
   store work is in a branch off origin, pushed to main, with a PR open. PRs are the only format
   reviewed by the user. Don't leave PRs draft, they must be marked ready and reviewed by Greptile

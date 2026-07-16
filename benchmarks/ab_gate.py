@@ -181,7 +181,10 @@ def main():
                         help="Comma-separated subset of: "
                              + ", ".join(BACKENDS))
     parser.add_argument("--repeats", type=int, default=300,
-                        help="Solves per invocation (default 300).")
+                        help="Solves per invocation (default 300; 100 "
+                             "gives the same null on a quiet GPU in "
+                             "under half the wall time, but a longer "
+                             "window rides out bursty contention).")
     parser.add_argument("--min-count", type=int, default=5)
     parser.add_argument("--pairs", type=int, default=4,
                         help="A/B pairs per backend; multiples of 4 "
