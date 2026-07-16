@@ -19,7 +19,9 @@ from cubie.batchsolving.writeback_watcher import (
     WritebackTask,
     WritebackWatcher,
 )
+from cubie.memory import MemoryManager
 from cubie.memory.chunk_buffer_pool import ChunkBufferPool
+from tests._utils import _build_solver_instance
 
 
 def _make_test_array_container():
@@ -104,6 +106,59 @@ def test_repeat_chunked_solve_matches_first(
     np.testing.assert_array_equal(
         second_result.time_domain_array, first_state
     )
+
+
+def test_chunked_results_match_unchunked(
+    chunked_solved_solver,
+    system,
+    precision,
+    solver_settings,
+    driver_array,
+    driver_settings,
+):
+    """Chunked solves reproduce unchunked results exactly.
+
+    Inputs vary along the run axis so a writeback that lands in the
+    wrong run (or not at all) changes the result.
+    """
+    chunked_solver, _ = chunked_solved_solver
+    n_runs = 5
+    rng = np.random.default_rng(1234)
+    inits = rng.uniform(
+        0.5, 1.5, (system.sizes.states, n_runs)
+    ).astype(precision)
+    params = rng.uniform(
+        0.5, 1.5, (system.sizes.parameters, n_runs)
+    ).astype(precision)
+    solve_kwargs = dict(
+        drivers=driver_settings,
+        duration=0.05,
+        summarise_every=None,
+        save_every=0.01,
+        dt=0.01,
+    )
+    chunked = chunked_solver.solve(inits, params, **solve_kwargs)
+    assert chunked_solver.chunks > 1
+
+    reference_settings = solver_settings.copy()
+    reference_settings["stream_group"] = "chunk_match_reference"
+    reference_solver = _build_solver_instance(
+        system=system,
+        solver_settings=reference_settings,
+        driver_array=driver_array,
+        memory_manager=MemoryManager(),
+    )
+    try:
+        reference = reference_solver.solve(inits, params, **solve_kwargs)
+        assert reference_solver.chunks == 1
+        np.testing.assert_array_equal(
+            chunked.time_domain_array, reference.time_domain_array
+        )
+        np.testing.assert_array_equal(
+            chunked.status_codes, reference.status_codes
+        )
+    finally:
+        reference_solver.close()
 
 
 def test_input_buffers_released_after_kernel(chunked_solved_solver):

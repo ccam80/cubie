@@ -33,6 +33,7 @@ from numpy import (
 )
 
 from numpy.typing import NDArray
+from math import prod
 from typing import List, Optional, TYPE_CHECKING
 
 if TYPE_CHECKING:
@@ -377,31 +378,41 @@ class InputArrays(BaseArrayManager):
     def _stage_array(
         self, array_name, host_array, device_array, stream
     ) -> None:
-        """Stage one pageable input through bounded pinned buffers."""
-        host_flat = host_array.reshape(-1)
-        device_flat = device_array.reshape(-1)
-        block_length = max(1, HOST_STAGING_BYTES // host_array.dtype.itemsize)
-        for start in range(0, host_flat.size, block_length):
-            stop = min(start + block_length, host_flat.size)
+        """Stage one pageable input through bounded pinned buffers.
+
+        The host source may be a strided view (a chunk slice or a
+        memmap) whose run extent is smaller than the device array's on
+        the final chunk, so each block is copied into its buffer with
+        shape-aware indexing; a flat copy would misalign the runs.
+        Blocks are cut along the leading axis to keep each pinned
+        buffer within ``HOST_STAGING_BYTES``.
+        """
+        dtype = host_array.dtype
+        row_elements = max(1, prod(device_array.shape[1:]))
+        rows = max(1, HOST_STAGING_BYTES // (row_elements * dtype.itemsize))
+        length = min(host_array.shape[0], device_array.shape[0])
+        single_block = rows >= length
+        for start in range(0, length, rows):
+            stop = min(start + rows, length)
+            host_block = host_array[start:stop]
+            device_block = device_array[start:stop]
             buffer = self._buffer_pool.acquire(
-                array_name, (stop - start,), host_array.dtype
+                array_name, device_block.shape, dtype
             )
-            buffer.array[:] = host_flat[start:stop]
-            self.to_device(
-                [buffer.array], [device_flat[start:stop]], stream=stream
-            )
+            trim = tuple(slice(0, extent) for extent in host_block.shape)
+            buffer.array[trim] = host_block
+            self.to_device([buffer.array], [device_block], stream=stream)
             if CUDA_SIMULATION:
                 self._buffer_pool.release(buffer)
-                continue
-            event = cuda.event()
-            event.record(stream)
-            if host_flat.size > block_length:
+            elif single_block:
+                self._active_buffers.append((array_name, buffer))
+            else:
                 # Reuse waits only for this H2D slice. The kernel has not
                 # launched yet, so no unrelated CUDA work is included.
+                event = cuda.event()
+                event.record(stream)
                 event.synchronize()
                 self._buffer_pool.release(buffer)
-            else:
-                self._active_buffers.append((array_name, buffer))
 
     def release_buffers(self) -> None:
         """Release all active buffers back to the pool.

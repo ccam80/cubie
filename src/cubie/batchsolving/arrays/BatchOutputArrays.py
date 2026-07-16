@@ -27,6 +27,8 @@ from typing import TYPE_CHECKING, Dict, List, Optional, Union
 if TYPE_CHECKING:
     from cubie.batchsolving.BatchSolverKernel import BatchSolverKernel
 
+from math import prod
+
 from attrs import define, field
 from attrs.validators import instance_of as attrsval_instance_of
 from cubie.cuda_simsafe import cuda
@@ -478,40 +480,52 @@ class OutputArrays(BaseArrayManager):
     def _stage_array(
         self, array_name, device_array, host_array, stream
     ) -> None:
-        """Stage one device output through bounded pinned buffers."""
-        device_flat = device_array.reshape(-1)
-        host_flat = host_array.reshape(-1)
-        block_length = max(1, HOST_STAGING_BYTES // host_array.dtype.itemsize)
-        for start in range(0, host_flat.size, block_length):
-            stop = min(start + block_length, host_flat.size)
+        """Stage one device output through bounded pinned buffers.
+
+        The host target may be a strided view (a chunk slice or a
+        memmap), so completed blocks are written through strided
+        assignment; flattening such a view would silently copy it and
+        discard the writeback. Blocks are cut along the leading axis
+        to keep each pinned buffer within ``HOST_STAGING_BYTES``, and
+        the buffer is trimmed to the host block's shape because the
+        device array can carry extra run-axis padding on the final
+        chunk.
+        """
+        dtype = host_array.dtype
+        row_elements = max(1, prod(device_array.shape[1:]))
+        rows = max(1, HOST_STAGING_BYTES // (row_elements * dtype.itemsize))
+        length = device_array.shape[0]
+        single_block = rows >= length
+        for start in range(0, length, rows):
+            stop = min(start + rows, length)
+            device_block = device_array[start:stop]
+            host_block = host_array[start:stop]
             buffer = self._buffer_pool.acquire(
-                array_name, (stop - start,), host_array.dtype
+                array_name, device_block.shape, dtype
             )
-            self.from_device(
-                [device_flat[start:stop]], [buffer.array], stream=stream
-            )
+            self.from_device([device_block], [buffer.array], stream=stream)
+            trim = tuple(slice(0, extent) for extent in host_block.shape)
             if CUDA_SIMULATION:
-                host_flat[start:stop] = buffer.array
+                host_block[...] = buffer.array[trim]
                 self._buffer_pool.release(buffer)
-                continue
-            event = cuda.event()
-            event.record(stream)
-            if host_flat.size > block_length:
-                # Reuse waits only for this D2H slice. Smaller spill
-                # transfers stay fully asynchronous.
-                event.synchronize()
-                host_flat[start:stop] = buffer.array
-                self._buffer_pool.release(buffer)
-            else:
+            elif single_block:
                 self._pending_buffers.append(
                     PendingBuffer(
                         buffer=buffer,
-                        target_array=host_flat[start:stop],
+                        target_array=host_block,
                         array_name=array_name,
-                        data_shape=(stop - start,),
+                        data_shape=host_block.shape,
                         buffer_pool=self._buffer_pool,
                     )
                 )
+            else:
+                # Reuse waits only for this D2H slice. Single-block
+                # transfers stay fully asynchronous via the watcher.
+                event = cuda.event()
+                event.record(stream)
+                event.synchronize()
+                host_block[...] = buffer.array[trim]
+                self._buffer_pool.release(buffer)
 
     def wait_pending(self, timeout: Optional[float] = None) -> None:
         """Wait for all pending async writebacks to complete.
