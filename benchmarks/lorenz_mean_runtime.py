@@ -6,32 +6,30 @@ Solves the same Lorenz ensemble as the GPUODEBenchmarks cubie runner
 drive pattern: one warm-up solve to absorb JIT compilation, then
 ``timeit.repeat`` with garbage collection enabled and one solve per
 repeat. The first 20 post-warm-up solves are discarded — the GPU has
-not reached steady state and they run slow, inflating the standard
-deviation — and statistics cover the following ``repeats`` solves.
-The output is the **kernel runtime only** — the per-chunk
-``kernel_chunk_i`` CUDA events recorded on the GPU timeline by
-``BatchSolverKernel`` — as mean, sample standard deviation, and
-minimum over the repeats. Wall-clock and transfer times are not
-reported: per-process d2h/host-memory scatter makes them useless for
-A/B comparison, and kernel runtime is the gate metric.
+not reached steady state and they run slow — and the statistic covers
+the following ``repeats`` solves.
+
+The reported statistic is the **mean of the lowest ``min_count``
+per-solve kernel times** — the per-chunk ``kernel_chunk_i`` CUDA events
+recorded on the GPU timeline by ``BatchSolverKernel``. The lowest
+solves are those that ran at full boost clock with no on-GPU
+contention, so they track the compiled kernel's intrinsic cost and
+drift far less between invocations than the mean (which the upper tail
+pulls around). Wall-clock and transfer times are not reported: they
+carry host and d2h scatter irrelevant to the compiled kernel.
 
 Usage::
 
     python benchmarks/lorenz_mean_runtime.py [n_runs] [repeats]
-        [--ref-fixed MEAN STD] [--ref-adaptive MEAN STD]
+        [--min-count K]
 
 Defaults: ``2**22`` trajectories for the fixed config and ``2**24``
 for the adaptive config (the adaptive kernel is fast enough at
-``2**22`` that launch effects blur small deltas); ``repeats = 100``.
-An explicit ``n_runs`` argument applies to both configs.
-
-For the B side of an A/B gate, pass the A side's printed mean and
-std per config via ``--ref-fixed`` / ``--ref-adaptive``. The script
-then also prints a Welch two-sample z statistic,
-``z = (mean - ref_mean) / sqrt(std**2/n + ref_std**2/n)``, and a
-verdict: ``|z| >= 3`` flags the means as different (a regression
-when positive). The textbook 95% bound is 1.96, but solve samples
-are mildly autocorrelated (thermal state), so the gate uses 3.
+``2**22`` that launch effects blur small deltas); ``repeats = 100``;
+``min_count = 5``. An explicit ``n_runs`` argument applies to both
+configs. Each config prints a human-readable line and a parseable
+``RESULT <key> <ms>`` line; ``ab_gate.py`` drives the A/B comparison
+(main vs the active worktree, per backend) from those.
 
 The generated-code and compiled-kernel caches are cleared on every
 invocation. The kernel cache is keyed by config hash, which does not
@@ -45,7 +43,6 @@ by the warm-up solve, outside the timed region.
 import argparse
 import contextlib
 import io
-import math
 import os
 import shutil
 import timeit
@@ -57,7 +54,7 @@ from cubie.cache_root import get_cache_root
 from cubie.time_logger import default_timelogger
 
 discarded_solves = 20
-z_threshold = 3.0
+min_count = 5
 precision = np.float32
 initial_conditions = {"x": 1.0, "y": 0.0, "z": 0.0}
 
@@ -79,11 +76,15 @@ def collect_kernel_time(solver, kernel_ms):
     )
 
 
-def benchmark(label, solver, n_runs, repeats, reference):
-    """Run ``repeats`` solves after a warm-up; print kernel runtime.
+def benchmark(key, label, solver, n_runs, repeats, k):
+    """Run ``repeats`` solves after a warm-up; print the mean-of-mins.
 
-    When ``reference`` holds the A side's (mean, std), a Welch
-    two-sample z statistic against it is printed with a verdict.
+    The reported statistic is the mean of the ``k`` lowest per-solve
+    kernel times. The lowest solves are the ones that ran at full boost
+    clock with no on-GPU contention, so they track the compiled
+    kernel's intrinsic cost and drift far less between invocations than
+    the mean. A machine-parseable ``RESULT <key> <ms>`` line follows the
+    human-readable line for the A/B driver (``ab_gate.py``) to consume.
     """
     parameters = {"rho": np.linspace(0.0, 21.0, n_runs)}
     initials_array, parameter_array = solver.build_grid(
@@ -111,26 +112,13 @@ def benchmark(label, solver, n_runs, repeats, reference):
         repeat=discarded_solves + repeats,
         number=1,
     )
-    kernel_arr = np.asarray(kernel_ms[discarded_solves:])
-    mean = kernel_arr.mean()
-    std = kernel_arr.std(ddof=1)
+    kernel_arr = np.sort(np.asarray(kernel_ms[discarded_solves:]))
+    stat = kernel_arr[:k].mean()
     print(
-        f"{label}: kernel mean {mean:.2f} ms over {repeats} "
-        f"solves of {n_runs} trajectories "
-        f"(std {std:.2f} ms, min {kernel_arr.min():.2f} ms)"
+        f"{label}: {stat:.3f} ms (mean of {k} lowest kernel times "
+        f"over {repeats} solves of {n_runs} trajectories)"
     )
-    if reference is not None:
-        ref_mean, ref_std = reference
-        z = (mean - ref_mean) / math.sqrt(
-            (std**2 + ref_std**2) / repeats
-        )
-        if z >= z_threshold:
-            verdict = "means differ - REGRESSION"
-        elif z <= -z_threshold:
-            verdict = "means differ - improvement"
-        else:
-            verdict = "no significant difference"
-        print(f"{label}: z = {z:+.2f} vs reference ({verdict})")
+    print(f"RESULT {key} {stat:.4f}")
 
 
 def main():
@@ -148,25 +136,17 @@ def main():
     default_timelogger.set_verbosity("default")
 
     parser = argparse.ArgumentParser(
-        description="Kernel-runtime A/B gate benchmark (Lorenz ensemble)."
+        description="Kernel-runtime benchmark (Lorenz ensemble). Prints "
+        "the mean of the lowest kernel times per config; drive A/B "
+        "comparisons with ab_gate.py."
     )
     parser.add_argument("n_runs", nargs="?", type=int, default=None)
     parser.add_argument("repeats", nargs="?", type=int, default=100)
     parser.add_argument(
-        "--ref-fixed",
-        nargs=2,
-        type=float,
-        metavar=("MEAN", "STD"),
-        default=None,
-        help="A-side kernel mean and std (ms) for the fixed config.",
-    )
-    parser.add_argument(
-        "--ref-adaptive",
-        nargs=2,
-        type=float,
-        metavar=("MEAN", "STD"),
-        default=None,
-        help="A-side kernel mean and std (ms) for the adaptive config.",
+        "--min-count",
+        type=int,
+        default=min_count,
+        help="Number of lowest per-solve kernel times to average.",
     )
     args = parser.parse_args()
 
@@ -218,18 +198,20 @@ def main():
     )
 
     benchmark(
+        "fixed",
         "fixed (classical-rk4)",
         fixed_solver,
         n_fixed,
         args.repeats,
-        args.ref_fixed,
+        args.min_count,
     )
     benchmark(
+        "adaptive",
         "adaptive (tsit5)",
         adaptive_solver,
         n_adaptive,
         args.repeats,
-        args.ref_adaptive,
+        args.min_count,
     )
 
 
