@@ -1163,7 +1163,6 @@ def residual_system():
 @pytest.fixture(scope="session")
 def stage_residual_factory(residual_system, precision):
     def factory(beta, gamma, a_ii, M):
-        base = cuda.to_device(np.array([0.25, -0.25], dtype=precision))
         fname = f"stage_residual_factory_{abs(hash(M.tobytes()))}"
         code = generate_stage_residual_code(
             residual_system.equations,
@@ -1186,8 +1185,6 @@ def stage_residual_factory(residual_system, precision):
 
 @pytest.fixture(scope="session")
 def residual_kernel(precision):
-    n = 2
-
     def make_kernel(residual):
         @cuda.jit
         def kernel(t, h, aij, vec, base_state, out):
@@ -1235,6 +1232,96 @@ def test_stage_residual(
         expected,
         atol=tolerance.abs_tight,
         rtol=tolerance.rel_tight,
+    )
+
+
+@pytest.fixture(scope="session")
+def colliding_constants_system():
+    """System whose constants share names with the solver scalings."""
+
+    dxdt = [
+        "dx0 = -beta * x0 + gamma * x1",
+        "dx1 = -gamma * x1",
+    ]
+    constants = {"beta": 2.5, "gamma": 0.75}
+    system = create_ODE_system(dxdt, states=["x0", "x1"],
+                               constants=constants)
+    system.build()
+    return system
+
+
+def _colliding_system_f(point):
+    """Right-hand side of the colliding_constants_system equations."""
+    x0, x1 = point
+    return np.array([-2.5 * x0 + 0.75 * x1, -0.75 * x1])
+
+
+def test_solver_helper_preserves_colliding_constants(
+    colliding_constants_system, residual_kernel, precision, tolerance
+):
+    """Helper generation leaves beta/gamma constants untouched."""
+
+    system = colliding_constants_system
+    residual = system.get_solver_helper(
+        "stage_residual", beta=1.0, gamma=1.0
+    )
+    assert system.constants.values_dict["beta"] == pytest.approx(2.5)
+    assert system.constants.values_dict["gamma"] == pytest.approx(
+        0.75
+    )
+
+    kernel = residual_kernel(residual)
+    stage = np.zeros(2, dtype=precision)
+    base = np.array([1.0, 2.0], dtype=precision)
+    out = np.zeros(2, dtype=precision)
+    kernel[1, 1](
+        precision(0.0), precision(1.0), precision(1.0), stage, base,
+        out
+    )
+    # residual(u=0) = -h * f(base_state) with the system's own
+    # constants; the corrupted form would use beta = gamma = 1.
+    expected = -_colliding_system_f(base)
+    assert np.allclose(
+        out,
+        expected,
+        atol=tolerance.abs_tight,
+        rtol=tolerance.rel_tight,
+    )
+
+
+def test_solver_helper_rebuilds_on_scaling_change(
+    colliding_constants_system, residual_kernel, precision, tolerance
+):
+    """New beta/gamma values regenerate the cached helper."""
+
+    system = colliding_constants_system
+    stage = np.array([0.5, -0.3], dtype=precision)
+    base = np.array([1.0, 2.0], dtype=precision)
+    a_ii = precision(0.5)
+    eval_point = base + a_ii * stage
+
+    results = {}
+    for beta, gamma in ((1.0, 1.0), (2.0, 0.5)):
+        residual = system.get_solver_helper(
+            "stage_residual", beta=beta, gamma=gamma
+        )
+        kernel = residual_kernel(residual)
+        out = np.zeros(2, dtype=precision)
+        kernel[1, 1](
+            precision(0.0), precision(1.0), a_ii, stage, base, out
+        )
+        results[(beta, gamma)] = out
+        expected = (
+            beta * stage - gamma * _colliding_system_f(eval_point)
+        )
+        assert np.allclose(
+            out,
+            expected,
+            atol=tolerance.abs_tight,
+            rtol=tolerance.rel_tight,
+        )
+    assert not np.allclose(
+        results[(1.0, 1.0)], results[(2.0, 0.5)]
     )
 
 

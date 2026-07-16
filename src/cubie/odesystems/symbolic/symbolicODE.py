@@ -1017,12 +1017,6 @@ class SymbolicODE(BaseODE):
         definition, not an algorithm parameter.
         """
         mass = self.compile_settings.mass
-        solver_updates = {
-            "beta": beta,
-            "gamma": gamma,
-            "preconditioner_order": preconditioner_order,
-        }
-        self.update(solver_updates, silent=True)
 
         tableau_hash = None
         if func_type in _TABLEAU_HELPER_TYPES:
@@ -1064,13 +1058,21 @@ class SymbolicODE(BaseODE):
             default_timelogger.stop_event(event_name)
             return func
 
+        # Solver values are part of the built device function.
+        helper_key = (
+            float(beta),
+            float(gamma),
+            int(preconditioner_order),
+            tableau_hash,
+        )
+        if self._solver_helper_cache_keys.get(func_type) != helper_key:
+            if self._cache is not None:
+                setattr(self._cache, func_type, -1)
+            self._solver_helper_cache_keys.pop(func_type, None)
+
         try:
             func = self.get_cached_output(func_type)
-            if (
-                tableau_hash is None
-                or self._solver_helper_cache_keys.get(func_type)
-                == tableau_hash
-            ):
+            if self._solver_helper_cache_keys.get(func_type) == helper_key:
                 return func
         except NotImplementedError:
             pass
@@ -1293,8 +1295,7 @@ class SymbolicODE(BaseODE):
             **{k: v for k, v in factory_kwargs.items() if k in accepted}
         )
         setattr(self._cache, func_type, func)
-        if tableau_hash is not None:
-            self._solver_helper_cache_keys[func_type] = tableau_hash
+        self._solver_helper_cache_keys[func_type] = helper_key
         default_timelogger.stop_event(event_name)
 
         return func
