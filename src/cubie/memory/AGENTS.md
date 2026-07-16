@@ -10,8 +10,9 @@ stream. It runs as a process-wide instance (`default_memmgr`, created in `__init
 import) — a singleton **by convention**, not enforced via `__new__`. CuPy's async memory pool
 is the single device allocation provider on a real GPU, plugged into Numba as an External
 Memory Manager (`cupy_emm.py`), so `cuda.device_array` returns **native** `DeviceNDArray`
-objects backed by pooled, stream-ordered allocations. Pinned host buffers come from Numba
-(`cuda.pinned_array`) and the chunk staging pool from CuPy (`cupyx.empty_pinned`). The CUDA
+objects backed by pooled, stream-ordered allocations. Pinned host buffers and the chunk
+staging pool come from CuPy's pinned pool (`cupyx.empty_pinned`), so releasing one returns
+it to the pool instead of a device-synchronizing `cuMemFreeHost`. The CUDA
 simulator never touches CuPy — it keeps its own numpy-backed fakes. Supporting pieces:
 `StreamGroups` (CUDA stream grouping), `ArrayRequest`/`ArrayResponse` (allocation metadata),
 `ChunkBufferPool` (reusable pinned staging buffers).
@@ -54,7 +55,8 @@ CuPy's async pool is the only device allocator, reached through the EMM plugin; 
 come from `cubie.cuda_simsafe`, which imports them at package import on a real GPU.
 `allocate()` routes `"device"` requests through `cuda.device_array` (inside
 `current_cupy_stream`, so the pool allocation is stream-ordered) and `"pinned"` requests
-through `cuda.pinned_array`; any other placement raises `ValueError`. `to_device`/`from_device`
+through `_pinned_host_array` (`cupyx.empty_pinned`); any other placement raises `ValueError`.
+`to_device`/`from_device`
 issue streamed `cuda.cudadrv.driver.host_to_device`/`device_to_host` copies between pinned
 host buffers and native device arrays, sized by the pinned buffer's `nbytes`. Device arrays
 must be allocated (via `allocate_queue`) before `to_device` copies into them.
