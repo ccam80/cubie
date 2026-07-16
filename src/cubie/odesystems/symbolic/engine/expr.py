@@ -1,7 +1,7 @@
 """Lightweight hash-consed expression core for CUDA code generation.
 
-Replaces SymPy in the compute phase of symbolic codegen. Expressions
-are immutable, interned ("hash-consed") nodes: structurally identical
+The compute representation of symbolic codegen. Expressions are
+immutable, interned ("hash-consed") nodes: structurally identical
 subtrees are the same Python object, so equality is identity, common
 subexpressions are shared by construction, and substitution and
 differentiation are single memoised passes over a DAG rather than
@@ -47,6 +47,7 @@ same mathematical input produces byte-identical generated source in
 every process regardless of ``PYTHONHASHSEED`` or session history.
 """
 
+import math
 from fractions import Fraction
 from typing import Callable, Dict, List, Optional, Tuple, Union
 
@@ -162,7 +163,12 @@ class Num(Expr):
 
     def __init__(self, value: NumberLike) -> None:
         self.value = value
-        self.sort_key = (0, float(value), _num_type_rank(value))
+        self.sort_key = (
+            0,
+            _num_sort_value(value),
+            _num_type_rank(value),
+            str(value),
+        )
 
     def __repr__(self) -> str:
         return f"Num({self.value!r})"
@@ -346,6 +352,18 @@ class BoolConst(Expr):
 
     def __reduce__(self):
         return (_bool_const, (self.value,))
+
+
+def _num_sort_value(value: NumberLike) -> float:
+    """Return ``float(value)`` for ordering, saturating on overflow.
+
+    The trailing ``str(value)`` sort-key element keeps the order
+    total when two distinct payloads saturate to the same float.
+    """
+    try:
+        return float(value)
+    except OverflowError:
+        return math.inf if value > 0 else -math.inf
 
 
 def _num_type_rank(value: NumberLike) -> int:

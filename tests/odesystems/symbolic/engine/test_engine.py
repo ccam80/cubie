@@ -131,6 +131,17 @@ class TestInterningAndFolding:
         restored = pickle.loads(pickle.dumps(node))
         assert restored is node
 
+    def test_huge_integer_literal_constructs(self):
+        node = pow_(num(10), num(400))
+        assert node.value == 10**400
+
+    def test_float_equal_payloads_order_totally(self):
+        x = sym("x")
+        big, bigger = 2**60, 2**60 + 1
+        forward = add(pow_(x, num(big)), pow_(x, num(bigger)))
+        reverse = add(pow_(x, num(bigger)), pow_(x, num(big)))
+        assert forward is reverse
+
 
 class TestDifferentiation:
     def test_matches_sympy_on_rule_table(self):

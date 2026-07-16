@@ -1,13 +1,13 @@
 """Render engine IR expressions as Numba-CUDA source lines.
 
-Reimplements the SymPy ``CUDAPrinter`` semantics structurally:
+Emission rules:
 
-- numeric literals wrap in ``precision(...)`` except inside array
-  indices and power exponents;
+- numeric literals wrap in ``precision(...)``; array indices print
+  as plain integers;
 - ``x**2`` / ``x**3`` (and their float twins) emit as parenthesised
-  multiplication chains — a node-level rule, not a regex rewrite;
+  multiplication chains — a structural Pow rule;
 - half powers emit ``math.sqrt``; negative integer powers emit
-  guarded reciprocals; other integer exponents emit
+  guarded reciprocals; other numeric exponents emit
   ``** precision(n)``;
 - a constant-name exponent emits its integer-exponent alias
   (see ``sym_utils.render_constant_assignments``);
@@ -119,8 +119,7 @@ class IRPrinter:
     ----------
     symbol_map
         Mapping from symbol *name* to replacement expression (an
-        :class:`Arr` or :class:`Sym`), mirroring the SymPy printer's
-        scalar-to-array remapping.
+        :class:`Arr` or :class:`Sym`) for scalar-to-array remapping.
     constant_names
         Names of factory-scope constants; a constant appearing as a
         power exponent prints as its integer-exponent alias.
@@ -244,8 +243,14 @@ class IRPrinter:
         if not numerator:
             numer_text = "precision(1)"
         else:
+            # Factors after the first print at one level tighter:
+            # ``%`` shares multiplication precedence, so a bare
+            # ``z*x % y`` would parse as ``(z*x) % y``.
             numer_parts = [
-                self._print(f, _PREC_MUL) for f in numerator
+                self._print(
+                    f, _PREC_MUL if i == 0 else _PREC_MUL + 1
+                )
+                for i, f in enumerate(numerator)
             ]
             numer_text = "*".join(numer_parts)
         if not denominator:
@@ -338,6 +343,10 @@ class IRPrinter:
     def _render_piecewise(self, node: Piecewise) -> Tuple[str, int]:
         pairs = list(node.pairs)
         last_value, _ = pairs[-1]
+        if len(pairs) == 1:
+            # A single non-exhaustive branch emits its value
+            # unconditionally, at the value's own precedence.
+            return self._render(last_value)
         rendered = self._print(last_value, _PREC_TERNARY + 1)
         for value, cond in reversed(pairs[:-1]):
             value_text = self._print(value, _PREC_TERNARY + 1)

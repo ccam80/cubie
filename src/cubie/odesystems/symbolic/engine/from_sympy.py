@@ -1,8 +1,9 @@
 """Convert SymPy expressions into engine IR nodes.
 
-This is the only module in the engine that imports SymPy. Parsing
-(and structural simplification) still produce SymPy expressions;
-codegen converts them once, here, and every downstream compute step
+This is the only module in the engine that imports SymPy. String
+parsing and user-supplied SymPy input produce SymPy expressions; the
+parse boundary (``parsing/normalise.py`` and the CellML loader)
+converts them here, and every downstream compute step
 (differentiation, substitution, CSE, printing) runs on the IR.
 
 Published Functions
@@ -135,12 +136,6 @@ def _convert(current: sp.Basic, walk) -> ir.Expr:
             )
         return ir.sym(current.name)
     if isinstance(current, (sp.Number, sp.NumberSymbol)):
-        if current is sp.oo or current is -sp.oo or current is sp.zoo:
-            raise ConversionError(
-                f"infinite quantity in equations: {current!r}"
-            )
-        if current is sp.nan:
-            raise ConversionError("NaN in equations")
         return _convert_number(current)
     if isinstance(current, sp.Indexed):
         base_name = str(current.base.label)

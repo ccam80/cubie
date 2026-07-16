@@ -1,6 +1,6 @@
 """Tests for the IR CUDA printer.
 
-Covers the emission rules the SymPy-era printer guaranteed:
+Covers the printer emission rules:
 precision wrapping, power rewrites (squares/cubes to multiplication
 chains, halves to sqrt, negatives to guarded reciprocals), piecewise
 ternaries, function mapping, scalar-to-array symbol remapping, and
@@ -190,6 +190,14 @@ class TestFunctionsAndPiecewise:
         )
         assert result == "(x + y) % precision(3)"
 
+    def test_mod_factor_keeps_grouping(self):
+        product = mul(sym("z"), call("Mod", sym("x"), sym("y")))
+        assert print_cuda(product) == "z*(x % y)"
+
+    def test_mod_in_denominator_keeps_grouping(self):
+        quotient = div(sym("z"), call("Mod", sym("x"), sym("y")))
+        assert print_cuda(quotient) == "z/(x % y)"
+
     def test_heaviside_converts_to_piecewise(self):
         result = print_cuda(from_sympy(sp.Heaviside(sp.Symbol("x"))))
         assert " if " in result
@@ -241,6 +249,12 @@ class TestFunctionsAndPiecewise:
             "E_v*(_cse1 if _cse3 > precision(0) else "
             "(precision(0.0)))"
         )
+
+    def test_single_branch_piecewise_keeps_precedence(self):
+        lone = piecewise(
+            (add(sym("x"), sym("y")), rel("<", sym("x"), num(0))),
+        )
+        assert print_cuda(mul(sym("z"), lone)) == "z*(x + y)"
 
     def test_piecewise_literals_wrapped(self):
         expr = piecewise(
