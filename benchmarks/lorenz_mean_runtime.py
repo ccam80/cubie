@@ -20,8 +20,9 @@ carry host and d2h scatter irrelevant to the compiled kernel.
 
 Usage::
 
-    python benchmarks/lorenz_mean_runtime.py [n_runs] [repeats]
-        [--min-count K]
+    python benchmarks/lorenz_mean_runtime.py [n_runs]
+        [--repeats R] [--min-count K] [--grid-cache DIR]
+        [--no-clear-cache]
 
 Defaults: ``2**22`` trajectories for the fixed config and ``2**24``
 for the adaptive config (the adaptive kernel is fast enough at
@@ -29,15 +30,19 @@ for the adaptive config (the adaptive kernel is fast enough at
 ``min_count = 5``. An explicit ``n_runs`` argument applies to both
 configs. Each config prints a human-readable line and a parseable
 ``RESULT <key> <ms>`` line; ``ab_gate.py`` drives the A/B comparison
-(main vs the active worktree, per backend) from those.
+(main vs the active worktree, per backend) from those, and uses
+``--grid-cache`` / ``--no-clear-cache`` to reuse the grid and compile
+across its repeated invocations.
 
 The generated-code and compiled-kernel caches are cleared on every
-invocation. The kernel cache is keyed by config hash, which does not
-include the package source, so a warm cache can serve kernels
-compiled from a different source tree — poisonous for A/B runs where
-only ``PYTHONPATH`` differs. Clearing forces each invocation to
-compile from the tree under benchmark; the compile cost is absorbed
-by the warm-up solve, outside the timed region.
+invocation unless ``--no-clear-cache`` is given. The kernel cache is
+keyed by config hash, which does not include the package source, so a
+warm cache can serve kernels compiled from a different source tree —
+poisonous for A/B runs where only ``PYTHONPATH`` differs. Clearing
+forces each invocation to compile from the tree under benchmark; the
+compile cost is absorbed by the warm-up solve, outside the timed
+region. ``ab_gate.py`` keeps a separate cache directory per side
+instead, so it reuses the compile safely without clearing.
 """
 
 import argparse
@@ -76,7 +81,7 @@ def collect_kernel_time(solver, kernel_ms):
     )
 
 
-def benchmark(key, label, solver, n_runs, repeats, k):
+def benchmark(key, label, solver, n_runs, repeats, k, grid_cache=None):
     """Run ``repeats`` solves after a warm-up; print the mean-of-mins.
 
     The reported statistic is the mean of the ``k`` lowest per-solve
@@ -85,11 +90,29 @@ def benchmark(key, label, solver, n_runs, repeats, k):
     kernel's intrinsic cost and drift far less between invocations than
     the mean. A machine-parseable ``RESULT <key> <ms>`` line follows the
     human-readable line for the A/B driver (``ab_gate.py``) to consume.
+
+    When ``grid_cache`` is a directory, the input grid (identical every
+    invocation) is loaded from it if present, else built once and saved
+    there — this skips the large host-side grid build on reruns.
     """
-    parameters = {"rho": np.linspace(0.0, 21.0, n_runs)}
-    initials_array, parameter_array = solver.build_grid(
-        initial_values=initial_conditions, parameters=parameters
+    gfile = (
+        os.path.join(grid_cache, f"grid_{key}.npz")
+        if grid_cache is not None
+        else None
     )
+    if gfile is not None and os.path.exists(gfile):
+        grid = np.load(gfile)
+        initials_array, parameter_array = grid["inits"], grid["params"]
+    else:
+        parameters = {"rho": np.linspace(0.0, 21.0, n_runs)}
+        initials_array, parameter_array = solver.build_grid(
+            initial_values=initial_conditions, parameters=parameters
+        )
+        if gfile is not None:
+            os.makedirs(grid_cache, exist_ok=True)
+            np.savez(
+                gfile, inits=initials_array, params=parameter_array
+            )
     kernel_ms = []
 
     def run():
@@ -123,8 +146,11 @@ def benchmark(key, label, solver, n_runs, repeats, k):
 
 def main():
     """Parse arguments, build the solvers, and run both configs."""
+    args = _parse_args()
+
     cache_root = get_cache_root()
-    shutil.rmtree(cache_root, ignore_errors=True)
+    if not args.no_clear_cache:
+        shutil.rmtree(cache_root, ignore_errors=True)
     os.makedirs(cache_root, exist_ok=True)
 
     # CUDA events (kernel / h2d / d2h per chunk) are recorded only
@@ -135,21 +161,7 @@ def main():
     # timed callable.
     default_timelogger.set_verbosity("default")
 
-    parser = argparse.ArgumentParser(
-        description="Kernel-runtime benchmark (Lorenz ensemble). Prints "
-        "the mean of the lowest kernel times per config; drive A/B "
-        "comparisons with ab_gate.py."
-    )
-    parser.add_argument("n_runs", nargs="?", type=int, default=None)
-    parser.add_argument("repeats", nargs="?", type=int, default=100)
-    parser.add_argument(
-        "--min-count",
-        type=int,
-        default=min_count,
-        help="Number of lowest per-solve kernel times to average.",
-    )
-    args = parser.parse_args()
-
+    repeats = args.repeats
     if args.n_runs is not None:
         n_fixed = n_adaptive = args.n_runs
     else:
@@ -202,17 +214,54 @@ def main():
         "fixed (classical-rk4)",
         fixed_solver,
         n_fixed,
-        args.repeats,
+        repeats,
         args.min_count,
+        args.grid_cache,
     )
     benchmark(
         "adaptive",
         "adaptive (tsit5)",
         adaptive_solver,
         n_adaptive,
-        args.repeats,
+        repeats,
         args.min_count,
+        args.grid_cache,
     )
+
+
+def _parse_args():
+    """Parse command-line arguments."""
+    parser = argparse.ArgumentParser(
+        description="Kernel-runtime benchmark (Lorenz ensemble). Prints "
+        "the mean of the lowest kernel times per config; drive A/B "
+        "comparisons with ab_gate.py."
+    )
+    parser.add_argument("n_runs", nargs="?", type=int, default=None)
+    parser.add_argument(
+        "--repeats",
+        type=int,
+        default=100,
+        help="Solves to time per config after the discard window.",
+    )
+    parser.add_argument(
+        "--min-count",
+        type=int,
+        default=min_count,
+        help="Number of lowest per-solve kernel times to average.",
+    )
+    parser.add_argument(
+        "--grid-cache",
+        default=None,
+        metavar="DIR",
+        help="Cache/load the input grid here to skip rebuilding it.",
+    )
+    parser.add_argument(
+        "--no-clear-cache",
+        action="store_true",
+        help="Reuse the compile cache instead of clearing it (for a "
+        "fixed source tree across repeated invocations).",
+    )
+    return parser.parse_args()
 
 
 if __name__ == "__main__":
