@@ -47,6 +47,7 @@ CacheKey = Tuple[
     Tuple[Tuple[ir.Sym, int], ...],
     Tuple[Tuple[ir.Sym, int], ...],
     bool,
+    Tuple[Tuple[str, str], ...],
 ]
 
 _cache: Dict[CacheKey, Dict[str, object]] = {}
@@ -370,9 +371,7 @@ def generate_analytical_jvp(
             entry = jac[i][j]
             if entry is ir.ZERO:
                 continue
-            # Underscore separator: without it, j_{i}{j} is
-            # ambiguous from 11 states up (J[1][10] and J[11][0]
-            # would both read j_110).
+            # Separators keep multi-digit indices unambiguous.
             j_sym = ir.sym(f"j_{i}_{j}")
             prod_exprs.append((j_sym, entry))
             j_symbols[(i, j)] = j_sym

@@ -1,20 +1,4 @@
-"""One-time conversion of parsed systems into engine IR.
-
-``ParsedEquations`` and ``IndexedBases`` stay SymPy-facing (parsing,
-hashing, GUIs); codegen converts them here, once per system, into a
-:class:`SystemIR` bundle. Every generator consumes the bundle, so
-SymPy objects never enter the compute-heavy generation paths.
-
-Published Classes
------------------
-:class:`SystemIR`
-    IR equations plus the ordered symbol tables generators need.
-
-Published Functions
--------------------
-:func:`system_ir`
-    Memoised ``(ParsedEquations, IndexedBases) -> SystemIR``.
-"""
+"""Build the IR data used by source generators."""
 
 from typing import Dict, List, Tuple
 
@@ -91,9 +75,6 @@ class SystemIR:
         ]
 
 
-_CACHE: Dict[Tuple[int, int], Tuple[object, object, SystemIR]] = {}
-
-
 def _ordered_syms(index_map) -> Tuple[Tuple[ir.Sym, ...], Dict]:
     """Convert a SymPy ``symbol -> position`` map to ordered IR."""
     ordered = sorted(index_map.items(), key=lambda item: item[1])
@@ -103,7 +84,7 @@ def _ordered_syms(index_map) -> Tuple[Tuple[ir.Sym, ...], Dict]:
 
 
 def system_ir(equations, index_map) -> SystemIR:
-    """Return the memoised IR view of a parsed system.
+    """Return the current IR view of a parsed system.
 
     Parameters
     ----------
@@ -115,14 +96,8 @@ def system_ir(equations, index_map) -> SystemIR:
     Returns
     -------
     SystemIR
-        Converted equations and symbol tables. Repeated calls with
-        the same objects return the same instance.
+        Converted equations and symbol tables.
     """
-    key = (id(equations), id(index_map))
-    hit = _CACHE.get(key)
-    if hit is not None and hit[0] is equations and hit[1] is index_map:
-        return hit[2]
-
     memo: Dict = {}
     eq_list = equations.to_equation_list()
     if eq_list and isinstance(eq_list[0][0], ir.Expr):
@@ -147,7 +122,7 @@ def system_ir(equations, index_map) -> SystemIR:
     )
 
     arrayrefs: Dict[str, ir.Expr] = {}
-    aliases: Dict[str, str] = {}
+    aliases = dict(getattr(equations, "function_aliases", None) or {})
     for sym_key, ref in index_map.all_arrayrefs.items():
         if sym_key == "__function_aliases__" or str(
             sym_key
@@ -156,8 +131,10 @@ def system_ir(equations, index_map) -> SystemIR:
                 aliases = dict(ref)
             continue
         arrayrefs[str(sym_key)] = from_sympy(ref, memo)
+    for derivative_name in derivative_names.values():
+        aliases.setdefault(derivative_name, derivative_name)
 
-    result = SystemIR(
+    return SystemIR(
         equations=eq_pairs,
         state_symbols=states,
         dxdt_symbols=dxdt,
@@ -172,5 +149,3 @@ def system_ir(equations, index_map) -> SystemIR:
         derivative_names=derivative_names,
         time_symbol=ir.sym("t"),
     )
-    _CACHE[key] = (equations, index_map, result)
-    return result

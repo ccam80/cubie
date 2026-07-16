@@ -1,60 +1,15 @@
-"""Lightweight hash-consed expression core for CUDA code generation.
-
-The compute representation of symbolic codegen. Expressions are
-immutable, interned ("hash-consed") nodes: structurally identical
-subtrees are the same Python object, so equality is identity, common
-subexpressions are shared by construction, and substitution and
-differentiation are single memoised passes over a DAG rather than
-repeated tree walks.
-
-The node vocabulary is deliberately small — exactly what cubie's
-generators emit: numbers, named scalars, integer-indexed array
-references, sums, products, powers, function calls, piecewise
-selections, and boolean conditions.
-
-Published Classes
------------------
-:class:`Expr`
-    Abstract base for all nodes.
-:class:`Num`, :class:`Sym`, :class:`Arr`
-    Leaves: numeric literals, named scalars, array references.
-:class:`Add`, :class:`Mul`, :class:`Pow`, :class:`Call`,
-:class:`Piecewise`
-    Composite arithmetic nodes.
-:class:`Rel`, :class:`BoolOp`, :class:`BoolConst`
-    Boolean conditions used inside :class:`Piecewise`.
-
-Published Functions
--------------------
-:func:`num`, :func:`sym`, :func:`arr`, :func:`add`, :func:`mul`,
-:func:`sub`, :func:`div`, :func:`neg`, :func:`pow_`, :func:`call`,
-:func:`piecewise`, :func:`rel`, :func:`bool_op`
-    Interning constructors with light algebraic folding.
-:func:`xreplace`
-    Simultaneous node-for-node substitution in one memoised pass.
-:func:`diff`
-    Analytic differentiation with a fixed rule table.
-:func:`free_atoms`
-    The :class:`Sym` and :class:`Arr` leaves an expression reads.
-:func:`count_ops`
-    Arithmetic operation count used by the caching planner.
-
-Notes
------
-Determinism: commutative arguments are ordered by a structural sort
-key computed at construction, never by hash or intern order, so the
-same mathematical input produces byte-identical generated source in
-every process regardless of ``PYTHONHASHSEED`` or session history.
-"""
+"""Define the interned expression tree used by code generation."""
 
 import math
 from fractions import Fraction
 from typing import Callable, Dict, List, Optional, Tuple, Union
+from weakref import WeakValueDictionary
 
 __all__ = [
     "Expr",
     "Num",
     "Sym",
+    "Local",
     "Arr",
     "Add",
     "Mul",
@@ -66,6 +21,7 @@ __all__ = [
     "BoolConst",
     "num",
     "sym",
+    "local",
     "arr",
     "add",
     "mul",
@@ -91,7 +47,7 @@ __all__ = [
 
 NumberLike = Union[int, float, Fraction]
 
-_INTERN: Dict[tuple, "Expr"] = {}
+_INTERN = WeakValueDictionary()
 
 
 def _intern(key: tuple, factory: Callable[[], "Expr"]) -> "Expr":
@@ -193,6 +149,22 @@ class Sym(Expr):
         return (sym, (self.name,))
 
 
+class Local(Expr):
+    """Generated scalar local."""
+
+    __slots__ = ("name",)
+
+    def __init__(self, name: str) -> None:
+        self.name = name
+        self.sort_key = (2, name)
+
+    def __repr__(self) -> str:
+        return f"Local({self.name})"
+
+    def __reduce__(self):
+        return (local, (self.name,))
+
+
 class Arr(Expr):
     """Array element reference ``name[index]`` with a fixed int index."""
 
@@ -284,7 +256,7 @@ class Call(Expr):
 class Piecewise(Expr):
     """Ordered ``(value, condition)`` selection.
 
-    The final condition may be :data:`TRUE` (the fallback branch).
+    The final condition is :data:`TRUE`.
     """
 
     __slots__ = ("pairs",)
@@ -418,6 +390,12 @@ def sym(name: str) -> Sym:
     """Return the interned scalar symbol named ``name``."""
     key = ("sym", name)
     return _intern(key, lambda: Sym(name))
+
+
+def local(name: str) -> Local:
+    """Return the generated local named ``name``."""
+    key = ("local", name)
+    return _intern(key, lambda: Local(name))
 
 
 def arr(name: str, index: int) -> Arr:
@@ -698,6 +676,8 @@ def piecewise(*pairs: Tuple[ExprLike, Expr]) -> Expr:
             break
     if not norm:
         raise ValueError("piecewise requires at least one live branch")
+    if norm[-1][1] is not TRUE:
+        raise ValueError("piecewise requires a final true branch")
     if len(norm) == 1 and norm[0][1] is TRUE:
         return norm[0][0]
     pairs_tuple = tuple(norm)
@@ -833,7 +813,7 @@ def free_atoms(node: Expr) -> frozenset:
     cached = getattr(node, "_free", None)
     if cached is not None:
         return cached
-    if isinstance(node, (Sym, Arr)):
+    if isinstance(node, (Sym, Local, Arr)):
         result = frozenset((node,))
     else:
         result = frozenset().union(
@@ -857,7 +837,7 @@ def count_ops(node: Expr, memo: Optional[Dict[Expr, int]] = None) -> int:
     cached = memo.get(node)
     if cached is not None:
         return cached
-    if isinstance(node, (Num, Sym, Arr, BoolConst)):
+    if isinstance(node, (Num, Sym, Local, Arr, BoolConst)):
         result = 0
     elif isinstance(node, (Add, Mul)):
         result = len(node.args) - 1 + sum(
@@ -1130,7 +1110,7 @@ def diff(
     def walk(current: Expr) -> Expr:
         if current is var:
             return ONE
-        if isinstance(current, (Num, Sym, Arr, BoolConst)):
+        if isinstance(current, (Num, Sym, Local, Arr, BoolConst)):
             return ZERO
         cached = memo.get(current)
         if cached is not None:

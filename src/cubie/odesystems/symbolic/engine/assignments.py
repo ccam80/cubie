@@ -1,34 +1,14 @@
-"""Assignment-list transforms over engine IR expressions.
-
-Operates on ordered lists of ``(lhs, rhs)`` IR pairs — the working
-representation every generator builds before printing. Provides
-topological sorting, dead-assignment pruning, and
-common-subexpression extraction.
-
-Published Functions
--------------------
-:func:`topological_sort`
-    Order assignments so dependencies precede their uses.
-:func:`prune_unused`
-    Drop assignments that do not feed the requested outputs.
-:func:`cse_and_stack`
-    Extract shared subexpressions into ``_cse<i>`` locals and return
-    the combined, dependency-ordered assignment list.
-
-Notes
------
-Because IR nodes are hash-consed, "common subexpression" means
-"IR node referenced more than once" — detection is a single
-reference-counting pass over the DAG, not a search.
-"""
+"""Order, prune, and deduplicate IR assignments."""
 
 from typing import Dict, Iterable, List, Optional, Set, Tuple
 
 from cubie.odesystems.symbolic.engine.expr import (
     Add as AddNode,
     Arr,
+    BoolConst,
     Call,
     Expr,
+    Local,
     Mul as MulNode,
     Num,
     Sym,
@@ -36,8 +16,8 @@ from cubie.odesystems.symbolic.engine.expr import (
     _rebuild,
     add,
     free_atoms,
+    local,
     mul,
-    sym,
 )
 
 __all__ = [
@@ -173,7 +153,7 @@ def prune_unused(
 
 def _is_extractable(node: Expr) -> bool:
     """Return whether a shared node is worth naming as a CSE local."""
-    if isinstance(node, (Sym, Arr, Num)):
+    if isinstance(node, (Sym, Local, Arr, Num, BoolConst)):
         return False
     if isinstance(node, Call) and not node.args:
         return False
@@ -320,17 +300,28 @@ def cse_and_stack(
         symbol = "_cse"
     pairs = list(assignments)
 
-    start_index = 0
-    prefix_found = False
-    max_index = -1
-    for lhs, _ in pairs:
-        if isinstance(lhs, Sym) and lhs.name.startswith(symbol):
-            prefix_found = True
-            suffix = lhs.name[len(symbol):]
-            if suffix.isdigit():
-                max_index = max(max_index, int(suffix))
-    if prefix_found:
-        start_index = max_index + 1
+    used_names: Set[str] = set()
+    visited_names: Set[Expr] = set()
+
+    def record_names(node: Expr) -> None:
+        if node in visited_names:
+            return
+        visited_names.add(node)
+        if isinstance(node, (Sym, Local, Arr, Call)):
+            used_names.add(node.name)
+        for child in _children(node):
+            record_names(child)
+
+    for lhs, rhs in pairs:
+        record_names(lhs)
+        record_names(rhs)
+
+    suffixes = [
+        int(name[len(symbol):])
+        for name in used_names
+        if name.startswith(symbol) and name[len(symbol):].isdigit()
+    ]
+    next_index = max(suffixes, default=-1) + 1
 
     # Count references of every composite node across all RHS roots,
     # and record distinct Add/Mul nodes for subset matching.
@@ -413,9 +404,15 @@ def cse_and_stack(
 
     replacements: Dict[Expr, Expr] = {}
     cse_assignments: List[Assignment] = []
-    for offset, node in enumerate(name_order):
-        local = sym(f"{symbol}{start_index + offset}")
-        replacements[node] = local
+    for node in name_order:
+        name = f"{symbol}{next_index}"
+        while name in used_names:
+            next_index += 1
+            name = f"{symbol}{next_index}"
+        temporary = local(name)
+        replacements[node] = temporary
+        used_names.add(name)
+        next_index += 1
 
     def rewrite(node: Expr, memo: Dict[Expr, Expr]) -> Expr:
         cached = memo.get(node)

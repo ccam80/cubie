@@ -8,25 +8,25 @@ pipeline runs on: differentiation, substitution, common-subexpression eliminatio
 dependency ordering, pruning, structural simplification, and CUDA source emission all
 operate on interned IR nodes. SymPy is a parse-boundary translation layer only
 (string/AST parsing and user-supplied SymPy input); the normaliser and the CellML
-loader convert every expression to IR via `from_sympy` before any downstream pass, and
-nothing converts back on the hot path (`to_sympy` exists for verification in tests).
+loader convert every expression to IR via `from_sympy` before any downstream pass.
+`to_sympy` is used only by verification tests.
 Nodes pickle through their constructor functions, so unpickled expressions re-intern
 (the CellML disk cache relies on this).
 
 ## Key Files
 | File | Description |
 |------|-------------|
-| `expr.py` | The IR core: node classes (`Num`, `Sym`, `Arr`, `Add`, `Mul`, `Pow`, `Call`, `Piecewise`, `Rel`, `BoolOp`, `BoolConst`), interning constructors with algebraic folding (`add`, `mul`, `pow_`, `call`, `piecewise`, …), `xreplace` (simultaneous memoised substitution), `diff` (analytic rule table + user-function placeholders), `free_atoms`, `count_ops`, `is_zero`/`is_one`. |
+| `expr.py` | IR nodes, weak interning, algebraic folding, substitution, differentiation, and operation counts. `Local` represents generated scalar temporaries. |
 | `from_sympy.py` | The only SymPy-importing module: `from_sympy`/`convert_assignments` (SymPy → IR, memoised), `to_sympy` (verification utility for tests), `derivative_name_map` (recovers `fdiff` placeholder names from the parser's dynamic device-function classes). |
-| `adapter.py` | `SystemIR` + `system_ir(equations, index_map)` — memoised one-shot conversion of `(ParsedEquations, IndexedBases)` into IR equations plus ordered symbol tables (states, dxdt, drivers, observables), printer array-reference maps, constant names, and derivative names. Every generator consumes this bundle. |
+| `adapter.py` | `SystemIR` + `system_ir(equations, index_map)` — builds the equations, ordered symbol tables, array-reference maps, constants, and derivative names used by generators. |
 | `assignments.py` | Assignment-list transforms: `topological_sort` (Kahn, deterministic tie-breaks), `prune_unused` (drop assignments not feeding outputs), `cse_and_stack` (reference-counting CSE over the DAG plus partial Add/Mul subset matching). |
 | `printer.py` | `IRPrinter` and `print_cuda`/`print_cuda_multiple`: renders IR as Numba-CUDA source — `precision(...)` literal wrapping, `x**2`/`x**3` multiplication chains (structural Pow rules), half powers to `math.sqrt`, guarded reciprocals, Piecewise ternaries, `CUDA_FUNCTIONS` mapping, scalar→array symbol remapping, constant integer-exponent aliases. Accepts SymPy input at the boundary (auto-converts). |
 
 ## For AI Agents
 
 ### Interning is the invariant everything relies on
-Structurally identical expressions are the same Python object: equality is `is`,
-hashing is `id`. Constructors fold algebra on the way in (flattening, like-term and
+Live structurally identical expressions are the same Python object: equality is `is`,
+hashing is `id`. The weak intern pool releases unused graphs. Constructors fold algebra on the way in (flattening, like-term and
 power collection, numeric folding, zero/one identities). **Never instantiate node
 classes directly** — always build through the constructor functions, or interning
 breaks and `xreplace`/CSE silently stop matching.

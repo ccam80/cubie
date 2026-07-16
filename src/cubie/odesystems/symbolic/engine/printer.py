@@ -1,28 +1,4 @@
-"""Render engine IR expressions as Numba-CUDA source lines.
-
-Emission rules:
-
-- numeric literals wrap in ``precision(...)``; array indices print
-  as plain integers;
-- ``x**2`` / ``x**3`` (and their float twins) emit as parenthesised
-  multiplication chains — a structural Pow rule;
-- half powers emit ``math.sqrt``; negative integer powers emit
-  guarded reciprocals; other numeric exponents emit
-  ``** precision(n)``;
-- a constant-name exponent emits its integer-exponent alias
-  (see ``sym_utils.render_constant_assignments``);
-- ``Piecewise`` emits nested ternaries;
-- function names map through :data:`CUDA_FUNCTIONS`, then user
-  aliases, then ``d_``-prefixed passthrough, then a plain call;
-- scalar symbols remap to array references via the symbol map.
-
-Published Functions
--------------------
-:func:`print_cuda_multiple`
-    Render ``(lhs, rhs)`` assignment pairs as source lines.
-:func:`print_cuda`
-    Render one expression.
-"""
+"""Render engine IR as Numba-CUDA source."""
 
 from fractions import Fraction
 from typing import Dict, Iterable, List, Optional, Tuple
@@ -34,6 +10,7 @@ from cubie.odesystems.symbolic.engine.expr import (
     BoolOp,
     Call,
     Expr,
+    Local,
     Mul,
     Num,
     Piecewise,
@@ -151,6 +128,8 @@ class IRPrinter:
     # -- internals ----------------------------------------------------
 
     def _atom_target(self, lhs: Expr) -> str:
+        if isinstance(lhs, Local):
+            return lhs.name
         if isinstance(lhs, Sym):
             mapped = self.symbol_map.get(lhs.name)
             if mapped is not None:
@@ -173,6 +152,8 @@ class IRPrinter:
         if isinstance(node, Num):
             text = _format_number(node.value)
             return f"precision({text})", _PREC_ATOM
+        if isinstance(node, Local):
+            return node.name, _PREC_ATOM
         if isinstance(node, Sym):
             mapped = self.symbol_map.get(node.name)
             if mapped is not None and mapped is not node:
@@ -334,7 +315,9 @@ class IRPrinter:
             return f"{lhs} % {rhs}", _PREC_MUL
         target = CUDA_FUNCTIONS.get(name)
         if target is None:
-            target = self.function_aliases.get(name, name)
+            target = self.function_aliases.get(name)
+        if target is None:
+            raise ValueError(f"unsupported function in IR: {name}")
         args = ", ".join(
             self._print(a, _PREC_TERNARY) for a in node.args
         )
@@ -343,10 +326,6 @@ class IRPrinter:
     def _render_piecewise(self, node: Piecewise) -> Tuple[str, int]:
         pairs = list(node.pairs)
         last_value, _ = pairs[-1]
-        if len(pairs) == 1:
-            # A single non-exhaustive branch emits its value
-            # unconditionally, at the value's own precedence.
-            return self._render(last_value)
         rendered = self._print(last_value, _PREC_TERNARY + 1)
         for value, cond in reversed(pairs[:-1]):
             value_text = self._print(value, _PREC_TERNARY + 1)

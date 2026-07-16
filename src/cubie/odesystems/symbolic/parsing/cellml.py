@@ -322,6 +322,7 @@ def load_cellml_model(
                     user_functions=cached_data['user_functions'],
                     name=cached_data['name'],
                     precision=precision,
+                    mass=cached_data.get('mass'),
                 )
                 default_timelogger.print_message(
                     f"Loaded {name} from CellML cache "
@@ -339,44 +340,34 @@ def load_cellml_model(
     raw_derivatives = list(model.get_derivatives())
     default_timelogger.stop_event("codegen_cellml_load_model")
     
-    # Extract initial values and units from CellML model
+    # Extract state defaults and units.
     initial_values = {}
     state_units = {}
     
     default_timelogger.start_event("codegen_cellml_symbol_conversion")
-    # Map every cellmlmanip Dummy to a sanitised SymPy replacement.
-    # The substitution runs in SymPy (one xreplace pass per equation)
-    # before conversion to IR: rebuilding with numeric leaves lets
-    # SymPy's automatic evaluation distribute numeric coefficients
-    # and split constant exponential offsets, which canonicalises the
-    # model's many exp(k*(V - offset)) variants onto shared exp(k*V)
-    # factors that CSE reuses in the generated kernels.
+    # Map CellML symbols to valid SymPy names. Rebuilding the SymPy
+    # expression exposes equivalent terms before IR conversion.
     dummy_to_symbol = {}
     for raw_state in raw_states:
         clean_name = _sanitize_symbol_name(raw_state.name)
         dummy_to_symbol[raw_state] = sp.Symbol(clean_name)
 
-        # Get initial value if available
+        # Read the optional initial value.
         if hasattr(raw_state, 'initial_value') and raw_state.initial_value is not None:
             initial_values[clean_name] = float(raw_state.initial_value)
 
         # cellmlmanip Variables always carry units
         state_units[clean_name] = str(raw_state.units)
     
-    # Collect units for all other symbols
+    # Collect units for the remaining symbols.
     all_symbol_units = {}
     
-    # Identify the time variable (independent variable in derivatives) if it
-    # is used as the independent variable in any of the derivatives,
-    # and map it to the standard 't' symbol used in CuBIE
+    # Map the single derivative variable to ``t``.
     time_variable = None
     if raw_derivatives:
-        # Collect independent variables from all derivatives to ensure they
-        # share a single time variable
         independent_variables = set()
         for derivative in raw_derivatives:
             if hasattr(derivative, "args") and len(derivative.args) > 1:
-                # Derivatives have form: Derivative(state, (time_var, 1))
                 independent_variables.add(derivative.args[1][0])
         if len(independent_variables) > 1:
             raise ValueError(
@@ -386,32 +377,25 @@ def load_cellml_model(
             )
         if independent_variables:
             time_variable = next(iter(independent_variables))
-            # Map time variable to standard 't' symbol
             dummy_to_symbol[time_variable] = sp.Symbol("t", real=True)
     
-    # Also convert any other Dummy symbols in the model equations
-    # Special handling for numeric quantities (e.g., _0.5, _1.0, _3)
+    # Convert remaining symbols, including numeric quantities.
     for eq in model.equations:
         for atom in eq.atoms(sp.Dummy):
             if atom not in dummy_to_symbol:
                 clean_name = _sanitize_symbol_name(atom.name)
 
-                # Check if this is a numeric quantity (name starts with _)
                 if atom.name.startswith('_'):
                     try:
-                        # Try to parse as a float
                         value = float(atom.name[1:])
-                        # Use Integer for whole numbers, Float for decimals
                         if value == int(value):
                             dummy_to_symbol[atom] = sp.Integer(int(value))
                         else:
                             dummy_to_symbol[atom] = sp.Float(value)
                         continue
                     except (ValueError, IndexError):
-                        # Not a numeric value, treat as regular symbol
                         pass
 
-                # Regular symbol conversion
                 dummy_to_symbol[atom] = sp.Symbol(clean_name)
 
                 # cellmlmanip Variables and Quantities always carry
@@ -420,10 +404,7 @@ def load_cellml_model(
     default_timelogger.stop_event("codegen_cellml_symbol_conversion")
 
     default_timelogger.start_event("codegen_cellml_equation_processing")
-    # Substitute in SymPy (exact leaf replacement, one pass per
-    # equation), then convert the re-evaluated result to IR with a
-    # shared memo. Differential equations are recognised on the raw
-    # form, before substitution.
+    # Replace symbols, then convert all equations with one shared memo.
     convert_memo = {}
     dxdt_equations = []
     algebraic_pairs = []
@@ -525,10 +506,14 @@ def load_cellml_model(
     # Build the parameters list from the (possibly GUI-modified) dict
     # so the cache key reflects actual categorisation.
     effective_params = list(parameters_dict.keys()) or None
+    cache_parameters = effective_params if show_gui else parameters
     args_hash = cache.compute_cache_key(
-        effective_params, observables, precision, name,
+        cache_parameters, observables, precision, name,
         fix_singularities=fix_singularities,
         voltage_variable=voltage_variable,
+        constant_values=constants_dict if show_gui else None,
+        parameter_values=parameters_dict if show_gui else None,
+        initial_values=initial_values if show_gui else None,
     )
 
     if cache.cache_valid(args_hash):

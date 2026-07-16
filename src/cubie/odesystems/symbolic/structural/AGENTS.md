@@ -36,24 +36,18 @@ result.
 
 ## For AI Agents
 
-### Port provenance and fidelity
-Each module header names the Julia source it ports (MTK v11 / StateSelection.jl /
-BipartiteGraphs.jl, all read at 2026-07 masters). Algorithms are ported 1:1 with 0-based
-indices; deviations are deliberate and documented in docstrings:
+### Port constraints
+The algorithms follow ModelingToolkit.jl v11, StateSelection.jl, and
+BipartiteGraphs.jl with 0-based indices:
 - Derivative terms are plain registered symbols (`DerivativeRegistry`), not `Differential`
   wrappers. Internal derivative symbols are mangled (`_cubie_D<order>_<base>`) and never
   user-visible; state selection renames dummies to `x_t`-style names (`lower_varname`).
   `registry.rename` cuts the base link (MTK `diff2term` semantics).
-- The differential-equation state is recorded at codegen time (`diff_eq_states`) from the
-  *graph's* chain, because `find_duplicate_dd` deliberately rewires `diff_to_primal`
-  (reusing a user equation `D(y) ~ vy` makes `vy` the state); the registry chain is stale
-  there by design.
-- Python ints are unbounded: the Julia overflow-checked Bareiss paths are unnecessary, and
-  the Bareiss nullspace returns rank + pivot order only (the basis matrix is never
-  consumed by the pipeline).
-- Discrete/shift systems, clock inference, state machines, hierarchical connections, MTK
-  array-observed hacks, and the LinearSolve.jl runtime linear-SCC path are out of scope
-  (cubie is flat and continuous); brownian/SDE-aware tearing is deferred.
+- `diff_eq_states` follows the graph chain after `find_duplicate_dd`
+  rewires `diff_to_primal`.
+- Bareiss returns rank and pivot order; Python integers do not overflow.
+- Discrete systems, state machines, hierarchical connections, and SDE
+  tearing are not supported.
 
 ### Determinism
 Results must not depend on declaration or equation order: canonical ranks

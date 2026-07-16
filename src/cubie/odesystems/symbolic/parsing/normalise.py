@@ -472,7 +472,18 @@ def _parse_string_equations(
     # Convert to IR once, sharing conversion work across equations.
     memo = {}
     equations = [
-        Equation(from_sympy(lhs, memo), from_sympy(rhs, memo))
+        Equation(
+            from_sympy(
+                lhs,
+                memo,
+                allowed_functions=parse_locals,
+            ),
+            from_sympy(
+                rhs,
+                memo,
+                allowed_functions=parse_locals,
+            ),
+        )
         for lhs, rhs in sym_pairs
     ]
 
@@ -591,12 +602,11 @@ def _parse_sympy_equations(
                 f"Equation {i}: expected sp.Eq or a (lhs, rhs) "
                 f"tuple, got {type(eq).__name__}."
             )
-        if isinstance(lhs, ir.Expr) and isinstance(rhs, ir.Expr):
-            lhs_ir, rhs_ir = lhs, rhs
-        else:
+        def to_ir(side):
+            if isinstance(side, ir.Expr):
+                return side
             try:
-                lhs = sp.sympify(lhs)
-                rhs = sp.sympify(rhs)
+                side = sp.sympify(side)
             except (sp.SympifyError, TypeError) as exc:
                 raise TypeError(
                     f"Equation {i}: could not convert "
@@ -604,16 +614,17 @@ def _parse_sympy_equations(
                     f"side must be a SymPy expression, string, or "
                     f"number."
                 ) from exc
-            lhs = _replace_sympy_derivatives(
-                lhs, registry, unknown_names
+            side = _replace_sympy_derivatives(
+                side, registry, unknown_names
             )
-            rhs = _replace_sympy_derivatives(
-                rhs, registry, unknown_names
+            return from_sympy(
+                resolve_calls(side),
+                memo,
+                allowed_functions=user_functions,
             )
-            lhs = resolve_calls(lhs)
-            rhs = resolve_calls(rhs)
-            lhs_ir = from_sympy(lhs, memo)
-            rhs_ir = from_sympy(rhs, memo)
+
+        lhs_ir = to_ir(lhs)
+        rhs_ir = to_ir(rhs)
         lhs_ir = bind_lhs(lhs_ir)
         if (
             isinstance(lhs_ir, ir.Sym)

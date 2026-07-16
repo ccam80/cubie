@@ -1,53 +1,9 @@
 #!/usr/bin/env python
-"""Mean-runtime benchmark for a large Lorenz ensemble.
-
-Solves the same Lorenz ensemble as the GPUODEBenchmarks cubie runner
-(``GPU_ODE_CUBIE/bench_cubie.py``) with the same solver settings and
-drive pattern: one warm-up solve to absorb JIT compilation, then
-``timeit.repeat`` with garbage collection enabled and one solve per
-repeat. The first 20 post-warm-up solves are discarded — the GPU has
-not reached steady state and they run slow — and the statistic covers
-the following ``repeats`` solves.
-
-The reported statistic is the **mean of the lowest ``min_count``
-per-solve kernel times** — the per-chunk ``kernel_chunk_i`` CUDA events
-recorded on the GPU timeline by ``BatchSolverKernel``. The lowest
-solves are those that ran at full boost clock with no on-GPU
-contention, so they track the compiled kernel's intrinsic cost and
-drift far less between invocations than the mean (which the upper tail
-pulls around). Wall-clock and transfer times are not reported: they
-carry host and d2h scatter irrelevant to the compiled kernel.
-
-Usage::
-
-    python benchmarks/lorenz_mean_runtime.py [n_runs]
-        [--repeats R] [--min-count K] [--grid-cache DIR]
-        [--no-clear-cache]
-
-Defaults: ``2**22`` trajectories for the fixed config and ``2**24``
-for the adaptive config (the adaptive kernel is fast enough at
-``2**22`` that launch effects blur small deltas); ``repeats = 100``;
-``min_count = 5``. An explicit ``n_runs`` argument applies to both
-configs. Each config prints a human-readable line and a parseable
-``RESULT <key> <ms>`` line; ``ab_gate.py`` drives the A/B comparison
-(main vs the active worktree, per backend) from those, and uses
-``--grid-cache`` / ``--no-clear-cache`` to reuse the grid and compile
-across its repeated invocations.
-
-The generated-code and compiled-kernel caches are cleared on every
-invocation unless ``--no-clear-cache`` is given. The kernel cache is
-keyed by config hash, which does not include the package source, so a
-warm cache can serve kernels compiled from a different source tree —
-poisonous for A/B runs where only ``PYTHONPATH`` differs. Clearing
-forces each invocation to compile from the tree under benchmark; the
-compile cost is absorbed by the warm-up solve, outside the timed
-region. ``ab_gate.py`` keeps a separate cache directory per side
-instead, so it reuses the compile safely without clearing.
-"""
-
+"""Measure Lorenz kernel runtime for the performance gate."""
 import argparse
 import contextlib
 import io
+import math
 import os
 import shutil
 import timeit
@@ -58,61 +14,51 @@ import cubie as qb
 from cubie.cache_root import get_cache_root
 from cubie.time_logger import default_timelogger
 
-discarded_solves = 20
-min_count = 5
-precision = np.float32
-initial_conditions = {"x": 1.0, "y": 0.0, "z": 0.0}
+
+DISCARDED_SOLVES = 20
+Z_THRESHOLD = 3.0
+PRECISION = np.float32
+INITIAL_CONDITIONS = {"x": 1.0, "y": 0.0, "z": 0.0}
 
 
 def collect_kernel_time(solver, kernel_ms):
-    """Append one solve's kernel CUDA-event total (ms) to ``kernel_ms``.
-
-    Reads the kernel's per-chunk ``kernel_chunk_i`` event objects
-    after the solve has synchronised the stream; the GPU-timeline
-    elapsed times exclude host<->device transfer traffic.
-    """
-    events = solver.kernel._cuda_events
+    """Append one solve's kernel time in milliseconds."""
     kernel_ms.append(
         sum(
             event.elapsed_time_ms()
-            for event in events
+            for event in solver.kernel._cuda_events
             if event.name.startswith("kernel_chunk")
         )
     )
 
 
-def benchmark(key, label, solver, n_runs, repeats, k, grid_cache=None):
-    """Run ``repeats`` solves after a warm-up; print the mean-of-mins.
-
-    The reported statistic is the mean of the ``k`` lowest per-solve
-    kernel times. The lowest solves are the ones that ran at full boost
-    clock with no on-GPU contention, so they track the compiled
-    kernel's intrinsic cost and drift far less between invocations than
-    the mean. A machine-parseable ``RESULT <key> <ms>`` line follows the
-    human-readable line for the A/B driver (``ab_gate.py``) to consume.
-
-    When ``grid_cache`` is a directory, the input grid (identical every
-    invocation) is loaded from it if present, else built once and saved
-    there — this skips the large host-side grid build on reruns.
-    """
-    gfile = (
-        os.path.join(grid_cache, f"grid_{key}.npz")
+def load_grid(solver, key, n_runs, grid_cache):
+    """Load or build the input grid."""
+    grid_file = (
+        os.path.join(grid_cache, f"grid_{key}_{n_runs}.npz")
         if grid_cache is not None
         else None
     )
-    if gfile is not None and os.path.exists(gfile):
-        grid = np.load(gfile)
-        initials_array, parameter_array = grid["inits"], grid["params"]
-    else:
-        parameters = {"rho": np.linspace(0.0, 21.0, n_runs)}
-        initials_array, parameter_array = solver.build_grid(
-            initial_values=initial_conditions, parameters=parameters
-        )
-        if gfile is not None:
-            os.makedirs(grid_cache, exist_ok=True)
-            np.savez(
-                gfile, inits=initials_array, params=parameter_array
-            )
+    if grid_file is not None and os.path.exists(grid_file):
+        with np.load(grid_file) as grid:
+            return grid["inits"], grid["params"]
+
+    parameters = {"rho": np.linspace(0.0, 21.0, n_runs)}
+    arrays = solver.build_grid(
+        initial_values=INITIAL_CONDITIONS,
+        parameters=parameters,
+    )
+    if grid_file is not None:
+        os.makedirs(grid_cache, exist_ok=True)
+        np.savez(grid_file, inits=arrays[0], params=arrays[1])
+    return arrays
+
+
+def benchmark(key, label, solver, n_runs, repeats, reference, grid_cache):
+    """Measure and print one solver configuration."""
+    initials_array, parameter_array = load_grid(
+        solver, key, n_runs, grid_cache
+    )
     kernel_ms = []
 
     def run():
@@ -127,62 +73,89 @@ def benchmark(key, label, solver, n_runs, repeats, k, grid_cache=None):
         collect_kernel_time(solver, kernel_ms)
         return solution
 
-    run()  # warm-up (JIT compilation)
+    run()
     kernel_ms.clear()
     timeit.repeat(
         run,
         setup="gc.enable()",
-        repeat=discarded_solves + repeats,
+        repeat=DISCARDED_SOLVES + repeats,
         number=1,
     )
-    kernel_arr = np.sort(np.asarray(kernel_ms[discarded_solves:]))
-    stat = kernel_arr[:k].mean()
+    samples = np.asarray(kernel_ms[DISCARDED_SOLVES:])
+    mean = float(samples.mean())
+    std = float(samples.std(ddof=1))
     print(
-        f"{label}: {stat:.3f} ms (mean of {k} lowest kernel times "
-        f"over {repeats} solves of {n_runs} trajectories)"
+        f"{label}: {mean:.3f} ms +/- {std:.3f} ms "
+        f"over {repeats} solves of {n_runs} trajectories "
+        f"(min {samples.min():.3f} ms)"
     )
-    print(f"RESULT {key} {stat:.4f}")
+    print(f"RESULT {key} {mean:.6f} {std:.6f}")
+    if reference is not None:
+        ref_mean, ref_std = reference
+        denominator = math.sqrt((std**2 + ref_std**2) / repeats)
+        if denominator == 0.0:
+            z_value = 0.0 if mean == ref_mean else math.inf
+        else:
+            z_value = (mean - ref_mean) / denominator
+        if z_value >= Z_THRESHOLD:
+            verdict = "REGRESSION"
+        elif z_value <= -Z_THRESHOLD:
+            verdict = "improvement"
+        else:
+            verdict = "no significant difference"
+        print(f"{label}: z = {z_value:+.2f} ({verdict})")
+
+
+def parse_args():
+    """Parse command-line arguments."""
+    parser = argparse.ArgumentParser(description=__doc__)
+    parser.add_argument("n_runs", nargs="?", type=int)
+    parser.add_argument("--repeats", type=int, default=100)
+    parser.add_argument(
+        "--ref-fixed", nargs=2, type=float, metavar=("MEAN", "STD")
+    )
+    parser.add_argument(
+        "--ref-adaptive", nargs=2, type=float, metavar=("MEAN", "STD")
+    )
+    parser.add_argument("--grid-cache", metavar="DIR")
+    parser.add_argument("--no-clear-cache", action="store_true")
+    args = parser.parse_args()
+    if args.repeats < 2:
+        parser.error("--repeats must be at least 2")
+    if args.n_runs is not None and args.n_runs < 1:
+        parser.error("n_runs must be positive")
+    return args
 
 
 def main():
-    """Parse arguments, build the solvers, and run both configs."""
-    args = _parse_args()
-
+    """Build both solvers and run the benchmark."""
+    args = parse_args()
     cache_root = get_cache_root()
     if not args.no_clear_cache:
         shutil.rmtree(cache_root, ignore_errors=True)
     os.makedirs(cache_root, exist_ok=True)
-
-    # CUDA events (kernel / h2d / d2h per chunk) are recorded only
-    # when the time logger is armed. Solver construction resets the
-    # global verbosity from its time_logging_level argument, so
-    # arming happens through that argument below; solve's printed
-    # summaries are swallowed by the stdout redirect inside the
-    # timed callable.
     default_timelogger.set_verbosity("default")
 
-    repeats = args.repeats
-    if args.n_runs is not None:
-        n_fixed = n_adaptive = args.n_runs
-    else:
+    if args.n_runs is None:
         n_fixed = 2**22
         n_adaptive = 2**24
+    else:
+        n_fixed = n_adaptive = args.n_runs
 
-    lorenz_system = qb.create_ODE_system(
+    system = qb.create_ODE_system(
         """
         dx = sigma * (y - x)
         dy = x * (rho - z) - y
         dz = x * y - beta * z
         """,
-        states={"x": 1.0, "y": 0.0, "z": 0.0},
+        states=INITIAL_CONDITIONS,
         parameters={"rho": 21.0},
         constants={"sigma": 10.0, "beta": 8.0 / 3.0},
         name="Lorenz",
-        precision=precision,
+        precision=PRECISION,
     )
-
     fixed_solver = qb.Solver(
-        lorenz_system,
+        system,
         algorithm="classical-rk4",
         dt=0.001,
         save_every=1.0,
@@ -190,9 +163,8 @@ def main():
         output_types=["state"],
         time_logging_level="default",
     )
-
     adaptive_solver = qb.Solver(
-        lorenz_system,
+        system,
         algorithm="tsit5",
         atol=1e-08,
         rtol=1e-08,
@@ -208,60 +180,14 @@ def main():
         output_types=["state"],
         time_logging_level="default",
     )
-
     benchmark(
-        "fixed",
-        "fixed (classical-rk4)",
-        fixed_solver,
-        n_fixed,
-        repeats,
-        args.min_count,
-        args.grid_cache,
+        "fixed", "fixed (classical-rk4)", fixed_solver, n_fixed,
+        args.repeats, args.ref_fixed, args.grid_cache,
     )
     benchmark(
-        "adaptive",
-        "adaptive (tsit5)",
-        adaptive_solver,
-        n_adaptive,
-        repeats,
-        args.min_count,
-        args.grid_cache,
+        "adaptive", "adaptive (tsit5)", adaptive_solver, n_adaptive,
+        args.repeats, args.ref_adaptive, args.grid_cache,
     )
-
-
-def _parse_args():
-    """Parse command-line arguments."""
-    parser = argparse.ArgumentParser(
-        description="Kernel-runtime benchmark (Lorenz ensemble). Prints "
-        "the mean of the lowest kernel times per config; drive A/B "
-        "comparisons with ab_gate.py."
-    )
-    parser.add_argument("n_runs", nargs="?", type=int, default=None)
-    parser.add_argument(
-        "--repeats",
-        type=int,
-        default=100,
-        help="Solves to time per config after the discard window.",
-    )
-    parser.add_argument(
-        "--min-count",
-        type=int,
-        default=min_count,
-        help="Number of lowest per-solve kernel times to average.",
-    )
-    parser.add_argument(
-        "--grid-cache",
-        default=None,
-        metavar="DIR",
-        help="Cache/load the input grid here to skip rebuilding it.",
-    )
-    parser.add_argument(
-        "--no-clear-cache",
-        action="store_true",
-        help="Reuse the compile cache instead of clearing it (for a "
-        "fixed source tree across repeated invocations).",
-    )
-    return parser.parse_args()
 
 
 if __name__ == "__main__":

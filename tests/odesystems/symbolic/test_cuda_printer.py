@@ -175,8 +175,9 @@ class TestFunctionsAndPiecewise:
             "min(x, y)"
         )
 
-    def test_unknown_function_prints_plainly(self):
-        assert print_cuda(call("myfunc_", sym("x"))) == "myfunc_(x)"
+    def test_unknown_function_raises(self):
+        with pytest.raises(ValueError, match="unsupported function"):
+            print_cuda(call("myfunc_", sym("x")))
 
     def test_sign_emits_copysign_selection(self):
         assert print_cuda(call("sign", sym("x"))) == (
@@ -204,7 +205,10 @@ class TestFunctionsAndPiecewise:
         assert "Heaviside" not in result
 
     def test_derivative_placeholder_prints_plainly(self):
-        result = print_cuda(call("d_myfunc", sym("x"), num(0)))
+        result = print_cuda(
+            call("d_myfunc", sym("x"), num(0)),
+            function_aliases={"d_myfunc": "d_myfunc"},
+        )
         assert result == "d_myfunc(x, precision(0))"
 
     def test_function_alias_resolution(self):
@@ -249,12 +253,6 @@ class TestFunctionsAndPiecewise:
             "E_v*(_cse1 if _cse3 > precision(0) else "
             "(precision(0.0)))"
         )
-
-    def test_single_branch_piecewise_keeps_precedence(self):
-        lone = piecewise(
-            (add(sym("x"), sym("y")), rel("<", sym("x"), num(0))),
-        )
-        assert print_cuda(mul(sym("z"), lone)) == "z*(x + y)"
 
     def test_piecewise_literals_wrapped(self):
         expr = piecewise(

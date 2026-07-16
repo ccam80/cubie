@@ -5,13 +5,18 @@ SymPy ground truth, simultaneous substitution, CSE numeric
 equivalence, topological ordering, pruning, and SymPy round-trips.
 """
 
+import gc
 import math
 import random
+import weakref
 
+import pytest
 import sympy as sp
 
 from cubie.odesystems.symbolic.engine import (
     TRUE,
+    ConversionError,
+    Local,
     add,
     arr,
     call,
@@ -36,6 +41,9 @@ from cubie.odesystems.symbolic.engine import (
     topological_sort,
     xreplace,
 )
+from cubie.odesystems.symbolic.engine.adapter import system_ir
+from cubie.odesystems.symbolic.indexedbasemaps import IndexedBases
+from cubie.odesystems.symbolic.parsing.parser import ParsedEquations
 
 
 class TestInterningAndFolding:
@@ -94,6 +102,11 @@ class TestInterningAndFolding:
         else:
             raise AssertionError("all-false piecewise did not raise")
 
+    def test_piecewise_requires_fallback(self):
+        x = sym("x")
+        with pytest.raises(ValueError, match="final true"):
+            piecewise((x, rel(">", x, num(0))))
+
     def test_count_ops_covers_conditionals(self):
         x, y = sym("x"), sym("y")
         cond = rel("<", add(x, y), num(0))
@@ -130,6 +143,13 @@ class TestInterningAndFolding:
         )
         restored = pickle.loads(pickle.dumps(node))
         assert restored is node
+
+    def test_unreferenced_nodes_leave_intern_pool(self):
+        node = sym("weak_intern_test_symbol")
+        reference = weakref.ref(node)
+        del node
+        gc.collect()
+        assert reference() is None
 
     def test_huge_integer_literal_constructs(self):
         node = pow_(num(10), num(400))
@@ -369,6 +389,61 @@ class TestCseAndStack:
         assert "_cse4" in new_names
         assert "_cse5" in new_names
 
+    @pytest.mark.parametrize(
+        "reserved",
+        [
+            sym("_cse0"),
+            arr("_cse0", 0),
+            call("_cse0", sym("x")),
+        ],
+    )
+    def test_user_cse_name_is_not_overwritten(self, reserved):
+        x, k = sym("x"), sym("k")
+        shared = add(x, k)
+        assignments = [
+            (
+                arr("out", 0),
+                add(
+                    reserved,
+                    call("sin", shared),
+                    call("cos", shared),
+                ),
+            )
+        ]
+        stacked = cse_and_stack(assignments)
+        locals_ = [
+            lhs.name for lhs, _ in stacked if isinstance(lhs, Local)
+        ]
+        assert locals_ == ["_cse1"]
+
+    def test_generated_local_is_not_symbol_mapped(self):
+        from cubie.odesystems.symbolic.engine import print_cuda_multiple
+
+        x, k = sym("x"), sym("k")
+        shared = call("exp", add(x, k))
+        stacked = cse_and_stack(
+            [
+                (arr("out", 0), add(shared, x)),
+                (arr("out", 1), add(shared, k)),
+            ]
+        )
+        lines = print_cuda_multiple(
+            stacked,
+            symbol_map={"_cse0": arr("parameters", 9)},
+        )
+        assert any(line.startswith("_cse0 = ") for line in lines)
+        assert not any(line.startswith("parameters[9] = ") for line in lines)
+
+    def test_piecewise_fallback_is_not_extracted(self):
+        x = sym("x")
+        condition = rel(">", x, num(0))
+        first = piecewise((x, condition), (num(0), TRUE))
+        second = piecewise((num(1), condition), (num(2), TRUE))
+        stacked = cse_and_stack(
+            [(arr("out", 0), first), (arr("out", 1), second)]
+        )
+        assert stacked
+
 
 class TestOrderingAndPruning:
     def test_topological_sort_orders_dependencies(self):
@@ -423,6 +498,34 @@ class TestOrderingAndPruning:
 
 
 class TestSympyRoundTrip:
+    @pytest.mark.parametrize(
+        "expression",
+        [
+            sp.airyai(sp.Symbol("x")),
+            sp.besselj(0, sp.Symbol("x")),
+            sp.factorial(sp.Symbol("x")),
+            sp.Function("unknown")(sp.Symbol("x")),
+        ],
+    )
+    def test_unsupported_functions_raise(self, expression):
+        with pytest.raises(ConversionError):
+            from_sympy(expression)
+
+    def test_registered_function_alias_converts(self):
+        x = sp.Symbol("x")
+        expression = sp.Function("exp_")(x)
+        converted = from_sympy(
+            expression,
+            allowed_functions={"exp_"},
+        )
+        assert converted is call("exp_", sym("x"))
+
+    def test_incomplete_piecewise_raises(self):
+        x = sp.Symbol("x")
+        expression = sp.Piecewise((1, x > 0))
+        with pytest.raises(ConversionError, match="final true"):
+            from_sympy(expression)
+
     def test_round_trip_preserves_value(self):
         x, y = sp.symbols("x y", real=True)
         cases = [
@@ -457,3 +560,24 @@ class TestSympyRoundTrip:
     def test_negation_prints_through(self):
         x = sym("x")
         assert to_sympy(neg(x)) == -sp.Symbol("x", real=True)
+
+
+def test_system_ir_reflects_index_mutation():
+    index_map = IndexedBases.from_user_inputs(
+        states={"x": 1.0},
+        parameters={"k": 2.0},
+        constants={"c": 3.0},
+        observables=[],
+        drivers=[],
+    )
+    equations = ParsedEquations.from_equations(
+        [(sym("dx"), add(sym("x"), sym("k"), sym("c")))],
+        index_map,
+    )
+    before = system_ir(equations, index_map)
+    index_map.constant_to_parameter("c")
+    after = system_ir(equations, index_map)
+
+    assert before is not after
+    assert "c" not in before.arrayrefs
+    assert after.arrayrefs["c"] is arr("parameters", 1)

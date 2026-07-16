@@ -67,7 +67,7 @@ indentation-sensitive:** bodies come from `print_cuda_multiple(...)` then joined
 leading spaces (8 inside a factory body, 12 inside the preconditioner's `for _ in range(order)`
 loop). Preserve the exact counts or the generated source won't parse.
 
-### Sign/coefficient convention (load-bearing)
+### Sign and coefficient convention
 Operator `β·M·v − γ·a_ij·h·(J·v)` (explicit `a_ij`); residual `β·M·u − γ·h·f(base + a_ij·u)`
 (`a_ij` only inside the eval point, not multiplying `f`); preconditioner approximates
 `(β·I − γ·a_ij·h·J)⁻¹` with `h_eff = (γ·a_ij/β)·h`. The operator equals `∂residual/∂u` —
@@ -97,8 +97,8 @@ set.
 The printer lives in `engine/printer.py` (see `engine/AGENTS.md`). Emission rules:
 `precision(...)` wrapping of numeric literals (array indices stay plain integers),
 `x**2`/`x**3` multiplication chains via structural Pow rules, Neumann/constant
-integer-exponent aliases (`sym_utils.EXPONENT_ALIAS_PREFIX`), `CUDA_FUNCTIONS` → alias →
-`d_` passthrough → plain-call function resolution, Piecewise as nested ternaries, and
+integer-exponent aliases (`sym_utils.EXPONENT_ALIAS_PREFIX`), `CUDA_FUNCTIONS`, explicit
+user-function aliases, Piecewise ternaries, and
 scalar-to-array remapping via a name-keyed symbol map (generators pass `sysir.arrayrefs`).
 
 ### Codegen hygiene

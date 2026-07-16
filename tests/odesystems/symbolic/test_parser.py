@@ -191,6 +191,21 @@ class TestDetectInputType:
 class TestSympyEquationErrors:
     """Error paths for SymPy equation input."""
 
+    @pytest.mark.parametrize(
+        "equation",
+        [
+            (ir.sym("dx"), -sp.Symbol("x")),
+            (sp.Symbol("dx"), -ir.sym("x")),
+        ],
+    )
+    def test_mixed_ir_sympy_tuple(self, equation):
+        """Each tuple member converts independently."""
+
+        *_, parsed, _, _ = parse_input(
+            dxdt=[equation], states=["x"]
+        )
+        assert parsed.ordered == ((ir.sym("dx"), -ir.sym("x")),)
+
     def test_bare_expression_rejected(self):
         """A bare sp.Expr element cannot infer an LHS."""
         x = sp.Symbol("x")

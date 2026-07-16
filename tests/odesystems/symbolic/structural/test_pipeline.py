@@ -43,6 +43,21 @@ def make_state(eqs, unknowns, knowns=(), priorities=None,
 
 
 class TestExplicitSystems:
+    def test_removed_expression_simplify_option_raises(self):
+        """The removed expression option fails explicitly."""
+
+        x = ir.sym("x")
+        registry = DerivativeRegistry({"x", "t"})
+        state = StructuralState(
+            [Equation(registry.derivative(x), -x)],
+            [x],
+            registry,
+            set(),
+            T,
+        )
+        with pytest.raises(TypeError, match="unexpected keyword"):
+            structural_simplify(state, simplify=True)
+
     def test_plain_ode_passthrough(self):
         x, k = syms("x k")
         registry = DerivativeRegistry({"x", "k", "t"})

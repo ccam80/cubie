@@ -1,28 +1,4 @@
-"""Convert SymPy expressions into engine IR nodes.
-
-This is the only module in the engine that imports SymPy. String
-parsing and user-supplied SymPy input produce SymPy expressions; the
-parse boundary (``parsing/normalise.py`` and the CellML loader)
-converts them here, and every downstream compute step
-(differentiation, substitution, CSE, printing) runs on the IR.
-
-Published Functions
--------------------
-:func:`from_sympy`
-    Convert one SymPy expression (memoised).
-:func:`convert_assignments`
-    Convert an iterable of ``(lhs, rhs)`` SymPy assignment pairs.
-:func:`derivative_name_map`
-    Recover user-function derivative placeholder names from the
-    dynamic ``fdiff`` classes built during parsing.
-
-Notes
------
-Symbols whose *names* carry an index (``sp.Symbol("out[3]")``) and
-``sp.Indexed`` leaves both convert to :class:`~.expr.Arr` — the
-engine's own lightweight indexed reference — so the IR has exactly
-one way to spell an array element.
-"""
+"""Convert supported SymPy expressions to engine IR."""
 
 import math
 import re
@@ -56,6 +32,19 @@ _REL_OPS = {
     sp.Ne: "!=",
 }
 
+_SUPPORTED_FUNCTIONS = frozenset(
+    (
+        "Abs", "Max", "Min", "Mod", "acos", "acosh", "asin",
+        "asinh", "atan", "atan2", "atanh", "ceiling", "copysign",
+        "cos", "cosh", "erf", "erfc", "exp", "expm1", "floor",
+        "fmod", "frexp", "gamma", "hypot", "isfinite", "isinf",
+        "isnan", "ldexp", "log", "log10", "log1p", "log2",
+        "loggamma", "modf", "pow", "remainder", "sign", "sin",
+        "sinh", "sqrt", "tan", "tanh",
+    )
+)
+_PARSER_MODULE = "cubie.odesystems.symbolic.parsing.parser"
+
 
 class ConversionError(TypeError):
     """Raised when a SymPy construct has no IR equivalent."""
@@ -82,6 +71,7 @@ def _convert_number(node: sp.Expr) -> ir.Expr:
 def from_sympy(
     node: sp.Basic,
     memo: Optional[Dict[sp.Basic, ir.Expr]] = None,
+    allowed_functions: Optional[Iterable[str]] = None,
 ) -> ir.Expr:
     """Convert a SymPy expression to an IR expression.
 
@@ -92,6 +82,8 @@ def from_sympy(
     memo
         Optional memo dictionary; pass one dictionary across calls to
         share conversion work between expressions of one system.
+    allowed_functions
+        Registered function names that may remain as calls.
 
     Returns
     -------
@@ -106,19 +98,20 @@ def from_sympy(
     """
     if memo is None:
         memo = {}
+    allowed = frozenset(allowed_functions or ())
 
     def walk(current: sp.Basic) -> ir.Expr:
         cached = memo.get(current)
         if cached is not None:
             return cached
-        result = _convert(current, walk)
+        result = _convert(current, walk, allowed)
         memo[current] = result
         return result
 
     return walk(node)
 
 
-def _convert(current: sp.Basic, walk) -> ir.Expr:
+def _convert(current: sp.Basic, walk, allowed_functions) -> ir.Expr:
     """Convert one SymPy node, recursing through ``walk``."""
     if current is sp.oo or current is -sp.oo or current is sp.zoo:
         raise ConversionError(
@@ -162,6 +155,8 @@ def _convert(current: sp.Basic, walk) -> ir.Expr:
     if isinstance(current, sp.Pow):
         return ir.pow_(walk(current.base), walk(current.exp))
     if isinstance(current, sp.Piecewise):
+        if not current.args or current.args[-1][1] is not sp.true:
+            raise ConversionError("Piecewise requires a final true branch")
         pairs: List[Tuple[ir.Expr, ir.Expr]] = []
         for value, cond in current.args:
             pairs.append((walk(value), walk(cond)))
@@ -203,11 +198,21 @@ def _convert(current: sp.Basic, walk) -> ir.Expr:
         )
     if isinstance(current, AppliedUndef):
         name = type(current).__name__
-        return ir.call(name, *(walk(a) for a in current.args))
+        if name in _SUPPORTED_FUNCTIONS or name in allowed_functions:
+            return ir.call(name, *(walk(a) for a in current.args))
+        raise ConversionError(
+            f"unregistered function in equations: {current.func}"
+        )
     if isinstance(current, sp.Function):
-        # Known SymPy functions print by their class name, matching
-        # the CUDA_FUNCTIONS lookup keys used by the printer.
         name = type(current).__name__
+        if (
+            name not in _SUPPORTED_FUNCTIONS
+            and type(current).__module__ != _PARSER_MODULE
+            and name not in allowed_functions
+        ):
+            raise ConversionError(
+                f"unsupported function in equations: {name}"
+            )
         return ir.call(name, *(walk(a) for a in current.args))
     raise ConversionError(
         f"unsupported SymPy node in codegen: {type(current).__name__}"
@@ -218,6 +223,7 @@ def _convert(current: sp.Basic, walk) -> ir.Expr:
 def convert_assignments(
     assignments: Iterable[Tuple[sp.Symbol, sp.Basic]],
     memo: Optional[Dict[sp.Basic, ir.Expr]] = None,
+    allowed_functions: Optional[Iterable[str]] = None,
 ) -> List[Tuple[ir.Expr, ir.Expr]]:
     """Convert ``(lhs, rhs)`` SymPy pairs to IR pairs.
 
@@ -228,6 +234,8 @@ def convert_assignments(
         (bracket-named symbols convert to :class:`~.expr.Arr`).
     memo
         Optional shared conversion memo.
+    allowed_functions
+        Registered function names that may remain as calls.
 
     Returns
     -------
@@ -237,7 +245,10 @@ def convert_assignments(
     if memo is None:
         memo = {}
     return [
-        (from_sympy(lhs, memo), from_sympy(rhs, memo))
+        (
+            from_sympy(lhs, memo, allowed_functions),
+            from_sympy(rhs, memo, allowed_functions),
+        )
         for lhs, rhs in assignments
     ]
 

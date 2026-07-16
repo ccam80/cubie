@@ -1,13 +1,7 @@
-"""Disk-based caching for parsed CellML objects.
-
-This module manages serialization and deserialization of parsed CellML
-data structures using pickle. Cache files are stored under the shared
-cache root (:mod:`cubie.cache_root`) alongside generated source and
-compiled kernels, with hash-based invalidation.
-"""
+"""Cache parsed CellML models on disk."""
 
 from pathlib import Path
-from typing import Optional, List
+from typing import Any, Dict, Iterable, Mapping, Optional, Union
 import pickle
 from hashlib import sha256
 import json
@@ -18,13 +12,7 @@ from cubie.time_logger import default_timelogger
 
 
 class CellMLCache:
-    """Manage disk-based LRU caching of parsed CellML objects.
-
-    Cache uses a manifest file (`cellml_cache_manifest.json`) to track up to 5
-    configurations per CellML model, with individual pickle files (`cache_{args_hash}.pkl`)
-    for each configuration. File hash validation ensures cache invalidation when
-    source files change.
-    """
+    """Cache up to five parsed configurations per CellML model."""
 
     def __init__(self, model_name: str, cellml_path: str) -> None:
         """Initialize cache manager for a CellML model.
@@ -100,22 +88,19 @@ class CellMLCache:
 
     def _serialize_args(
         self,
-        parameters: Optional[List[str]],
-        observables: Optional[List[str]],
+        parameters: Optional[
+            Union[Iterable[str], Mapping[str, Any]]
+        ],
+        observables: Optional[Iterable[str]],
         precision,
         name: str,
         fix_singularities: bool = True,
         voltage_variable: Optional[str] = None,
+        constant_values: Optional[Mapping[str, Any]] = None,
+        parameter_values: Optional[Mapping[str, Any]] = None,
+        initial_values: Optional[Mapping[str, Any]] = None,
     ) -> str:
-        """Serialize arguments to a deterministic string for cache key.
-
-        Sorts lists to ensure order-independence. Returns JSON string.
-
-        Returns
-        -------
-        str
-            JSON string representation of arguments.
-        """
+        """Return a stable JSON cache-key payload."""
         # Handle precision consistently - convert numpy dtype to string name
         if precision is not None:
             precision_str = (
@@ -126,28 +111,55 @@ class CellMLCache:
         else:
             precision_str = "None"
 
+        if isinstance(parameters, Mapping):
+            serialized_parameters = self._serialize_values(parameters)
+        else:
+            serialized_parameters = (
+                sorted(str(value) for value in parameters)
+                if parameters
+                else None
+            )
+
         args_dict = {
-            "parameters": sorted(parameters) if parameters else None,
+            "parameters": serialized_parameters,
             "observables": sorted(observables) if observables else None,
             "precision": precision_str,
             "name": name,
             "fix_singularities": fix_singularities,
             "voltage_variable": voltage_variable,
-            # Serialisation format of the pickled parse products;
-            # bumping it orphans cache entries written with an
-            # incompatible equation representation.
-            "parse_format": 3,
+            "constant_values": self._serialize_values(constant_values),
+            "parameter_values": self._serialize_values(parameter_values),
+            "initial_values": self._serialize_values(initial_values),
+            "parse_format": 4,
         }
         return json.dumps(args_dict, sort_keys=True)
 
+    @staticmethod
+    def _serialize_values(
+        values: Optional[Mapping[str, Any]],
+    ) -> Optional[Dict[str, float]]:
+        """Return sorted numeric values for the cache key."""
+
+        if not values:
+            return None
+        return {
+            str(key): float(values[key])
+            for key in sorted(values, key=str)
+        }
+
     def compute_cache_key(
         self,
-        parameters: Optional[List[str]],
-        observables: Optional[List[str]],
+        parameters: Optional[
+            Union[Iterable[str], Mapping[str, Any]]
+        ],
+        observables: Optional[Iterable[str]],
         precision,
         name: str,
         fix_singularities: bool = True,
         voltage_variable: Optional[str] = None,
+        constant_values: Optional[Mapping[str, Any]] = None,
+        parameter_values: Optional[Mapping[str, Any]] = None,
+        initial_values: Optional[Mapping[str, Any]] = None,
     ) -> str:
         """Compute cache key from file content hash and argument hash.
 
@@ -158,6 +170,9 @@ class CellMLCache:
             parameters, observables, precision, name,
             fix_singularities=fix_singularities,
             voltage_variable=voltage_variable,
+            constant_values=constant_values,
+            parameter_values=parameter_values,
+            initial_values=initial_values,
         )
         combined = file_hash + args_str
         return sha256(combined.encode()).hexdigest()[:16]

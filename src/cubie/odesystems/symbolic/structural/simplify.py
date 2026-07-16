@@ -273,7 +273,6 @@ def structural_simplify(
     fully_determined: bool = True,
     dummy_derivative: bool = True,
     consistency_check: bool = True,
-    simplify: bool = False,
     conservative: bool = False,
     allow_symbolic: bool = False,
     allow_parameter: bool = True,
@@ -296,10 +295,6 @@ def structural_simplify(
         the resulting system is re-analysed.
     consistency_check
         Verify balance/nonsingularity before state selection.
-    simplify
-        Accepted for interface parity; constructor folding in the
-        engine IR is the only canonicalisation applied to solved
-        right-hand sides.
     conservative
         Restrict tearing to coefficients with absolute value one.
     allow_symbolic, allow_parameter
@@ -342,7 +337,6 @@ def structural_simplify(
 
     reassemble_kwargs = {
         "fully_determined": fully_determined,
-        "simplify": simplify,
         "inline_linear_sccs": inline_linear_sccs,
         "analytical_linear_scc_limit": analytical_linear_scc_limit,
         "allow_symbolic": allow_symbolic,

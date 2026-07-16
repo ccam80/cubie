@@ -3,9 +3,13 @@ import pytest
 from numpy.testing import assert_array_equal
 
 from cubie.odesystems.symbolic import symbolicODE as symbolic_ode_module
+from cubie.odesystems.symbolic.codegen.linear_operators import (
+    generate_operator_apply_code,
+)
 from cubie.odesystems.symbolic.parsing.parser import parse_input
 from cubie.odesystems.symbolic.symbolicODE import (
     SymbolicODE,
+    _stage_tableau_hash,
     create_ODE_system,
 )
 
@@ -395,6 +399,142 @@ class TestCacheSkipsCodegen:
         helper2 = ode_cached.get_solver_helper("linear_operator")
         assert callable(helper2)
 
+    def test_array_layout_replaces_same_name_disk_source(self, precision):
+        """A changed array layout replaces source under the same name."""
+        name = "cache_array_layout_replacement"
+        equations = [
+            "dx = a*x + b*y",
+            "dy = b*x - a*y",
+        ]
+        first = SymbolicODE.create(
+            dxdt=equations,
+            precision=precision,
+            states={"x": 1.0, "y": 2.0},
+            parameters={"a": 3.0, "b": 4.0},
+            name=name,
+        )
+        _ = first.evaluate_f
+        first_source = first.gen_file.file_path.read_text()
+
+        second = SymbolicODE.create(
+            dxdt=equations,
+            precision=precision,
+            states={"y": 2.0, "x": 1.0},
+            parameters={"b": 4.0, "a": 3.0},
+            name=name,
+        )
+        _ = second.evaluate_f
+        second_source = second.gen_file.file_path.read_text()
+
+        assert first.fn_hash != second.fn_hash
+        assert first_source != second_source
+        assert "out[1] = parameters[1]*state[1]" in second_source
+        assert "+ parameters[0]*state[0]" in second_source
+        assert "out[0] = -parameters[1]*state[0]" in second_source
+        assert "+ parameters[0]*state[1]" in second_source
+
+    def test_derivative_helper_replaces_same_name_disk_source(
+        self, precision
+    ):
+        """A changed derivative helper replaces cached source."""
+
+        class DeviceFunction:
+            targetoptions = {"device": True}
+
+            def __call__(self, *args, **kwargs):
+                return 0
+
+        def grad_a(value, index):
+            return 0
+
+        def grad_b(value, index):
+            return 0
+
+        kwargs = {
+            "dxdt": "dx = myfunc(x)",
+            "precision": precision,
+            "states": {"x": 1.0},
+            "user_functions": {"myfunc": DeviceFunction()},
+            "name": "cache_derivative_helper_replacement",
+        }
+        first = SymbolicODE.create(
+            **kwargs,
+            user_function_derivatives={"myfunc": grad_a},
+        )
+        first.gen_file.add_function(
+            generate_operator_apply_code(
+                first.equations,
+                first.indices,
+                jvp_equations=first._get_jvp_exprs(),
+            )
+        )
+        assert "grad_a(" in first.gen_file.file_path.read_text()
+
+        second = SymbolicODE.create(
+            **kwargs,
+            user_function_derivatives={"myfunc": grad_b},
+        )
+        second.gen_file.add_function(
+            generate_operator_apply_code(
+                second.equations,
+                second.indices,
+                jvp_equations=second._get_jvp_exprs(),
+            )
+        )
+        second_source = second.gen_file.file_path.read_text()
+
+        assert first.fn_hash != second.fn_hash
+        assert "grad_b(" in second_source
+        assert "grad_a(" not in second_source
+
+    def test_firk_tableau_hot_swap_uses_distinct_caches(self, precision):
+        """FIRK helpers are keyed by every tableau value."""
+        ode = SymbolicODE.create(
+            dxdt="dx = -x",
+            precision=precision,
+            states={"x": 1.0},
+            name="cache_firk_tableau_hot_swap",
+        )
+        first_coefficients = [[0.5]]
+        first_nodes = [0.5]
+        second_coefficients = [[1.0]]
+        second_nodes = [1.0]
+        third_coefficients = [[0.25, 0.0], [0.5, 0.25]]
+        third_nodes = [0.25, 0.75]
+
+        first = ode.get_solver_helper(
+            "n_stage_residual",
+            stage_coefficients=first_coefficients,
+            stage_nodes=first_nodes,
+        )
+        second = ode.get_solver_helper(
+            "n_stage_residual",
+            stage_coefficients=second_coefficients,
+            stage_nodes=second_nodes,
+        )
+        second_again = ode.get_solver_helper(
+            "n_stage_residual",
+            stage_coefficients=second_coefficients,
+            stage_nodes=second_nodes,
+        )
+        third = ode.get_solver_helper(
+            "n_stage_residual",
+            stage_coefficients=third_coefficients,
+            stage_nodes=third_nodes,
+        )
+
+        assert first is not second
+        assert second_again is second
+        assert third is not second
+        source = ode.gen_file.file_path.read_text()
+        for coefficients, nodes in (
+            (first_coefficients, first_nodes),
+            (second_coefficients, second_nodes),
+            (third_coefficients, third_nodes),
+        ):
+            digest = _stage_tableau_hash(coefficients, nodes)
+            assert f"_t{digest}(" in source
+
 
 class TestConstantParameterConversion:
     """Tests for converting constants to parameters and vice versa."""
@@ -482,6 +622,43 @@ class TestConstantParameterConversion:
         # Convert back to constant
         ode.make_constant("c")
         assert ode.constants["c"] == 0.5
+
+    def test_make_parameter_regenerates_source(self, precision):
+        """Generated source follows a constant-to-parameter move."""
+        ode = SymbolicODE.create(
+            dxdt="dx = -k*x + c",
+            precision=precision,
+            states={"x": 1.0},
+            parameters={"k": 0.1},
+            constants={"c": 0.5},
+            name="constant_to_parameter_source",
+        )
+        _ = ode.evaluate_f
+
+        ode.make_parameter("c")
+        _ = ode.evaluate_f
+        source = ode.gen_file.file_path.read_text()
+
+        assert "parameters[1]" in source
+        assert "c = precision(constants['c'])" not in source
+
+    def test_make_constant_regenerates_source(self, precision):
+        """Generated source follows a parameter-to-constant move."""
+        ode = SymbolicODE.create(
+            dxdt="dx = -k*x + c",
+            precision=precision,
+            states={"x": 1.0},
+            parameters={"k": 0.1, "c": 0.5},
+            name="parameter_to_constant_source",
+        )
+        _ = ode.evaluate_f
+
+        ode.make_constant("c")
+        _ = ode.evaluate_f
+        source = ode.gen_file.file_path.read_text()
+
+        assert "c = precision(constants['c'])" in source
+        assert "parameters[1]" not in source
 
 
 class TestValueSetters:

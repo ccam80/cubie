@@ -96,15 +96,28 @@ def _finalise_symbols_and_products(
                 v: k for k, v in rename.items()
             }
 
+    function_aliases = {
+        name: name for name in (user_functions or {})
+    }
+    function_aliases.update(
+        {renamed: original for original, renamed in (rename or {}).items()}
+    )
     parsed_equations = ParsedEquations.from_equations(
         equation_map,
         index_map,
         derivative_names=derivative_names,
+        function_aliases=function_aliases,
     )
     fn_hash = hash_system_definition(
         parsed_equations,
         index_map.constants.default_values,
+        state_labels=index_map.state_names,
+        dxdt_labels=index_map.dxdt_names,
+        parameter_labels=index_map.parameter_names,
+        driver_labels=index_map.driver_names,
         observable_labels=index_map.observables.ref_map.keys(),
+        derivative_names=parsed_equations.derivative_names,
+        function_aliases=parsed_equations.function_aliases,
     )
     return all_symbols, parsed_equations, fn_hash
 

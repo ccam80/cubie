@@ -51,7 +51,7 @@ resolves `__version__` via `importlib.metadata.version("cubie")`.
 | `batchsolving/` | High-level batch integration API: `Solver`, `solve_ivp`, `BatchSolverKernel`, grid building, system interface, result containers, host/device array managers (see `batchsolving/AGENTS.md`). |
 | `integrators/` | Numerical integration components: `SingleIntegratorRun`, algorithm step factories, step controllers, matrix-free solvers, and CUDA loop builders (see `integrators/AGENTS.md`). |
 | `memory/` | GPU memory subsystem: `MemoryManager` singleton (`default_memmgr`), array request/response containers, stream groups, CuPy-backed device/pinned allocation (see `memory/AGENTS.md`). |
-| `odesystems/` | ODE system definitions and the SymPy-driven CUDA codegen pipeline (see `odesystems/AGENTS.md`). |
+| `odesystems/` | ODE system definitions and IR-based CUDA code generation (see `odesystems/AGENTS.md`). |
 | `outputhandling/` | Output and summary-metric system (see `outputhandling/AGENTS.md`). |
 | `gui/` | Optional Qt-based editors for `SymbolicODE` constants/parameters/states (see `gui/AGENTS.md`). |
 | `vendored/` | Third-party code vendored as compatibility shims (see `vendored/AGENTS.md`). |
@@ -87,9 +87,9 @@ warp-coherent loops, …) live in `writing_cuda_functions.md`.
      `update_compile_settings` invalidates it **only if a setting actually changed**,
      re-running `build()` on the next property access.
   3. **Codegen source cache** (`odesystems/symbolic`: `ODEFile`),
-     keyed by `fn_hash` — the system *definition* (equations + constant/observable
-     labels), NOT constant values and NOT the full config. Caches generated CUDA
-     *source*, separate from compilation.
+     keyed by `fn_hash` — equations, ordered array layouts, constants,
+     observables, derivative helpers, and function aliases. It caches
+     generated CUDA source, separate from compilation.
 - **`update` / `update_compile_settings` contract (uniform):** keys are the
   non-underscored field names; raises `KeyError` on an unrecognised key unless
   `silent=True`; returns a **`set`** of recognised/updated labels (the config-level
@@ -182,5 +182,5 @@ relocates them together.
 - **numba / numba-cuda** — CUDA JIT, device intrinsics, cache internals.
 - **numpy** (`>=2.0`) — dtypes, array hashing/comparison, validators.
 - **attrs** — all config/data containers.
-- **sympy** — used downstream in `odesystems/symbolic`.
+- **sympy** — parses string and user-supplied symbolic input.
 - Optional: **cupy** (memory pool, via `memory/`), **qtpy + a Qt backend** (`gui/`).

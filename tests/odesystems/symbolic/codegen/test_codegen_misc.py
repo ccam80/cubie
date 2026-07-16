@@ -15,6 +15,7 @@ import sympy as sp
 from cubie.odesystems.symbolic.indexedbasemaps import IndexedBases
 from cubie.odesystems.symbolic.parsing import ParsedEquations
 from cubie.odesystems.symbolic.codegen import print_cuda
+from cubie.odesystems.symbolic.engine import call, sym
 from cubie.odesystems.symbolic.codegen.jacobian import (
     generate_analytical_jvp,
     get_cache_key,
@@ -114,10 +115,10 @@ def test_print_cuda_maps_native_abs():
 
 
 def test_print_cuda_passes_through_derivative_function():
-    """A ``d_``-prefixed user function prints verbatim."""
-    x = sp.Symbol("x")
-    d_helper = sp.Function("d_helper")
-    assert print_cuda(d_helper(x)) == "d_helper(x)"
+    """A registered derivative helper prints verbatim."""
+    expression = call("d_helper", sym("x"))
+    aliases = {"d_helper": "d_helper"}
+    assert print_cuda(expression, function_aliases=aliases) == "d_helper(x)"
 
 
 # ── dxdt / observables / time-derivative non-CSE ────────────────── #

@@ -282,7 +282,7 @@ def _build_operator_body(
             entry = M[i][j]
             if ir.is_zero(entry):
                 continue
-            m_sym = ir.sym(f"m_{i}{j}")
+            m_sym = ir.sym(f"m_{i}_{j}")
             mass_assigns.append((m_sym, entry))
             mv_terms.append(ir.mul(m_sym, ir.arr("v", j)))
         mv = ir.add(*mv_terms) if mv_terms else ir.ZERO

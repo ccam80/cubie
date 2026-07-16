@@ -102,6 +102,13 @@ _NEUMANN_PRECONDITIONER_TYPES = frozenset((
     "n_stage_neumann_preconditioner",
 ))
 
+_TABLEAU_HELPER_TYPES = frozenset((
+    "n_stage_residual",
+    "n_stage_linear_operator",
+    "n_stage_neumann_preconditioner",
+    "n_stage_jacobi_preconditioner",
+))
+
 
 def _mass_matrix_hash_tag(mass):
     """Return a system-hash component identifying a mass matrix.
@@ -131,6 +138,47 @@ def _mass_matrix_hash_tag(mass):
     entries = "|".join(str(entry) for entry in mat)
     digest = sha256(entries.encode("utf-8")).hexdigest()[:8]
     return f"_M{digest}"
+
+
+def _stage_tableau_hash(stage_coefficients, stage_nodes) -> str:
+    """Return a hash of every FIRK tableau entry."""
+
+    if stage_coefficients is None or stage_nodes is None:
+        raise ValueError(
+            "FIRK helpers require stage coefficients and stage nodes."
+        )
+
+    def encode(value):
+        text = sp.srepr(sp.sympify(value))
+        return f"{len(text)}:{text}"
+
+    rows = [tuple(row) for row in stage_coefficients]
+    nodes = tuple(stage_nodes)
+    payload = [f"rows:{len(rows)}"]
+    for row in rows:
+        payload.append(
+            f"row:{len(row)}:" + "".join(encode(value) for value in row)
+        )
+    payload.append(
+        f"nodes:{len(nodes)}:" + "".join(encode(value) for value in nodes)
+    )
+    return sha256("|".join(payload).encode("utf-8")).hexdigest()
+
+
+def _system_source_hash(equations, index_map) -> str:
+    """Return the source hash for equations and their array layout."""
+
+    return hash_system_definition(
+        equations,
+        index_map.constants.default_values,
+        state_labels=index_map.state_names,
+        dxdt_labels=index_map.dxdt_names,
+        parameter_labels=index_map.parameter_names,
+        driver_labels=index_map.driver_names,
+        observable_labels=index_map.observable_names,
+        derivative_names=equations.derivative_names,
+        function_aliases=equations.function_aliases,
+    )
 
 
 def create_ODE_system(
@@ -313,12 +361,7 @@ class SymbolicODE(BaseODE):
         self.all_symbols = all_symbols
 
         if fn_hash is None:
-            constants = all_indexed_bases.constants.default_values
-            fn_hash = hash_system_definition(
-                equations,
-                constants,
-                observable_labels=all_indexed_bases.observables.ref_map.keys(),
-            )
+            fn_hash = _system_source_hash(equations, all_indexed_bases)
         fn_hash = f"{fn_hash}{_mass_matrix_hash_tag(mass)}"
         if name is None:
             name = fn_hash
@@ -347,6 +390,7 @@ class SymbolicODE(BaseODE):
         self._jacobian_aux_count: Optional[int] = None
         self._jvp_exprs: Optional[JVPEquations] = None
         self._neumann_rhs_evaluator: Optional[NeumannRHSEvaluator] = None
+        self._solver_helper_cache_keys = {}
 
     @classmethod
     def create(
@@ -622,11 +666,7 @@ class SymbolicODE(BaseODE):
         numba_precision = self.numba_precision
         constants = self.constants.values_dict
         self._jacobian_aux_count = None
-        new_hash = hash_system_definition(
-            self.equations,
-            self.indices.constants.default_values,
-            observable_labels=self.indices.observables.ref_map.keys(),
-        )
+        new_hash = _system_source_hash(self.equations, self.indices)
         new_hash = (
             f"{new_hash}"
             f"{_mass_matrix_hash_tag(self.compile_settings.mass)}"
@@ -984,6 +1024,13 @@ class SymbolicODE(BaseODE):
         }
         self.update(solver_updates, silent=True)
 
+        tableau_hash = None
+        if func_type in _TABLEAU_HELPER_TYPES:
+            tableau_hash = _stage_tableau_hash(
+                stage_coefficients,
+                stage_nodes,
+            )
+
         # Register timing event for this helper type if not already registered
         event_name = f"solver_helper_{func_type}"
 
@@ -1019,7 +1066,12 @@ class SymbolicODE(BaseODE):
 
         try:
             func = self.get_cached_output(func_type)
-            return func
+            if (
+                tableau_hash is None
+                or self._solver_helper_cache_keys.get(func_type)
+                == tableau_hash
+            ):
+                return func
         except NotImplementedError:
             pass
 
@@ -1027,19 +1079,27 @@ class SymbolicODE(BaseODE):
         # Preconditioner names encode the order so that different
         # orders get distinct cache entries and force re-codegen.
         if func_type == "n_stage_residual":
-            factory_name = f"n_stage_residual_{len(stage_nodes)}"
+            factory_name = (
+                f"n_stage_residual_{len(stage_nodes)}"
+                f"_t{tableau_hash}"
+            )
         elif func_type == "n_stage_linear_operator":
-            factory_name = f"n_stage_linear_operator_{len(stage_nodes)}"
+            factory_name = (
+                f"n_stage_linear_operator_{len(stage_nodes)}"
+                f"_t{tableau_hash}"
+            )
         elif func_type == "n_stage_neumann_preconditioner":
             factory_name = (
                 f"n_stage_neumann_preconditioner"
                 f"_{len(stage_nodes)}"
                 f"_o{preconditioner_order}"
+                f"_t{tableau_hash}"
             )
         elif func_type == "n_stage_jacobi_preconditioner":
             factory_name = (
                 f"n_stage_jacobi_preconditioner"
                 f"_{len(stage_nodes)}"
+                f"_t{tableau_hash}"
             )
         elif func_type == "neumann_preconditioner":
             factory_name = (
@@ -1233,6 +1293,8 @@ class SymbolicODE(BaseODE):
             **{k: v for k, v in factory_kwargs.items() if k in accepted}
         )
         setattr(self._cache, func_type, func)
+        if tableau_hash is not None:
+            self._solver_helper_cache_keys[func_type] = tableau_hash
         default_timelogger.stop_event(event_name)
 
         return func

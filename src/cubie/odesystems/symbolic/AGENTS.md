@@ -49,8 +49,8 @@ attrs conventions; `BaseODE` (parent, `../AGENTS.md`) for `ODECache`/`config_has
 `n_stage_neumann_preconditioner`, `prepare_jac`, `calculate_cached_jvp`, `time_derivative_rhs`,
 and the non-codegen `cached_aux_count`. Adding a helper means a branch here **and** a generator
 in `codegen/`. The `_HELPERS_NEEDING_PRECONDITIONER_KWARGS` frozenset selects which helpers get
-`beta`/`gamma`/`order` factory kwargs. `n_stage_*` helpers suffix the factory name with the
-stage count (`f"{func_type}_{len(stage_nodes)}"`), so each stage count caches separately. The
+`beta`/`gamma`/`order` factory kwargs. `n_stage_*` helper names include the full tableau digest,
+so different coefficients and nodes cannot share source. The
 cached helpers (`linear_operator_cached`, `neumann_preconditioner_cached`, `prepare_jac`,
 `calculate_cached_jvp`, `cached_aux_count`) are requested by `GenericRosenbrockWStep` and run
 every step; how many auxiliaries actually get precomputed is set by the caching planner's
@@ -60,12 +60,11 @@ system's own `compile_settings.mass` — callers never pass a matrix.
 ### build() and system identity
 `build()` compiles `dxdt`+`observables` into the `ODECache`, first recomputing the system hash —
 swapping `self.gen_file` to a fresh `ODEFile` if constants↔parameters changed since construction.
-The identity is `fn_hash` from `hash_system_definition`: **equations + constant *labels* +
-observable labels — NOT parameter labels and NOT constant *values*** (constants and parameters
-together cover all non-state LHS symbols, so a constant↔parameter flip changes the hash and
-forces re-codegen; a constant *value* change only forces a rebuild). The hash is order-independent
-(sorted by LHS name), so string- and SymPy-input paths hit the same cache. A non-identity mass
-matrix appends `_M<digest>` (`_mass_matrix_hash_tag`) because helper source bakes its entries in.
+The identity is `fn_hash` from `hash_system_definition`: equations, ordered state/dxdt/parameter/
+driver/observable layouts, constant labels, derivative helpers, and function aliases. Constant
+values are compile settings, not source identity. Equations sort by LHS name, so string and SymPy
+input hit the same cache without discarding array order. A non-identity mass matrix appends
+`_M<digest>` because helper source embeds its entries.
 
 ### Constant/parameter conversion
 `make_parameter`/`make_constant` update both `self.indices`

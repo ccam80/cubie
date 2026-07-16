@@ -1,72 +1,7 @@
-"""Parse symbolic ODE/DAE descriptions into structured SymPy objects.
+"""Parse ODE and DAE definitions into engine IR equations.
 
-The single parsing entry point is :func:`parse_input`. String and
-SymPy equations converge on one normalised representation
-(:mod:`~cubie.odesystems.symbolic.parsing.normalise`); the parser
-then classifies the system and assembles it
-(:mod:`~cubie.odesystems.symbolic.parsing.assemble`): systems
-already in solved explicit form are packaged directly, while DAE
-constructs (implicit equations, higher-order or in-expression
-derivatives, algebraic unknowns) route through MTK-style structural
-simplification. Callable ``dxdt`` input is handled by
-:mod:`~cubie.odesystems.symbolic.parsing.function_parser` and is
-explicit-only.
-
-Published Classes
------------------
-:class:`ParsedEquations`
-    Frozen attrs container holding topologically ordered equations
-    partitioned into state derivatives, observables, and auxiliaries.
-
-    >>> import sympy as sp
-    >>> from cubie.odesystems.symbolic.parsing.parser import (
-    ...     parse_input,
-    ... )
-    >>> _, _, _, eqs, _, _ = parse_input(
-    ...     dxdt="dx = -k * x",
-    ...     states={"x": 1.0},
-    ...     parameters={"k": 0.5},
-    ... )
-    >>> len(eqs.state_derivatives)
-    1
-
-:class:`EquationWarning`
-    Warning category for recoverable issues during equation parsing.
-
-Published Functions
--------------------
-:func:`parse_input`
-    Entry point that accepts string, SymPy, or callable equations
-    plus symbol metadata and returns structured components for
-    :class:`~cubie.odesystems.symbolic.symbolicODE.SymbolicODE`.
-
-    >>> index_map, syms, fns, eqs, h, simplified = parse_input(
-    ...     dxdt="dx = -x",
-    ...     states={"x": 1.0},
-    ... )
-    >>> list(index_map.state_names)
-    ['x']
-
-Constants
----------
-:data:`PARSE_TRANSFORMS`
-    SymPy parser transformation tuple applied during string parsing.
-
-:data:`KNOWN_FUNCTIONS`
-    Mapping of function names recognised in equation strings to their
-    SymPy equivalents.
-
-:data:`TIME_SYMBOL`
-    Canonical ``t`` symbol shared across the parsing pipeline.
-
-See Also
---------
-:class:`~cubie.odesystems.symbolic.indexedbasemaps.IndexedBases`
-    Symbol index collections returned by :func:`parse_input`.
-:mod:`cubie.odesystems.symbolic.sym_utils`
-    Topological sorting and CSE utilities used during parsing.
-:class:`~cubie.odesystems.symbolic.symbolicODE.SymbolicODE`
-    Consumer of the parsed output.
+String, SymPy, and callable inputs produce :class:`ParsedEquations`.
+DAEs pass through structural simplification before assembly.
 """
 
 import re
@@ -249,6 +184,8 @@ class ParsedEquations:
     derivative_names
         Renamed user-function name to derivative-placeholder print
         name, for user functions with supplied derivative helpers.
+    function_aliases
+        Accepted IR call names and their generated-source names.
     """
 
     ordered: Tuple[Tuple[ir_expr.Expr, ir_expr.Expr], ...]
@@ -259,6 +196,9 @@ class ParsedEquations:
     _observable_symbols: frozenset = attrs.field(repr=False)
     _auxiliary_symbols: frozenset = attrs.field(repr=False)
     derivative_names: Dict[str, str] = attrs.field(
+        factory=dict, repr=False
+    )
+    function_aliases: Dict[str, str] = attrs.field(
         factory=dict, repr=False
     )
 
@@ -339,6 +279,7 @@ class ParsedEquations:
         equations: Iterable[Tuple[ir_expr.Expr, ir_expr.Expr]],
         index_map: "IndexedBases",
         derivative_names: Optional[Dict[str, str]] = None,
+        function_aliases: Optional[Dict[str, str]] = None,
     ) -> "ParsedEquations":
         """Partition equations according to their assigned symbols.
 
@@ -379,6 +320,7 @@ class ParsedEquations:
             observable_symbols=observable_symbols,
             auxiliary_symbols=auxiliary_symbols,
             derivative_names=dict(derivative_names or {}),
+            function_aliases=dict(function_aliases or {}),
         )
 
 
@@ -983,7 +925,10 @@ def _parse_function_path(
     # Derivative placeholder names must be recovered from the SymPy
     # function objects before the equations convert to IR.
     function_derivative_names = derivative_name_map(equation_map)
-    equation_map = convert_assignments(equation_map)
+    equation_map = convert_assignments(
+        equation_map,
+        allowed_functions=user_functions,
+    )
     all_symbols = index_map.all_symbols.copy()
     all_symbols.setdefault("t", TIME_SYMBOL)
 
@@ -1009,12 +954,19 @@ def _parse_function_path(
         equation_map,
         index_map,
         derivative_names=function_derivative_names,
+        function_aliases={name: name for name in funcs},
     )
 
     fn_hash = hash_system_definition(
         parsed_equations,
         index_map.constants.default_values,
+        state_labels=index_map.state_names,
+        dxdt_labels=index_map.dxdt_names,
+        parameter_labels=index_map.parameter_names,
+        driver_labels=index_map.driver_names,
         observable_labels=index_map.observables.ref_map.keys(),
+        derivative_names=parsed_equations.derivative_names,
+        function_aliases=parsed_equations.function_aliases,
     )
 
     return index_map, all_symbols, funcs, parsed_equations, fn_hash, None

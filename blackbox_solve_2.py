@@ -1,54 +1,4 @@
-r"""Standalone Nsight/ncu harness: solve the opaque *blackbox2* system.
-
-This script is deliberately self-contained so a profiling agent can run
-it under ``ncu`` in each repo/venv and diff the resulting PTX/SASS
-between the two Numba-CUDA backends (stock LLVM vs the MLIR fork).
-
-An identical copy lives at the root of both repos::
-
-    C:\local_working_projects\cubie\blackbox_solve_2.py        (LLVM venv)
-    C:\local_working_projects\cubie_mlir\blackbox_solve_2.py   (MLIR venv)
-
-Run each with its *own* venv, from its *own* repo root, so that
-``import cubie`` resolves to that repo's editable install and the
-codegen cache (``./generated``) stays isolated per backend::
-
-    cd C:\local_working_projects\cubie
-    .venv\Scripts\python.exe blackbox_solve_2.py [options]
-
-    cd C:\local_working_projects\cubie_mlir
-    .venv\Scripts\python.exe blackbox_solve_2.py [options]
-
-The blackbox model is an opaque, provenance-free ODE file (``blackbox2``
-under this repo's ``blackbox/`` package).
-
-Compile timing is instrumented on the way in: the model load, the
-``Solver`` construction, and the first ``solve`` (which triggers the CUDA
-JIT + ptxas) are timed separately and printed as ``COMPILE`` lines.
-
-Profiling workflow (per repo/venv)
-----------------------------------
-The kernel is named ``integration_kernel``. One warmup launch compiles
-it; the profiled launch(es) follow. Skip the warmup with
-``--launch-skip``::
-
-    ncu --set full -f -o bb2_<backend> ^
-        --kernel-name regex:integration_kernel ^
-        --launch-skip 1 --launch-count 1 ^
-        .venv\Scripts\python.exe blackbox_solve_2.py --warmup 1 --reps 1
-
-Keep ``--warmup`` equal to ``--launch-skip`` and ``--reps`` equal to
-``--launch-count``. The emitted PTX/SASS is independent of ``--nruns``
-(it is a property of the compiled kernel), so a small batch is enough for
-a pure code diff; a larger batch is only needed for occupancy/latency
-metrics. Use ``--dump-asm DIR`` to write PTX/SASS/LLVM + a metadata
-sidecar for offline diffing without ncu.
-
-If ncu reports more launches than ``--reps``, the batch was chunked
-along the run axis (memory pressure); lower ``--nruns`` or narrow
-``--output-types`` (e.g. just ``state``) until it is a single launch.
-At least one output type must stay enabled.
-"""
+"""Profile a black-box ODE with Nsight Compute."""
 import argparse
 import os
 import sys
@@ -136,16 +86,27 @@ def _parse_args(argv):
                    help="chdir here before importing cubie so ./generated "
                         "lands in a known, per-backend location. Defaults "
                         "to this script's directory (the repo root).")
-    return p.parse_args(argv)
+    args = p.parse_args(argv)
+    if args.duration <= 0.0:
+        p.error("--duration must be positive")
+    if args.dt <= 0.0:
+        p.error("--dt must be positive")
+    if args.nruns < 1:
+        p.error("--nruns must be positive")
+    if args.blocksize < 1:
+        p.error("--blocksize must be positive")
+    if args.warmup < 1:
+        p.error("--warmup must be at least 1")
+    if args.reps < 1:
+        p.error("--reps must be at least 1")
+    return args
 
 
 def _backend_tag():
-    """Return a short label distinguishing the two Numba-CUDA backends."""
-    try:
-        import numba_cuda_mlir  # noqa: F401
-        return "mlir"
-    except Exception:
-        return "llvm"
+    """Return the active CUDA backend."""
+    from cubie.cuda_backend import CUDA_BACKEND
+
+    return CUDA_BACKEND
 
 
 def _backend_metadata():
@@ -172,14 +133,9 @@ def _backend_metadata():
 
 
 def _load_system(system_no, precision):
-    """Load blackbox{N} through the CellML loader without reading it.
-
-    The model file is extensionless; the loader wants a ``.cellml`` path,
-    so it is staged as a temporary copy for the parse only.
-    """
+    """Load an extensionless black-box model as CellML."""
     import shutil
     import tempfile
-    import numpy as np
     from cubie import load_cellml_model
 
     here = Path(__file__).resolve().parent
@@ -307,7 +263,7 @@ def main(argv=None):
           f"(total_in={t_load + t_build + t_first:.3f} s)")
 
     # Remaining warmup launches (already compiled).
-    for _ in range(max(0, args.warmup - 1)):
+    for _ in range(args.warmup - 1):
         _solve()
 
     dispatcher = solver.kernel.kernel
@@ -335,7 +291,7 @@ def main(argv=None):
 
     # Profiled launches (ncu attaches here via --launch-skip=warmup).
     times = []
-    for _ in range(max(1, args.reps)):
+    for _ in range(args.reps):
         t0 = time.perf_counter()
         _solve()
         times.append(time.perf_counter() - t0)

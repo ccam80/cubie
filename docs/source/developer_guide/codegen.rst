@@ -15,8 +15,7 @@ Pipeline Overview
 ::
 
    String / SymPy / CellML equations
-       → SymPy parse layer (strings via parse_expr; CellML converts
-         directly with the loader's replacement map)
+       → SymPy parse layer and CellML substitutions
        → engine IR (hash-consed expression nodes)
        → normalise/classify → structural simplification for DAEs
        → IndexedBases (state/param/observable symbols)
@@ -33,12 +32,12 @@ equation strings, identifies states (variables with ``d<name>`` on the
 left-hand side), parameters, constants, and observables, and converts
 every expression to engine IR before returning.
 
-IndexedBases
-------------
+Array references
+----------------
 
-State variables are represented as ``IndexedBase`` objects so that the
-code generator can emit array-indexed CUDA code (e.g. ``x[0]``,
-``x[1]``).
+The IR represents array values as ``Arr(name, index)`` nodes. The
+printer maps scalar names to fixed state, parameter, driver, and output
+indices.
 
 JVPEquations
 ------------
@@ -84,11 +83,7 @@ block-structured linear algebra and transformation matrices.
 Generated File Structure
 ------------------------
 
-Generated files are written to ``generated/<system_name>/`` and include:
-
-- ``rhs.py`` --- right-hand-side function.
-- ``jvp.py`` --- Jacobian--vector product.
-- ``prepare_jac.py`` --- shared subexpression cache.
-- ``time_derivative.py`` --- explicit time derivative (for Rosenbrock-W).
-
-These are standard Python files that Numba compiles on import.
+Each system uses one generated Python module at
+``generated/<system_name>/<system_name>.py``. Solver helpers are added
+to that module as they are requested. Numba compiles the factories on
+import.
