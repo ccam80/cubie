@@ -59,21 +59,20 @@ change — the full suite is slow (run it as a pre-commit check only, and only w
 - **Agents:** every fix or feature is developed on its own branch off `main`. When the work is
   done and verified, commit, push the branch, and open a PR.
 - **Performance gate (every PR):** run `python benchmarks/ab_gate.py` and paste its table into
-  the PR message. One command compares A (`main`, an ephemeral `git worktree`) against B (the
-  working tree) on every installed CUDA backend — both `numba-cuda` and `numba-cuda-mlir` should
-  be in the venv. The metric is the mean of the lowest `k` per-solve kernel times (CUDA-event,
-  kernel-only): the fastest solves ran at full boost clock without contention, so they track the
-  kernel's intrinsic cost where the mean is pulled around by a thermal/contention tail. Because
-  even that floor rises as the GPU warms, the driver interleaves A/B runs in ABBA order after
-  short throwaway warm-ups (compile + cache fill) so the drift cancels in the per-side medians.
-  It prints A/B medians, the percent delta, and a verdict per backend and config against
-  `--threshold` (default 0.50%, ~3x the calibrated A-vs-A null on the gate machine), and exits
-  non-zero on any regression. A default run takes ~4 minutes for two backends on a quiet GPU.
-  Background GPU load widens the per-run spread: rows marked NOISY need a rerun with
-  `--pairs 4 --repeats 300` (quadratic-drift cancellation, longer floor-sampling window) or a
-  quieter machine; constant load inflates absolute times but cancels out of the deltas.
-  `--calibrate` measures the A-vs-A null for setting the threshold on a new machine;
-  `--n-runs 1024` smoke-tests the harness cheaply.
+  the PR message. One command compares A (`origin/main`, an ephemeral `git worktree`) against B
+  (the working tree) on every installed CUDA backend — both `numba-cuda` and `numba-cuda-mlir`
+  should be in the venv. Per backend it starts one persistent worker per side (each compiles and
+  builds its grid once) and ping-pongs short solve blocks between them in ABBA order with idle
+  gaps — continuous load pins the GPU at its power limit and the kernel-time floor dithers, so
+  the rest between blocks keeps it in a repeatable boost state. Each block reports the mean of
+  its lowest `k` per-solve kernel times (CUDA-event, kernel-only: the fastest solves track the
+  kernel's intrinsic cost); the two blocks of a pair run seconds apart and share clock state, so
+  the verdict per config is the **median paired delta** against `--threshold` (default 0.50%),
+  with non-zero exit on regression. A default run takes ~3 minutes for two backends on a quiet
+  GPU. Rows marked NOISY (within-side block spread over twice the threshold) mean the GPU was
+  contended — rerun with more `--pairs` or a quieter machine; constant load inflates absolute
+  times but cancels out of the deltas. `--calibrate` measures the A-vs-A null for setting the
+  threshold on a new machine; `--n-runs 1024` smoke-tests the harness cheaply.
 - ** Any changes left uncommitted or unstaged will be programatically deleted **. The only place to
   store work is in a branch off origin, pushed to main, with a PR open. PRs are the only format
   reviewed by the user. Don't leave PRs draft, they must be marked ready and reviewed by Greptile

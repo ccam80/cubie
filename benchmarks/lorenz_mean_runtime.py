@@ -22,22 +22,27 @@ Usage::
 
     python benchmarks/lorenz_mean_runtime.py [n_runs]
         [--repeats R] [--min-count K] [--grid-cache DIR]
-        [--no-clear-cache]
+        [--no-clear-cache] [--worker]
 
 Defaults: ``2**22`` trajectories for the fixed config and ``2**24``
 for the adaptive config (the adaptive kernel is fast enough at
 ``2**22`` that launch effects blur small deltas); ``repeats = 100``;
 ``min_count = 5``. An explicit ``n_runs`` argument applies to both
 configs. Each config prints a human-readable line and a parseable
-``RESULT <key> <ms>`` line; ``ab_gate.py`` drives the A/B comparison
-from those.
+``RESULT <key> <ms>`` line.
+
+``--worker`` turns the process into a persistent solve server for
+``ab_gate.py``: after the solvers are built, the grids loaded, and one
+JIT warm-up solve run per config, it prints ``@READY <config>...``
+and then answers ``run <config> <n>`` lines on stdin with
+``@TIMES <config> <ms>...`` (per-solve kernel totals) until ``quit``
+or EOF.
 
 The generated-code and compiled-kernel caches are cleared on every
 invocation unless ``--no-clear-cache`` is given; the recompile lands
 in the warm-up solve, outside the timed region. Both cache layers key
 on a content hash of the imported cubie source, so cache reuse is
-safe even across source trees — ``ab_gate.py`` passes
-``--no-clear-cache`` to compile only once per side.
+safe even across source trees.
 """
 
 import argparse
@@ -45,6 +50,7 @@ import contextlib
 import io
 import os
 import shutil
+import sys
 import timeit
 
 import numpy as np
@@ -75,87 +81,19 @@ def collect_kernel_time(solver, kernel_ms):
     )
 
 
-def benchmark(key, label, solver, n_runs, repeats, k, grid_cache=None):
-    """Run ``repeats`` solves after a warm-up; print the mean-of-mins.
+def resolve_n_runs(n_runs):
+    """Return (fixed, adaptive) trajectory counts."""
+    if n_runs is not None:
+        return n_runs, n_runs
+    return 2**22, 2**24
 
-    Prints the mean of the ``k`` lowest per-solve kernel times (the
-    module docstring explains the choice of statistic), then a
-    parseable ``RESULT <key> <ms>`` line for ``ab_gate.py``.
 
-    When ``grid_cache`` is a directory, the input grid (identical
-    every invocation) is loaded from it if present, else built once
-    and saved there.
+def build_solvers(n_fixed, n_adaptive):
+    """Build the Lorenz system and both benchmark solvers.
+
+    Returns a dict of ``key -> (label, solver, n_runs)`` in the order
+    the configs run.
     """
-    gfile = (
-        os.path.join(grid_cache, f"grid_{key}.npz")
-        if grid_cache is not None
-        else None
-    )
-    if gfile is not None and os.path.exists(gfile):
-        grid = np.load(gfile)
-        initials_array, parameter_array = grid["inits"], grid["params"]
-    else:
-        parameters = {"rho": np.linspace(0.0, 21.0, n_runs)}
-        initials_array, parameter_array = solver.build_grid(
-            initial_values=initial_conditions, parameters=parameters
-        )
-        if gfile is not None:
-            os.makedirs(grid_cache, exist_ok=True)
-            np.savez(
-                gfile, inits=initials_array, params=parameter_array
-            )
-    kernel_ms = []
-
-    def run():
-        with contextlib.redirect_stdout(io.StringIO()):
-            solution = solver.solve(
-                initial_values=initials_array,
-                parameters=parameter_array,
-                blocksize=64,
-                results_type="raw",
-                duration=1.0,
-            )
-        collect_kernel_time(solver, kernel_ms)
-        return solution
-
-    run()  # warm-up (JIT compilation)
-    kernel_ms.clear()
-    timeit.repeat(
-        run,
-        setup="gc.enable()",
-        repeat=discarded_solves + repeats,
-        number=1,
-    )
-    kernel_arr = np.sort(np.asarray(kernel_ms[discarded_solves:]))
-    stat = kernel_arr[:k].mean()
-    print(
-        f"{label}: {stat:.3f} ms (mean of {k} lowest kernel times "
-        f"over {repeats} solves of {n_runs} trajectories)"
-    )
-    print(f"RESULT {key} {stat:.4f}")
-
-
-def main():
-    """Parse arguments, build the solvers, and run both configs."""
-    args = _parse_args()
-
-    cache_root = get_cache_root()
-    if not args.no_clear_cache:
-        shutil.rmtree(cache_root, ignore_errors=True)
-    os.makedirs(cache_root, exist_ok=True)
-
-    # Per-chunk CUDA events are recorded only while the time logger
-    # is armed; Solver construction re-arms it from each solver's
-    # time_logging_level argument.
-    default_timelogger.set_verbosity("default")
-
-    repeats = args.repeats
-    if args.n_runs is not None:
-        n_fixed = n_adaptive = args.n_runs
-    else:
-        n_fixed = 2**22
-        n_adaptive = 2**24
-
     lorenz_system = qb.create_ODE_system(
         """
         dx = sigma * (y - x)
@@ -197,24 +135,151 @@ def main():
         time_logging_level="default",
     )
 
-    benchmark(
-        "fixed",
-        "fixed (classical-rk4)",
-        fixed_solver,
-        n_fixed,
-        repeats,
-        args.min_count,
-        args.grid_cache,
+    return {
+        "fixed": ("fixed (classical-rk4)", fixed_solver, n_fixed),
+        "adaptive": ("adaptive (tsit5)", adaptive_solver, n_adaptive),
+    }
+
+
+def load_grid(solver, key, n_runs, grid_cache):
+    """Load the input grid from cache, or build and save it.
+
+    The save is atomic (write then ``os.replace``) so concurrent
+    workers sharing a cache directory cannot read a partial file.
+    """
+    gfile = (
+        os.path.join(grid_cache, f"grid_{key}.npz")
+        if grid_cache is not None
+        else None
     )
-    benchmark(
-        "adaptive",
-        "adaptive (tsit5)",
-        adaptive_solver,
-        n_adaptive,
-        repeats,
-        args.min_count,
-        args.grid_cache,
+    if gfile is not None and os.path.exists(gfile):
+        with np.load(gfile) as grid:
+            return grid["inits"], grid["params"]
+    parameters = {"rho": np.linspace(0.0, 21.0, n_runs)}
+    inits, params = solver.build_grid(
+        initial_values=initial_conditions, parameters=parameters
     )
+    if gfile is not None:
+        os.makedirs(grid_cache, exist_ok=True)
+        tmp = f"{gfile}.{os.getpid()}.npz"
+        np.savez(tmp, inits=inits, params=params)
+        try:
+            os.replace(tmp, gfile)
+        except OSError:
+            # Another worker raced us to the same grid (Windows
+            # locks open files); ours is in memory, drop the temp.
+            with contextlib.suppress(OSError):
+                os.remove(tmp)
+    return inits, params
+
+
+def solve_once(solver, inits, params, kernel_ms):
+    """Run one solve and record its kernel time in ``kernel_ms``."""
+    with contextlib.redirect_stdout(io.StringIO()):
+        solver.solve(
+            initial_values=inits,
+            parameters=params,
+            blocksize=64,
+            results_type="raw",
+            duration=1.0,
+        )
+    collect_kernel_time(solver, kernel_ms)
+
+
+def benchmark(key, label, solver, n_runs, repeats, k, grid_cache=None):
+    """Run ``repeats`` solves after a warm-up; print the mean-of-mins.
+
+    Prints the mean of the ``k`` lowest per-solve kernel times (the
+    module docstring explains the choice of statistic), then a
+    parseable ``RESULT <key> <ms>`` line.
+    """
+    inits, params = load_grid(solver, key, n_runs, grid_cache)
+    kernel_ms = []
+
+    def run():
+        solve_once(solver, inits, params, kernel_ms)
+
+    run()  # warm-up (JIT compilation)
+    kernel_ms.clear()
+    timeit.repeat(
+        run,
+        setup="gc.enable()",
+        repeat=discarded_solves + repeats,
+        number=1,
+    )
+    kernel_arr = np.sort(np.asarray(kernel_ms[discarded_solves:]))
+    stat = kernel_arr[:k].mean()
+    print(
+        f"{label}: {stat:.3f} ms (mean of {k} lowest kernel times "
+        f"over {repeats} solves of {n_runs} trajectories)"
+    )
+    print(f"RESULT {key} {stat:.4f}")
+
+
+def worker_loop(solvers, grid_cache):
+    """Serve solve blocks over stdin/stdout for ``ab_gate.py``.
+
+    Prints ``@READY <config>...`` once every config has its grid and
+    a JIT warm-up solve behind it, then answers ``run <config> <n>``
+    with ``@TIMES <config> <ms>...`` until ``quit`` or EOF.
+    """
+    ready = {}
+    for key, (label, solver, n_runs) in solvers.items():
+        inits, params = load_grid(solver, key, n_runs, grid_cache)
+        solve_once(solver, inits, params, [])
+        ready[key] = (solver, inits, params)
+    print("@READY " + " ".join(ready), flush=True)
+    for line in sys.stdin:
+        parts = line.split()
+        if not parts:
+            continue
+        if parts[0] == "quit":
+            break
+        if parts[0] != "run":
+            continue
+        key, count = parts[1], int(parts[2])
+        solver, inits, params = ready[key]
+        kernel_ms = []
+        for _ in range(count):
+            solve_once(solver, inits, params, kernel_ms)
+        print(
+            "@TIMES " + key + " "
+            + " ".join(f"{v:.4f}" for v in kernel_ms),
+            flush=True,
+        )
+
+
+def main():
+    """Parse arguments and run the benchmark or the worker mode."""
+    args = _parse_args()
+
+    cache_root = get_cache_root()
+    if not args.no_clear_cache:
+        shutil.rmtree(cache_root, ignore_errors=True)
+    os.makedirs(cache_root, exist_ok=True)
+
+    # Per-chunk CUDA events are recorded only while the time logger
+    # is armed; Solver construction re-arms it from each solver's
+    # time_logging_level argument.
+    default_timelogger.set_verbosity("default")
+
+    n_fixed, n_adaptive = resolve_n_runs(args.n_runs)
+    solvers = build_solvers(n_fixed, n_adaptive)
+
+    if args.worker:
+        worker_loop(solvers, args.grid_cache)
+        return
+
+    for key, (label, solver, n_runs) in solvers.items():
+        benchmark(
+            key,
+            label,
+            solver,
+            n_runs,
+            args.repeats,
+            args.min_count,
+            args.grid_cache,
+        )
 
 
 def _parse_args():
@@ -248,6 +313,11 @@ def _parse_args():
         action="store_true",
         help="Reuse the compile cache instead of clearing it (for a "
         "fixed source tree across repeated invocations).",
+    )
+    parser.add_argument(
+        "--worker",
+        action="store_true",
+        help="Serve solve blocks over stdin/stdout for ab_gate.py.",
     )
     return parser.parse_args()
 

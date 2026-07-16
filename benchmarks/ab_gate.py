@@ -1,60 +1,54 @@
 #!/usr/bin/env python
-"""Interleaved A/B kernel-runtime gate: ``main`` vs the active worktree.
+"""Block-interleaved A/B kernel-runtime gate: ``main`` vs the worktree.
 
-For each installed CUDA backend the gate runs ``lorenz_mean_runtime.py``
-several times, interleaving the A (``main``) and B (working-tree) sides
-in a drift-balancing ABBA order, and compares the mean-of-lowest-``k``
-kernel time each run reports.
+For each installed CUDA backend the gate starts two persistent
+``lorenz_mean_runtime.py --worker`` processes — A imports ``cubie``
+from an ephemeral ``git worktree`` at ``--main`` (default
+``origin/main``; removed afterwards), B from this repository — and
+ping-pongs short solve blocks between them in a drift-balancing ABBA
+order. Each block's statistic is the mean of its lowest ``k``
+per-solve kernel times (CUDA events, kernel only); the two blocks of
+an ABBA pair ran back to back, so the verdict statistic is the
+median of the paired percent deltas.
 
-Why interleave: the per-run statistic is precise, but the GPU's floor
-drifts upward as it warms (measured ~0.8% over back-to-back runs of
-the adaptive config). Running all of A then all of B turns that drift
-into a false regression on the later side; ABBA places each side at a
-balanced point in time so the drift cancels in the side medians. One
-throwaway warm-up run per side absorbs the cold-start transient and
-the compile cost.
-
-The input grid is written to disk once and shared across sides; each
-side keeps its own compile cache directory, so only the warm-up runs
-compile.
-
-The only input is the current worktree: A is an ephemeral ``git
-worktree`` at ``--main`` (default ``origin/main``; removed afterwards),
-B is this repository. Both sides run this repository's benchmark
-script but import ``cubie`` from their own ``src`` via ``PYTHONPATH``.
+Why blocks: the floor of the kernel-time distribution tracks the
+compiled kernel's intrinsic cost but wanders a few tenths of a
+percent with GPU clock state. The blocks of a pair run seconds
+apart, so they sample nearly the same clock state and the wander
+cancels inside each pair — and each side pays its process startup,
+JIT compile, and grid build once instead of once per sample. Rows
+whose block floors spread more than twice the threshold within one
+side are marked NOISY: rerun with more ``--pairs`` or on a quieter
+GPU.
+Constant background load inflates absolute times but cancels out of
+the deltas. Both workers hold their device pools concurrently, which
+is fine at the default sizes (~0.7 GB each); much larger ``--n-runs``
+could change chunking between sides.
 
 Usage::
 
     python benchmarks/ab_gate.py [--main REF] [--backends numba-cuda,mlir]
-        [--repeats M] [--min-count K] [--pairs P] [--warmup-repeats W]
+        [--block-solves N] [--pairs P] [--min-count K]
         [--threshold PCT] [--n-runs N] [--calibrate] [--keep]
 
-The defaults assume a quiet GPU and take ~4 minutes for two backends
-(A-vs-A null <=0.16% on the reference RTX 4070 SUPER; the 0.50%
-threshold is ~3x that). Background GPU load widens the per-run
-spread; rows whose within-side spread exceeds twice the threshold
-are marked NOISY — rerun those with ``--pairs 4 --repeats 300``
-(quadratic-drift cancellation and a longer floor-sampling window) or
-quiet the machine. ``--calibrate`` points B at ``main`` too (A-vs-A);
-rerun it a few times to measure this machine's null |delta| and set
-``--threshold`` to two to three times the worst of it. Exit status is
-non-zero if any config regresses past ``--threshold``.
+``--calibrate`` points B at ``main`` too (A-vs-A); rerun it a few
+times to measure this machine's null |delta| and set ``--threshold``
+to two to three times the worst of it. Exit status is non-zero if any
+config regresses past ``--threshold``.
 """
 import argparse
 import importlib.util
 import os
-import re
 import shutil
 import statistics
 import subprocess
 import sys
 import tempfile
-from collections import defaultdict
+import time
 from pathlib import Path
 
 REPO = Path(__file__).resolve().parent.parent
 BENCH = Path(__file__).resolve().parent / "lorenz_mean_runtime.py"
-RESULT_RE = re.compile(r"^RESULT (\S+) ([\d.]+)")
 
 # label -> (importable spec, CUBIE_CUDA_BACKEND value)
 BACKENDS = {
@@ -71,34 +65,63 @@ def installed_backends():
     ]
 
 
-def run_side(tree, backend, cache_dir, grid_dir, args, repeats=None):
-    """Run one benchmark invocation; return {config_key: ms}."""
+def start_worker(tree, backend, cache_dir, grid_dir, args):
+    """Start one persistent benchmark worker; return the process."""
     env = dict(os.environ)
     env["PYTHONPATH"] = str(Path(tree) / "src")
     env["CUBIE_CUDA_BACKEND"] = BACKENDS[backend][1]
     env["CUBIE_CACHE_DIR"] = str(cache_dir)
-    cmd = [sys.executable, str(BENCH),
-           "--repeats", str(repeats or args.repeats),
-           "--min-count", str(args.min_count),
+    cmd = [sys.executable, str(BENCH), "--worker",
            "--grid-cache", str(grid_dir), "--no-clear-cache"]
     if args.n_runs is not None:
         cmd.append(str(args.n_runs))
-    proc = subprocess.run(
-        cmd, env=env, cwd=str(tree), capture_output=True, text=True,
+    return subprocess.Popen(
+        cmd, env=env, cwd=str(tree), stdin=subprocess.PIPE,
+        stdout=subprocess.PIPE, text=True, bufsize=1,
     )
-    out = {}
-    for line in proc.stdout.splitlines():
-        m = RESULT_RE.match(line.strip())
-        if m:
-            out[m.group(1)] = float(m.group(2))
-    if proc.returncode != 0 or not out:
-        sys.stderr.write(proc.stdout)
-        sys.stderr.write(proc.stderr)
+
+
+def read_reply(proc, prefix, side):
+    """Read worker stdout lines until one starts with ``prefix``."""
+    while True:
+        line = proc.stdout.readline()
+        if not line:
+            raise SystemExit(
+                f"worker {side} exited (code {proc.poll()})"
+            )
+        line = line.strip()
+        if line.startswith(prefix):
+            return line
+
+
+def run_block(proc, side, key, count):
+    """Ask one worker for ``count`` solves; return per-solve ms."""
+    try:
+        proc.stdin.write(f"run {key} {count}\n")
+        proc.stdin.flush()
+    except OSError:
         raise SystemExit(
-            f"benchmark exited {proc.returncode} with {len(out)} "
-            f"RESULT line(s) for {backend} in {tree}"
+            f"worker {side} pipe closed (exit {proc.poll()})"
         )
-    return out
+    reply = read_reply(proc, "@TIMES ", side).split()
+    if reply[1] != key:
+        raise SystemExit(
+            f"worker {side} answered for {reply[1]!r}, "
+            f"expected {key!r}"
+        )
+    return [float(v) for v in reply[2:]]
+
+
+def stop_worker(proc):
+    try:
+        proc.stdin.write("quit\n")
+        proc.stdin.flush()
+    except OSError:
+        pass
+    try:
+        proc.wait(timeout=60)
+    except subprocess.TimeoutExpired:
+        proc.kill()
 
 
 def add_main_worktree(main_ref):
@@ -134,40 +157,69 @@ def abba_order(pairs):
 
 
 def run_backend(backend, main_tree, b_tree, base, args):
-    """Interleaved A/B for one backend; return list of result rows."""
+    """Block-interleaved A/B for one backend; return result rows."""
     grid_dir = base / "grid"
-    sides = {
-        "A": (main_tree, base / f"A_{backend}"),
-        "B": (b_tree, base / f"B_{backend}"),
-    }
+    workers = {}
+    try:
+        for side, tree in (("A", main_tree), ("B", b_tree)):
+            workers[side] = start_worker(
+                tree, backend, base / f"{side}_{backend}", grid_dir,
+                args)
+        ready = {}
+        for side in ("A", "B"):
+            ready[side] = read_reply(
+                workers[side], "@READY", side).split()[1:]
+            print(f"[{backend}] {side} ready", file=sys.stderr)
+        if ready["A"] != ready["B"]:
+            raise SystemExit(
+                f"config keys differ between sides: "
+                f"A={ready['A']} B={ready['B']}"
+            )
+        keys = ready["A"]
 
-    def invoke(side, note="", repeats=None):
-        print(f"[{backend}] {side}{note}", file=sys.stderr)
-        tree, cache_dir = sides[side]
-        return run_side(tree, backend, cache_dir, grid_dir, args,
-                        repeats)
+        def block(side, store=None):
+            for key in keys:
+                vals = run_block(workers[side], side, key,
+                                 args.block_solves)
+                if store is not None:
+                    store[side][key].append(vals)
+            # Idle gap: without it the GPU sits pinned at its power
+            # limit and the kernel-time floor dithers block to block;
+            # a rest lets it re-enter the repeatable boost state.
+            time.sleep(args.gap)
 
-    # Throwaway warm-ups: fill the grid cache and both compile caches
-    # so no measured run pays a compile, and put some load on the GPU
-    # so measurement starts past the steepest warm-up drift.
-    invoke("A", " (warm-up)", args.warmup_repeats)
-    invoke("B", " (warm-up)", args.warmup_repeats)
-    collected = {"A": defaultdict(list), "B": defaultdict(list)}
-    for side in abba_order(args.pairs):
-        for key, val in invoke(side).items():
-            collected[side][key].append(val)
+        # One throwaway ABBA round rides out the post-setup ramp.
+        for side in ("A", "B", "B", "A"):
+            block(side)
+        order = abba_order(args.pairs)
+        print(f"[{backend}] measuring {''.join(order)}",
+              file=sys.stderr)
+        collected = {s: {k: [] for k in keys} for s in ("A", "B")}
+        for side in order:
+            block(side, collected)
+    finally:
+        for proc in workers.values():
+            stop_worker(proc)
 
-    if set(collected["A"]) != set(collected["B"]):
-        raise SystemExit(
-            f"config keys differ between sides: "
-            f"A={sorted(collected['A'])} B={sorted(collected['B'])}"
-        )
     rows = []
-    for key in sorted(collected["A"]):
-        a_vals, b_vals = collected["A"][key], collected["B"][key]
-        a = statistics.median(a_vals)
-        b = statistics.median(b_vals)
-        delta = 100.0 * (b - a) / a
+    for key in keys:
+        floors = {
+            side: [
+                statistics.fmean(sorted(blk)[:args.min_count])
+                for blk in collected[side][key]
+            ]
+            for side in ("A", "B")
+        }
+        a_floors, b_floors = floors["A"], floors["B"]
+        a = statistics.fmean(a_floors)
+        b = statistics.fmean(b_floors)
+        # The i-th A and B blocks ran back to back (one ABBA pair),
+        # so they share clock state; the median paired delta cancels
+        # wander that survives in the side means.
+        delta = statistics.median(
+            100.0 * (bf - af) / af
+            for af, bf in zip(a_floors, b_floors)
+        )
         if delta > args.threshold:
             verdict = "REGRESSION"
         elif delta < -args.threshold:
@@ -175,13 +227,13 @@ def run_backend(backend, main_tree, b_tree, base, args):
         else:
             verdict = "ok"
         spread = 100.0 * max(
-            (max(v) - min(v)) / statistics.median(v)
-            for v in (a_vals, b_vals)
+            (max(f) - min(f)) / statistics.median(f)
+            for f in (a_floors, b_floors)
         )
         if spread > 2.0 * args.threshold:
             verdict += " NOISY"
-        rows.append((backend, key, a, b, delta, verdict,
-                     a_vals, b_vals))
+        rows.append((backend, key, a, b, delta, verdict, a_floors,
+                     b_floors))
     return rows
 
 
@@ -193,25 +245,25 @@ def main():
     parser.add_argument("--backends", default=None,
                         help="Comma-separated subset of: "
                              + ", ".join(BACKENDS))
-    parser.add_argument("--repeats", type=int, default=100,
-                        help="Solves per invocation (default 100; "
-                             "raise to 300 on a noisy GPU so the "
-                             "floor can sample quiet gaps).")
-    parser.add_argument("--min-count", type=int, default=5)
-    parser.add_argument("--warmup-repeats", type=int, default=25,
-                        help="Solves per warm-up invocation; the "
-                             "warm-up mainly exists to compile and "
-                             "fill caches.")
-    parser.add_argument("--pairs", type=int, default=2,
-                        help="A/B pairs per backend (default 2, one "
-                             "ABBA block); multiples of 4 also cancel "
-                             "quadratic drift on a noisy GPU.")
+    parser.add_argument("--block-solves", type=int, default=25,
+                        help="Solves per block per config.")
+    parser.add_argument("--pairs", type=int, default=4,
+                        help="A/B block pairs per backend; even "
+                             "cancels linear drift, multiples of 4 "
+                             "also quadratic.")
+    parser.add_argument("--min-count", type=int, default=5,
+                        help="Lowest per-solve kernel times averaged "
+                             "into each block's statistic.")
+    parser.add_argument("--gap", type=float, default=2.5,
+                        help="Idle seconds after each block so the "
+                             "GPU re-enters its repeatable boost "
+                             "state instead of power-limit dither.")
     parser.add_argument("--n-runs", type=int, default=None,
                         help="Trajectory count for both configs "
                              "(small values smoke-test the harness).")
     parser.add_argument("--threshold", type=float, default=0.50,
-                        help="Regression threshold in percent (about "
-                             "twice the calibrated null).")
+                        help="Regression threshold in percent (two "
+                             "to three times the calibrated null).")
     parser.add_argument("--calibrate", action="store_true",
                         help="Point B at main too (A-vs-A null).")
     parser.add_argument("--keep", action="store_true",
@@ -241,8 +293,8 @@ def main():
     b_label = args.main if args.calibrate else f"{branch} (working tree)"
     print(f"A = {args.main} ({a_sha})   B = {b_label}   "
           f"backends: {', '.join(backends)}   "
-          f"({args.repeats} solves x {args.pairs} runs/side + warm-ups)"
-          f"\n")
+          f"({args.pairs} block pairs x {args.block_solves} "
+          f"solves/block/side)\n")
 
     main_tree = add_main_worktree(args.main)
     base = Path(tempfile.mkdtemp(prefix="cubie_abgate_"))
@@ -268,9 +320,9 @@ def main():
     print(f"\nGATE: {'REGRESSION' if regressed else 'PASS'} "
           f"(threshold {args.threshold:.2f}%)")
     if noisy:
-        print("NOISY = within-side spread exceeds twice the "
-              "threshold; rerun with --pairs 4 --repeats 300 on a "
-              "quieter GPU.")
+        print("NOISY = within-side block-floor spread exceeds twice "
+              "the threshold; rerun with more --pairs on a quieter "
+              "GPU.")
     return 1 if regressed else 0
 
 
