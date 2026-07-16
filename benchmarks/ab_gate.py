@@ -1,0 +1,212 @@
+#!/usr/bin/env python
+"""Interleaved A/B kernel-runtime gate: ``main`` vs the active worktree.
+
+For each installed CUDA backend the gate runs ``lorenz_mean_runtime.py``
+several times, interleaving the A (``main``) and B (working-tree) sides
+in a drift-balancing ABBA order, and compares the mean-of-lowest-``k``
+kernel time each run reports.
+
+Why interleave: the per-run statistic is very precise, but the GPU's
+floor drifts monotonically as it warms (measured ~0.8% over a run of
+back-to-back invocations for the adaptive config). Running all of A then
+all of B turns that drift into a false regression on the later side; an
+ABBA order places each side at a balanced point in time so the drift
+cancels in the side medians. A throwaway warm-up run first absorbs the
+cold-start transient.
+
+Cost is kept down by your suggestions: the input grid is cached to disk
+(shared across sides) and each side keeps its own persistent compile
+cache directory, so only the first invocation per side compiles.
+
+The only input is the current worktree: A is an ephemeral ``git
+worktree`` at ``main`` (removed afterwards), B is this repository. Both
+import ``cubie`` from their own ``src`` via ``PYTHONPATH``.
+
+Usage::
+
+    python benchmarks/ab_gate.py [--main REF] [--backends numba-cuda,mlir]
+        [--repeats M] [--min-count K] [--pairs P] [--threshold PCT]
+        [--calibrate] [--keep]
+
+``--calibrate`` points B at ``main`` too (A-vs-A); rerun it a few times
+to measure this machine's null |delta| and set ``--threshold`` from it.
+Exit status is non-zero if any config regresses past ``--threshold``
+(default 0.20%).
+"""
+import argparse
+import importlib.util
+import os
+import re
+import shutil
+import statistics
+import subprocess
+import sys
+import tempfile
+from collections import defaultdict
+from pathlib import Path
+
+REPO = Path(__file__).resolve().parent.parent
+BENCH = Path(__file__).resolve().parent / "lorenz_mean_runtime.py"
+RESULT_RE = re.compile(r"^RESULT (\S+) ([\d.]+)")
+
+# label -> (importable spec, CUBIE_CUDA_BACKEND value)
+BACKENDS = {
+    "numba-cuda": ("numba.cuda", "numba-cuda"),
+    "mlir": ("numba_cuda_mlir", "mlir"),
+}
+
+
+def installed_backends():
+    return [
+        label
+        for label, (spec, _) in BACKENDS.items()
+        if importlib.util.find_spec(spec) is not None
+    ]
+
+
+def run_side(tree, backend, cache_dir, grid_dir, repeats, min_count):
+    """Run one benchmark invocation; return {config_key: ms}."""
+    env = dict(os.environ)
+    env["PYTHONPATH"] = str(Path(tree) / "src")
+    env["CUBIE_CUDA_BACKEND"] = BACKENDS[backend][1]
+    env["CUBIE_CACHE_DIR"] = str(cache_dir)
+    proc = subprocess.run(
+        [sys.executable, str(BENCH),
+         "--repeats", str(repeats), "--min-count", str(min_count),
+         "--grid-cache", str(grid_dir), "--no-clear-cache"],
+        env=env, cwd=str(tree), capture_output=True, text=True,
+    )
+    out = {}
+    for line in proc.stdout.splitlines():
+        m = RESULT_RE.match(line.strip())
+        if m:
+            out[m.group(1)] = float(m.group(2))
+    if not out:
+        sys.stderr.write(proc.stdout)
+        sys.stderr.write(proc.stderr)
+        raise SystemExit(f"no RESULT from {backend} in {tree}")
+    return out
+
+
+def add_main_worktree(main_ref):
+    tree = Path(tempfile.mkdtemp(prefix="cubie_main_"))
+    subprocess.run(
+        ["git", "-C", str(REPO), "worktree", "add", "--detach",
+         str(tree), main_ref],
+        check=True,
+    )
+    return tree
+
+
+def remove_worktree(tree):
+    subprocess.run(
+        ["git", "-C", str(REPO), "worktree", "remove", "--force",
+         str(tree)],
+        check=False,
+    )
+
+
+def abba_order(pairs):
+    """Side sequence balancing time between A and B (ABBA...)."""
+    seq = []
+    for i in range(pairs):
+        seq.extend(("A", "B") if i % 2 == 0 else ("B", "A"))
+    return seq
+
+
+def run_backend(backend, main_tree, b_tree, base, args):
+    """Interleaved A/B for one backend; return list of result rows."""
+    grid_dir = base / "grid"
+    sides = {
+        "A": (main_tree, base / f"A_{backend}"),
+        "B": (b_tree, base / f"B_{backend}"),
+    }
+
+    def invoke(side):
+        tree, cache_dir = sides[side]
+        return run_side(tree, backend, cache_dir, grid_dir,
+                        args.repeats, args.min_count)
+
+    invoke("A")  # throwaway warm-up: heats GPU, fills grid + A cache
+    collected = {"A": defaultdict(list), "B": defaultdict(list)}
+    for side in abba_order(args.pairs):
+        for key, val in invoke(side).items():
+            collected[side][key].append(val)
+
+    rows = []
+    for key in collected["A"]:
+        a = statistics.median(collected["A"][key])
+        b = statistics.median(collected["B"][key])
+        delta = 100.0 * (b - a) / a
+        if delta > args.threshold:
+            verdict = "REGRESSION"
+        elif delta < -args.threshold:
+            verdict = "improvement"
+        else:
+            verdict = "ok"
+        rows.append((backend, key, a, b, delta, verdict,
+                     collected["A"][key], collected["B"][key]))
+    return rows
+
+
+def main():
+    parser = argparse.ArgumentParser(description=__doc__)
+    parser.add_argument("--main", default="main")
+    parser.add_argument("--backends", default=None)
+    parser.add_argument("--repeats", type=int, default=300,
+                        help="Solves per invocation (default 300).")
+    parser.add_argument("--min-count", type=int, default=5)
+    parser.add_argument("--pairs", type=int, default=2,
+                        help="A/B pairs per backend; even is balanced.")
+    parser.add_argument("--threshold", type=float, default=0.20,
+                        help="Regression threshold in percent.")
+    parser.add_argument("--calibrate", action="store_true",
+                        help="Point B at main too (A-vs-A null).")
+    parser.add_argument("--keep", action="store_true",
+                        help="Keep the ephemeral main tree and caches.")
+    args = parser.parse_args()
+
+    backends = installed_backends()
+    if args.backends:
+        wanted = [b.strip() for b in args.backends.split(",")]
+        backends = [b for b in wanted if b in backends]
+    if not backends:
+        raise SystemExit("no requested CUDA backend is installed")
+
+    branch = subprocess.run(
+        ["git", "-C", str(REPO), "rev-parse", "--abbrev-ref", "HEAD"],
+        capture_output=True, text=True,
+    ).stdout.strip()
+    b_label = args.main if args.calibrate else f"{branch} (working tree)"
+    print(f"A = {args.main}   B = {b_label}   "
+          f"backends: {', '.join(backends)}   "
+          f"({args.repeats} solves x {2 * args.pairs} runs/side + warm-up)"
+          f"\n")
+
+    main_tree = add_main_worktree(args.main)
+    base = Path(tempfile.mkdtemp(prefix="cubie_abgate_"))
+    b_tree = main_tree if args.calibrate else REPO
+    regressed = False
+    try:
+        for backend in backends:
+            for row in run_backend(backend, main_tree, b_tree, base,
+                                   args):
+                bk, key, a, b, delta, verdict, av, bv = row
+                if verdict == "REGRESSION":
+                    regressed = True
+                spread = (f"  [A {min(av):.3f}-{max(av):.3f} "
+                          f"B {min(bv):.3f}-{max(bv):.3f}]")
+                print(f"{bk:<11}{key:<10}A {a:8.3f}  B {b:8.3f}  "
+                      f"{delta:+6.2f}%  {verdict}{spread}")
+    finally:
+        if not args.keep:
+            remove_worktree(main_tree)
+            shutil.rmtree(base, ignore_errors=True)
+
+    print(f"\nGATE: {'REGRESSION' if regressed else 'PASS'} "
+          f"(threshold {args.threshold:.2f}%)")
+    return 1 if regressed else 0
+
+
+if __name__ == "__main__":
+    raise SystemExit(main())

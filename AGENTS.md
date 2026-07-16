@@ -58,18 +58,21 @@ change — the full suite is slow (run it as a pre-commit check only, and only w
   `docs`, `chore`.
 - **Agents:** every fix or feature is developed on its own branch off `main`. When the work is
   done and verified, commit, push the branch, and open a PR.
-- **Performance gate (every PR):** run `benchmarks/lorenz_mean_runtime.py` A/B on **both CUDA
-  backends** — A on `main`, B on the PR branch (e.g. via `PYTHONPATH=<tree>/src`) — keeping the
-  backend fixed across A and B, and include a separate results table for each backend in the PR
-  message. Select the backend with the `CUBIE_CUDA_BACKEND` environment variable: unset (or
-  `numba-cuda`) benchmarks stock numba-cuda, `mlir` benchmarks numba-cuda-mlir (both must be
-  installed in the venv). Script defaults are the gate settings. The script outputs kernel
-  runtime only (CUDA-event); one invocation per side suffices — means repeat to ~0.1% — but an
-  invocation where a config's std exceeds ~5% of its mean was contaminated by outside
-  interference: discard it and rerun. For each backend, run A (`main`) first, then pass A's
-  printed mean/std to the B run via `--ref-fixed MEAN STD --ref-adaptive MEAN STD`; the script
-  prints a Welch z per config and the verdict (`|z| >= 3` = the means differ; positive z on the
-  PR branch = regression).
+- **Performance gate (every PR):** run `python benchmarks/ab_gate.py` and paste its table into
+  the PR message. It compares A (`main`, added as an ephemeral `git worktree`) against B (the
+  working tree) for **every installed CUDA backend** in one command — no manual `PYTHONPATH` or
+  backend juggling; both `numba-cuda` and `numba-cuda-mlir` must be installed in the venv, and it
+  iterates whichever are present (`CUBIE_CUDA_BACKEND` still forces a single backend for a manual
+  `lorenz_mean_runtime.py` run). The gate metric is the **mean of the lowest `k` per-solve kernel
+  times** (CUDA-event, kernel-only): the fastest solves ran at full boost clock with no on-GPU
+  contention, so they track the kernel's intrinsic cost and barely drift, where the mean is pulled
+  around by a thermal/contention upper tail. Because the floor itself drifts up as the GPU warms,
+  the driver **interleaves A/B in ABBA order** (so the drift cancels in the per-side medians) after
+  a throwaway warm-up run, and reuses a cached grid + per-side compile cache to stay fast. It
+  prints per backend and config the A and B medians, the percent delta, and a verdict against
+  `--threshold` (default 0.20%); positive delta on B = regression, and it exits non-zero if any
+  config regresses. Calibrate the threshold on the gate machine with `--calibrate` (points B at
+  `main` too and measures the A-vs-A null); tune `--repeats`/`--pairs` for more samples.
 - ** Any changes left uncommitted or unstaged will be programatically deleted **. The only place to
   store work is in a branch off origin, pushed to main, with a PR open. PRs are the only format
   reviewed by the user. Don't leave PRs draft, they must be marked ready and reviewed by Greptile
