@@ -75,6 +75,7 @@ from cubie.cuda_simsafe import (
     CUDA_SIMULATION,
     Stream,
     cupy,
+    cupyx,
     current_mem_info,
 )
 from cubie.memory.stream_groups import StreamGroups
@@ -358,12 +359,16 @@ def _pinned_host_array(shape: Tuple[int, ...], dtype: type) -> ndarray:
     Notes
     -----
     Pinned memory enables asynchronous host/device transfers. On a
-    real GPU this uses Numba's ``cuda.pinned_array``; the CUDA simulator
-    has no device to transfer to, so a plain NumPy array is used instead.
+    real GPU the array comes from CuPy's pinned-memory pool: releases
+    return the block to the pool on the host side, whereas a driver
+    ``cuMemFreeHost`` synchronizes the whole device, stalling
+    unrelated streams whenever Numba's deferred-deallocation queue
+    flushes. The CUDA simulator has no device to transfer to, so a
+    plain NumPy array is used instead.
     """
     if CUDA_SIMULATION:  # pragma: no cover - simulated
         return np_empty(shape, dtype=dtype)
-    return cuda.pinned_array(shape, dtype=dtype)
+    return cupyx.empty_pinned(shape, dtype=dtype)
 
 
 # These will be keys to a dict, so must be hashable: eq=False

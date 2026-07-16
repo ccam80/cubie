@@ -14,8 +14,10 @@ from tests._utils import _build_solver_instance
 if not CUDA_SIMULATION:
     @cuda.jit
     def _busy_kernel(out):
+        # Sized to outlast a solver close by a wide margin on a warm
+        # GPU (~5 s) so the not-yet-done canary assertions hold.
         value = 0.0
-        for _ in range(20_000_000):
+        for _ in range(100_000_000):
             value += 1.0
         out[0] = value
 
