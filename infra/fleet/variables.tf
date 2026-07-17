@@ -46,3 +46,20 @@ variable "public_subnet_ids" {
   description = "Public subnet IDs in vpc_id used for the Fargate worker and runner instances."
   type        = list(string)
 }
+
+variable "public_route_table_id" {
+  description = "Route table with the VPC's internet-gateway route; the extra public subnet associates with it."
+  type        = string
+}
+
+variable "extra_public_subnet_cidr" {
+  description = "CIDR for the additional public subnet this stack creates to widen GPU spot pools."
+  type        = string
+  default     = "10.1.32.0/20"
+}
+
+variable "extra_public_subnet_az" {
+  description = "Availability zone for the additional public subnet."
+  type        = string
+  default     = "ap-southeast-2c"
+}

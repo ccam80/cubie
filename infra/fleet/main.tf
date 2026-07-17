@@ -78,6 +78,29 @@ locals {
   }
 }
 
+# Third-AZ public subnet for the runners. The reused Flex VPC only has
+# public subnets in ap-southeast-2a/2b, but g4dn/g5/g6 2xlarge are all
+# offered in 2c (and 2c is the only other AZ with g5 at all), so this
+# subnet widens the spot pools from 5 to 8 -- GPU spot capacity in this
+# region is thin enough at 8 vCPU that the extra pools matter.
+resource "aws_subnet" "public_extra" {
+  vpc_id                  = var.vpc_id
+  cidr_block              = var.extra_public_subnet_cidr
+  availability_zone       = var.extra_public_subnet_az
+  map_public_ip_on_launch = true
+
+  tags = {
+    Name    = "${var.stack_name}-public-${var.extra_public_subnet_az}"
+    stack   = var.stack_name
+    project = "cubie"
+  }
+}
+
+resource "aws_route_table_association" "public_extra" {
+  subnet_id      = aws_subnet.public_extra.id
+  route_table_id = var.public_route_table_id
+}
+
 module "runs_on_fleet" {
   source  = "runs-on/runs-on/aws//modules/fleet"
   version = "3.1.3"
@@ -97,8 +120,11 @@ module "runs_on_fleet" {
   runners = local.runners
   fleets  = local.fleets
 
-  vpc_id            = var.vpc_id
-  public_subnet_ids = var.public_subnet_ids
+  vpc_id = var.vpc_id
+  public_subnet_ids = concat(
+    var.public_subnet_ids,
+    [aws_subnet.public_extra.id],
+  )
 
   # CI runs three times a week; fargate_spot keeps the always-on Fleet
   # worker's idle cost down, and the Fleet runtime reconciles any
