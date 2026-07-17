@@ -59,16 +59,18 @@ locals {
         "g4dn.2xlarge", "g5.2xlarge", "g6.2xlarge",
         "g4dn.xlarge", "g5.xlarge", "g6.xlarge",
       ]
-      image = "ubuntu24-gpu-x64"
-      spot  = "price-capacity-optimized"
+      image  = "ubuntu24-gpu-x64"
+      spot   = "price-capacity-optimized"
+      extras = ["s3-cache"]
     }
     gpu-windows-2xl = {
       family = [
         "g4dn.2xlarge", "g5.2xlarge", "g6.2xlarge",
         "g4dn.xlarge", "g5.xlarge", "g6.xlarge",
       ]
-      image = "cubie-win-gpu"
-      spot  = "price-capacity-optimized"
+      image  = "cubie-win-gpu"
+      spot   = "price-capacity-optimized"
+      extras = ["s3-cache"]
     }
   }
 

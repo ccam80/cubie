@@ -79,10 +79,19 @@ jobs:
       - name: GPU sanity check
         run: nvidia-smi
 
+      # uv resolves and installs several times faster than pip, and its
+      # wheel cache rides the runner's S3-backed actions/cache (the
+      # s3-cache extra in infra/fleet), so the multi-GB nvidia-*/cupy
+      # wheels download once per leg flavour, not once per run.
+      - name: Set up uv
+        uses: astral-sh/setup-uv@v7
+        with:
+          enable-cache: true
+          cache-suffix: ${{ matrix.os }}-py${{ matrix.python-version }}-cuda${{ matrix.cuda }}
+          cache-dependency-glob: pyproject.toml
+
       - name: Install cubie (${{ matrix.extra }})
-        run: |
-          python -m pip install --upgrade pip
-          python -m pip install -e ".[${{ matrix.extra }}]"
+        run: uv pip install --system -e ".[${{ matrix.extra }}]"
 
       - name: Lint with flake8
         run: flake8 . --count --select=E9,F63,F7,F82 --show-source --statistics
