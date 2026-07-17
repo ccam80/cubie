@@ -649,6 +649,7 @@ def newton_solve(
                 state = trial_state
                 residual = trial_residual
                 norm2_prev = trial_norm2
+                converged = trial_norm2 <= typed_one
                 if linear_converged and scale == typed_one:
                     norm2_dz_next = norm2_dz
                 break

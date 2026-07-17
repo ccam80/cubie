@@ -11,8 +11,14 @@ from tests.integrators.cpu_reference.cpu_utils import DriverEvaluator, newton_so
         ("zero", 3.0, 1e-6, 0.0, 4, True, 0),
         ("stalled", 1e8, 1.0, 1.0, 2, False, 2),
         ("small", 1e8, 1e8, 0.0, 2, False, 2),
+        ("residual", 0.0, 1e-6, 0.0, 4, True, 1),
     ],
-    ids=("zero-residual", "noncontracting", "small-update"),
+    ids=(
+        "zero-residual",
+        "noncontracting",
+        "small-update",
+        "accepted-residual",
+    ),
 )
 def test_cpu_newton_convergence_edges(
     mode,
@@ -23,12 +29,14 @@ def test_cpu_newton_convergence_edges(
     expected_converged,
     expected_iters,
 ):
-    """Newton handles solved, stalled, and small-update cases."""
+    """Newton reports exact convergence iterations."""
     precision = np.float32
 
     def residual(state):
         if mode == "zero":
             return np.zeros_like(state)
+        if mode == "residual":
+            return precision(4.0) - state
         return precision(2e9) - state
 
     def jacobian(state):
@@ -39,6 +47,8 @@ def test_cpu_newton_convergence_edges(
             step = precision(10000.0) - precision(1e-5) * (
                 state[0] - precision(1e8)
             )
+        elif mode == "residual":
+            step = precision(4.0)
         return np.array([[step]], dtype=precision)
 
     def linear_solver(operator, rhs, **kwargs):
@@ -62,6 +72,8 @@ def test_cpu_newton_convergence_edges(
     assert iterations == expected_iters
     if mode == "zero":
         np.testing.assert_array_equal(result, initial_state)
+    elif mode == "residual":
+        np.testing.assert_array_equal(result, np.array([4.0], dtype=precision))
     else:
         scale = precision(atol) + precision(rtol) * abs(result[0])
         assert abs(residual(result)[0]) / scale > precision(1.0)

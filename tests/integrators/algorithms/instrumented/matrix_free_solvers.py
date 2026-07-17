@@ -779,6 +779,9 @@ class InstrumentedNewtonKrylov(NewtonKrylov):
                     norm2_prev = selp(
                         accept_trial, trial_norm2, norm2_prev
                     )
+                    converged = converged | (
+                        accept_trial & (trial_norm2 <= typed_one)
+                    )
                     accepted_alpha = selp(
                         accept_trial, alpha, accepted_alpha
                     )

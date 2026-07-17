@@ -135,8 +135,14 @@ def test_newton_krylov_placeholder(placeholder_system, precision, tolerance):
             CUBIE_RESULT_CODES.MAX_NEWTON_ITERATIONS_EXCEEDED,
             2,
         ),
+        ("residual", 0.0, 1e-6, 0.0, 4, CUBIE_RESULT_CODES.SUCCESS, 1),
     ],
-    ids=("zero-residual", "noncontracting", "small-update"),
+    ids=(
+        "zero-residual",
+        "noncontracting",
+        "small-update",
+        "accepted-residual",
+    ),
 )
 def test_newton_krylov_convergence_edges(
     mode,
@@ -147,13 +153,15 @@ def test_newton_krylov_convergence_edges(
     expected_status,
     expected_count,
 ):
-    """Newton handles solved, stalled, and small-update cases."""
+    """Newton reports exact convergence iterations."""
     precision = np.float32
 
     @cuda.jit(device=True)
     def residual(state, parameters, drivers, t, h, a_ij, base_state, out):
         if mode == "zero":
             out[0] = precision(0.0)
+        elif mode == "residual":
+            out[0] = precision(4.0) - state[0]
         else:
             out[0] = precision(2e9) - state[0]
 
@@ -169,7 +177,9 @@ def test_newton_krylov_convergence_edges(
                 state[0] - precision(1e8)
             )
         coefficient = precision(1.0)
-        if mode != "zero":
+        if mode == "residual":
+            coefficient = precision(-1.0)
+        elif mode != "zero":
             coefficient = (state[0] - precision(2e9)) / step
         out[0] = coefficient * vec[0]
 
@@ -238,6 +248,8 @@ def test_newton_krylov_convergence_edges(
     assert int(count.copy_to_host()[0]) == expected_count
     if mode == "zero":
         assert result == precision(initial)
+    elif mode == "residual":
+        assert result == precision(4.0)
     else:
         scale = precision(atol) + precision(rtol) * abs(result)
         assert abs(precision(2e9) - result) / scale > precision(1.0)
@@ -333,7 +345,7 @@ def test_newton_krylov_warp_keeps_full_step_history(precision):
 
     results = states.copy_to_host()
     assert np.all(statuses.copy_to_host() == CUBIE_RESULT_CODES.SUCCESS)
-    assert np.array_equal(counts.copy_to_host(), np.array([2, 3]))
+    assert np.array_equal(counts.copy_to_host(), np.array([1, 3]))
     assert results[0] == precision(0.0)
     assert abs(results[1] * results[1] - precision(1.0)) <= precision(0.01)
 

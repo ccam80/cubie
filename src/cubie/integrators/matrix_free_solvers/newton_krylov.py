@@ -517,6 +517,9 @@ class NewtonKrylov(MatrixFreeSolver):
                     norm2_prev = selp(
                         accept_trial, norm2_new, norm2_prev
                     )
+                    converged = converged | (
+                        accept_trial & (norm2_new <= typed_one)
+                    )
                     accepted_alpha = selp(
                         accept_trial, alpha, accepted_alpha
                     )
