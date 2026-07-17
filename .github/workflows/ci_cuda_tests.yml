@@ -34,17 +34,21 @@ jobs:
     name: cuda (${{ matrix.os }}, ${{ matrix.python-version }}, ${{ matrix.cuda }})
     permissions:
       contents: read
-    # max-parallel: 1 runs one 8-vCPU (2xlarge) GPU instance at a time.
-    # Runners are spot-only (ap-southeast-2 has zero On-Demand G/VT
-    # quota, not grantable here) and the "All G and VT Spot" quota is a
-    # fixed 8 vCPU, so a single 2xlarge is the whole quota. The fleet
+    # max-parallel: 1 runs one GPU instance at a time. Runners are
+    # spot-only (ap-southeast-2 has zero On-Demand G/VT quota, not
+    # grantable here) and the "All G and VT Spot" quota is a fixed
+    # 8 vCPU, so a leg gets a 2xlarge (8 vCPU) when that capacity
+    # exists and an xlarge (4 vCPU) otherwise -- ap-southeast-2 is
+    # structurally short of 2xlarge GPU spot (placement score 1/10 vs
+    # 9/10 for xlarge), so xlarge is what usually runs. The fleet
     # runners (infra/fleet) are RunsOn *scale sets*: jobs queue on the
     # GitHub side and instances launch per assigned job, so max-parallel
     # actually spaces the launches -- unlike the old Flex webhook path,
     # where the next serial job's spot request collided with the
     # previous, still-terminating instance and failed the leg. The
     # param-set xdist grouping (tests/conftest.py + --dist=loadgroup in
-    # addopts) keeps thread scaling near-linear across the 8 workers.
+    # addopts) keeps thread scaling near-linear across however many
+    # workers `-n logical` resolves to on the landed size.
     strategy:
       fail-fast: false
       max-parallel: 1

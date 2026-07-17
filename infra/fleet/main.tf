@@ -43,21 +43,32 @@ locals {
     }
   }
 
-  # Runner shapes. 2xlarge = 8 vCPU = the whole G/VT spot quota, so
-  # exactly one runner can exist at any moment; max-parallel: 1 in the
-  # workflow guarantees only one is ever demanded. Three GPU families
-  # (T4/A10G/L4) widen the spot pools to cut capacity misses, and the
-  # single AWS GRID driver package in the baked AMI covers all three.
+  # Runner shapes. Both xlarge (4 vCPU) and 2xlarge (8 vCPU) sizes of
+  # three GPU families (T4/A10G/L4); the single AWS GRID driver package
+  # in the baked AMI covers all of them, and the workflow's
+  # `pytest -n logical` scales the worker count to whichever size a
+  # leg lands on. 2xlarge is preferred but spot placement scores show
+  # ap-southeast-2 is structurally starved of 2xlarge GPU capacity
+  # (score 1/10 vs 9/10 for xlarge), so xlarge keeps the suite running;
+  # price-capacity-optimized allocation will usually pick it. Either
+  # size fits the fixed 8-vCPU G/VT spot quota, and max-parallel: 1 in
+  # the workflow keeps demand to a single instance.
   runners = {
     gpu-linux-2xl = {
-      family = ["g4dn.2xlarge", "g5.2xlarge", "g6.2xlarge"]
-      image  = "ubuntu24-gpu-x64"
-      spot   = "price-capacity-optimized"
+      family = [
+        "g4dn.2xlarge", "g5.2xlarge", "g6.2xlarge",
+        "g4dn.xlarge", "g5.xlarge", "g6.xlarge",
+      ]
+      image = "ubuntu24-gpu-x64"
+      spot  = "price-capacity-optimized"
     }
     gpu-windows-2xl = {
-      family = ["g4dn.2xlarge", "g5.2xlarge", "g6.2xlarge"]
-      image  = "cubie-win-gpu"
-      spot   = "price-capacity-optimized"
+      family = [
+        "g4dn.2xlarge", "g5.2xlarge", "g6.2xlarge",
+        "g4dn.xlarge", "g5.xlarge", "g6.xlarge",
+      ]
+      image = "cubie-win-gpu"
+      spot  = "price-capacity-optimized"
     }
   }
 
