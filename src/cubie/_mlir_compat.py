@@ -72,7 +72,7 @@ picked up when the MLIR target context refreshes its registries.
 These are stop-gaps that belong upstream in numba-cuda-mlir; patch
 branches exist in the ccam80/numba-cuda-mlir fork. The fixes that
 live in numba-cuda-mlir's native (C++) code cannot be patched from
-here at all; those ship prebuilt in the ``numba-cuda-mlir-cubie``
+here at all; those ship prebuilt in the ``cubie-numba-cuda-mlir``
 wheel that the ``mlir*`` extras install (built from the
 ``cubie-wheel`` branch of the fork; see
 ``docs/source/developer_guide/mlir_patched_wheel.rst``). The

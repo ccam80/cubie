@@ -93,8 +93,8 @@ change — the full suite is slow (run it as a pre-commit check only, and only w
 - **Core:** numpy>=2.0, numba, attrs, sympy>=1.13.0. cellmlmanip is vendored under
   `src/cubie/vendored/cellmlmanip` (its `lxml`/`networkx`/`Pint>=0.24`/`rdflib` runtime deps are core).
 - **CUDA backend (installed by extra, so installs stay clean):** `numba-cuda`
-  (`cuda`/`cuda12`/`cuda13` extras) or `numba-cuda-mlir-cubie` (Python >= 3.11;
-  `mlir`/`mlir-cuda12`/`mlir-cuda13` extras). `numba-cuda-mlir-cubie` is cubie's patched
+  (`cuda`/`cuda12`/`cuda13` extras) or `cubie-numba-cuda-mlir` (Python >= 3.11;
+  `mlir`/`mlir-cuda12`/`mlir-cuda13` extras). `cubie-numba-cuda-mlir` is cubie's patched
   build of NVIDIA's numba-cuda-mlir: the same `numba_cuda_mlir` import package plus the
   C-side fixes pending as upstream PRs, built and published from the `cubie-wheel` branch
   of `ccam80/numba-cuda-mlir` (see `docs/source/developer_guide/mlir_patched_wheel.rst`).

@@ -67,7 +67,7 @@ jobs:
 
   mlir-extras-resolve:
     # The mlir extras install cubie's patched backend wheel
-    # (numba-cuda-mlir-cubie, built from the cubie-wheel branch of
+    # (cubie-numba-cuda-mlir, built from the cubie-wheel branch of
     # ccam80/numba-cuda-mlir). This resolve-only check fails while
     # the pinned version is absent from PyPI, so a PR that bumps the
     # extras cannot merge green before the wheels are published.

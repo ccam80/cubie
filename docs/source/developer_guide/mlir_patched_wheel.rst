@@ -2,7 +2,7 @@ The patched MLIR backend wheel
 ==============================
 
 CuBIE's ``mlir``, ``mlir-cuda12``, and ``mlir-cuda13`` extras install
-``numba-cuda-mlir-cubie`` rather than NVIDIA's stock
+``cubie-numba-cuda-mlir`` rather than NVIDIA's stock
 ``numba-cuda-mlir``. This page records what that distribution is, how
 it is built, and how to publish a new build.
 
@@ -22,7 +22,7 @@ CuBIE carries fixes for numba-cuda-mlir in two forms:
   those, so environments that need them must install a rebuilt
   wheel.
 
-``numba-cuda-mlir-cubie`` is that rebuilt wheel: stock
+``cubie-numba-cuda-mlir`` is that rebuilt wheel: stock
 numba-cuda-mlir source plus only the native-code fixes, published
 under a different distribution name because PyPI's
 ``numba-cuda-mlir`` name belongs to NVIDIA and because cubie is
@@ -100,7 +100,7 @@ Publishing a new build
    locally against cubie's real-GPU test suite before publishing.
 4. Run the workflow manually (*Actions → Build cubie wheels → Run
    workflow*) with ``publish`` ticked. Publishing uses PyPI trusted
-   publishing: the ``numba-cuda-mlir-cubie`` project on PyPI must
+   publishing: the ``cubie-numba-cuda-mlir`` project on PyPI must
    list the fork repository, workflow file ``cubie-wheels.yml``, and
    environment ``pypi`` as a trusted publisher.
 
