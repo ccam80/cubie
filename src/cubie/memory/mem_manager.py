@@ -1505,6 +1505,7 @@ class MemoryManager:
         requests: dict[str, ArrayRequest],
         instance_id: int,
         stream: "cuda.cudadrv.driver.Stream",
+        settings: Optional[InstanceMemorySettings] = None,
     ) -> dict[str, object]:
         """
         Allocate multiple arrays based on a dictionary of requests.
@@ -1517,6 +1518,10 @@ class MemoryManager:
             ID of the requesting instance.
         stream
             CUDA stream for the allocations.
+        settings
+            Registration to record the allocations in. Passing it
+            avoids a registry lookup that can fail when the client is
+            garbage collected between queueing and allocation.
 
         Returns
         -------
@@ -1524,7 +1529,9 @@ class MemoryManager:
             Dictionary mapping labels to allocated arrays.
         """
         responses = {}
-        instance_settings = self.registry[instance_id]
+        instance_settings = (
+            settings if settings is not None else self.registry[instance_id]
+        )
         instance_settings.last_stream = stream
         for key, request in requests.items():
             arr = self.allocate(
@@ -1787,8 +1794,13 @@ class MemoryManager:
         )
         notaries = set(peers) - set(queued_requests.keys())
         for instance_id, requests_dict in queued_requests.items():
-            if instance_id not in self.registry:
-                # The client was released while the group was prepared.
+            # Resolve the registration once: a client can be garbage
+            # collected at any allocation, and its finalizer drops the
+            # registry entry mid-loop. The held settings object stays
+            # valid; a dead client's hook is a weak no-op and its
+            # arrays are released with the settings object.
+            settings = self.registry.get(instance_id)
+            if settings is None:
                 continue
             chunked_shapes = self.compute_chunked_shapes(
                 requests_dict,
@@ -1800,7 +1812,10 @@ class MemoryManager:
                 request.shape = chunked_shapes[key]
 
             arrays = self.allocate_all(
-                chunked_requests, instance_id, stream=stream
+                chunked_requests,
+                instance_id,
+                stream=stream,
+                settings=settings,
             )
             response = ArrayResponse(
                 arr=arrays,
@@ -1810,10 +1825,10 @@ class MemoryManager:
             )
 
             if CUDA_SIMULATION:
-                self.registry[instance_id].allocation_ready_hook(response)
+                settings.allocation_ready_hook(response)
             else:
                 with current_cupy_stream(stream):
-                    self.registry[instance_id].allocation_ready_hook(response)
+                    settings.allocation_ready_hook(response)
 
         for peer in notaries:
             peer_settings = self.registry.get(peer)
