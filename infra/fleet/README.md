@@ -84,8 +84,17 @@ runs-on: runs-on/fleet=gpu-linux/env=production
 
 ## Relationship to the Flex install
 
-The existing Flex CloudFormation stack keeps serving
-`runs-on=<run-id>/runner=...` labels (`.github/runs-on.yml`) and is
-untouched by this stack. Once Fleet has proven itself on the CUDA
-matrix, the Flex stack can be deleted from CloudFormation if nothing
-else uses it.
+The existing Flex CloudFormation stack is untouched by this stack,
+but its GitHub App must **not** have access to this repository. Flex
+(v3.1.3) claims any workflow job whose label starts with `runs-on/`,
+so with both apps attached every fleet-labeled job also triggers Flex,
+which parses no `runner=` key, falls back to its default 2-vCPU
+runner, and launches duplicate instances for jobs it can never run
+(observed: 3 launch attempts per job, spot then on-demand). Repo-
+scoped app installations survive repository transfers, so after
+moving the repo into an organization, detach it explicitly: the app
+owner's personal settings -> Applications -> the Flex RunsOn app ->
+Configure -> remove this repository.
+
+Once Fleet has proven itself on the CUDA matrix, the Flex stack can
+be deleted from CloudFormation if nothing else uses it.
