@@ -5,9 +5,6 @@ from pathlib import Path
 
 import pytest
 
-from cubie.batchsolving.BatchSolverConfig import (
-    BatchSolverConfig,
-)
 from cubie.cubie_cache import CacheConfig, CUBIECache
 
 DEFAULT_CUBIE_CACHE_CONFIG_HASH = (

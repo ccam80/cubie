@@ -1,7 +1,5 @@
 """Tests for cubie_cache module."""
 
-from hashlib import sha256
-from importlib.metadata import distributions
 from pathlib import Path
 
 import pytest
@@ -17,6 +15,7 @@ from cubie.cubie_cache import (
     CubieCacheHandler,
     CacheConfig,
     ALL_CACHE_PARAMETERS,
+    _compiler_environment_entries,
     environment_hash,
 )
 from cubie._utils import package_source_hash
@@ -91,16 +90,12 @@ def test_environment_hash_is_stable_hex_digest():
     assert environment_hash() == digest
 
 
-def test_environment_hash_covers_installed_packages():
-    """Verify the hash is built from every installed distribution."""
-    entries = []
-    for distribution in distributions():
-        name = distribution.metadata["Name"] or "unknown"
-        version = distribution.metadata["Version"] or "unknown"
-        entries.append(f"{name}=={version}")
-    joined = "\n".join(sorted(entries))
-    expected = sha256(joined.encode("utf-8")).hexdigest()
-    assert environment_hash() == expected
+def test_environment_hash_uses_compiler_packages_only():
+    """The cache stamp ignores unrelated runner packages."""
+    entries = _compiler_environment_entries()
+    assert any(entry.startswith("numpy==") for entry in entries)
+    assert any(entry.startswith("python==") for entry in entries)
+    assert not any(entry.startswith("pytest==") for entry in entries)
 
 
 def test_cache_locator_get_disambiguator():
@@ -239,7 +234,7 @@ def test_cubie_cache_init():
 
 
 def test_cubie_cache_index_key():
-    """Verify _index_key includes system and settings hashes."""
+    """The index key includes CuBIE and launch settings."""
     config_hash = (
         "def456789012345678901234567890123456789012345678901234567890abcd"
     )
@@ -267,6 +262,11 @@ def test_cubie_cache_index_key():
     assert key[3] == config_hash
     assert key[4] == package_source_hash()
 
+    cache._launch_config_key = (1, 2, 3)
+    launch_key = cache._index_key(sig, codegen)
+    assert launch_key[:-1] == key
+    assert launch_key[-1] == ("launch_config", (1, 2, 3))
+
 
 def test_cubie_cache_path(monkeypatch):
     """Verify cache_path includes system_hash subdirectory."""
@@ -284,8 +284,7 @@ def test_cubie_cache_path(monkeypatch):
 
 
 def test_kernel_cache_dir_env_relocates(tmp_path, monkeypatch):
-    """CUBIE_KERNEL_CACHE_DIR relocates the compiled-kernel cache
-    while an explicit custom_cache_dir still wins over it."""
+    """An explicit cache directory overrides the environment."""
     env_dir = tmp_path / "artifact"
     monkeypatch.setenv("CUBIE_KERNEL_CACHE_DIR", str(env_dir))
     cache = CUBIECache(
@@ -305,8 +304,7 @@ def test_kernel_cache_dir_env_relocates(tmp_path, monkeypatch):
 
 
 def test_max_cache_entries_env_default(monkeypatch):
-    """CUBIE_MAX_CACHE_ENTRIES sets the eviction default; an
-    explicit max_entries argument still wins over it."""
+    """An explicit cache limit overrides the environment."""
     monkeypatch.setenv("CUBIE_MAX_CACHE_ENTRIES", "0")
     cache = CUBIECache(
         system_name="test_system",

@@ -152,10 +152,7 @@ def system_setup(request, precision):
     try:
         mr_expected = np.linalg.solve(F, mr_rhs)
     except np.linalg.LinAlgError:
-        # The precompile pass's fake launches leave F all-zero, which
-        # is singular. Reference values are meaningless there, but the
-        # fixture must still construct so the tests behind it reach
-        # their kernel launches and get compiled and cached.
+        # Headless launches leave F singular; later tests still compile.
         mr_expected = np.full_like(mr_rhs, np.nan)
 
 
@@ -330,9 +327,7 @@ def linear_solver_instance(solver_settings, system_setup, precision):
         operator_apply=system_setup["operator"],
         preconditioner=preconditioner,
     )
-    # Device-function handles are excluded from config hashing, so the
-    # cache key for wrapper kernels must carry the system identity and
-    # the preconditioner order explicitly.
+    # Wrapper keys include captures omitted from config hashes.
     solver.test_cache_key = (
         solver.config_hash,
         system_setup["sym_system"].fn_hash,

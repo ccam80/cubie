@@ -213,15 +213,7 @@ def codegen_dir():
 
 @pytest.fixture(scope="function")
 def isolated_cache_root(tmp_path, monkeypatch):
-    """Point every disk cache layer at a fresh per-test directory.
-
-    Cache-behaviour tests need a root no other test has written to;
-    the session-wide redirect is shared, so cold-cache assertions
-    would otherwise depend on execution order. The kernel-cache env
-    override is cleared for the same reason: with it set (as on CI
-    GPU runners), flush and eviction tests would otherwise operate
-    on the shared precompiled artifact.
-    """
+    """Give cache tests a fresh root and no environment overrides."""
     from cubie import cache_root
 
     monkeypatch.delenv("CUBIE_KERNEL_CACHE_DIR", raising=False)

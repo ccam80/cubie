@@ -20,13 +20,22 @@ serialization.
 """
 
 import os
+from contextlib import AbstractContextManager
 from functools import cache
 from hashlib import sha256
 from importlib.metadata import distributions
-from shutil import rmtree
-from warnings import warn
 from pathlib import Path
+from platform import machine, system
+from shutil import rmtree
+from sys import implementation, version_info
+from time import monotonic, sleep
 from typing import Any, Dict, Optional, Set, Union
+from warnings import warn
+
+if os.name == "nt":
+    import msvcrt
+else:
+    import fcntl
 
 from attrs import field, validators as val, define, converters
 
@@ -53,6 +62,58 @@ default_timelogger.register_event(
     start_message="Compiling CUDA kernel...",
     stop_message=" Compilation complete in {duration:.3f}s",
 )
+
+
+class _CacheFileLock(AbstractContextManager):
+    """Cross-process lock for one cache index."""
+
+    def __init__(self, path: Path, timeout: float = 120.0) -> None:
+        self._path = path
+        self._timeout = timeout
+        self._handle = None
+
+    def __enter__(self):
+        self._path.parent.mkdir(parents=True, exist_ok=True)
+        self._handle = self._path.open("a+b")
+        self._handle.seek(0, os.SEEK_END)
+        if self._handle.tell() == 0:
+            self._handle.write(b"\0")
+            self._handle.flush()
+
+        deadline = monotonic() + self._timeout
+        while True:
+            try:
+                self._handle.seek(0)
+                if os.name == "nt":
+                    msvcrt.locking(
+                        self._handle.fileno(), msvcrt.LK_NBLCK, 1
+                    )
+                else:
+                    fcntl.flock(
+                        self._handle.fileno(),
+                        fcntl.LOCK_EX | fcntl.LOCK_NB,
+                    )
+                return self
+            except OSError:
+                if monotonic() >= deadline:
+                    self._handle.close()
+                    self._handle = None
+                    raise TimeoutError(
+                        f"Timed out waiting for cache lock {self._path}."
+                    ) from None
+                sleep(0.05)
+
+    def __exit__(self, exc_type, exc_value, traceback):
+        if self._handle is None:
+            return False
+        self._handle.seek(0)
+        if os.name == "nt":
+            msvcrt.locking(self._handle.fileno(), msvcrt.LK_UNLCK, 1)
+        else:
+            fcntl.flock(self._handle.fileno(), fcntl.LOCK_UN)
+        self._handle.close()
+        self._handle = None
+        return False
 
 
 ALL_CACHE_PARAMETERS: Set[str] = {
@@ -88,30 +149,43 @@ filter kwargs before forwarding.
 """
 
 
-@cache
-def environment_hash() -> str:
-    """Return a hash of every installed distribution's name and version.
-
-    Returns
-    -------
-    str
-        Hex digest fingerprinting the Python environment.
-
-    Notes
-    -----
-    Folded into the cache source stamp so cached kernels are
-    invalidated when any installed package changes — compiled
-    artifacts depend on the whole toolchain (numba-cuda, numba,
-    numpy, CUDA bindings), not just cubie's own configuration.
-    Computed once per process; editable installs whose source changes
-    without a version bump are not detected.
-    """
-    entries = []
+def _compiler_environment_entries() -> list[str]:
+    """List versions that affect compiled CUDA kernels."""
+    compiler_names = {"numpy"}
+    if IS_MLIR:
+        compiler_names.add("numba-cuda-mlir")
+    else:
+        compiler_names.update(
+            {"llvmlite", "numba", "numba-cuda", "packaging"}
+        )
+    compiler_prefixes = (
+        "cuda-",
+        "cupy-",
+        "nvidia-cuda-",
+        "nvidia-nvjitlink",
+        "nvidia-nvvm",
+    )
+    entries = [
+        f"python=={implementation.name}-{version_info.major}."
+        f"{version_info.minor}.{version_info.micro}",
+        f"platform=={system()}-{machine()}",
+    ]
     for distribution in distributions():
         name = distribution.metadata["Name"] or "unknown"
+        canonical_name = name.lower().replace("_", "-").replace(".", "-")
+        if canonical_name not in compiler_names and not (
+            canonical_name.startswith(compiler_prefixes)
+        ):
+            continue
         version = distribution.metadata["Version"] or "unknown"
-        entries.append(f"{name}=={version}")
-    joined = "\n".join(sorted(entries))
+        entries.append(f"{canonical_name}=={version}")
+    return sorted(entries)
+
+
+@cache
+def environment_hash() -> str:
+    """Return a hash of the active CUDA compiler environment."""
+    joined = "\n".join(_compiler_environment_entries())
     return sha256(joined.encode("utf-8")).hexdigest()
 
 
@@ -445,44 +519,38 @@ class CUBIECache(CUDACache):
         # inherited launch-config methods to work.
         self._launch_config_key = None
         self._launch_config_sensitive_flag = None
+        self._configure_cache_files()
+        self.enable()
+
+    def _configure_cache_files(self) -> None:
+        """Point cache state at the locator's current path."""
+        self._cache_path = self._impl.locator.get_cache_path()
         marker_name = f"{self._impl.filename_base}.lcs"
         self._launch_config_marker_path = os.path.join(
             self._cache_path, marker_name
         )
-
-        source_stamp = self._impl.locator.get_source_stamp()
-        filename_base = self._impl.filename_base
         self._cache_file = IndexDataCacheFile(
             cache_path=self._cache_path,
-            filename_base=filename_base,
-            source_stamp=source_stamp,
+            filename_base=self._impl.filename_base,
+            source_stamp=self._impl.locator.get_source_stamp(),
         )
-        self.enable()
+        cache_path = Path(self._cache_path)
+        self._write_lock_path = cache_path.with_name(
+            f"{cache_path.name}.lock"
+        )
 
     def _index_key(self, sig, codegen):
-        """Compute cache key including CuBIE-specific hashes.
-
-        Parameters
-        ----------
-        sig
-            Function signature tuple.
-        codegen
-            CUDA codegen object with magic_tuple().
-
-        Returns
-        -------
-        tuple
-            Composite cache key. Includes the cubie package source
-            hash so package edits invalidate cached kernels compiled
-            from earlier source.
-        """
-        return (
+        """Return the CuBIE and launch-specific cache key."""
+        key = (
             sig,
             codegen.magic_tuple(),
             self._system_hash,
             self._compile_settings_hash,
             package_source_hash(),
         )
+        if self._launch_config_key is not None:
+            key += (("launch_config", self._launch_config_key),)
+        return key
 
     def load_overload(self, sig, target_context):
         """Load cached kernel, starting compile timer on cache miss.
@@ -499,7 +567,8 @@ class CUBIECache(CUDACache):
         _Kernel or None
             Reconstructed CUDA kernel if cache hit, None if miss.
         """
-        result = super().load_overload(sig, target_context)
+        with _CacheFileLock(self._write_lock_path):
+            result = super().load_overload(sig, target_context)
 
         if result is not None:
             # Cache hit - notify via TimeLogger
@@ -571,8 +640,9 @@ class CUBIECache(CUDACache):
         # Stop compile timing - TimeLogger handles the message
         default_timelogger.stop_event("compile_cuda_kernel")
 
-        self.enforce_cache_limit()
-        super().save_overload(sig, data)
+        with _CacheFileLock(self._write_lock_path):
+            self.enforce_cache_limit()
+            super().save_overload(sig, data)
 
     def flush_cache(self) -> None:
         """Delete all cache files in the cache directory.
@@ -581,14 +651,13 @@ class CUBIECache(CUDACache):
         cache directory.
         """
         cache_path = Path(self._cache_path)
-        if cache_path.exists():
-            try:
-                rmtree(cache_path)
-            except OSError:
-                # Another thread may have gotten there first if concurrent.
-                # If so, just continue.
-                pass
-        cache_path.mkdir(parents=True, exist_ok=True)
+        with _CacheFileLock(self._write_lock_path):
+            if cache_path.exists():
+                try:
+                    rmtree(cache_path)
+                except OSError:
+                    pass
+            cache_path.mkdir(parents=True, exist_ok=True)
 
     @property
     def cache_path(self) -> Path:
@@ -629,12 +698,7 @@ class CUBIECache(CUDACache):
                 self._compile_settings_hash,
                 custom_cache_dir=config.cache_dir,
             )
-            self._cache_path = self._impl.locator.get_cache_path()
-            self._cache_file = IndexDataCacheFile(
-                cache_path=self._cache_path,
-                filename_base=self._impl.filename_base,
-                source_stamp=self._impl.locator.get_source_stamp(),
-            )
+            self._configure_cache_files()
 
     def set_hashes(
         self,
@@ -650,20 +714,14 @@ class CUBIECache(CUDACache):
         compile_settings_hash
             New compile settings hash to set.
         """
-        filename_before = self._impl.filename_base
         if system_hash is not None:
             self._system_hash = system_hash
         if compile_settings_hash is not None:
             self._compile_settings_hash = compile_settings_hash
         self._impl.set_hashes(system_hash, compile_settings_hash)
 
-        if filename_before != self._impl.filename_base:
-            # Update cache file to reflect new filename base
-            self._cache_file = IndexDataCacheFile(
-                cache_path=self._cache_path,
-                filename_base=self._impl.filename_base,
-                source_stamp=self._impl.locator.get_source_stamp(),
-            )
+        if system_hash is not None or compile_settings_hash is not None:
+            self._configure_cache_files()
 
 
 @define

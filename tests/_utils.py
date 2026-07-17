@@ -30,32 +30,7 @@ Array = NDArray[np.floating]
 
 
 def attach_kernel_cache(kernel, name, *key_parts):
-    """Attach a value-keyed disk cache to a test harness kernel.
-
-    numba's file cache keys on source location, which conflates every
-    rebuild of a closure-defined kernel. This keys the cache on the
-    kernel's own source plus the supplied identity parts, so distinct
-    closures get distinct entries and identical ones hit across
-    processes and sessions.
-
-    Parameters
-    ----------
-    kernel
-        Freshly decorated ``@cuda.jit`` dispatcher.
-    name
-        Directory label grouping this harness's entries under the
-        cache root.
-    *key_parts
-        Values identifying everything the kernel closes over: factory
-        ``config_hash`` values, system ``fn_hash`` values, precisions,
-        and any scalars baked in as closure constants.
-
-    Returns
-    -------
-    object
-        The kernel, with a configured cache attached on real hardware
-        (the CUDA simulator neither compiles nor caches).
-    """
+    """Cache a harness kernel by source and compile-time captures."""
     if CUDA_SIMULATION:
         return kernel
     source = inspect.getsource(kernel.py_func)
@@ -1578,12 +1553,7 @@ def run_controller_device_step(
     truncated=False,
     cache_key=None,
 ):
-    """Execute a step-controller device function once on the GPU.
-
-    ``cache_key`` identifies the controller configuration that built
-    ``device_func`` (its ``config_hash``); when supplied, the wrapper
-    kernel's compilation is disk-cached under that key.
-    """
+    """Run one controller step; ``cache_key`` enables wrapper caching."""
 
     err = np.asarray(error, dtype=precision)
     state_arr = (

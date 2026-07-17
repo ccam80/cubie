@@ -43,6 +43,7 @@ import numpy as np
 import sympy as sp
 from cubie.cuda_simsafe import cuda
 
+from cubie._env import kernel_cache_dir_default
 from cubie.cuda_simsafe import CUDA_SIMULATION, get_jit_kwargs
 from cubie.cubie_cache import CUBIECache
 from cubie.odesystems.symbolic.indexedbasemaps import IndexedBases
@@ -77,12 +78,7 @@ class NeumannRHSEvaluator:
         self._kernel_dxdt = None
 
     def _evaluation_kernel(self):
-        """Return the evaluation kernel for the current ``dxdt``.
-
-        The kernel is compiled once per compiled ``dxdt`` object; a
-        settings change that rebuilds the device function triggers a
-        rebuild of the wrapper on the next call.
-        """
+        """Return the wrapper for the current compiled ``dxdt``."""
         dxdt_function = self._dxdt_getter()
         if dxdt_function is not self._kernel_dxdt:
             # no cover: start
@@ -101,7 +97,11 @@ class NeumannRHSEvaluator:
                         t,
                     )
             # no cover: end
-            if self._cache_key_getter is not None and not CUDA_SIMULATION:
+            if (
+                self._cache_key_getter is not None
+                and not CUDA_SIMULATION
+                and kernel_cache_dir_default() is not None
+            ):
                 name, system_hash, config_hash = self._cache_key_getter()
                 evaluate_rhs._cache = CUBIECache(
                     system_name=name,

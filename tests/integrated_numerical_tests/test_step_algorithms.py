@@ -5,10 +5,9 @@ for all algorithm families across two consecutive integration steps.
 """
 
 import attrs
-from typing import Any, Optional
+from typing import Optional
 
 import numpy as np
-from hashlib import sha256
 import pytest
 from cubie.cuda_simsafe import cuda, numba_from_dtype as from_dtype, int32
 from numpy.testing import assert_allclose
@@ -16,7 +15,6 @@ from numpy.testing import assert_allclose
 from cubie.integrators.algorithms import get_algorithm_step
 from tests.integrators.cpu_reference import (
     CPUODESystem,
-    get_ref_step_factory,
     get_ref_stepper,
 )
 from tests._utils import (
@@ -258,8 +256,6 @@ def device_step_results(
         driver_array.config_hash,
         str(np.dtype(precision)),
         int(persistent_len),
-        sha256(state.tobytes()).hexdigest(),
-        sha256(driver_coefficients.tobytes()).hexdigest(),
     )
     kernel[1, 1, 0, shared_bytes](
         d_state,
