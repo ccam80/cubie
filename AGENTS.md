@@ -58,18 +58,24 @@ change — the full suite is slow (run it as a pre-commit check only, and only w
   `docs`, `chore`.
 - **Agents:** every fix or feature is developed on its own branch off `main`. When the work is
   done and verified, commit, push the branch, and open a PR.
-- **Performance gate (every PR):** run `benchmarks/lorenz_mean_runtime.py` A/B on **both CUDA
-  backends** — A on `main`, B on the PR branch (e.g. via `PYTHONPATH=<tree>/src`) — keeping the
-  backend fixed across A and B, and include a separate results table for each backend in the PR
-  message. Select the backend with the `CUBIE_CUDA_BACKEND` environment variable: unset (or
-  `numba-cuda`) benchmarks stock numba-cuda, `mlir` benchmarks numba-cuda-mlir (both must be
-  installed in the venv). Script defaults are the gate settings. The script outputs kernel
-  runtime only (CUDA-event); one invocation per side suffices — means repeat to ~0.1% — but an
-  invocation where a config's std exceeds ~5% of its mean was contaminated by outside
-  interference: discard it and rerun. For each backend, run A (`main`) first, then pass A's
-  printed mean/std to the B run via `--ref-fixed MEAN STD --ref-adaptive MEAN STD`; the script
-  prints a Welch z per config and the verdict (`|z| >= 3` = the means differ; positive z on the
-  PR branch = regression).
+- **Performance gate (every PR):** run `python benchmarks/ab_gate.py` and paste its table into
+  the PR message. One command compares A (`origin/main`, an ephemeral `git worktree`) against B
+  (the working tree) on every installed CUDA backend — both `numba-cuda` and `numba-cuda-mlir`
+  should be in the venv. Per backend it starts one persistent worker per side (each compiles and
+  builds its grid once) and ping-pongs short solve blocks between them in ABBA order with
+  randomised idle gaps — continuous load pins the GPU at its power limit and the kernel-time
+  floor dithers, so the rest between blocks keeps it in a repeatable boost state, and the
+  per-block jitter stops a concurrent periodic GPU load phase-locking with the rhythm and
+  biasing one side coherently. Each block reports the mean of
+  its lowest `k` per-solve kernel times (CUDA-event, kernel-only: the fastest solves track the
+  kernel's intrinsic cost); the two blocks of a pair run seconds apart and share clock state, so
+  the verdict per config is the **median paired delta** against `--threshold` (default 0.50%),
+  with non-zero exit on regression. A default run takes ~3 minutes for two backends on a quiet
+  GPU. A row marked DISTRUST means the per-pair deltas disagreed and the verdict is unreliable:
+  rerun, with more `--pairs` or a quieter machine, before acting on it — never accept or dismiss
+  a DISTRUST verdict as-is. Constant background load inflates absolute times but cancels out of
+  the deltas. `--calibrate` measures the A-vs-A null for setting the threshold on a new machine;
+  `--n-runs 1024` smoke-tests the harness cheaply.
 - ** Any changes left uncommitted or unstaged will be programatically deleted **. The only place to
   store work is in a branch off origin, pushed to main, with a PR open. PRs are the only format
   reviewed by the user. Don't leave PRs draft, they must be marked ready and reviewed by Greptile
