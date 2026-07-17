@@ -60,8 +60,13 @@ locals {
         "g4dn.xlarge", "g5.xlarge", "g6.xlarge",
       ]
       image  = "ubuntu24-gpu-x64"
-      spot   = "price-capacity-optimized"
-      extras = ["s3-cache"]
+      spot = "price-capacity-optimized"
+      # No s3-cache extra: on fleet v3.1.3 the runner agent's S3 proxy
+      # also intercepts the GitHub artifact service and answers
+      # CreateArtifact with a non-JSON error, failing every
+      # actions/upload-artifact call (legs launched with the extra
+      # failed exactly that step; legs without it passed). setup-uv's
+      # cache uses GitHub's cache service directly instead.
     }
     gpu-windows-2xl = {
       family = [
@@ -69,8 +74,13 @@ locals {
         "g4dn.xlarge", "g5.xlarge", "g6.xlarge",
       ]
       image  = "cubie-win-gpu"
-      spot   = "price-capacity-optimized"
-      extras = ["s3-cache"]
+      spot = "price-capacity-optimized"
+      # No s3-cache extra: on fleet v3.1.3 the runner agent's S3 proxy
+      # also intercepts the GitHub artifact service and answers
+      # CreateArtifact with a non-JSON error, failing every
+      # actions/upload-artifact call (legs launched with the extra
+      # failed exactly that step; legs without it passed). setup-uv's
+      # cache uses GitHub's cache service directly instead.
     }
   }
 
