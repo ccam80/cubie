@@ -99,9 +99,9 @@ jobs:
           exit 1
 
       # uv resolves and installs several times faster than pip, and its
-      # wheel cache rides the runner's S3-backed actions/cache (the
-      # s3-cache extra in infra/fleet), so the multi-GB nvidia-*/cupy
-      # wheels download once per leg flavour, not once per run.
+      # wheel cache rides GitHub's actions/cache service, so the
+      # multi-GB nvidia-*/cupy wheels download once per leg flavour,
+      # not once per run.
       - name: Set up uv
         uses: astral-sh/setup-uv@v7
         with:
