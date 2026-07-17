@@ -40,6 +40,7 @@ config regresses past ``--threshold``.
 import argparse
 import importlib.util
 import os
+import random
 import shutil
 import statistics
 import subprocess
@@ -186,8 +187,11 @@ def run_backend(backend, main_tree, b_tree, base, args):
                     store[side][key].append(vals)
             # Idle gap: without it the GPU sits pinned at its power
             # limit and the kernel-time floor dithers block to block;
-            # a rest lets it re-enter the repeatable boost state.
-            time.sleep(args.gap)
+            # a rest lets it re-enter the repeatable boost state. The
+            # duration is drawn fresh per block so a concurrent
+            # periodic GPU load cannot phase-lock with the ping-pong
+            # rhythm and bias one side coherently.
+            time.sleep(random.uniform(*args.gap))
 
         # One throwaway ABBA round rides out the post-setup ramp.
         for side in ("A", "B", "B", "A"):
@@ -254,10 +258,13 @@ def main():
     parser.add_argument("--min-count", type=int, default=5,
                         help="Lowest per-solve kernel times averaged "
                              "into each block's statistic.")
-    parser.add_argument("--gap", type=float, default=2.5,
-                        help="Idle seconds after each block so the "
-                             "GPU re-enters its repeatable boost "
-                             "state instead of power-limit dither.")
+    parser.add_argument("--gap", type=float, nargs=2, default=(1.5, 3.5),
+                        metavar=("MIN", "MAX"),
+                        help="Idle seconds after each block, drawn "
+                             "uniformly per block. The rest lets the "
+                             "GPU re-enter its repeatable boost state; "
+                             "the jitter stops concurrent periodic GPU "
+                             "loads phase-locking with the rhythm.")
     parser.add_argument("--n-runs", type=int, default=None,
                         help="Trajectory count for both configs "
                              "(small values smoke-test the harness).")

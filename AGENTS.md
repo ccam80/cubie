@@ -62,9 +62,11 @@ change — the full suite is slow (run it as a pre-commit check only, and only w
   the PR message. One command compares A (`origin/main`, an ephemeral `git worktree`) against B
   (the working tree) on every installed CUDA backend — both `numba-cuda` and `numba-cuda-mlir`
   should be in the venv. Per backend it starts one persistent worker per side (each compiles and
-  builds its grid once) and ping-pongs short solve blocks between them in ABBA order with idle
-  gaps — continuous load pins the GPU at its power limit and the kernel-time floor dithers, so
-  the rest between blocks keeps it in a repeatable boost state. Each block reports the mean of
+  builds its grid once) and ping-pongs short solve blocks between them in ABBA order with
+  randomised idle gaps — continuous load pins the GPU at its power limit and the kernel-time
+  floor dithers, so the rest between blocks keeps it in a repeatable boost state, and the
+  per-block jitter stops a concurrent periodic GPU load phase-locking with the rhythm and
+  biasing one side coherently. Each block reports the mean of
   its lowest `k` per-solve kernel times (CUDA-event, kernel-only: the fastest solves track the
   kernel's intrinsic cost); the two blocks of a pair run seconds apart and share clock state, so
   the verdict per config is the **median paired delta** against `--threshold` (default 0.50%),
