@@ -58,7 +58,10 @@ instances. All capacity is cold spot launches.
 
    When they expire, rerun the script's final `aws sts assume-role`
    command in CloudShell and paste the fresh block — nothing else
-   changes.
+   changes. When the *policy documents* in the script change, paste
+   the whole script again: it is idempotent and republishes the two
+   deployer policies (`cubie-fleet-deployer`,
+   `cubie-fleet-deployer-scoped`) as new default versions.
 4. **Variables.** Copy `terraform.tfvars.example` to
    `terraform.tfvars` (gitignored) and fill in the App ID, key path,
    RunsOn license key (one license covers Flex and Fleet), and alert
