@@ -405,8 +405,8 @@ class TestTimeLogger:
         logger.stop_event("runtime1")
 
         # Test filtering by compile category. The duration is bracketed
-        # with the logger's own clock (time.perf_counter) rather than
-        # the sleep's nominal length, which Windows can undershoot.
+        # with the logger's own clock (time.perf_counter), so the bound
+        # holds regardless of sleep precision on any platform.
         compile_durations = logger.get_aggregate_durations(category="compile")
         assert "compile1" in compile_durations
         assert "runtime1" not in compile_durations
