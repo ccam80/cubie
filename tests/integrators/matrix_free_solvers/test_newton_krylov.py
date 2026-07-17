@@ -113,6 +113,86 @@ def test_newton_krylov_placeholder(placeholder_system, precision, tolerance):
     )
 
 
+def test_newton_krylov_clears_history_after_damping(precision):
+    """Only an accepted full step supplies contraction history."""
+
+    @cuda.jit(device=True)
+    def residual(state, parameters, drivers, t, h, a_ij, base_state, out):
+        out[0] = state[0] * state[0] - precision(1.0)
+
+    @cuda.jit(device=True)
+    def operator(
+        state, parameters, drivers, base_state, t, h, a_ij, vec, out
+    ):
+        out[0] = precision(2.0) * state[0] * vec[0]
+
+    linear_solver = MRLinearSolver(
+        precision=precision,
+        n=1,
+        krylov_atol=1e-8,
+        krylov_rtol=0.0,
+        krylov_max_iters=8,
+    )
+    linear_solver.update(operator_apply=operator)
+    newton = NewtonKrylov(
+        precision=precision,
+        n=1,
+        linear_solver=linear_solver,
+        newton_atol=0.05,
+        newton_rtol=0.0,
+        newton_max_iters=8,
+        newton_damping=0.5,
+        newton_max_backtracks=8,
+    )
+    newton.update(residual_function=residual)
+    solver = newton.device_function
+    shared_size = max(newton.shared_buffer_size, 1)
+    persistent_size = max(newton.persistent_local_buffer_size, 1)
+
+    @cuda.jit
+    def kernel(state, status, counts):
+        parameters = cuda.local.array(1, precision)
+        drivers = cuda.local.array(1, precision)
+        base_state = cuda.local.array(1, precision)
+        counters = cuda.local.array(2, np.int32)
+        shared = cuda.shared.array(shared_size, precision)
+        persistent = cuda.local.array(persistent_size, precision)
+        for index in range(shared_size):
+            shared[index] = precision(0.0)
+        for index in range(persistent_size):
+            persistent[index] = precision(0.0)
+        parameters[0] = precision(0.0)
+        drivers[0] = precision(0.0)
+        base_state[0] = precision(0.0)
+        counters[0] = np.int32(0)
+        counters[1] = np.int32(0)
+        status[0] = solver(
+            state,
+            parameters,
+            drivers,
+            precision(0.0),
+            precision(1.0),
+            precision(1.0),
+            base_state,
+            shared,
+            persistent,
+            counters,
+        )
+        counts[0] = counters[0]
+        counts[1] = counters[1]
+
+    state = cuda.to_device(np.array([0.1], dtype=precision))
+    status = cuda.to_device(np.zeros(1, dtype=np.int32))
+    counts = cuda.to_device(np.zeros(2, dtype=np.int32))
+    kernel[1, 1](state, status, counts)
+    cuda.synchronize()
+
+    result = state.copy_to_host()[0]
+    assert int(status.copy_to_host()[0]) == CUBIE_RESULT_CODES.SUCCESS
+    assert int(counts.copy_to_host()[0]) == 3
+    assert abs(result * result - precision(1.0)) <= precision(0.05)
+
+
 _NEWTON_SOLVER_SETTINGS = {
     "minimal_residual": {
         "linear_correction_type": "minimal_residual",

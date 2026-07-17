@@ -72,20 +72,11 @@ is specific to the solvers.
   prefixed params `krylov_atol`/`krylov_rtol` (linear) and `newton_atol`/`newton_rtol`
   (Newton), read via the `*_atol`/`*_rtol` properties (`NewtonKrylov.krylov_*`
   delegate to the inner `LinearSolver`).
-- **Newton convergence is update-based:** a solve is accepted when
-  `eta * ||dz|| <= 1` in the scaled norm, where `dz` is the latest Newton step
-  from a *successful* linear solve and `eta = theta / (1 - theta)` with `theta`
-  the contraction rate estimated from consecutive scaled update norms. This
-  bounds the error remaining after the full step, so the accepted increment
-  error scales with the contraction rate instead of pinning at `newton_atol`.
-  `eta` seeds each solve from the previous solve's final value (persistent
-  `newton_eta` buffer, softened by `^0.8`; a zeroed slot falls back to the
-  conservative `eta = 1`). When the criterion passes, the full step is applied
-  and the line search is skipped. Two guards keep the old robustness: a stalled
-  update (`theta >= 1`) with an in-tolerance residual accepts the iterate, and
-  at `max_iters` exhaustion an in-tolerance residual is accepted rather than
-  failed. The residual norm is still evaluated every iteration as the
-  backtracking line-search merit.
+- **Newton convergence is update-based:** consecutive accepted full steps
+  estimate `theta`. The solve accepts when
+  `theta / (1 - theta) * ||dz|| <= 1`. Damping, linear failure, and line-search
+  failure clear the estimate. The residual norm controls the line search and
+  remains a fallback at solver exit.
 
 ### Solver-specific gotchas
 - **Warp-coherent loops.** Iterative loops exit on warp votes (`all_sync`/`any_sync`

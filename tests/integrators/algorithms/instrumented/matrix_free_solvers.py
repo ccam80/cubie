@@ -535,13 +535,11 @@ class InstrumentedNewtonKrylov(NewtonKrylov):
         typed_one = numba_precision(1.0)
         typed_damping = numba_precision(damping)
         typed_eps = numba_precision(float(np.finfo(precision_dtype).eps))
-        typed_softening = numba_precision(0.8)
         n_val = int32(n)
         max_iters_val = int32(max_iters)
         newton_max_backtracks_val = int32(newton_max_backtracks + 1)
         
-        # Get allocators from buffer_registry using production buffer names
-        # (registered by parent NewtonKrylov.register_buffers)
+        # NewtonKrylov registers these buffers.
         alloc_delta = buffer_registry.get_allocator('delta', self)
         alloc_residual = buffer_registry.get_allocator('residual', self)
         alloc_residual_temp = buffer_registry.get_allocator(
@@ -553,11 +551,7 @@ class InstrumentedNewtonKrylov(NewtonKrylov):
         alloc_krylov_iters_local = buffer_registry.get_allocator(
             'krylov_iters_local', self
         )
-        alloc_newton_eta = buffer_registry.get_allocator(
-            'newton_eta', self
-        )
-
-        # Get child allocators for linear solver (same pattern as production)
+        # Allocate the linear solver's buffers.
         alloc_lin_shared, alloc_lin_persistent = (
             buffer_registry.get_child_allocators(self, self.linear_solver)
         )
@@ -637,23 +631,10 @@ class InstrumentedNewtonKrylov(NewtonKrylov):
             newton_squared_norms[stage_index, log_index] = norm2_prev
             log_index += int32(1)
             
-            # Update-based convergence mirrors the production solver:
-            # eta * ||dz|| <= 1 with eta = theta / (1 - theta), theta
-            # estimated from consecutive scaled update norms, seeded
-            # from the previous solve's final eta (softened by ^0.8;
-            # zero slot falls back to eta = 1).
-            newton_eta = alloc_newton_eta(shared_scratch, persistent_scratch)
-            eta_prev = newton_eta[0]
-            if eta_prev > typed_zero:
-                eta = numba_precision(
-                    max(eta_prev, typed_eps) ** typed_softening
-                )
-            else:
-                eta = typed_one
+            # Zero marks unavailable contraction history.
             norm2_dz_prev = typed_zero
 
             converged = False
-            has_error = False
             final_status = success
 
             krylov_iters_local = alloc_krylov_iters_local(
@@ -662,12 +643,14 @@ class InstrumentedNewtonKrylov(NewtonKrylov):
             
             iters_count = int32(0)
             total_krylov_iters = int32(0)
+            last_lin_status = success
+            last_backtrack_failed = False
             mask = activemask()
             stage_increment_snapshot = cuda.local.array(n, numba_precision)
             residual_snapshot = cuda.local.array(n, numba_precision)
             
             for _ in range(max_iters_val):
-                done = converged or has_error
+                done = converged
                 if all_sync(mask, done):
                     break
                 
@@ -701,69 +684,50 @@ class InstrumentedNewtonKrylov(NewtonKrylov):
                     linear_preconditioned_vectors,
                 )
                 
-                lin_failed = lin_status != int32(0)
-                has_error = has_error or lin_failed
-                final_status = selp(
-                    lin_failed, int32(final_status | lin_status), final_status
-                )
                 total_krylov_iters += selp(
                     active, krylov_iters_local[0], int32(0)
                 )
+                last_lin_status = selp(
+                    active, lin_status, last_lin_status
+                )
 
-                # Contraction estimate from consecutive update norms.
+                # Clamp the ratio so every lane follows the same arithmetic.
                 norm2_dz = scaled_norm_fn(delta, stage_increment)
-                theta_known = (norm2_dz_prev > typed_zero) and (
-                    norm2_dz > typed_zero
-                )
-                contracting = True
-                new_eta = eta
-                if theta_known:
-                    if norm2_dz < norm2_dz_prev:
-                        theta = numba_precision(
-                            math_sqrt(norm2_dz / norm2_dz_prev)
+                theta = numba_precision(
+                    math_sqrt(
+                        min(
+                            norm2_dz / max(norm2_dz_prev, typed_eps),
+                            typed_one,
                         )
-                        new_eta = theta / (typed_one - theta)
-                    else:
-                        contracting = False
-                eta = selp(active, new_eta, eta)
-                norm2_dz_prev = selp(active, norm2_dz, norm2_dz_prev)
-
-                # A stalled update with an in-tolerance residual means
-                # the iterate sits at the rounding floor; accept it
-                # rather than iterating to failure.
-                stalled_ok = (
-                    active
-                    and theta_known
-                    and (not contracting)
-                    and (norm2_prev <= typed_one)
+                    )
                 )
-                will_converge = (
+                eta = theta / max(typed_one - theta, typed_eps)
+                update_bound = eta * math_sqrt(norm2_dz)
+                accept_update = (
                     active
-                    and contracting
-                    and (not lin_failed)
-                    and (eta * eta * norm2_dz <= typed_one)
+                    & (norm2_dz_prev > typed_zero)
+                    & (lin_status == success)
+                    & (update_bound <= typed_one)
                 )
-                converged = converged or stalled_ok
 
                 for i in range(n_val):
                     stage_base_bt[i] = stage_increment[i]
+                    stage_increment[i] = selp(
+                        accept_update,
+                        stage_base_bt[i] + delta[i],
+                        stage_increment[i],
+                    )
 
                 alpha = typed_one
-                found_step = False
-                snapshot_ready = False
-                norm2_new = typed_zero
-
-                if will_converge:
-                    # The full step already meets the error bound:
-                    # apply it and skip the line search.
-                    for i in range(n_val):
-                        stage_increment[i] = stage_base_bt[i] + delta[i]
-                        stage_increment_snapshot[i] = stage_increment[i]
-                        residual_snapshot[i] = typed_zero
-                    norm2_new = eta * eta * norm2_dz
-                    snapshot_ready = True
-                    converged = True
-                    found_step = True
+                converged = converged | accept_update
+                found_step = accept_update
+                norm2_dz_next = typed_zero
+                snapshot_ready = accept_update
+                norm2_new = min(update_bound, typed_one)
+                norm2_new *= norm2_new
+                for i in range(n_val):
+                    stage_increment_snapshot[i] = stage_increment[i]
+                    residual_snapshot[i] = typed_zero
 
                 for _ in range(newton_max_backtracks_val):
                     active_bt = active and (not found_step) and (not converged)
@@ -793,26 +757,39 @@ class InstrumentedNewtonKrylov(NewtonKrylov):
                             residual_snapshot[i] = residual_temp[i]
                         snapshot_ready = True
 
-                        if norm2_new < norm2_prev:
-                            for i in range(n_val):
-                                residual[i] = -residual_temp[i]
-                            norm2_prev = norm2_new
-                            found_step = True
-                    
+                        accept_trial = norm2_new < norm2_prev
+                        for i in range(n_val):
+                            residual[i] = selp(
+                                accept_trial,
+                                -residual_temp[i],
+                                residual[i],
+                            )
+                        norm2_prev = selp(
+                            accept_trial, norm2_new, norm2_prev
+                        )
+                        found_step = found_step | accept_trial
+                        norm2_dz_next = selp(
+                            accept_trial
+                            & (alpha == typed_one)
+                            & (lin_status == success),
+                            norm2_dz,
+                            norm2_dz_next,
+                        )
+
                     alpha *= typed_damping
-                
-                backtrack_failed = active and (not found_step) and (not converged)
-                has_error = has_error or backtrack_failed
-                final_status = selp(
-                    backtrack_failed,
-                    int32(final_status | newton_backtracking_failed),
-                    final_status
+
+                norm2_dz_prev = selp(
+                    active, norm2_dz_next, norm2_dz_prev
                 )
-                
-                if backtrack_failed:
-                    # Revert stage increment for another round
-                    for i in range(n_val):
-                        stage_increment[i] = stage_base_bt[i]
+
+                backtrack_failed = active and (not found_step) and (not converged)
+                last_backtrack_failed = active and backtrack_failed
+                for i in range(n_val):
+                    stage_increment[i] = selp(
+                        backtrack_failed,
+                        stage_base_bt[i],
+                        stage_increment[i],
+                    )
                 
                 # Log iteration state if snapshot is ready
                 iter_slot = int(iters_count) - 1
@@ -829,18 +806,21 @@ class InstrumentedNewtonKrylov(NewtonKrylov):
                         log_index += int32(1)
                     newton_iteration_scale[stage_index, iter_slot] = alpha
             
-            # Residual fallback at exit: never fail a solve the
-            # residual-based criterion would have accepted.
-            if (not converged) and (norm2_prev <= typed_one):
-                converged = True
-
-            newton_eta[0] = selp(converged, eta, eta_prev)
-
-            max_iters_exceeded = (not converged) and (not has_error)
+            converged = converged | (norm2_prev <= typed_one)
             final_status = selp(
-                max_iters_exceeded,
+                not converged,
                 int32(final_status | max_newton_iters_exceeded),
                 final_status
+            )
+            final_status = selp(
+                (not converged) & last_backtrack_failed,
+                int32(final_status | newton_backtracking_failed),
+                final_status,
+            )
+            final_status = selp(
+                (not converged) & (last_lin_status != success),
+                int32(final_status | last_lin_status),
+                final_status,
             )
             
             counters[0] = iters_count

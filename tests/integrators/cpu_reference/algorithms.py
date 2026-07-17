@@ -101,9 +101,6 @@ class CPUStep:
             raise ValueError("Preconditioner order must be non-negative.")
         self._newton_damping = self.precision(newton_damping)
         self._newton_max_backtracks = int(newton_max_backtracks)
-        # Mirrors the device solver's persistent eta slot: the final
-        # convergence-rate estimate of one solve seeds the next.
-        self._newton_eta_state = np.zeros(1, dtype=self.precision)
         self.tableau = tableau
         self.instrument = instrument
 
@@ -710,7 +707,6 @@ class CPUBackwardEulerStep(CPUStep):
             newton_max_iters=self._newton_max_iters,
             newton_damping=self._newton_damping,
             newton_max_backtracks=self._newton_max_backtracks,
-            eta_state=self._newton_eta_state,
             **newton_kwargs,
         )
         next_state = state_vector + increment
@@ -914,7 +910,6 @@ class CPUCrankNicolsonStep(CPUStep):
             newton_max_iters=self._newton_max_iters,
             newton_damping=self._newton_damping,
             newton_max_backtracks=self._newton_max_backtracks,
-            eta_state=self._newton_eta_state,
             **newton_kwargs,
         )
         stage_increment = self._cn_stage_coefficient * increment
@@ -935,7 +930,7 @@ class CPUCrankNicolsonStep(CPUStep):
             time=current_time,
         )
         error = next_state - backward_result.state
-        status = self._status(converged, niters)
+        status = self._status(converged, niters) | backward_result.status
         self._cn_increment = increment
         if logging:
             residual_vector = self.residual(increment)
@@ -1301,7 +1296,6 @@ class CPUDIRKStep(CPUStep):
                 newton_max_iters=self._newton_max_iters,
                 newton_damping=self._newton_damping,
                 newton_max_backtracks=self._newton_max_backtracks,
-                eta_state=self._newton_eta_state,
                 **newton_kwargs,
             )
 
@@ -1608,7 +1602,6 @@ class CPUFIRKStep(CPUStep):
             newton_max_iters=self._newton_max_iters,
             newton_damping=self._newton_damping,
             newton_max_backtracks=self._newton_max_backtracks,
-            eta_state=self._newton_eta_state,
             **newton_kwargs,
         )
 

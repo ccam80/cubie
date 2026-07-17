@@ -502,7 +502,6 @@ def newton_solve(
     newton_damping: np.floating,
     newton_max_backtracks: int,
     newton_rtol: np.floating = 0.0,
-    eta_state: Optional[Array] = None,
     stage_index: int = 0,
     instrumented: bool = False,
     newton_initial_guesses: Optional[Array] = None,
@@ -516,65 +515,7 @@ def newton_solve(
     linear_squared_norms: Optional[Array] = None,
     linear_preconditioned_vectors: Optional[Array] = None,
 ) -> tuple[Array, bool, int]:
-    """Return the Newton update for ``residual_fn`` starting at ``initial_guess``.
-
-    Parameters
-    ----------
-    initial_guess
-        Starting candidate for the Newton iteration.
-    precision
-        Floating-point dtype used for all computations and logging buffers.
-    residual_fn
-        Callable returning the residual vector for a candidate state.
-    jacobian_fn
-        Callable returning the Jacobian matrix for a candidate state.
-    linear_solver
-        Callable solving the linear system produced on each iteration.
-    newton_tol
-        Absolute tolerance of the scaled convergence norm.
-    newton_max_iters
-        Maximum number of Newton updates to attempt.
-    newton_rtol
-        Relative tolerance of the scaled convergence norm, scaled by
-        the current iterate.
-    newton_damping
-        Multiplicative factor applied to the step size during backtracking.
-    newton_max_backtracks
-        Maximum number of damping attempts per iteration.
-    eta_state
-        Optional single-element array persisting the convergence-rate
-        estimate between solves, mirroring the device solver's
-        persistent eta slot.
-    stage_index
-        Index of the stage recorded in the logging buffers.
-    instrumented
-        When ``True`` the logging arrays are populated with diagnostics.
-    newton_initial_guesses
-        Optional tensor recording the starting iterate per stage.
-    newton_iteration_guesses
-        Optional tensor recording iterates per Newton update.
-    newton_residuals
-        Optional tensor recording residual vectors per Newton update.
-    newton_squared_norms
-        Optional matrix storing squared residual norms per update.
-    newton_iteration_scale
-        Optional matrix storing accepted damping factors per iteration.
-    linear_initial_guesses
-        Optional tensor recording initial guesses for the linear solver.
-    linear_iteration_guesses
-        Optional tensor recording per-iteration linear iterates.
-    linear_residuals
-        Optional tensor recording per-iteration linear residual vectors.
-    linear_squared_norms
-        Optional matrix storing per-iteration linear residual norms.
-    linear_preconditioned_vectors
-        Optional tensor storing preconditioned vectors per linear iteration.
-
-    Returns
-    -------
-    tuple[Array, bool, int]
-        Final iterate, convergence flag, and iteration count.
-    """
+    """Solve the nonlinear system on the CPU."""
 
     dtype, scalar_type = resolve_precision_signature(precision)
     atol_value = scalar_type(newton_tol)
@@ -589,21 +530,9 @@ def newton_solve(
     norm2_prev = _scaled_norm_impl(residual, state, atol_value, rtol_value)
     direction = np.zeros_like(residual)
 
-    # Update-based convergence mirrors the CUDA solver: the accepted
-    # error bound is eta * ||dz|| <= 1 with eta = theta / (1 - theta)
-    # and theta the contraction rate of consecutive scaled update
-    # norms; eta seeds from the previous solve (softened by ^0.8) or
-    # falls back to 1 on a fresh state.
     typed_zero = scalar_type(0.0)
     typed_eps = scalar_type(np.finfo(dtype).eps)
-    typed_softening = scalar_type(0.8)
-    eta_prev = scalar_type(eta_state[0]) if eta_state is not None else (
-        typed_zero
-    )
-    if eta_prev > typed_zero:
-        eta = scalar_type(max(eta_prev, typed_eps) ** typed_softening)
-    else:
-        eta = typed_one
+    # Zero marks unavailable contraction history.
     norm2_dz_prev = typed_zero
 
     if instrumented and newton_initial_guesses is not None:
@@ -659,32 +588,21 @@ def newton_solve(
 
         step = np.asarray(direction, dtype=dtype)
 
-        # Contraction estimate from consecutive update norms.
+        # Clamp the contraction estimate.
         norm2_dz = _scaled_norm_impl(step, state, atol_value, rtol_value)
-        theta_known = norm2_dz_prev > typed_zero and norm2_dz > typed_zero
-        contracting = True
-        if theta_known:
-            if norm2_dz < norm2_dz_prev:
-                theta = scalar_type(np.sqrt(norm2_dz / norm2_dz_prev))
-                eta = scalar_type(theta / (typed_one - theta))
-            else:
-                contracting = False
-        norm2_dz_prev = norm2_dz
+        ratio = scalar_type(
+            min(norm2_dz / max(norm2_dz_prev, typed_eps), typed_one)
+        )
+        theta = scalar_type(np.sqrt(ratio))
+        eta = scalar_type(theta / max(typed_one - theta, typed_eps))
+        update_bound = scalar_type(eta * np.sqrt(norm2_dz))
+        accept_update = bool(
+            (norm2_dz_prev > typed_zero)
+            & linear_converged
+            & (update_bound <= typed_one)
+        )
 
-        # A stalled update with an in-tolerance residual means the
-        # iterate sits at the rounding floor; accept it rather than
-        # iterating to failure.
-        if theta_known and not contracting and norm2_prev <= typed_one:
-            converged = True
-            break
-
-        if (
-            contracting
-            and linear_converged
-            and eta * eta * norm2_dz <= typed_one
-        ):
-            # The full step already meets the error bound: apply it
-            # and skip the line search.
+        if accept_update:
             state = np.asarray(state + step, dtype=dtype)
             converged = True
             _log_newton_iteration(
@@ -693,7 +611,7 @@ def newton_solve(
                 index=log_index,
                 candidate=state,
                 residual=np.zeros_like(residual),
-                squared_norm=scalar_type(eta * eta * norm2_dz),
+                squared_norm=scalar_type(update_bound * update_bound),
                 logging_iteration_guesses=newton_iteration_guesses,
                 logging_residuals=newton_residuals,
                 logging_squared_norms=newton_squared_norms,
@@ -702,6 +620,7 @@ def newton_solve(
             break
 
         scale = typed_one
+        norm2_dz_next = typed_zero
 
         for _ in range(backtrack_limit + 1):
             trial_state = state + scale * step
@@ -727,8 +646,12 @@ def newton_solve(
                 state = trial_state
                 residual = trial_residual
                 norm2_prev = trial_norm2
+                if linear_converged and scale == typed_one:
+                    norm2_dz_next = norm2_dz
                 break
             scale = scalar_type(scale * damping_value)
+
+        norm2_dz_prev = norm2_dz_next
 
         # A failed backtrack keeps the iterate and retries with a
         # refined direction.
@@ -740,13 +663,7 @@ def newton_solve(
         ):
             newton_iteration_scale[stage_index, iteration] = scale
 
-    # Residual fallback at exit: never fail a solve the residual-based
-    # criterion would have accepted.
-    if not converged and norm2_prev <= typed_one:
-        converged = True
-
-    if eta_state is not None and converged:
-        eta_state[0] = eta
+    converged = converged or norm2_prev <= typed_one
 
     return state, converged, iterations_used
 

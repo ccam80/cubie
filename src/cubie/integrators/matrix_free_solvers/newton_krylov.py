@@ -292,16 +292,6 @@ class NewtonKrylov(MatrixFreeSolver):
             config.krylov_iters_local_location,
             precision=np_int32,
         )
-        # Final eta of the previous solve seeds the next solve's
-        # first-iteration convergence estimate.
-        buffer_registry.register(
-            "newton_eta",
-            self,
-            1,
-            "local",
-            persistent=True,
-            precision=precision,
-        )
         # Record the linear solver as a child at registration time so
         # clear_parent cascades reach it before this solver has built;
         # build refreshes the same named registration with real sizes.
@@ -347,7 +337,6 @@ class NewtonKrylov(MatrixFreeSolver):
         typed_one = numba_precision(1.0)
         typed_damping = numba_precision(newton_damping)
         typed_eps = numba_precision(float(np_finfo(config.precision).eps))
-        typed_softening = numba_precision(0.8)
         n_val = int32(n)
 
         # Get allocators from buffer_registry
@@ -357,7 +346,6 @@ class NewtonKrylov(MatrixFreeSolver):
         alloc_residual_temp = get_alloc("residual_temp", self)
         alloc_stage_base_bt = get_alloc("stage_base_bt", self)
         alloc_krylov_iters_local = get_alloc("krylov_iters_local", self)
-        alloc_newton_eta = get_alloc("newton_eta", self)
 
         # Get child allocators for linear solver. Named registration
         # keeps re-registration idempotent if the linear solver
@@ -382,36 +370,7 @@ class NewtonKrylov(MatrixFreeSolver):
             persistent_scratch,
             counters,
         ):
-            """Solve a nonlinear system with a damped Newton--Krylov iteration.
-
-            Parameters
-            ----------
-            stage_increment
-                Current Newton iterate representing the stage increment.
-            parameters
-                Model parameters forwarded to the residual evaluation.
-            drivers
-                External drivers forwarded to the residual evaluation.
-            t
-                Stage time forwarded to the residual and linear solver.
-            h
-                Timestep scaling factor supplied by the outer integrator.
-            a_ij
-                Stage weight used by multi-stage integrators.
-            base_state
-                Reference state used when evaluating the residual.
-            shared_scratch
-                Shared scratch buffer for Newton and linear solver.
-            persistent_scratch
-                Persistent local scratch buffer for Newton and linear solver.
-            counters
-                Size (2,) int32 array for iteration counters.
-
-            Returns
-            -------
-            int
-                Status word with convergence information and iteration count.
-            """
+            """Solve the nonlinear system."""
 
             # Allocate buffers from registry
             delta = alloc_delta(shared_scratch, persistent_scratch)
@@ -443,22 +402,7 @@ class NewtonKrylov(MatrixFreeSolver):
                 residual[i] = -residual[i]
                 delta[i] = typed_zero
 
-            # Convergence is update-based: eta * ||dz|| <= 1 bounds
-            # the error remaining after the full Newton step dz, with
-            # eta = theta / (1 - theta) and theta the contraction
-            # rate estimated from consecutive scaled update norms.
-            # The first iteration seeds eta from the previous solve's
-            # final value (softened by ^0.8); a fresh slot (zero)
-            # falls back to the conservative eta = 1, which demands
-            # the update itself sit inside tolerance.
-            newton_eta = alloc_newton_eta(shared_scratch, persistent_scratch)
-            eta_prev = newton_eta[0]
-            if eta_prev > typed_zero:
-                eta = numba_precision(
-                    max(eta_prev, typed_eps) ** typed_softening
-                )
-            else:
-                eta = typed_one
+            # Zero marks unavailable contraction history.
             norm2_dz_prev = typed_zero
 
             converged = False
@@ -506,53 +450,36 @@ class NewtonKrylov(MatrixFreeSolver):
                 )
                 last_lin_status = selp(active, lin_status, last_lin_status)
 
-                # Contraction estimate from consecutive update norms.
+                # Clamp the ratio so every lane follows the same arithmetic.
                 norm2_dz = scaled_norm_fn(delta, stage_increment)
-                theta_known = (norm2_dz_prev > typed_zero) and (
-                    norm2_dz > typed_zero
-                )
-                contracting = True
-                new_eta = eta
-                if theta_known:
-                    if norm2_dz < norm2_dz_prev:
-                        theta = numba_precision(
-                            math_sqrt(norm2_dz / norm2_dz_prev)
+                theta = numba_precision(
+                    math_sqrt(
+                        min(
+                            norm2_dz / max(norm2_dz_prev, typed_eps),
+                            typed_one,
                         )
-                        new_eta = theta / (typed_one - theta)
-                    else:
-                        contracting = False
-                eta = selp(active, new_eta, eta)
-                norm2_dz_prev = selp(active, norm2_dz, norm2_dz_prev)
-
-                # A stalled update with an in-tolerance residual means
-                # the iterate sits at the rounding floor; accept it
-                # rather than iterating to failure.
-                stalled_ok = (
-                    active
-                    and theta_known
-                    and (not contracting)
-                    and (norm2_prev <= typed_one)
+                    )
                 )
-                will_converge = (
+                eta = theta / max(typed_one - theta, typed_eps)
+                update_bound = eta * math_sqrt(norm2_dz)
+                accept_update = (
                     active
-                    and contracting
-                    and (lin_status == success)
-                    and (eta * eta * norm2_dz <= typed_one)
+                    & (norm2_dz_prev > typed_zero)
+                    & (lin_status == success)
+                    & (update_bound <= typed_one)
                 )
-                converged = converged or stalled_ok
 
                 for i in range(n_val):
                     stage_base_bt[i] = stage_increment[i]
-                found_step = False
+                    stage_increment[i] = selp(
+                        accept_update,
+                        stage_base_bt[i] + delta[i],
+                        stage_increment[i],
+                    )
+                converged = converged | accept_update
+                found_step = accept_update
+                norm2_dz_next = typed_zero
                 alpha = typed_one
-
-                if will_converge:
-                    # The full step already meets the error bound:
-                    # apply it and skip the line search.
-                    for i in range(n_val):
-                        stage_increment[i] = stage_base_bt[i] + delta[i]
-                    converged = True
-                    found_step = True
 
                 for _ in range(max_backtracks):
                     active_bt = active and (not found_step) and (not converged)
@@ -580,45 +507,60 @@ class NewtonKrylov(MatrixFreeSolver):
                             residual_temp, stage_increment
                         )
 
-                        if norm2_new < norm2_prev:
-                            # Negate residual for return
-                            for i in range(n_val):
-                                residual[i] = -residual_temp[i]
-                            norm2_prev = norm2_new
-                            found_step = True
+                        accept_trial = norm2_new < norm2_prev
+                        for i in range(n_val):
+                            residual[i] = selp(
+                                accept_trial,
+                                -residual_temp[i],
+                                residual[i],
+                            )
+                        norm2_prev = selp(
+                            accept_trial, norm2_new, norm2_prev
+                        )
+                        found_step = found_step | accept_trial
+                        norm2_dz_next = selp(
+                            accept_trial
+                            & (alpha == typed_one)
+                            & (lin_status == success),
+                            norm2_dz,
+                            norm2_dz_next,
+                        )
 
                     alpha *= typed_damping
+
+                norm2_dz_prev = selp(
+                    active, norm2_dz_next, norm2_dz_prev
+                )
 
                 backtrack_failed = (
                     active and (not found_step) and (not converged)
                 )
                 last_backtrack_failed = active and backtrack_failed
 
-                if backtrack_failed:
-                    # Revert increment to unscaled value for another damping attempt.
-                    for i in range(n_val):
-                        stage_increment[i] = stage_base_bt[i]
+                for i in range(n_val):
+                    stage_increment[i] = selp(
+                        backtrack_failed,
+                        stage_base_bt[i],
+                        stage_increment[i],
+                    )
 
-            # Residual fallback at exit: never fail a solve the
-            # residual-based criterion would have accepted.
-            if (not converged) and (norm2_prev <= typed_one):
-                converged = True
+            converged = converged | (norm2_prev <= typed_one)
 
-            newton_eta[0] = selp(converged, eta, eta_prev)
-
-            # Compose status word on exit.
-            if not converged:
-                final_status = int32(final_status | max_newton_iters_exceeded)
-                final_status = selp(
-                    last_backtrack_failed,
-                    int32(final_status | newton_backtracking_failed),
-                    final_status,
-                )
-                final_status = selp(
-                    last_lin_status != success,
-                    int32(final_status | last_lin_status),
-                    final_status,
-                )
+            final_status = selp(
+                not converged,
+                int32(final_status | max_newton_iters_exceeded),
+                final_status,
+            )
+            final_status = selp(
+                (not converged) & last_backtrack_failed,
+                int32(final_status | newton_backtracking_failed),
+                final_status,
+            )
+            final_status = selp(
+                (not converged) & (last_lin_status != success),
+                int32(final_status | last_lin_status),
+                final_status,
+            )
 
             counters[0] = iters_count
             counters[1] = total_krylov_iters
