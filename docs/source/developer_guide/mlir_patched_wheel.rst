@@ -39,7 +39,10 @@ What the wheel contains
 -----------------------
 
 The wheel is built from the ``cubie-wheel`` branch of
-`ccam80/numba-cuda-mlir <https://github.com/ccam80/numba-cuda-mlir>`_:
+`ccam80/numba-cuda-mlir <https://github.com/ccam80/numba-cuda-mlir>`_;
+that branch's ``CUBIE_WHEEL.md`` is the step-by-step maintenance
+runbook (tracking upstream main, adding patches, building,
+validating, publishing). The branch contains:
 the upstream ``main`` the branch was last rebased onto, plus a union
 merge of the native-code pull requests currently open against
 NVIDIA/numba-cuda-mlir:
