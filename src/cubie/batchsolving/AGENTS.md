@@ -58,11 +58,13 @@ deregisters the kernel and array managers. Explicit failures are reported and
 the close can be retried. `solve_ivp` closes its temporary solver before it
 returns. Finalizers provide best-effort cleanup for abandoned solvers.
 
-`allow_memory_eviction=True` lets physical VRAM pressure evict a
-completed solver's buffers. Completion is checked with a CUDA event.
-Host arrays above `host_spill_threshold` use `numpy.memmap` and bounded
-pinned staging. Full and raw results keep disk backing and support close or
-context cleanup. `as_numpy` uses RAM.
+`allow_memory_eviction` (default True) lets physical VRAM pressure evict a
+completed solver's buffers; the evicted solver reallocates on its next run.
+Completion is checked with a CUDA event. Host arrays above
+`host_spill_threshold` use `numpy.memmap` and bounded pinned staging. Full
+and raw results keep disk backing and support close or context cleanup.
+`as_numpy`/`as_pandas` materialise in RAM and raise `MemoryError` before
+copying when the outputs exceed free RAM.
 
 ### Grids
 `BatchInputHandler` converts user dicts/arrays into `(variable, run)` arrays via the

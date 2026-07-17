@@ -275,8 +275,18 @@ def solve_ivp(
     Returns
     -------
     SolveResult, RawSolveResult, or dict
-        Requested result form. Spill-backed full and raw results support
-        ``close()`` and context cleanup.
+        ``"full"`` returns a :class:`SolveResult`; ``"raw"`` returns a
+        :class:`RawSolveResult` owning the solve's host buffers; the
+        ``"numpy"``, ``"numpy_per_summary"``, and ``"pandas"`` forms
+        return plain dictionaries of RAM copies. Disk-backed full and
+        raw results support ``close()`` and context cleanup.
+
+    Raises
+    ------
+    MemoryError
+        When a RAM results form is requested but the outputs exceed
+        free RAM. Request ``"full"`` or ``"raw"`` and slice the
+        disk-backed arrays instead.
     """
     if not isinstance(system, BaseODE):
         system = _system_from_equations(
@@ -354,10 +364,18 @@ class Solver:
         selectors such as ``save_variables`` or index-based parameters may also
         be supplied as keyword arguments.
     memory_settings
-        Memory configuration. ``allow_memory_eviction`` lets completed solver
-        buffers be evicted. ``host_spill_threshold`` sets the largest host
-        array kept in RAM, in bytes. ``spill_directory`` selects an existing
-        directory for spill files. These keys may also be keyword arguments.
+        Memory configuration; each key may also be a keyword argument.
+        ``allow_memory_eviction`` (default ``True``) lets an idle
+        solver's completed buffers be freed when another solver faces a
+        genuine VRAM shortage; the evicted solver reallocates on its
+        next solve. Set it ``False`` to pin a latency-critical solver's
+        buffers resident. ``host_spill_threshold`` is the size in bytes
+        above which host result arrays are disk-backed instead of held
+        in RAM; the default spills only arrays larger than half of free
+        RAM. Lower it to keep RAM free for other work, or raise it when
+        results must stay in RAM at any size. ``spill_directory`` is an
+        existing directory for spill files (default: the system temp
+        directory); point it at a fast disk for large spilled runs.
     loop_settings
         Explicit loop configuration overriding solver defaults. Keys such as
         ``save_every`` and ``summarise_every`` may also be supplied as loose
@@ -640,8 +658,13 @@ class Solver:
         Returns
         -------
         SolveResult, RawSolveResult, or dict
-            Requested result form. Spill-backed full and raw results support
-            ``close()`` and context cleanup.
+            ``"full"`` returns a :class:`SolveResult`; ``"raw"``
+            returns a :class:`RawSolveResult` owning the solve's host
+            buffers; the ``"numpy"``, ``"numpy_per_summary"``, and
+            ``"pandas"`` forms return plain dictionaries of RAM
+            copies and raise :class:`MemoryError` before copying when
+            the outputs exceed free RAM. Disk-backed full and raw
+            results support ``close()`` and context cleanup.
 
         Notes
         -----

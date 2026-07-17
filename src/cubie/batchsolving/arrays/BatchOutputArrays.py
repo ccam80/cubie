@@ -317,20 +317,15 @@ class OutputArrays(BaseArrayManager):
             A new OutputArrays instance configured for the solver.
         """
         sizes = BatchOutputSizes.from_solver(solver_instance).nonzero
-        owner = (
-            solver_instance
-            if hasattr(solver_instance, "_memory_manager")
-            else solver_instance.kernel
-        )
         return cls(
             sizes=sizes,
             precision=solver_instance.precision,
             memory_manager=solver_instance.memory_manager,
             stream_group=solver_instance.stream_group,
-            memory_owner=owner,
-            allow_memory_eviction=owner.allow_memory_eviction,
-            host_spill_threshold=owner.host_spill_threshold,
-            spill_directory=owner.spill_directory,
+            memory_owner=solver_instance,
+            allow_memory_eviction=solver_instance.allow_memory_eviction,
+            host_spill_threshold=solver_instance.host_spill_threshold,
+            spill_directory=solver_instance.spill_directory,
         )
 
     def update_from_solver(

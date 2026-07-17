@@ -330,8 +330,9 @@ class MockMemoryManager(MemoryManager):
     """Memory manager with controlled memory info for chunking tests."""
 
     def __init__(self, **kwargs):
-        super().__init__()
+        # Set the limit first: attrs __init__ probes get_memory_info.
         self._custom_limit = kwargs.get("forced_free_mem", 950)
+        super().__init__()
 
     def get_memory_info(self):
         return int(self._custom_limit), int(8192)
@@ -362,6 +363,67 @@ def low_mem_solver(
         driver_array=driver_array,
         memory_manager=low_memory,
     )
+
+
+@pytest.fixture(scope="function")
+def second_low_mem_solver(
+    system,
+    solver_settings,
+    driver_array,
+    low_memory,
+):
+    """Second solver sharing ``low_memory`` for cross-solver tests."""
+    return _build_solver_instance(
+        system=system,
+        solver_settings=solver_settings,
+        driver_array=driver_array,
+        memory_manager=low_memory,
+    )
+
+
+@pytest.fixture(scope="session")
+def start_cuda_busy_work():
+    """Return a launcher for a long busy kernel on its own stream.
+
+    The launcher returns ``(out, stream, done)``; ``done`` is an event
+    recorded after the kernel, so ``done.query()`` reports whether the
+    unrelated work has finished. The kernel runs on a non-blocking
+    stream: ambient legacy-default-stream traffic (allocator frees and
+    pool growth land there) serializes every *blocking* stream against
+    it, which would entangle the canary with the code under test
+    through no fault of that code. A non-blocking stream is immune to
+    legacy-stream ordering while still being awaited by any genuine
+    device-wide synchronization. The default iteration count runs for
+    a few seconds, comfortably longer than any bracketed operation
+    under test.
+    """
+    from cubie.cuda_simsafe import CUDA_SIMULATION, cuda, cupy
+
+    if CUDA_SIMULATION:
+        pytest.skip("busy-kernel canary requires real CUDA")
+
+    @cuda.jit
+    def _busy_kernel(out, iterations):
+        value = 0.0
+        for _ in range(iterations[0]):
+            value += 1.0
+        out[0] = value
+
+    def _start(iterations=100_000_000):
+        cupy_stream = cupy.cuda.Stream(non_blocking=True)
+        stream = cuda.external_stream(cupy_stream.ptr)
+        # Keep the owning cupy stream alive alongside the wrapper.
+        stream._cubie_owner = cupy_stream
+        out = cuda.device_array(1, dtype=np.float32)
+        iteration_count = cuda.to_device(
+            np.array([iterations], dtype=np.int64), stream=stream
+        )
+        done = cuda.event()
+        _busy_kernel[1, 1, stream](out, iteration_count)
+        done.record(stream)
+        return out, stream, done
+
+    return _start
 
 
 @pytest.fixture(scope="session")
@@ -478,6 +540,9 @@ def solver_settings(solver_settings_override, system, precision):
         "memory_manager": default_memmgr,
         "stream_group": "test_group",
         "mem_proportion": None,
+        "allow_memory_eviction": True,
+        "host_spill_threshold": None,
+        "spill_directory": None,
         "step_controller": "fixed",
         "precision": precision,
         "driverspline_order": 3,

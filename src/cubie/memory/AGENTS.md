@@ -42,8 +42,12 @@ simulator never touches CuPy — it keeps its own numpy-backed fakes. Supporting
   best effort and do not raise during interpreter shutdown.
 - Allocation, copies, launch, and release use the run's stream. Memory caps
   cause chunking without device-wide synchronization or garbage collection.
-- Physical pressure may evict opted-in owners after their completion event.
-  Manual and external registrations are protected.
+- Physical pressure may evict opted-in owners after their completion event
+  (recorded only for evictable owners). Eviction is opt-in per registration
+  (`evictable`, default False, so external clients are untouchable), and
+  every allocation-holding registration of an evicted owner must have a
+  real invalidate hook. A manual-proportion owner that opts in is treated
+  like any other.
 
 ### Host spill
 - Host arrays above their owner's spill threshold use a temporary memmap.

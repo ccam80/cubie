@@ -8,7 +8,6 @@ import pytest
 from cubie.cuda_simsafe import cuda
 
 from cubie.cuda_simsafe import (
-    CUDA_SIMULATION,
     DeviceNDArray,
     Stream,
 )
@@ -29,53 +28,14 @@ from cubie.memory.mem_manager import (
     placeholder_invalidate,
     replace_with_chunked_size,
 )
+from tests.memory.conftest import (
+    DummyStream,
+    FakeAllocation,
+    MemoryClient,
+    registered_mgr_context_safe,
+)
 
 import numpy as np
-
-
-if not CUDA_SIMULATION:
-    @cuda.jit
-    def _busy_kernel(out):
-        value = 0.0
-        for _ in range(20_000_000):
-            value += 1.0
-        out[0] = value
-
-
-class DummyClass:
-    def __init__(self, proportion=None, invalidate_all_hook=None):
-        self.proportion = proportion
-        self.invalidate_all_hook = invalidate_all_hook
-        self.last_response = None
-
-    def notice_invalidate(self):
-        self.proportion = None
-
-    def notice_allocation(self, response):
-        self.last_response = response
-
-
-@pytest.fixture(scope="function")
-def instance_settings_override(request):
-    return request.param if hasattr(request, "param") else {}
-
-
-@pytest.fixture(scope="function")
-def instance_settings(instance_settings_override):
-    defaults = {
-        "proportion": 0.5,
-        "invalidate_hook": lambda: None,
-    }
-    if instance_settings_override:
-        for key, value in instance_settings_override.items():
-            if key in defaults:
-                defaults[key] = value
-    return defaults
-
-
-@pytest.fixture(scope="function")
-def instance_settings_obj(instance_settings):
-    return InstanceMemorySettings(**instance_settings)
 
 
 class TestInstanceMemorySettings:
@@ -123,106 +83,6 @@ class TestInstanceMemorySettings:
         assert instance_settings_obj.allocated_bytes == arr2.nbytes
 
 
-# ========================= Memory Manager Class =========================== #
-@pytest.fixture
-def fixed_mem_override(request):
-    return request.param if hasattr(request, "param") else {}
-
-
-@pytest.fixture(scope="function")
-def fixed_mem_settings(fixed_mem_override):
-    defaults = {"free": 1 * 1024**3, "total": 8 * 1024**3}
-    if fixed_mem_override:
-        for key, value in fixed_mem_override.items():
-            if key in defaults:
-                defaults[key] = value
-    return defaults
-
-
-@pytest.fixture(scope="function")
-def mem_manager_override(request):
-    return request.param if hasattr(request, "param") else {}
-
-
-@pytest.fixture(scope="function")
-def mem_manager_settings(mem_manager_override):
-    defaults = {"mode": "passive"}
-    if mem_manager_override:
-        for key, value in mem_manager_override.items():
-            if key in defaults:
-                defaults[key] = value
-    return defaults
-
-
-# Override memory info for consistent tests
-@pytest.fixture(scope="function")
-def mgr(fixed_mem_settings, mem_manager_settings):
-    class TestMemoryManager(MemoryManager):
-        def get_memory_info(self):
-            free = fixed_mem_settings["free"]
-            total = fixed_mem_settings["total"]
-            return free, total
-
-    # Create an instance of the TestMemoryManager with the provided settings
-    return TestMemoryManager(**mem_manager_settings)
-
-
-@pytest.fixture(scope="function")
-def registered_instance_override(request):
-    return request.param if hasattr(request, "param") else {}
-
-
-@pytest.fixture(scope="function")
-def registered_instance_settings(registered_instance_override):
-    defaults = {
-        "proportion": 0.5,
-        "invalidate_all_hook": lambda: None,
-    }
-    if registered_instance_override:
-        for key, value in registered_instance_override.items():
-            if key in defaults:
-                defaults[key] = value
-    return defaults
-
-
-@pytest.fixture(scope="function")
-def registered_instance(registered_instance_settings):
-    return DummyClass(**registered_instance_settings)
-
-
-@pytest.fixture(scope="function")
-def registered_mgr(mgr, registered_instance):
-    mgr.register(
-        registered_instance,
-        proportion=registered_instance.proportion,
-        invalidate_cache_hook=registered_instance.invalidate_all_hook,
-    )
-    return mgr
-
-
-def registered_mgr_context_safe(
-    mem_manager_settings, registered_instance_settings
-):
-    fixed_mem_settings_closure = {"free": 1 * 1024**3, "total": 8 * 1024**3}
-
-    class TestMemoryManager(MemoryManager):
-        def get_memory_info(self):
-            free = fixed_mem_settings_closure["free"]
-            total = fixed_mem_settings_closure["total"]
-            return free, total
-
-    manager = TestMemoryManager(**mem_manager_settings)
-    registeree = DummyClass(**registered_instance_settings)
-
-    manager.register(
-        registeree,
-        proportion=registeree.proportion,
-        invalidate_cache_hook=registeree.invalidate_all_hook,
-    )
-
-    return manager, registeree
-
-
 class TestMemoryManager:
     @pytest.mark.nocudasim
     def test_instantiation(self, mgr):
@@ -259,7 +119,10 @@ class TestMemoryManager:
 
     @pytest.mark.nocudasim
     def test_get_stream(
-        self, mem_manager_settings, registered_instance_settings
+        self,
+        mem_manager_settings,
+        registered_instance_settings,
+        memory_client,
     ):
         """test that get_stream successfully passes a different stream for
         instances registered in different stream groups"""
@@ -270,14 +133,17 @@ class TestMemoryManager:
         stream = regmgr.get_stream(instance)
         assert isinstance(stream, Stream)
         # Register another instance in a new group
-        inst2 = DummyClass()
+        inst2 = memory_client
         regmgr.register(inst2, stream_group="other")
         stream2 = regmgr.get_stream(inst2)
         assert stream2 is not None
         assert int(stream.handle) != int(stream2.handle)
 
     def test_change_stream_group(
-        self, mem_manager_settings, registered_instance_settings
+        self,
+        mem_manager_settings,
+        registered_instance_settings,
+        memory_client,
     ):
         """test that change_stream_group changes the stream group of an
         instance, and that it raises ValueError if the instance wasn't
@@ -287,7 +153,7 @@ class TestMemoryManager:
         )
         regmgr.change_stream_group(instance, "other")
         assert id(instance) in regmgr.stream_groups.groups["other"]
-        dummy = DummyClass()
+        dummy = memory_client
         with pytest.raises(ValueError):
             regmgr.change_stream_group(dummy, "newgroup")
 
@@ -306,7 +172,10 @@ class TestMemoryManager:
         assert int(stream1.handle) != int(stream2.handle)
 
     def test_invalidate_all(
-        self, mem_manager_settings, registered_instance_settings
+        self,
+        mem_manager_settings,
+        registered_instance_settings,
+        memory_client,
     ):
         """Add a new instance with a measurable invalidate hook, and check
         that it is called when invalidate all is called"""
@@ -318,7 +187,7 @@ class TestMemoryManager:
         def hook():
             called["flag"] = True
 
-        inst = DummyClass()
+        inst = memory_client
         regmgr.register(inst, invalidate_cache_hook=hook)
         regmgr.invalidate_all()
         assert called["flag"] is True
@@ -352,7 +221,10 @@ class TestMemoryManager:
         "registered_instance_override", [{"proportion": 0.5}], indirect=True
     )
     def test_proportion(
-        self, mem_manager_settings, registered_instance_settings
+        self,
+        mem_manager_settings,
+        registered_instance_settings,
+        memory_client,
     ):
         """Test that proportion returns the requested proportion if set,
         and 1.0 if not set (auto)"""
@@ -361,7 +233,7 @@ class TestMemoryManager:
         )
         assert regmgr.proportion(instance) == instance.proportion
         # Register auto instance
-        inst2 = DummyClass(proportion=None)
+        inst2 = memory_client
         regmgr.register(inst2, proportion=None)
         assert regmgr.proportion(inst2) == 0.5
 
@@ -379,8 +251,12 @@ class TestMemoryManager:
     @pytest.mark.parametrize(
         "registered_instance_override", [{"proportion": None}], indirect=True
     )
+    @pytest.mark.parametrize("memory_clients", [4], indirect=True)
     def test_pool_proportions(
-        self, mem_manager_settings, registered_instance_settings
+        self,
+        mem_manager_settings,
+        registered_instance_settings,
+        memory_clients,
     ):
         """Add a few auto and manual instances, check that the total manual
         and auto pool proportions match expected. Test add and rebalance
@@ -389,10 +265,7 @@ class TestMemoryManager:
             mem_manager_settings, registered_instance_settings
         )
         instance1 = instance
-        instance2 = DummyClass()
-        instance3 = DummyClass()
-        instance4 = DummyClass()
-        instance5 = DummyClass()
+        instance2, instance3, instance4, instance5 = memory_clients
 
         # already registered
         with pytest.raises(ValueError):
@@ -431,10 +304,10 @@ class TestMemoryManager:
         with pytest.raises(ValueError):
             regmgr.register(instance5, proportion=0.3)
 
-    def test_process_request(self, mgr):
+    def test_process_request(self, mgr, memory_client):
         """Test single_request calls allocation hook with correct ArrayResponse."""
         # Create instance with callback to capture response
-        instance = DummyClass()
+        instance = memory_client
         callback_called = {"flag": False, "response": None}
 
         def allocation_hook(response):
@@ -632,12 +505,14 @@ class TestMemoryManager:
         mgr.set_manual_limit_mode(instance, 0.3)
         assert abs(mgr.manual_pool_proportion - 0.3) < 1e-6
 
-    def test_auto_pool_proportion(self, registered_mgr, registered_instance):
+    def test_auto_pool_proportion(
+        self, registered_mgr, registered_instance, memory_client
+    ):
         """Test auto_pool_proportion property returns correct sum."""
         mgr = registered_mgr
         instance = registered_instance
         # Add an auto instance
-        inst2 = DummyClass()
+        inst2 = memory_client
         mgr.register(inst2)
         expected = 1.0 - mgr.registry[id(instance)].proportion
         assert abs(mgr.auto_pool_proportion - expected) < 1e-6
@@ -655,13 +530,13 @@ class TestMemoryManager:
         "registered_instance_override", [{"proportion": None}], indirect=True
     )
     def test_set_manual_proportion_from_auto_pool(
-        self, registered_mgr, registered_instance
+        self, registered_mgr, registered_instance, memory_client
     ):
         """Test set_manual_proportion moves an auto instance to manual."""
         mgr = registered_mgr
         instance = registered_instance
         instance_id = id(instance)
-        inst2 = DummyClass()
+        inst2 = memory_client
         mgr.register(inst2)
         assert instance_id in mgr._auto_pool
         mgr.set_manual_proportion(instance, 0.01)
@@ -671,10 +546,10 @@ class TestMemoryManager:
         assert mgr.registry[instance_id].cap == int(0.01 * mgr.totalmem)
         assert abs(mgr.registry[id(inst2)].proportion - 0.99) < 1e-6
 
-    def test_rebalance_auto_pool(self, mgr):
+    @pytest.mark.parametrize("memory_clients", [2], indirect=True)
+    def test_rebalance_auto_pool(self, mgr, memory_clients):
         """Test _rebalance_auto_pool splits available proportion among auto pool."""
-        inst1 = DummyClass()
-        inst2 = DummyClass()
+        inst1, inst2 = memory_clients
         mgr.register(inst1)
         mgr.register(inst2)
         assert mgr.registry[id(inst1)].proportion == 0.5
@@ -684,7 +559,9 @@ class TestMemoryManager:
         assert abs(mgr.registry[id(inst1)].proportion - 0.25) < 1e-6
         assert abs(mgr.auto_pool_proportion - 0.25) < 1e-6
 
-    def test_get_stream_group(self, registered_mgr, registered_instance):
+    def test_get_stream_group(
+        self, registered_mgr, registered_instance, memory_client
+    ):
         """Test get_stream_group returns the correct group name."""
         mgr = registered_mgr
         instance = registered_instance
@@ -692,7 +569,7 @@ class TestMemoryManager:
         assert group == "default"
 
         # Test with custom group
-        inst2 = DummyClass()
+        inst2 = memory_client
         mgr.register(inst2, stream_group="custom")
         assert mgr.get_stream_group(inst2) == "custom"
 
@@ -760,9 +637,9 @@ class TestMemoryManager:
         # Should only have the latest request
         assert mgr._queued_allocations[stream_group][id(instance)] == requests2
 
-    def test_allocate_queue_single_instance(self, mgr):
+    def test_allocate_queue_single_instance(self, mgr, memory_client):
         """Test allocate_queue with single instance in queue."""
-        instance = DummyClass()
+        instance = memory_client
         callback_called = {"flag": False, "response": ArrayResponse()}
 
         def allocation_hook(response):
@@ -792,10 +669,12 @@ class TestMemoryManager:
         assert response.arr["arr1"].dtype == np.float32
         assert response.chunks == 1
 
-    def test_allocate_queue_multiple_instances_group_limit(self, mgr):
+    @pytest.mark.parametrize("memory_clients", [2], indirect=True)
+    def test_allocate_queue_multiple_instances_group_limit(
+        self, mgr, memory_clients
+    ):
         """Test allocate_queue with multiple instances using group limit."""
-        inst1 = DummyClass()
-        inst2 = DummyClass()
+        inst1, inst2 = memory_clients
         callbacks_called = {
             "inst1": {"flag": False, "response": ArrayResponse()},
             "inst2": {"flag": False, "response": ArrayResponse()},
@@ -849,9 +728,11 @@ class TestMemoryManager:
     @pytest.mark.parametrize(
         "fixed_mem_override", [{"free": 1024}], indirect=True
     )
-    def test_allocate_queue_empty_rebroadcasts_chunk_parameters(self, mgr):
+    def test_allocate_queue_empty_rebroadcasts_chunk_parameters(
+        self, mgr, memory_client
+    ):
         """Test allocate_queue with nothing queued resends chunk params."""
-        instance = DummyClass()
+        instance = memory_client
         responses = []
         mgr.register(
             instance, allocation_ready_hook=lambda r: responses.append(r)
@@ -881,28 +762,32 @@ class TestMemoryManager:
         assert second.chunks == first.chunks
         assert second.chunk_length == first.chunk_length
 
-    def test_is_grouped(self, mgr):
+    @pytest.mark.parametrize("memory_clients", [5], indirect=True)
+    def test_is_grouped(self, mgr, memory_clients):
         """Test is_grouped returns correct grouping status for instances."""
+        (
+            inst_default,
+            inst_single,
+            inst_group1,
+            inst_group2,
+            inst_group3,
+        ) = memory_clients
+
         # Test instance in default group (should return False)
-        inst_default = DummyClass()
         mgr.register(inst_default, stream_group="default")
         assert mgr.is_grouped(inst_default) is False
 
         # Test single instance in named group (should return False)
-        inst_single = DummyClass()
         mgr.register(inst_single, stream_group="single_group")
         assert mgr.is_grouped(inst_single) is False
 
         # Test multiple instances in named group (should return True)
-        inst_group1 = DummyClass()
-        inst_group2 = DummyClass()
         mgr.register(inst_group1, stream_group="multi_group")
         mgr.register(inst_group2, stream_group="multi_group")
         assert mgr.is_grouped(inst_group1) is True
         assert mgr.is_grouped(inst_group2) is True
 
         # Test three instances in named group (should return True)
-        inst_group3 = DummyClass()
         mgr.register(inst_group3, stream_group="multi_group")
         assert mgr.is_grouped(inst_group1) is True
         assert mgr.is_grouped(inst_group2) is True
@@ -1033,10 +918,12 @@ def test_ensure_cuda_context_simulation():
 class TestGetChunkParameters:
     """Tests for get_chunk_parameters method."""
 
-    def test_get_chunk_parameters_unchunkable_exceeds_memory(self, mgr):
+    def test_get_chunk_parameters_unchunkable_exceeds_memory(
+        self, mgr, memory_client
+    ):
         """Verify error when unchunkable arrays exceed available memory."""
         # Register an instance
-        inst = DummyClass()
+        inst = memory_client
         mgr.register(inst, stream_group="test")
 
         # Create a request where unchunkable size exceeds available memory
@@ -1467,11 +1354,6 @@ def test_numba_stream_ptr_none_stream():
     assert _numba_stream_ptr(None) is None
 
 
-class DummyStream:
-    def __init__(self, handle):
-        self.handle = handle
-
-
 def test_numba_stream_ptr_ctypes_void_p():
     """Test pointer extraction from a ctypes.c_void_p handle."""
     stream = DummyStream(ctypes.c_void_p(1234))
@@ -1523,24 +1405,24 @@ def test_attrs_post_init_cuda_less_environment():
     assert mgr.totalmem == 1
 
 
-def test_register_proportion_out_of_range(mgr):
+def test_register_proportion_out_of_range(mgr, memory_client):
     """Test register raises ValueError for an out-of-range proportion."""
-    inst = DummyClass()
+    inst = memory_client
     with pytest.raises(ValueError, match="Proportion must be between"):
         mgr.register(inst, proportion=1.5)
 
 
-def test_set_manual_proportion_out_of_range(mgr):
+def test_set_manual_proportion_out_of_range(mgr, memory_client):
     """Test set_manual_proportion raises ValueError when out of range."""
-    inst = DummyClass()
+    inst = memory_client
     with pytest.raises(ValueError, match="Proportion must be between"):
         mgr.set_manual_proportion(inst, 1.5)
 
 
-def test_set_manual_limit_mode_noop_when_already_manual(mgr):
+def test_set_manual_limit_mode_noop_when_already_manual(mgr, memory_client):
     """Test set_manual_limit_mode is a no-op for an already-manual
     instance."""
-    inst = DummyClass()
+    inst = memory_client
     mgr.register(inst)
     mgr.set_manual_limit_mode(inst, 0.3)
     assert abs(mgr.proportion(inst) - 0.3) < 1e-6
@@ -1549,10 +1431,10 @@ def test_set_manual_limit_mode_noop_when_already_manual(mgr):
     assert abs(mgr.proportion(inst) - 0.3) < 1e-6
 
 
-def test_set_auto_limit_mode_converts_manual_to_auto(mgr):
+def test_set_auto_limit_mode_converts_manual_to_auto(mgr, memory_client):
     """Test set_auto_limit_mode moves a manual instance to the auto
     pool."""
-    inst = DummyClass()
+    inst = memory_client
     mgr.register(inst, proportion=0.5)
     instance_id = id(inst)
     assert instance_id in mgr._manual_pool
@@ -1562,43 +1444,40 @@ def test_set_auto_limit_mode_converts_manual_to_auto(mgr):
     assert abs(mgr.proportion(inst) - 1.0) < 1e-6
 
 
-def test_add_manual_proportion_exceeds_total(mgr):
+@pytest.mark.parametrize("memory_clients", [2], indirect=True)
+def test_add_manual_proportion_exceeds_total(mgr, memory_clients):
     """Test manual proportions summing above 1.0 raise ValueError."""
-    inst1 = DummyClass()
-    inst2 = DummyClass()
+    inst1, inst2 = memory_clients
     mgr.register(inst1, proportion=0.6)
     with pytest.raises(ValueError, match="exceed total available memory"):
         mgr.register(inst2, proportion=0.6)
 
 
-def test_add_manual_proportion_warns_low_autopool(mgr):
+def test_add_manual_proportion_warns_low_autopool(mgr, memory_client):
     """Test a manual proportion leaving <5% free warns when the auto
     pool is empty."""
-    inst = DummyClass()
+    inst = memory_client
     with pytest.warns(UserWarning, match="less than 5%"):
         mgr.register(inst, proportion=0.97)
 
 
-def test_add_auto_proportion_raises_when_pool_too_small(mgr):
+@pytest.mark.parametrize("memory_clients", [2], indirect=True)
+def test_add_auto_proportion_raises_when_pool_too_small(mgr, memory_clients):
     """Test registering an auto instance raises ValueError once the
     manual pool leaves less than the minimum auto pool size."""
-    manual_inst = DummyClass()
+    manual_inst, auto_inst = memory_clients
     with pytest.warns(UserWarning, match="less than 5%"):
         mgr.register(manual_inst, proportion=0.97)
-    auto_inst = DummyClass()
     with pytest.raises(ValueError, match="less than"):
         mgr.register(auto_inst)
 
 
-class FakeAllocation:
-    def __init__(self, nbytes):
-        self.nbytes = nbytes
-
-
-def test_get_available_memory_active_mode_warns_low_headroom(mgr):
+def test_get_available_memory_active_mode_warns_low_headroom(
+    mgr, memory_client
+):
     """Test get_available_memory warns when a group has used more
     than 95% of its allotted memory in active mode."""
-    inst = DummyClass()
+    inst = memory_client
     mgr.register(inst, proportion=0.5)
     mgr.set_limit_mode("active")
     settings = mgr.registry[id(inst)]
@@ -1611,10 +1490,10 @@ def test_get_available_memory_active_mode_warns_low_headroom(mgr):
     assert available == min(headroom, free)
 
 
-def test_get_available_memory_active_mode_normal(mgr):
+def test_get_available_memory_active_mode_normal(mgr, memory_client):
     """Test get_available_memory returns headroom in active mode when
     below the 95% warning threshold."""
-    inst = DummyClass()
+    inst = memory_client
     mgr.register(inst, proportion=0.5)
     mgr.set_limit_mode("active")
     available = mgr.get_available_memory("default")
@@ -1627,10 +1506,12 @@ def test_get_available_memory_active_mode_normal(mgr):
 @pytest.mark.parametrize(
     "fixed_mem_override", [{"free": 1024, "total": 1024 * 100}], indirect=True
 )
-def test_get_chunk_parameters_warns_and_raises_when_unfittable(mgr):
+def test_get_chunk_parameters_warns_and_raises_when_unfittable(
+    mgr, memory_client
+):
     """Test get_chunk_parameters warns when a request exceeds 20x
     VRAM and then raises when even one run cannot fit."""
-    inst = DummyClass()
+    inst = memory_client
     mgr.register(inst, stream_group="test")
     requests = {
         id(inst): {
@@ -1730,10 +1611,10 @@ def test_attrs_post_init_unexpected_exception():
     assert mgr.totalmem == 1
 
 
-def test_set_auto_limit_mode_noop_when_already_auto(mgr):
+def test_set_auto_limit_mode_noop_when_already_auto(mgr, memory_client):
     """Test set_auto_limit_mode is a no-op for an already-auto
     instance."""
-    inst = DummyClass()
+    inst = memory_client
     mgr.register(inst)
     instance_id = id(inst)
     proportion_before = mgr.proportion(inst)
@@ -1767,11 +1648,11 @@ def test_sync_stream(registered_mgr, registered_instance):
     mgr.sync_stream(instance)  # Should not raise
 
 
-def test_allocate_queue_notifies_notaries(mgr):
+@pytest.mark.parametrize("memory_clients", [2], indirect=True)
+def test_allocate_queue_notifies_notaries(mgr, memory_clients):
     """Test allocate_queue notifies peers that never queued a request
     (notaries) with an empty ArrayResponse."""
-    inst1 = DummyClass()
-    inst2 = DummyClass()
+    inst1, inst2 = memory_clients
     responses = {}
 
     def hook1(response):
@@ -1804,11 +1685,13 @@ def test_allocate_queue_notifies_notaries(mgr):
     [{"free": 100 * 1024**2, "total": 8 * 1024**3}],
     indirect=True,
 )
-def test_get_chunk_parameters_unchunkable_alone_exceeds_memory(mgr):
+def test_get_chunk_parameters_unchunkable_alone_exceeds_memory(
+    mgr, memory_client
+):
     """Test get_chunk_parameters raises when unchunkable arrays alone
     exceed available memory, distinct from the all-unchunkable case
     (a genuinely chunkable array is also present)."""
-    inst = DummyClass()
+    inst = memory_client
     mgr.register(inst, stream_group="test")
 
     requests = {
@@ -1844,11 +1727,13 @@ def test_get_chunk_parameters_unchunkable_alone_exceeds_memory(mgr):
     [{"free": 10 * 1024**2, "total": 8 * 1024**3}],
     indirect=True,
 )
-def test_get_chunk_parameters_computes_chunk_size_when_eligible(mgr):
+def test_get_chunk_parameters_computes_chunk_size_when_eligible(
+    mgr, memory_client
+):
     """Test get_chunk_parameters returns a positive chunk size and
     chunk count when the request exceeds available memory but each
     run still fits."""
-    inst = DummyClass()
+    inst = memory_client
     mgr.register(inst, stream_group="test")
 
     requests = {
@@ -1878,9 +1763,9 @@ def test_get_chunk_parameters_computes_chunk_size_when_eligible(mgr):
     [{"free": 1024**3, "total": 8 * 1024**3}],
     indirect=True,
 )
-def test_active_cap_chunks_with_free_device_memory(mgr):
+def test_active_cap_chunks_with_free_device_memory(mgr, memory_client):
     """An active cap chunks a request that fits physical VRAM."""
-    inst = DummyClass()
+    inst = memory_client
     mgr.register(inst, proportion=0.01, stream_group="capped")
     mgr.set_limit_mode("active")
     requests = {
@@ -1908,9 +1793,11 @@ def test_active_cap_chunks_with_free_device_memory(mgr):
     [{"free": 1024**3, "total": 8 * 1024**3}],
     indirect=True,
 )
-def test_active_cap_chunking_leaves_unrelated_stream_running(mgr):
+def test_active_cap_chunking_leaves_unrelated_stream_running(
+    mgr, memory_client, start_cuda_busy_work
+):
     """Cap-driven chunking does not synchronize another stream."""
-    inst = DummyClass()
+    inst = memory_client
     mgr.register(inst, proportion=0.01, stream_group="capped")
     mgr.set_limit_mode("active")
     requests = {
@@ -1923,19 +1810,18 @@ def test_active_cap_chunking_leaves_unrelated_stream_running(mgr):
             )
         }
     }
-    stream = cuda.stream()
-    done = cuda.event()
-    out = cuda.device_array(1, dtype=np.float32)
-    _busy_kernel[1, 1, stream](out)
-    done.record(stream)
+    work, stream, done = start_cuda_busy_work()
 
-    _, chunks = mgr.get_chunk_parameters(
-        requests, 20_000_000, "capped"
-    )
+    try:
+        _, chunks = mgr.get_chunk_parameters(
+            requests, 20_000_000, "capped"
+        )
 
-    assert chunks > 1
-    assert not done.query()
-    stream.synchronize()
+        assert chunks > 1
+        assert not done.query()
+    finally:
+        stream.synchronize()
+        assert work.copy_to_host()[0] > 0
 
 
 @pytest.mark.parametrize(
@@ -1943,7 +1829,7 @@ def test_active_cap_chunking_leaves_unrelated_stream_running(mgr):
     [{"free": 1024, "total": 8 * 1024**3}],
     indirect=True,
 )
-def test_allocation_pressure_does_not_run_cyclic_gc(mgr):
+def test_allocation_pressure_does_not_run_cyclic_gc(mgr, memory_client):
     """Allocation pressure chunks without collecting client cycles."""
 
     class CyclicClient:
@@ -1972,7 +1858,7 @@ def test_allocation_pressure_does_not_run_cyclic_gc(mgr):
         del holder
         assert dead_id in mgr.registry
 
-        requester = DummyClass()
+        requester = memory_client
         mgr.register(requester, stream_group="pressure_requester")
         mgr.queue_request(
             requester,
@@ -1995,10 +1881,14 @@ def test_allocation_pressure_does_not_run_cyclic_gc(mgr):
         gc.enable()
 
 
-def test_owner_work_state_tracks_submission(mgr):
-    """Owner work stays active until its completion event finishes."""
-    inst = DummyClass()
-    mgr.register(inst, stream_group="flags")
+def test_owner_work_state_tracks_submission(mgr, memory_client):
+    """Owner work stays active until its completion event finishes.
+
+    Registered with ``evictable=True`` so ``end_work`` records a real
+    completion event instead of skipping straight to work_complete.
+    """
+    inst = memory_client
+    mgr.register(inst, stream_group="flags", evictable=True)
     settings = mgr.registry[id(inst)]
     assert settings.work_complete
     mgr.begin_work(inst)
@@ -2015,15 +1905,15 @@ def test_owner_work_state_tracks_submission(mgr):
     [{"free": 2048, "total": 8 * 1024**3}],
     indirect=True,
 )
-def test_pressure_evicts_opted_in_complete_owner(mgr):
+@pytest.mark.parametrize("memory_clients", [3], indirect=True)
+def test_pressure_evicts_opted_in_complete_owner(mgr, memory_clients):
     """Physical pressure evicts only opted-in completed owners.
 
     The idle client's allocations are freed and its invalidate hook
     runs (so it reallocates on its next solve); a client marked
     active keeps its allocations.
     """
-    idle = DummyClass()
-    busy = DummyClass()
+    idle, busy, requester = memory_clients
     mgr.register(
         idle,
         invalidate_cache_hook=idle.notice_invalidate,
@@ -2056,7 +1946,6 @@ def test_pressure_evicts_opted_in_complete_owner(mgr):
     busy.proportion = "armed"
     mgr.begin_work(busy)
 
-    requester = DummyClass()
     mgr.register(requester, stream_group="evict_requester")
     mgr.queue_request(
         requester,
@@ -2083,11 +1972,10 @@ def test_pressure_evicts_opted_in_complete_owner(mgr):
     [{"free": 2048, "total": 8 * 1024**3}],
     indirect=True,
 )
-def test_external_and_inflight_owners_are_not_evicted(mgr):
+@pytest.mark.parametrize("memory_clients", [4], indirect=True)
+def test_external_and_inflight_owners_are_not_evicted(mgr, memory_clients):
     """Pressure keeps external and in-flight allocations."""
-    external = DummyClass()
-    inflight = DummyClass()
-    no_invalidator = DummyClass()
+    external, inflight, no_invalidator, requester = memory_clients
     mgr.register(external, stream_group="external")
     mgr.register(inflight, stream_group="inflight", evictable=True)
     mgr.register(
@@ -2110,7 +1998,6 @@ def test_external_and_inflight_owners_are_not_evicted(mgr):
         mgr.allocate_queue(instance)
     mgr.begin_work(inflight)
 
-    requester = DummyClass()
     mgr.register(requester, stream_group="protected_requester")
     mgr.queue_request(
         requester,
@@ -2135,9 +2022,11 @@ def test_external_and_inflight_owners_are_not_evicted(mgr):
     [{"free": 2048, "total": 8 * 1024**3}],
     indirect=True,
 )
-def test_pressure_evicts_only_required_lru_owner(mgr):
+@pytest.mark.parametrize("memory_clients", [3], indirect=True)
+def test_pressure_evicts_only_required_lru_owner(mgr, memory_clients):
     """Eviction stops after the oldest owner covers the shortage."""
-    owners = (DummyClass(), DummyClass())
+    owner_a, owner_b, requester = memory_clients
+    owners = (owner_a, owner_b)
     for index, owner in enumerate(owners):
         mgr.register(
             owner,
@@ -2162,7 +2051,6 @@ def test_pressure_evicts_only_required_lru_owner(mgr):
         mgr.end_work(owner, stream)
         stream.synchronize()
 
-    requester = DummyClass()
     mgr.register(requester, stream_group="lru_requester")
     mgr.queue_request(
         requester,
@@ -2221,7 +2109,7 @@ def test_create_host_array_spills_over_threshold(mgr, tmp_path):
 
 def test_manager_rejects_negative_spill_threshold():
     """The manager rejects a negative spill threshold immediately."""
-    with pytest.raises(ValueError, match="must be non-negative"):
+    with pytest.raises(ValueError, match="must be >= 0"):
         MemoryManager(host_spill_threshold=-1)
 
 
@@ -2242,12 +2130,53 @@ def test_release_host_array_reports_unlink_failure(mgr, tmp_path):
         path.rmdir()
 
 
+@pytest.mark.nocudasim
+def test_host_spill_does_not_wait_for_unrelated_stream(
+    tmp_path, start_cuda_busy_work
+):
+    """Host spill setup leaves unrelated CUDA work running."""
+    work, stream, done = start_cuda_busy_work()
+    manager = MemoryManager(host_spill_threshold=1, spill_directory=tmp_path)
+    try:
+        arr = manager.create_host_array((32,), np.float32, "host")
+        assert isinstance(arr, np.memmap)
+        assert not done.query()
+    finally:
+        stream.synchronize()
+        assert work.copy_to_host()[0] > 0
+
+
+@pytest.mark.nocudasim
+def test_legacy_default_stream_sync_is_stream_local(
+    memory_client, start_cuda_busy_work
+):
+    """Legacy stream zero does not wait for unrelated CUDA work."""
+    manager = MemoryManager()
+    owner = memory_client
+    manager.register(owner)
+    ready = cuda.event()
+    ready.record(manager.get_stream(owner))
+    ready.synchronize()
+    work, stream, done = start_cuda_busy_work()
+    try:
+        manager.sync_stream(owner, stream=0)
+        assert not done.query()
+    finally:
+        stream.synchronize()
+        assert work.copy_to_host()[0] > 0
+
+
 class TestDeadInstanceRelease:
-    """The registry releases instances once they are collected."""
+    """The registry releases instances once they are collected.
+
+    Clients are constructed inline rather than taken from fixtures:
+    pytest's fixture cache holds a strong reference for the test's
+    lifetime, which would prevent the collection these tests assert.
+    """
 
     def test_registry_does_not_pin_instances(self, mgr):
         """Bound-method hooks leave the instance collectable."""
-        inst = DummyClass()
+        inst = MemoryClient()
         mgr.register(
             inst,
             proportion=0.4,
@@ -2269,33 +2198,36 @@ class TestDeadInstanceRelease:
         Three successive 0.5 reservations exceed the whole memory if
         the dead instances' proportions are retained.
         """
-        keeper = DummyClass()
+        keeper = MemoryClient()
         mgr.register(keeper)
         for _ in range(3):
-            inst = DummyClass()
+            inst = MemoryClient()
             mgr.register(inst, proportion=0.5)
             del inst
             gc.collect()
         assert mgr.manual_pool_proportion == 0.0
-        survivor = DummyClass()
+        survivor = MemoryClient()
         mgr.register(survivor, proportion=0.9)
         assert abs(mgr.manual_pool_proportion - 0.9) < 1e-9
         assert id(survivor) in mgr._manual_pool
 
     def test_dead_auto_instance_leaves_pool(self, mgr):
         """A collected auto instance stops diluting the auto pool."""
-        keeper = DummyClass()
+        keeper = MemoryClient()
         mgr.register(keeper)
-        inst = DummyClass()
+        inst = MemoryClient()
         mgr.register(inst)
         del inst
         gc.collect()
         assert abs(mgr.auto_pool_proportion - 1.0) < 1e-9
         assert mgr.registry[id(keeper)].proportion == 1.0
 
-    def test_bound_method_hooks_compare_equal(self, mgr):
+    @pytest.mark.parametrize(
+        "memory_client_override", [{"proportion": 0.3}], indirect=True
+    )
+    def test_bound_method_hooks_compare_equal(self, mgr, memory_client):
         """Registered hooks compare equal to the source bound methods."""
-        inst = DummyClass(proportion=0.3)
+        inst = memory_client
         mgr.register(
             inst,
             invalidate_cache_hook=inst.notice_invalidate,
@@ -2309,7 +2241,7 @@ class TestDeadInstanceRelease:
 
     def test_dead_hooks_are_noops(self, mgr):
         """Hooks of a collected instance do nothing when invoked."""
-        inst = DummyClass()
+        inst = MemoryClient()
         mgr.register(inst, invalidate_cache_hook=inst.notice_invalidate)
         del inst
         gc.collect()

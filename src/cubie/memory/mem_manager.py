@@ -57,10 +57,12 @@ from inspect import ismethod
 from weakref import WeakMethod, finalize, ref as weakref_ref
 import ctypes
 import os
+import sys
 
 from cubie.cuda_simsafe import cuda
 from attrs import define, Factory as attrsFactory, field
 from attrs.validators import (
+    ge as attrsval_ge,
     in_ as attrsval_in,
     instance_of as attrsval_instance_of,
     optional as attrsval_optional,
@@ -104,53 +106,88 @@ ALL_MEMORY_MANAGER_PARAMETERS = {
 MIN_AUTOPOOL_SIZE = 0.05
 
 HOST_SPILL_FRACTION = 0.5
-"""Default host spill threshold as a fraction of free RAM."""
+"""Default host spill threshold as a fraction of free RAM.
+
+Half of free RAM leaves headroom for result assembly, which holds at
+most one combined copy of the largest host array alongside the
+original.
+"""
 
 HOST_STAGING_BYTES = 64 * 1024**2
-"""Maximum pinned staging bytes used by one host transfer."""
+"""Maximum pinned staging bytes used by one host transfer.
+
+64 MiB is large enough to reach full PCIe transfer bandwidth while
+bounding the pinned footprint of a chunked or spilled solve.
+"""
+
+
+if sys.platform == "win32":
+    class _MemoryStatusEx(ctypes.Structure):
+        """Layout of the Win32 ``MEMORYSTATUSEX`` structure."""
+
+        _fields_ = [
+            ("dwLength", ctypes.c_ulong),
+            ("dwMemoryLoad", ctypes.c_ulong),
+            ("ullTotalPhys", ctypes.c_ulonglong),
+            ("ullAvailPhys", ctypes.c_ulonglong),
+            ("ullTotalPageFile", ctypes.c_ulonglong),
+            ("ullAvailPageFile", ctypes.c_ulonglong),
+            ("ullTotalVirtual", ctypes.c_ulonglong),
+            ("ullAvailVirtual", ctypes.c_ulonglong),
+            ("ullAvailExtendedVirtual", ctypes.c_ulonglong),
+        ]
 
 
 def available_system_ram() -> Optional[int]:
-    """Return free physical RAM in bytes, if available."""
-    try:
-        pages = os.sysconf("SC_AVPHYS_PAGES")
-        page_size = os.sysconf("SC_PAGE_SIZE")
-        if pages > 0 and page_size > 0:
-            return pages * page_size
-    except (AttributeError, ValueError, OSError):
-        pass
-    try:  # pragma: no cover - Windows-only path
-        class _MemoryStatusEx(ctypes.Structure):
-            _fields_ = [
-                ("dwLength", ctypes.c_ulong),
-                ("dwMemoryLoad", ctypes.c_ulong),
-                ("ullTotalPhys", ctypes.c_ulonglong),
-                ("ullAvailPhys", ctypes.c_ulonglong),
-                ("ullTotalPageFile", ctypes.c_ulonglong),
-                ("ullAvailPageFile", ctypes.c_ulonglong),
-                ("ullTotalVirtual", ctypes.c_ulonglong),
-                ("ullAvailVirtual", ctypes.c_ulonglong),
-                ("ullAvailExtendedVirtual", ctypes.c_ulonglong),
-            ]
+    """Return free physical RAM in bytes, or ``None`` when unknown.
 
+    Linux exposes the probe through ``os.sysconf``; Windows through
+    ``GlobalMemoryStatusEx``. macOS defines neither ``SC_AVPHYS_PAGES``
+    nor the Win32 call, so the probe returns ``None`` there and
+    spill-threshold resolution falls back to never spilling by size.
+    """
+    names = getattr(os, "sysconf_names", {})
+    if "SC_AVPHYS_PAGES" in names and "SC_PAGE_SIZE" in names:
+        return os.sysconf("SC_AVPHYS_PAGES") * os.sysconf("SC_PAGE_SIZE")
+    if sys.platform == "win32":  # pragma: no cover - Windows-only path
         status = _MemoryStatusEx()
         status.dwLength = ctypes.sizeof(_MemoryStatusEx)
         if ctypes.windll.kernel32.GlobalMemoryStatusEx(
             ctypes.byref(status)
         ):
             return int(status.ullAvailPhys)
-    except (AttributeError, OSError):
-        pass
     return None
 
 
 def _remove_spill_file(mapping: Any, path: str) -> None:
-    """Close and delete one spill file."""
+    """Close and delete one spill file.
+
+    Runs as a garbage-collection finalizer, where raising is not
+    possible, so a filesystem failure is reported as a warning.
+    """
     try:
         mapping.close()
         os.remove(path)
     except OSError as error:  # pragma: no cover - filesystem failure
         warn(f"Could not remove spill file '{path}': {error}", ResourceWarning)
+
+
+def _spill_directory_converter(
+    value: Optional[os.PathLike | str],
+) -> Optional[str]:
+    """Normalise a spill directory setting to a string path."""
+    if value is None:
+        return None
+    return os.fspath(value)
+
+
+def _existing_directory_validator(instance, attribute, value) -> None:
+    """Reject spill directories that do not exist."""
+    if not os.path.isdir(value):
+        raise ValueError(
+            f"{attribute.name} must be an existing directory, "
+            f"got '{value}'"
+        )
 
 
 def placeholder_invalidate() -> None:
@@ -491,13 +528,28 @@ class InstanceMemorySettings:
         default=False, validator=attrsval_instance_of(bool)
     )
     completion_event: Optional[Any] = field(default=None)
+    # register() always assigns an owner id; registrations sharing one
+    # owner id are evicted together or not at all.
     owner_id: Optional[int] = field(default=None)
     evictable: bool = field(
         default=False, validator=attrsval_instance_of(bool)
     )
     last_used: int = field(default=0, validator=attrsval_instance_of(int))
-    host_spill_threshold: Optional[int] = field(default=None)
-    spill_directory: Optional[str] = field(default=None)
+    # Bytes above which this instance's host arrays spill to disk;
+    # None defers to the manager-wide policy.
+    host_spill_threshold: Optional[int] = field(
+        default=None,
+        validator=attrsval_optional(
+            [attrsval_instance_of(int), attrsval_ge(0)]
+        ),
+    )
+    # Directory for this instance's spill files; None defers to the
+    # manager-wide setting.
+    spill_directory: Optional[str] = field(
+        default=None,
+        converter=_spill_directory_converter,
+        validator=attrsval_optional(_existing_directory_validator),
+    )
 
     def add_allocation(self, key: str, arr: Any) -> None:
         """Add an allocation to the instance's allocations list.
@@ -628,26 +680,19 @@ class MemoryManager:
     # None derives the threshold from available RAM at creation time.
     host_spill_threshold: Optional[int] = field(
         default=None,
-        validator=attrsval_optional(attrsval_instance_of(int)),
+        validator=attrsval_optional(
+            [attrsval_instance_of(int), attrsval_ge(0)]
+        ),
     )
     # Directory for spill files; None uses the system temp directory.
-    spill_directory: Optional[os.PathLike | str] = field(
+    spill_directory: Optional[str] = field(
         default=None,
+        converter=_spill_directory_converter,
+        validator=attrsval_optional(_existing_directory_validator),
     )
 
     def __attrs_post_init__(self) -> None:
         """Initialise the manager with current GPU memory information."""
-        if (
-            self.host_spill_threshold is not None
-            and self.host_spill_threshold < 0
-        ):
-            raise ValueError("host_spill_threshold must be non-negative")
-        if self.spill_directory is not None:
-            self.spill_directory = os.fspath(self.spill_directory)
-            if not os.path.isdir(self.spill_directory):
-                raise ValueError(
-                    "spill_directory must be an existing directory"
-                )
         try:
             free, total = self.get_memory_info()
         except ValueError as e:
@@ -696,13 +741,20 @@ class MemoryManager:
         stream_group
             Name of the stream group to assign the instance to.
         owner
-            Object that owns this registration.
+            Eviction unit for this registration. A solver kernel passes
+            itself when registering its input and output array
+            managers, so pressure evicts the whole solver or nothing.
+            ``None`` (external clients, standalone managers) makes the
+            instance its own eviction unit.
         evictable
-            Allow completed owner allocations to be evicted.
+            Allow this registration's completed allocations to be
+            evicted under physical VRAM pressure.
         host_spill_threshold
-            Bytes above which this owner's host arrays spill to disk.
+            Bytes above which this instance's host arrays spill to
+            disk. ``None`` defers to the manager-wide policy.
         spill_directory
-            Directory for this owner's spill files.
+            Directory for this instance's spill files. ``None`` defers
+            to the manager-wide setting.
 
         Raises
         ------
@@ -716,22 +768,13 @@ class MemoryManager:
         if instance_id in self.registry:
             raise ValueError("Instance already registered")
 
-        if host_spill_threshold is not None:
-            if not isinstance(host_spill_threshold, int):
-                raise TypeError("host_spill_threshold must be an integer")
-            if host_spill_threshold < 0:
-                raise ValueError("host_spill_threshold must be non-negative")
-        if spill_directory is not None:
-            spill_directory = os.fspath(spill_directory)
-            if not os.path.isdir(spill_directory):
-                raise ValueError("spill_directory must be an existing directory")
-        self.stream_groups.add_instance(instance, stream_group)
-
         try:
             instance_ref = weakref_ref(instance)
         except TypeError:
             instance_ref = None
         owner_id = instance_id if owner is None else id(owner)
+        # Constructing the settings validates the spill options, so it
+        # runs before the instance joins a stream group.
         settings = InstanceMemorySettings(
             invalidate_hook=invalidate_cache_hook,
             allocation_ready_hook=allocation_ready_hook,
@@ -741,7 +784,7 @@ class MemoryManager:
             host_spill_threshold=host_spill_threshold,
             spill_directory=spill_directory,
         )
-
+        self.stream_groups.add_instance(instance, stream_group)
         self.registry[instance_id] = settings
 
         if proportion:
@@ -1108,11 +1151,16 @@ class MemoryManager:
 
     def end_work(self, owner: object, stream: Stream) -> None:
         """Record completion of an owner's submitted CUDA work."""
+        owned = self._owner_settings(id(owner))
         event = None
-        if not CUDA_SIMULATION:
+        # Only eviction candidates ever consult work_complete, so the
+        # completion event is recorded only for evictable owners.
+        if not CUDA_SIMULATION and any(
+            settings.evictable for settings in owned
+        ):
             event = cuda.event()
             event.record(stream)
-        for settings in self._owner_settings(id(owner)):
+        for settings in owned:
             settings.last_stream = stream
             settings.completion_event = event
             settings.submitting = False
@@ -1120,50 +1168,55 @@ class MemoryManager:
     def _evict_idle_owners(
         self, exclude_ids: set[int], required_bytes: int
     ) -> int:
-        """Evict the least-recently-used eligible owners."""
+        """Free the least-recently-used evictable owners.
+
+        Whole owners are evicted, oldest first, until ``required_bytes``
+        are released. Returns the number of bytes actually released.
+        """
         excluded_owners = {
             self.registry[instance_id].owner_id
             for instance_id in exclude_ids
             if instance_id in self.registry
         }
-        owners = {}
+        # Group registrations into eviction units by owner id.
+        owners: Dict[int, list] = {}
         for settings in self.registry.values():
             owners.setdefault(settings.owner_id, []).append(settings)
 
         candidates = []
         for owner_id, owned in owners.items():
+            # Never evict the requester's own registrations.
             if owner_id in excluded_owners:
                 continue
+            # Eviction is opt-in for every registration in the unit.
             if not all(settings.evictable for settings in owned):
                 continue
-            if not any(
+            # Every allocation holder must have a real invalidate hook,
+            # or it would keep handles to freed device buffers.
+            if not all(
                 settings.invalidate_hook.target()
                 not in (None, placeholder_invalidate)
                 for settings in owned
+                if settings.allocations
             ):
                 continue
-            if any(
-                instance_id in self._manual_pool
-                for instance_id, settings in self.registry.items()
-                if settings.owner_id == owner_id
-            ):
-                continue
+            # Skip owners with submitted CUDA work still running.
             if not all(settings.work_complete for settings in owned):
                 continue
             allocated = sum(settings.allocated_bytes for settings in owned)
-            if allocated:
-                candidates.append(
-                    (min(settings.last_used for settings in owned), owned)
-                )
+            if allocated == 0:
+                continue
+            oldest_use = min(settings.last_used for settings in owned)
+            candidates.append((oldest_use, owned))
 
         released = 0
         for _, owned in sorted(candidates, key=lambda item: item[0]):
+            if released >= required_bytes:
+                break
             for settings in owned:
                 released += settings.allocated_bytes
                 settings.free_all()
                 settings.invalidate_hook()
-            if released >= required_bytes:
-                break
         return released
 
     def _rebalance_auto_pool(self) -> None:
@@ -1297,14 +1350,20 @@ class MemoryManager:
     def _resolved_spill_threshold(
         self, instance: Optional[object] = None
     ) -> Optional[int]:
-        """Return the applicable spill threshold in bytes."""
-        if instance is not None:
-            settings = self.registry.get(id(instance))
-            if (
-                settings is not None
-                and settings.host_spill_threshold is not None
-            ):
-                return settings.host_spill_threshold
+        """Return the applicable spill threshold in bytes.
+
+        Precedence: the instance's registered threshold, then the
+        manager-wide threshold, then ``HOST_SPILL_FRACTION`` of
+        currently-free RAM. ``create_host_array`` is public, so
+        ``instance`` may be ``None`` or unregistered; both fall back to
+        manager policy. ``None`` is returned when free RAM cannot be
+        probed, and the array then never spills by size.
+        """
+        settings = (
+            self.registry.get(id(instance)) if instance is not None else None
+        )
+        if settings is not None and settings.host_spill_threshold is not None:
+            return settings.host_spill_threshold
         if self.host_spill_threshold is not None:
             return self.host_spill_threshold
         ram_available = available_system_ram()
@@ -1318,13 +1377,19 @@ class MemoryManager:
         dtype: DTypeLike,
         instance: Optional[object] = None,
     ) -> np_memmap:
-        """Create a temporary disk-backed array."""
+        """Create a temporary disk-backed array.
+
+        Directory precedence mirrors ``_resolved_spill_threshold``:
+        instance setting, then manager setting, then the system temp
+        directory.
+        """
         directory = self.spill_directory
-        if instance is not None:
-            settings = self.registry.get(id(instance))
-            if settings is not None and settings.spill_directory is not None:
-                directory = settings.spill_directory
-        directory = os.fspath(directory or gettempdir())
+        settings = (
+            self.registry.get(id(instance)) if instance is not None else None
+        )
+        if settings is not None and settings.spill_directory is not None:
+            directory = settings.spill_directory
+        directory = directory or gettempdir()
         handle, path = mkstemp(
             prefix="cubie-spill-", suffix=".dat", dir=directory
         )
@@ -1812,6 +1877,10 @@ class MemoryManager:
 
         request_size = chunkable_size + unchunkable_size
 
+        # Evict only for a genuine physical VRAM shortage that eviction
+        # can fix. A configured cap (active mode) is a policy limit:
+        # when the request exceeds cap headroom the run chunks anyway,
+        # and evicting peers cannot raise the cap.
         physical_shortage = request_size >= free
         cap_allows_request = (
             cap_headroom is None or request_size < cap_headroom

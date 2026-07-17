@@ -62,7 +62,10 @@ from cubie.time_logger import CUDAEvent
 from numpy.typing import NDArray
 
 from cubie.memory import default_memmgr
-from cubie.memory.mem_manager import run_instance_teardown
+from cubie.memory.mem_manager import (
+    InstanceMemorySettings,
+    run_instance_teardown,
+)
 from cubie.buffer_registry import buffer_registry
 from cubie.CUDAFactory import CUDAFactory, CUDADispatcherCache
 from cubie.batchsolving.arrays.BatchInputArrays import InputArrays
@@ -87,7 +90,9 @@ DEFAULT_MEMORY_SETTINGS = {
     "mem_proportion": None,
     "host_spill_threshold": None,
     "spill_directory": None,
-    "allow_memory_eviction": False,
+    # Solvers self-heal after eviction (buffers reallocate on the next
+    # solve), so idle solvers yield VRAM to a shorted peer by default.
+    "allow_memory_eviction": True,
 }
 
 
@@ -366,21 +371,15 @@ class BatchSolverKernel(CUDAFactory):
         memory_manager = merged_settings["memory_manager"]
         stream_group = merged_settings["stream_group"]
         mem_proportion = merged_settings["mem_proportion"]
-        host_spill_threshold = merged_settings["host_spill_threshold"]
-        spill_directory = merged_settings["spill_directory"]
-        allow_eviction = merged_settings["allow_memory_eviction"]
-        self._host_spill_threshold = host_spill_threshold
-        self._spill_directory = spill_directory
-        self._allow_memory_eviction = allow_eviction
         memory_manager.register(
             self,
             stream_group=stream_group,
             proportion=mem_proportion,
             allocation_ready_hook=self._on_allocation,
             owner=self,
-            evictable=allow_eviction,
-            host_spill_threshold=host_spill_threshold,
-            spill_directory=spill_directory,
+            evictable=merged_settings["allow_memory_eviction"],
+            host_spill_threshold=merged_settings["host_spill_threshold"],
+            spill_directory=merged_settings["spill_directory"],
         )
         settings = memory_manager.registry[id(self)]
         self._finalizer = finalize(
@@ -394,19 +393,24 @@ class BatchSolverKernel(CUDAFactory):
         return memory_manager
 
     @property
+    def _registration(self) -> InstanceMemorySettings:
+        """This kernel's registration with its memory manager."""
+        return self._memory_manager.registry[id(self)]
+
+    @property
     def allow_memory_eviction(self) -> bool:
         """Whether pressure may evict this solver's idle buffers."""
-        return self._allow_memory_eviction
+        return self._registration.evictable
 
     @property
     def host_spill_threshold(self) -> Optional[int]:
         """Host-array spill threshold in bytes."""
-        return self._host_spill_threshold
+        return self._registration.host_spill_threshold
 
     @property
-    def spill_directory(self) -> Optional[object]:
+    def spill_directory(self) -> Optional[str]:
         """Directory used for spill files."""
-        return self._spill_directory
+        return self._registration.spill_directory
 
     def _setup_cuda_events(self, chunks: int) -> None:
         """Create CUDA events for timing instrumentation.

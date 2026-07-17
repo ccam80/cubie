@@ -6,10 +6,48 @@ import pytest
 
 from cubie.batchsolving.solver import Solver
 from cubie.batchsolving.BatchSolverConfig import ActiveOutputs
-from cubie.batchsolving.solveresult import RawSolveResult, SolveResult
+from cubie.batchsolving.solveresult import (
+    RawSolveResult,
+    SolveResult,
+    _ensure_fits_in_ram,
+)
 from cubie.memory import MemoryManager
+from cubie.memory.mem_manager import available_system_ram
 
 Array = np.ndarray
+
+
+def test_ram_guard_raises_before_any_copy():
+    """Materialisation larger than free RAM raises immediately."""
+    free = available_system_ram()
+    assert free is not None
+    with pytest.raises(MemoryError, match="disk-backed"):
+        _ensure_fits_in_ram(free + 2**33, "test output")
+    _ensure_fits_in_ram(1024, "test output")
+
+
+def test_raw_results_take_ownership_of_host_buffers(
+    solver_mutable, batch_input_arrays, driver_settings
+):
+    """Raw results hand over the solve's buffers without copying."""
+    y0, params = batch_input_arrays
+    solve_kwargs = dict(drivers=driver_settings, duration=0.1)
+    solver_mutable.solve(y0, params, **solve_kwargs)
+    state_buffer = solver_mutable.kernel.output_arrays.state
+
+    raw = solver_mutable.solve(
+        y0, params, results_type="raw", **solve_kwargs
+    )
+    assert raw["state"] is state_buffer
+    assert solver_mutable.kernel.output_arrays.state is None
+
+    # The next solve allocates fresh backing; the raw result's data
+    # stays untouched and both solves produce valid outputs.
+    second = solver_mutable.solve(y0, params, **solve_kwargs)
+    assert solver_mutable.kernel.output_arrays.state is not state_buffer
+    assert np.isfinite(raw["state"]).all()
+    assert np.isfinite(second.time_domain_array).all()
+    raw.close()
 
 
 def test_spill_result_context_releases_shared_mapping(tmp_path):

@@ -58,7 +58,10 @@ from numpy.typing import NDArray
 from cubie.batchsolving.BatchSolverConfig import ActiveOutputs
 from cubie.batchsolving import ArrayTypes
 from cubie.result_codes import decode_status_codes
-from cubie.memory.mem_manager import HOST_STAGING_BYTES
+from cubie.memory.mem_manager import (
+    HOST_STAGING_BYTES,
+    available_system_ram,
+)
 from cubie._utils import (
     slice_variable_dimension,
     opt_gttype_validator,
@@ -90,6 +93,22 @@ def _format_time_domain_label(label: str, unit: str) -> str:
     return label
 
 
+def _ensure_fits_in_ram(nbytes: int, description: str) -> None:
+    """Raise when a RAM materialisation cannot fit in free memory.
+
+    Raising before any copy is made keeps the disk-backed source
+    arrays intact, so the completed solve is not wasted.
+    """
+    ram_available = available_system_ram()
+    if ram_available is not None and nbytes > ram_available:
+        raise MemoryError(
+            f"Materialising {description} needs {nbytes} bytes but "
+            f"only {ram_available} bytes of RAM are free. Use "
+            f"results_type='full' or 'raw' and slice the disk-backed "
+            f"arrays instead."
+        )
+
+
 def _release_spill_arrays(memory_manager, arrays) -> None:
     """Release each spill mapping once."""
     cleanups = set()
@@ -104,7 +123,16 @@ def _release_spill_arrays(memory_manager, arrays) -> None:
 
 
 class RawSolveResult(dict):
-    """Own independent raw output arrays."""
+    """Own the solve's host output buffers, keyed by output name.
+
+    Raw results keep the historical plain-dict access shape
+    (``result["state"]``) and hold unprocessed per-buffer arrays, so
+    they are not a :class:`SolveResult`, which holds combined and
+    legended arrays. The solve's host buffers are handed over rather
+    than copied; the solver allocates fresh buffers on its next run.
+    ``close()`` (or garbage collection) removes any spill files behind
+    the arrays.
+    """
 
     def __init__(self, arrays, memory_manager) -> None:
         super().__init__(arrays)
@@ -319,25 +347,39 @@ class SolveResult:
             dictionary containing the requested representation.
         """
         if results_type == "raw":
+            # Raw results take the solve's host buffers wholesale: no
+            # copy, no extra disk. The solver allocates fresh buffers
+            # on its next run.
+            outputs = solver.kernel.output_arrays
             arrays = {
-                "state": cls._copy_result_array(solver, solver.state),
-                "observables": cls._copy_result_array(
-                    solver, solver.observables
-                ),
-                "state_summaries": cls._copy_result_array(
-                    solver, solver.state_summaries
-                ),
-                "observable_summaries": cls._copy_result_array(
-                    solver, solver.observable_summaries
-                ),
-                "iteration_counters": cls._copy_result_array(
-                    solver, solver.iteration_counters
-                ),
-                "status_codes": cls._copy_result_array(
-                    solver, solver.status_codes
-                ),
+                label: outputs.detach_host_array(label)
+                for label in (
+                    "state",
+                    "observables",
+                    "state_summaries",
+                    "observable_summaries",
+                    "iteration_counters",
+                    "status_codes",
+                )
             }
             return RawSolveResult(arrays, solver.kernel.memory_manager)
+        if results_type in ("numpy", "numpy_per_summary", "pandas"):
+            # These formats materialise everything in RAM. Fail before
+            # assembling anything if that cannot fit, so the completed
+            # solve's disk-backed buffers survive on the solver.
+            _ensure_fits_in_ram(
+                sum(
+                    array.nbytes
+                    for array in (
+                        solver.state,
+                        solver.observables,
+                        solver.state_summaries,
+                        solver.observable_summaries,
+                    )
+                    if array is not None
+                ),
+                f"results_type='{results_type}' output",
+            )
         active_outputs = solver.active_outputs
         state_active = active_outputs.state
         observables_active = active_outputs.observables
@@ -423,20 +465,18 @@ class SolveResult:
             memory_manager=solver.kernel.memory_manager,
         )
 
-        if results_type == "full":
+        if results_type == "numpy":
+            result = user_arrays.as_numpy
+        elif results_type == "numpy_per_summary":
+            result = user_arrays.as_numpy_per_summary
+        elif results_type == "pandas":
+            result = user_arrays.as_pandas
+        else:
+            # "full" and unrecognised types return the SolveResult.
             return user_arrays
-        try:
-            if results_type == "numpy":
-                result = user_arrays.as_numpy
-            elif results_type == "numpy_per_summary":
-                result = user_arrays.as_numpy_per_summary
-            elif results_type == "pandas":
-                result = user_arrays.as_pandas
-            else:
-                return user_arrays
-        finally:
-            if results_type in ("numpy", "numpy_per_summary", "pandas"):
-                user_arrays.close()
+        # The RAM copies are complete, so the intermediate (possibly
+        # disk-backed) arrays can be released.
+        user_arrays.close()
         return result
 
     def close(self) -> None:
@@ -469,7 +509,17 @@ class SolveResult:
 
     @staticmethod
     def _copy_result_array(solver, source: ndarray) -> ndarray:
-        """Copy an output without forcing a spill file into RAM."""
+        """Copy an output without forcing a spill file into RAM.
+
+        The result must outlive the solver's host buffers (the next
+        solve overwrites them and ``solve_ivp`` closes its temporary
+        solver), so full results copy. A disk-backed source copies to
+        a fresh disk-backed array; RAM stays untouched either way.
+        The source's own type decides the destination because
+        memmap-ness survives slicing, and sources here can be derived
+        views (for example the state array with its time column
+        removed) rather than managed slots.
+        """
         manager = solver.kernel.memory_manager
         owner = solver.kernel.output_arrays
         memory_type = "memmap" if isinstance(source, np_memmap) else "host"
@@ -523,6 +573,20 @@ class SolveResult:
         return result
 
     @property
+    def _materialized_nbytes(self) -> int:
+        """Total bytes a full RAM materialisation would copy."""
+        arrays = (
+            self.time,
+            self.time_domain_array,
+            self.summaries_array,
+            self.iteration_counters,
+            self.status_codes,
+        )
+        return sum(
+            array.nbytes for array in arrays if isinstance(array, ndarray)
+        )
+
+    @property
     def as_pandas(self) -> dict[str, "pd.DataFrame"]:
         """Convert the results to pandas DataFrames.
 
@@ -550,6 +614,7 @@ class SolveResult:
                 "use this feature."
             )
 
+        _ensure_fits_in_ram(self._materialized_nbytes, "as_pandas output")
         run_index = self._stride_order.index("run")
         ndim = len(self._stride_order)
         time_dfs = []
@@ -631,6 +696,7 @@ class SolveResult:
             summaries_array, time_domain_legend, summaries_legend, and
             iteration_counters.
         """
+        _ensure_fits_in_ram(self._materialized_nbytes, "as_numpy output")
         return {
             "time": (
                 np_array(self.time, copy=True, subok=False)
@@ -661,6 +727,9 @@ class SolveResult:
             Dictionary containing time, time_domain_array, time_domain_legend,
             iteration counters, and individual summary arrays.
         """
+        _ensure_fits_in_ram(
+            self._materialized_nbytes, "as_numpy_per_summary output"
+        )
         arrays = {
             "time": (
                 np_array(self.time, copy=True, subok=False)
