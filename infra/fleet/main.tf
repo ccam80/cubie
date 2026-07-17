@@ -51,16 +51,16 @@ locals {
   # ap-southeast-2 is structurally starved of 2xlarge GPU capacity
   # (score 1/10 vs 9/10 for xlarge), so xlarge keeps the suite running;
   # price-capacity-optimized allocation will usually pick it. Either
-  # size fits the fixed 8-vCPU G/VT spot quota, and max-parallel: 1 in
-  # the workflow keeps demand to a single instance.
+  # size fits the fixed 8-vCPU G/VT spot quota, and max-parallel: 2 in
+  # the workflow keeps demand to at most two xlarge-sized legs.
   runners = {
     gpu-linux-2xl = {
       family = [
         "g4dn.2xlarge", "g5.2xlarge", "g6.2xlarge",
         "g4dn.xlarge", "g5.xlarge", "g6.xlarge",
       ]
-      image  = "ubuntu24-gpu-x64"
-      spot = "price-capacity-optimized"
+      image = "ubuntu24-gpu-x64"
+      spot  = "price-capacity-optimized"
       # No s3-cache extra: on fleet v3.1.3 the runner agent's S3 proxy
       # also intercepts the GitHub artifact service and answers
       # CreateArtifact with a non-JSON error, failing every
@@ -73,8 +73,8 @@ locals {
         "g4dn.2xlarge", "g5.2xlarge", "g6.2xlarge",
         "g4dn.xlarge", "g5.xlarge", "g6.xlarge",
       ]
-      image  = "cubie-win-gpu"
-      spot = "price-capacity-optimized"
+      image = "cubie-win-gpu"
+      spot  = "price-capacity-optimized"
       # No s3-cache extra: on fleet v3.1.3 the runner agent's S3 proxy
       # also intercepts the GitHub artifact service and answers
       # CreateArtifact with a non-JSON error, failing every
