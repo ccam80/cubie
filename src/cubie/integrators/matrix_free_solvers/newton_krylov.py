@@ -477,6 +477,9 @@ class NewtonKrylov(MatrixFreeSolver):
                     )
                 converged = converged | accept_update
                 searching = active & (not converged)
+                accepted_alpha = selp(
+                    accept_update, typed_one, typed_zero
+                )
                 norm2_dz_next = typed_zero
                 alpha = typed_one
 
@@ -484,44 +487,50 @@ class NewtonKrylov(MatrixFreeSolver):
                     if not any_sync(mask, searching):
                         break
 
-                    if searching:
-                        for i in range(n_val):
-                            stage_increment[i] = (
-                                stage_base_bt[i] + alpha * delta[i]
-                            )
-
-                        residual_function(
-                            stage_increment,
-                            parameters,
-                            drivers,
-                            t,
-                            h,
-                            a_ij,
-                            base_state,
-                            residual_temp,
+                    for i in range(n_val):
+                        stage_increment[i] = (
+                            stage_base_bt[i] + alpha * delta[i]
                         )
 
-                        norm2_new = scaled_norm_fn(
-                            residual_temp, stage_increment
-                        )
+                    residual_function(
+                        stage_increment,
+                        parameters,
+                        drivers,
+                        t,
+                        h,
+                        a_ij,
+                        base_state,
+                        residual_temp,
+                    )
 
-                        accept_trial = norm2_new < norm2_prev
-                        for i in range(n_val):
-                            residual[i] = selp(
-                                accept_trial,
-                                -residual_temp[i],
-                                residual[i],
-                            )
-                        norm2_prev = selp(
-                            accept_trial, norm2_new, norm2_prev
+                    norm2_new = scaled_norm_fn(
+                        residual_temp, stage_increment
+                    )
+
+                    accept_trial = searching & (norm2_new < norm2_prev)
+                    for i in range(n_val):
+                        residual[i] = selp(
+                            accept_trial,
+                            -residual_temp[i],
+                            residual[i],
                         )
-                        searching = not accept_trial
-                        norm2_dz_next = selp(
-                            accept_trial
-                            & (alpha == typed_one)
-                            & (lin_status == success),
-                            norm2_dz,
-                            norm2_dz_next,
+                    norm2_prev = selp(
+                        accept_trial, norm2_new, norm2_prev
+                    )
+                    accepted_alpha = selp(
+                        accept_trial, alpha, accepted_alpha
+                    )
+                    searching = searching & (not accept_trial)
+                    norm2_dz_next = selp(
+                        accept_trial
+                        & (alpha == typed_one)
+                        & (lin_status == success),
+                        norm2_dz,
+                        norm2_dz_next,
+                    )
+                    for i in range(n_val):
+                        stage_increment[i] = (
+                            stage_base_bt[i] + accepted_alpha * delta[i]
                         )
 
                     alpha *= typed_damping

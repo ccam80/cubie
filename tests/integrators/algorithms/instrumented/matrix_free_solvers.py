@@ -720,6 +720,9 @@ class InstrumentedNewtonKrylov(NewtonKrylov):
                 alpha = typed_one
                 converged = converged | accept_update
                 searching = active & (not converged)
+                accepted_alpha = selp(
+                    accept_update, typed_one, typed_zero
+                )
                 norm2_dz_next = typed_zero
                 snapshot_ready = accept_update
                 update_scale = max(typed_one - theta, typed_tiny)
@@ -733,46 +736,63 @@ class InstrumentedNewtonKrylov(NewtonKrylov):
                     if not any_sync(mask, searching):
                         break
                     
-                    if searching:
-                        for i in range(n_val):
-                            stage_increment[i] = (
-                                stage_base_bt[i] + alpha * delta[i]
-                            )
-                        
-                        residual_function(
-                            stage_increment,
-                            parameters,
-                            drivers,
-                            t,
-                            h,
-                            a_ij,
-                            base_state,
-                            residual_temp,
+                    for i in range(n_val):
+                        stage_increment[i] = (
+                            stage_base_bt[i] + alpha * delta[i]
                         )
-                        
-                        norm2_new = scaled_norm_fn(residual_temp, stage_increment)
-                        for i in range(n_val):
-                            stage_increment_snapshot[i] = stage_increment[i]
-                            residual_snapshot[i] = residual_temp[i]
-                        snapshot_ready = True
 
-                        accept_trial = norm2_new < norm2_prev
-                        for i in range(n_val):
-                            residual[i] = selp(
-                                accept_trial,
-                                -residual_temp[i],
-                                residual[i],
-                            )
-                        norm2_prev = selp(
-                            accept_trial, norm2_new, norm2_prev
+                    residual_function(
+                        stage_increment,
+                        parameters,
+                        drivers,
+                        t,
+                        h,
+                        a_ij,
+                        base_state,
+                        residual_temp,
+                    )
+
+                    trial_norm2 = scaled_norm_fn(
+                        residual_temp, stage_increment
+                    )
+                    for i in range(n_val):
+                        stage_increment_snapshot[i] = selp(
+                            searching,
+                            stage_increment[i],
+                            stage_increment_snapshot[i],
                         )
-                        searching = not accept_trial
-                        norm2_dz_next = selp(
-                            accept_trial
-                            & (alpha == typed_one)
-                            & (lin_status == success),
-                            norm2_dz,
-                            norm2_dz_next,
+                        residual_snapshot[i] = selp(
+                            searching,
+                            residual_temp[i],
+                            residual_snapshot[i],
+                        )
+                    snapshot_ready = snapshot_ready | searching
+                    norm2_new = selp(searching, trial_norm2, norm2_new)
+
+                    accept_trial = searching & (trial_norm2 < norm2_prev)
+                    for i in range(n_val):
+                        residual[i] = selp(
+                            accept_trial,
+                            -residual_temp[i],
+                            residual[i],
+                        )
+                    norm2_prev = selp(
+                        accept_trial, trial_norm2, norm2_prev
+                    )
+                    accepted_alpha = selp(
+                        accept_trial, alpha, accepted_alpha
+                    )
+                    searching = searching & (not accept_trial)
+                    norm2_dz_next = selp(
+                        accept_trial
+                        & (alpha == typed_one)
+                        & (lin_status == success),
+                        norm2_dz,
+                        norm2_dz_next,
+                    )
+                    for i in range(n_val):
+                        stage_increment[i] = (
+                            stage_base_bt[i] + accepted_alpha * delta[i]
                         )
 
                     alpha *= typed_damping
