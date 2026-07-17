@@ -34,24 +34,26 @@ jobs:
     name: cuda (${{ matrix.os }}, ${{ matrix.python-version }}, ${{ matrix.cuda }})
     permissions:
       contents: read
-    # max-parallel: 1 runs one GPU instance at a time. Runners are
-    # spot-only (ap-southeast-2 has zero On-Demand G/VT quota, not
-    # grantable here) and the "All G and VT Spot" quota is a fixed
-    # 8 vCPU, so a leg gets a 2xlarge (8 vCPU) when that capacity
+    # Runners are spot-only (ap-southeast-2 has zero On-Demand G/VT
+    # quota, not grantable here) and the "All G and VT Spot" quota is
+    # a fixed 8 vCPU. A leg gets a 2xlarge (8 vCPU) when that capacity
     # exists and an xlarge (4 vCPU) otherwise -- ap-southeast-2 is
     # structurally short of 2xlarge GPU spot (placement score 1/10 vs
-    # 9/10 for xlarge), so xlarge is what usually runs. The fleet
-    # runners (infra/fleet) are RunsOn *scale sets*: jobs queue on the
-    # GitHub side and instances launch per assigned job, so max-parallel
-    # actually spaces the launches -- unlike the old Flex webhook path,
-    # where the next serial job's spot request collided with the
-    # previous, still-terminating instance and failed the leg. The
-    # param-set xdist grouping (tests/conftest.py + --dist=loadgroup in
-    # addopts) keeps thread scaling near-linear across however many
-    # workers `-n logical` resolves to on the landed size.
+    # 9/10 for xlarge), so xlarge is what usually runs, and two xlarge
+    # legs fit the quota concurrently: max-parallel: 2. The fleet
+    # runners (infra/fleet) are RunsOn *scale sets*: GitHub assigns at
+    # most two jobs at a time and instances launch per assigned job,
+    # so runner demand tracks max-parallel -- unlike the old Flex
+    # webhook path, which provisioned every queued matrix job at once
+    # and overran the quota. If a leg does land a 2xlarge, the other
+    # slot's launch is quota-blocked until it finishes; the fleet
+    # retries with backoff, so that costs latency, never a failed leg.
+    # The param-set xdist grouping (tests/conftest.py +
+    # --dist=loadgroup in addopts) keeps thread scaling near-linear
+    # across however many workers `-n logical` resolves to.
     strategy:
       fail-fast: false
-      max-parallel: 1
+      max-parallel: 2
       matrix:
         include:
           - {os: linux, python-version: "3.10", cuda: "12", extra: dev12, fleet: gpu-linux}

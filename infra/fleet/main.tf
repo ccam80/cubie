@@ -1,12 +1,12 @@
 # RunsOn Fleet stack for cubie's GPU CI (ci_cuda_tests.yml).
 #
 # Fleet (runs-on.com/docs/flex-vs-fleet/) registers GitHub runner scale
-# sets and launches EC2 capacity from *assigned-job* demand, so GitHub's
-# `strategy.max-parallel: 1` serialises the CUDA matrix on the RunsOn
-# side as well: at most one runner instance exists at a time. This is
-# what lets each matrix leg use a full 8-vCPU (2xlarge) GPU instance
-# inside the fixed 8-vCPU "All G and VT Spot" quota (on-demand G/VT
-# quota is 0 in ap-southeast-2 and not grantable).
+# sets and launches EC2 capacity from *assigned-job* demand, so the
+# workflow's `strategy.max-parallel` bounds runner demand on the RunsOn
+# side as well -- unlike Flex, which provisioned an instance for every
+# queued matrix job at once and overran the fixed 8-vCPU "All G and VT
+# Spot" quota (on-demand G/VT quota is 0 in ap-southeast-2 and not
+# grantable). Two xlarge legs fit that quota concurrently.
 #
 # Deliberately no `schedule` (hot/stopped standby) on the fleets: warm
 # pool inventory uses on-demand EC2 capacity, which this account cannot
