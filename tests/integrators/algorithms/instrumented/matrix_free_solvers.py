@@ -534,7 +534,7 @@ class InstrumentedNewtonKrylov(NewtonKrylov):
         )
         typed_one = numba_precision(1.0)
         typed_damping = numba_precision(damping)
-        typed_eps = numba_precision(float(np.finfo(precision_dtype).eps))
+        typed_tiny = numba_precision(float(np.finfo(precision_dtype).tiny))
         n_val = int32(n)
         max_iters_val = int32(max_iters)
         newton_max_backtracks_val = int32(newton_max_backtracks + 1)
@@ -634,7 +634,7 @@ class InstrumentedNewtonKrylov(NewtonKrylov):
             # Zero marks unavailable contraction history.
             norm2_dz_prev = typed_zero
 
-            converged = False
+            converged = norm2_prev <= typed_one
             final_status = success
 
             krylov_iters_local = alloc_krylov_iters_local(
@@ -650,11 +650,10 @@ class InstrumentedNewtonKrylov(NewtonKrylov):
             residual_snapshot = cuda.local.array(n, numba_precision)
             
             for _ in range(max_iters_val):
-                done = converged
-                if all_sync(mask, done):
+                if all_sync(mask, converged):
                     break
                 
-                active = not done
+                active = not converged
                 iters_count = selp(
                     active, int32(iters_count + int32(1)), iters_count
                 )
@@ -691,23 +690,23 @@ class InstrumentedNewtonKrylov(NewtonKrylov):
                     active, lin_status, last_lin_status
                 )
 
-                # Clamp the ratio so every lane follows the same arithmetic.
+                # Bound the ratio before division.
                 norm2_dz = scaled_norm_fn(delta, stage_increment)
                 theta = numba_precision(
                     math_sqrt(
                         min(
-                            norm2_dz / max(norm2_dz_prev, typed_eps),
-                            typed_one,
+                            norm2_dz,
+                            max(norm2_dz_prev, typed_tiny),
                         )
+                        / max(norm2_dz_prev, typed_tiny)
                     )
                 )
-                eta = theta / max(typed_one - theta, typed_eps)
-                update_bound = eta * math_sqrt(norm2_dz)
+                scaled_update = theta * math_sqrt(norm2_dz)
                 accept_update = (
                     active
                     & (norm2_dz_prev > typed_zero)
                     & (lin_status == success)
-                    & (update_bound <= typed_one)
+                    & (scaled_update <= typed_one - theta)
                 )
 
                 for i in range(n_val):
@@ -720,21 +719,21 @@ class InstrumentedNewtonKrylov(NewtonKrylov):
 
                 alpha = typed_one
                 converged = converged | accept_update
-                found_step = accept_update
+                searching = active & (not converged)
                 norm2_dz_next = typed_zero
                 snapshot_ready = accept_update
-                norm2_new = min(update_bound, typed_one)
+                update_scale = max(typed_one - theta, typed_tiny)
+                norm2_new = min(scaled_update, update_scale) / update_scale
                 norm2_new *= norm2_new
                 for i in range(n_val):
                     stage_increment_snapshot[i] = stage_increment[i]
                     residual_snapshot[i] = typed_zero
 
                 for _ in range(newton_max_backtracks_val):
-                    active_bt = active and (not found_step) and (not converged)
-                    if not any_sync(mask, active_bt):
+                    if not any_sync(mask, searching):
                         break
                     
-                    if active_bt:
+                    if searching:
                         for i in range(n_val):
                             stage_increment[i] = (
                                 stage_base_bt[i] + alpha * delta[i]
@@ -767,7 +766,7 @@ class InstrumentedNewtonKrylov(NewtonKrylov):
                         norm2_prev = selp(
                             accept_trial, norm2_new, norm2_prev
                         )
-                        found_step = found_step | accept_trial
+                        searching = not accept_trial
                         norm2_dz_next = selp(
                             accept_trial
                             & (alpha == typed_one)
@@ -778,15 +777,11 @@ class InstrumentedNewtonKrylov(NewtonKrylov):
 
                     alpha *= typed_damping
 
-                norm2_dz_prev = selp(
-                    active, norm2_dz_next, norm2_dz_prev
-                )
-
-                backtrack_failed = active and (not found_step) and (not converged)
-                last_backtrack_failed = active and backtrack_failed
+                norm2_dz_prev = norm2_dz_next
+                last_backtrack_failed = searching
                 for i in range(n_val):
                     stage_increment[i] = selp(
-                        backtrack_failed,
+                        searching,
                         stage_base_bt[i],
                         stage_increment[i],
                     )

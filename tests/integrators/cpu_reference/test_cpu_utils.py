@@ -2,7 +2,69 @@ import numpy as np
 import pytest
 
 from cubie.array_interpolator import ArrayInterpolator
-from tests.integrators.cpu_reference.cpu_utils import DriverEvaluator
+from tests.integrators.cpu_reference.cpu_utils import DriverEvaluator, newton_solve
+
+
+@pytest.mark.parametrize(
+    "mode, initial, atol, rtol, max_iters, expected_converged, expected_iters",
+    [
+        ("zero", 3.0, 1e-6, 0.0, 4, True, 0),
+        ("stalled", 1e8, 1.0, 1.0, 2, False, 2),
+        ("small", 1e8, 1e8, 0.0, 2, False, 2),
+    ],
+    ids=("zero-residual", "noncontracting", "small-update"),
+)
+def test_cpu_newton_convergence_edges(
+    mode,
+    initial,
+    atol,
+    rtol,
+    max_iters,
+    expected_converged,
+    expected_iters,
+):
+    """Newton handles solved, stalled, and small-update cases."""
+    precision = np.float32
+
+    def residual(state):
+        if mode == "zero":
+            return np.zeros_like(state)
+        return precision(2e9) - state
+
+    def jacobian(state):
+        step = precision(1.0)
+        if mode == "stalled":
+            step = precision(10.0)
+        elif mode == "small":
+            step = precision(10000.0) - precision(1e-5) * (
+                state[0] - precision(1e8)
+            )
+        return np.array([[step]], dtype=precision)
+
+    def linear_solver(operator, rhs, **kwargs):
+        return np.array([operator[0, 0]], dtype=precision), True, 1
+
+    initial_state = np.array([initial], dtype=precision)
+    result, converged, iterations = newton_solve(
+        initial_state,
+        precision=precision,
+        residual_fn=residual,
+        jacobian_fn=jacobian,
+        linear_solver=linear_solver,
+        newton_tol=precision(atol),
+        newton_rtol=precision(rtol),
+        newton_max_iters=max_iters,
+        newton_damping=precision(0.5),
+        newton_max_backtracks=2,
+    )
+
+    assert bool(converged) is expected_converged
+    assert iterations == expected_iters
+    if mode == "zero":
+        np.testing.assert_array_equal(result, initial_state)
+    else:
+        scale = precision(atol) + precision(rtol) * abs(result[0])
+        assert abs(residual(result)[0]) / scale > precision(1.0)
 
 
 @pytest.mark.parametrize(

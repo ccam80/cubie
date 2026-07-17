@@ -531,7 +531,7 @@ def newton_solve(
     direction = np.zeros_like(residual)
 
     typed_zero = scalar_type(0.0)
-    typed_eps = scalar_type(np.finfo(dtype).eps)
+    typed_tiny = scalar_type(np.finfo(dtype).tiny)
     # Zero marks unavailable contraction history.
     norm2_dz_prev = typed_zero
 
@@ -552,7 +552,7 @@ def newton_solve(
     )
     log_index += 1
 
-    converged = False
+    converged = norm2_prev <= typed_one
     iterations_used = 0
     for iteration in range(iteration_limit):
         if converged:
@@ -588,21 +588,24 @@ def newton_solve(
 
         step = np.asarray(direction, dtype=dtype)
 
-        # Clamp the contraction estimate.
+        # Bound the ratio before division.
         norm2_dz = _scaled_norm_impl(step, state, atol_value, rtol_value)
         ratio = scalar_type(
-            min(norm2_dz / max(norm2_dz_prev, typed_eps), typed_one)
+            min(norm2_dz, max(norm2_dz_prev, typed_tiny))
+            / max(norm2_dz_prev, typed_tiny)
         )
         theta = scalar_type(np.sqrt(ratio))
-        eta = scalar_type(theta / max(typed_one - theta, typed_eps))
-        update_bound = scalar_type(eta * np.sqrt(norm2_dz))
+        scaled_update = scalar_type(theta * np.sqrt(norm2_dz))
         accept_update = bool(
             (norm2_dz_prev > typed_zero)
             & linear_converged
-            & (update_bound <= typed_one)
+            & (scaled_update <= typed_one - theta)
         )
 
         if accept_update:
+            update_bound = scalar_type(
+                scaled_update / max(typed_one - theta, typed_tiny)
+            )
             state = np.asarray(state + step, dtype=dtype)
             converged = True
             _log_newton_iteration(

@@ -336,7 +336,7 @@ class NewtonKrylov(MatrixFreeSolver):
         )
         typed_one = numba_precision(1.0)
         typed_damping = numba_precision(newton_damping)
-        typed_eps = numba_precision(float(np_finfo(config.precision).eps))
+        typed_tiny = numba_precision(float(np_finfo(config.precision).tiny))
         n_val = int32(n)
 
         # Get allocators from buffer_registry
@@ -405,7 +405,7 @@ class NewtonKrylov(MatrixFreeSolver):
             # Zero marks unavailable contraction history.
             norm2_dz_prev = typed_zero
 
-            converged = False
+            converged = norm2_prev <= typed_one
             final_status = success
 
             krylov_iters_local = alloc_krylov_iters_local(
@@ -420,11 +420,10 @@ class NewtonKrylov(MatrixFreeSolver):
             total_krylov_iters = int32(0)
             mask = activemask()
             for _ in range(max_iters):
-                done = converged
-                if all_sync(mask, done):
+                if all_sync(mask, converged):
                     break
 
-                active = not done
+                active = not converged
                 iters_count = selp(
                     active, int32(iters_count + int32(1)), iters_count
                 )
@@ -450,23 +449,23 @@ class NewtonKrylov(MatrixFreeSolver):
                 )
                 last_lin_status = selp(active, lin_status, last_lin_status)
 
-                # Clamp the ratio so every lane follows the same arithmetic.
+                # Bound the ratio before division.
                 norm2_dz = scaled_norm_fn(delta, stage_increment)
                 theta = numba_precision(
                     math_sqrt(
                         min(
-                            norm2_dz / max(norm2_dz_prev, typed_eps),
-                            typed_one,
+                            norm2_dz,
+                            max(norm2_dz_prev, typed_tiny),
                         )
+                        / max(norm2_dz_prev, typed_tiny)
                     )
                 )
-                eta = theta / max(typed_one - theta, typed_eps)
-                update_bound = eta * math_sqrt(norm2_dz)
+                scaled_update = theta * math_sqrt(norm2_dz)
                 accept_update = (
                     active
                     & (norm2_dz_prev > typed_zero)
                     & (lin_status == success)
-                    & (update_bound <= typed_one)
+                    & (scaled_update <= typed_one - theta)
                 )
 
                 for i in range(n_val):
@@ -477,16 +476,15 @@ class NewtonKrylov(MatrixFreeSolver):
                         stage_increment[i],
                     )
                 converged = converged | accept_update
-                found_step = accept_update
+                searching = active & (not converged)
                 norm2_dz_next = typed_zero
                 alpha = typed_one
 
                 for _ in range(max_backtracks):
-                    active_bt = active and (not found_step) and (not converged)
-                    if not any_sync(mask, active_bt):
+                    if not any_sync(mask, searching):
                         break
 
-                    if active_bt:
+                    if searching:
                         for i in range(n_val):
                             stage_increment[i] = (
                                 stage_base_bt[i] + alpha * delta[i]
@@ -517,7 +515,7 @@ class NewtonKrylov(MatrixFreeSolver):
                         norm2_prev = selp(
                             accept_trial, norm2_new, norm2_prev
                         )
-                        found_step = found_step | accept_trial
+                        searching = not accept_trial
                         norm2_dz_next = selp(
                             accept_trial
                             & (alpha == typed_one)
@@ -528,18 +526,12 @@ class NewtonKrylov(MatrixFreeSolver):
 
                     alpha *= typed_damping
 
-                norm2_dz_prev = selp(
-                    active, norm2_dz_next, norm2_dz_prev
-                )
-
-                backtrack_failed = (
-                    active and (not found_step) and (not converged)
-                )
-                last_backtrack_failed = active and backtrack_failed
+                norm2_dz_prev = norm2_dz_next
+                last_backtrack_failed = searching
 
                 for i in range(n_val):
                     stage_increment[i] = selp(
-                        backtrack_failed,
+                        searching,
                         stage_base_bt[i],
                         stage_increment[i],
                     )
