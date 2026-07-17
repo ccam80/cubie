@@ -1,19 +1,11 @@
 name: CUDA tests
 on:
   workflow_dispatch:
-    inputs:
-      attempt:
-        description: "Retry counter (internal; leave as 1 for manual runs)."
-        default: "1"
-      legs:
-        description: >
-          JSON array of matrix legs to run (internal; empty = full matrix).
-        default: ""
   schedule:
     - cron: "0 16 * * 1,3,5"   # Mon/Wed/Fri 16:00 UTC
   push:
     branches: ["main"]
-  # PRs opt in via a maintainer comment (see the `setup` job `if`) rather
+  # PRs opt in via a maintainer comment (see the `cuda` job `if`) rather
   # than running the paid GPU matrix on every PR.
   issue_comment:
     types: [created]
@@ -24,14 +16,17 @@ concurrency:
   cancel-in-progress: true
 
 jobs:
-  # Resolve the matrix once so the retry path can re-run a subset of legs.
-  # A fresh workflow_dispatch (attempt=1, legs="") runs the full 8-leg
-  # matrix; a retry dispatch passes only the legs that never got a GPU.
-  setup:
-    # Real-GPU runs on paid AWS runners. Trigger on schedule/dispatch, on a
-    # push whose commit message opts in, or when a maintainer comments
-    # `/test on cuda` on a PR. The author_association gate stops external
-    # commenters from spending GPU budget.
+  # Trigger gating and commit pinning for the paid GPU matrix. Runs on
+  # a free GitHub-hosted runner within seconds of the trigger: for
+  # comment-triggered runs it records the PR head SHA that existed when
+  # the maintainer approved, so the GPU job can refuse code pushed to
+  # the PR between the approving comment and the minutes-later spot
+  # instance launch. The cuda job inherits the gating through `needs`.
+  gate:
+    # Trigger on schedule/dispatch, on a push whose commit message opts
+    # in, or when a maintainer comments `/test on cuda` on a PR. The
+    # author_association gate stops external commenters from spending
+    # GPU budget.
     if: >
       github.event_name == 'schedule' ||
       github.event_name == 'workflow_dispatch' ||
@@ -46,90 +41,136 @@ jobs:
     permissions:
       contents: read
     outputs:
-      matrix: ${{ steps.gen.outputs.matrix }}
-      attempt: ${{ steps.gen.outputs.attempt }}
+      checkout-ref: ${{ steps.resolve.outputs.checkout-ref }}
+      pr-head-sha: ${{ steps.resolve.outputs.pr-head-sha }}
     steps:
-      - name: Resolve matrix and attempt
-        id: gen
+      # For comment-triggered runs the event ref is the default branch,
+      # so the GPU job tests the PR's merge ref instead; record the PR
+      # head underlying that merge ref right now, at approval time.
+      - name: Resolve the commit this run tests
+        id: resolve
         env:
-          IN_LEGS: ${{ inputs.legs }}
-          IN_ATTEMPT: ${{ inputs.attempt }}
+          GH_TOKEN: ${{ github.token }}
+          REPO: ${{ github.repository }}
+          PR_NUMBER: ${{ github.event.issue.number }}
         run: |
           set -euo pipefail
-          if [ -n "${IN_LEGS:-}" ]; then
-            MATRIX="$IN_LEGS"
+          if [ "${{ github.event_name }}" = "issue_comment" ]; then
+            echo "checkout-ref=refs/pull/${PR_NUMBER}/merge" >> "$GITHUB_OUTPUT"
+            echo "pr-head-sha=$(gh api "repos/${REPO}/pulls/${PR_NUMBER}" --jq .head.sha)" >> "$GITHUB_OUTPUT"
           else
-            MATRIX='[
-              {"os":"linux","python-version":"3.10","cuda":"12","extra":"dev12","runner":"gpu-linux"},
-              {"os":"linux","python-version":"3.10","cuda":"13","extra":"dev13","runner":"gpu-linux"},
-              {"os":"linux","python-version":"3.14","cuda":"12","extra":"dev12","runner":"gpu-linux"},
-              {"os":"linux","python-version":"3.14","cuda":"13","extra":"dev13","runner":"gpu-linux"},
-              {"os":"windows","python-version":"3.10","cuda":"12","extra":"dev12","runner":"gpu-windows"},
-              {"os":"windows","python-version":"3.10","cuda":"13","extra":"dev13","runner":"gpu-windows"},
-              {"os":"windows","python-version":"3.14","cuda":"12","extra":"dev12","runner":"gpu-windows"},
-              {"os":"windows","python-version":"3.14","cuda":"13","extra":"dev13","runner":"gpu-windows"}
-            ]'
+            echo "checkout-ref=${{ github.sha }}" >> "$GITHUB_OUTPUT"
+            echo "pr-head-sha=" >> "$GITHUB_OUTPUT"
           fi
-          MATRIX=$(printf '%s' "$MATRIX" | jq -c '.')
-          echo "matrix=$MATRIX" >> "$GITHUB_OUTPUT"
-          echo "attempt=${IN_ATTEMPT:-1}" >> "$GITHUB_OUTPUT"
 
   cuda:
-    needs: setup
+    # Real-GPU runs on paid AWS runners; trigger gating lives on the
+    # gate job (a skipped gate skips this job through `needs`).
+    needs: gate
     name: cuda (${{ matrix.os }}, ${{ matrix.python-version }}, ${{ matrix.cuda }})
     permissions:
       contents: read
-    # max-parallel: 1 runs one 4-vCPU GPU instance at a time. Runners are
-    # spot-only (ap-southeast-2 has zero On-Demand G/VT quota, not grantable
-    # here) and the "All G and VT Spot" quota is a fixed 8 vCPU. A 4-vCPU
-    # (xlarge) runner leaves 8-4=4 vCPU of headroom, so a leg's spot request
-    # no longer collides with the previous, still-terminating leg's instance
-    # -- that collision tripped RunsOn's fixed 5-min on-demand snooze, and
-    # on-demand is 0, so the leg failed. GitHub/RunsOn expose no lever to
-    # space serial jobs, so right-sizing is the fix. The `retry` job still
-    # re-dispatches any leg that misses a spot GPU. The param-set xdist
-    # grouping (tests/conftest.py + --dist=loadgroup in addopts) keeps
-    # thread scaling near-linear across the 4 workers.
+    # Runners are spot-only (ap-southeast-2 has zero On-Demand G/VT
+    # quota, not grantable here) and the "All G and VT Spot" quota is
+    # a fixed 8 vCPU. A leg gets a 2xlarge (8 vCPU) when that capacity
+    # exists and an xlarge (4 vCPU) otherwise -- ap-southeast-2 is
+    # structurally short of 2xlarge GPU spot (placement score 1/10 vs
+    # 9/10 for xlarge), so xlarge is what usually runs, and two xlarge
+    # legs fit the quota concurrently: max-parallel: 2. The fleet
+    # runners (infra/fleet) are RunsOn *scale sets*: GitHub assigns at
+    # most two jobs at a time and instances launch per assigned job,
+    # so runner demand tracks max-parallel and never exceeds the
+    # quota. If a leg does land a 2xlarge, the other
+    # slot's launch is quota-blocked until it finishes; the fleet
+    # retries with backoff, so that costs latency, never a failed leg.
+    # The param-set xdist grouping (tests/conftest.py +
+    # --dist=loadgroup in addopts) keeps thread scaling near-linear
+    # across however many workers `-n logical` resolves to.
     strategy:
       fail-fast: false
-      max-parallel: 1
+      max-parallel: 2
       matrix:
-        include: ${{ fromJSON(needs.setup.outputs.matrix) }}
-    runs-on: "runs-on=${{ github.run_id }}/runner=${{ matrix.runner }}"
+        include:
+          - {os: linux, python-version: "3.10", cuda: "12", extra: dev12, fleet: gpu-linux}
+          - {os: linux, python-version: "3.10", cuda: "13", extra: dev13, fleet: gpu-linux}
+          - {os: linux, python-version: "3.14", cuda: "12", extra: dev12, fleet: gpu-linux}
+          - {os: linux, python-version: "3.14", cuda: "13", extra: dev13, fleet: gpu-linux}
+          - {os: windows, python-version: "3.10", cuda: "12", extra: dev12, fleet: gpu-windows}
+          - {os: windows, python-version: "3.10", cuda: "13", extra: dev13, fleet: gpu-windows}
+          - {os: windows, python-version: "3.14", cuda: "12", extra: dev12, fleet: gpu-windows}
+          - {os: windows, python-version: "3.14", cuda: "13", extra: dev13, fleet: gpu-windows}
+    runs-on: runs-on/fleet=${{ matrix.fleet }}/env=production
 
     steps:
-      # For comment-triggered runs the event ref is the default branch, so
-      # check out the PR's merge ref explicitly; otherwise the pushed/ref SHA.
-      - uses: actions/checkout@v7
+      # Third-party actions in this job are pinned to commit SHAs: it
+      # runs on self-hosted AWS runners, so a hijacked action tag would
+      # execute inside this AWS account.
+      # The ref comes from the gate job: the PR merge ref for
+      # comment-triggered runs, the pushed/scheduled SHA otherwise.
+      - uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
         with:
-          ref: ${{ github.event_name == 'issue_comment' && format('refs/pull/{0}/merge', github.event.issue.number) || github.sha }}
+          ref: ${{ needs.gate.outputs.checkout-ref }}
+          persist-credentials: false
+
+      # refs/pull/N/merge is re-resolved at checkout time, minutes
+      # after the approving comment (spot launch), so a push to the PR
+      # in that window would otherwise swap in code no maintainer
+      # looked at. The merge commit's second parent is the PR head;
+      # compare it with the head the gate job recorded at approval
+      # time. cat-file reads the parent list from the commit object
+      # itself, which works on this shallow clone (rev-parse HEAD^2
+      # would need the parent objects).
+      - name: Verify the PR head matches the approved commit
+        if: github.event_name == 'issue_comment'
+        shell: bash
+        run: |
+          approved="${{ needs.gate.outputs.pr-head-sha }}"
+          actual=$(git cat-file -p HEAD | awk '$1 == "parent" { sha = $2 } END { print sha }')
+          if [ -z "$approved" ] || [ "$actual" != "$approved" ]; then
+            echo "PR head moved since the approving comment:" >&2
+            echo "  approved ${approved:-<none>}, checked out ${actual}" >&2
+            exit 1
+          fi
 
       - name: Set up Python ${{ matrix.python-version }}
-        uses: actions/setup-python@v6
+        uses: actions/setup-python@ece7cb06caefa5fff74198d8649806c4678c61a1 # v6.3.0
         with:
           python-version: ${{ matrix.python-version }}
 
+      # The Windows AMI bakes the multi-GPU GRID driver on whichever GPU
+      # family the bake's spot request landed (packer/windows-gpu.pkr.hcl);
+      # on the first boot atop a *different* family, Windows PnP binds the
+      # driver to the new hardware ID asynchronously after boot, and the
+      # runner can take the job before the bind completes. Poll for up to
+      # 3 minutes (nudging a device rescan on Windows) before declaring
+      # the GPU genuinely absent.
       - name: GPU sanity check
-        run: nvidia-smi
+        shell: bash
+        run: |
+          for attempt in $(seq 1 36); do
+            if nvidia-smi; then
+              exit 0
+            fi
+            command -v pnputil.exe >/dev/null 2>&1 && pnputil.exe /scan-devices || true
+            echo "nvidia-smi not ready (attempt ${attempt}/36); retrying in 5s"
+            sleep 5
+          done
+          echo "GPU driver never became available" >&2
+          exit 1
 
-      # A leg that reaches here got a real GPU, so any later failure is a
-      # genuine test failure, not a spot-provisioning miss. The `retry` job
-      # re-runs only legs WITHOUT this marker, so real failures stay red
-      # and are never wastefully re-run on the GPU.
-      - name: Mark GPU acquired
-        if: success()
-        run: echo ok > gpu-marker.txt
-      - name: Upload GPU marker
-        if: success()
-        uses: actions/upload-artifact@v7
+      # uv resolves and installs several times faster than pip, and its
+      # wheel cache rides GitHub's actions/cache service, so the
+      # multi-GB nvidia-*/cupy wheels download once per leg flavour,
+      # not once per run.
+      - name: Set up uv
+        uses: astral-sh/setup-uv@37802adc94f370d6bfd71619e3f0bf239e1f3b78 # v7.6.0
         with:
-          name: gpu-${{ matrix.os }}-py${{ matrix.python-version }}-cuda${{ matrix.cuda }}
-          path: gpu-marker.txt
+          enable-cache: true
+          cache-suffix: ${{ matrix.os }}-py${{ matrix.python-version }}-cuda${{ matrix.cuda }}
+          cache-dependency-glob: pyproject.toml
 
       - name: Install cubie (${{ matrix.extra }})
-        run: |
-          python -m pip install --upgrade pip
-          python -m pip install -e ".[${{ matrix.extra }}]"
+        run: uv pip install --system -e ".[${{ matrix.extra }}]"
 
       - name: Lint with flake8
         run: flake8 . --count --select=E9,F63,F7,F82 --show-source --statistics
@@ -140,99 +181,50 @@ jobs:
         # and this scales automatically. Coverage/XML report come from addopts.
         run: pytest -m "not specific_algos and not sim_only" -n logical --junitxml=pytest-results.xml
 
+      # The artifact service occasionally answers CreateArtifact with a
+      # non-JSON error page and the action's five internal retries all
+      # land inside the same brief outage (observed: a leg with 2914
+      # passed tests went red on this alone). One tolerated attempt plus
+      # an explicit retry keeps transient flakes green while a
+      # persistent upload failure still fails the leg.
       - name: Upload pytest artefacts
+        id: upload-artefacts
         if: always()
-        uses: actions/upload-artifact@v7
+        continue-on-error: true
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
         with:
           name: pytest-${{ matrix.os }}-py${{ matrix.python-version }}-cuda${{ matrix.cuda }}
           path: |
             pytest-results.xml
             coverage.xml
+      - name: Upload pytest artefacts (retry)
+        if: always() && steps.upload-artefacts.outcome == 'failure'
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: pytest-${{ matrix.os }}-py${{ matrix.python-version }}-cuda${{ matrix.cuda }}
+          path: |
+            pytest-results.xml
+            coverage.xml
+          overwrite: true
 
       - name: Upload coverage to Codecov
         if: always()
-        uses: codecov/codecov-action@v7
+        uses: codecov/codecov-action@fb8b3582c8e4def4969c97caa2f19720cb33a72f # v7.0.0
         with:
           files: coverage.xml
           flags: ${{ matrix.os }}-py${{ matrix.python-version }}-cuda${{ matrix.cuda }}
           disable_search: true
           fail_ci_if_error: false
 
-      # test-results-action is node20-locked and deprecated; folded into
-      # codecov-action via report_type. Kept a separate step because
-      # report_type is single-valued (coverage vs test_results).
+      # codecov-action uploads test results via report_type. A separate
+      # step from the coverage upload because report_type is
+      # single-valued (coverage vs test_results).
       - name: Upload test results to Codecov
         if: always()
-        uses: codecov/codecov-action@v7
+        uses: codecov/codecov-action@fb8b3582c8e4def4969c97caa2f19720cb33a72f # v7.0.0
         with:
           report_type: test_results
           files: pytest-results.xml
           flags: ${{ matrix.os }}-py${{ matrix.python-version }}-cuda${{ matrix.cuda }}
           disable_search: true
           fail_ci_if_error: false
-
-  # Re-dispatch legs that never got a spot GPU, at a fixed interval. With
-  # the runners right-sized (runs-on.yml) the quota-collision that tripped
-  # RunsOn's 5-min on-demand snooze is gone, so this is now a thin safety
-  # net for genuine transient capacity misses -- which appear in brief
-  # windows, so a fixed short interval catches them better than an ever-
-  # growing backoff (the same reasoning as the AMI-bake retry). Each retry
-  # is a fresh run (attempt resets on the runner, so RunsOn tries spot
-  # again rather than on-demand).
-  retry:
-    needs: [setup, cuda]
-    if: always() && needs.setup.result == 'success'
-    runs-on: ubuntu-latest
-    permissions:
-      actions: write
-      contents: read
-    steps:
-      - name: Download GPU markers
-        # Do not fail the retry when zero legs got a GPU (no markers to
-        # download) -- that total-failure case is exactly when we must
-        # still re-dispatch. The compute step treats "no markers" as
-        # "every leg is retryable".
-        continue-on-error: true
-        uses: actions/download-artifact@v7
-        with:
-          pattern: gpu-*
-          path: markers
-      - name: Re-dispatch legs that never got a GPU
-        env:
-          MATRIX: ${{ needs.setup.outputs.matrix }}
-          ATTEMPT: ${{ needs.setup.outputs.attempt }}
-          MAX_ATTEMPTS: "5"
-          RETRY_INTERVAL: "180"   # seconds; fixed (capacity returns in brief windows)
-          REF: ${{ github.ref_name }}
-          GH_TOKEN: ${{ github.token }}
-        run: |
-          set -euo pipefail
-          # Markers are artifacts named gpu-<os>-py<pyver>-cuda<cuda>; a leg
-          # with a marker acquired a GPU and is not a provisioning failure.
-          if [ -d markers ]; then
-            ls markers | sed -n 's/^gpu-//p' | sort -u > acquired.txt
-          else
-            : > acquired.txt
-          fi
-          RETRYABLE=$(printf '%s' "$MATRIX" | jq -c --rawfile s acquired.txt '
-            ($s | split("\n") | map(select(length > 0))) as $ok
-            | map(select(
-                (.os + "-py" + (."python-version") + "-cuda" + .cuda) as $k
-                | ($ok | index($k)) == null))')
-          COUNT=$(printf '%s' "$RETRYABLE" | jq 'length')
-          echo "Attempt ${ATTEMPT}: ${COUNT} leg(s) never acquired a GPU."
-          if [ "$COUNT" -eq 0 ]; then
-            echo "No spot-provisioning failures to retry."
-            exit 0
-          fi
-          if [ "$ATTEMPT" -ge "$MAX_ATTEMPTS" ]; then
-            echo "Reached MAX_ATTEMPTS=${MAX_ATTEMPTS}; leaving the run red."
-            exit 0
-          fi
-          echo "Retrying these legs in ${RETRY_INTERVAL}s:"
-          printf '%s' "$RETRYABLE" | jq .
-          sleep "$RETRY_INTERVAL"
-          gh workflow run ci_cuda_tests.yml \
-            --ref "$REF" \
-            -f attempt="$(( ATTEMPT + 1 ))" \
-            -f legs="$RETRYABLE"

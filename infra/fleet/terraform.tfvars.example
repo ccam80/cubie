@@ -1,0 +1,13 @@
+# Copy to terraform.tfvars (gitignored) and fill in. Never commit the
+# real file: license_key is a secret and the App key path points at a
+# private key. Networking needs no entries -- the stack creates its
+# own VPC (see variables.tf vpc_cidr / availability_zones to change
+# the defaults).
+
+github_app_id               = 123456
+github_app_private_key_path = "C:/Users/you/secrets/runs-on-fleet.private-key.pem"
+
+# One RunsOn license covers Flex and Fleet.
+license_key = "ro-..."
+
+alert_email = "you@example.com"
