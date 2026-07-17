@@ -1,19 +1,26 @@
 Code Generation Pipeline
 ========================
 
-CuBIE uses SymPy to transform symbolic ODE definitions into compiled CUDA
-device functions.  This page describes the pipeline.
+CuBIE transforms symbolic ODE definitions into compiled CUDA device
+functions.  SymPy is the parse layer for string and SymPy input; every
+expression converts to a lightweight interned expression IR (the
+``engine`` package) at the parse boundary, and every later stage —
+classification, structural simplification, differentiation, CSE,
+hashing, and printing — runs on the IR.  This page describes the
+pipeline.
 
 Pipeline Overview
 -----------------
 
 ::
 
-   String equations
-       → SymPy parser
+   String / SymPy / CellML equations
+       → SymPy parse layer and CellML substitutions
+       → engine IR (hash-consed expression nodes)
+       → normalise/classify → structural simplification for DAEs
        → IndexedBases (state/param/observable symbols)
        → JVPEquations (Jacobian-vector product expressions)
-       → CUDAPrinter → code strings
+       → IR printer → code strings
        → ODEFile (written to generated/ directory)
        → Numba JIT → CUDA device functions
 
@@ -22,15 +29,15 @@ Parser
 
 The parser in ``src/cubie/odesystems/symbolic/parsing/`` tokenises the
 equation strings, identifies states (variables with ``d<name>`` on the
-left-hand side), parameters, constants, and observables, and produces
-SymPy expressions.
+left-hand side), parameters, constants, and observables, and converts
+every expression to engine IR before returning.
 
-IndexedBases
-------------
+Array references
+----------------
 
-State variables are represented as ``IndexedBase`` objects so that the
-code generator can emit array-indexed CUDA code (e.g. ``x[0]``,
-``x[1]``).
+The IR represents array values as ``Arr(name, index)`` nodes. The
+printer maps scalar names to fixed state, parameter, driver, and output
+indices.
 
 JVPEquations
 ------------
@@ -40,18 +47,23 @@ with respect to every state variable, applies chain-rule grouping to
 share subexpressions, and produces a function
 :math:`(x, v) \mapsto J\,v`.  See :doc:`/theory/jacobians`.
 
-``CUDAPrinter``
----------------
+Expression engine and printer
+-----------------------------
 
-``CUDAPrinter`` is a SymPy code printer customised for Numba CUDA.  It
-handles:
+``src/cubie/odesystems/symbolic/engine/`` holds the expression IR the
+compute phase runs on: nodes are interned (structurally
+identical expressions are the same object), so substitution,
+differentiation, and common-subexpression elimination are single passes
+over a DAG.  The engine's printer renders IR as Numba-CUDA source:
 
-- Mapping SymPy functions to their NumPy/Numba equivalents.
-- Prefixing NumPy names with ``np_`` to avoid Numba namespace clashes.
-- Emitting scalar-typed intermediate variables.
+- Mapping function calls to their ``math.*``/builtin equivalents.
+- Wrapping numeric literals in ``precision(...)`` casts.
+- Rewriting small integer powers to multiplication chains and half
+  powers to ``math.sqrt``.
+- Emitting ``Piecewise`` selections as nested ternaries.
 
-``print_cuda_multiple`` batches multiple expressions into a single
-function body with shared subexpression elimination.
+``print_cuda_multiple`` renders a list of assignments as source lines;
+shared-subexpression extraction happens beforehand on the IR.
 
 Solver Helpers
 --------------
@@ -71,11 +83,7 @@ block-structured linear algebra and transformation matrices.
 Generated File Structure
 ------------------------
 
-Generated files are written to ``generated/<system_name>/`` and include:
-
-- ``rhs.py`` --- right-hand-side function.
-- ``jvp.py`` --- Jacobian--vector product.
-- ``prepare_jac.py`` --- shared subexpression cache.
-- ``time_derivative.py`` --- explicit time derivative (for Rosenbrock-W).
-
-These are standard Python files that Numba compiles on import.
+Each system uses one generated Python module at
+``generated/<system_name>/<system_name>.py``. Solver helpers are added
+to that module as they are requested. Numba compiles the factories on
+import.

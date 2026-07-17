@@ -1,29 +1,7 @@
-"""Structured representation for Jacobian-vector product assignments.
-
-Published Classes
------------------
-:class:`JVPEquations`
-    Attrs container holding ordered auxiliary and JVP assignments with
-    dependency graphs, operation costs, and auxiliary caching metadata.
-    Created by :func:`~cubie.odesystems.symbolic.codegen.jacobian.generate_analytical_jvp`
-    and consumed by the linear operator and preconditioner code generators.
-
-See Also
---------
-:mod:`cubie.odesystems.symbolic.codegen.jacobian`
-    Produces ``JVPEquations`` from parsed system equations.
-:mod:`cubie.odesystems.symbolic.parsing.auxiliary_caching`
-    Computes and stores cache plans inside ``JVPEquations``.
-:mod:`cubie.odesystems.symbolic.codegen.linear_operators`
-    Consumes ``JVPEquations`` to generate CUDA linear operator code.
-"""
+"""Store Jacobian-vector product assignments and cache metadata."""
 from typing import (
-    Dict,
-    Iterable,
     List,
     Mapping,
-    Optional,
-    Sequence,
     Set,
     Tuple,
     TYPE_CHECKING,
@@ -33,7 +11,7 @@ from typing import (
 if TYPE_CHECKING:
     from cubie.odesystems.symbolic.parsing.auxiliary_caching import CacheSelection
 
-import sympy as sp
+from cubie.odesystems.symbolic.engine import expr as ir
 
 
 import attrs
@@ -48,7 +26,7 @@ class JVPEquations:
     assignments
         Topologically ordered sequence of symbolic assignments defining the
         Jacobian-vector product. Entries include auxiliary intermediates and the
-        ``jvp[<idx>]`` outputs produced during SymPy code generation.
+        ``jvp[<idx>]`` outputs produced by the Jacobian generator.
     max_cached_terms
         Optional upper bound on the number of auxiliary expressions that may be
         cached. Defaults to twice the number of JVP outputs when omitted.
@@ -86,11 +64,9 @@ class JVPEquations:
         jvp_terms = {}
         jvp_symbols = {}
         for lhs, rhs in ordered:
-            lhs_str = str(lhs)
-            if lhs_str.startswith("jvp["):
-                index = int(lhs_str.split("[")[1].split("]")[0])
-                jvp_terms[index] = rhs
-                jvp_symbols[index] = lhs
+            if isinstance(lhs, ir.Arr) and lhs.name == "jvp":
+                jvp_terms[lhs.index] = rhs
+                jvp_symbols[lhs.index] = lhs
             else:
                 non_jvp_order.append(lhs)
                 non_jvp_exprs[lhs] = rhs
@@ -108,14 +84,18 @@ class JVPEquations:
         dependencies = {}
         dependents = {sym: set() for sym in self._non_jvp_order}
         ops_cost = {}
+        ops_memo = {}
         assigned_symbols = set(sym for sym, _ in self._ordered_assignments)
         for lhs in self._non_jvp_order:
             rhs = self._non_jvp_exprs[lhs]
-            ops_cost[lhs] = int(sp.count_ops(rhs, visual=False))
+            ops_cost[lhs] = ir.count_ops(rhs, ops_memo)
             deps = {
                 sym
-                for sym in rhs.free_symbols
-                if sym in assigned_symbols and not str(sym).startswith("jvp[")
+                for sym in ir.free_atoms(rhs)
+                if sym in assigned_symbols
+                and not (
+                    isinstance(sym, ir.Arr) and sym.name == "jvp"
+                )
             }
             dependencies[lhs] = deps
             for dep in deps:
@@ -124,7 +104,9 @@ class JVPEquations:
         jvp_usage = {}
         jvp_closure = {}
         for rhs in self._jvp_terms.values():
-            direct = [sym for sym in rhs.free_symbols if sym in dependents]
+            direct = [
+                sym for sym in ir.free_atoms(rhs) if sym in dependents
+            ]
             seen_direct = set()
             for sym in direct:
                 seen_direct.add(sym)
@@ -177,8 +159,8 @@ class JVPEquations:
             lhs = self._jvp_symbols.get(index)
             if lhs is None:
                 continue
-            cost = int(sp.count_ops(expr, visual=False))
-            for dep in expr.free_symbols:
+            cost = ir.count_ops(expr, ops_memo)
+            for dep in ir.free_atoms(expr):
                 cost += total_cost(dep)
             total_ops_cost[lhs] = cost
         self._dependencies = dependencies
@@ -198,55 +180,55 @@ class JVPEquations:
         self._total_ops_cost = total_ops_cost
 
     @property
-    def ordered_assignments(self) -> Tuple[Tuple[sp.Symbol, sp.Expr], ...]:
+    def ordered_assignments(self) -> Tuple[Tuple[ir.Expr, ir.Expr], ...]:
         """Return the canonical ordered assignments."""
 
         return self._ordered_assignments
 
     @property
-    def non_jvp_order(self) -> Tuple[sp.Symbol, ...]:
+    def non_jvp_order(self) -> Tuple[ir.Expr, ...]:
         """Return auxiliary assignment order excluding JVP outputs."""
 
         return self._non_jvp_order
 
     @property
-    def non_jvp_exprs(self) -> Mapping[sp.Symbol, sp.Expr]:
+    def non_jvp_exprs(self) -> Mapping[ir.Expr, ir.Expr]:
         """Return mapping from auxiliary symbols to their expressions."""
 
         return self._non_jvp_exprs
 
     @property
-    def jvp_terms(self) -> Mapping[int, sp.Expr]:
+    def jvp_terms(self) -> Mapping[int, ir.Expr]:
         """Return mapping from output indices to JVP expressions."""
 
         return self._jvp_terms
 
     @property
-    def dependencies(self) -> Mapping[sp.Symbol, Set[sp.Symbol]]:
+    def dependencies(self) -> Mapping[ir.Expr, Set[ir.Expr]]:
         """Return dependency graph for auxiliary assignments."""
 
         return self._dependencies
 
     @property
-    def dependents(self) -> Mapping[sp.Symbol, Set[sp.Symbol]]:
+    def dependents(self) -> Mapping[ir.Expr, Set[ir.Expr]]:
         """Return reverse dependency graph for auxiliary assignments."""
 
         return self._dependents
 
     @property
-    def ops_cost(self) -> Mapping[sp.Symbol, int]:
+    def ops_cost(self) -> Mapping[ir.Expr, int]:
         """Return per-assignment operation counts."""
 
         return self._ops_cost
 
     @property
-    def jvp_usage(self) -> Mapping[sp.Symbol, int]:
+    def jvp_usage(self) -> Mapping[ir.Expr, int]:
         """Return direct JVP usage counts for auxiliary symbols."""
 
         return self._jvp_usage
 
     @property
-    def jvp_closure_usage(self) -> Mapping[sp.Symbol, int]:
+    def jvp_closure_usage(self) -> Mapping[ir.Expr, int]:
         """Return transitive JVP usage counts across dependency chains."""
 
         return self._jvp_closure_usage
@@ -258,13 +240,13 @@ class JVPEquations:
         return self._cache_slot_limit
 
     @property
-    def reference_counts(self) -> Mapping[sp.Symbol, int]:
+    def reference_counts(self) -> Mapping[ir.Expr, int]:
         """Return base reference counts including JVP usage."""
 
         return self._reference_counts
 
     @property
-    def order_index(self) -> Mapping[sp.Symbol, int]:
+    def order_index(self) -> Mapping[ir.Expr, int]:
         """Return evaluation order lookup for auxiliary assignments."""
 
         return self._order_index
@@ -272,13 +254,13 @@ class JVPEquations:
     @property
     def dependency_levels(
         self,
-    ) -> Mapping[sp.Symbol, Tuple[frozenset, ...]]:
+    ) -> Mapping[ir.Expr, Tuple[frozenset, ...]]:
         """Return dependents grouped by distance from each auxiliary symbol."""
 
         return self._dependency_levels
 
     @property
-    def total_ops_cost(self) -> Mapping[sp.Basic, int]:
+    def total_ops_cost(self) -> Mapping[ir.Expr, int]:
         """Return cumulative operation counts for auxiliaries and JVP outputs."""
 
         return self._total_ops_cost
@@ -314,9 +296,9 @@ class JVPEquations:
     def cached_partition(
         self,
     ) -> Tuple[
-        List[Tuple[sp.Symbol, sp.Expr]],
-        List[Tuple[sp.Symbol, sp.Expr]],
-        List[Tuple[sp.Symbol, sp.Expr]],
+        List[Tuple[ir.Expr, ir.Expr]],
+        List[Tuple[ir.Expr, ir.Expr]],
+        List[Tuple[ir.Expr, ir.Expr]],
     ]:
         """Return cached, runtime, and preparation assignments from selection.
 

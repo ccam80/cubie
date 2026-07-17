@@ -15,6 +15,7 @@ import sympy as sp
 from cubie.odesystems.symbolic.indexedbasemaps import IndexedBases
 from cubie.odesystems.symbolic.parsing import ParsedEquations
 from cubie.odesystems.symbolic.codegen import print_cuda
+from cubie.odesystems.symbolic.engine import call, sym
 from cubie.odesystems.symbolic.codegen.jacobian import (
     generate_analytical_jvp,
     get_cache_key,
@@ -32,13 +33,27 @@ from cubie.odesystems.symbolic.odefile import ODEFile
 # ── jacobian cache key / non-CSE JVP ────────────────────────────── #
 
 def test_get_cache_key_accepts_mapping():
-    """A dict of equations hashes to the same key as its item tuple."""
+    """A dict of equations hashes to the same key as its item tuple.
+
+    The key is a 5-tuple ending with a sorted ``derivative_names``
+    tuple, which is empty unless the kwarg is supplied.
+    """
     x, y = sp.symbols("x y")
     equations = {x: y, y: x}
     order = {x: 0, y: 1}
     key = get_cache_key(equations, order, order, cse=True)
     assert key[0] == tuple(equations.items())
-    assert key[-1] is True
+    assert key[3] is True
+    assert key[-1] == ()
+
+    named_key = get_cache_key(
+        equations,
+        order,
+        order,
+        cse=True,
+        derivative_names={"b": "d_b", "a": "d_a"},
+    )
+    assert named_key[-1] == (("a", "d_a"), ("b", "d_b"))
 
 
 def test_generate_analytical_jvp_without_cse():
@@ -100,10 +115,10 @@ def test_print_cuda_maps_native_abs():
 
 
 def test_print_cuda_passes_through_derivative_function():
-    """A ``d_``-prefixed user function prints verbatim."""
-    x = sp.Symbol("x")
-    d_helper = sp.Function("d_helper")
-    assert print_cuda(d_helper(x)) == "d_helper(x)"
+    """A registered derivative helper prints verbatim."""
+    expression = call("d_helper", sym("x"))
+    aliases = {"d_helper": "d_helper"}
+    assert print_cuda(expression, function_aliases=aliases) == "d_helper(x)"
 
 
 # ── dxdt / observables / time-derivative non-CSE ────────────────── #
