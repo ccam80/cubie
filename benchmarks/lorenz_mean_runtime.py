@@ -19,14 +19,14 @@ Four configs run, each printing compile metrics and two statistics:
     the adaptive kernel is fast enough at ``2**22`` that launch
     effects blur small deltas).
 ``chunked``
-    The fixed config at ``--chunked-runs`` trajectories, forced to
-    split into a small number of run-axis chunks: its solver gets a
-    private stream group, and the three memory-manager instances in
-    that group (kernel, input arrays, output arrays) each hold a
-    manual VRAM proportion of ``--chunked-proportion`` with the
-    manager in active limit mode. Its wall time is the chunk-path
-    canary: per-chunk transfers, pinned staging, and writeback
-    overhead appear in wall time but not in the kernel CUDA events.
+    The fixed config at ``--chunked-runs`` trajectories (or the
+    positional ``n_runs``), forced to split into a few run-axis chunks.
+    Each of its three memory managers gets an absolute 24 MiB cap at the
+    default run count, scaled with smaller smoke-test counts and converted
+    to a VRAM proportion for the active limit mode. An explicit
+    ``--chunked-proportion`` overrides that portable default. Its wall
+    time is the chunk-path canary: critical-path transfer, staging,
+    writeback, and lost overlap costs appear there but not in kernel events.
 ``wave``
     The fixed config sized to exactly **two full waves** of the
     card: ``2 * SMs * blocks_per_SM * runs_per_block`` trajectories,
@@ -45,17 +45,18 @@ compiled kernel's intrinsic cost and drift far less between
 invocations than the mean (which the upper tail pulls around). The
 **wall** statistic is the median per-solve host time around
 ``Solver.solve`` (which synchronises the stream and waits for
-chunked writeback before returning), so added host-device
-synchronisation, serialised transfers, and chunking overhead land in
-it; it carries more host scatter than the kernel statistic and
-supports coarser thresholds only.
+chunked writeback before returning), so changes that lengthen the total
+critical path or destroy chunk overlap land in it. It carries more host
+scatter than the kernel statistic and supports coarser thresholds only.
 
-Compile metrics — registers/thread, spill (local memory)
-bytes/thread, static and dynamic shared memory, constant memory,
-occupancy in blocks/SM, SM count, and chunk count — are read from
-the compiled cufunc and the driver occupancy API, not from a
-profiler, and printed as a parseable ``@META`` line per config. They
-require a real GPU; the script exits under the CUDA simulator.
+Compile metrics include registers/thread; ptxas compile-time spill-store
+and spill-load byte counts; static, dynamic, and constant memory; exact
+post-limit launch geometry; occupancy; SM count; run count; and chunk
+count. Spill counts come from verbose link diagnostics keyed to the exact
+loaded cubin. They are code-generation counts, not allocated bytes/thread
+or measured runtime traffic. The other resource attributes come from the
+loaded cufunc and driver occupancy API. All require a real GPU; the script
+exits under the CUDA simulator.
 
 Usage::
 
@@ -83,17 +84,22 @@ The generated-code and compiled-kernel caches are cleared on every
 invocation unless ``--no-clear-cache`` is given; the recompile lands
 in the warm-up solve, outside the timed region. Both cache layers key
 on a content hash of the imported cubie source, so cache reuse is
-safe even across source trees. The chunked and wave configs reuse the
-fixed config's solver settings, so their kernels are disk-cache hits
-after the fixed config compiles. Input grids are cached per
-trajectory count, so the chunked config shares the fixed config's
-grid file at the default sizes.
+safe even across source trees. Spill diagnostics are persisted beside
+the compile cache by exact cubin digest. After updating this benchmark,
+run once without ``--no-clear-cache`` to populate sidecars for old
+cache entries. The chunked and wave configs reuse the fixed config's
+solver settings, so their kernels are disk-cache hits after the fixed
+config compiles. Input grids are cached per trajectory count, so the
+chunked config shares the fixed config's grid file at the default sizes.
 """
 
 import argparse
 import contextlib
+import hashlib
 import io
+import math
 import os
+import re
 import shutil
 import statistics
 import sys
@@ -112,6 +118,168 @@ min_count = 5
 precision = np.float32
 blocksize = 64
 initial_conditions = {"x": 1.0, "y": 0.0, "z": 0.0}
+default_chunked_runs = 2**22
+default_chunk_instance_cap = 24 * 2**20
+
+META_FIELDS = (
+    "regs",
+    "spill_store_bytes",
+    "spill_load_bytes",
+    "shared",
+    "dynshared",
+    "const",
+    "blocks_per_sm",
+    "sms",
+    "blocksize",
+    "runs_per_block",
+    "runs",
+    "chunks",
+)
+
+_link_diagnostics = {}
+_spill_capture_installed = False
+
+
+def _diagnostic_path(digest):
+    """Return the persistent linker-log path for one cubin digest."""
+    directory = os.path.join(get_cache_root(), "spill_diagnostics")
+    return directory, os.path.join(directory, f"{digest}.log")
+
+
+def _store_link_diagnostic(code, log):
+    """Retain an exact-cubin linker log in memory and on disk."""
+    if not isinstance(log, str):
+        raise RuntimeError("CUDA linker info log is unavailable")
+    digest = hashlib.sha256(code).hexdigest()
+    _link_diagnostics[digest] = log
+    directory, path = _diagnostic_path(digest)
+    os.makedirs(directory, exist_ok=True)
+    temporary = f"{path}.{os.getpid()}.tmp"
+    with open(temporary, "w", encoding="utf-8", newline="\n") as file:
+        file.write(log)
+    os.replace(temporary, path)
+
+
+def _load_link_diagnostic(digest):
+    """Load a linker log captured by this or an earlier process."""
+    log = _link_diagnostics.get(digest)
+    if log is not None:
+        return log
+    _, path = _diagnostic_path(digest)
+    try:
+        with open(path, encoding="utf-8") as file:
+            log = file.read()
+    except FileNotFoundError:
+        return None
+    _link_diagnostics[digest] = log
+    return log
+
+
+def install_spill_capture():
+    """Capture verbose diagnostics for each exact cubin produced.
+
+    The CUDA driver attributes expose total local memory, not register
+    spill code generation.  ptxas reports spill-store and spill-load byte
+    counts in the verbose log of the link that emits the cubin.  Force that
+    diagnostic on, bypass the nvJitLink cache so a log is always emitted,
+    and retain it under a digest of the returned cubin bytes.
+    """
+    global _spill_capture_installed
+    if _spill_capture_installed:
+        return
+    try:
+        linker_class = cuda.cudadrv.driver._Linker
+        original_options = linker_class._get_linker_options
+        original_complete = linker_class.complete
+    except AttributeError as exc:
+        raise SystemExit(
+            "CUDA backend private linker API is incompatible with the "
+            "spill-metric benchmark"
+        ) from exc
+
+    def diagnostic_options(linker, ptx):
+        options = original_options(linker, ptx)
+        if not hasattr(options, "verbose") or not hasattr(
+            options, "no_cache"
+        ):
+            raise RuntimeError(
+                "CUDA LinkerOptions lacks verbose/no_cache controls"
+            )
+        options.verbose = True
+        options.no_cache = True
+        return options
+
+    def diagnostic_complete(linker):
+        cubin = original_complete(linker)
+        try:
+            code = bytes(cubin.code)
+            log = linker.info_log
+        except (AttributeError, TypeError, ValueError) as exc:
+            raise RuntimeError(
+                "CUDA linker did not expose cubin bytes and its info log"
+            ) from exc
+        _store_link_diagnostic(code, log)
+        return cubin
+
+    linker_class._get_linker_options = diagnostic_options
+    linker_class.complete = diagnostic_complete
+    _spill_capture_installed = True
+
+
+def _compiled_cubin(kern):
+    """Return exact loaded cubin bytes and kernel entry name."""
+    try:
+        library = kern._codelibrary
+        if hasattr(library, "get_cubin"):
+            cubin = bytes(library.get_cubin().code)
+        elif isinstance(getattr(library, "_cubin", None), bytes):
+            cubin = library._cubin
+        elif hasattr(kern, "cres") and isinstance(
+            kern.cres.metadata.get("cubin"), bytes
+        ):
+            cubin = kern.cres.metadata["cubin"]
+        else:
+            raise AttributeError("compiled cubin bytes are unavailable")
+    except (AttributeError, TypeError, ValueError) as exc:
+        raise SystemExit(
+            "CUDA backend private compiled-object API is incompatible "
+            "with the spill-metric benchmark"
+        ) from exc
+
+    entry_name = getattr(kern, "entry_name", None)
+    if entry_name is None:
+        entry_name = getattr(library, "_entry_name", None)
+    if entry_name is None and hasattr(kern, "cres"):
+        entry_name = kern.cres.metadata.get("func_name")
+    if not isinstance(entry_name, str) or not entry_name:
+        raise SystemExit(
+            "CUDA backend did not expose the loaded kernel entry name"
+        )
+    return cubin, entry_name
+
+
+def parse_spill_diagnostics(log, entry_name):
+    """Return ptxas spill-store/load bytes for exactly ``entry_name``."""
+    if not isinstance(log, str):
+        raise SystemExit("CUDA linker info log is unavailable")
+    pattern = re.compile(
+        r"Function properties for\s+(?P<name>\S+)\s*\r?\n\s*"
+        r"[^\r\n]*?(?:^|\s)\d+ bytes stack frame,\s*"
+        r"(?P<stores>\d+) bytes spill stores,\s*"
+        r"(?P<loads>\d+) bytes spill loads"
+    )
+    matches = [
+        match for match in pattern.finditer(log)
+        if match.group("name") == entry_name
+    ]
+    if len(matches) != 1:
+        raise SystemExit(
+            "expected exactly one ptxas spill record for loaded entry "
+            f"{entry_name!r}, found {len(matches)}"
+        )
+    return int(matches[0].group("stores")), int(
+        matches[0].group("loads")
+    )
 
 
 def collect_kernel_time(solver, kernel_ms):
@@ -121,13 +289,24 @@ def collect_kernel_time(solver, kernel_ms):
     exclude host<->device transfer traffic.
     """
     events = solver.kernel._cuda_events
-    kernel_ms.append(
-        sum(
-            event.elapsed_time_ms()
-            for event in events
-            if event.name.startswith("kernel_chunk")
+    times = [
+        event.elapsed_time_ms()
+        for event in events
+        if event.name.startswith("kernel_chunk")
+    ]
+    if not times or any(
+        not math.isfinite(value) or value <= 0 for value in times
+    ):
+        raise RuntimeError(
+            "kernel timing requires at least one finite, positive "
+            "kernel_chunk CUDA event"
         )
-    )
+    total = sum(times)
+    if not math.isfinite(total) or total <= 0:
+        raise RuntimeError(
+            "summed kernel CUDA-event time must be finite and positive"
+        )
+    kernel_ms.append(total)
 
 
 def resolve_n_runs(n_runs):
@@ -135,6 +314,24 @@ def resolve_n_runs(n_runs):
     if n_runs is not None:
         return n_runs, n_runs
     return 2**22, 2**24
+
+
+def resolve_chunk_settings(n_runs, chunked_runs, proportion,
+                           total_memory):
+    """Resolve a portable multi-chunk canary size and memory cap."""
+    runs = chunked_runs
+    if runs is None:
+        runs = n_runs if n_runs is not None else default_chunked_runs
+    if total_memory <= 0:
+        raise ValueError("total device memory must be positive")
+    if proportion is None:
+        cap = default_chunk_instance_cap * runs / default_chunked_runs
+        proportion = cap / total_memory
+    if runs <= 0:
+        raise ValueError("chunked runs must be positive")
+    if not math.isfinite(proportion) or not 0 < proportion <= 1:
+        raise ValueError("chunked proportion must be finite and in (0, 1]")
+    return runs, proportion
 
 
 def build_fixed_style_solver(system, **memory_kwargs):
@@ -286,13 +483,8 @@ def solve_once(solver, inits, params, kernel_ms, wall_ms, duration):
 def compile_meta(solver):
     """Read compile metrics from the solver's compiled kernel.
 
-    Returns a dict of integers: registers/thread, spill (local
-    memory) bytes/thread, static shared bytes/block, dynamic shared
-    bytes/block, constant bytes, occupancy in blocks/SM at this
-    benchmark's launch geometry, SM count, runs per block, and the
-    chunk count of the last solve. Everything comes from the loaded
-    cufunc's attributes and the driver occupancy API — cheap enough
-    to read on every invocation, and profiler-free.
+    Returns a dict of integers including ptxas compile-time spill-store
+    and spill-load byte counts plus resource and actual launch geometry.
     """
     if CUDA_SIMULATION:
         raise SystemExit(
@@ -300,44 +492,99 @@ def compile_meta(solver):
             "benchmark on a real GPU, not under NUMBA_ENABLE_CUDASIM"
         )
     dispatcher = solver.kernel.kernel
-    kern = next(iter(dispatcher.overloads.values()))
+    try:
+        overloads = tuple(dispatcher.overloads.values())
+    except AttributeError as exc:
+        raise SystemExit(
+            "CUDA dispatcher private overload API is incompatible with "
+            "the compile-metric benchmark"
+        ) from exc
+    if len(overloads) != 1:
+        raise SystemExit(
+            "expected exactly one compiled CUDA kernel overload, found "
+            f"{len(overloads)}"
+        )
+    kern = overloads[0]
     # The MLIR backend's kernel objects (CompileResult) resolve the
     # resource attributes from compile metadata, populated on demand;
     # numba-cuda kernels expose the same names as plain properties.
     # Both reach the loaded driver function via ``_codelibrary`` (the
     # public ``library`` is a numba-cuda-only spelling).
-    if hasattr(kern, "_ensure_kernel_attrs"):
-        kern._ensure_kernel_attrs()
-    cufunc = kern._codelibrary.get_cufunc()
-    # Mirror BatchSolverKernel.run's dynamic shared memory sizing:
-    # per-run bytes, padded for single precision, times the runs
-    # resident in one block, floored at 4 so the compiled kernel's
-    # dynamic-shared declaration stays valid.
-    pad = 4 if solver.kernel.shared_memory_needs_padding else 0
-    dynshared = max(
-        4, (solver.kernel.shared_memory_bytes + pad) * blocksize
+    try:
+        if hasattr(kern, "_ensure_kernel_attrs"):
+            kern._ensure_kernel_attrs()
+        cufunc = kern._codelibrary.get_cufunc()
+        regs = int(kern.regs_per_thread)
+        shared = int(kern.shared_mem_per_block)
+        const = int(kern.const_mem_size)
+    except (AttributeError, TypeError, ValueError) as exc:
+        raise SystemExit(
+            "CUDA backend private kernel-resource API is incompatible "
+            "with the compile-metric benchmark"
+        ) from exc
+
+    cubin, entry_name = _compiled_cubin(kern)
+    digest = hashlib.sha256(cubin).hexdigest()
+    log = _load_link_diagnostic(digest)
+    if log is None:
+        raise SystemExit(
+            "no ptxas diagnostics were captured for the exact loaded "
+            f"cubin ({digest[:12]}); rerun once without "
+            "--no-clear-cache to populate its diagnostic sidecar"
+        )
+    spill_stores, spill_loads = parse_spill_diagnostics(
+        log, entry_name
     )
+
+    try:
+        first_chunk_runs = int(solver.kernel.run_params[0].runs)
+        total_runs = int(solver.kernel.run_params.runs)
+    except (AttributeError, IndexError, TypeError, ValueError) as exc:
+        raise SystemExit(
+            "kernel launch parameters are unavailable after warm-up"
+        ) from exc
+    pad = 4 if solver.kernel.shared_memory_needs_padding else 0
+    padded_bytes = solver.kernel.shared_memory_bytes + pad
+    dynshared = int(
+        padded_bytes * min(first_chunk_runs, blocksize)
+    )
+    actual_blocksize, dynshared = solver.kernel.limit_blocksize(
+        blocksize,
+        dynshared,
+        padded_bytes,
+        first_chunk_runs,
+    )
+    dynshared = max(4, dynshared)
     context = cuda.current_context()
     blocks_per_sm = context.get_active_blocks_per_multiprocessor(
-        cufunc, blocksize, dynshared
+        cufunc, actual_blocksize, dynshared
     )
     device = cuda.get_current_device()
-    runs_per_block = blocksize // solver.kernel.threads_per_loop
-    return {
-        "regs": int(kern.regs_per_thread),
-        "spill": int(kern.local_mem_per_thread),
-        "shared": int(kern.shared_mem_per_block),
+    threads_per_loop = solver.kernel.single_integrator.threads_per_step
+    runs_per_block = actual_blocksize // threads_per_loop
+    meta = {
+        "regs": regs,
+        "spill_store_bytes": spill_stores,
+        "spill_load_bytes": spill_loads,
+        "shared": shared,
         "dynshared": int(dynshared),
-        "const": int(kern.const_mem_size),
+        "const": const,
         "blocks_per_sm": int(blocks_per_sm),
         "sms": int(device.MULTIPROCESSOR_COUNT),
+        "blocksize": int(actual_blocksize),
         "runs_per_block": int(runs_per_block),
+        "runs": int(total_runs),
         "chunks": int(solver.chunks),
     }
+    if tuple(meta) != META_FIELDS:
+        raise RuntimeError("compile-metric schema drifted")
+    return meta
 
 
 def meta_line(key, meta):
     """Format one config's compile metrics as a parseable line."""
+    if tuple(meta) != META_FIELDS:
+        raise RuntimeError("compile-metric schema drifted")
     fields = " ".join(f"{name}={value}" for name, value in meta.items())
     return f"@META {key} {fields}"
 
@@ -433,21 +680,39 @@ def worker_loop(solvers, grid_cache):
         parts = line.split()
         if not parts:
             continue
-        if parts[0] == "quit":
+        if parts == ["quit"]:
             break
         if parts[0] == "wave" and len(parts) == 2:
+            try:
+                wave_runs = int(parts[1])
+                if wave_runs <= 0:
+                    raise ValueError
+            except ValueError:
+                print("@ERROR wave run count must be positive", flush=True)
+                break
             label, solver, _, duration = solvers["wave"]
             inits, params = load_grid(
-                solver, int(parts[1]), grid_cache
+                solver, wave_runs, grid_cache
             )
             solve_once(solver, inits, params, [], [], duration)
             check_chunks("wave", solver)
             print(meta_line("wave", compile_meta(solver)), flush=True)
             ready["wave"] = (solver, inits, params, duration)
             continue
-        if parts[0] != "run":
-            continue
-        key, count = parts[1], int(parts[2])
+        if parts[0] != "run" or len(parts) != 3:
+            print(f"@ERROR invalid command: {line.strip()}", flush=True)
+            break
+        key = parts[1]
+        try:
+            count = int(parts[2])
+            if count <= 0:
+                raise ValueError
+        except ValueError:
+            print("@ERROR run count must be positive", flush=True)
+            break
+        if key not in ready:
+            print(f"@ERROR config {key!r} is not ready", flush=True)
+            break
         solver, inits, params, duration = ready[key]
         kernel_ms = []
         wall_ms = []
@@ -457,8 +722,8 @@ def worker_loop(solvers, grid_cache):
             )
         print(
             "@TIMES " + key
-            + " kernel " + " ".join(f"{v:.4f}" for v in kernel_ms)
-            + " wall " + " ".join(f"{v:.4f}" for v in wall_ms),
+            + " kernel " + " ".join(f"{v:.9g}" for v in kernel_ms)
+            + " wall " + " ".join(f"{v:.9g}" for v in wall_ms),
             flush=True,
         )
 
@@ -482,12 +747,24 @@ def main():
     # raw free VRAM and would never chunk the chunked config.
     qb.default_memmgr.set_limit_mode("active")
 
+    install_spill_capture()
     n_fixed, n_adaptive = resolve_n_runs(args.n_runs)
+    memory_info = cuda.current_context().get_memory_info()
+    if hasattr(memory_info, "total"):
+        total_memory = int(memory_info.total)
+    else:
+        total_memory = int(memory_info[1])
+    chunked_runs, chunked_proportion = resolve_chunk_settings(
+        args.n_runs,
+        args.chunked_runs,
+        args.chunked_proportion,
+        total_memory,
+    )
     solvers = build_solvers(
         n_fixed,
         n_adaptive,
-        args.chunked_runs,
-        args.chunked_proportion,
+        chunked_runs,
+        chunked_proportion,
     )
 
     if args.worker:
@@ -510,24 +787,42 @@ def main():
         )
 
 
-def _parse_args():
-    """Parse command-line arguments."""
+def positive_int(value):
+    """Argparse type requiring a positive integer."""
+    parsed = int(value)
+    if parsed <= 0:
+        raise argparse.ArgumentTypeError("must be positive")
+    return parsed
+
+
+def finite_proportion(value):
+    """Argparse type requiring a finite proportion in (0, 1]."""
+    parsed = float(value)
+    if not math.isfinite(parsed) or not 0 < parsed <= 1:
+        raise argparse.ArgumentTypeError("must be finite and in (0, 1]")
+    return parsed
+
+
+def build_parser():
+    """Build the command-line parser for tests and ``main``."""
     parser = argparse.ArgumentParser(
         description="Kernel-runtime benchmark (Lorenz ensemble). Prints "
         "compile metrics plus the mean of the lowest kernel times and "
         "the median wall time per config; drive A/B comparisons with "
         "ab_gate.py."
     )
-    parser.add_argument("n_runs", nargs="?", type=int, default=None)
+    parser.add_argument(
+        "n_runs", nargs="?", type=positive_int, default=None
+    )
     parser.add_argument(
         "--repeats",
-        type=int,
+        type=positive_int,
         default=100,
         help="Solves to time per config after the discard window.",
     )
     parser.add_argument(
         "--min-count",
-        type=int,
+        type=positive_int,
         default=min_count,
         help="Number of lowest per-solve kernel times to average.",
     )
@@ -539,31 +834,39 @@ def _parse_args():
     )
     parser.add_argument(
         "--chunked-runs",
-        type=int,
-        default=2**22,
-        help="Trajectory count for the chunked config (independent "
-        "of the positional n_runs so smoke tests still chunk).",
+        type=positive_int,
+        default=None,
+        help="Trajectory count for the chunked config (defaults to "
+        "the positional n_runs when supplied, otherwise 2**22).",
     )
     parser.add_argument(
         "--chunked-proportion",
-        type=float,
-        default=0.002,
-        help="Manual VRAM proportion for each of the chunked "
-        "config's three memory-manager instances; the batch chunks "
-        "once it exceeds three times this share of total VRAM.",
+        type=finite_proportion,
+        default=None,
+        help="Manual VRAM proportion for each chunked memory manager; "
+        "by default an absolute 24 MiB cap scales with run count.",
     )
     parser.add_argument(
         "--no-clear-cache",
         action="store_true",
-        help="Reuse the compile cache instead of clearing it (for a "
-        "fixed source tree across repeated invocations).",
+        help="Reuse compile and exact-cubin diagnostic caches; rerun "
+        "once without this option after a benchmark update.",
     )
     parser.add_argument(
         "--worker",
         action="store_true",
         help="Serve solve blocks over stdin/stdout for ab_gate.py.",
     )
-    return parser.parse_args()
+    return parser
+
+
+def _parse_args(argv=None):
+    """Parse and validate command-line arguments."""
+    parser = build_parser()
+    args = parser.parse_args(argv)
+    if args.min_count > args.repeats:
+        parser.error("--min-count cannot exceed --repeats")
+    return args
 
 
 if __name__ == "__main__":
