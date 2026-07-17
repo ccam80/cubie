@@ -52,7 +52,7 @@ from typing import (
     Union,
 )
 
-from numpy import asarray, float32, ndarray
+from numpy import asarray, float32, int32 as np_int32, ndarray
 import sympy as sp
 from cubie.array_interpolator import ArrayInterpolator
 from cubie.odesystems.symbolic.codegen.dxdt import (
@@ -108,6 +108,62 @@ _TABLEAU_HELPER_TYPES = frozenset((
     "n_stage_neumann_preconditioner",
     "n_stage_jacobi_preconditioner",
 ))
+
+_SCALED_HELPER_TYPES = frozenset((
+    "linear_operator",
+    "linear_operator_cached",
+    "neumann_preconditioner",
+    "neumann_preconditioner_cached",
+    "jacobi_preconditioner",
+    "jacobi_preconditioner_cached",
+    "stage_residual",
+    "n_stage_residual",
+    "n_stage_linear_operator",
+    "n_stage_neumann_preconditioner",
+    "n_stage_jacobi_preconditioner",
+))
+
+_DISPATCHED_HELPER_TYPES = frozenset((
+    *_SCALED_HELPER_TYPES,
+    "prepare_jac",
+    "calculate_cached_jvp",
+    "time_derivative_rhs",
+))
+
+_COMPOSITE_HELPER_TYPES = frozenset((
+    "preconditioner",
+    "n_stage_preconditioner",
+    "preconditioner_cached",
+))
+
+
+def _canonical_solver_float(value, precision):
+    """Return a float's compiled-precision cache value."""
+
+    return precision(value).tobytes()
+
+
+def _solver_helper_cache_key(
+    func_type,
+    precision,
+    beta,
+    gamma,
+    preconditioner_order,
+    tableau_hash,
+):
+    """Return the values that affect a helper's generated code."""
+
+    key = []
+    if func_type in _SCALED_HELPER_TYPES:
+        key.extend((
+            _canonical_solver_float(beta, precision),
+            _canonical_solver_float(gamma, precision),
+        ))
+    if func_type in _NEUMANN_PRECONDITIONER_TYPES:
+        key.append(np_int32(preconditioner_order))
+    if func_type in _TABLEAU_HELPER_TYPES:
+        key.append(tableau_hash)
+    return tuple(key)
 
 
 def _mass_matrix_hash_tag(mass):
@@ -1018,6 +1074,16 @@ class SymbolicODE(BaseODE):
         """
         mass = self.compile_settings.mass
 
+        supported_types = (
+            _DISPATCHED_HELPER_TYPES
+            | _COMPOSITE_HELPER_TYPES
+            | {"cached_aux_count"}
+        )
+        if func_type not in supported_types:
+            raise NotImplementedError(
+                f"Solver helper '{func_type}' is not implemented."
+            )
+
         tableau_hash = None
         if func_type in _TABLEAU_HELPER_TYPES:
             tableau_hash = _stage_tableau_hash(
@@ -1040,11 +1106,7 @@ class SymbolicODE(BaseODE):
         # ODECache field (the cache lookup below would raise KeyError),
         # so resolve the chain instead; the concrete helpers it calls
         # cache individually.
-        if func_type in (
-            "preconditioner",
-            "n_stage_preconditioner",
-            "preconditioner_cached",
-        ):
+        if func_type in _COMPOSITE_HELPER_TYPES:
             default_timelogger.start_event(event_name)
             func = self._build_preconditioner_chain(
                 preconditioner_type,
@@ -1058,11 +1120,20 @@ class SymbolicODE(BaseODE):
             default_timelogger.stop_event(event_name)
             return func
 
-        # Solver values are part of the built device function.
-        helper_key = (
-            float(beta),
-            float(gamma),
-            int(preconditioner_order),
+        # The auxiliary count is metadata, not a device dispatcher.
+        if func_type == "cached_aux_count":
+            default_timelogger.start_event(event_name, skipped=True)
+            if self._jacobian_aux_count is None:
+                self.get_solver_helper("prepare_jac")
+            default_timelogger.stop_event(event_name)
+            return self._jacobian_aux_count
+
+        helper_key = _solver_helper_cache_key(
+            func_type,
+            self.precision,
+            beta,
+            gamma,
+            preconditioner_order,
             tableau_hash,
         )
         if self._solver_helper_cache_keys.get(func_type) != helper_key:
@@ -1119,15 +1190,6 @@ class SymbolicODE(BaseODE):
             factory_name = "jacobi_preconditioner_cached"
         else:
             factory_name = func_type
-
-        # Handle cached_aux_count specially - it doesn't generate code
-        # and doesn't depend on whether other functions are cached
-        if func_type == "cached_aux_count":
-            default_timelogger.start_event(event_name, skipped=True)
-            if self._jacobian_aux_count is None:
-                self.get_solver_helper("prepare_jac")
-            default_timelogger.stop_event(event_name)
-            return self._jacobian_aux_count
 
         # Neumann preconditioner convergence diagnostic. Runs whenever a
         # Neumann helper is requested (even on cache hits) so the warning

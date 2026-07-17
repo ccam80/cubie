@@ -1147,7 +1147,7 @@ def test_neumann_preconditioner_cached_expression(
 
 
 @pytest.fixture(scope="session")
-def residual_system():
+def residual_system(precision):
     """Linear system with constant Jacobian for residual tests."""
 
     dxdt = [
@@ -1155,8 +1155,12 @@ def residual_system():
         "dx1 = c*x0 + d*x1",
     ]
     constants = {"a": 1.0, "b": 2.0, "c": 3.0, "d": 4.0}
-    system = create_ODE_system(dxdt, states=["x0", "x1"], constants=constants)
-    system.build()
+    system = create_ODE_system(
+        dxdt,
+        states=["x0", "x1"],
+        constants=constants,
+        precision=precision,
+    )
     return system
 
 
@@ -1235,40 +1239,34 @@ def test_stage_residual(
     )
 
 
-@pytest.fixture(scope="session")
-def colliding_constants_system():
-    """System whose constants share names with the solver scalings."""
-
-    dxdt = [
-        "dx0 = -beta * x0 + gamma * x1",
-        "dx1 = -gamma * x1",
-    ]
-    constants = {"beta": 2.5, "gamma": 0.75}
-    system = create_ODE_system(dxdt, states=["x0", "x1"],
-                               constants=constants)
-    system.build()
-    return system
-
-
 def _colliding_system_f(point):
-    """Right-hand side of the colliding_constants_system equations."""
+    """Return the colliding-constants system derivative."""
     x0, x1 = point
-    return np.array([-2.5 * x0 + 0.75 * x1, -0.75 * x1])
+    return np.array(
+        [-2.5 * x0 + 0.75 * x1, -0.75 * x1],
+        dtype=point.dtype,
+    )
 
 
+@pytest.mark.parametrize(
+    "solver_settings_override",
+    [
+        {"system_type": "colliding_constants", "precision": np.float32},
+        {"system_type": "colliding_constants", "precision": np.float64},
+    ],
+    indirect=True,
+)
 def test_solver_helper_preserves_colliding_constants(
-    colliding_constants_system, residual_kernel, precision, tolerance
+    system, residual_kernel, precision, tolerance
 ):
     """Helper generation leaves beta/gamma constants untouched."""
 
-    system = colliding_constants_system
     residual = system.get_solver_helper(
         "stage_residual", beta=1.0, gamma=1.0
     )
-    assert system.constants.values_dict["beta"] == pytest.approx(2.5)
-    assert system.constants.values_dict["gamma"] == pytest.approx(
-        0.75
-    )
+    assert system.constants.values_array.dtype == np.dtype(precision)
+    assert system.constants.values_dict["beta"] == precision(2.5)
+    assert system.constants.values_dict["gamma"] == precision(0.75)
 
     kernel = residual_kernel(residual)
     stage = np.zeros(2, dtype=precision)
@@ -1289,28 +1287,50 @@ def test_solver_helper_preserves_colliding_constants(
     )
 
 
+@pytest.mark.parametrize(
+    "solver_settings_override",
+    [
+        {"system_type": "colliding_constants", "precision": np.float32},
+        {"system_type": "colliding_constants", "precision": np.float64},
+    ],
+    indirect=True,
+)
+@pytest.mark.parametrize(
+    "first_scalings,second_scalings",
+    [
+        ((1.0, 1.0), (2.0, 1.0)),
+        ((1.0, 1.0), (1.0, 0.5)),
+    ],
+    ids=["beta-only", "gamma-only"],
+)
 def test_solver_helper_rebuilds_on_scaling_change(
-    colliding_constants_system, residual_kernel, precision, tolerance
+    system,
+    residual_kernel,
+    precision,
+    tolerance,
+    first_scalings,
+    second_scalings,
 ):
-    """New beta/gamma values regenerate the cached helper."""
+    """Each changed solver scaling regenerates the cached helper."""
 
-    system = colliding_constants_system
     stage = np.array([0.5, -0.3], dtype=precision)
     base = np.array([1.0, 2.0], dtype=precision)
     a_ii = precision(0.5)
     eval_point = base + a_ii * stage
 
-    results = {}
-    for beta, gamma in ((1.0, 1.0), (2.0, 0.5)):
+    results = []
+    helpers = []
+    for beta, gamma in (first_scalings, second_scalings):
         residual = system.get_solver_helper(
             "stage_residual", beta=beta, gamma=gamma
         )
+        helpers.append(residual)
         kernel = residual_kernel(residual)
         out = np.zeros(2, dtype=precision)
         kernel[1, 1](
             precision(0.0), precision(1.0), a_ii, stage, base, out
         )
-        results[(beta, gamma)] = out
+        results.append(out)
         expected = (
             beta * stage - gamma * _colliding_system_f(eval_point)
         )
@@ -1320,9 +1340,121 @@ def test_solver_helper_rebuilds_on_scaling_change(
             atol=tolerance.abs_tight,
             rtol=tolerance.rel_tight,
         )
-    assert not np.allclose(
-        results[(1.0, 1.0)], results[(2.0, 0.5)]
+    assert helpers[0] is not helpers[1]
+    assert not np.allclose(results[0], results[1])
+
+
+@pytest.mark.parametrize(
+    "solver_settings_override",
+    [{"system_type": "linear"}],
+    indirect=True,
+)
+def test_neumann_helper_rebuilds_on_order_change(system):
+    """A changed Neumann order regenerates its cached helper."""
+
+    first = system.get_solver_helper(
+        "neumann_preconditioner",
+        beta=1.0,
+        gamma=1.0,
+        preconditioner_order=1,
     )
+    second = system.get_solver_helper(
+        "neumann_preconditioner",
+        beta=1.0,
+        gamma=1.0,
+        preconditioner_order=2,
+    )
+
+    assert first is not second
+
+
+@pytest.mark.parametrize(
+    "solver_settings_override",
+    [{"system_type": "linear"}],
+    indirect=True,
+)
+def test_unscaled_helper_ignores_solver_values(system):
+    """Irrelevant solver values do not replace an unscaled helper."""
+
+    first = system.get_solver_helper("prepare_jac")
+    second = system.get_solver_helper(
+        "prepare_jac",
+        beta=2.5,
+        gamma=-3.0,
+        preconditioner_order=7,
+    )
+    auxiliary_count = system.get_solver_helper(
+        "cached_aux_count",
+        beta=2.5,
+        gamma=-3.0,
+        preconditioner_order=7,
+    )
+
+    assert first is second
+    assert auxiliary_count == system.jacobian_aux_count
+    assert "cached_aux_count" not in system._solver_helper_cache_keys
+
+
+@pytest.mark.parametrize(
+    "solver_settings_override",
+    [{"system_type": "linear"}],
+    indirect=True,
+)
+def test_unknown_helper_preserves_existing_cache(system):
+    """Unknown helper requests preserve cached helpers."""
+
+    cached = system.get_solver_helper("prepare_jac")
+
+    with pytest.raises(
+        NotImplementedError,
+        match="Solver helper 'not_a_helper' is not implemented",
+    ):
+        system.get_solver_helper("not_a_helper")
+
+    assert system.get_solver_helper("prepare_jac") is cached
+
+
+@pytest.mark.parametrize(
+    "solver_settings_override",
+    [{"system_type": "colliding_constants", "precision": np.float32}],
+    indirect=True,
+)
+def test_scaled_helper_key_matches_closure_casts(system):
+    """Helper keys preserve each closure scalar's cast representation."""
+
+    nan_payload = np.array([0x7FC00001], dtype=np.uint32).view(np.float32)[0]
+    other_payload = np.array([0x7FC00002], dtype=np.uint32).view(np.float32)[0]
+    negative_nan = np.array([0xFFC00001], dtype=np.uint32).view(np.float32)[0]
+    rounded = system.get_solver_helper(
+        "stage_residual", beta=1.00000001, gamma=1.0
+    )
+    exact = system.get_solver_helper(
+        "stage_residual", beta=1.0, gamma=1.0
+    )
+    first_nan = system.get_solver_helper(
+        "stage_residual", beta=nan_payload, gamma=1.0
+    )
+    second_nan = system.get_solver_helper(
+        "stage_residual", beta=nan_payload, gamma=1.0
+    )
+    other_nan = system.get_solver_helper(
+        "stage_residual", beta=other_payload, gamma=1.0
+    )
+    signed_nan = system.get_solver_helper(
+        "stage_residual", beta=negative_nan, gamma=1.0
+    )
+    positive_zero = system.get_solver_helper(
+        "stage_residual", beta=0.0, gamma=1.0
+    )
+    negative_zero = system.get_solver_helper(
+        "stage_residual", beta=-0.0, gamma=1.0
+    )
+
+    assert rounded is exact
+    assert first_nan is second_nan
+    assert other_nan is not second_nan
+    assert signed_nan is not first_nan
+    assert positive_zero is not negative_zero
 
 
 @pytest.fixture(scope="session")
