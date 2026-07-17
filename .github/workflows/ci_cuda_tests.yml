@@ -104,14 +104,31 @@ jobs:
         # and this scales automatically. Coverage/XML report come from addopts.
         run: pytest -m "not specific_algos and not sim_only" -n logical --junitxml=pytest-results.xml
 
+      # The artifact service occasionally answers CreateArtifact with a
+      # non-JSON error page and the action's five internal retries all
+      # land inside the same brief outage (observed: a leg with 2914
+      # passed tests went red on this alone). One tolerated attempt plus
+      # an explicit retry keeps transient flakes green while a
+      # persistent upload failure still fails the leg.
       - name: Upload pytest artefacts
+        id: upload-artefacts
         if: always()
+        continue-on-error: true
         uses: actions/upload-artifact@v7
         with:
           name: pytest-${{ matrix.os }}-py${{ matrix.python-version }}-cuda${{ matrix.cuda }}
           path: |
             pytest-results.xml
             coverage.xml
+      - name: Upload pytest artefacts (retry)
+        if: always() && steps.upload-artefacts.outcome == 'failure'
+        uses: actions/upload-artifact@v7
+        with:
+          name: pytest-${{ matrix.os }}-py${{ matrix.python-version }}-cuda${{ matrix.cuda }}
+          path: |
+            pytest-results.xml
+            coverage.xml
+          overwrite: true
 
       - name: Upload coverage to Codecov
         if: always()
