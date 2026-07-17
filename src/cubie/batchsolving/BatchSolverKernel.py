@@ -40,6 +40,7 @@ from typing import (
 )
 from warnings import warn
 from pathlib import Path
+from weakref import finalize
 
 from numpy import ceil as np_ceil, float64 as np_float64, floating
 from cubie.cuda_simsafe import cuda, float64
@@ -61,6 +62,7 @@ from cubie.time_logger import CUDAEvent
 from numpy.typing import NDArray
 
 from cubie.memory import default_memmgr
+from cubie.memory.mem_manager import run_instance_teardown
 from cubie.buffer_registry import buffer_registry
 from cubie.CUDAFactory import CUDAFactory, CUDADispatcherCache
 from cubie.batchsolving.arrays.BatchInputArrays import InputArrays
@@ -281,6 +283,9 @@ class BatchSolverKernel(CUDAFactory):
         self._cuda_events: List = []
         self._gpu_workload_event: Optional[CUDAEvent] = None
 
+        self._closed = False
+        self._last_stream = None
+        self._work_complete = True
         self._memory_manager = self._setup_memory_manager(memory_settings)
 
         # Build the single integrator to derive compile-critical metadata
@@ -363,6 +368,15 @@ class BatchSolverKernel(CUDAFactory):
             stream_group=stream_group,
             proportion=mem_proportion,
             allocation_ready_hook=self._on_allocation,
+        )
+        settings = memory_manager.registry[id(self)]
+        self._finalizer = finalize(
+            self,
+            run_instance_teardown,
+            memory_manager,
+            id(self),
+            settings,
+            (),
         )
         return memory_manager
 
@@ -522,9 +536,21 @@ class BatchSolverKernel(CUDAFactory):
         device loop on each chunked workload. Shared-memory demand may reduce
         the block size automatically, emitting a warning when the limit drops
         below a warp.
+
+        Raises
+        ------
+        RuntimeError
+            If the kernel has been closed.
         """
+        if self._closed:
+            raise RuntimeError(
+                "This solver has been closed and its GPU resources "
+                "released; build a new Solver to run again."
+            )
         if stream is None:
             stream = self.stream
+        self._last_stream = stream
+        self._work_complete = False
 
         # Time parameters always use float64 for accumulation accuracy
         duration = np_float64(duration)
@@ -556,7 +582,7 @@ class BatchSolverKernel(CUDAFactory):
         self.output_arrays.update(self)
 
         # Process allocations into chunks
-        self.memory_manager.allocate_queue(self)
+        self.memory_manager.allocate_queue(self, stream=stream)
 
         # ------------ from here on dimensions are "chunked" -----------------
         # self.run_params is updated in the on_allocation callback.
@@ -618,8 +644,8 @@ class BatchSolverKernel(CUDAFactory):
 
             # h2d transfer timing
             h2d_event.record_start(stream)
-            self.input_arrays.initialise(i)
-            self.output_arrays.initialise(i)
+            self.input_arrays.initialise(i, stream=stream)
+            self.output_arrays.initialise(i, stream=stream)
             h2d_event.record_end(stream)
 
             # Kernel execution timing
@@ -650,8 +676,8 @@ class BatchSolverKernel(CUDAFactory):
 
             # d2h transfer timing
             d2h_event.record_start(stream)
-            self.input_arrays.finalise(i)
-            self.output_arrays.finalise(i)
+            self.input_arrays.finalise(i, stream=stream)
+            self.output_arrays.finalise(i, stream=stream)
             d2h_event.record_end(stream)
 
         # Finalize GPU workload timing
@@ -972,9 +998,41 @@ class BatchSolverKernel(CUDAFactory):
         # Include unpacked dict keys in recognized set
         return recognised | unpacked_keys
 
-    def wait_for_writeback(self):
-        """Wait for async writebacks into host arrays after chunked runs"""
-        self.output_arrays.wait_pending()
+    def wait_for_writeback(
+        self, timeout: Optional[float] = None
+    ) -> None:
+        """Wait for pending staging-buffer work."""
+        self.input_arrays.wait_pending(timeout=timeout)
+        self.output_arrays.wait_pending(timeout=timeout)
+
+    def synchronize(self) -> None:
+        """Wait for this kernel's last run stream."""
+        if self._work_complete or self._last_stream is None:
+            return
+        self.memory_manager.sync_stream(self, stream=self._last_stream)
+        self._work_complete = True
+
+    def close(self, shutdown_timeout: Optional[float] = None) -> None:
+        """Release resources after pending transfers finish.
+
+        Parameters
+        ----------
+        shutdown_timeout
+            Maximum seconds to wait. None waits until transfers finish.
+        """
+        if self._closed:
+            return
+        self.synchronize()
+        self.wait_for_writeback(timeout=shutdown_timeout)
+        self.input_arrays.close()
+        self.output_arrays.close()
+        finalizer = getattr(self, "_finalizer", None)
+        settings = self.memory_manager.registry.get(id(self))
+        if settings is not None:
+            self.memory_manager.release_instance(id(self), settings)
+        if finalizer is not None:
+            finalizer.detach()
+        self._closed = True
 
     @property
     def persistent_local_elements(self) -> int:

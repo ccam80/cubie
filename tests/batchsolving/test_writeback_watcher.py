@@ -472,6 +472,25 @@ def test_poll_loop_drain_requeues_still_pending_task_on_shutdown():
     np.testing.assert_array_equal(target, 44.0)
 
 
+@pytest.mark.nocudasim
+def test_shutdown_timeout_keeps_live_thread_handle():
+    """A timed-out shutdown keeps the draining thread reachable."""
+    _, event = _record_busy_event()
+    w = WritebackWatcher()
+    buf = _make_pinned_buffer(fill=18.0)
+    target = np.zeros((4, 3), dtype=np.float32)
+    pool = _make_pool()
+    w.submit(event, buf, target, pool, "state")
+
+    with pytest.raises(TimeoutError, match="did not stop"):
+        w.shutdown(timeout=0.0)
+
+    assert w._thread is not None
+    assert w._thread.is_alive()
+    w.shutdown()
+    np.testing.assert_array_equal(target, 18.0)
+
+
 def test_poll_loop_drains_queue_directly_on_shutdown():
     """When _poll_loop is invoked with stop_event already set, it skips
     the live-polling loop and drains any queued tasks synchronously

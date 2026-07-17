@@ -50,6 +50,11 @@ stage into a buffer of the slot's memory type and queue reallocation), and calls
 (non-chunked) or plain numpy (chunked). `_invalidate_hook` drops device refs and re-marks
 everything for reallocation.
 
+### Teardown
+Explicit close drains transfer watchers before clearing staging pools and
+device registrations. Failures leave resources attached so close can be
+retried. Finalizers use cleanup calls that do not capture the manager.
+
 ### Per-chunk hooks (called by `BatchSolverKernel.run` around each launch)
 - `initialise(chunk_index)` — pre-launch. `InputArrays`: H2D (non-chunked copies the
   `_needs_overwrite` arrays; chunked stages each run-axis slice through a `ChunkBufferPool`
@@ -65,11 +70,9 @@ plain `"host"` numpy for chunked runs with per-chunk pinned staging from `ChunkB
 (`_convert_host_to_pinned`/`_convert_host_to_numpy`, run in `_on_allocation_complete`).
 
 ### Async writeback
-Chunked outputs write back on a background `WritebackWatcher` thread: `finalise` records a CUDA
-event and submits `PendingBuffer`s; `wait_pending()` blocks until the watcher drains; `reset()`
-shuts the watcher down and clears the pool. Under `CUDA_SIMULATION` the event is `None` (treated
-as immediately complete). `OutputArrays.finalise` reassigns `event.handle = event.handle.value`
-to work around a numba event-handle issue — it is load-bearing, do not remove.
+Transfer watchers release pinned buffers after their CUDA event completes.
+Output tasks also copy staged data into the result arrays. Shutdown drains all
+tasks before it clears the pool.
 
 ### Container mechanics
 Containers use `@define(slots=False)` and discover their arrays by scanning `__dict__` for

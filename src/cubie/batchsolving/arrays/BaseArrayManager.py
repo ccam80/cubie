@@ -30,8 +30,9 @@ See Also
 """
 
 from abc import ABC, abstractmethod
-from typing import Dict, Iterator, List, Optional, Union
+from typing import Any, Callable, Dict, Iterator, List, Optional, Union
 from warnings import warn
+from weakref import finalize
 
 from attrs import define, field
 from attrs.validators import (
@@ -49,9 +50,15 @@ from numpy import (
 from numpy.typing import NDArray
 
 from cubie._utils import opt_gttype_validator, getype_validator
-from cubie.cuda_simsafe import DeviceNDArrayBase
+from cubie.cuda_simsafe import CUDA_SIMULATION, DeviceNDArrayBase
 from cubie.memory import default_memmgr
-from cubie.memory.mem_manager import ArrayRequest, ArrayResponse, MemoryManager
+from cubie.memory.mem_manager import (
+    ArrayRequest,
+    ArrayResponse,
+    MemoryManager,
+    current_cupy_stream,
+    run_instance_teardown,
+)
 from cubie.outputhandling.output_sizes import ArraySizingClass
 
 
@@ -347,6 +354,9 @@ class BaseArrayManager(ABC):
     # Signature of the solver state that determines array sizes; when
     # unchanged, update_from_solver skips rebuilding the size objects.
     _size_sig: object = field(default=None, init=False)
+    # weakref.finalize handle that deregisters this manager and frees its
+    # buffers when the manager is collected (or when close() runs it early).
+    _finalizer: object = field(default=None, init=False, eq=False, repr=False)
 
     def __attrs_post_init__(self) -> None:
         """
@@ -494,6 +504,38 @@ class BaseArrayManager(ABC):
             allocation_ready_hook=self._on_allocation_complete,
             stream_group=self._stream_group,
         )
+        settings = self._memory_manager.registry[id(self)]
+        self._finalizer = finalize(
+            self,
+            run_instance_teardown,
+            self._memory_manager,
+            id(self),
+            settings,
+            tuple(self._teardown_cleanups()),
+        )
+
+    def _teardown_cleanups(self) -> List[Callable[[], None]]:
+        """Return cleanup calls that do not capture this manager."""
+        return [self.device.delete_all]
+
+    def close(self) -> None:
+        """Release this manager's resources."""
+        settings = self._memory_manager.registry.get(id(self))
+        if settings is None:
+            return
+        if CUDA_SIMULATION or settings.last_stream is None:
+            for cleanup in self._teardown_cleanups():
+                cleanup()
+            self._memory_manager.release_instance(id(self), settings)
+            BaseArrayManager.reset(self)
+        else:
+            with current_cupy_stream(settings.last_stream):
+                for cleanup in self._teardown_cleanups():
+                    cleanup()
+                self._memory_manager.release_instance(id(self), settings)
+                BaseArrayManager.reset(self)
+        if self._finalizer is not None:
+            self._finalizer.detach()
 
     def request_allocation(
         self,
@@ -895,7 +937,10 @@ class BaseArrayManager(ABC):
         self._needs_overwrite.clear()
 
     def to_device(
-        self, from_arrays: List[object], to_arrays: List[object]
+        self,
+        from_arrays: List[object],
+        to_arrays: List[object],
+        stream: Optional[Any] = None,
     ) -> None:
         """
         Copy host arrays to the device using the memory manager.
@@ -908,10 +953,15 @@ class BaseArrayManager(ABC):
             Destination device arrays.
 
         """
-        self._memory_manager.to_device(self, from_arrays, to_arrays)
+        self._memory_manager.to_device(
+            self, from_arrays, to_arrays, stream=stream
+        )
 
     def from_device(
-        self, from_arrays: List[object], to_arrays: List[object]
+        self,
+        from_arrays: List[object],
+        to_arrays: List[object],
+        stream: Optional[Any] = None,
     ) -> None:
         """
         Copy device arrays back to the host using the memory manager.
@@ -924,7 +974,9 @@ class BaseArrayManager(ABC):
             Destination host arrays.
 
         """
-        self._memory_manager.from_device(self, from_arrays, to_arrays)
+        self._memory_manager.from_device(
+            self, from_arrays, to_arrays, stream=stream
+        )
 
     def _convert_host_to_pinned(self) -> None:
         """Convert regular numpy host arrays to pinned for non-chunked mode.

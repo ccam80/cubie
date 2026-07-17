@@ -52,6 +52,12 @@ set consumes raises `KeyError`, and legacy timing spellings (`RENAMED_TIMING_KWA
 siblings must ignore each other's keys; only the top-level entry points enforce. Add a new
 result accessor on `kernel` and expose it as a `Solver` property.
 
+### Solver teardown
+`Solver.close()` waits only for its last run stream, drains staging work, and
+deregisters the kernel and array managers. Explicit failures are reported and
+the close can be retried. `solve_ivp` closes its temporary solver before it
+returns. Finalizers provide best-effort cleanup for abandoned solvers.
+
 ### Grids
 `BatchInputHandler` converts user dicts/arrays into `(variable, run)` arrays via the
 module-level grid builders. Two grid types: `combinatorial` (cartesian product across inputs)

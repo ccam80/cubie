@@ -10,8 +10,9 @@ stream. It runs as a process-wide instance (`default_memmgr`, created in `__init
 import) — a singleton **by convention**, not enforced via `__new__`. CuPy's async memory pool
 is the single device allocation provider on a real GPU, plugged into Numba as an External
 Memory Manager (`cupy_emm.py`), so `cuda.device_array` returns **native** `DeviceNDArray`
-objects backed by pooled, stream-ordered allocations. Pinned host buffers come from Numba
-(`cuda.pinned_array`) and the chunk staging pool from CuPy (`cupyx.empty_pinned`). The CUDA
+objects backed by pooled, stream-ordered allocations. Pinned host buffers and the chunk
+staging pool come from CuPy's pinned pool (`cupyx.empty_pinned`), so releasing one returns
+it to the pool instead of a device-synchronizing `cuMemFreeHost`. The CUDA
 simulator never touches CuPy — it keeps its own numpy-backed fakes. Supporting pieces:
 `StreamGroups` (CUDA stream grouping), `ArrayRequest`/`ArrayResponse` (allocation metadata),
 `ChunkBufferPool` (reusable pinned staging buffers).
@@ -33,12 +34,22 @@ simulator never touches CuPy — it keeps its own numpy-backed fakes. Supporting
 - The registry is keyed by `id(instance)`. Keep a live reference to every registered object — GC frees the id and a new object can silently claim the slot.
 - Two limit modes (`_mode`, default `"passive"`): `"passive"` computes caps but doesn't enforce (returns raw free VRAM); `"active"` enforces per-instance caps. Switch via `set_limit_mode()`.
 
+### Deregistration & teardown
+- Registry allocations keep device arrays alive until deregistration.
+- `release_instance` removes one exact registry entry. The identity check
+  protects against reused object IDs.
+- Explicit close reports cleanup failures and can be retried. Finalizers are
+  best effort and do not raise during interpreter shutdown.
+- Allocation, copies, launch, and release use the run's stream. Memory caps
+  cause chunking without device-wide synchronization or garbage collection.
+
 ### Single allocation provider
 CuPy's async pool is the only device allocator, reached through the EMM plugin; `cupy`/`cupyx`
 come from `cubie.cuda_simsafe`, which imports them at package import on a real GPU.
 `allocate()` routes `"device"` requests through `cuda.device_array` (inside
 `current_cupy_stream`, so the pool allocation is stream-ordered) and `"pinned"` requests
-through `cuda.pinned_array`; any other placement raises `ValueError`. `to_device`/`from_device`
+through `_pinned_host_array` (`cupyx.empty_pinned`); any other placement raises `ValueError`.
+`to_device`/`from_device`
 issue streamed `cuda.cudadrv.driver.host_to_device`/`device_to_host` copies between pinned
 host buffers and native device arrays, sized by the pinned buffer's `nbytes`. Device arrays
 must be allocated (via `allocate_queue`) before `to_device` copies into them.
@@ -76,10 +87,8 @@ must be allocated (via `allocate_queue`) before `to_device` copies into them.
   always forwards the given Numba stream into CuPy via `cupy.cuda.Stream.from_external`
   (Numba's default stream, handle `0`, is left as CuPy's ambient current stream instead of
   wrapped).
-- `MemoryManager.allocate` wraps device allocation in `current_cupy_stream(stream)` so the
-  async-pool allocation stays ordered on the instance's stream; `to_device`/`from_device`
-  pass the Numba stream to the driver copies directly. `get_memory_info()` still queries
-  whole-device free/total via the Numba context, not a CuPy pool's own accounting.
+- Allocation and release enter the same external CuPy stream. Transfers use
+  that Numba stream directly. `get_memory_info()` reports device-wide memory.
 
 ### ChunkBufferPool (internal, not exported)
 Reusable pinned staging buffers for chunked transfers, keyed by `(array_name, shape, dtype)`.

@@ -32,6 +32,7 @@ See Also
 """
 
 from pathlib import Path
+from weakref import finalize
 from typing import (
     Any,
     Callable,
@@ -80,6 +81,16 @@ from cubie.cubie_cache import ALL_CACHE_PARAMETERS
 default_timelogger.register_event(
     "solve_ivp", "runtime", "Wall-clock time for solve_ivp()"
 )
+
+
+def _finalize_solver(kernel: BatchSolverKernel) -> None:
+    """Best-effort cleanup for a collected solver."""
+    try:
+        kernel.close()
+    except Exception:  # pragma: no cover - interpreter shutdown
+        pass
+
+
 default_timelogger.register_event(
     "solver_solve", "runtime", "Wall-clock time for Solver.solve()"
 )
@@ -296,20 +307,21 @@ def solve_ivp(
     # Start wall-clock timing
     default_timelogger.start_event("solve_ivp")
 
-    results = solver.solve(
-        y0,
-        parameters,
-        drivers=drivers,
-        duration=duration,
-        settling_time=settling_time,
-        t0=t0,
-        grid_type=grid_type,
-        nan_error_trajectories=nan_error_trajectories,
-        **solve_options,
-    )
-
-    # Stop wall-clock timing (summary printed by Solver.solve)
-    default_timelogger.stop_event("solve_ivp")
+    try:
+        results = solver.solve(
+            y0,
+            parameters,
+            drivers=drivers,
+            duration=duration,
+            settling_time=settling_time,
+            t0=t0,
+            grid_type=grid_type,
+            nan_error_trajectories=nan_error_trajectories,
+            **solve_options,
+        )
+        default_timelogger.stop_event("solve_ivp")
+    finally:
+        solver.close()
 
     return results
 
@@ -492,6 +504,7 @@ class Solver:
             cache_settings=cache_settings,
             kernel_settings=kernel_settings,
         )
+        self._finalizer = finalize(self, _finalize_solver, self.kernel)
 
         if set(kwargs) - recognized_kwargs:
             raise KeyError(
@@ -517,6 +530,29 @@ class Solver:
             )
             if placements:
                 self.kernel.update(placements)
+
+    def close(self, shutdown_timeout: Optional[float] = None) -> None:
+        """Release GPU resources after pending transfers finish.
+
+        Parameters
+        ----------
+        shutdown_timeout
+            Maximum seconds to wait. None waits until transfers finish.
+        """
+        kernel = getattr(self, "kernel", None)
+        if kernel is not None:
+            kernel.close(shutdown_timeout=shutdown_timeout)
+        finalizer = getattr(self, "_finalizer", None)
+        if finalizer is not None:
+            finalizer.detach()
+
+    def __enter__(self) -> "Solver":
+        """Return self so the solver can be used as a context manager."""
+        return self
+
+    def __exit__(self, exc_type, exc, traceback) -> None:
+        """Release GPU resources on exit from a ``with`` block."""
+        self.close()
 
     def convert_output_labels(
         self,
@@ -650,7 +686,7 @@ class Solver:
         )
 
         # Synchronize stream, wait until arrays written in "chunked" mode.
-        self.memory_manager.sync_stream(self.kernel)
+        self.kernel.synchronize()
         self.kernel.wait_for_writeback()
 
         # Stop wall-clock timing for solve

@@ -75,6 +75,7 @@ from cubie.cuda_simsafe import (
     CUDA_SIMULATION,
     Stream,
     cupy,
+    cupyx,
     current_mem_info,
 )
 from cubie.memory.stream_groups import StreamGroups
@@ -358,12 +359,16 @@ def _pinned_host_array(shape: Tuple[int, ...], dtype: type) -> ndarray:
     Notes
     -----
     Pinned memory enables asynchronous host/device transfers. On a
-    real GPU this uses Numba's ``cuda.pinned_array``; the CUDA simulator
-    has no device to transfer to, so a plain NumPy array is used instead.
+    real GPU the array comes from CuPy's pinned-memory pool: releases
+    return the block to the pool on the host side, whereas a driver
+    ``cuMemFreeHost`` synchronizes the whole device, stalling
+    unrelated streams whenever Numba's deferred-deallocation queue
+    flushes. The CUDA simulator has no device to transfer to, so a
+    plain NumPy array is used instead.
     """
     if CUDA_SIMULATION:  # pragma: no cover - simulated
         return np_empty(shape, dtype=dtype)
-    return cuda.pinned_array(shape, dtype=dtype)
+    return cupyx.empty_pinned(shape, dtype=dtype)
 
 
 # These will be keys to a dict, so must be hashable: eq=False
@@ -442,6 +447,7 @@ class InstanceMemorySettings:
         default=None,
         validator=attrsval_optional(attrsval_instance_of(weakref_ref)),
     )
+    last_stream: Optional[Any] = field(default=None)
 
     def add_allocation(self, key: str, arr: Any) -> None:
         """Add an allocation to the instance's allocations list.
@@ -485,10 +491,12 @@ class InstanceMemorySettings:
             )
 
     def free_all(self) -> None:
-        """Drop all references to allocated arrays."""
-        to_free = self.allocations.copy()
-        for key in to_free:
-            self.free(key)
+        """Release allocations on their last stream."""
+        if CUDA_SIMULATION or self.last_stream is None:
+            self.allocations.clear()
+            return
+        with current_cupy_stream(self.last_stream):
+            self.allocations.clear()
 
     @property
     def allocated_bytes(self) -> int:
@@ -755,7 +763,6 @@ class MemoryManager:
         """
         self._purge_dead_instances()
         instance_id = id(instance)
-        settings = self.registry[instance_id]
         if instance_id in self._manual_pool:
             return
         self._auto_pool.remove(instance_id)
@@ -950,19 +957,35 @@ class MemoryManager:
             and settings.instance_ref() is None
         ]
         for instance_id in dead_ids:
-            self.registry.pop(instance_id)
-            if instance_id in self._manual_pool:
-                self._manual_pool.remove(instance_id)
-            if instance_id in self._auto_pool:
-                self._auto_pool.remove(instance_id)
-            self.stream_groups.remove_instance(instance_id)
-            for queued in self._queued_allocations.values():
-                queued.pop(instance_id, None)
+            self._drop_instance(instance_id)
         if dead_ids:
             # Freed reservations flow back to the surviving auto pool.
             # The nested purge this triggers finds nothing dead, so
             # the recursion terminates after one level.
             self._rebalance_auto_pool()
+
+    def _drop_instance(self, instance_id: int) -> None:
+        """Free and deregister one instance."""
+        settings = self.registry.get(instance_id)
+        if settings is not None:
+            settings.free_all()
+            self.registry.pop(instance_id)
+        if instance_id in self._manual_pool:
+            self._manual_pool.remove(instance_id)
+        if instance_id in self._auto_pool:
+            self._auto_pool.remove(instance_id)
+        self.stream_groups.remove_instance(instance_id)
+        for queued in self._queued_allocations.values():
+            queued.pop(instance_id, None)
+
+    def release_instance(
+        self, instance_id: int, settings: "InstanceMemorySettings"
+    ) -> None:
+        """Release a matching registered instance."""
+        if self.registry.get(instance_id) is not settings:
+            return
+        self._drop_instance(instance_id)
+        self._rebalance_auto_pool()
 
     def _rebalance_auto_pool(self) -> None:
         """
@@ -1192,6 +1215,7 @@ class MemoryManager:
         """
         responses = {}
         instance_settings = self.registry[instance_id]
+        instance_settings.last_stream = stream
         for key, request in requests.items():
             arr = self.allocate(
                 shape=request.shape,
@@ -1199,7 +1223,11 @@ class MemoryManager:
                 memory_type=request.memory,
                 stream=stream,
             )
-            instance_settings.add_allocation(key, arr)
+            if CUDA_SIMULATION or request.memory != "device":
+                instance_settings.add_allocation(key, arr)
+            else:
+                with current_cupy_stream(stream):
+                    instance_settings.add_allocation(key, arr)
             responses[key] = arr
         return responses
 
@@ -1279,6 +1307,7 @@ class MemoryManager:
         instance: object,
         from_arrays: list[object],
         to_arrays: list[object],
+        stream: Optional[Stream] = None,
     ) -> None:
         """
         Copy data to device arrays using the instance's stream.
@@ -1294,7 +1323,9 @@ class MemoryManager:
 
         """
         _ensure_cuda_context()
-        stream = self.get_stream(instance)
+        if stream is None:
+            stream = self.get_stream(instance)
+        self.registry[id(instance)].last_stream = stream
         # Pinned host buffer -> device, streamed async H2D. The low-level
         # driver copy skips copy_to_device's per-call np.array re-wrap and
         # compatibility checks (~50us/call), which are unnecessary here: the
@@ -1317,6 +1348,7 @@ class MemoryManager:
         instance: object,
         from_arrays: list[object],
         to_arrays: list[object],
+        stream: Optional[Stream] = None,
     ) -> None:
         """
         Copy data from device arrays using the instance's stream.
@@ -1332,7 +1364,9 @@ class MemoryManager:
 
         """
         _ensure_cuda_context()
-        stream = self.get_stream(instance)
+        if stream is None:
+            stream = self.get_stream(instance)
+        self.registry[id(instance)].last_stream = stream
         # Device -> pinned host buffer, streamed async D2H via the low-level
         # driver copy (to_arrays are pinned, C-contiguous, size-matched).
         for i, from_array in enumerate(from_arrays):
@@ -1348,7 +1382,9 @@ class MemoryManager:
                 stream=stream,
             )
 
-    def sync_stream(self, instance: object) -> None:
+    def sync_stream(
+        self, instance: object, stream: Optional[Stream] = None
+    ) -> None:
         """
         Synchronize the CUDA stream for an instance.
 
@@ -1359,12 +1395,19 @@ class MemoryManager:
 
         """
         _ensure_cuda_context()
-        stream = self.get_stream(instance)
+        if stream is None:
+            settings = self.registry.get(id(instance))
+            stream = None if settings is None else settings.last_stream
+        if stream is None:
+            stream = self.get_stream(instance)
+        if stream == 0:
+            stream = self.get_stream(instance)
         stream.synchronize()
 
     def allocate_queue(
         self,
         triggering_instance: object,
+        stream: Optional[Stream] = None,
     ) -> None:
         """
         Process all queued requests for a stream group with coordinated chunking.
@@ -1409,7 +1452,12 @@ class MemoryManager:
                 )
             return None
 
-        stream = self.get_stream(triggering_instance)
+        if stream is None:
+            stream = self.get_stream(triggering_instance)
+        for peer in peers:
+            peer_settings = self.registry.get(peer)
+            if peer_settings is not None:
+                peer_settings.last_stream = stream
 
         # Get total_runs from first request
         num_runs = 1
@@ -1429,6 +1477,9 @@ class MemoryManager:
         )
         notaries = set(peers) - set(queued_requests.keys())
         for instance_id, requests_dict in queued_requests.items():
+            if instance_id not in self.registry:
+                # The client was released while the group was prepared.
+                continue
             chunked_shapes = self.compute_chunked_shapes(
                 requests_dict,
                 chunk_length,
@@ -1448,10 +1499,17 @@ class MemoryManager:
                 chunked_shapes=chunked_shapes,
             )
 
-            self.registry[instance_id].allocation_ready_hook(response)
+            if CUDA_SIMULATION:
+                self.registry[instance_id].allocation_ready_hook(response)
+            else:
+                with current_cupy_stream(stream):
+                    self.registry[instance_id].allocation_ready_hook(response)
 
         for peer in notaries:
-            self.registry[peer].allocation_ready_hook(
+            peer_settings = self.registry.get(peer)
+            if peer_settings is None:
+                continue
+            peer_settings.allocation_ready_hook(
                 ArrayResponse(
                     arr={},
                     chunks=num_chunks,
@@ -1583,6 +1641,28 @@ class MemoryManager:
                 chunked_shapes[key] = request.shape
 
         return chunked_shapes
+
+
+def run_instance_teardown(
+    memory_manager: MemoryManager,
+    instance_id: int,
+    settings: InstanceMemorySettings,
+    cleanups: Tuple[Callable[[], None], ...],
+) -> None:
+    """Best-effort cleanup for a collected client."""
+    try:
+        if CUDA_SIMULATION or settings.last_stream is None:
+            for cleanup in cleanups:
+                cleanup()
+            memory_manager.release_instance(instance_id, settings)
+        else:
+            with current_cupy_stream(settings.last_stream):
+                for cleanup in cleanups:
+                    cleanup()
+                memory_manager.release_instance(instance_id, settings)
+    except Exception:  # pragma: no cover - defensive at shutdown
+        # Keep the entry alive if cleanup could not safely finish.
+        settings.instance_ref = None
 
 
 def get_portioned_request_size(

@@ -7,6 +7,7 @@ import pytest
 from cubie.cuda_simsafe import cuda
 
 from cubie.cuda_simsafe import (
+    CUDA_SIMULATION,
     DeviceNDArray,
     Stream,
 )
@@ -28,6 +29,15 @@ from cubie.memory.mem_manager import (
 )
 
 import numpy as np
+
+
+if not CUDA_SIMULATION:
+    @cuda.jit
+    def _busy_kernel(out):
+        value = 0.0
+        for _ in range(20_000_000):
+            value += 1.0
+        out[0] = value
 
 
 class DummyClass:
@@ -1859,6 +1869,130 @@ def test_get_chunk_parameters_computes_chunk_size_when_eligible(mgr):
     )
     assert 0 < chunk_length < 5_000_000
     assert num_chunks > 1
+
+
+@pytest.mark.parametrize(
+    "fixed_mem_override",
+    [{"free": 1024**3, "total": 8 * 1024**3}],
+    indirect=True,
+)
+def test_active_cap_chunks_with_free_device_memory(mgr):
+    """An active cap chunks a request that fits physical VRAM."""
+    inst = DummyClass()
+    mgr.register(inst, proportion=0.01, stream_group="capped")
+    mgr.set_limit_mode("active")
+    requests = {
+        id(inst): {
+            "arr": ArrayRequest(
+                shape=(2, 20_000_000),
+                dtype=np.float32,
+                chunk_axis_index=1,
+                total_runs=20_000_000,
+            )
+        }
+    }
+
+    chunk_length, chunks = mgr.get_chunk_parameters(
+        requests, 20_000_000, "capped"
+    )
+
+    assert 0 < chunk_length < 20_000_000
+    assert chunks > 1
+
+
+@pytest.mark.nocudasim
+@pytest.mark.parametrize(
+    "fixed_mem_override",
+    [{"free": 1024**3, "total": 8 * 1024**3}],
+    indirect=True,
+)
+def test_active_cap_chunking_leaves_unrelated_stream_running(mgr):
+    """Cap-driven chunking does not synchronize another stream."""
+    inst = DummyClass()
+    mgr.register(inst, proportion=0.01, stream_group="capped")
+    mgr.set_limit_mode("active")
+    requests = {
+        id(inst): {
+            "arr": ArrayRequest(
+                shape=(2, 20_000_000),
+                dtype=np.float32,
+                chunk_axis_index=1,
+                total_runs=20_000_000,
+            )
+        }
+    }
+    stream = cuda.stream()
+    done = cuda.event()
+    out = cuda.device_array(1, dtype=np.float32)
+    _busy_kernel[1, 1, stream](out)
+    done.record(stream)
+
+    _, chunks = mgr.get_chunk_parameters(
+        requests, 20_000_000, "capped"
+    )
+
+    assert chunks > 1
+    assert not done.query()
+    stream.synchronize()
+
+
+@pytest.mark.parametrize(
+    "fixed_mem_override",
+    [{"free": 1024, "total": 8 * 1024**3}],
+    indirect=True,
+)
+def test_allocation_pressure_does_not_run_cyclic_gc(mgr):
+    """Allocation pressure chunks without collecting client cycles."""
+
+    class CyclicClient:
+        def __init__(self):
+            self._cycle = self
+
+    gc.disable()
+    try:
+        holder = CyclicClient()
+        mgr.register(holder, stream_group="pressure_holder")
+        mgr.queue_request(
+            holder,
+            {
+                "buf": ArrayRequest(
+                    shape=(4, 4, 4),
+                    dtype=np.float32,
+                    memory="device",
+                    total_runs=4,
+                ),
+            },
+        )
+        mgr.allocate_queue(holder)
+        dead_id = id(holder)
+        assert mgr.registry[dead_id].allocated_bytes > 0
+
+        del holder
+        assert dead_id in mgr.registry
+
+        requester = DummyClass()
+        mgr.register(requester, stream_group="pressure_requester")
+        mgr.queue_request(
+            requester,
+            {
+                "big": ArrayRequest(
+                    shape=(2, 2, 512),
+                    dtype=np.float32,
+                    memory="device",
+                    chunk_axis_index=2,
+                    total_runs=512,
+                ),
+            },
+        )
+        mgr.allocate_queue(requester)
+
+        assert dead_id in mgr.registry
+        _, chunks = mgr._group_chunk_parameters["pressure_requester"]
+        assert chunks > 1
+    finally:
+        gc.enable()
+
+
 class TestDeadInstanceRelease:
     """The registry releases instances once they are collected."""
 

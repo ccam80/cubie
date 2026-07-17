@@ -467,18 +467,16 @@ def test_finalise_uses_buffer_pool_when_chunked(chunked_solved_solver):
 
 
 def test_reset_clears_buffer_pool_and_watcher(chunked_solved_solver):
-    """Verify chunked finalise acquires buffers from pool."""
+    """Reset drains the watcher before clearing staging state."""
     solver = chunked_solved_solver[0]
     output_arrays_manager = solver.kernel.output_arrays
 
-    # Reset should clear everything
     output_arrays_manager.reset()
 
-    # Buffer pool should be empty
     assert len(output_arrays_manager._buffer_pool._buffers) == 0
-
-    # Pending buffers should be clear
     assert len(output_arrays_manager._pending_buffers) == 0
+    assert output_arrays_manager._watcher._pending_count == 0
+    assert output_arrays_manager._watcher._thread is None
 
 
 def test_convert_host_to_numpy_uses_needs_chunked_transfer(
