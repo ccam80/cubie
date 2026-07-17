@@ -7,7 +7,7 @@ import numpy as np
 import pytest
 
 from cubie.batchsolving.solver import Solver, solve_ivp
-from cubie.batchsolving.solveresult import RawSolveResult
+from cubie.batchsolving.solveresult import SolveResult
 from cubie.cuda_simsafe import cuda, CUDA_SIMULATION
 from cubie.memory.mem_manager import MemoryManager
 from tests._utils import _build_solver_instance
@@ -190,10 +190,10 @@ def test_solve_ivp_releases_temporary_solver(
     assert set(manager.registry) == baseline
 
 
-def test_solve_ivp_raw_spill_survives_solver_close(
+def test_solve_ivp_spill_survives_solver_close(
     system, batch_input_arrays, tmp_path
 ):
-    """Raw spill results remain readable after temporary solver cleanup."""
+    """Spilled results remain readable after temporary solver cleanup."""
     y0, params = batch_input_arrays
     result = solve_ivp(
         system,
@@ -202,23 +202,21 @@ def test_solve_ivp_raw_spill_survives_solver_close(
         duration=0.1,
         grid_type="verbatim",
         dt=0.01,
-        results_type="raw",
         host_spill_threshold=1,
         spill_directory=tmp_path,
     )
-    assert isinstance(result, RawSolveResult)
+    assert isinstance(result, SolveResult)
     spill_paths = [
         Path(array._cubie_spill_path)
-        for array in result.values()
+        for array in (result.state, result.status_codes)
         if isinstance(array, np.memmap)
     ]
     try:
         assert spill_paths
         assert all(path.exists() for path in spill_paths)
-        assert all(
-            np.isfinite(np.array(array, copy=True)).all()
-            for array in result.values()
-        )
+        assert np.isfinite(
+            np.array(result.time_domain_array, copy=True)
+        ).all()
     finally:
         result.close()
     assert all(not path.exists() for path in spill_paths)

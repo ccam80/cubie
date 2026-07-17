@@ -53,11 +53,7 @@ from cubie.result_codes import decode_status_codes
 from cubie.batchsolving.BatchSolverConfig import ActiveOutputs
 from cubie.batchsolving.BatchInputHandler import BatchInputHandler
 from cubie.batchsolving.BatchSolverKernel import BatchSolverKernel
-from cubie.batchsolving.solveresult import (
-    RawSolveResult,
-    SolveResult,
-    SolveSpec,
-)
+from cubie.batchsolving.solveresult import SolveResult, SolveSpec
 from cubie.batchsolving.SystemInterface import SystemInterface
 from cubie.memory.mem_manager import ALL_MEMORY_MANAGER_PARAMETERS
 from cubie.odesystems.baseODE import BaseODE
@@ -213,7 +209,7 @@ def solve_ivp(
     time_logging_level: Optional[str] = None,
     nan_error_trajectories: bool = True,
     **kwargs: Any,
-) -> Union[SolveResult, RawSolveResult, Dict[str, Any]]:
+) -> SolveResult:
     """Solve a batch initial value problem.
 
     Parameters
@@ -268,25 +264,17 @@ def solve_ivp(
         When ``True`` (default), trajectories with nonzero solver status
         codes are automatically set to NaN, protecting users from analyzing
         invalid data. When ``False``, all trajectories are returned with
-        original values. Ignored when using ``results_type="raw"``.
+        original values.
     **kwargs
         Additional keyword arguments passed to :class:`Solver`.
 
     Returns
     -------
-    SolveResult, RawSolveResult, or dict
-        ``"full"`` returns a :class:`SolveResult`; ``"raw"`` returns a
-        :class:`RawSolveResult` owning the solve's host buffers; the
-        ``"numpy"``, ``"numpy_per_summary"``, and ``"pandas"`` forms
-        return plain dictionaries of RAM copies. Disk-backed full and
-        raw results support ``close()`` and context cleanup.
-
-    Raises
-    ------
-    MemoryError
-        When a RAM results form is requested but the outputs exceed
-        free RAM. Request ``"full"`` or ``"raw"`` and slice the
-        disk-backed arrays instead.
+    SolveResult
+        Result owning the solve's host output buffers. ``as_numpy``,
+        ``as_numpy_per_summary``, and ``as_pandas`` build RAM
+        representations on demand; disk-backed results release their
+        spill files on ``close()`` or context exit.
     """
     if not isinstance(system, BaseODE):
         system = _system_from_equations(
@@ -306,7 +294,7 @@ def solve_ivp(
         kwargs.setdefault("summarise_variables", summarise_variables)
 
     # Solve-time options go to solve(); the rest configure the Solver.
-    solve_option_keys = ("blocksize", "stream", "results_type")
+    solve_option_keys = ("blocksize", "stream")
     solve_options = {
         key: kwargs.pop(key) for key in solve_option_keys if key in kwargs
     }
@@ -371,11 +359,13 @@ class Solver:
         next solve. Set it ``False`` to pin a latency-critical solver's
         buffers resident. ``host_spill_threshold`` is the size in bytes
         above which host result arrays are disk-backed instead of held
-        in RAM; the default spills only arrays larger than half of free
-        RAM. Lower it to keep RAM free for other work, or raise it when
-        results must stay in RAM at any size. ``spill_directory`` is an
-        existing directory for spill files (default: the system temp
-        directory); point it at a fast disk for large spilled runs.
+        in RAM; by default only arrays larger than 80% of total system
+        RAM spill — everything smaller is pageable RAM the operating
+        system manages. Lower it to keep RAM free for other work, or
+        raise it to keep even larger results in RAM.
+        ``spill_directory`` is an existing directory for spill files
+        (default: the system temp directory); point it at a fast disk
+        for large spilled runs.
     loop_settings
         Explicit loop configuration overriding solver defaults. Keys such as
         ``save_every`` and ``summarise_every`` may also be supplied as loose
@@ -610,10 +600,9 @@ class Solver:
         blocksize: int = 256,
         stream: Any = None,
         grid_type: str = "verbatim",
-        results_type: str = "full",
         nan_error_trajectories: bool = True,
         **kwargs: Any,
-    ) -> Union[SolveResult, RawSolveResult, Dict[str, Any]]:
+    ) -> SolveResult:
         """Solve a batch initial value problem.
 
         Parameters
@@ -644,27 +633,25 @@ class Solver:
         grid_type
             Strategy for constructing the integration grid from inputs.
             Only used when dict inputs trigger grid construction.
-        results_type
-            Format of returned results, for example ``"full"`` or ``"numpy"``.
         nan_error_trajectories
             When ``True`` (default), trajectories with nonzero status codes
             are automatically set to NaN, making failed runs easy to identify
             and exclude from analysis. When ``False``, all trajectories are
-            returned unchanged. Ignored when ``results_type`` is ``"raw"``.
+            returned unchanged.
         **kwargs
             Additional options forwarded to :meth:`update`. See "Optional
             Arguments" in the docs for possibilities.
 
         Returns
         -------
-        SolveResult, RawSolveResult, or dict
-            ``"full"`` returns a :class:`SolveResult`; ``"raw"``
-            returns a :class:`RawSolveResult` owning the solve's host
-            buffers; the ``"numpy"``, ``"numpy_per_summary"``, and
-            ``"pandas"`` forms return plain dictionaries of RAM
-            copies and raise :class:`MemoryError` before copying when
-            the outputs exceed free RAM. Disk-backed full and raw
-            results support ``close()`` and context cleanup.
+        SolveResult
+            Result owning the solve's host output buffers — nothing is
+            copied. Keep it alive while its data is needed: once it is
+            garbage collected the solver reuses the buffers on its
+            next run. ``as_numpy``, ``as_numpy_per_summary``, and
+            ``as_pandas`` build RAM representations on demand;
+            disk-backed results release their spill files on
+            ``close()`` or context exit.
 
         Notes
         -----
@@ -725,7 +712,6 @@ class Solver:
 
         return SolveResult.from_solver(
             self,
-            results_type=results_type,
             nan_error_trajectories=nan_error_trajectories,
         )
 
@@ -1091,6 +1077,11 @@ class Solver:
     def save_time(self) -> bool:
         """Return whether time points are saved."""
         return self.kernel.save_time
+
+    @property
+    def save_counters(self) -> bool:
+        """Return whether iteration counters are saved."""
+        return self.kernel.save_counters
 
     @property
     def output_types(self) -> List[str]:

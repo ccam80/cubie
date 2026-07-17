@@ -452,18 +452,13 @@ def chunked_solved_solver(
     inits = np.ones((n_states, n_runs), dtype=precision)
     params = np.ones((n_params, n_runs), dtype=precision)
 
-    # This run has a combined request size of 1668b, with 1080 chunkable/588
-    # unchunkable along the run axis.
-    # For one run per chunk:
-    #  - run axis: free > 588 + 1080/5 -> 850
-    # Two runs per (2-2-1):
-    #  - run axis: free > 588 + 1080/(5/2) -> 1024b
-    # Three runs per (3-2):
-    # - run axis: free > 588 + 1080/(5/3) -> 1240
-    # Four runs per (4-1):
-    # - run axis: free > 588 + 1080/(5/4) 0> 1460
-    # Unchunked (5-0):
-    # - 2048
+    # With iteration counters inactive their device array is a
+    # placeholder, so the request is smaller than it once was.
+    # Measured chunk counts against forced free memory:
+    #   <= 680        -> 5 chunks (one run per chunk)
+    #   700  .. 830   -> 3 chunks (2-2-1)
+    #   890  .. 1130  -> 2 chunks (3-2, then 4-1 near the top)
+    #   >= 1190       -> unchunked
     result = solver.solve(
         inits,
         params,

@@ -33,6 +33,7 @@ from attrs import define, field
 from attrs.validators import instance_of as attrsval_instance_of
 from cubie.cuda_simsafe import cuda
 from numpy import (
+    dtype as np_dtype,
     float32 as np_float32,
     floating as np_floating,
     int32 as np_int32,
@@ -349,11 +350,16 @@ class OutputArrays(BaseArrayManager):
             Host arrays with updated shapes for ``update_host_arrays``.
             Arrays that already match are still included for consistency.
         """
+        # Buffers loaned to a collected result come back for reuse
+        # before sizes are compared; a live result keeps its buffers
+        # and fresh ones are allocated below.
+        self.reclaim_or_release_loan()
         # Output sizes depend on num_runs, precision, the time dimensions
         # (output_length / summaries_length, which fold in duration and the
-        # save/summarise intervals) and the per-variable heights (which fold
-        # in the output selection). Skip the rebuild when all are unchanged;
-        # the current host arrays already match.
+        # save/summarise intervals), the per-variable heights (which fold
+        # in the output selection), and whether iteration counters are
+        # saved. Skip the rebuild when all are unchanged; the current
+        # host arrays already match.
         h = solver_instance.output_array_heights
         sig = (
             solver_instance.num_runs,
@@ -365,6 +371,7 @@ class OutputArrays(BaseArrayManager):
             h.state_summaries,
             h.observable_summaries,
             h.per_variable,
+            solver_instance.save_counters,
         )
         if sig == self._size_sig:
             return {
@@ -390,15 +397,19 @@ class OutputArrays(BaseArrayManager):
             ):
                 new_arrays[name] = current
             else:
-                # Request the slot's base type; an array whose size
-                # exceeds the manager's spill threshold comes back
-                # disk-backed and the slot follows it.
-                base_type = slot.memory_type
-                if base_type == "memmap":
-                    base_type = "pinned"
+                # Kernel outputs are written by device transfers, so
+                # they never need a pinned allocation up front: small
+                # unchunked arrays are pinned after the chunk decision
+                # in _convert_host_to_pinned, and everything else is
+                # pageable or, above the spill policy, disk-backed.
+                nbytes = int(prod(newshape)) * np_dtype(dtype).itemsize
+                base_type = self._memory_manager.choose_host_memory_type(
+                    nbytes, instance=self, allow_pinned=False
+                )
                 new_array = self._memory_manager.create_host_array(
                     newshape, dtype, base_type, instance=self
                 )
+                slot.memory_type = base_type
                 new_arrays[name] = new_array
         for name, slot in self.device.iter_managed_arrays():
             dtype = slot.dtype

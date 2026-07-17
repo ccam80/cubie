@@ -59,10 +59,8 @@ def test_host_arrays_spill_to_disk_and_results_match(
     solve_kwargs = dict(drivers=driver_settings, duration=0.2)
 
     spilled = solver_mutable.solve(y0, params, **solve_kwargs)
-    state_host = solver_mutable.kernel.output_arrays.state
-    assert isinstance(state_host, np.memmap)
-    assert Path(state_host._cubie_spill_path).exists()
-    assert isinstance(spilled.time_domain_array, np.memmap)
+    assert isinstance(spilled.state, np.memmap)
+    assert Path(spilled.state._cubie_spill_path).exists()
 
     reference_settings = solver_settings.copy()
     reference_settings["host_spill_threshold"] = None
@@ -118,16 +116,12 @@ def test_solver_spill_policies_are_independent(
         memory_manager=manager,
     )
     try:
-        spill_solver.solve(y0, params, **solve_kwargs)
-        ram_solver.solve(y0, params, **solve_kwargs)
+        spill_result = spill_solver.solve(y0, params, **solve_kwargs)
+        ram_result = ram_solver.solve(y0, params, **solve_kwargs)
 
-        assert isinstance(
-            spill_solver.kernel.output_arrays.state, np.memmap
-        )
+        assert isinstance(spill_result.state, np.memmap)
         assert len(list(tmp_path.iterdir())) > 0
-        assert not isinstance(
-            ram_solver.kernel.output_arrays.state, np.memmap
-        )
+        assert not isinstance(ram_result.state, np.memmap)
     finally:
         spill_solver.close()
         ram_solver.close()
@@ -170,15 +164,16 @@ def test_shape_change_updates_memmap_metadata(
     y0, params = batch_input_arrays
     solve_kwargs = dict(drivers=driver_settings, duration=0.1)
 
-    solver_mutable.solve(y0, params, **solve_kwargs)
-    slot = solver_mutable.kernel.output_arrays.host.state
-    assert isinstance(slot.array, np.memmap)
-    assert slot.memory_type == "memmap"
-    old_path = Path(slot.array._cubie_spill_path)
+    first = solver_mutable.solve(y0, params, **solve_kwargs)
+    assert isinstance(first.state, np.memmap)
+    old_path = Path(first.state._cubie_spill_path)
+    assert old_path.exists()
 
-    solver_mutable.solve(y0[:, :3], params[:, :3], **solve_kwargs)
-    assert not isinstance(slot.array, np.memmap)
-    assert slot.memory_type == "pinned"
+    # Drop the result: the spilled buffer returns to its slot and is
+    # released when the smaller solve replaces it.
+    del first
+    second = solver_mutable.solve(y0[:, :3], params[:, :3], **solve_kwargs)
+    assert not isinstance(second.state, np.memmap)
     assert not old_path.exists()
 
 
@@ -224,3 +219,118 @@ def test_spill_solve_is_async(
         finally:
             stream.synchronize()
             assert work.copy_to_host()[0] > 0
+
+
+@pytest.mark.parametrize(
+    "solver_settings_override",
+    [{"host_spill_threshold": 512, "output_types": ["state", "time"]}],
+    indirect=True,
+)
+def test_spilled_result_assembly_is_zero_copy(
+    solver_mutable, batch_input_arrays, driver_settings
+):
+    """Assembling a spilled result never materialises it in RAM.
+
+    With states as the only time-domain output, the combined array
+    and the time samples are views of the owned disk-backed buffer.
+    """
+    y0, params = batch_input_arrays
+    result = solver_mutable.solve(
+        y0, params, drivers=driver_settings, duration=0.2
+    )
+    assert isinstance(result.state, np.memmap)
+    assert np.shares_memory(result.time_domain_array, result.state)
+    assert np.shares_memory(result.time, result.state)
+    result.close()
+
+
+@pytest.mark.parametrize("forced_free_mem", [700], indirect=True)
+def test_repeat_solve_with_held_result_and_collapsed_vram(
+    low_mem_solver, low_memory, batch_input_arrays, driver_settings
+):
+    """A held result plus vanished free VRAM does not break a re-solve.
+
+    The first result keeps its buffers, forcing the second solve to
+    reallocate. Free device memory then reads as zero (the first
+    solve's buffers and pool retention account for it), so the
+    reallocation must reuse the owner's existing run partition
+    instead of recomputing one from a zero budget.
+    """
+    y0, params = batch_input_arrays
+    solve_kwargs = dict(drivers=driver_settings, duration=0.1)
+
+    first = low_mem_solver.solve(y0, params, **solve_kwargs)
+    assert low_mem_solver.chunks > 1
+
+    low_memory._custom_limit = 0
+    second = low_mem_solver.solve(y0, params, **solve_kwargs)
+    np.testing.assert_array_equal(
+        first.time_domain_array, second.time_domain_array
+    )
+
+
+def test_outputs_above_pinned_ceiling_stay_pageable(
+    system, solver_settings, driver_array, driver_settings,
+    batch_input_arrays,
+):
+    """With a tiny pinned ceiling every buffer is pageable, not pinned.
+
+    The solve runs entirely through the staged-transfer path and
+    still produces correct results.
+    """
+    manager = MemoryManager(pinned_max_bytes=0)
+    settings = solver_settings.copy()
+    settings["stream_group"] = "pinned_ceiling"
+    solver = _build_solver_instance(
+        system=system,
+        solver_settings=settings,
+        driver_array=driver_array,
+        memory_manager=manager,
+    )
+    try:
+        result = solver.solve(
+            batch_input_arrays[0],
+            batch_input_arrays[1],
+            drivers=driver_settings,
+            duration=0.1,
+        )
+        slot_types = {
+            slot.memory_type
+            for _, slot in solver.kernel.output_arrays.host.iter_managed_arrays()
+        }
+        assert "pinned" not in slot_types
+        assert np.isfinite(result.time_domain_array).all()
+    finally:
+        solver.close()
+
+
+def test_iteration_counters_collapse_when_inactive(
+    solver_mutable, batch_input_arrays, driver_settings
+):
+    """An unrequested counters buffer is a placeholder, not full size."""
+    y0, params = batch_input_arrays
+    result = solver_mutable.solve(
+        y0, params, drivers=driver_settings, duration=0.1
+    )
+    assert result.iteration_counters is None
+    assert result._iteration_counters.size == 1
+
+
+@pytest.mark.parametrize(
+    "solver_settings_override",
+    [{"output_types": ["state", "iteration_counters"]}],
+    indirect=True,
+)
+def test_iteration_counters_full_size_when_requested(
+    solver_mutable, batch_input_arrays, driver_settings
+):
+    """Requested counters come back per save point and per run."""
+    y0, params = batch_input_arrays
+    result = solver_mutable.solve(
+        y0, params, drivers=driver_settings, duration=0.1
+    )
+    counters = result.iteration_counters
+    assert counters is not None
+    assert counters.shape[1] == 4
+    assert counters.shape[2] == solver_mutable.num_runs
+    assert counters.shape[0] > 1

@@ -18,7 +18,7 @@ from cubie.memory.mem_manager import (
     ArrayRequest,
     ArrayResponse,
     InstanceMemorySettings,
-    available_system_ram,
+    total_system_ram,
     _numba_stream_ptr,
     _pinned_host_array,
     current_cupy_stream,
@@ -1875,7 +1875,11 @@ def test_allocation_pressure_does_not_run_cyclic_gc(mgr, memory_client):
         mgr.allocate_queue(requester)
 
         assert dead_id in mgr.registry
-        _, chunks = mgr._group_chunk_parameters["pressure_requester"]
+        cache_key = (
+            "pressure_requester",
+            mgr.registry[id(requester)].owner_id,
+        )
+        _, chunks = mgr._group_chunk_parameters[cache_key]
         assert chunks > 1
     finally:
         gc.enable()
@@ -2069,28 +2073,36 @@ def test_pressure_evicts_only_required_lru_owner(mgr, memory_clients):
     assert mgr.registry[id(owners[1])].allocated_bytes > 0
 
 
-def test_available_system_ram_reports_positive():
+def test_total_system_ram_reports_positive():
     """The RAM probe returns a positive byte count on CI platforms."""
-    ram_available = available_system_ram()
-    assert ram_available is not None
-    assert ram_available > 0
+    ram_total = total_system_ram()
+    assert ram_total is not None
+    assert ram_total > 0
 
 
-def test_create_host_array_spills_over_threshold(mgr, tmp_path):
-    """Host arrays above the spill threshold come back disk-backed.
+def test_choose_host_memory_type_applies_policy(mgr, tmp_path):
+    """The chooser maps sizes to pinned, pageable, and disk backing.
 
-    Small requests keep their requested type, oversized pinned/host
-    requests spill to a memmap in the spill directory, explicit
-    ``"memmap"`` requests always spill, ``like`` data is copied, and
-    the backing file is deleted when the array is collected.
+    Sizes at or below the pinned ceiling are pinned (unless the
+    caller cannot use pinned), sizes up to the spill threshold are
+    pageable, and anything larger is disk-backed. Disk-backed
+    arrays are created zeroed in the spill directory, ``like`` data
+    is copied, and the backing file is deleted on collection.
     """
     mgr.spill_directory = str(tmp_path)
     mgr.host_spill_threshold = 1024
+    mgr.pinned_max_bytes = 256
+
+    assert mgr.choose_host_memory_type(128) == "pinned"
+    assert mgr.choose_host_memory_type(512) == "host"
+    assert mgr.choose_host_memory_type(4096) == "memmap"
+    assert mgr.choose_host_memory_type(128, allow_pinned=False) == "host"
 
     small = mgr.create_host_array((4, 4), np.float64, "host")
     assert not isinstance(small, np.memmap)
 
-    big = mgr.create_host_array((64, 64), np.float64, "host")
+    big_type = mgr.choose_host_memory_type(64 * 64 * 8)
+    big = mgr.create_host_array((64, 64), np.float64, big_type)
     assert isinstance(big, np.memmap)
     assert (np.asarray(big) == 0.0).all()
     assert len(list(tmp_path.iterdir())) == 1
@@ -2138,7 +2150,8 @@ def test_host_spill_does_not_wait_for_unrelated_stream(
     work, stream, done = start_cuda_busy_work()
     manager = MemoryManager(host_spill_threshold=1, spill_directory=tmp_path)
     try:
-        arr = manager.create_host_array((32,), np.float32, "host")
+        memory_type = manager.choose_host_memory_type(32 * 4)
+        arr = manager.create_host_array((32,), np.float32, memory_type)
         assert isinstance(arr, np.memmap)
         assert not done.query()
     finally:

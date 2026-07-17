@@ -6,63 +6,65 @@ import pytest
 
 from cubie.batchsolving.solver import Solver
 from cubie.batchsolving.BatchSolverConfig import ActiveOutputs
-from cubie.batchsolving.solveresult import (
-    RawSolveResult,
-    SolveResult,
-    _ensure_fits_in_ram,
-)
+from cubie.batchsolving.solveresult import SolveResult
 from cubie.memory import MemoryManager
-from cubie.memory.mem_manager import available_system_ram
 
 Array = np.ndarray
 
 
-def test_ram_guard_raises_before_any_copy():
-    """Materialisation larger than free RAM raises immediately."""
-    free = available_system_ram()
-    assert free is not None
-    with pytest.raises(MemoryError, match="disk-backed"):
-        _ensure_fits_in_ram(free + 2**33, "test output")
-    _ensure_fits_in_ram(1024, "test output")
-
-
-def test_raw_results_take_ownership_of_host_buffers(
+def test_results_take_ownership_of_host_buffers(
     solver_mutable, batch_input_arrays, driver_settings
 ):
-    """Raw results hand over the solve's buffers without copying."""
+    """Results own the solve's buffers without copying."""
     y0, params = batch_input_arrays
     solve_kwargs = dict(drivers=driver_settings, duration=0.1)
-    solver_mutable.solve(y0, params, **solve_kwargs)
-    state_buffer = solver_mutable.kernel.output_arrays.state
 
-    raw = solver_mutable.solve(
-        y0, params, results_type="raw", **solve_kwargs
-    )
-    assert raw["state"] is state_buffer
+    result = solver_mutable.solve(y0, params, **solve_kwargs)
+    # The result holds the buffers; the solver's slots are empty.
+    assert result.state is not None
     assert solver_mutable.kernel.output_arrays.state is None
 
-    # The next solve allocates fresh backing; the raw result's data
-    # stays untouched and both solves produce valid outputs.
+    # A solve while the result lives allocates fresh backing; both
+    # results stay valid and independent.
     second = solver_mutable.solve(y0, params, **solve_kwargs)
-    assert solver_mutable.kernel.output_arrays.state is not state_buffer
-    assert np.isfinite(raw["state"]).all()
+    assert second.state is not result.state
+    assert np.isfinite(result.time_domain_array).all()
     assert np.isfinite(second.time_domain_array).all()
-    raw.close()
+    assert np.array_equal(result.state, second.state)
+    result.close()
+    second.close()
+
+
+def test_dropped_result_buffers_are_reused(
+    solver_mutable, batch_input_arrays, driver_settings
+):
+    """A collected result's buffers return to the solver for reuse."""
+    import weakref
+
+    y0, params = batch_input_arrays
+    solve_kwargs = dict(drivers=driver_settings, duration=0.1)
+
+    result = solver_mutable.solve(y0, params, **solve_kwargs)
+    buffer_ref = weakref.ref(result.state)
+    del result
+    second = solver_mutable.solve(y0, params, **solve_kwargs)
+    assert second.state is buffer_ref()
+    second.close()
 
 
 def test_spill_result_context_releases_shared_mapping(tmp_path):
     """Result context cleanup releases each spill mapping once."""
     manager = MemoryManager(spill_directory=tmp_path)
-    shared = manager.create_host_array((2, 2), np.float64, "memmap")
+    shared = manager.create_host_array((2, 2, 2), np.float64, "memmap")
     path = Path(shared._cubie_spill_path)
     with SolveResult(
-        time_domain_array=shared,
-        summaries_array=shared,
-        iteration_counters=np.array([]),
+        state=shared,
+        observables=shared,
+        active_outputs=ActiveOutputs(state=True, observables=True),
         memory_manager=manager,
     ) as result:
         assert path.exists()
-        assert result.time_domain_array is result.summaries_array
+        assert result.state is result.observables
     assert not path.exists()
     result.close()
 
@@ -98,44 +100,30 @@ class TestSolveResultStaticMethods:
     """Test static methods with minimal unit tests using known arrays."""
 
     @pytest.mark.parametrize(
-        "state_flag, obs_flag, expected",
+        "state_flag, obs_flag",
         [
-            (True, True, lambda s, o: np.concatenate((s, o), axis=1)),
-            (True, False, lambda s, o: s),
-            (False, True, lambda s, o: o),
-            (False, False, lambda s, o: np.array([])),
+            (True, True),
+            (True, False),
+            (False, True),
+            (False, False),
         ],
     )
-    def test_combine_time_domain_arrays(self, state_flag, obs_flag, expected):
-        """Test time domain array combination with different active flags."""
+    def test_combine_active(self, state_flag, obs_flag):
+        """Combined arrays concatenate; a single source is a view."""
         # Arrays with shape (time, variable, run) = (2, 1, 2)
         s = np.array([[[1, 2]], [[3, 4]]])
         o = np.array([[[5, 6]], [[7, 8]]])
-        result = SolveResult.combine_time_domain_arrays(
-            s, o, state_flag, obs_flag
+        result = SolveResult._combine_active(
+            s if state_flag else None, o if obs_flag else None
         )
-        expected_result = expected(s, o)
-        assert np.array_equal(result, expected_result)
-
-    @pytest.mark.parametrize(
-        "state_flag, obs_flag, expected",
-        [
-            (True, True, lambda s, o: np.concatenate((s, o), axis=1)),
-            (True, False, lambda s, o: s),
-            (False, True, lambda s, o: o),
-            (False, False, lambda s, o: np.array([])),
-        ],
-    )
-    def test_combine_summaries_array(self, state_flag, obs_flag, expected):
-        """Test summaries array combination with different active flags."""
-        # Arrays with shape (time, variable, run) = (2, 1, 2)
-        s = np.array([[[10, 20]], [[30, 40]]])
-        o = np.array([[[50, 60]], [[70, 80]]])
-        result = SolveResult.combine_summaries_array(
-            s, o, state_flag, obs_flag
-        )
-        expected_result = expected(s, o)
-        assert np.array_equal(result, expected_result)
+        if state_flag and obs_flag:
+            assert np.array_equal(result, np.concatenate((s, o), axis=1))
+        elif state_flag:
+            assert result is s
+        elif obs_flag:
+            assert result is o
+        else:
+            assert result.size == 0
 
     def test_cleave_time_with_time_saved(self):
         """Test time cleaving when time is saved."""
@@ -163,56 +151,27 @@ class TestSolveResultStaticMethods:
         assert np.array_equal(state_result, state)
 
 
-class TestSolveResultInstantiation:
-    """Test the four instantiation types return equivalent results."""
+class TestSolveResultRepresentations:
+    """The RAM representations derive from one owned result."""
 
-    def test_instantiation_type_equivalence(self, solver_with_arrays):
-        """Test that the four instantiation types return equivalent results to full + methods."""
+    def test_representations_are_self_consistent(self, solver_with_arrays):
+        """Repeated accessor calls return equal representations."""
+        full_result = SolveResult.from_solver(solver_with_arrays)
 
-        # Create full SolveResult instance
-        full_result = SolveResult.from_solver(
-            solver_with_arrays, results_type="full"
-        )
-
-        # Create other types directly
-        numpy_result = SolveResult.from_solver(
-            solver_with_arrays, results_type="numpy"
-        )
-        numpy_per_summary_result = SolveResult.from_solver(
-            solver_with_arrays, results_type="numpy_per_summary"
-        )
-        pandas_result = SolveResult.from_solver(
-            solver_with_arrays, results_type="pandas"
-        )
-
-        # Test equivalence by calling methods on full instance
-        assert set(numpy_result.keys()) == set(full_result.as_numpy.keys())
-        for key in numpy_result.keys():
-            if isinstance(numpy_result[key], np.ndarray):
+        numpy_result = full_result.as_numpy
+        for key, value in full_result.as_numpy.items():
+            if isinstance(value, np.ndarray):
                 assert np.allclose(
-                    numpy_result[key],
-                    full_result.as_numpy[key],
-                    equal_nan=True,
+                    numpy_result[key], value, equal_nan=True
                 )
             else:
-                assert numpy_result[key] == full_result.as_numpy[key]
+                assert numpy_result[key] == value
 
-        # Compare numpy per summary result dictionaries
-        assert set(numpy_per_summary_result.keys()) == set(
+        per_summary = full_result.as_numpy_per_summary
+        assert set(per_summary.keys()) == set(
             full_result.as_numpy_per_summary.keys()
         )
-        for key in numpy_per_summary_result.keys():
-            if isinstance(numpy_per_summary_result[key], np.ndarray):
-                assert np.allclose(
-                    numpy_per_summary_result[key],
-                    full_result.as_numpy_per_summary[key],
-                    equal_nan=True,
-                )
-            else:
-                assert (
-                    numpy_per_summary_result[key]
-                    == full_result.as_numpy_per_summary[key]
-                )
+        pandas_result = full_result.as_pandas
         assert pandas_result["time_domain"].equals(
             full_result.as_pandas["time_domain"]
         )
@@ -222,9 +181,7 @@ class TestSolveResultInstantiation:
 
     def test_from_solver_full_instantiation(self, solver_with_arrays):
         """Test full SolveResult instantiation from solver."""
-        result = SolveResult.from_solver(
-            solver_with_arrays, results_type="full"
-        )
+        result = SolveResult.from_solver(solver_with_arrays)
 
         assert isinstance(result, SolveResult)
         assert result.time_domain_array.size > 0
@@ -236,11 +193,9 @@ class TestSolveResultInstantiation:
             == solver_with_arrays.kernel.output_arrays.host.state.stride_order
         )
 
-    def test_from_solver_numpy_instantiation(self, solver_with_arrays):
-        """Test numpy dict instantiation from solver."""
-        result = SolveResult.from_solver(
-            solver_with_arrays, results_type="numpy"
-        )
+    def test_as_numpy_contents(self, solver_with_arrays):
+        """as_numpy returns RAM copies keyed like the legends."""
+        result = SolveResult.from_solver(solver_with_arrays).as_numpy
 
         assert isinstance(result, dict)
         assert "time_domain_array" in result
@@ -248,41 +203,27 @@ class TestSolveResultInstantiation:
         assert "time_domain_legend" in result
         assert "summaries_legend" in result
         assert "iteration_counters" in result
-        if solver_with_arrays.kernel.iteration_counters is not None:
-            assert np.array_equal(
-                result["iteration_counters"],
-                solver_with_arrays.kernel.iteration_counters,
-            )
         assert isinstance(result["time_domain_array"], np.ndarray)
 
-    def test_from_solver_numpy_per_summary_instantiation(
-        self, solver_with_arrays
-    ):
-        """Test numpy per summary dict instantiation from solver."""
+    def test_as_numpy_per_summary_contents(self, solver_with_arrays):
+        """as_numpy_per_summary splits summaries by metric."""
         result = SolveResult.from_solver(
-            solver_with_arrays, results_type="numpy_per_summary"
-        )
+            solver_with_arrays
+        ).as_numpy_per_summary
 
         assert isinstance(result, dict)
         assert "mean" in result
         assert "time_domain_array" in result
         assert "iteration_counters" in result
-        if solver_with_arrays.kernel.iteration_counters is not None:
-            assert np.array_equal(
-                result["iteration_counters"],
-                solver_with_arrays.kernel.iteration_counters,
-            )
         # Check that summary types are separated
         for (
             summary_type
         ) in solver_with_arrays.summary_legend_per_variable.values():
             assert summary_type in result
 
-    def test_from_solver_pandas_instantiation(self, solver_with_arrays):
-        """Test pandas DataFrame instantiation from solver."""
-        result = SolveResult.from_solver(
-            solver_with_arrays, results_type="pandas"
-        )
+    def test_as_pandas_contents(self, solver_with_arrays):
+        """as_pandas returns time-domain and summaries DataFrames."""
+        result = SolveResult.from_solver(solver_with_arrays).as_pandas
 
         assert isinstance(result, dict)
         assert "time_domain" in result
@@ -431,7 +372,7 @@ class TestSolveResultDefaultBehavior:
 
         assert result.time_domain_array.size == 0
         assert result.summaries_array.size == 0
-        assert result.time is not None and result.time.size == 0
+        assert result.time is None
         assert len(result.time_domain_legend) == 0
         assert len(result.summaries_legend) == 0
         assert result._stride_order == ("time", "variable", "run")
@@ -512,14 +453,17 @@ def test_status_codes_attribute(solver_with_arrays):
     assert np.all(result.status_codes == 0)
 
 
-@pytest.fixture(scope="session")
+@pytest.fixture()
 def solved_batch_solver_errorcode(system, precision):
-    """Fixture providing a solver with multiple runs where some
-    runs have error codes.
+    """Provide a freshly solved 3-run solver with run 1 marked failed.
+
+    Function-scoped because NaN masking mutates the owned buffers in
+    place: each test needs an unmasked solve. The solve's loan is
+    reclaimed so the error code can be injected into the recovered
+    status-codes slot before the test builds its result.
     """
     solver = Solver(system, save_every=0.01)
 
-    # Run a single batch solve with multiple runs
     solver.solve(
         initial_values={
             "x0": [1.0, 2.0, 3.0],
@@ -533,24 +477,24 @@ def solved_batch_solver_errorcode(system, precision):
         },
         duration=0.1,
     )
-    solver.kernel.output_arrays.host.status_codes.array[1] = 1
-    return solver
+    outputs = solver.kernel.output_arrays
+    outputs.reclaim_or_release_loan()
+    outputs.host.status_codes.array[1] = 1
+    yield solver
+    solver.close()
 
 
 class TestNaNProcessing:
     """Test NaN processing by manually modifying status codes.
 
-    These tests use the session-scoped solver fixture and manually set
-    status codes to test error handling without running expensive failing
-    solves.
+    These tests manually set status codes to test error handling
+    without running expensive failing solves.
     """
 
     def test_nan_processing_with_simulated_errors(
         self, solved_batch_solver_errorcode
     ):
         """Verify NaN processing works by manually setting error codes."""
-        # Manually inject error into status codes
-
         result = SolveResult.from_solver(
             solved_batch_solver_errorcode, nan_error_trajectories=True
         )
@@ -578,52 +522,35 @@ class TestNaNProcessing:
         self, solved_batch_solver_errorcode
     ):
         """Verify successful runs are not modified when NaN processing enabled."""
-        status_array = solved_batch_solver_errorcode.kernel.output_arrays.host.status_codes.array
-        original_value = int(status_array[1])
-        try:
-            status_array[1] = 0
-            result = SolveResult.from_solver(
-                solved_batch_solver_errorcode, nan_error_trajectories=True
-            )
+        outputs = solved_batch_solver_errorcode.kernel.output_arrays
+        outputs.host.status_codes.array[1] = 0
+        result = SolveResult.from_solver(
+            solved_batch_solver_errorcode, nan_error_trajectories=True
+        )
 
-            # All runs should have status code 0 (success)
-            assert np.all(result.status_codes == 0)
+        # All runs should have status code 0 (success)
+        assert np.all(result.status_codes == 0)
 
-            # No data should be NaN
-            assert not np.any(np.isnan(result.time_domain_array))
-            if result.summaries_array.size > 0:
-                assert not np.any(np.isnan(result.summaries_array))
-        finally:
-            status_array[1] = original_value
+        # No data should be NaN
+        assert not np.any(np.isnan(result.time_domain_array))
+        if result.summaries_array.size > 0:
+            assert not np.any(np.isnan(result.summaries_array))
 
     def test_multiple_errors_all_set_to_nan(
         self, solved_batch_solver_errorcode
     ):
         """Verify multiple failed runs all get NaN'd."""
-        status_array = solved_batch_solver_errorcode.kernel.output_arrays.host.status_codes.array
-        original_values = (
-            int(status_array[0]),
-            int(status_array[1]),
-            int(status_array[2]),
+        outputs = solved_batch_solver_errorcode.kernel.output_arrays
+        outputs.host.status_codes.array[0] = 2
+        outputs.host.status_codes.array[2] = 3
+
+        result = SolveResult.from_solver(
+            solved_batch_solver_errorcode, nan_error_trajectories=True
         )
-        try:
-            # Inject multiple errors
-            status_array[0] = 2
-            status_array[2] = 3
 
-            result = SolveResult.from_solver(
-                solved_batch_solver_errorcode, nan_error_trajectories=True
-            )
-
-            # Runs 0 and 2 should be all NaN
-            assert np.all(np.isnan(result.time_domain_array[..., 0]))
-            assert np.all(np.isnan(result.time_domain_array[..., 2]))
-            assert np.all(np.isnan(result.time_domain_array[..., 1]))
-        finally:
-            # Restore original status codes
-            status_array[0] = original_values[0]
-            status_array[1] = original_values[1]
-            status_array[2] = original_values[2]
+        assert np.all(np.isnan(result.time_domain_array[..., 0]))
+        assert np.all(np.isnan(result.time_domain_array[..., 2]))
+        assert np.all(np.isnan(result.time_domain_array[..., 1]))
 
 
 @pytest.fixture(scope="session")
@@ -680,8 +607,8 @@ class TestSummaryOnlyRegression:
         requested names, not extrema_1/extrema_2, with max >= min
         elementwise."""
         per_summary = SolveResult.from_solver(
-            solved_summary_only_solver, results_type="numpy_per_summary"
-        )
+            solved_summary_only_solver
+        ).as_numpy_per_summary
 
         assert "max" in per_summary
         assert "min" in per_summary
@@ -759,41 +686,6 @@ def test_format_time_domain_label_appends_unit():
     assert _format_time_domain_label("v", "mV") == "v [mV]"
 
 
-def test_from_solver_unknown_results_type_returns_full(solver_with_arrays):
-    """An unrecognized results_type falls through to the 'full' object
-    rather than raising."""
-    result = SolveResult.from_solver(
-        solver_with_arrays, results_type="not_a_real_type"
-    )
-    assert isinstance(result, SolveResult)
-
-
-def test_as_pandas_1d_time_index_used_directly():
-    """When ``time`` is a 1D array, as_pandas uses it directly as the
-    DataFrame index instead of slicing a run column from a 2D array.
-
-    Host arrays from a real solve are always at least 2D (time, run),
-    so this branch is exercised via a hand-built SolveResult rather
-    than an actual solver run.
-    """
-    time_domain_array = np.arange(6, dtype=float).reshape(3, 2, 1)
-    summaries_array = np.arange(2, dtype=float).reshape(1, 2, 1)
-    time = np.array([0.0, 0.01, 0.02])
-    result = SolveResult(
-        time_domain_array=time_domain_array,
-        summaries_array=summaries_array,
-        time=time,
-        time_domain_legend={0: "a", 1: "b"},
-        summaries_legend={0: "a mean", 1: "b mean"},
-        active_outputs=ActiveOutputs(
-            state_summaries=True, observable_summaries=False
-        ),
-    )
-    assert result.time.ndim == 1
-    pandas_dict = result.as_pandas
-    assert list(pandas_dict["time_domain"].index) == list(time)
-
-
 def test_status_messages_property(solver_with_arrays):
     """SolveResult.status_messages decodes the stored status codes."""
     result = SolveResult.from_solver(solver_with_arrays)
@@ -802,25 +694,19 @@ def test_status_messages_property(solver_with_arrays):
     assert messages == {}
 
 
-def test_from_solver_raw_results_type(solver_with_arrays):
-    """Raw results own copies of the solver host arrays."""
-    expected_state = solver_with_arrays.state.copy()
-    expected_status = solver_with_arrays.status_codes.copy()
-    result = SolveResult.from_solver(solver_with_arrays, results_type="raw")
+def test_from_solver_hands_over_buffers(solver_with_arrays):
+    """The result owns the solver's host buffers without copying."""
+    outputs = solver_with_arrays.kernel.output_arrays
+    # Earlier results may have died without a reclaim; recover the
+    # buffers so the slot contents can be captured for comparison.
+    outputs.reclaim_or_release_loan()
+    state_buffer = solver_with_arrays.state
+    status_buffer = solver_with_arrays.status_codes
+    result = SolveResult.from_solver(solver_with_arrays)
 
-    assert isinstance(result, RawSolveResult)
-    assert set(result.keys()) == {
-        "state",
-        "observables",
-        "state_summaries",
-        "observable_summaries",
-        "iteration_counters",
-        "status_codes",
-    }
-    assert result["state"] is not solver_with_arrays.state
-    assert result["status_codes"] is not solver_with_arrays.status_codes
-    np.testing.assert_array_equal(result["state"], expected_state)
-    np.testing.assert_array_equal(result["status_codes"], expected_status)
+    assert result.state is state_buffer
+    assert result.status_codes is status_buffer
+    assert solver_with_arrays.kernel.output_arrays.state is None
     result.close()
 
 

@@ -833,6 +833,7 @@ class BatchSolverKernel(CUDAFactory):
         save_observables = output_flags.observables
         save_state_summaries = output_flags.state_summaries
         save_observable_summaries = output_flags.observable_summaries
+        save_iteration_counters = output_flags.iteration_counters
         needs_padding = self.shared_memory_needs_padding
 
         shared_elems_per_run = self.shared_memory_elements
@@ -944,7 +945,9 @@ class BatchSolverKernel(CUDAFactory):
             rx_observables_summaries = observables_summaries_output[
                 :, :, run_index * save_observable_summaries
             ]
-            rx_iteration_counters = iteration_counters_output[:, :, run_index]
+            rx_iteration_counters = iteration_counters_output[
+                :, :, run_index * save_iteration_counters
+            ]
             status = loopfunction(
                 rx_inits,
                 rx_params,
@@ -1458,10 +1461,16 @@ class BatchSolverKernel(CUDAFactory):
         return self.input_arrays.device_driver_coefficients
 
     @property
-    def save_time(self) -> float:
-        """Elapsed time spent saving outputs during integration."""
+    def save_time(self) -> bool:
+        """Whether time samples are saved alongside states."""
 
         return self.single_integrator.save_time
+
+    @property
+    def save_counters(self) -> bool:
+        """Whether iteration counters are saved at each save point."""
+
+        return self.single_integrator.save_counters
 
     @property
     def output_types(self) -> Any:

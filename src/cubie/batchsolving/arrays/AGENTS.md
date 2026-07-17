@@ -65,9 +65,20 @@ retried. Finalizers use cleanup calls that do not capture the manager.
   (still async). `InputArrays`: releases its staging buffers.
 
 ### Memory types
-Non-chunked host arrays are pinned. Chunked arrays use NumPy storage and
-pinned staging. Large host arrays use `"memmap"`. Pageable and memmap
-transfers always use pinned buffers capped by `HOST_STAGING_BYTES`.
+Output host arrays are created pageable (or `"memmap"` above the spill
+threshold); after the chunk decision, non-chunked arrays at or below
+the manager's `pinned_max_bytes` are converted to pinned for direct
+async transfer. Everything pageable or memmapped stages through pinned
+buffers capped by `HOST_STAGING_BYTES`. Full-size pinned allocations
+above the ceiling never happen.
+
+### Result buffer loans
+After a solve, `loan_host_arrays(result)` empties every host slot into
+the returned `SolveResult`. `reclaim_or_release_loan()` runs before
+the next allocation and in `SolveResult.from_solver`: a collected
+owner's buffers return to their slots (with their memory types and
+size signature) for reuse; a live owner keeps them and fresh backing
+is allocated.
 
 ### Async writeback
 Transfer watchers release pinned buffers after their CUDA event completes.

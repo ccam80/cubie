@@ -69,11 +69,11 @@ from attrs.validators import (
 )
 from numpy import (
     ceil as np_ceil,
-    dtype as np_dtype,
     memmap as np_memmap,
     ndarray,
     empty as np_empty,
     floor as np_floor,
+    zeros as np_zeros,
 )
 from numpy.typing import DTypeLike
 from math import prod
@@ -105,12 +105,24 @@ ALL_MEMORY_MANAGER_PARAMETERS = {
 
 MIN_AUTOPOOL_SIZE = 0.05
 
-HOST_SPILL_FRACTION = 0.5
-"""Default host spill threshold as a fraction of free RAM.
+HOST_SPILL_FRACTION = 0.8
+"""Default host spill threshold as a fraction of total system RAM.
 
-Half of free RAM leaves headroom for result assembly, which holds at
-most one combined copy of the largest host array alongside the
-original.
+A host array is disk-backed only when it could not reasonably stay
+resident: anything smaller lives in pageable RAM, where the operating
+system moves pages to the page file only under real pressure. Total
+RAM is a stable anchor, so whether a given solve spills does not
+depend on what else the machine happened to be running when its
+arrays were created.
+"""
+
+HOST_PINNED_MAX_BYTES = 2**30
+"""Default ceiling on a single pinned host allocation.
+
+Pinned memory transfers fastest but is non-pageable and, under WDDM,
+counts against system commit; large ``cudaHostAlloc`` calls are slow
+and can fail outright. Above this size host arrays are pageable and
+transfers stage through bounded pinned buffers instead.
 """
 
 HOST_STAGING_BYTES = 64 * 1024**2
@@ -138,24 +150,24 @@ if sys.platform == "win32":
         ]
 
 
-def available_system_ram() -> Optional[int]:
-    """Return free physical RAM in bytes, or ``None`` when unknown.
+def total_system_ram() -> Optional[int]:
+    """Return total physical RAM in bytes, or ``None`` when unknown.
 
     Linux exposes the probe through ``os.sysconf``; Windows through
-    ``GlobalMemoryStatusEx``. macOS defines neither ``SC_AVPHYS_PAGES``
+    ``GlobalMemoryStatusEx``. macOS defines neither ``SC_PHYS_PAGES``
     nor the Win32 call, so the probe returns ``None`` there and
     spill-threshold resolution falls back to never spilling by size.
     """
     names = getattr(os, "sysconf_names", {})
-    if "SC_AVPHYS_PAGES" in names and "SC_PAGE_SIZE" in names:
-        return os.sysconf("SC_AVPHYS_PAGES") * os.sysconf("SC_PAGE_SIZE")
+    if "SC_PHYS_PAGES" in names and "SC_PAGE_SIZE" in names:
+        return os.sysconf("SC_PHYS_PAGES") * os.sysconf("SC_PAGE_SIZE")
     if sys.platform == "win32":  # pragma: no cover - Windows-only path
         status = _MemoryStatusEx()
         status.dwLength = ctypes.sizeof(_MemoryStatusEx)
         if ctypes.windll.kernel32.GlobalMemoryStatusEx(
             ctypes.byref(status)
         ):
-            return int(status.ullAvailPhys)
+            return int(status.ullTotalPhys)
     return None
 
 
@@ -672,7 +684,9 @@ class MemoryManager:
     _queued_allocations: Dict[str, Dict] = field(
         default=attrsFactory(dict), validator=attrsval_instance_of(dict)
     )
-    _group_chunk_parameters: Dict[str, Tuple[int, int]] = field(
+    # Chunk parameters per (stream group, owner id): the partition a
+    # solver's live device arrays are laid out for.
+    _group_chunk_parameters: Dict[Tuple[str, int], Tuple[int, int]] = field(
         default=attrsFactory(dict), validator=attrsval_instance_of(dict)
     )
     _usage_clock: int = field(default=0, init=False)
@@ -689,6 +703,11 @@ class MemoryManager:
         default=None,
         converter=_spill_directory_converter,
         validator=attrsval_optional(_existing_directory_validator),
+    )
+    # Largest single pinned host allocation this manager will make.
+    pinned_max_bytes: int = field(
+        default=HOST_PINNED_MAX_BYTES,
+        validator=[attrsval_instance_of(int), attrsval_ge(0)],
     )
 
     def __attrs_post_init__(self) -> None:
@@ -1328,24 +1347,55 @@ class MemoryManager:
                 f"memory_type must be 'pinned', 'host', or 'memmap', "
                 f"got '{memory_type}'"
             )
-        if memory_type in ("pinned", "host"):
-            threshold = self._resolved_spill_threshold(instance)
-            nbytes = int(prod(shape)) * np_dtype(dtype).itemsize
-            if threshold is not None and nbytes > threshold:
-                memory_type = "memmap"
         if memory_type == "memmap":
             arr = self._create_spill_array(shape, dtype, instance)
         elif memory_type == "pinned":
             arr = _pinned_host_array(shape, dtype)
+            if like is None:
+                arr.fill(0.0)
         else:
-            arr = np_empty(shape, dtype=dtype)
+            # zeros() maps untouched pages lazily, so a large pageable
+            # array costs nothing until the transfer writes it.
+            arr = np_zeros(shape, dtype=dtype)
         if like is not None:
             arr[:] = like
-        elif memory_type != "memmap":
-            # A fresh memmap is already zero-filled by the filesystem;
-            # touching it here would page the whole file into RAM.
-            arr.fill(0.0)
         return arr
+
+    def choose_host_memory_type(
+        self,
+        nbytes: int,
+        instance: Optional[object] = None,
+        allow_pinned: bool = True,
+    ) -> str:
+        """Pick the backing for a host array of ``nbytes`` bytes.
+
+        Arrays above the spill threshold are disk-backed. Below it
+        they live in pageable RAM, except arrays small enough that a
+        pinned allocation is cheap and its direct asynchronous
+        transfer pays for itself.
+
+        Parameters
+        ----------
+        nbytes
+            Size of the array in bytes.
+        instance
+            Registered owner whose spill policy applies.
+        allow_pinned
+            Permit the ``"pinned"`` choice. Callers that cannot use a
+            direct transfer (for example chunked staging) pass
+            ``False``.
+
+        Returns
+        -------
+        str
+            ``"pinned"``, ``"host"``, or ``"memmap"``.
+        """
+        threshold = self._resolved_spill_threshold(instance)
+        if threshold is not None and nbytes > threshold:
+            return "memmap"
+        if allow_pinned and nbytes <= self.pinned_max_bytes:
+            return "pinned"
+        return "host"
 
     def _resolved_spill_threshold(
         self, instance: Optional[object] = None
@@ -1353,11 +1403,11 @@ class MemoryManager:
         """Return the applicable spill threshold in bytes.
 
         Precedence: the instance's registered threshold, then the
-        manager-wide threshold, then ``HOST_SPILL_FRACTION`` of
-        currently-free RAM. ``create_host_array`` is public, so
-        ``instance`` may be ``None`` or unregistered; both fall back to
-        manager policy. ``None`` is returned when free RAM cannot be
-        probed, and the array then never spills by size.
+        manager-wide threshold, then ``HOST_SPILL_FRACTION`` of total
+        system RAM. ``create_host_array`` is public, so ``instance``
+        may be ``None`` or unregistered; both fall back to manager
+        policy. ``None`` is returned when total RAM cannot be probed,
+        and the array then never spills by size.
         """
         settings = (
             self.registry.get(id(instance)) if instance is not None else None
@@ -1366,10 +1416,10 @@ class MemoryManager:
             return settings.host_spill_threshold
         if self.host_spill_threshold is not None:
             return self.host_spill_threshold
-        ram_available = available_system_ram()
-        if ram_available is None:
+        ram_total = total_system_ram()
+        if ram_total is None:
             return None
-        return int(ram_available * HOST_SPILL_FRACTION)
+        return int(ram_total * HOST_SPILL_FRACTION)
 
     def _create_spill_array(
         self,
@@ -1753,13 +1803,31 @@ class MemoryManager:
         queued_requests = self._queued_allocations.pop(stream_group, {})
         peers = self.stream_groups.get_instances_in_group(stream_group)
 
+        # The run partition belongs to the launch's owner (the solver
+        # whose registrations participate), not to the whole group:
+        # solvers sharing a group must not inherit each other's
+        # chunking.
+        trigger_settings = self.registry.get(id(triggering_instance))
+        owner_id = (
+            trigger_settings.owner_id
+            if trigger_settings is not None
+            else id(triggering_instance)
+        )
+        cache_key = (stream_group, owner_id)
+
         if not queued_requests:
-            cached_parameters = self._group_chunk_parameters.get(stream_group)
+            cached_parameters = self._group_chunk_parameters.get(cache_key)
             if cached_parameters is None:
                 return None
             chunk_length, num_chunks = cached_parameters
             for peer in peers:
-                self.registry[peer].allocation_ready_hook(
+                peer_settings = self.registry.get(peer)
+                if (
+                    peer_settings is None
+                    or peer_settings.owner_id != owner_id
+                ):
+                    continue
+                peer_settings.allocation_ready_hook(
                     ArrayResponse(
                         arr={},
                         chunks=num_chunks,
@@ -1785,14 +1853,37 @@ class MemoryManager:
             if num_runs > 1:
                 break
 
-        chunk_length, num_chunks = self.get_chunk_parameters(
-            queued_requests, num_runs, stream_group
-        )
-        self._group_chunk_parameters[stream_group] = (
+        notaries = set(peers) - set(queued_requests.keys())
+        # An owner's peer that is not reallocating keeps device arrays
+        # laid out for the owner's current run partition, so the
+        # partition must not move under it: reuse the stored chunk
+        # parameters. Only a full reallocation of the owner's
+        # registrations may pick a new partition.
+        bound_to_cached = False
+        for peer in notaries:
+            peer_settings = self.registry.get(peer)
+            if (
+                peer_settings is not None
+                and peer_settings.owner_id == owner_id
+                and peer_settings.allocations
+            ):
+                bound_to_cached = True
+                break
+        cached_parameters = self._group_chunk_parameters.get(cache_key)
+        if (
+            bound_to_cached
+            and cached_parameters is not None
+            and cached_parameters[0] <= num_runs
+        ):
+            chunk_length, num_chunks = cached_parameters
+        else:
+            chunk_length, num_chunks = self.get_chunk_parameters(
+                queued_requests, num_runs, stream_group
+            )
+        self._group_chunk_parameters[cache_key] = (
             chunk_length,
             num_chunks,
         )
-        notaries = set(peers) - set(queued_requests.keys())
         for instance_id, requests_dict in queued_requests.items():
             # Resolve the registration once: a client can be garbage
             # collected at any allocation, and its finalizer drops the
@@ -1892,26 +1983,43 @@ class MemoryManager:
 
         request_size = chunkable_size + unchunkable_size
 
+        # A requester's current device buffers are replaced by this
+        # allocation, so their bytes are usable for it: without this
+        # credit a same-size reallocation reads as a shortage of its
+        # own footprint.
+        own_reclaimable = sum(
+            self.registry[instance_id].allocated_bytes
+            for instance_id in requests
+            if instance_id in self.registry
+        )
+        free_effective = free + own_reclaimable
+
         # Evict only for a genuine physical VRAM shortage that eviction
         # can fix. A configured cap (active mode) is a policy limit:
         # when the request exceeds cap headroom the run chunks anyway,
         # and evicting peers cannot raise the cap.
-        physical_shortage = request_size >= free
+        physical_shortage = request_size >= free_effective
         cap_allows_request = (
             cap_headroom is None or request_size < cap_headroom
         )
         if physical_shortage and cap_allows_request:
             released = self._evict_idle_owners(
-                set(requests.keys()), request_size - free + 1
+                set(requests.keys()), request_size - free_effective + 1
             )
-            available_memory = min(
-                free + released,
-                cap_headroom if cap_headroom is not None else free + released,
-            )
+            free_effective += released
+        physical_headroom = (
+            free_effective
+            if cap_headroom is None
+            else min(free_effective, cap_headroom)
+        )
+        # Group accounting and the physical probe are both estimates;
+        # trust whichever allows more, since pool-held blocks satisfy
+        # allocations without showing up as free device memory.
+        available_memory = max(available_memory, physical_headroom)
         if request_size < available_memory:
             return axis_length, 1  # No chunking needed
 
-        if request_size / free > 20:
+        if free > 0 and request_size / free > 20:
             warn(
                 "This request exceeds available VRAM by more than 20x. "
                 f"Available VRAM = {free}, request size = {request_size}.",

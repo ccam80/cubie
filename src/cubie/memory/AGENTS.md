@@ -49,10 +49,20 @@ simulator never touches CuPy — it keeps its own numpy-backed fakes. Supporting
   real invalidate hook. A manual-proportion owner that opts in is treated
   like any other.
 
-### Host spill
-- Host arrays above their owner's spill threshold use a temporary memmap.
-- Memmap transfers use bounded pinned staging buffers.
+### Host backing policy
+- `choose_host_memory_type(nbytes, instance, allow_pinned)` picks the
+  backing ladder: pinned up to `pinned_max_bytes` (default 1 GiB),
+  pageable NumPy above it, and a temporary memmap only above the spill
+  threshold (default 80% of total system RAM — a stable anchor, not a
+  sample of currently-free RAM).
+- `create_host_array` allocates exactly the requested type; it never
+  escalates a request to another backing.
+- Pageable and memmap transfers use bounded pinned staging buffers.
 - Spill settings belong to the solver owner, not the shared manager.
+- Chunk parameters are cached per `(stream group, owner)`: a peer of
+  the owner that is not reallocating keeps device arrays laid out for
+  the cached run partition, so partial reallocations reuse it and only
+  a full reallocation of the owner's registrations picks a new one.
 
 ### Single allocation provider
 CuPy's async pool is the only device allocator, reached through the EMM plugin; `cupy`/`cupyx`

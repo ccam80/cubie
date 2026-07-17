@@ -377,12 +377,17 @@ class BatchOutputSizes(ArraySizingClass):
         status_codes = (num_runs,)
 
         # Iteration counters have shape (n_saves, 4, n_runs)
-        # where 4 is for [Newton, Krylov, steps, rejections]
-        iteration_counters = (
-            single_run_sizes.state[0],  # n_saves
-            4,
-            num_runs,
-        )
+        # where 4 is for [Newton, Krylov, steps, rejections].
+        # When counters are not requested the size collapses to a
+        # placeholder, like every other inactive output.
+        if solver_instance.save_counters:
+            iteration_counters = (
+                single_run_sizes.state[0],  # n_saves
+                4,
+                num_runs,
+            )
+        else:
+            iteration_counters = (0, 0, 0)
 
         obj = cls(
             state,

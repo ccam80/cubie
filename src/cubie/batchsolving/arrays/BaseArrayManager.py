@@ -32,7 +32,7 @@ See Also
 from abc import ABC, abstractmethod
 from typing import Any, Callable, Dict, Iterator, List, Optional, Union
 from warnings import warn
-from weakref import finalize
+from weakref import finalize, ref as weakref_ref
 
 from attrs import define, field
 from attrs.validators import (
@@ -361,6 +361,14 @@ class BaseArrayManager(ABC):
     # Signature of the solver state that determines array sizes; when
     # unchanged, update_from_solver skips rebuilding the size objects.
     _size_sig: object = field(default=None, init=False)
+    # Host buffers loaned to a result object: (weakref to the owner,
+    # label -> array, label -> memory type, saved size signature).
+    # If the owner is collected before the next solve the buffers
+    # return to their slots; otherwise the next solve allocates
+    # fresh backing and the owner keeps the data.
+    _loan: Optional[tuple] = field(
+        default=None, init=False, eq=False, repr=False
+    )
     # weakref.finalize handle that deregisters this manager and frees its
     # buffers when the manager is collected (or when close() runs it early).
     _finalizer: object = field(default=None, init=False, eq=False, repr=False)
@@ -867,43 +875,79 @@ class BaseArrayManager(ABC):
                     new_array = np_zeros(newshape, dtype=managed.dtype)
 
         if not shape_only and managed.memory_type in ("pinned", "memmap"):
-            # Incoming arrays are external; copy into a pinned buffer
-            # (spilled back to disk only by policy) so device transfers
-            # can run asynchronously.
+            # Incoming arrays are external; copy into a slot-owned
+            # buffer so later mutation of the caller's array cannot
+            # leak into the solve. Small buffers are pinned for direct
+            # asynchronous transfer; larger ones are pageable and
+            # stage through bounded pinned blocks; only sizes above
+            # the spill policy go to disk.
+            memory_type = self._memory_manager.choose_host_memory_type(
+                new_array.nbytes, instance=self
+            )
             staged = self._memory_manager.create_host_array(
                 new_array.shape,
                 managed.dtype,
-                "pinned",
+                memory_type,
+                like=new_array,
                 instance=self,
             )
-            staged[...] = new_array
             new_array = staged
-        # The slot's recorded type follows the array actually attached:
-        # a request above the spill threshold comes back disk-backed.
-        replacement_memory_type = self._host_memory_type(
-            new_array, self._base_memory_type(managed.memory_type)
-        )
+            replacement_memory_type = memory_type
+        else:
+            # The slot's recorded type follows the array actually
+            # attached.
+            replacement_memory_type = self._host_memory_type(
+                new_array, self._base_memory_type(managed.memory_type)
+            )
         if current_array is not new_array:
             self._memory_manager.release_host_array(current_array)
         self.host.attach(label, new_array)
         managed.memory_type = replacement_memory_type
         return None
 
-    def detach_host_array(self, label: str) -> Optional[NDArray]:
-        """Hand ownership of a host array to the caller.
+    def loan_host_arrays(self, owner: object) -> None:
+        """Hand every host buffer to ``owner``, emptying the slots.
 
-        The slot is emptied so the next solve allocates fresh backing.
-        The caller becomes responsible for the array's lifetime,
-        including any spill file behind it.
+        ``owner`` (a result object that already references the
+        arrays) keeps the data for as long as it lives. If it has
+        been garbage collected by the next solve, the buffers return
+        to their slots and are reused; otherwise the next solve
+        allocates fresh backing.
         """
-        managed = self.host.get_managed_array(label)
-        array = managed.array
-        managed.array = None
-        managed.memory_type = self._base_memory_type(managed.memory_type)
-        # The emptied slot must not satisfy the same-size fast path on
-        # the next update, which would hand back the missing array.
+        self.reclaim_or_release_loan()
+        arrays = {}
+        types = {}
+        for label, managed in self.host.iter_managed_arrays():
+            arrays[label] = managed.array
+            types[label] = managed.memory_type
+            managed.array = None
+        # The emptied slots must not satisfy the same-size fast path
+        # before the loan is resolved; the signature is restored when
+        # the buffers come back.
+        size_sig = self._size_sig
         self._size_sig = None
-        return array
+        self._loan = (weakref_ref(owner), arrays, types, size_sig)
+
+    def reclaim_or_release_loan(self) -> None:
+        """Recover loaned host buffers if their owner was collected.
+
+        A live owner keeps its buffers: the loan record is dropped so
+        the arrays belong solely to the owner, and the next
+        allocation builds fresh backing. A collected owner cannot be
+        holding views, so the buffers return to their slots for
+        reuse.
+        """
+        if self._loan is None:
+            return
+        owner_ref, arrays, types, size_sig = self._loan
+        self._loan = None
+        if owner_ref() is not None:
+            return
+        for label, array in arrays.items():
+            managed = self.host.get_managed_array(label)
+            managed.array = array
+            managed.memory_type = types[label]
+        self._size_sig = size_sig
 
     @staticmethod
     def _base_memory_type(memory_type: str) -> str:
@@ -1011,6 +1055,13 @@ class BaseArrayManager(ABC):
 
     def reset(self) -> None:
         """Clear cached arrays and allocation tracking."""
+        if self._loan is not None:
+            owner_ref, arrays, _, _ = self._loan
+            self._loan = None
+            if owner_ref() is None:
+                # No owner survives to use or release these buffers.
+                for array in arrays.values():
+                    self._memory_manager.release_host_array(array)
         for _, managed in self.host.iter_managed_arrays():
             if managed.array is not None:
                 self._memory_manager.release_host_array(managed.array)
@@ -1062,26 +1113,36 @@ class BaseArrayManager(ABC):
         )
 
     def _convert_host_to_pinned(self) -> None:
-        """Use pinned or spill-backed arrays for unchunked transfers."""
+        """Pin small host arrays for direct unchunked transfers.
+
+        The manager's policy decides each slot's backing: arrays above
+        the pinned ceiling stay pageable and stage through bounded
+        pinned buffers, and arrays above the spill threshold are
+        disk-backed.
+        """
         for _, slot in self.host.iter_managed_arrays():
             old_array = slot.array
             if old_array is None or slot.memory_type == "pinned":
                 continue
             if isinstance(old_array, np_memmap):
-                # Spilled arrays stay disk-backed; transfers stage
-                # through bounded pinned buffers instead.
                 slot.memory_type = "memmap"
+                continue
+            target_type = self._memory_manager.choose_host_memory_type(
+                old_array.nbytes, instance=self
+            )
+            if target_type == "host":
+                slot.memory_type = "host"
                 continue
             new_array = self._memory_manager.create_host_array(
                 old_array.shape,
                 old_array.dtype,
-                "pinned",
+                target_type,
                 like=old_array,
                 instance=self,
             )
             self._memory_manager.release_host_array(old_array)
             slot.array = new_array
-            slot.memory_type = self._host_memory_type(new_array, "pinned")
+            slot.memory_type = target_type
 
     def _convert_host_to_numpy(self) -> None:
         """Convert pinned host arrays to regular numpy for chunked mode.

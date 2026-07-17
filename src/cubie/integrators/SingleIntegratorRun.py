@@ -420,6 +420,12 @@ class SingleIntegratorRun(SingleIntegratorRunCore):
         return self._output_functions.save_time
 
     @property
+    def save_counters(self) -> bool:
+        """Return whether iteration-counter saving is enabled."""
+
+        return self._output_functions.save_counters
+
+    @property
     def saved_state_indices(self) -> Any:
         """Return the saved state indices."""
 

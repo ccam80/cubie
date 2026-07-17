@@ -229,45 +229,27 @@ def test_chunked_solver_changes_to_unchunked_backing(
         solver.close()
 
 
-def test_pinned_conversion_tracks_policy_spill(
-    chunked_solved_solver,
-    tmp_path,
-):
-    """A pinned request that spills stays on the staging path."""
-    solver, result = chunked_solved_solver
-    managers = (
-        solver.kernel.input_arrays,
-        solver.kernel.output_arrays,
-    )
-    candidates = {}
-    for manager in managers:
-        candidates[id(manager)] = [
-            name
-            for name, slot in manager.host.iter_managed_arrays()
-            if slot.memory_type == "host"
-        ]
-        settings = solver.memory_manager.registry[id(manager)]
-        settings.host_spill_threshold = 1
-        settings.spill_directory = str(tmp_path)
-        manager._convert_host_to_pinned()
+def test_pinned_conversion_tracks_policy_spill(tmp_path):
+    """A conversion request that spills stays on the staging path."""
+    manager = _make_test_array_manager()
+    slot = manager.host.get_managed_array("state")
+    slot.array = np.ones((10, 3, 100), dtype=np.float32)
+    slot.memory_type = "host"
+    settings = manager._memory_manager.registry[id(manager)]
+    settings.host_spill_threshold = 1
+    settings.spill_directory = str(tmp_path)
 
-    paths = []
-    try:
-        for manager in managers:
-            assert candidates[id(manager)]
-            for name in candidates[id(manager)]:
-                slot = manager.host.get_managed_array(name)
-                assert isinstance(slot.array, np.memmap)
-                assert slot.memory_type == "memmap"
-                assert manager._requires_staging(
-                    slot.array, slot.memory_type
-                )
-                paths.append(slot.array._cubie_spill_path)
-    finally:
-        result.close()
-        solver.close()
-    assert paths
-    assert all(not Path(path).exists() for path in paths)
+    manager._convert_host_to_pinned()
+
+    slot = manager.host.get_managed_array("state")
+    assert isinstance(slot.array, np.memmap)
+    assert slot.memory_type == "memmap"
+    assert manager._requires_staging(slot.array, slot.memory_type)
+    path = Path(slot.array._cubie_spill_path)
+    assert path.exists()
+    manager._memory_manager.release_host_array(slot.array)
+    slot.array = None
+    assert not path.exists()
 
 
 def test_pinned_buffers_created(chunked_solved_solver):
@@ -669,11 +651,10 @@ def test_chunked_shape_differs_from_shape_when_chunking(
     # state array should be chunked (needs_chunked_transfer = True)
     assert state_host.needs_chunked_transfer is True
 
-    # chunked_shape should differ from shape along run axis
-    assert state_host.chunked_shape != state_host.shape
-
-    # Specifically, run axis (axis 2) should be smaller in chunked_shape
-    assert state_host.chunked_shape[2] < state_host.shape[2]
+    # The full buffer belongs to the result; the slot records the
+    # per-chunk shape, smaller along the run axis (axis 2).
+    assert state_host.chunked_shape != result.state.shape
+    assert state_host.chunked_shape[2] < result.state.shape[2]
 
 
 def test_chunked_shape_equals_shape_when_not_chunking(

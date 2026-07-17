@@ -180,7 +180,6 @@ def solve_once(solver, inits, params, kernel_ms):
             initial_values=inits,
             parameters=params,
             blocksize=64,
-            results_type="raw",
             duration=1.0,
         )
     collect_kernel_time(solver, kernel_ms)
