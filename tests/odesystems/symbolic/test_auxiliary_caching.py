@@ -1,12 +1,11 @@
-"""Unit tests for the auxiliary cache combination search.
+"""Unit tests for the greedy auxiliary cache planner.
 
-Each test builds a real :class:`JVPEquations` from small assignment
-lists whose operation counts steer the search into a specific branch
-of candidate collection or combination selection.
+Each test builds a real JVPEquations instance from small assignment
+lists whose operation counts steer the planner into a specific
+selection outcome. Expressions are built directly on the engine IR.
 """
 
-import sympy as sp
-
+from cubie.odesystems.symbolic.engine import expr as ir
 from cubie.odesystems.symbolic.parsing import JVPEquations
 from cubie.odesystems.symbolic.parsing.auxiliary_caching import (
     plan_auxiliary_cache,
@@ -15,19 +14,19 @@ from cubie.odesystems.symbolic.parsing.auxiliary_caching import (
 
 def _chain(symbol, functions, extra=None):
     """Sum of ``functions`` applied to ``symbol`` plus an optional term."""
-    expr = sp.Add(*[fn(symbol) for fn in functions])
+    terms = [ir.call(name, symbol) for name in functions]
     if extra is not None:
-        expr = expr + extra
-    return expr
+        terms.append(extra)
+    return ir.add(*terms)
 
 
 def test_zero_slot_limit_selects_nothing():
     """max_cached_terms=0 disables caching and keeps all nodes runtime."""
-    x0 = sp.Symbol("x0")
-    aux = sp.Symbol("aux_a")
+    x0 = ir.sym("x0")
+    aux = ir.sym("aux_a")
     exprs = [
-        (aux, _chain(x0, (sp.sin, sp.cos, sp.exp, sp.tan))),
-        (sp.Symbol("jvp[0]"), aux * sp.Symbol("v[0]")),
+        (aux, _chain(x0, ("sin", "cos", "exp", "tan"))),
+        (ir.arr("jvp", 0), ir.mul(aux, ir.arr("v", 0))),
     ]
     equations = JVPEquations(
         exprs, max_cached_terms=0, min_ops_threshold=1
@@ -40,13 +39,13 @@ def test_zero_slot_limit_selects_nothing():
 
 def test_dead_auxiliary_is_never_a_seed():
     """An assignment feeding no jvp term stays runtime and uncached."""
-    x0 = sp.Symbol("x0")
-    dead = sp.Symbol("aux_dead")
-    live = sp.Symbol("aux_live")
+    x0 = ir.sym("x0")
+    dead = ir.sym("aux_dead")
+    live = ir.sym("aux_live")
     exprs = [
-        (dead, _chain(x0, (sp.sin, sp.cos, sp.exp, sp.tan))),
-        (live, _chain(x0, (sp.sinh, sp.cosh, sp.tanh, sp.log))),
-        (sp.Symbol("jvp[0]"), live * sp.Symbol("v[0]")),
+        (dead, _chain(x0, ("sin", "cos", "exp", "tan"))),
+        (live, _chain(x0, ("sinh", "cosh", "tanh", "log"))),
+        (ir.arr("jvp", 0), ir.mul(live, ir.arr("v", 0))),
     ]
     equations = JVPEquations(exprs, min_ops_threshold=1)
     selection = plan_auxiliary_cache(equations)
@@ -56,12 +55,12 @@ def test_dead_auxiliary_is_never_a_seed():
 
 
 def test_cheap_leaves_below_threshold_select_nothing():
-    """Leaves cheaper than the ops threshold produce no candidates."""
-    x0, x1 = sp.symbols("x0 x1")
-    aux = sp.Symbol("aux_a")
+    """Leaves cheaper than the ops threshold produce no selection."""
+    x0, x1 = ir.sym("x0"), ir.sym("x1")
+    aux = ir.sym("aux_a")
     exprs = [
-        (aux, x0 + x1),
-        (sp.Symbol("jvp[0]"), aux * sp.Symbol("v[0]")),
+        (aux, ir.add(x0, x1)),
+        (ir.arr("jvp", 0), ir.mul(aux, ir.arr("v", 0))),
     ]
     equations = JVPEquations(exprs, min_ops_threshold=10)
     selection = plan_auxiliary_cache(equations)
@@ -70,45 +69,50 @@ def test_cheap_leaves_below_threshold_select_nothing():
     assert aux in selection.runtime_nodes
 
 
-def test_equal_saved_prefers_lower_fill_cost():
-    """Among equal-saved equal-size sets the cheaper fill wins."""
-    x0, x1 = sp.symbols("x0 x1")
-    cse0 = sp.Symbol("_cse0")
-    aux_a = sp.Symbol("aux_a")
-    aux_b = sp.Symbol("aux_b")
+def test_cse_locals_are_prepared_but_never_cached():
+    """A ``_cse`` local feeds the cache fill but is not itself cached."""
+    x0, x1 = ir.sym("x0"), ir.sym("x1")
+    cse0 = ir.sym("_cse0")
+    aux_a = ir.sym("aux_a")
+    aux_b = ir.sym("aux_b")
     exprs = [
-        (aux_a, _chain(x0, (sp.sin, sp.cos, sp.exp))),
-        (cse0, x0 + x1),
-        (aux_b, _chain(cse0, (sp.sinh, sp.cosh, sp.tanh))),
-        (sp.Symbol("jvp[0]"), aux_a * sp.Symbol("v[0]")),
-        (sp.Symbol("jvp[1]"), aux_b * sp.Symbol("v[1]")),
+        (aux_a, _chain(x0, ("sin", "cos", "exp"))),
+        (cse0, ir.add(x0, x1)),
+        (aux_b, _chain(cse0, ("sinh", "cosh", "tanh"))),
+        (ir.arr("jvp", 0), ir.mul(aux_a, ir.arr("v", 0))),
+        (ir.arr("jvp", 1), ir.mul(aux_b, ir.arr("v", 1))),
     ]
     equations = JVPEquations(exprs, min_ops_threshold=5)
     assert equations.ops_cost[aux_a] == equations.ops_cost[aux_b]
     selection = plan_auxiliary_cache(equations)
     assert set(selection.cached_leaves) == {aux_a, aux_b}
+    assert cse0 not in selection.cached_leaves
+    assert cse0 in selection.prepare_nodes
 
 
-def test_slightly_smaller_saving_prefers_fewer_slots():
-    """A near-best saving with fewer leaves displaces the best state."""
-    x0, x1 = sp.symbols("x0 x1")
-    aux_a = sp.Symbol("aux_a")
-    aux_b = sp.Symbol("aux_b")
-    aux_c = sp.Symbol("aux_c")
+def test_all_profitable_leaves_are_cached():
+    """Every auxiliary with positive savings is selected greedily."""
+    x0, x1 = ir.sym("x0"), ir.sym("x1")
+    aux_a = ir.sym("aux_a")
+    aux_b = ir.sym("aux_b")
+    aux_c = ir.sym("aux_c")
     exprs = [
         (
             aux_a,
             _chain(
                 x0,
-                (sp.sin, sp.cos, sp.exp, sp.tan, sp.sinh, sp.cosh),
+                ("sin", "cos", "exp", "tan", "sinh", "cosh"),
                 extra=x1,
             ),
         ),
-        (aux_b, _chain(x0, (sp.tanh, sp.log, sp.asin, sp.acos), extra=x1)),
-        (aux_c, _chain(x0, (sp.atan, sp.asinh, sp.acosh, sp.atanh))),
-        (sp.Symbol("jvp[0]"), aux_a * sp.Symbol("v[0]")),
-        (sp.Symbol("jvp[1]"), aux_b * sp.Symbol("v[1]")),
-        (sp.Symbol("jvp[2]"), aux_c * sp.Symbol("v[2]")),
+        (
+            aux_b,
+            _chain(x0, ("tanh", "log", "asin", "acos"), extra=x1),
+        ),
+        (aux_c, _chain(x0, ("atan", "asinh", "acosh", "atanh"))),
+        (ir.arr("jvp", 0), ir.mul(aux_a, ir.arr("v", 0))),
+        (ir.arr("jvp", 1), ir.mul(aux_b, ir.arr("v", 1))),
+        (ir.arr("jvp", 2), ir.mul(aux_c, ir.arr("v", 2))),
     ]
     equations = JVPEquations(exprs, min_ops_threshold=5)
     assert equations.ops_cost[aux_a] == 12
@@ -117,3 +121,75 @@ def test_slightly_smaller_saving_prefers_fewer_slots():
     selection = plan_auxiliary_cache(equations)
     assert set(selection.cached_leaves) == {aux_a, aux_b, aux_c}
     assert selection.saved == 27
+    # Greedy order: largest marginal saving first.
+    assert [group.seed for group in selection.groups] == [
+        aux_a,
+        aux_b,
+        aux_c,
+    ]
+
+
+def test_intermediate_with_live_dependent_is_not_cached_alone():
+    """A node consumed by a live auxiliary cannot be cached by itself,
+    but caching its consumer first makes it eligible."""
+    x0 = ir.sym("x0")
+    inner = ir.sym("aux_inner")
+    outer = ir.sym("aux_outer")
+    exprs = [
+        (inner, _chain(x0, ("sin", "cos", "exp", "tan"))),
+        (outer, _chain(inner, ("sinh", "cosh", "tanh", "log"))),
+        (
+            ir.arr("jvp", 0),
+            ir.mul(outer, ir.arr("v", 0)),
+        ),
+        (
+            ir.arr("jvp", 1),
+            ir.mul(inner, ir.arr("v", 1)),
+        ),
+    ]
+    equations = JVPEquations(exprs, min_ops_threshold=1)
+    selection = plan_auxiliary_cache(equations)
+    # Both are jvp-used; caching outer removes it, then inner becomes
+    # cacheable too (its only remaining consumers are jvp terms).
+    assert set(selection.cached_leaves) == {inner, outer}
+    assert selection.saved == equations.ops_cost[inner] + (
+        equations.ops_cost[outer]
+    )
+
+
+def test_planner_terminates_on_wide_systems():
+    """Planning stays fast when many auxiliaries feed many outputs.
+
+    The subset-enumeration planner this replaces did not terminate
+    for systems of this width (issue 603).
+    """
+    import time
+
+    n = 48
+    exprs = []
+    for i in range(n):
+        aux = ir.sym(f"aux_{i}")
+        exprs.append(
+            (
+                aux,
+                _chain(
+                    ir.sym(f"x{i}"),
+                    ("sin", "cos", "exp", "tan"),
+                ),
+            )
+        )
+        exprs.append(
+            (
+                ir.arr("jvp", i),
+                ir.mul(aux, ir.arr("v", i)),
+            )
+        )
+    equations = JVPEquations(exprs, min_ops_threshold=1)
+    started = time.perf_counter()
+    selection = plan_auxiliary_cache(equations)
+    elapsed = time.perf_counter() - started
+    assert elapsed < 10.0
+    assert len(selection.cached_leaves) == len(
+        selection.cached_leaf_order
+    )
+    assert selection.saved > 0

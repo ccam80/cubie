@@ -12,8 +12,9 @@ import logging
 
 import numpy as np
 import pytest
-import sympy as sp
 
+from cubie.odesystems.symbolic.engine import expr as ir
+from cubie.odesystems.symbolic.engine.expr import _children
 from cubie.odesystems.symbolic.parsing.cellml import (
     _find_membrane_voltage,
     load_cellml_model,
@@ -21,6 +22,17 @@ from cubie.odesystems.symbolic.parsing.cellml import (
 from cubie.odesystems.symbolic.parsing.cellml_cache import CellMLCache
 
 CELLML_LOGGER = "cubie.odesystems.symbolic.parsing.cellml"
+
+
+def _has_piecewise(node):
+    """Return whether an IR expression contains a Piecewise node."""
+    stack = [node]
+    while stack:
+        current = stack.pop()
+        if isinstance(current, ir.Piecewise):
+            return True
+        stack.extend(_children(current))
+    return False
 
 
 def _codegen_piecewise_count(ode):
@@ -31,7 +43,7 @@ def _codegen_piecewise_count(ode):
         + list(equations.observables)
         + list(equations.auxiliaries)
     )
-    return sum(rhs.has(sp.Piecewise) for _, rhs in groups)
+    return sum(_has_piecewise(rhs) for _, rhs in groups)
 
 
 # --- membrane-voltage detection (read-only helper) -----------------------

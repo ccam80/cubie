@@ -21,8 +21,7 @@ Published Functions
 import warnings
 from typing import Dict, List, Optional, Tuple
 
-import sympy as sp
-
+from cubie.odesystems.symbolic.engine import expr as ir
 from cubie.odesystems.symbolic.structural.bipartite import (
     Matching,
     SELECTED_STATE,
@@ -37,6 +36,7 @@ from cubie.odesystems.symbolic.structural.symbolics import (
     fixpoint_sub,
     linear_expansion,
     lower_varname,
+    solve_linear_system,
 )
 from cubie.odesystems.symbolic.structural.system_structure import (
     Equation,
@@ -92,13 +92,13 @@ class ReassembledSystem:
         self,
         state: StructuralState,
         neweqs: List[Equation],
-        diff_eq_states: List[Optional[sp.Symbol]],
+        diff_eq_states: List[Optional[ir.Sym]],
         solved_eqs: List[Equation],
         observed: List[Equation],
-        unknowns: List[sp.Symbol],
+        unknowns: List[ir.Sym],
         var_sccs: List[List[int]],
-        dummy_sub: Dict[sp.Symbol, sp.Symbol],
-        extra_unknowns: List[sp.Symbol],
+        dummy_sub: Dict[ir.Sym, ir.Sym],
+        extra_unknowns: List[ir.Sym],
     ) -> None:
         self.state = state
         self.neweqs = neweqs
@@ -115,7 +115,7 @@ def substitute_derivatives_algevars(
     state: StructuralState,
     neweqs: List[Equation],
     var_eq_matching: Matching,
-    dummy_sub: Dict[sp.Symbol, sp.Symbol],
+    dummy_sub: Dict[ir.Sym, ir.Sym],
 ) -> None:
     """Replace derivatives of non-selected variables by dummy names.
 
@@ -140,9 +140,8 @@ def substitute_derivatives_algevars(
             continue
         dd = state.fullvars[dv]
         base, order = registry.base_and_order(dd)
-        v_t = sp.Symbol(
-            lower_varname(base.name, order, registry.reserved),
-            real=True,
+        v_t = ir.sym(
+            lower_varname(base.name, order, registry.reserved)
         )
         for eq in graph.d_neighbors(dv):
             neweqs[eq] = neweqs[eq].xreplace({dd: v_t})
@@ -261,17 +260,16 @@ def generate_derivative_variables(
             dx = state.fullvars[dv]
             order, lv = var_order(dv, diff_to_var)
             base, order_r = registry.base_and_order(dx)
-            x_t = sp.Symbol(
+            x_t = ir.sym(
                 lower_varname(
                     base.name, order_r, registry.reserved
-                ),
-                real=True,
+                )
             )
             # Add x_t to the graph.
             v_t = _add_dd_variable(state, x_t, dv)
             # Add 0 ~ D(x) - x_t to the graph.
             dummy_eq = _add_dd_equation(
-                state, neweqs, Equation(sp.S.Zero, dx - x_t), dv, v_t
+                state, neweqs, Equation(ir.ZERO, dx - x_t), dv, v_t
             )
             for e in list(graph.d_neighbors(dv)):
                 graph.add_edge(e, v_t)
@@ -333,7 +331,7 @@ def generate_derivative_variables(
 
 
 def _add_dd_variable(
-    state: StructuralState, x_t: sp.Symbol, dv: int
+    state: StructuralState, x_t: ir.Sym, dv: int
 ) -> int:
     """Add the dummy variable ``x_t`` mirroring variable ``dv``."""
 
@@ -485,36 +483,32 @@ class EquationGenerator:
             var = state.fullvars[iv]
             residual = eq.lhs - eq.rhs
             a, b, islinear = linear_expansion(residual, var)
-            if not islinear or a == sp.S.Zero:
+            if not islinear or ir.is_zero(a):
                 warnings.warn(
                     f"Tearing: solving {eq} for {var} is singular!"
                 )
                 return
-            rhs = -b / a
-            if simplify:
-                rhs = sp.simplify(rhs)
+            rhs = ir.div(ir.neg(b), a)
             neweq = Equation(var, fixpoint_sub(rhs, total_sub))
             self.solved_eqs.append(neweq)
             self.solved_vars.append(iv)
         else:
             rhs = fixpoint_sub(eq.residual(), total_sub)
-            self.neweqs_out.append(Equation(sp.S.Zero, rhs))
+            self.neweqs_out.append(Equation(ir.ZERO, rhs))
             self.diff_eq_states.append(None)
             self.eq_ordering.append(ieq)
             self.var_ordering.append(-1)
 
 
-def _solve_for(eq: Equation, var: sp.Symbol, simplify: bool) -> sp.Expr:
+def _solve_for(eq: Equation, var: ir.Sym, simplify: bool) -> ir.Expr:
     residual = eq.lhs - eq.rhs
     a, b, islinear = linear_expansion(residual, var)
-    if not islinear or a == sp.S.Zero:
+    if not islinear or ir.is_zero(a):
         raise ValueError(
             f"equation {eq} is not solvable for {var} despite a "
             "solvable-graph edge"
         )
-    rhs = -b / a
-    if simplify:
-        rhs = sp.simplify(rhs)
+    rhs = ir.div(ir.neg(b), a)
     return rhs
 
 
@@ -647,7 +641,7 @@ def generate_system_equations(
                     for e in list(graph.d_neighbors(ivar)):
                         if e == ieq:
                             continue
-                        for vsym in rhs.free_symbols:
+                        for vsym in ir.free_atoms(rhs):
                             v_idx = state.var2idx.get(vsym)
                             if v_idx is not None:
                                 graph.add_edge(e, v_idx)
@@ -741,7 +735,7 @@ def _get_linear_scc_linsol(
     simplify: bool,
     allow_symbolic: bool,
     allow_parameter: bool,
-) -> Optional[Tuple[List[sp.Expr], List[bool], List[bool]]]:
+) -> Optional[Tuple[List[ir.Expr], List[bool], List[bool]]]:
     """Solve a linear algebraic SCC analytically when small enough.
 
     Returns ``(solutions, eqs_mask, vars_mask)`` covering the masked
@@ -770,11 +764,9 @@ def _get_linear_scc_linsol(
     b = []
     for ieq in alg_eqs:
         resid = neweqs[ieq].rhs - neweqs[ieq].lhs
-        if simplify:
-            resid = sp.simplify(resid)
         b.append(fixpoint_sub(resid, total_sub))
 
-    a_matrix = [[sp.S.Zero] * n for _ in range(n)]
+    a_matrix = [[ir.ZERO] * n for _ in range(n)]
     for varidx, var in enumerate(variables):
         for eqidx in range(n):
             if not graph.has_edge(alg_eqs[eqidx], alg_vars[varidx]):
@@ -807,13 +799,13 @@ def _get_linear_scc_linsol(
         eqs_mask[i] = False
         vars_mask[ivar] = False
         var_coeff = a_matrix[i][ivar]
-        if var_coeff == sp.S.Zero:
+        if ir.is_zero(var_coeff):
             return None
         combo = {}
         for j in range(n):
             if j == ivar:
                 continue
-            if a_matrix[i][j] != sp.S.Zero:
+            if not ir.is_zero(a_matrix[i][j]):
                 combo[j] = -a_matrix[i][j] / var_coeff
         aliases[ivar] = combo
         constants[ivar] = b[i] / var_coeff
@@ -836,18 +828,20 @@ def _get_linear_scc_linsol(
                     dirty = True
                     for kvar, kcoeff in aliases[jvar].items():
                         new_combo[kvar] = (
-                            new_combo.get(kvar, sp.S.Zero)
+                            new_combo.get(kvar, ir.ZERO)
                             + coeff * kcoeff
                         )
                     cst = cst + coeff * constants[jvar]
                 else:
                     new_combo[jvar] = (
-                        new_combo.get(jvar, sp.S.Zero) + coeff
+                        new_combo.get(jvar, ir.ZERO) + coeff
                     )
             if dirty:
                 changed = True
                 aliases[ivar] = {
-                    k: v for k, v in new_combo.items() if v != 0
+                    k: v
+                    for k, v in new_combo.items()
+                    if not ir.is_zero(v)
                 }
                 constants[ivar] = cst
 
@@ -863,14 +857,14 @@ def _get_linear_scc_linsol(
         return None
 
     a_red = [
-        [sp.S.Zero] * reduced_n for _ in range(reduced_n)
+        [ir.ZERO] * reduced_n for _ in range(reduced_n)
     ]
     b_red = []
     for ri, i in enumerate(kept_rows):
         row_b = b[i]
         for j in range(n):
             coeff = a_matrix[i][j]
-            if coeff == sp.S.Zero:
+            if ir.is_zero(coeff):
                 continue
             if vars_mask[j]:
                 a_red[ri][kept_cols.index(j)] += coeff
@@ -885,23 +879,19 @@ def _get_linear_scc_linsol(
     if reduced_n > 1 and not allow_symbolic:
         for row in a_red:
             for entry in row:
-                if entry.is_number:
+                if isinstance(entry, ir.Num):
                     continue
                 if not allow_parameter:
                     return None
-                for sym in entry.free_symbols:
+                for sym in ir.free_atoms(entry):
                     if sym in state.var2idx:
                         return None
 
-    a_sym = sp.Matrix(a_red)
-    b_sym = sp.Matrix(b_red)
-    try:
-        solution = a_sym.LUsolve(b_sym)
-    except (ValueError, ZeroDivisionError):
+    solution = solve_linear_system(a_red, b_red)
+    if solution is None:
         return None
     solutions = [
-        fixpoint_sub(sp.simplify(sol) if simplify else sol, total_sub)
-        for sol in solution
+        fixpoint_sub(sol, total_sub) for sol in solution
     ]
     return solutions, eqs_mask, vars_mask
 
@@ -1074,7 +1064,7 @@ def default_reassemble(
 
     obs_sub = dict(dummy_sub)
     for eq in neweqs_out:
-        if eq.lhs != sp.S.Zero:
+        if not ir.is_zero(eq.lhs):
             obs_sub[eq.lhs] = eq.rhs
 
     observed = list(solved_eqs)

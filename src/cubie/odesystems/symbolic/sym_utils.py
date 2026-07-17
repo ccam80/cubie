@@ -216,12 +216,14 @@ def hash_system_definition(
     ],
     constants: Optional[Dict[str, float]] = None,
     observable_labels: Optional[Iterable[str]] = None,
+    state_labels: Optional[Iterable[str]] = None,
+    dxdt_labels: Optional[Iterable[str]] = None,
+    parameter_labels: Optional[Iterable[str]] = None,
+    driver_labels: Optional[Iterable[str]] = None,
+    derivative_names: Optional[Dict[str, str]] = None,
+    function_aliases: Optional[Dict[str, str]] = None,
 ) -> str:
-    """Generate deterministic hash for symbolic ODE definitions.
-
-    Produces identical hashes for identical equation sets regardless
-    of input order by sorting equations alphabetically by LHS symbol
-    name before building the hash string.
+    """Return the generated-source hash for a symbolic system.
 
     Parameters
     ----------
@@ -231,23 +233,24 @@ def hash_system_definition(
     constants
         Optional mapping of constant names to values.
     observable_labels
-        Optional iterable of observable variable names. Sorted
-        alphabetically before inclusion in the hash.
+        Observable names in output-array order.
+    state_labels
+        State names in input-array order.
+    dxdt_labels
+        Derivative names in output-array order.
+    parameter_labels
+        Parameter names in input-array order.
+    driver_labels
+        Driver names in input-array order.
+    derivative_names
+        Generated derivative helper names keyed by function name.
+    function_aliases
+        IR call names and their generated-source names.
 
     Returns
     -------
     str
-        Deterministic hash string reflecting equations, constants,
-        observables.
-
-    Notes
-    -----
-    Sorting by LHS symbol name ensures order-independence so that
-    cache hits occur for identical systems regardless of input
-    pathway (string vs SymPy). Parameters labels are not included in the
-    resultant hash, as constants and parameters must together contain all
-    non-state LHS symbols; changing constants causes a 1:1 change in
-    parameters.
+        Hash of every value embedded in generated source.
     """
     # Extract equations from ParsedEquations or convert from provided tuple
     if hasattr(equations, "ordered"):
@@ -276,16 +279,38 @@ def hash_system_definition(
         sorted_constants = sorted(label_strings)
         constants_str = "|".join(f"{label}" for label in sorted_constants)
 
-    # Append sorted observable labels
-    observables_str = ""
-    if observable_labels is not None:
-        sorted_observables = sorted(str(label) for label in observable_labels)
-        observables_str = "|".join(sorted_observables)
+    def ordered_labels(labels):
+        if labels is None:
+            return ""
+        return "|".join(str(label) for label in labels)
+
+    if derivative_names is None:
+        derivative_names = getattr(equations, "derivative_names", None)
+    derivatives_str = ""
+    if derivative_names:
+        derivatives_str = "|".join(
+            f"{name}={derivative_names[name]}"
+            for name in sorted(derivative_names)
+        )
+    if function_aliases is None:
+        function_aliases = getattr(equations, "function_aliases", None)
+    aliases_str = ""
+    if function_aliases:
+        aliases_str = "|".join(
+            f"{name}={function_aliases[name]}"
+            for name in sorted(function_aliases)
+        )
 
     # Combine and hash
     combined = (
         f"dxdt:{normalized_dxdt}|constants:{constants_str}"
-        f"|observables:{observables_str}"
+        f"|states:{ordered_labels(state_labels)}"
+        f"|dxdt_layout:{ordered_labels(dxdt_labels)}"
+        f"|parameters:{ordered_labels(parameter_labels)}"
+        f"|drivers:{ordered_labels(driver_labels)}"
+        f"|observables:{ordered_labels(observable_labels)}"
+        f"|derivatives:{derivatives_str}"
+        f"|function_aliases:{aliases_str}"
     )
     return sha256(combined.encode("utf-8")).hexdigest()
 

@@ -21,8 +21,10 @@ Published Functions
 import warnings
 from typing import Dict, List, Optional, Tuple
 
-import sympy as sp
-
+from cubie.odesystems.symbolic.engine import expr as ir
+from cubie.odesystems.symbolic.engine.assignments import (
+    topological_sort,
+)
 from cubie.odesystems.symbolic.structural.alias_elimination import (
     alias_elimination,
     eliminate_perfect_aliases,
@@ -76,8 +78,9 @@ class SimplifiedSystem:
         eliminated variables.
     mass_matrix
         ``None`` when there are no residuals; otherwise the singular
-        diagonal mass matrix (identity for differential states, zero
-        rows for algebraic constraints).
+        diagonal mass matrix, as a nested list of floats (identity
+        for differential states, zero rows for algebraic
+        constraints).
     dummy_sub
         Renames applied to dummy derivatives.
     var_sccs
@@ -88,14 +91,14 @@ class SimplifiedSystem:
 
     def __init__(
         self,
-        states: List[sp.Symbol],
-        differential_states: List[sp.Symbol],
-        algebraic_states: List[sp.Symbol],
-        dxdt: Dict[sp.Symbol, sp.Expr],
-        residuals: List[sp.Expr],
-        observed: List[Tuple[sp.Symbol, sp.Expr]],
-        mass_matrix: Optional[sp.Matrix],
-        dummy_sub: Dict[sp.Symbol, sp.Symbol],
+        states: List[ir.Sym],
+        differential_states: List[ir.Sym],
+        algebraic_states: List[ir.Sym],
+        dxdt: Dict[ir.Sym, ir.Expr],
+        residuals: List[ir.Expr],
+        observed: List[Tuple[ir.Sym, ir.Expr]],
+        mass_matrix: Optional[List[List[float]]],
+        dummy_sub: Dict[ir.Sym, ir.Sym],
         var_sccs: List[List[int]],
         state: StructuralState,
     ) -> None:
@@ -129,8 +132,8 @@ def _integer_jacobian(state: StructuralState):
             rhs = state.eqs[e].rhs
             row = []
             for v in var_idxs:
-                entry = sp.diff(rhs, state.fullvars[v])
-                if not entry.is_number:
+                entry = ir.diff(rhs, state.fullvars[v])
+                if not isinstance(entry, ir.Num):
                     return None
                 small = as_small_int(entry)
                 if small is None:
@@ -220,9 +223,9 @@ def _assemble_result(
 
     n = len(states)
     if residuals:
-        mass = sp.zeros(n, n)
+        mass = [[0.0] * n for _ in range(n)]
         for i in range(len(differential_states)):
-            mass[i, i] = sp.S.One
+            mass[i][i] = 1.0
     else:
         mass = None
 
@@ -245,16 +248,14 @@ def _assemble_result(
 
 
 def _topsort_observed(
-    observed: List[Tuple[sp.Expr, sp.Expr]],
-) -> List[Tuple[sp.Symbol, sp.Expr]]:
+    observed: List[Tuple[ir.Expr, ir.Expr]],
+) -> List[Tuple[ir.Sym, ir.Expr]]:
     """Topologically sort observed assignments by dependency."""
-
-    from cubie.odesystems.symbolic.sym_utils import topological_sort
 
     pairs = []
     seen = set()
     for lhs, rhs in observed:
-        if not isinstance(lhs, sp.Symbol):
+        if not isinstance(lhs, ir.Sym):
             raise AssertionError(
                 f"observed equation LHS {lhs} is not a symbol"
             )
@@ -272,7 +273,6 @@ def structural_simplify(
     fully_determined: bool = True,
     dummy_derivative: bool = True,
     consistency_check: bool = True,
-    simplify: bool = False,
     conservative: bool = False,
     allow_symbolic: bool = False,
     allow_parameter: bool = True,
@@ -295,8 +295,6 @@ def structural_simplify(
         the resulting system is re-analysed.
     consistency_check
         Verify balance/nonsingularity before state selection.
-    simplify
-        Apply :func:`sympy.simplify` to solved right-hand sides.
     conservative
         Restrict tearing to coefficients with absolute value one.
     allow_symbolic, allow_parameter
@@ -339,7 +337,6 @@ def structural_simplify(
 
     reassemble_kwargs = {
         "fully_determined": fully_determined,
-        "simplify": simplify,
         "inline_linear_sccs": inline_linear_sccs,
         "analytical_linear_scc_limit": analytical_linear_scc_limit,
         "allow_symbolic": allow_symbolic,

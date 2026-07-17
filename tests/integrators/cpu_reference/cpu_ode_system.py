@@ -7,6 +7,7 @@ import sympy as sp
 
 from cubie import SymbolicODE
 from cubie.odesystems.symbolic.codegen.jacobian import generate_jacobian
+from cubie.odesystems.symbolic.engine import to_sympy
 from cubie.odesystems.symbolic.sym_utils import topological_sort
 
 from .cpu_utils import Array
@@ -36,12 +37,26 @@ class CPUODESystem:
         self._observable_index = indexed.observables.index_map
 
         self._dx_index = indexed.dxdt.index_map
-        ordered_equations = topological_sort(system.equations)
+        # The parser emits engine-IR pairs; the CPU reference
+        # lambdifies SymPy expressions, so convert once here.
+        sympy_equations = [
+            (to_sympy(lhs), to_sympy(rhs))
+            for lhs, rhs in system.equations.to_equation_list()
+        ]
+        ordered_equations = topological_sort(sympy_equations)
         self._equations = ordered_equations
-        self._jacobian_expr = generate_jacobian(
+        jacobian_rows = generate_jacobian(
             system.equations,
             self._state_index,
             self._dx_index,
+        )
+        # The engine returns IR rows; the CPU reference lambdifies
+        # SymPy expressions, so convert once here.
+        self._jacobian_expr = sp.Matrix(
+            [
+                [to_sympy(entry) for entry in row]
+                for row in jacobian_rows
+            ]
         )
 
         self._base_symbols: Set[sp.Symbol] = set().union(

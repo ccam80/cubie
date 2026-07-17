@@ -8,6 +8,9 @@ import sympy as sp
 from cubie.odesystems.symbolic.codegen.linear_operators import (
     generate_operator_apply_code,
 )
+from cubie.odesystems.symbolic.engine import expr as ir
+from cubie.odesystems.symbolic.engine.expr import _children
+from cubie.odesystems.symbolic.engine.from_sympy import to_sympy
 from cubie.odesystems.symbolic.indexedbasemaps import (
     IndexedBaseMap,
     IndexedBases,
@@ -26,6 +29,20 @@ from cubie.odesystems.symbolic.parsing.parser import (
     parse_input,
 )
 from cubie.odesystems.symbolic.symbolicODE import create_ODE_system
+
+
+def _walk(node):
+    """Yield ``node`` and every descendant IR node via a stack."""
+    stack = [node]
+    while stack:
+        current = stack.pop()
+        yield current
+        stack.extend(_children(current))
+
+
+def _has_piecewise(node):
+    """Return whether an IR expression contains a Piecewise node."""
+    return any(isinstance(n, ir.Piecewise) for n in _walk(node))
 
 
 class TestParseInput:
@@ -120,8 +137,8 @@ class TestParseInput:
             eqs_str.state_derivatives
         )
         # Both should have one derivative equation for dx
-        func_rhs = eqs_func.state_derivatives[0][1]
-        str_rhs = eqs_str.state_derivatives[0][1]
+        func_rhs = to_sympy(eqs_func.state_derivatives[0][1])
+        str_rhs = to_sympy(eqs_str.state_derivatives[0][1])
         assert sp.simplify(func_rhs - str_rhs) == 0
 
     def test_math_functions(self):
@@ -168,12 +185,13 @@ class TestParseInput:
         # Derivatives reference the auxiliary symbol.
         assert len(eqs.auxiliaries) == 1
         aux_lhs, aux_rhs = eqs.auxiliaries[0]
-        assert str(aux_lhs) == "total"
+        assert aux_lhs.name == "total"
         a = sp.Symbol("a", real=True)
         b = sp.Symbol("b", real=True)
         c = sp.Symbol("c", real=True)
-        assert sp.simplify(aux_rhs - (a + b + c)) == 0, (
-            f"Expected a + b + c, got {aux_rhs}"
+        aux_rhs_sp = to_sympy(aux_rhs)
+        assert sp.simplify(aux_rhs_sp - (a + b + c)) == 0, (
+            f"Expected a + b + c, got {aux_rhs_sp}"
         )
 
 
@@ -193,7 +211,7 @@ class TestParseInput:
         assert len(eqs.state_derivatives) == 3
         # ``total`` auxiliary should contain all three terms
         assert len(eqs.auxiliaries) == 1
-        aux_rhs = eqs.auxiliaries[0][1]
+        aux_rhs = to_sympy(eqs.auxiliaries[0][1])
         a = sp.Symbol("a", real=True)
         b = sp.Symbol("b", real=True)
         c = sp.Symbol("c", real=True)
@@ -233,7 +251,7 @@ class TestParseInput:
         # The Piecewise appears in the auxiliary for 'result'
         assert len(eqs.auxiliaries) == 1
         _, aux_rhs = eqs.auxiliaries[0]
-        assert aux_rhs.has(sp.Piecewise)
+        assert _has_piecewise(aux_rhs)
 
     def test_if_elif_else_piecewise(self):
         """If/elif/else chain produces multi-branch Piecewise."""
@@ -252,7 +270,7 @@ class TestParseInput:
         )
         assert len(eqs.auxiliaries) == 1
         _, aux_rhs = eqs.auxiliaries[0]
-        assert aux_rhs.has(sp.Piecewise)
+        assert _has_piecewise(aux_rhs)
 
     def test_elif_only_container_access(self):
         """Container access appearing only in an elif branch resolves."""
@@ -272,9 +290,8 @@ class TestParseInput:
         )
         assert len(eqs.auxiliaries) == 1
         _, aux_rhs = eqs.auxiliaries[0]
-        assert aux_rhs.has(sp.Piecewise)
-        k2 = sp.Symbol("k2", real=True)
-        assert aux_rhs.has(k2)
+        assert _has_piecewise(aux_rhs)
+        assert ir.sym("k2") in ir.free_atoms(aux_rhs)
 
     def test_for_loop_inside_if_branch(self):
         """A for-loop inside an if-branch unrolls into the branch."""
@@ -294,12 +311,12 @@ class TestParseInput:
         )
         assert len(eqs.auxiliaries) == 1
         _, aux_rhs = eqs.auxiliaries[0]
-        assert aux_rhs.has(sp.Piecewise)
+        assert _has_piecewise(aux_rhs)
         a = sp.Symbol("a", real=True)
         b = sp.Symbol("b", real=True)
         k0 = sp.Symbol("k0", real=True)
         k1 = sp.Symbol("k1", real=True)
-        branch_expr = aux_rhs.args[0][0]
+        branch_expr = to_sympy(aux_rhs.pairs[0][0])
         expected = k0 * a + k1 * b
         assert sp.simplify(branch_expr - expected) == 0, (
             f"Expected {expected}, got {branch_expr}"
@@ -389,7 +406,7 @@ class TestParseInput:
         assert len(eqs.auxiliaries) == 1
         _, aux_rhs = eqs.auxiliaries[0]
         x = sp.Symbol("x", real=True)
-        assert sp.simplify(aux_rhs - 2.0 * x) == 0
+        assert sp.simplify(to_sympy(aux_rhs) - 2.0 * x) == 0
 
 
 class TestCreateODESystem:
@@ -459,8 +476,8 @@ class TestDriverAccess:
         driver_sym = index_map.drivers.symbol_map["forcing"]
         rhs_symbols = set()
         for _, rhs in eqs.state_derivatives:
-            rhs_symbols |= rhs.free_symbols
-        assert driver_sym in rhs_symbols
+            rhs_symbols |= ir.free_atoms(rhs)
+        assert ir.sym(driver_sym.name) in rhs_symbols
         assert "forcing" not in index_map.parameter_names
 
     def test_driver_via_dedicated_fourth_argument(self):
@@ -479,8 +496,8 @@ class TestDriverAccess:
         driver_sym = index_map.drivers.symbol_map["forcing"]
         rhs_symbols = set()
         for _, rhs in eqs.state_derivatives:
-            rhs_symbols |= rhs.free_symbols
-        assert driver_sym in rhs_symbols
+            rhs_symbols |= ir.free_atoms(rhs)
+        assert ir.sym(driver_sym.name) in rhs_symbols
 
     def test_driver_string_subscript(self):
         """String subscript access reaches drivers."""
@@ -493,7 +510,8 @@ class TestDriverAccess:
             drivers=["forcing"],
         )
         driver_sym = index_map.drivers.symbol_map["forcing"]
-        assert driver_sym in eqs.state_derivatives[0][1].free_symbols
+        rhs = eqs.state_derivatives[0][1]
+        assert ir.sym(driver_sym.name) in ir.free_atoms(rhs)
 
     def test_bare_driver_name_raises_with_hint(self):
         """Bare-name driver references raise with the container hint."""
@@ -575,7 +593,7 @@ class TestStateInference:
         lhs_i, rhs_i = eqs_inferred.state_derivatives[0]
         lhs_e, rhs_e = eqs_explicit.state_derivatives[0]
         assert lhs_i == lhs_e
-        assert sp.simplify(rhs_i - rhs_e) == 0
+        assert sp.simplify(to_sympy(rhs_i) - to_sympy(rhs_e)) == 0
 
 
 class TestUndeclaredSymbols:
@@ -688,7 +706,7 @@ class TestUserFunctions:
         assert funcs["hill"] is hill
         x = sp.Symbol("x", real=True)
         km = sp.Symbol("km", real=True)
-        rhs = eqs.state_derivatives[0][1]
+        rhs = to_sympy(eqs.state_derivatives[0][1])
         assert sp.simplify(rhs - (-x / (km + x))) == 0
 
     def test_user_function_overrides_known_function(self):
@@ -705,7 +723,8 @@ class TestUserFunctions:
             user_functions={"exp": my_exp},
         )
         x = sp.Symbol("x", real=True)
-        assert sp.simplify(eqs.state_derivatives[0][1] + 2 * x) == 0
+        rhs = to_sympy(eqs.state_derivatives[0][1])
+        assert sp.simplify(rhs + 2 * x) == 0
 
     def test_device_function_stays_symbolic(self):
         """Device-like callables stay as symbolic calls."""
@@ -726,8 +745,8 @@ class TestUserFunctions:
         )
         rhs = eqs.state_derivatives[0][1]
         applied = [
-            a for a in rhs.atoms(sp.Function)
-            if getattr(a.func, "__name__", "") == "myfunc"
+            n for n in _walk(rhs)
+            if isinstance(n, ir.Call) and n.name == "myfunc"
         ]
         assert len(applied) == 1
 
@@ -779,11 +798,10 @@ class TestScalarArguments:
             states={"x": 1.0, "v": 0.0},
             parameters={"mu": 1.5},
         )
-        mu = sp.Symbol("mu", real=True)
         rhs_symbols = set()
         for _, rhs in eqs.state_derivatives:
-            rhs_symbols |= rhs.free_symbols
-        assert mu in rhs_symbols
+            rhs_symbols |= ir.free_atoms(rhs)
+        assert ir.sym("mu") in rhs_symbols
 
     def test_scalar_arg_resolves_declared_driver(self):
         """A bare extra arg binds to a like-named driver."""
@@ -797,7 +815,8 @@ class TestScalarArguments:
             drivers=["forcing"],
         )
         driver_sym = index_map.drivers.symbol_map["forcing"]
-        assert driver_sym in eqs.state_derivatives[0][1].free_symbols
+        rhs = eqs.state_derivatives[0][1]
+        assert ir.sym(driver_sym.name) in ir.free_atoms(rhs)
 
     def test_undeclared_scalar_arg_infers_parameter(self):
         """An undeclared scalar arg infers a parameter and warns."""
@@ -828,9 +847,8 @@ class TestScalarArguments:
             states={"x": 1.0},
             parameters={"mu": 1.0, "k": 2.0},
         )
-        mu = sp.Symbol("mu", real=True)
-        k = sp.Symbol("k", real=True)
-        assert {mu, k} <= eqs.state_derivatives[0][1].free_symbols
+        rhs = eqs.state_derivatives[0][1]
+        assert {ir.sym("mu"), ir.sym("k")} <= ir.free_atoms(rhs)
 
     def test_unused_extra_arg_ignored(self):
         """An extra arg never referenced infers nothing."""
@@ -867,7 +885,7 @@ class TestDerivativeAliasReference:
         assert len(eqs.observables) == 1
         _, obs_rhs = eqs.observables[0]
         x = sp.Symbol("x", real=True)
-        assert sp.simplify(obs_rhs - (-1.0 * x)) == 0
+        assert sp.simplify(to_sympy(obs_rhs) - (-1.0 * x)) == 0
 
 
 def _single_state_index_map():
@@ -1081,7 +1099,8 @@ class TestParseFunctionErrors:
         assert len(eqs.state_derivatives) == 1
         assert len(eqs.auxiliaries) == 0
         x = sp.Symbol("x", real=True)
-        assert sp.simplify(eqs.state_derivatives[0][1] + x) == 0
+        rhs = to_sympy(eqs.state_derivatives[0][1])
+        assert sp.simplify(rhs + x) == 0
 
     def test_attribute_access_alias_not_auxiliary(self):
         """A local aliasing ``p.k`` is not emitted as an auxiliary."""

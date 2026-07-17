@@ -26,7 +26,7 @@ attrs conventions.
 ## Subdirectories
 | Directory | Purpose |
 |-----------|---------|
-| `symbolic/` | SymPy-driven CUDA codegen for `SymbolicODE(BaseODE)` (see `symbolic/AGENTS.md`). |
+| `symbolic/` | IR-based CUDA code generation for `SymbolicODE(BaseODE)` (see `symbolic/AGENTS.md`). |
 
 ## For AI Agents
 

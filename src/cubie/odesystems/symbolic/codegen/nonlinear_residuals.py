@@ -24,25 +24,27 @@ See Also
 
 from typing import Iterable, List, Optional, Sequence, Tuple, Union
 
-import sympy as sp
-
-from cubie.odesystems.symbolic.codegen.numba_cuda_printer import (
+from cubie.odesystems.symbolic.engine import expr as ir
+from cubie.odesystems.symbolic.engine.adapter import SystemIR, system_ir
+from cubie.odesystems.symbolic.engine.assignments import (
+    cse_and_stack,
+    prune_unused,
+    topological_sort,
+)
+from cubie.odesystems.symbolic.engine.printer import (
     print_cuda_multiple,
 )
 from cubie.odesystems.symbolic.parsing.parser import (
     IndexedBases,
     ParsedEquations,
-    TIME_SYMBOL,
 )
 from cubie.odesystems.symbolic.sym_utils import (
-    cse_and_stack,
     render_constant_assignments,
-    topological_sort,
-    prune_unused_assignments,
 )
 from cubie.time_logger import default_timelogger
 
 from ._stage_utils import build_stage_metadata, prepare_stage_data
+from ._matrix_utils import mass_matrix_ir
 
 # Register timing events for codegen functions
 # Module-level registration required since codegen functions return code
@@ -112,104 +114,163 @@ N_STAGE_RESIDUAL_TEMPLATE = (
 
 
 def _build_residual_lines(
-    equations: ParsedEquations,
-    index_map: IndexedBases,
-    M: sp.Matrix,
+    sysir: SystemIR,
+    M: List[List[ir.Expr]],
     cse: bool = True,
 ) -> str:
     """Construct CUDA code lines for the stage-increment residual."""
 
-    eq_list = equations.to_equation_list()
+    n = len(sysir.state_symbols)
+    beta_sym = ir.sym("_cubie_codegen_beta")
+    gamma_sym = ir.sym("_cubie_codegen_gamma")
+    h_sym = ir.sym("h")
+    aij_sym = ir.sym("a_ij")
 
-    n = len(index_map.states.index_map)
-
-    # Use _cubie_codegen_ prefix to avoid conflicts with user-defined
-    # variables named beta or gamma (issue #373)
-    beta_sym = sp.Symbol("_cubie_codegen_beta")
-    gamma_sym = sp.Symbol("_cubie_codegen_gamma")
-    h_sym = sp.Symbol("h")
-    aij_sym = sp.Symbol("a_ij")
-    u = sp.IndexedBase("u", shape=(n,))
-    base = sp.IndexedBase("base_state", shape=(n,))
-    out = sp.IndexedBase("out", shape=(n,))
-
-    dx_subs = {}
-    for i, (dx_sym, _) in enumerate(index_map.dxdt.index_map.items()):
-        dx_subs[dx_sym] = sp.Symbol(f"dx_{i}")
-
-    obs_subs = {}
-    if index_map.observable_symbols:
-        obs_subs = dict(
-            zip(
-                index_map.observable_symbols,
-                sp.numbered_symbols("aux_", start=1),
-            )
+    # dx/observable outputs become stage locals; states evaluate at
+    # base_state + a_ij * u. Domains and images are disjoint, so one
+    # simultaneous substitution covers all of it.
+    subs_map = {}
+    for i, dx_sym in enumerate(sysir.dxdt_symbols):
+        subs_map[dx_sym] = ir.sym(f"dx_{i}")
+    for position, obs_sym in enumerate(sysir.observable_symbols):
+        subs_map[obs_sym] = ir.sym(f"aux_{position + 1}")
+    for i, state_sym in enumerate(sysir.state_symbols):
+        subs_map[state_sym] = ir.add(
+            ir.arr("base_state", i),
+            ir.mul(aij_sym, ir.arr("u", i)),
         )
 
-    all_subs = {**dx_subs, **obs_subs}
-    substituted_equations = [
-        (lhs.subs(all_subs), rhs.subs(all_subs)) for lhs, rhs in eq_list
+    memo: dict = {}
+    eval_exprs: List[Tuple[ir.Expr, ir.Expr]] = [
+        (
+            ir.xreplace(lhs, subs_map, memo),
+            ir.xreplace(rhs, subs_map, memo),
+        )
+        for lhs, rhs in sysir.equations
     ]
 
-    state_subs = {}
-    state_symbols = list(index_map.states.index_map.keys())
-    for i, state_sym in enumerate(state_symbols):
-        eval_point = base[i] + aij_sym * u[i]
-        state_subs[state_sym] = eval_point
-
-    eval_equations = []
-    for lhs, rhs in substituted_equations:
-        eval_rhs = rhs.subs(state_subs)
-        eval_equations.append((lhs, eval_rhs))
-
-    symbol_map = dict(index_map.all_arrayrefs)
-    symbol_map.update(
-        {
-            "_cubie_codegen_beta": beta_sym,
-            "_cubie_codegen_gamma": gamma_sym,
-            "h": h_sym,
-            "a_ij": aij_sym,
-            "u": u,
-            "base_state": base,
-            "out": out,
-        }
-    )
-
-    eval_exprs = eval_equations
-
     for i in range(n):
-        mv = sp.S.Zero
+        mv_terms = []
         for j in range(n):
-            entry = M[i, j]
-            if entry == 0:
+            entry = M[i][j]
+            if ir.is_zero(entry):
                 continue
-            mv += entry * u[j]
-
-        dx_sym = sp.Symbol(f"dx_{i}")
-        residual_expr = beta_sym * mv - gamma_sym * h_sym * dx_sym
-        eval_exprs.append((out[i], residual_expr))
+            mv_terms.append(ir.mul(entry, ir.arr("u", j)))
+        mv = ir.add(*mv_terms) if mv_terms else ir.ZERO
+        dx_sym = ir.sym(f"dx_{i}")
+        residual_expr = ir.sub(
+            ir.mul(beta_sym, mv),
+            ir.mul(gamma_sym, h_sym, dx_sym),
+        )
+        eval_exprs.append((ir.arr("out", i), residual_expr))
 
     if cse:
         eval_exprs = cse_and_stack(eval_exprs)
     else:
         eval_exprs = topological_sort(eval_exprs)
-    eval_exprs = prune_unused_assignments(eval_exprs, outputsym_str='out')
+    eval_exprs = prune_unused(eval_exprs, output_name="out")
 
     lines = print_cuda_multiple(
         eval_exprs,
-        symbol_map=symbol_map,
-        constant_names=index_map.constants.symbol_map,
+        symbol_map=sysir.arrayrefs,
+        constant_names=sysir.constant_names,
+        function_aliases=sysir.function_aliases,
     )
     assert lines, "internal error: codegen produced an empty body"
     return "\n".join("        " + ln for ln in lines)
 
 
+def build_stage_substitutions(
+    sysir: SystemIR,
+    stage_idx: int,
+    coeff_symbols: List[List[ir.Sym]],
+    node_symbols: List[ir.Sym],
+    stage_coefficients: List[List[ir.Expr]],
+    state_vector_name: str,
+) -> dict:
+    """Build the per-stage substitution map for FIRK builders.
+
+    Replaces dx/observable outputs with stage-suffixed locals, the
+    time symbol with the stage evaluation time, drivers with their
+    stage-flattened slots, and state symbols with
+    ``base_state + sum(a_ij * <vec>[j*n + i])``.
+
+    Parameters
+    ----------
+    sysir
+        IR system bundle.
+    stage_idx
+        Stage being instantiated.
+    coeff_symbols
+        Coefficient symbols from :func:`build_stage_metadata`.
+    node_symbols
+        Node symbols from :func:`build_stage_metadata`.
+    stage_coefficients
+        IR tableau entries (used only for zero-skipping).
+    state_vector_name
+        Name of the flattened unknown vector (``"u"`` or ``"state"``).
+
+    Returns
+    -------
+    dict
+        Node-for-node substitution map.
+    """
+    state_count = len(sysir.state_symbols)
+    stage_count = len(stage_coefficients)
+    h_sym = ir.sym("h")
+    time_arg = ir.sym("t")
+
+    subs_map = {}
+    for idx, dx_sym in enumerate(sysir.dxdt_symbols):
+        subs_map[dx_sym] = ir.sym(f"dx_{stage_idx}_{idx}")
+    for idx, obs_sym in enumerate(sysir.observable_symbols):
+        subs_map[obs_sym] = ir.sym(f"aux_{stage_idx}_{idx + 1}")
+    # Anonymous auxiliaries must be stage-renamed too: repeated
+    # left-hand sides across stages would otherwise collapse to a
+    # single assignment during topological sorting, leaving early
+    # stages reading another stage's values.
+    named = set(subs_map)
+    for lhs, _ in sysir.equations:
+        if isinstance(lhs, ir.Sym) and lhs not in named:
+            subs_map[lhs] = ir.sym(f"{lhs.name}_{stage_idx}")
+    subs_map[sysir.time_symbol] = ir.add(
+        time_arg, ir.mul(h_sym, node_symbols[stage_idx])
+    )
+
+    driver_count = len(sysir.driver_symbols)
+    if driver_count:
+        stage_driver_offset = stage_idx * driver_count
+        for driver_idx, driver_sym in enumerate(sysir.driver_symbols):
+            subs_map[driver_sym] = ir.arr(
+                "drivers", stage_driver_offset + driver_idx
+            )
+
+    for state_idx, state_sym in enumerate(sysir.state_symbols):
+        terms: List[ir.Expr] = [ir.arr("base_state", state_idx)]
+        for contrib_idx in range(stage_count):
+            if ir.is_zero(
+                stage_coefficients[stage_idx][contrib_idx]
+            ):
+                continue
+            coeff_sym = coeff_symbols[stage_idx][contrib_idx]
+            terms.append(
+                ir.mul(
+                    coeff_sym,
+                    ir.arr(
+                        state_vector_name,
+                        contrib_idx * state_count + state_idx,
+                    ),
+                )
+            )
+        subs_map[state_sym] = ir.add(*terms)
+    return subs_map
+
+
 def _build_n_stage_residual_lines(
-    equations: ParsedEquations,
-    index_map: IndexedBases,
-    M: sp.Matrix,
-    stage_coefficients: sp.Matrix,
-    stage_nodes: Tuple[sp.Expr, ...],
+    sysir: SystemIR,
+    M: List[List[ir.Expr]],
+    stage_coefficients: List[List[ir.Expr]],
+    stage_nodes: Tuple[ir.Expr, ...],
     cse: bool = True,
 ) -> str:
     """Construct CUDA statements for the FIRK n-stage residual."""
@@ -217,114 +278,65 @@ def _build_n_stage_residual_lines(
     metadata_exprs, coeff_symbols, node_symbols = build_stage_metadata(
         stage_coefficients, stage_nodes
     )
-    eq_list = equations.to_equation_list()
-    state_symbols = list(index_map.states.index_map.keys())
-    dx_symbols = list(index_map.dxdt.index_map.keys())
-    observable_symbols = list(index_map.observable_symbols)
-    driver_symbols = list(index_map.drivers.index_map.keys())
-    state_count = len(state_symbols)
-    stage_count = stage_coefficients.rows
+    state_count = len(sysir.state_symbols)
+    stage_count = len(stage_coefficients)
 
-    beta_sym = sp.Symbol("_cubie_codegen_beta")
-    gamma_sym = sp.Symbol("_cubie_codegen_gamma")
-    h_sym = sp.Symbol("h")
-    time_arg = sp.Symbol("t")
-    total_states = sp.Integer(stage_count * state_count)
-    u = sp.IndexedBase("u", shape=(total_states,))
-    base_state = sp.IndexedBase("base_state", shape=(sp.Integer(state_count),))
-    out = sp.IndexedBase("out", shape=(total_states,))
+    beta_sym = ir.sym("_cubie_codegen_beta")
+    gamma_sym = ir.sym("_cubie_codegen_gamma")
+    h_sym = ir.sym("h")
 
-    driver_count = len(driver_symbols)
-    if driver_count:
-        drivers = sp.IndexedBase(
-            "drivers", shape=(sp.Integer(stage_count * driver_count),)
-        )
-    else:
-        drivers = sp.IndexedBase("drivers")
-
-    eval_exprs: List[Tuple[sp.Symbol, sp.Expr]] = list(metadata_exprs)
+    eval_exprs: List[Tuple[ir.Expr, ir.Expr]] = list(metadata_exprs)
 
     for stage_idx in range(stage_count):
-        stage_dx_symbols = [
-            sp.Symbol(f"dx_{stage_idx}_{idx}")
-            for idx in range(len(dx_symbols))
-        ]
-        dx_subs = dict(zip(dx_symbols, stage_dx_symbols))
-
-        if observable_symbols:
-            stage_obs_symbols = [
-                sp.Symbol(f"aux_{stage_idx}_{idx + 1}")
-                for idx in range(len(observable_symbols))
-            ]
-            obs_subs = dict(zip(observable_symbols, stage_obs_symbols))
-        else:
-            obs_subs = {}
-        substitution_map = {**dx_subs, **obs_subs}
-        substitution_map[TIME_SYMBOL] = time_arg + h_sym * node_symbols[stage_idx]
-
-        if driver_count:
-            stage_driver_offset = stage_idx * driver_count
-            for driver_idx, driver_sym in enumerate(driver_symbols):
-                substitution_map[driver_sym] = drivers[
-                    stage_driver_offset + driver_idx
-                ]
-
-        stage_state_subs = {}
-        for state_idx, state_sym in enumerate(state_symbols):
-            expr = base_state[state_idx]
-            for contrib_idx in range(stage_count):
-                coeff_value = stage_coefficients[stage_idx, contrib_idx]
-                if coeff_value == 0:
-                    continue
-                coeff_sym = coeff_symbols[stage_idx][contrib_idx]
-                expr += coeff_sym * u[contrib_idx * state_count + state_idx]
-            stage_state_subs[state_sym] = expr
-
+        subs_map = build_stage_substitutions(
+            sysir,
+            stage_idx,
+            coeff_symbols,
+            node_symbols,
+            stage_coefficients,
+            state_vector_name="u",
+        )
+        memo: dict = {}
         substituted = [
             (
-                lhs.subs(substitution_map),
-                rhs.subs(substitution_map).subs(stage_state_subs),
+                ir.xreplace(lhs, subs_map, memo),
+                ir.xreplace(rhs, subs_map, memo),
             )
-            for lhs, rhs in eq_list
+            for lhs, rhs in sysir.equations
         ]
         eval_exprs.extend(substituted)
 
         stage_offset = stage_idx * state_count
         for comp_idx in range(state_count):
-            mv = sp.S.Zero
+            mv_terms = []
             for col_idx in range(state_count):
-                entry = M[comp_idx, col_idx]
-                if entry == 0:
+                entry = M[comp_idx][col_idx]
+                if ir.is_zero(entry):
                     continue
-                mv += entry * u[stage_offset + col_idx]
-
-            dx_symbol = sp.Symbol(f"dx_{stage_idx}_{comp_idx}")
-            update_expr = beta_sym * mv - gamma_sym * h_sym * dx_symbol
-            eval_exprs.append((out[stage_offset + comp_idx], update_expr))
+                mv_terms.append(
+                    ir.mul(entry, ir.arr("u", stage_offset + col_idx))
+                )
+            mv = ir.add(*mv_terms) if mv_terms else ir.ZERO
+            dx_symbol = ir.sym(f"dx_{stage_idx}_{comp_idx}")
+            update_expr = ir.sub(
+                ir.mul(beta_sym, mv),
+                ir.mul(gamma_sym, h_sym, dx_symbol),
+            )
+            eval_exprs.append(
+                (ir.arr("out", stage_offset + comp_idx), update_expr)
+            )
 
     if cse:
         eval_exprs = cse_and_stack(eval_exprs)
     else:
         eval_exprs = topological_sort(eval_exprs)
 
-    symbol_map = dict(index_map.all_arrayrefs)
-    symbol_map.update(
-        {
-            "u": u,
-            "base_state": base_state,
-            "out": out,
-            "_cubie_codegen_beta": beta_sym,
-            "_cubie_codegen_gamma": gamma_sym,
-            "h": h_sym,
-            "t": time_arg,
-        }
-    )
-
-    eval_exprs = prune_unused_assignments(eval_exprs, outputsym_str='out')
+    eval_exprs = prune_unused(eval_exprs, output_name="out")
     lines = print_cuda_multiple(
         eval_exprs,
-        symbol_map=symbol_map,
-        constant_names=index_map.constants.symbol_map,
+        symbol_map=sysir.arrayrefs,
+        constant_names=sysir.constant_names,
+        function_aliases=sysir.function_aliases,
     )
     assert lines, "internal error: codegen produced an empty body"
     return "\n".join("        " + ln for ln in lines)
@@ -333,22 +345,19 @@ def _build_n_stage_residual_lines(
 def generate_residual_code(
     equations: ParsedEquations,
     index_map: IndexedBases,
-    M: Optional[Union[sp.Matrix, Iterable[Iterable[sp.Expr]]]] = None,
+    M: Optional[Union[Iterable, object]] = None,
     func_name: str = "residual_factory",
     cse: bool = True,
 ) -> str:
     """Emit the stage-increment residual factory for Newton--Krylov integration."""
 
-    if M is None:
-        n = len(index_map.states.index_map)
-        M_mat = sp.eye(n)
-    else:
-        M_mat = sp.Matrix(M)
+    sysir = system_ir(equations, index_map)
+    n = len(sysir.state_symbols)
+    mass = mass_matrix_ir(M, n)
 
     res_lines = _build_residual_lines(
-        equations=equations,
-        index_map=index_map,
-        M=M_mat,
+        sysir=sysir,
+        M=mass,
         cse=cse,
     )
     const_block = render_constant_assignments(index_map.constants.symbol_map)
@@ -363,7 +372,7 @@ def generate_residual_code(
 def generate_stage_residual_code(
     equations: ParsedEquations,
     index_map: IndexedBases,
-    M: Optional[Union[sp.Matrix, Iterable[Iterable[sp.Expr]]]] = None,
+    M: Optional[Union[Iterable, object]] = None,
     func_name: str = "stage_residual",
     cse: bool = True,
 ) -> str:
@@ -384,9 +393,9 @@ def generate_stage_residual_code(
 def generate_n_stage_residual_code(
     equations: ParsedEquations,
     index_map: IndexedBases,
-    stage_coefficients: Sequence[Sequence[Union[float, sp.Expr]]],
-    stage_nodes: Sequence[Union[float, sp.Expr]],
-    M: Optional[Union[sp.Matrix, Iterable[Iterable[sp.Expr]]]] = None,
+    stage_coefficients: Sequence[Sequence[Union[float, object]]],
+    stage_nodes: Sequence[Union[float, object]],
+    M: Optional[Union[Iterable, object]] = None,
     func_name: str = "n_stage_residual",
     cse: bool = True,
 ) -> str:
@@ -396,15 +405,11 @@ def generate_n_stage_residual_code(
     coeff_matrix, node_values, stage_count = prepare_stage_data(
         stage_coefficients, stage_nodes
     )
-    if M is None:
-        state_dim = len(index_map.states.index_map)
-        mass_matrix = sp.eye(state_dim)
-    else:
-        mass_matrix = sp.Matrix(M)
+    sysir = system_ir(equations, index_map)
+    mass = mass_matrix_ir(M, len(sysir.state_symbols))
     body = _build_n_stage_residual_lines(
-        equations=equations,
-        index_map=index_map,
-        M=mass_matrix,
+        sysir=sysir,
+        M=mass,
         stage_coefficients=coeff_matrix,
         stage_nodes=node_values,
         cse=cse,
@@ -425,4 +430,5 @@ __all__ = [
     "generate_residual_code",
     "generate_stage_residual_code",
     "generate_n_stage_residual_code",
+    "build_stage_substitutions",
 ]
