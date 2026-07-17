@@ -3,6 +3,7 @@ import pytest
 from cubie.cuda_simsafe import cuda
 
 from cubie.odesystems.symbolic.symbolicODE import create_ODE_system
+from tests._utils import attach_kernel_cache
 
 
 @pytest.fixture(scope="function")
@@ -96,6 +97,13 @@ def system_setup(request, precision):
     def dxdt_kernel(state, params, drivers, observables, deriv, time_scalar):
         dxdt_func(state, params, drivers, observables, deriv, time_scalar)
 
+    attach_kernel_cache(
+        dxdt_kernel,
+        "harness_mfs_dxdt",
+        sym_system.fn_hash,
+        sym_system.config_hash,
+        str(np.dtype(precision)),
+    )
     zero_time = precision(0.0)
     dxdt_kernel[1, 1](base_host, params, drivers, observables, deriv, zero_time)
     state_init_host = base_host + h * deriv * precision(1.05)
@@ -129,12 +137,26 @@ def system_setup(request, precision):
             out_vec,
         )
 
+    attach_kernel_cache(
+        operator_kernel,
+        "harness_mfs_operator",
+        sym_system.fn_hash,
+        sym_system.config_hash,
+        str(np.dtype(precision)),
+    )
     for j in range(3):
         temp_in.fill(0)
         temp_in[j] = precision(1.0)
         operator_kernel[1, 1](state_fp, params, drivers, base_state, zero_time, h, temp_in, temp_out)
         F[:, j] = temp_out
-    mr_expected = np.linalg.solve(F, mr_rhs)
+    try:
+        mr_expected = np.linalg.solve(F, mr_rhs)
+    except np.linalg.LinAlgError:
+        # The precompile pass's fake launches leave F all-zero, which
+        # is singular. Reference values are meaningless there, but the
+        # fixture must still construct so the tests behind it reach
+        # their kernel launches and get compiled and cached.
+        mr_expected = np.full_like(mr_rhs, np.nan)
 
 
     return {
@@ -169,7 +191,7 @@ def neumann_kernel(precision):
         ``(state_init, residual, out)``.
     """
 
-    def factory(precond, n, h):
+    def factory(precond, n, h, cache_key=None):
         scratch_size = n
 
         @cuda.jit
@@ -196,6 +218,15 @@ def neumann_kernel(precision):
                 scratch,
             )
 
+        if cache_key is not None:
+            attach_kernel_cache(
+                kernel,
+                "harness_mfs_neumann",
+                cache_key,
+                int(n),
+                float(h),
+                str(np.dtype(precision)),
+            )
         return kernel
 
     return factory
@@ -215,7 +246,7 @@ def solver_kernel():
     callable
         Factory producing kernels executing ``(state_init, rhs, x)``.
     """
-    def factory(solver, n, h, precision):
+    def factory(solver, n, h, precision, cache_key=None):
         scratch_size = 2 * n
         @cuda.jit
         def kernel(state_init, rhs, base_state, x, flag):
@@ -244,6 +275,15 @@ def solver_kernel():
                 counters
             )
 
+        if cache_key is not None:
+            attach_kernel_cache(
+                kernel,
+                "harness_mfs_solver",
+                cache_key,
+                int(n),
+                float(h),
+                str(np.dtype(precision)),
+            )
         return kernel
 
     return factory
@@ -290,6 +330,16 @@ def linear_solver_instance(solver_settings, system_setup, precision):
         operator_apply=system_setup["operator"],
         preconditioner=preconditioner,
     )
+    # Device-function handles are excluded from config hashing, so the
+    # cache key for wrapper kernels must carry the system identity and
+    # the preconditioner order explicitly.
+    solver.test_cache_key = (
+        solver.config_hash,
+        system_setup["sym_system"].fn_hash,
+        system_setup["sym_system"].config_hash,
+        order,
+        correction_type,
+    )
     return solver
 
 
@@ -313,4 +363,8 @@ def newton_solver_instance(
         newton_max_backtracks=solver_settings["newton_max_backtracks"],
     )
     solver.update(residual_function=system_setup["residual"])
+    solver.test_cache_key = (
+        solver.config_hash,
+        linear_solver_instance.test_cache_key,
+    )
     return solver

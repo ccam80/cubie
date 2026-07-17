@@ -44,6 +44,7 @@ import sympy as sp
 from cubie.cuda_simsafe import cuda
 
 from cubie.cuda_simsafe import CUDA_SIMULATION, get_jit_kwargs
+from cubie.cubie_cache import CUBIECache
 from cubie.odesystems.symbolic.indexedbasemaps import IndexedBases
 
 logger = logging.getLogger(__name__)
@@ -67,9 +68,11 @@ class NeumannRHSEvaluator:
         self,
         dxdt_getter: Callable,
         precision_getter: Callable,
+        cache_key_getter: Optional[Callable] = None,
     ) -> None:
         self._dxdt_getter = dxdt_getter
         self._precision_getter = precision_getter
+        self._cache_key_getter = cache_key_getter
         self._kernel = None
         self._kernel_dxdt = None
 
@@ -98,6 +101,13 @@ class NeumannRHSEvaluator:
                         t,
                     )
             # no cover: end
+            if self._cache_key_getter is not None and not CUDA_SIMULATION:
+                name, system_hash, config_hash = self._cache_key_getter()
+                evaluate_rhs._cache = CUBIECache(
+                    system_name=name,
+                    system_hash=system_hash,
+                    config_hash=config_hash,
+                )
             self._kernel = evaluate_rhs
             self._kernel_dxdt = dxdt_function
         return self._kernel

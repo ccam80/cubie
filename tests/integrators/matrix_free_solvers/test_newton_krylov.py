@@ -10,6 +10,7 @@ from cubie.integrators.matrix_free_solvers.newton_krylov import (
     NewtonKrylov,
 )
 from cubie.integrators.matrix_free_solvers import CUBIE_RESULT_CODES
+from tests._utils import attach_kernel_cache
 
 STATUS_MASK = 0xFFFF
 
@@ -196,6 +197,13 @@ def test_newton_krylov_symbolic(
             counters,
         )
 
+    attach_kernel_cache(
+        kernel,
+        "harness_newton",
+        newton_solver_instance.test_cache_key,
+        int(scratch_len),
+        str(np.dtype(precision)),
+    )
     base_vals = system_setup["base_state"].copy_to_host()
     expected_increment = expected - base_vals
     x = system_setup["state_init"]

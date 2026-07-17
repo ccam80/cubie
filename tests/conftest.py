@@ -68,7 +68,7 @@ from tests.system_fixtures import (
 )
 
 enable_tempdir = "1"
-os.environ["CUBIE_GENERATED_DIR_REDIRECT"] = enable_tempdir
+os.environ.setdefault("CUBIE_GENERATED_DIR_REDIRECT", enable_tempdir)
 np.set_printoptions(linewidth=120, threshold=np.inf, precision=12)
 
 
@@ -212,15 +212,20 @@ def codegen_dir():
 
 
 @pytest.fixture(scope="function")
-def isolated_cache_root(tmp_path):
+def isolated_cache_root(tmp_path, monkeypatch):
     """Point every disk cache layer at a fresh per-test directory.
 
     Cache-behaviour tests need a root no other test has written to;
     the session-wide redirect is shared, so cold-cache assertions
-    would otherwise depend on execution order.
+    would otherwise depend on execution order. The kernel-cache env
+    override is cleared for the same reason: with it set (as on CI
+    GPU runners), flush and eviction tests would otherwise operate
+    on the shared precompiled artifact.
     """
     from cubie import cache_root
 
+    monkeypatch.delenv("CUBIE_KERNEL_CACHE_DIR", raising=False)
+    monkeypatch.delenv("CUBIE_MAX_CACHE_ENTRIES", raising=False)
     previous = cache_root.get_cache_root_override()
     root = tmp_path / "generated"
     cache_root.set_cache_root(root)
@@ -897,6 +902,7 @@ def device_step_results(step_controller, precision, step_setup):
         state=step_setup["state"],
         state_prev=step_setup["state_prev"],
         local_mem=step_setup["local_mem"],
+        cache_key=step_controller.config_hash,
     )
 
 

@@ -110,6 +110,36 @@ def cache_dir_default() -> Optional[str]:
     return raw
 
 
+def kernel_cache_dir_default() -> Optional[str]:
+    """Return the environment-supplied compiled-kernel cache directory.
+
+    Reads ``CUBIE_KERNEL_CACHE_DIR``; explicit ``cache_dir`` arguments
+    override it. Unlike ``CUBIE_CACHE_DIR`` (the shared root for every
+    disk cache layer), this relocates only the compiled-kernel cache,
+    so CI can share a kernel-cache artifact between the precompile and
+    GPU runners while the codegen source caches stay in the per-worker
+    temporaries the test session creates.
+    """
+    raw = os.environ.get("CUBIE_KERNEL_CACHE_DIR")
+    if raw is None or not raw.strip():
+        return None
+    return raw
+
+
+def max_cache_entries_default() -> int:
+    """Return the default per-system compiled-kernel cache limit.
+
+    Reads ``CUBIE_MAX_CACHE_ENTRIES`` from the environment; explicit
+    ``max_cache_entries`` arguments override this value. ``0``
+    disables LRU eviction, which CI uses to keep every precompiled
+    kernel in the shared cache artifact.
+    """
+    raw = os.environ.get("CUBIE_MAX_CACHE_ENTRIES")
+    if raw is None or not raw.strip():
+        return 10
+    return int(raw)
+
+
 def cuda_backend_requested() -> Optional[str]:
     """Return the explicitly requested CUDA backend, if any.
 

@@ -147,6 +147,7 @@ class TestControllers:
             state=state,
             state_prev=state,
             truncated=True,
+            cache_key=step_controller.config_hash,
         )
         assert frozen.accepted == 1
         assert frozen.dt == dt0
@@ -160,6 +161,7 @@ class TestControllers:
             state=state,
             state_prev=state,
             truncated=False,
+            cache_key=step_controller.config_hash,
         )
         assert unforced.accepted == 1
         assert unforced.dt > dt0
@@ -182,6 +184,7 @@ class TestControllers:
             state=state,
             state_prev=state,
             truncated=True,
+            cache_key=step_controller.config_hash,
         )
         assert result.accepted == 0
         assert result.dt < dt0
@@ -209,6 +212,7 @@ class TestControllers:
             state=state,
             state_prev=state,
             truncated=True,
+            cache_key=step_controller.config_hash,
         )
         assert result.accepted == 1
         assert result.dt == dt_min

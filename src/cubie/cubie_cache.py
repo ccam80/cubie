@@ -31,6 +31,7 @@ from typing import Any, Dict, Optional, Set, Union
 from attrs import field, validators as val, define, converters
 
 from cubie.CUDAFactory import _CubieConfigBase
+from cubie._env import kernel_cache_dir_default, max_cache_entries_default
 from cubie._utils import getype_validator, build_config
 from cubie.cuda_backend import IS_MLIR
 from cubie.cuda_simsafe import (  # noqa: F401
@@ -385,7 +386,8 @@ class CUBIECache(CUDACache):
         Pre-computed hash of the compile settings.
     max_entries
         Maximum number of cache entries before LRU eviction.
-        Set to 0 to disable eviction.
+        Set to 0 to disable eviction. ``None`` reads the
+        ``CUBIE_MAX_CACHE_ENTRIES`` environment default.
     mode
         Caching mode: 'hash' for content-addressed caching,
         'flush_on_change' to clear cache when settings change.
@@ -405,7 +407,7 @@ class CUBIECache(CUDACache):
         system_name: str,
         system_hash: str,
         config_hash: str,
-        max_entries: int = 10,
+        max_entries: Optional[int] = None,
         mode: str = "hash",
         custom_cache_dir: Optional[Path] = None,
     ) -> None:
@@ -421,6 +423,10 @@ class CUBIECache(CUDACache):
         self._compile_settings_hash = config_hash
 
         self._name = f"CUBIECache({system_name})"
+        if max_entries is None:
+            max_entries = max_cache_entries_default()
+        if custom_cache_dir is None:
+            custom_cache_dir = kernel_cache_dir_default()
         self._max_entries = max_entries
         self._mode = mode
 
@@ -692,11 +698,11 @@ class CacheConfig(_CubieConfigBase):
         validator=val.in_(("hash", "flush_on_change")),
     )
     max_cache_entries: int = field(
-        default=10,
+        factory=max_cache_entries_default,
         validator=getype_validator(int, 0),
     )
     cache_dir: Optional[Path] = field(
-        default=None,
+        factory=kernel_cache_dir_default,
         validator=val.optional(val.instance_of((str, Path))),
         converter=converters.optional(Path),
     )

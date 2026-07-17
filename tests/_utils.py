@@ -1,12 +1,20 @@
 from __future__ import annotations
 
 import attrs
+import inspect
 import math
+import os
+from hashlib import sha256
 from typing import Mapping, Optional, Union, Dict, Any, Callable
 
 import numpy as np
 import pytest
-from cubie.cuda_simsafe import cuda, numba_from_dtype as from_dtype
+from cubie.cuda_simsafe import (
+    CUDA_SIMULATION,
+    cuda,
+    numba_from_dtype as from_dtype,
+)
+from cubie.cubie_cache import CUBIECache
 from numpy.testing import assert_allclose
 
 from cubie.integrators.SingleIntegratorRun import SingleIntegratorRun
@@ -19,6 +27,48 @@ from numpy.typing import NDArray
 from tests.integrators.cpu_reference import CPUAdaptiveController
 
 Array = NDArray[np.floating]
+
+
+def attach_kernel_cache(kernel, name, *key_parts):
+    """Attach a value-keyed disk cache to a test harness kernel.
+
+    numba's file cache keys on source location, which conflates every
+    rebuild of a closure-defined kernel. This keys the cache on the
+    kernel's own source plus the supplied identity parts, so distinct
+    closures get distinct entries and identical ones hit across
+    processes and sessions.
+
+    Parameters
+    ----------
+    kernel
+        Freshly decorated ``@cuda.jit`` dispatcher.
+    name
+        Directory label grouping this harness's entries under the
+        cache root.
+    *key_parts
+        Values identifying everything the kernel closes over: factory
+        ``config_hash`` values, system ``fn_hash`` values, precisions,
+        and any scalars baked in as closure constants.
+
+    Returns
+    -------
+    object
+        The kernel, with a configured cache attached on real hardware
+        (the CUDA simulator neither compiles nor caches).
+    """
+    if CUDA_SIMULATION:
+        return kernel
+    source = inspect.getsource(kernel.py_func)
+    digest = sha256(repr((source, key_parts)).encode()).hexdigest()
+    if os.environ.get("CUBIE_DEBUG_KERNEL_KEYS"):
+        print(f"ATTACH {name} {digest[:8]} parts={key_parts!r}", flush=True)
+    kernel._cache = CUBIECache(
+        system_name=name,
+        system_hash=digest[:16],
+        config_hash=digest[16:32],
+        max_entries=0,
+    )
+    return kernel
 
 # --------------------------------------------------------------------------- #
 #                      Standard Parameter Sets                                #
@@ -934,6 +984,21 @@ def run_device_loop(
             summary_stop,
         )
 
+    attach_kernel_cache(
+        kernel,
+        "harness_device_loop",
+        system.fn_hash,
+        system.config_hash,
+        singleintegratorrun.config_hash,
+        str(np.dtype(precision)),
+        float(duration),
+        float(warmup),
+        float(t0),
+        float(save_stop),
+        float(summary_stop),
+        int(shared_elements),
+        int(persistent_required),
+    )
     kernel[1, 1, 0, shared_bytes](
         d_init,
         d_params,
@@ -1511,8 +1576,14 @@ def run_controller_device_step(
     state_prev=None,
     niters=1,
     truncated=False,
+    cache_key=None,
 ):
-    """Execute a step-controller device function once on the GPU."""
+    """Execute a step-controller device function once on the GPU.
+
+    ``cache_key`` identifies the controller configuration that built
+    ``device_func`` (its ``config_hash``); when supplied, the wrapper
+    kernel's compilation is disk-cached under that key.
+    """
 
     err = np.asarray(error, dtype=precision)
     state_arr = (
@@ -1562,6 +1633,13 @@ def run_controller_device_step(
             persistent_val,
         )
 
+    if cache_key is not None:
+        attach_kernel_cache(
+            kernel,
+            "harness_controller_step",
+            cache_key,
+            str(np.dtype(precision)),
+        )
     kernel[1, 1](
         dt, state_arr, state_prev_arr, err, niters_val, truncated_val,
         accept, shared_scratch, persistent_local, status,

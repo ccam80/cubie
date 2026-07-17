@@ -63,10 +63,104 @@ jobs:
             echo "pr-head-sha=" >> "$GITHUB_OUTPUT"
           fi
 
-  cuda:
-    # Real-GPU runs on paid AWS runners; trigger gating lives on the
-    # gate job (a skipped gate skips this job through `needs`).
+  # Compile the test kernels on free CPU runners for every fleet GPU.
+  precompile:
     needs: gate
+    continue-on-error: true
+    name: precompile (${{ matrix.os }}, ${{ matrix.python-version }}, ${{ matrix.cuda }})
+    permissions:
+      contents: read
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - {os: linux, python-version: "3.10", cuda: "12", extra: dev12}
+          - {os: linux, python-version: "3.10", cuda: "13", extra: dev13}
+          - {os: linux, python-version: "3.14", cuda: "12", extra: dev12}
+          - {os: linux, python-version: "3.14", cuda: "13", extra: dev13}
+          - {os: windows, python-version: "3.10", cuda: "12", extra: dev12}
+          - {os: windows, python-version: "3.10", cuda: "13", extra: dev13}
+          - {os: windows, python-version: "3.14", cuda: "12", extra: dev12}
+          - {os: windows, python-version: "3.14", cuda: "13", extra: dev13}
+    runs-on: ${{ matrix.os == 'linux' && 'ubuntu-latest' || 'windows-latest' }}
+    steps:
+      - uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
+        with:
+          ref: ${{ needs.gate.outputs.checkout-ref }}
+          persist-credentials: false
+
+      - name: Verify the PR head matches the approved commit
+        if: github.event_name == 'issue_comment'
+        shell: bash
+        run: |
+          approved="${{ needs.gate.outputs.pr-head-sha }}"
+          actual=$(git cat-file -p HEAD | awk '$1 == "parent" { sha = $2 } END { print sha }')
+          test -n "$approved" && test "$actual" = "$approved"
+
+      - name: Set up Python ${{ matrix.python-version }}
+        uses: actions/setup-python@ece7cb06caefa5fff74198d8649806c4678c61a1 # v6.3.0
+        with:
+          python-version: ${{ matrix.python-version }}
+
+      - name: Set up uv
+        uses: astral-sh/setup-uv@37802adc94f370d6bfd71619e3f0bf239e1f3b78 # v7.6.0
+        with:
+          enable-cache: true
+          cache-suffix: ${{ matrix.os }}-py${{ matrix.python-version }}-cuda${{ matrix.cuda }}
+          cache-dependency-glob: pyproject.toml
+
+      - name: Install cubie (${{ matrix.extra }})
+        run: uv pip install --system -e ".[${{ matrix.extra }}]"
+
+      - name: Freeze environment for the GPU leg
+        shell: bash
+        run: |
+          mkdir -p kernel-cache
+          uv pip freeze --system --exclude-editable > kernel-cache/constraints.txt
+          python -c "from cubie.cubie_cache import environment_hash; print(environment_hash())" > kernel-cache/environment-hash.txt
+
+      - name: Precompile kernels per compute capability
+        shell: bash
+        env:
+          CUBIE_KERNEL_CACHE_DIR: ${{ github.workspace }}/kernel-cache/kernels
+          CUBIE_MAX_CACHE_ENTRIES: "0"
+        run: |
+          set -u
+          for cc in 7.5 8.6 8.9; do
+            echo "::group::precompile cc=$cc"
+            report="${GITHUB_WORKSPACE}/kernel-cache/precompile-${cc}.json"
+            set +e
+            CUBIE_TARGET_CC="$cc" CUBIE_PRECOMPILE_REPORT="$report" pytest \
+              -m "not specific_algos and not sim_only" \
+              -p tests.precompile_plugin -n logical \
+              --no-cov -q -p no:cacheprovider
+            status=$?
+            set -e
+            if [ "$status" -gt 1 ]; then
+              exit "$status"
+            fi
+            python - "$report" "$cc" <<'PY'
+          import json
+          import sys
+
+          report = json.load(open(sys.argv[1], encoding="utf-8"))
+          assert report["target_cc"] == sys.argv[2]
+          assert report["compiled"] + report["cache_hit"] > 0
+          assert report["production_compiled"] + report["production_cache_hit"] > 0
+          PY
+            echo "::endgroup::"
+          done
+
+      - name: Upload kernel cache
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: kernel-cache-${{ matrix.os }}-py${{ matrix.python-version }}-cuda${{ matrix.cuda }}
+          path: kernel-cache
+
+  cuda:
+    needs: [gate, precompile]
+    # Missing precompile artifacts fall back to normal cold compilation.
+    if: always() && needs.gate.result == 'success'
     name: cuda (${{ matrix.os }}, ${{ matrix.python-version }}, ${{ matrix.cuda }})
     permissions:
       contents: read
@@ -169,8 +263,33 @@ jobs:
           cache-suffix: ${{ matrix.os }}-py${{ matrix.python-version }}-cuda${{ matrix.cuda }}
           cache-dependency-glob: pyproject.toml
 
+      - name: Download precompiled kernel cache
+        continue-on-error: true
+        uses: actions/download-artifact@37930b1c2abaa49bbe596cd826c3c89aef350131 # v7.0.0
+        with:
+          name: kernel-cache-${{ matrix.os }}-py${{ matrix.python-version }}-cuda${{ matrix.cuda }}
+          path: kernel-cache
+
       - name: Install cubie (${{ matrix.extra }})
-        run: uv pip install --system -e ".[${{ matrix.extra }}]"
+        shell: bash
+        run: |
+          if [ -f kernel-cache/constraints.txt ]; then
+            uv pip install --system -e ".[${{ matrix.extra }}]" \
+              -c kernel-cache/constraints.txt
+          else
+            uv pip install --system -e ".[${{ matrix.extra }}]"
+          fi
+
+      - name: Check precompile environment
+        if: hashFiles('kernel-cache/environment-hash.txt') != ''
+        shell: bash
+        run: |
+          expected=$(tr -d '\r\n' < kernel-cache/environment-hash.txt)
+          actual=$(python -c "from cubie.cubie_cache import environment_hash; print(environment_hash())")
+          if [ "$actual" != "$expected" ]; then
+            echo "::warning::Precompile environment differs; using a cold cache"
+            rm -rf kernel-cache/kernels
+          fi
 
       - name: Lint with flake8
         run: flake8 . --count --select=E9,F63,F7,F82 --show-source --statistics
@@ -179,6 +298,9 @@ jobs:
         # -n logical (CLI) overrides pyproject's desktop-safe -n8 so the
         # runner uses all its vCPUs; change the runner instance size freely
         # and this scales automatically. Coverage/XML report come from addopts.
+        env:
+          CUBIE_KERNEL_CACHE_DIR: ${{ github.workspace }}/kernel-cache/kernels
+          CUBIE_MAX_CACHE_ENTRIES: "0"
         run: pytest -m "not specific_algos and not sim_only" -n logical --junitxml=pytest-results.xml
 
       # The artifact service occasionally answers CreateArtifact with a

@@ -395,11 +395,11 @@ class TestCustomCacheDir:
 
         assert Path(cache._cache_path) == custom_dir / "CUDA_cache_abc123"
 
-    def test_custom_cache_dir_none_uses_default(self, tmp_path, precision):
+    def test_custom_cache_dir_none_uses_default(
+        self, tmp_path, precision, monkeypatch
+    ):
         """Verify None cache_dir uses the shared cache root path."""
-        compile_settings = BatchSolverConfig(
-            precision=precision,
-        )
+        monkeypatch.delenv("CUBIE_KERNEL_CACHE_DIR", raising=False)
         cache = CUBIECache(
             system_name="test_system",
             system_hash="abc123",

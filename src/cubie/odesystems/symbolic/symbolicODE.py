@@ -619,6 +619,11 @@ class SymbolicODE(BaseODE):
             self._neumann_rhs_evaluator = NeumannRHSEvaluator(
                 lambda: self.evaluate_f,
                 lambda: self.precision,
+                cache_key_getter=lambda: (
+                    self.name,
+                    self.fn_hash,
+                    self.config_hash,
+                ),
             )
         return self._neumann_rhs_evaluator
 
