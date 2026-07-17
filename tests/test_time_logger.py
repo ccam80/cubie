@@ -147,11 +147,12 @@ class TestTimeLogger:
     def test_get_event_duration(self):
         """Test calculating duration between start and stop events.
 
-        The duration is bracketed with the logger's own clock
-        (time.perf_counter) instead of the sleep's nominal length:
-        Windows sleeps can return early, but the reported duration
-        must always contain the interval measured strictly inside
-        the event and fit inside the interval measured around it.
+        Durations are bounded using ``time.perf_counter`` readings taken
+        immediately outside and inside the ``start_event``/``stop_event``
+        calls. The reported duration must lie between the inner interval
+        (measured strictly inside the event) and the outer interval
+        (measured around the entire call pair), guaranteeing correctness
+        on any platform regardless of sleep precision.
         """
         logger = TimeLogger(verbosity='default')
         logger.register_event("test_operation", "runtime", "Test operation")
