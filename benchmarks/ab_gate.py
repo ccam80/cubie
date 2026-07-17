@@ -16,10 +16,11 @@ compiled kernel's intrinsic cost but wanders a few tenths of a
 percent with GPU clock state. The blocks of a pair run seconds
 apart, so they sample nearly the same clock state and the wander
 cancels inside each pair — and each side pays its process startup,
-JIT compile, and grid build once instead of once per sample. Rows
-whose block floors spread more than twice the threshold within one
-side are marked NOISY: rerun with more ``--pairs`` or on a quieter
-GPU.
+JIT compile, and grid build once instead of once per sample. Verdict
+reliability is judged from the per-pair deltas themselves: when
+their median absolute deviation exceeds half the threshold the row
+is marked DISTRUST — rerun, with more ``--pairs`` or on a quieter
+GPU, before acting on it.
 Constant background load inflates absolute times but cancels out of
 the deltas. Both workers hold their device pools concurrently, which
 is fine at the default sizes (~0.7 GB each); much larger ``--n-runs``
@@ -210,30 +211,29 @@ def run_backend(backend, main_tree, b_tree, base, args):
             ]
             for side in ("A", "B")
         }
-        a_floors, b_floors = floors["A"], floors["B"]
-        a = statistics.fmean(a_floors)
-        b = statistics.fmean(b_floors)
+        a = statistics.fmean(floors["A"])
+        b = statistics.fmean(floors["B"])
         # The i-th A and B blocks ran back to back (one ABBA pair),
         # so they share clock state; the median paired delta cancels
         # wander that survives in the side means.
-        delta = statistics.median(
+        deltas = [
             100.0 * (bf - af) / af
-            for af, bf in zip(a_floors, b_floors)
-        )
+            for af, bf in zip(floors["A"], floors["B"])
+        ]
+        delta = statistics.median(deltas)
         if delta > args.threshold:
             verdict = "REGRESSION"
         elif delta < -args.threshold:
             verdict = "improvement"
         else:
             verdict = "ok"
-        spread = 100.0 * max(
-            (max(f) - min(f)) / statistics.median(f)
-            for f in (a_floors, b_floors)
-        )
-        if spread > 2.0 * args.threshold:
-            verdict += " NOISY"
-        rows.append((backend, key, a, b, delta, verdict, a_floors,
-                     b_floors))
+        # The verdict is only as good as the pairs' agreement: a
+        # median absolute deviation past half the threshold means
+        # the reported delta could plausibly sit on the other side
+        # of the verdict boundary.
+        mad = statistics.median(abs(d - delta) for d in deltas)
+        distrust = mad > 0.5 * args.threshold
+        rows.append((backend, key, a, b, delta, verdict, distrust))
     return rows
 
 
@@ -300,18 +300,17 @@ def main():
     base = Path(tempfile.mkdtemp(prefix="cubie_abgate_"))
     b_tree = main_tree if args.calibrate else REPO
     regressed = False
-    noisy = False
+    distrusted = False
     try:
         for backend in backends:
             for row in run_backend(backend, main_tree, b_tree, base,
                                    args):
-                bk, key, a, b, delta, verdict, av, bv = row
-                regressed = regressed or verdict.startswith("REGRESSION")
-                noisy = noisy or verdict.endswith("NOISY")
-                spread = (f"  [A {min(av):.3f}-{max(av):.3f} "
-                          f"B {min(bv):.3f}-{max(bv):.3f}]")
+                bk, key, a, b, delta, verdict, distrust = row
+                regressed = regressed or verdict == "REGRESSION"
+                distrusted = distrusted or distrust
+                flag = "  DISTRUST" if distrust else ""
                 print(f"{bk:<11}{key:<10}A {a:8.3f}  B {b:8.3f}  "
-                      f"{delta:+6.2f}%  {verdict}{spread}")
+                      f"{delta:+6.2f}%  {verdict}{flag}")
     finally:
         if not args.keep:
             remove_worktree(main_tree)
@@ -319,10 +318,10 @@ def main():
 
     print(f"\nGATE: {'REGRESSION' if regressed else 'PASS'} "
           f"(threshold {args.threshold:.2f}%)")
-    if noisy:
-        print("NOISY = within-side block-floor spread exceeds twice "
-              "the threshold; rerun with more --pairs on a quieter "
-              "GPU.")
+    if distrusted:
+        print("DISTRUST = the per-pair deltas disagree, so the "
+              "verdict is unreliable; rerun, with more --pairs or a "
+              "quieter GPU, before acting on it.")
     return 1 if regressed else 0
 
 
