@@ -61,12 +61,12 @@ locals {
       ]
       image = "ubuntu24-gpu-x64"
       spot  = "price-capacity-optimized"
-      # No s3-cache extra: on fleet v3.1.3 the runner agent's S3 proxy
-      # also intercepts the GitHub artifact service and answers
-      # CreateArtifact with a non-JSON error, failing every
-      # actions/upload-artifact call (legs launched with the extra
-      # failed exactly that step; legs without it passed). setup-uv's
-      # cache uses GitHub's cache service directly instead.
+      # No s3-cache (Magic Cache) extra, deliberately: it requires a
+      # runs-on/action@v2 step in every job (without one the sidecar
+      # intercepts the GitHub artifact service and CreateArtifact
+      # fails on a non-JSON response -- observed live), and RunsOn
+      # documents the shared cache bucket must not be enabled for
+      # runners public repositories can use; cubie is public.
     }
     gpu-windows-2xl = {
       family = [
@@ -75,12 +75,12 @@ locals {
       ]
       image = "cubie-win-gpu"
       spot  = "price-capacity-optimized"
-      # No s3-cache extra: on fleet v3.1.3 the runner agent's S3 proxy
-      # also intercepts the GitHub artifact service and answers
-      # CreateArtifact with a non-JSON error, failing every
-      # actions/upload-artifact call (legs launched with the extra
-      # failed exactly that step; legs without it passed). setup-uv's
-      # cache uses GitHub's cache service directly instead.
+      # No s3-cache (Magic Cache) extra, deliberately: it requires a
+      # runs-on/action@v2 step in every job (without one the sidecar
+      # intercepts the GitHub artifact service and CreateArtifact
+      # fails on a non-JSON response -- observed live), and RunsOn
+      # documents the shared cache bucket must not be enabled for
+      # runners public repositories can use; cubie is public.
     }
   }
 
@@ -101,27 +101,69 @@ locals {
   }
 }
 
-# Third-AZ public subnet for the runners. The reused Flex VPC only has
-# public subnets in ap-southeast-2a/2b, but g4dn/g5/g6 2xlarge are all
-# offered in 2c (and 2c is the only other AZ with g5 at all), so this
-# subnet widens the spot pools from 5 to 8 -- GPU spot capacity in this
-# region is thin enough at 8 vCPU that the extra pools matter.
-resource "aws_subnet" "public_extra" {
-  vpc_id                  = var.vpc_id
-  cidr_block              = var.extra_public_subnet_cidr
-  availability_zone       = var.extra_public_subnet_az
-  map_public_ip_on_launch = true
+# Self-contained network: the stack owns its VPC so the old Flex
+# CloudFormation stack (whose VPC the fleet initially borrowed) can be
+# deleted without touching the fleet. Public subnets in all three AZs:
+# g4dn/g5/g6 GPU spot pools span 2a/2b/2c and g5 exists only in 2a/2c,
+# so full AZ coverage maximises the pools reachable at the fixed
+# 8-vCPU quota. Public-only (no NAT) keeps the VPC free.
+resource "aws_vpc" "this" {
+  cidr_block           = var.vpc_cidr
+  enable_dns_support   = true
+  enable_dns_hostnames = true
 
   tags = {
-    Name    = "${var.stack_name}-public-${var.extra_public_subnet_az}"
+    Name    = "${var.stack_name}-vpc"
     stack   = var.stack_name
     project = "cubie"
   }
 }
 
-resource "aws_route_table_association" "public_extra" {
-  subnet_id      = aws_subnet.public_extra.id
-  route_table_id = var.public_route_table_id
+resource "aws_internet_gateway" "this" {
+  vpc_id = aws_vpc.this.id
+
+  tags = {
+    Name    = "${var.stack_name}-igw"
+    stack   = var.stack_name
+    project = "cubie"
+  }
+}
+
+resource "aws_route_table" "public" {
+  vpc_id = aws_vpc.this.id
+
+  route {
+    cidr_block = "0.0.0.0/0"
+    gateway_id = aws_internet_gateway.this.id
+  }
+
+  tags = {
+    Name    = "${var.stack_name}-public"
+    stack   = var.stack_name
+    project = "cubie"
+  }
+}
+
+resource "aws_subnet" "public" {
+  count = length(var.availability_zones)
+
+  vpc_id                  = aws_vpc.this.id
+  cidr_block              = cidrsubnet(var.vpc_cidr, 4, count.index)
+  availability_zone       = var.availability_zones[count.index]
+  map_public_ip_on_launch = true
+
+  tags = {
+    Name    = "${var.stack_name}-public-${var.availability_zones[count.index]}"
+    stack   = var.stack_name
+    project = "cubie"
+  }
+}
+
+resource "aws_route_table_association" "public" {
+  count = length(var.availability_zones)
+
+  subnet_id      = aws_subnet.public[count.index].id
+  route_table_id = aws_route_table.public.id
 }
 
 module "runs_on_fleet" {
@@ -143,11 +185,8 @@ module "runs_on_fleet" {
   runners = local.runners
   fleets  = local.fleets
 
-  vpc_id = var.vpc_id
-  public_subnet_ids = concat(
-    var.public_subnet_ids,
-    [aws_subnet.public_extra.id],
-  )
+  vpc_id            = aws_vpc.this.id
+  public_subnet_ids = aws_subnet.public[*].id
 
   # CI runs three times a week; fargate_spot keeps the always-on Fleet
   # worker's idle cost down, and the Fleet runtime reconciles any

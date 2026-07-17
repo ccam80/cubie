@@ -61,8 +61,10 @@ instances. All capacity is cold spot launches.
    changes.
 4. **Variables.** Copy `terraform.tfvars.example` to
    `terraform.tfvars` (gitignored) and fill in the App ID, key path,
-   RunsOn license key (the Flex install's key; one license covers both
-   products), alert email, and the Flex stack's VPC/subnet IDs.
+   RunsOn license key (one license covers Flex and Fleet), and alert
+   email. Networking needs no input: the stack creates its own VPC
+   with public subnets in all three AZs (GPU spot pools span 2a/2b/2c
+   and g5 exists only in 2a/2c; public-only means no NAT cost).
 
 ## Deploy
 
@@ -99,5 +101,21 @@ moving the repo into an organization, detach it explicitly: the app
 owner's personal settings -> Applications -> the Flex RunsOn app ->
 Configure -> remove this repository.
 
-Once Fleet has proven itself on the CUDA matrix, the Flex stack can
-be deleted from CloudFormation if nothing else uses it.
+This stack owns its VPC and shares nothing with the Flex stack, so
+once nothing else uses Flex its CloudFormation stack can be deleted
+outright (CloudShell: `aws cloudformation delete-stack --stack-name
+<flex-stack> --region ap-southeast-2`). If the delete ends in
+DELETE_FAILED on the Flex S3 cache bucket, empty that bucket and
+retry. The Flex GitHub App under the former owner's personal settings
+can be uninstalled afterwards.
+
+## Caching
+
+Runners deliberately do **not** enable RunsOn's `s3-cache` (Magic
+Cache) extra. It requires a `runs-on/action@v2` step in every job
+(without it, the sidecar intercepts the GitHub artifact service and
+every `actions/upload-artifact` call fails on a non-JSON
+CreateArtifact response — observed live), and RunsOn documents that
+the shared S3 cache bucket must not be enabled for runners that
+public repositories can use — cubie is public. Workflow-level caching
+(setup-uv) uses GitHub's cache service instead.

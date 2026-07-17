@@ -37,29 +37,14 @@ variable "alert_email" {
   type        = string
 }
 
-variable "vpc_id" {
-  description = "VPC to run Fargate and the GPU runners in. Reuse the existing RunsOn Flex stack's VPC to avoid a second VPC's cost."
+variable "vpc_cidr" {
+  description = "CIDR block for the stack-owned VPC; public /20 subnets are carved from it per availability zone."
   type        = string
+  default     = "10.2.0.0/16"
 }
 
-variable "public_subnet_ids" {
-  description = "Public subnet IDs in vpc_id used for the Fargate worker and runner instances."
+variable "availability_zones" {
+  description = "Availability zones given a public subnet. All three, because GPU spot pools span them and g5 exists only in 2a/2c."
   type        = list(string)
-}
-
-variable "public_route_table_id" {
-  description = "Route table with the VPC's internet-gateway route; the extra public subnet associates with it."
-  type        = string
-}
-
-variable "extra_public_subnet_cidr" {
-  description = "CIDR for the additional public subnet this stack creates to widen GPU spot pools."
-  type        = string
-  default     = "10.1.32.0/20"
-}
-
-variable "extra_public_subnet_az" {
-  description = "Availability zone for the additional public subnet."
-  type        = string
-  default     = "ap-southeast-2c"
+  default     = ["ap-southeast-2a", "ap-southeast-2b", "ap-southeast-2c"]
 }
