@@ -3,9 +3,8 @@
 # Fleet (runs-on.com/docs/flex-vs-fleet/) registers GitHub runner scale
 # sets and launches EC2 capacity from *assigned-job* demand, so the
 # workflow's `strategy.max-parallel` bounds runner demand on the RunsOn
-# side as well -- unlike Flex, which provisioned an instance for every
-# queued matrix job at once and overran the fixed 8-vCPU "All G and VT
-# Spot" quota (on-demand G/VT quota is 0 in ap-southeast-2 and not
+# side as well, keeping it inside the fixed 8-vCPU "All G and VT Spot"
+# quota (on-demand G/VT quota is 0 in ap-southeast-2 and not
 # grantable). Two xlarge legs fit that quota concurrently.
 #
 # Deliberately no `schedule` (hot/stopped standby) on the fleets: warm
@@ -64,8 +63,8 @@ locals {
       # No s3-cache (Magic Cache) extra, deliberately: it requires a
       # runs-on/action@v2 step in every job (without one the sidecar
       # intercepts the GitHub artifact service and CreateArtifact
-      # fails on a non-JSON response -- observed live), and RunsOn
-      # documents the shared cache bucket must not be enabled for
+      # fails on a non-JSON response), and RunsOn documents that
+      # the shared cache bucket must not be enabled for
       # runners public repositories can use; cubie is public.
     }
     gpu-windows-2xl = {
@@ -78,8 +77,8 @@ locals {
       # No s3-cache (Magic Cache) extra, deliberately: it requires a
       # runs-on/action@v2 step in every job (without one the sidecar
       # intercepts the GitHub artifact service and CreateArtifact
-      # fails on a non-JSON response -- observed live), and RunsOn
-      # documents the shared cache bucket must not be enabled for
+      # fails on a non-JSON response), and RunsOn documents that
+      # the shared cache bucket must not be enabled for
       # runners public repositories can use; cubie is public.
     }
   }
@@ -101,12 +100,12 @@ locals {
   }
 }
 
-# Self-contained network: the stack owns its VPC so the old Flex
-# CloudFormation stack (whose VPC the fleet initially borrowed) can be
-# deleted without touching the fleet. Public subnets in all three AZs:
-# g4dn/g5/g6 GPU spot pools span 2a/2b/2c and g5 exists only in 2a/2c,
-# so full AZ coverage maximises the pools reachable at the fixed
-# 8-vCPU quota. Public-only (no NAT) keeps the VPC free.
+# Self-contained network: the stack owns its VPC and shares no
+# networking with any other stack, so nothing outside this
+# configuration can take the fleet's network down. Public subnets in
+# all three AZs: g4dn/g5/g6 GPU spot pools span 2a/2b/2c and g5 exists
+# only in 2a/2c, so full AZ coverage maximises the pools reachable at
+# the fixed 8-vCPU quota. Public-only (no NAT) keeps the VPC free.
 resource "aws_vpc" "this" {
   cidr_block           = var.vpc_cidr
   enable_dns_support   = true

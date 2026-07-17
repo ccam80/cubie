@@ -23,17 +23,25 @@ REGION="ap-southeast-2"
 ACCOUNT_ID=$(aws sts get-caller-identity --query Account --output text)
 
 # Permissions, by statement:
-# - RegionalDeploy: create/read/update/delete for the services the
-#   RunsOn Fleet Terraform module manages (EC2 launch templates and
-#   security groups, ECS/Fargate runtime, CloudWatch logs + alarms,
-#   DynamoDB state table, the diagnostics Lambda, S3 cache bucket,
-#   the rendered config secret, SNS alert topic, ECS autoscaling,
-#   EventBridge rules) plus read-only CloudFormation to look up the
-#   existing Flex stack's VPC/subnets. Locked to ap-southeast-2.
+# - ReadOnly: region-locked Describe/Get/List across the services the
+#   RunsOn Fleet Terraform module touches, plus read-only
+#   CloudFormation and Service Quotas for diagnostics. Reads carry no
+#   secret material: secretsmanager:GetSecretValue is NOT here -- it
+#   lives in SecretsScoped, bound to this stack's secret prefix.
+# - Ec2Provision: the non-destructive EC2 mutations an apply needs
+#   (VPC/subnet/route/SG/launch-template creation and tagging).
+#   RunInstances is deliberately absent: the deployer never launches
+#   instances -- only the fleet runtime's own role does.
+# - Ec2ScopedDestroy: terminate/delete only for EC2 resources tagged
+#   stack=cubie-fleet, so the credentials cannot touch instances,
+#   VPCs, or security groups belonging to anything else.
+# - S3/Secrets/Dynamo/Lambda/Logs/Sns/Ecs/Events/Cw *Scoped: full
+#   management bound to this stack's ARN name prefixes. Resource ARNs
+#   bind regardless of which endpoint a call reaches, which also
+#   covers S3 calls made through the global endpoint.
 # - IamScoped: IAM role/policy/instance-profile management restricted
-#   to resources whose names start with cubie-fleet or runs-on, so the
-#   deployer cannot touch or escalate through any other IAM entity.
-#   PassRole is restricted the same way.
+#   to names starting with cubie-fleet or runs-on, PassRole included,
+#   so the deployer cannot escalate through any other IAM entity.
 # - ServiceLinkedRoles: lets the first ECS/spot/autoscaling use in the
 #   account create AWS's own service-linked roles, nothing else.
 cat > /tmp/cubie-fleet-deployer-policy.json <<EOF
@@ -41,33 +49,216 @@ cat > /tmp/cubie-fleet-deployer-policy.json <<EOF
   "Version": "2012-10-17",
   "Statement": [
     {
-      "Sid": "RegionalDeploy",
+      "Sid": "ReadOnly",
       "Effect": "Allow",
       "Action": [
-        "ec2:*",
-        "ecs:*",
-        "logs:*",
-        "dynamodb:*",
-        "lambda:*",
-        "s3:*",
-        "secretsmanager:*",
-        "sns:*",
-        "cloudwatch:*",
-        "application-autoscaling:*",
-        "events:*",
-        "scheduler:*",
-        "ecr:Get*",
-        "ecr:Describe*",
+        "ec2:Describe*",
+        "ec2:Get*",
+        "ecs:Describe*",
+        "ecs:List*",
+        "logs:Describe*",
+        "logs:Get*",
+        "logs:List*",
+        "logs:FilterLogEvents",
+        "logs:StartQuery",
+        "logs:StopQuery",
+        "logs:PutQueryDefinition",
+        "logs:DeleteQueryDefinition",
         "cloudformation:Describe*",
         "cloudformation:List*",
         "cloudformation:Get*",
         "servicequotas:Get*",
-        "servicequotas:List*"
+        "servicequotas:List*",
+        "sns:Get*",
+        "sns:List*",
+        "cloudwatch:Describe*",
+        "cloudwatch:Get*",
+        "cloudwatch:List*",
+        "application-autoscaling:*",
+        "events:Describe*",
+        "events:List*",
+        "scheduler:Get*",
+        "scheduler:List*",
+        "dynamodb:Describe*",
+        "dynamodb:List*",
+        "lambda:Get*",
+        "lambda:List*",
+        "secretsmanager:Describe*",
+        "secretsmanager:List*",
+        "ssm:DescribeParameters",
+        "ecr:Get*",
+        "ecr:Describe*"
       ],
       "Resource": "*",
       "Condition": {
         "StringEquals": { "aws:RequestedRegion": "${REGION}" }
       }
+    },
+    {
+      "Sid": "Ec2Provision",
+      "Effect": "Allow",
+      "Action": [
+        "ec2:CreateVpc",
+        "ec2:ModifyVpcAttribute",
+        "ec2:CreateSubnet",
+        "ec2:ModifySubnetAttribute",
+        "ec2:CreateInternetGateway",
+        "ec2:AttachInternetGateway",
+        "ec2:CreateRouteTable",
+        "ec2:CreateRoute",
+        "ec2:ReplaceRoute",
+        "ec2:DeleteRoute",
+        "ec2:AssociateRouteTable",
+        "ec2:DisassociateRouteTable",
+        "ec2:CreateSecurityGroup",
+        "ec2:AuthorizeSecurityGroupIngress",
+        "ec2:AuthorizeSecurityGroupEgress",
+        "ec2:RevokeSecurityGroupIngress",
+        "ec2:RevokeSecurityGroupEgress",
+        "ec2:ModifySecurityGroupRules",
+        "ec2:CreateLaunchTemplate",
+        "ec2:CreateLaunchTemplateVersion",
+        "ec2:ModifyLaunchTemplate",
+        "ec2:DeleteLaunchTemplateVersions",
+        "ec2:CreateTags",
+        "ec2:DeleteTags"
+      ],
+      "Resource": "*",
+      "Condition": {
+        "StringEquals": { "aws:RequestedRegion": "${REGION}" }
+      }
+    },
+    {
+      "Sid": "Ec2ScopedDestroy",
+      "Effect": "Allow",
+      "Action": [
+        "ec2:TerminateInstances",
+        "ec2:DeleteVpc",
+        "ec2:DeleteSubnet",
+        "ec2:DeleteInternetGateway",
+        "ec2:DetachInternetGateway",
+        "ec2:DeleteRouteTable",
+        "ec2:DeleteSecurityGroup",
+        "ec2:DeleteLaunchTemplate"
+      ],
+      "Resource": "*",
+      "Condition": {
+        "StringEquals": {
+          "aws:RequestedRegion": "${REGION}",
+          "aws:ResourceTag/stack": "cubie-fleet"
+        }
+      }
+    },
+    {
+      "Sid": "S3Scoped",
+      "Effect": "Allow",
+      "Action": "s3:*",
+      "Resource": [
+        "arn:aws:s3:::cubie-fleet-*",
+        "arn:aws:s3:::cubie-fleet-*/*"
+      ]
+    },
+    {
+      "Sid": "SecretsScoped",
+      "Effect": "Allow",
+      "Action": "secretsmanager:*",
+      "Resource": [
+        "arn:aws:secretsmanager:${REGION}:${ACCOUNT_ID}:secret:/runs-on/cubie-fleet/*",
+        "arn:aws:secretsmanager:${REGION}:${ACCOUNT_ID}:secret:cubie-fleet*"
+      ]
+    },
+    {
+      "Sid": "DynamoScoped",
+      "Effect": "Allow",
+      "Action": "dynamodb:*",
+      "Resource": [
+        "arn:aws:dynamodb:${REGION}:${ACCOUNT_ID}:table/cubie-fleet-*",
+        "arn:aws:dynamodb:${REGION}:${ACCOUNT_ID}:table/cubie-fleet-*/index/*"
+      ]
+    },
+    {
+      "Sid": "LambdaScoped",
+      "Effect": "Allow",
+      "Action": "lambda:*",
+      "Resource": "arn:aws:lambda:${REGION}:${ACCOUNT_ID}:function:cubie-fleet-*"
+    },
+    {
+      "Sid": "LogsScoped",
+      "Effect": "Allow",
+      "Action": "logs:*",
+      "Resource": [
+        "arn:aws:logs:${REGION}:${ACCOUNT_ID}:log-group:*cubie-fleet*",
+        "arn:aws:logs:${REGION}:${ACCOUNT_ID}:log-group:*cubie-fleet*:*"
+      ]
+    },
+    {
+      "Sid": "SnsScoped",
+      "Effect": "Allow",
+      "Action": "sns:*",
+      "Resource": "arn:aws:sns:${REGION}:${ACCOUNT_ID}:cubie-fleet-*"
+    },
+    {
+      "Sid": "CloudWatchScoped",
+      "Effect": "Allow",
+      "Action": "cloudwatch:*",
+      "Resource": [
+        "arn:aws:cloudwatch:${REGION}:${ACCOUNT_ID}:alarm:cubie-fleet*",
+        "arn:aws:cloudwatch::${ACCOUNT_ID}:dashboard/cubie-fleet*"
+      ]
+    },
+    {
+      "Sid": "EcsScoped",
+      "Effect": "Allow",
+      "Action": "ecs:*",
+      "Resource": [
+        "arn:aws:ecs:${REGION}:${ACCOUNT_ID}:cluster/cubie-fleet*",
+        "arn:aws:ecs:${REGION}:${ACCOUNT_ID}:service/cubie-fleet*/*",
+        "arn:aws:ecs:${REGION}:${ACCOUNT_ID}:task/cubie-fleet*/*",
+        "arn:aws:ecs:${REGION}:${ACCOUNT_ID}:task-definition/cubie-fleet-*:*",
+        "arn:aws:ecs:${REGION}:${ACCOUNT_ID}:container-instance/cubie-fleet*/*"
+      ]
+    },
+    {
+      "Sid": "EcsUnscoped",
+      "Effect": "Allow",
+      "Action": [
+        "ecs:CreateCluster",
+        "ecs:RegisterTaskDefinition",
+        "ecs:DeregisterTaskDefinition"
+      ],
+      "Resource": "*",
+      "Condition": {
+        "StringEquals": { "aws:RequestedRegion": "${REGION}" }
+      }
+    },
+    {
+      "Sid": "EventsScoped",
+      "Effect": "Allow",
+      "Action": [
+        "events:*"
+      ],
+      "Resource": "arn:aws:events:${REGION}:${ACCOUNT_ID}:rule/cubie-fleet*"
+    },
+    {
+      "Sid": "SchedulerScoped",
+      "Effect": "Allow",
+      "Action": "scheduler:*",
+      "Resource": [
+        "arn:aws:scheduler:${REGION}:${ACCOUNT_ID}:schedule/*/cubie-fleet*",
+        "arn:aws:scheduler:${REGION}:${ACCOUNT_ID}:schedule-group/cubie-fleet*"
+      ]
+    },
+    {
+      "Sid": "SsmScoped",
+      "Effect": "Allow",
+      "Action": "ssm:*",
+      "Resource": "arn:aws:ssm:${REGION}:${ACCOUNT_ID}:parameter/cubie-fleet*"
+    },
+    {
+      "Sid": "ResourceGroupsScoped",
+      "Effect": "Allow",
+      "Action": "resource-groups:*",
+      "Resource": "arn:aws:resource-groups:${REGION}:${ACCOUNT_ID}:group/cubie-fleet*"
     },
     {
       "Sid": "IamScoped",

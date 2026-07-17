@@ -43,9 +43,8 @@ jobs:
     # legs fit the quota concurrently: max-parallel: 2. The fleet
     # runners (infra/fleet) are RunsOn *scale sets*: GitHub assigns at
     # most two jobs at a time and instances launch per assigned job,
-    # so runner demand tracks max-parallel -- unlike the old Flex
-    # webhook path, which provisioned every queued matrix job at once
-    # and overran the quota. If a leg does land a 2xlarge, the other
+    # so runner demand tracks max-parallel and never exceeds the
+    # quota. If a leg does land a 2xlarge, the other
     # slot's launch is quota-blocked until it finishes; the fleet
     # retries with backoff, so that costs latency, never a failed leg.
     # The param-set xdist grouping (tests/conftest.py +
@@ -157,9 +156,9 @@ jobs:
           disable_search: true
           fail_ci_if_error: false
 
-      # test-results-action is node20-locked and deprecated; folded into
-      # codecov-action via report_type. Kept a separate step because
-      # report_type is single-valued (coverage vs test_results).
+      # codecov-action uploads test results via report_type. A separate
+      # step from the coverage upload because report_type is
+      # single-valued (coverage vs test_results).
       - name: Upload test results to Codecov
         if: always()
         uses: codecov/codecov-action@v7
