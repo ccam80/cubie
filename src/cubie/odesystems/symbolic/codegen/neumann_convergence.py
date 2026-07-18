@@ -43,9 +43,8 @@ import numpy as np
 import sympy as sp
 from cubie.cuda_simsafe import cuda
 
-from cubie._env import kernel_cache_dir_default
 from cubie.cuda_simsafe import CUDA_SIMULATION, get_jit_kwargs
-from cubie.cubie_cache import CUBIECache
+from cubie.cubie_cache import CUBIECache, CacheConfig
 from cubie.odesystems.symbolic.indexedbasemaps import IndexedBases
 
 logger = logging.getLogger(__name__)
@@ -75,12 +74,31 @@ class NeumannRHSEvaluator:
         self._precision_getter = precision_getter
         self._cache_key_getter = cache_key_getter
         self._kernel = None
-        self._kernel_dxdt = None
+        self._kernel_key = None
 
-    def _evaluation_kernel(self):
+    def _evaluation_kernel(
+        self, cache_config: Optional[CacheConfig] = None
+    ):
         """Return the wrapper for the current compiled ``dxdt``."""
         dxdt_function = self._dxdt_getter()
-        if dxdt_function is not self._kernel_dxdt:
+        cache_key = None
+        if (
+            cache_config is not None
+            and cache_config.cache_enabled
+            and self._cache_key_getter is not None
+            and not CUDA_SIMULATION
+        ):
+            _, system_hash, config_hash = self._cache_key_getter()
+            cache_key = (
+                cache_config.system_name,
+                system_hash,
+                config_hash,
+                cache_config.cache_mode,
+                cache_config.max_cache_entries,
+                cache_config.cache_dir,
+            )
+        kernel_key = (dxdt_function, cache_key)
+        if kernel_key != self._kernel_key:
             # no cover: start
             @cuda.jit(**get_jit_kwargs())
             def evaluate_rhs(
@@ -97,25 +115,32 @@ class NeumannRHSEvaluator:
                         t,
                     )
             # no cover: end
-            if (
-                self._cache_key_getter is not None
-                and not CUDA_SIMULATION
-                and kernel_cache_dir_default() is not None
-            ):
-                name, system_hash, config_hash = self._cache_key_getter()
+            if cache_key is not None:
+                (
+                    name,
+                    system_hash,
+                    config_hash,
+                    mode,
+                    max_entries,
+                    cache_dir,
+                ) = cache_key
                 evaluate_rhs._cache = CUBIECache(
                     system_name=name,
                     system_hash=system_hash,
                     config_hash=config_hash,
+                    mode=mode,
+                    max_entries=max_entries,
+                    custom_cache_dir=cache_dir,
                 )
             self._kernel = evaluate_rhs
-            self._kernel_dxdt = dxdt_function
+            self._kernel_key = kernel_key
         return self._kernel
 
     def jacobian(
         self,
         index_map: IndexedBases,
         t0: float = 0.0,
+        cache_config: Optional[CacheConfig] = None,
     ) -> np.ndarray:
         """Return the state Jacobian at the initial state.
 
@@ -125,6 +150,8 @@ class NeumannRHSEvaluator:
             Index maps supplying current state/parameter values.
         t0
             Time at which to evaluate the right-hand side.
+        cache_config
+            Compiled-kernel cache policy for the requesting solver.
 
         Returns
         -------
@@ -174,7 +201,7 @@ class NeumannRHSEvaluator:
             states[2 * col] = forward
             states[2 * col + 1] = backward
 
-        kernel = self._evaluation_kernel()
+        kernel = self._evaluation_kernel(cache_config)
         threads = 32
         blocks = (2 * n + threads - 1) // threads
 
@@ -310,6 +337,7 @@ def check_neumann_convergence(
     beta: float = 1.0,
     gamma: float = 1.0,
     t0: float = 0.0,
+    cache_config: Optional[CacheConfig] = None,
 ) -> Dict[str, object]:
     """Evaluate whether the Neumann preconditioner is likely to converge.
 
@@ -336,6 +364,8 @@ def check_neumann_convergence(
         Transformation parameters from the FIRK formulation.
     t0
         Time at which to evaluate the Jacobian.
+    cache_config
+        Compiled-kernel cache policy for the requesting solver.
 
     Returns
     -------
@@ -345,7 +375,9 @@ def check_neumann_convergence(
         ``J_numeric``. ``converges`` is ``None`` when the Jacobian could
         not be evaluated.
     """
-    jacobian = evaluator.jacobian(index_map, t0=t0)
+    jacobian = evaluator.jacobian(
+        index_map, t0=t0, cache_config=cache_config
+    )
 
     if not np.isfinite(jacobian).all():
         n_bad = int(np.count_nonzero(~np.isfinite(jacobian)))

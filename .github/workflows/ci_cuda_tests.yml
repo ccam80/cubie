@@ -144,9 +144,18 @@ jobs:
           import sys
 
           report = json.load(open(sys.argv[1], encoding="utf-8"))
-          assert report["target_cc"] == sys.argv[2]
-          assert report["compiled"] + report["cache_hit"] > 0
-          assert report["production_compiled"] + report["production_cache_hit"] > 0
+          if report["target_cc"] != sys.argv[2]:
+              raise SystemExit(
+                  f"report targets {report['target_cc']!r}; expected {sys.argv[2]!r}"
+              )
+          if report["compiled"] + report["cache_hit"] <= 0:
+              raise SystemExit("report contains no cache activity")
+          if (
+              report["production_compiled"]
+              + report["production_cache_hit"]
+              <= 0
+          ):
+              raise SystemExit("report contains no production kernels")
           PY
             echo "::endgroup::"
           done

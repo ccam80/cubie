@@ -90,6 +90,8 @@ class SingleIntegratorRunCore(CUDAFactory):
         adaptive controllers.  Supported identifiers include ``"fixed"``,
         ``"i"``, ``"pi"``, ``"pid"``, and ``"gustafsson"``.  When
         ``None`` the algorithm defaults are used.
+    get_solver_helper_fn
+        Per-solver callback for generated system helpers.
     """
 
     _INNER_TOLERANCE_KEYS = (
@@ -108,6 +110,7 @@ class SingleIntegratorRunCore(CUDAFactory):
         driver_del_t: Optional[Callable] = None,
         algorithm_settings: Optional[Dict[str, Any]] = None,
         step_control_settings: Optional[Dict[str, Any]] = None,
+        get_solver_helper_fn: Optional[Callable] = None,
     ) -> None:
         super().__init__()
 
@@ -131,6 +134,9 @@ class SingleIntegratorRunCore(CUDAFactory):
         precision = system.precision
 
         self._system = system
+        self._get_solver_helper_fn = (
+            get_solver_helper_fn or system.get_solver_helper
+        )
         system_sizes = system.sizes
         n = system_sizes.states
 
@@ -791,7 +797,7 @@ class SingleIntegratorRunCore(CUDAFactory):
         # Lowest level - check for changes in evaluate_f, get_solver_helper_fn
         evaluate_f = self._system.evaluate_f
         evaluate_observables = self._system.evaluate_observables
-        get_solver_helper_fn = self._system.get_solver_helper
+        get_solver_helper_fn = self._get_solver_helper_fn
         compiled_fns_dict = {}
         if evaluate_f != self._algo_step.evaluate_f:
             compiled_fns_dict["evaluate_f"] = evaluate_f

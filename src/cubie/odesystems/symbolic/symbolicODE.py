@@ -49,6 +49,7 @@ from typing import (
     Optional,
     Sequence,
     Set,
+    TYPE_CHECKING,
     Union,
 )
 
@@ -93,6 +94,9 @@ from cubie.odesystems.symbolic.sym_utils import hash_system_definition
 from cubie.odesystems.baseODE import BaseODE, ODECache
 from cubie._utils import PrecisionDType, is_devfunc
 from cubie.time_logger import default_timelogger
+
+if TYPE_CHECKING:  # pragma: no cover - imported for static typing only
+    from cubie.cubie_cache import CacheConfig
 
 # Neumann preconditioner helper types checked by the convergence
 # diagnostic before code generation.
@@ -969,6 +973,7 @@ class SymbolicODE(BaseODE):
             Sequence[Sequence[Union[float, sp.Expr]]]
         ] = None,
         stage_nodes: Optional[Sequence[Union[float, sp.Expr]]] = None,
+        cache_config: Optional["CacheConfig"] = None,
     ) -> Union[Callable, int]:
         """Return a generated solver helper device function.
 
@@ -1002,6 +1007,8 @@ class SymbolicODE(BaseODE):
         stage_nodes
             FIRK stage nodes expressed as timestep fractions. The stage count
             is inferred from ``len(stage_nodes)``.
+        cache_config
+            Compiled-kernel cache policy for this solver.
 
         Returns
         -------
@@ -1065,9 +1072,23 @@ class SymbolicODE(BaseODE):
                 preconditioner_order=preconditioner_order,
                 stage_coefficients=stage_coefficients,
                 stage_nodes=stage_nodes,
+                cache_config=cache_config,
             )
             default_timelogger.stop_event(event_name)
             return func
+
+        # Run the diagnostic before returning a cached helper so a shared
+        # system uses the requesting solver's cache policy.
+        if func_type in _NEUMANN_PRECONDITIONER_TYPES:
+            check_neumann_convergence(
+                self.indices,
+                evaluator=self._get_neumann_evaluator(),
+                stage_coefficients=stage_coefficients,
+                stage_nodes=stage_nodes,
+                beta=beta,
+                gamma=gamma,
+                cache_config=cache_config,
+            )
 
         try:
             func = self.get_cached_output(func_type)
@@ -1131,19 +1152,6 @@ class SymbolicODE(BaseODE):
                 self.get_solver_helper("prepare_jac")
             default_timelogger.stop_event(event_name)
             return self._jacobian_aux_count
-
-        # Neumann preconditioner convergence diagnostic. Runs whenever a
-        # Neumann helper is requested (even on cache hits) so the warning
-        # surfaces for reused code as well as freshly generated code.
-        if func_type in _NEUMANN_PRECONDITIONER_TYPES:
-            check_neumann_convergence(
-                self.indices,
-                evaluator=self._get_neumann_evaluator(),
-                stage_coefficients=stage_coefficients,
-                stage_nodes=stage_nodes,
-                beta=beta,
-                gamma=gamma,
-            )
 
         # Check if function is already in file cache (skipped if so)
         is_cached = self.gen_file.function_is_cached(factory_name)

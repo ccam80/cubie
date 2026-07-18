@@ -28,6 +28,8 @@ See Also
     Output array manager owned by the kernel.
 """
 
+from functools import partial
+from pathlib import Path
 from typing import (
     TYPE_CHECKING,
     Any,
@@ -39,7 +41,6 @@ from typing import (
     Union,
 )
 from warnings import warn
-from pathlib import Path
 from weakref import finalize
 
 from numpy import ceil as np_ceil, float64 as np_float64, floating
@@ -288,6 +289,23 @@ class BatchSolverKernel(CUDAFactory):
         self._work_complete = True
         self._memory_manager = self._setup_memory_manager(memory_settings)
 
+        system_name = system.name
+        system_hash = system.fn_hash
+        if system_name == system_hash:
+            system_name = f"unnamed_{system_hash[:8]}"
+        if cache_settings is None:
+            cache_settings = {}
+        self.cache_handler = CubieCacheHandler(
+            cache_arg=cache,
+            system_name=system_name,
+            system_hash=system_hash,
+            **cache_settings,
+        )
+        get_solver_helper_fn = partial(
+            system.get_solver_helper,
+            cache_config=self.cache_handler.config,
+        )
+
         # Build the single integrator to derive compile-critical metadata
         self.single_integrator = SingleIntegratorRun(
             system,
@@ -297,6 +315,7 @@ class BatchSolverKernel(CUDAFactory):
             step_control_settings=step_control_settings,
             algorithm_settings=algorithm_settings,
             output_settings=output_settings,
+            get_solver_helper_fn=get_solver_helper_fn,
         )
         # An explicit lineinfo argument must reach every child factory;
         # None leaves the CUBIE_LINEINFO-derived config defaults in place.
@@ -304,25 +323,6 @@ class BatchSolverKernel(CUDAFactory):
             self.single_integrator.update(
                 {"lineinfo": lineinfo}, silent=True
             )
-
-        # Extract system identification for cache
-        system_name = system.name
-        system_hash = system.fn_hash
-        if system_name == system_hash:
-            system_name = f"unnamed_{system_hash[:8]}"
-
-        # Build cache settings dict from cache_settings
-        if cache_settings is None:
-            cache_settings = {}
-
-        # Initialize cache_handler BEFORE setup_compile_settings since
-        # _invalidate_cache is called during setup and requires cache_handler
-        self.cache_handler = CubieCacheHandler(
-            cache_arg=cache,
-            system_name=system_name,
-            system_hash=system_hash,
-            **cache_settings,
-        )
 
         initial_config = BatchSolverConfig(
             precision=precision,

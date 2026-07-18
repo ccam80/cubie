@@ -596,6 +596,35 @@ class TestSolverCacheParam:
 
         assert solver.kernel.cache_config.cache_enabled is False
 
+    def test_solver_helper_cache_policies_are_independent(
+        self, simple_system, tmp_path
+    ):
+        """Shared systems receive each solver's cache configuration."""
+        from cubie.batchsolving.solver import Solver
+
+        with Solver(simple_system, cache=False) as disabled, Solver(
+            simple_system, cache=tmp_path / "enabled"
+        ) as enabled:
+            disabled_callback = (
+                disabled.kernel.single_integrator._get_solver_helper_fn
+            )
+            enabled_callback = (
+                enabled.kernel.single_integrator._get_solver_helper_fn
+            )
+
+            assert disabled_callback.keywords["cache_config"] is (
+                disabled.kernel.cache_config
+            )
+            assert enabled_callback.keywords["cache_config"] is (
+                enabled.kernel.cache_config
+            )
+            assert disabled.kernel.cache_config.cache_enabled is False
+            assert enabled.kernel.cache_config.cache_enabled is True
+            assert (
+                disabled.kernel.cache_config
+                is not enabled.kernel.cache_config
+            )
+
     def test_solver_cache_flush_on_change(self, simple_system):
         """Verify cache='flush_on_change' sets mode."""
         from cubie.batchsolving.solver import Solver

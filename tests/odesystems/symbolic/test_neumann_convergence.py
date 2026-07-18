@@ -5,12 +5,14 @@ Covers the pure-numeric :func:`neumann_spectral_radius`,
 :meth:`SymbolicODE.get_solver_helper`.
 """
 
+from pathlib import Path
 import warnings
 
 import numpy as np
 import pytest
 
 from cubie import SymbolicODE
+from cubie.cubie_cache import CUBIECache, CacheConfig
 from cubie.odesystems.symbolic.codegen.neumann_convergence import (
     check_neumann_convergence,
     neumann_spectral_radius,
@@ -158,6 +160,51 @@ def test_get_solver_helper_runs_diagnostic_for_neumann_type(
         off_diagonal_heavy_system.get_solver_helper(
             "neumann_preconditioner", beta=1.0, gamma=1.0
         )
+
+
+@pytest.mark.nocudasim
+def test_cached_helper_uses_each_solver_cache_policy(
+    diagonally_dominant_system,
+    tmp_path,
+    monkeypatch,
+):
+    """Cached helpers still apply each solver's cache policy."""
+    environment_dir = tmp_path / "environment"
+    explicit_dir = tmp_path / "explicit"
+    monkeypatch.setenv("CUBIE_KERNEL_CACHE_DIR", str(environment_dir))
+    evaluator = diagonally_dominant_system._get_neumann_evaluator()
+    disabled = CacheConfig(
+        cache_enabled=False,
+        system_name="disabled",
+        system_hash=diagonally_dominant_system.fn_hash,
+    )
+    enabled = CacheConfig(
+        cache_enabled=True,
+        cache_dir=explicit_dir,
+        system_name="enabled",
+        system_hash=diagonally_dominant_system.fn_hash,
+    )
+
+    disabled_helper = diagonally_dominant_system.get_solver_helper(
+        "neumann_preconditioner", cache_config=disabled
+    )
+    disabled_kernel = evaluator._kernel
+    enabled_helper = diagonally_dominant_system.get_solver_helper(
+        "neumann_preconditioner", cache_config=enabled
+    )
+    enabled_kernel = evaluator._kernel
+    disabled_again_helper = diagonally_dominant_system.get_solver_helper(
+        "neumann_preconditioner", cache_config=disabled
+    )
+    disabled_again = evaluator._kernel
+
+    assert disabled_helper is enabled_helper is disabled_again_helper
+    assert not isinstance(disabled_kernel._cache, CUBIECache)
+    assert isinstance(enabled_kernel._cache, CUBIECache)
+    assert Path(enabled_kernel._cache._cache_path).parent == explicit_dir
+    assert not isinstance(disabled_again._cache, CUBIECache)
+    assert disabled_kernel is not enabled_kernel
+    assert disabled_again is not enabled_kernel
 
 
 def test_spectral_radius_tracks_beta():

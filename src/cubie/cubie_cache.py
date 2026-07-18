@@ -75,33 +75,38 @@ class _CacheFileLock(AbstractContextManager):
     def __enter__(self):
         self._path.parent.mkdir(parents=True, exist_ok=True)
         self._handle = self._path.open("a+b")
-        self._handle.seek(0, os.SEEK_END)
-        if self._handle.tell() == 0:
-            self._handle.write(b"\0")
-            self._handle.flush()
+        try:
+            self._handle.seek(0, os.SEEK_END)
+            if self._handle.tell() == 0:
+                self._handle.write(b"\0")
+                self._handle.flush()
 
-        deadline = monotonic() + self._timeout
-        while True:
+            deadline = monotonic() + self._timeout
+            while True:
+                try:
+                    self._handle.seek(0)
+                    if os.name == "nt":
+                        msvcrt.locking(
+                            self._handle.fileno(), msvcrt.LK_NBLCK, 1
+                        )
+                    else:
+                        fcntl.flock(
+                            self._handle.fileno(),
+                            fcntl.LOCK_EX | fcntl.LOCK_NB,
+                        )
+                    return self
+                except OSError:
+                    if monotonic() >= deadline:
+                        raise TimeoutError(
+                            f"Timed out waiting for cache lock {self._path}."
+                        ) from None
+                    sleep(0.05)
+        except BaseException:
             try:
-                self._handle.seek(0)
-                if os.name == "nt":
-                    msvcrt.locking(
-                        self._handle.fileno(), msvcrt.LK_NBLCK, 1
-                    )
-                else:
-                    fcntl.flock(
-                        self._handle.fileno(),
-                        fcntl.LOCK_EX | fcntl.LOCK_NB,
-                    )
-                return self
-            except OSError:
-                if monotonic() >= deadline:
-                    self._handle.close()
-                    self._handle = None
-                    raise TimeoutError(
-                        f"Timed out waiting for cache lock {self._path}."
-                    ) from None
-                sleep(0.05)
+                self._handle.close()
+            finally:
+                self._handle = None
+            raise
 
     def __exit__(self, exc_type, exc_value, traceback):
         if self._handle is None:

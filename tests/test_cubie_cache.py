@@ -15,6 +15,7 @@ from cubie.cubie_cache import (
     CubieCacheHandler,
     CacheConfig,
     ALL_CACHE_PARAMETERS,
+    _CacheFileLock,
     _compiler_environment_entries,
     environment_hash,
 )
@@ -96,6 +97,18 @@ def test_environment_hash_uses_compiler_packages_only():
     assert any(entry.startswith("numpy==") for entry in entries)
     assert any(entry.startswith("python==") for entry in entries)
     assert not any(entry.startswith("pytest==") for entry in entries)
+
+
+def test_cache_file_lock_cleans_up_after_timeout(tmp_path):
+    """An unsuccessful entry closes and clears its file handle."""
+    path = tmp_path / "cache.lock"
+    waiting_lock = _CacheFileLock(path, timeout=0.0)
+
+    with _CacheFileLock(path):
+        with pytest.raises(TimeoutError):
+            waiting_lock.__enter__()
+
+    assert waiting_lock._handle is None
 
 
 def test_cache_locator_get_disambiguator():
