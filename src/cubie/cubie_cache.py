@@ -111,13 +111,17 @@ class _CacheFileLock(AbstractContextManager):
     def __exit__(self, exc_type, exc_value, traceback):
         if self._handle is None:
             return False
-        self._handle.seek(0)
-        if os.name == "nt":
-            msvcrt.locking(self._handle.fileno(), msvcrt.LK_UNLCK, 1)
-        else:
-            fcntl.flock(self._handle.fileno(), fcntl.LOCK_UN)
-        self._handle.close()
-        self._handle = None
+        try:
+            self._handle.seek(0)
+            if os.name == "nt":
+                msvcrt.locking(self._handle.fileno(), msvcrt.LK_UNLCK, 1)
+            else:
+                fcntl.flock(self._handle.fileno(), fcntl.LOCK_UN)
+        finally:
+            try:
+                self._handle.close()
+            finally:
+                self._handle = None
         return False
 
 
