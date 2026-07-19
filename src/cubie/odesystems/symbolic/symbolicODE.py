@@ -980,8 +980,8 @@ class SymbolicODE(BaseODE):
     def get_solver_helper(
         self,
         func_type: str,
-        beta: Optional[float] = None,
-        gamma: Optional[float] = None,
+        solver_beta: Optional[float] = None,
+        solver_gamma: Optional[float] = None,
         preconditioner_order: Optional[int] = None,
         preconditioner_type: Union[str, list] = "neumann",
         stage_coefficients: Optional[
@@ -1009,17 +1009,17 @@ class SymbolicODE(BaseODE):
             ``preconditioner_type`` (a string or a two-element list
             chained as ``P1(P0(v))``) to the matching concrete
             helper(s).
-        beta
+        solver_beta
             Shift parameter for the linear operator. ``None`` keeps the
             configured ``solver_beta`` compile setting.
-        gamma
+        solver_gamma
             Weight applied to the Jacobian term in the linear operator.
             ``None`` keeps the configured ``solver_gamma`` compile
             setting.
         preconditioner_order
             Polynomial order of the Neumann preconditioner. ``None``
-            keeps the configured ``solver_preconditioner_order``
-            compile setting.
+            keeps the configured ``preconditioner_order`` compile
+            setting.
         stage_coefficients
             FIRK tableau coefficients used to evaluate stage states. Required
             for flattened helpers.
@@ -1045,11 +1045,13 @@ class SymbolicODE(BaseODE):
         ``compile_settings.mass``; the matrix is part of the system
         definition, not an algorithm parameter.
 
-        Supplied scalings persist in the ``solver_*`` compile settings
-        through :meth:`update_compile_settings`, so a changed value
-        invalidates the cache exactly like any other compile-critical
-        setting and the helper regenerates on lookup. Omitted arguments
-        leave the configured values (and the cache) untouched.
+        Supplied scalings persist in the ``solver_beta``,
+        ``solver_gamma``, ``preconditioner_order``, and
+        ``tableau_digest`` compile settings through
+        :meth:`update_compile_settings`, so a changed value invalidates
+        the cache exactly like any other compile-critical setting and
+        the helper regenerates on lookup. Omitted arguments leave the
+        configured values (and the cache) untouched.
         """
         mass = self.compile_settings.mass
 
@@ -1078,8 +1080,8 @@ class SymbolicODE(BaseODE):
             func = self._build_preconditioner_chain(
                 preconditioner_type,
                 func_type,
-                beta=beta,
-                gamma=gamma,
+                solver_beta=solver_beta,
+                solver_gamma=solver_gamma,
                 preconditioner_order=preconditioner_order,
                 stage_coefficients=stage_coefficients,
                 stage_nodes=stage_nodes,
@@ -1091,21 +1093,19 @@ class SymbolicODE(BaseODE):
         # value invalidates the cache through the standard CUDAFactory
         # path, so stale helpers regenerate on the lookup below.
         solver_updates = {}
-        if beta is not None:
-            solver_updates["solver_beta"] = beta
-        if gamma is not None:
-            solver_updates["solver_gamma"] = gamma
+        if solver_beta is not None:
+            solver_updates["solver_beta"] = solver_beta
+        if solver_gamma is not None:
+            solver_updates["solver_gamma"] = solver_gamma
         if preconditioner_order is not None:
-            solver_updates["solver_preconditioner_order"] = (
-                preconditioner_order
-            )
+            solver_updates["preconditioner_order"] = preconditioner_order
         tableau_hash = None
         if func_type in _TABLEAU_HELPER_TYPES:
             tableau_hash = _stage_tableau_hash(
                 stage_coefficients,
                 stage_nodes,
             )
-            solver_updates["solver_tableau_digest"] = tableau_hash
+            solver_updates["tableau_digest"] = tableau_hash
         if solver_updates:
             self.update_compile_settings(solver_updates)
 
@@ -1124,9 +1124,7 @@ class SymbolicODE(BaseODE):
 
         beta = self.compile_settings.solver_beta
         gamma = self.compile_settings.solver_gamma
-        preconditioner_order = (
-            self.compile_settings.solver_preconditioner_order
-        )
+        preconditioner_order = self.compile_settings.preconditioner_order
 
         # Determine factory_name for n_stage helpers (needed to check cache)
         # Preconditioner names encode the order so that different

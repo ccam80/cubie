@@ -1262,7 +1262,7 @@ def test_solver_helper_preserves_colliding_constants(
     """Helper generation leaves beta/gamma constants untouched."""
 
     residual = system.get_solver_helper(
-        "stage_residual", beta=1.0, gamma=1.0
+        "stage_residual", solver_beta=1.0, solver_gamma=1.0
     )
     assert system.constants.values_array.dtype == np.dtype(precision)
     assert system.constants.values_dict["beta"] == precision(2.5)
@@ -1322,7 +1322,7 @@ def test_solver_helper_rebuilds_on_scaling_change(
     helpers = []
     for beta, gamma in (first_scalings, second_scalings):
         residual = system.get_solver_helper(
-            "stage_residual", beta=beta, gamma=gamma
+            "stage_residual", solver_beta=beta, solver_gamma=gamma
         )
         helpers.append(residual)
         kernel = residual_kernel(residual)
@@ -1354,14 +1354,14 @@ def test_neumann_helper_rebuilds_on_order_change(system):
 
     first = system.get_solver_helper(
         "neumann_preconditioner",
-        beta=1.0,
-        gamma=1.0,
+        solver_beta=1.0,
+        solver_gamma=1.0,
         preconditioner_order=1,
     )
     second = system.get_solver_helper(
         "neumann_preconditioner",
-        beta=1.0,
-        gamma=1.0,
+        solver_beta=1.0,
+        solver_gamma=1.0,
         preconditioner_order=2,
     )
 
@@ -1377,13 +1377,13 @@ def test_helper_requests_without_scalings_reuse_cache(system):
     """Requests with omitted scalings reuse every cached helper."""
 
     scaled = system.get_solver_helper(
-        "linear_operator", beta=2.5, gamma=0.5
+        "linear_operator", solver_beta=2.5, solver_gamma=0.5
     )
     first = system.get_solver_helper("prepare_jac")
     second = system.get_solver_helper("prepare_jac")
     auxiliary_count = system.get_solver_helper("cached_aux_count")
     repeat_scaled = system.get_solver_helper(
-        "linear_operator", beta=2.5, gamma=0.5
+        "linear_operator", solver_beta=2.5, solver_gamma=0.5
     )
 
     assert first is second
@@ -1609,8 +1609,8 @@ def test_chained_preconditioner_composition(
     individually generated preconditioners.
     """
     kwargs = {
-        "beta": 1.0,
-        "gamma": 1.0,
+        "solver_beta": 1.0,
+        "solver_gamma": 1.0,
         "preconditioner_order": 1,
     }
     chained = operator_system.get_solver_helper(
@@ -1837,7 +1837,7 @@ def test_mass_matrix_selects_distinct_cached_helpers(
     diag_j = np.array([-1.0 + eval_point[1], -2.0])
 
     pre_eye = system.get_solver_helper(
-        "jacobi_preconditioner", beta=1.0, gamma=1.0
+        "jacobi_preconditioner", solver_beta=1.0, solver_gamma=1.0
     )
     out_eye = np.zeros(2, dtype=precision)
     jacobi_kernel(pre_eye)[1, 1](
@@ -1863,7 +1863,7 @@ def test_mass_matrix_selects_distinct_cached_helpers(
     )
     assert system_mass.fn_hash != system.fn_hash
     pre_mass = system_mass.get_solver_helper(
-        "jacobi_preconditioner", beta=1.0, gamma=1.0
+        "jacobi_preconditioner", solver_beta=1.0, solver_gamma=1.0
     )
     out_mass = np.zeros(2, dtype=precision)
     jacobi_kernel(pre_mass)[1, 1](
