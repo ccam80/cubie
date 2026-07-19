@@ -60,6 +60,7 @@ from cubie.result_codes import CUBIE_RESULT_CODES
 from cubie.integrators.matrix_free_solvers.linear_solver_base import (
     LinearSolverBase,
 )
+from cubie.integrators.norms import CorrectionNorm, DIRKCorrectionNorm
 
 
 @define
@@ -109,6 +110,11 @@ class NewtonKrylovConfig(MatrixFreeSolverConfig):
         eq=False,
     )
     linear_solver_function: Optional[Callable] = field(
+        default=None,
+        validator=validators.optional(is_device_validator),
+        eq=False,
+    )
+    correction_norm_term_function: Optional[Callable] = field(
         default=None,
         validator=validators.optional(is_device_validator),
         eq=False,
@@ -215,6 +221,7 @@ class NewtonKrylov(MatrixFreeSolver):
         precision: PrecisionDType,
         n: int,
         linear_solver: LinearSolverBase,
+        norm: Optional[CorrectionNorm] = None,
         **kwargs,
     ) -> None:
         """Initialize NewtonKrylov with parameters.
@@ -226,27 +233,39 @@ class NewtonKrylov(MatrixFreeSolver):
         n : int
             Size of state vectors.
         linear_solver : LinearSolverBase
-            LinearSolverBase instance for solving linear systems.
+            Inner linear solver.
+        norm : CorrectionNorm, optional
+            Correction norm. Defaults to DIRK scaling.
         **kwargs
-            Optional parameters passed to NewtonKrylovConfig. See
-            NewtonKrylovConfig for available parameters. Tolerance
-            parameters (newton_atol, newton_rtol) are passed to the
-            norm factory. None values are ignored.
+            Newton solver settings.
         """
+
+        if norm is None:
+            norm = DIRKCorrectionNorm(
+                precision=precision,
+                n=n,
+                instance_label="newton",
+                **kwargs,
+            )
+        super().__init__(
+            precision=precision,
+            solver_type="newton",
+            n=n,
+            norm=norm,
+            **kwargs,
+        )
 
         config = build_config(
             NewtonKrylovConfig,
             required={
                 "precision": precision,
                 "n": n,
+                "norm_device_function": self.norm.device_function,
+                "correction_norm_term_function": (
+                    self.norm.term_device_function
+                ),
             },
             instance_label="newton",
-            **kwargs,
-        )
-        super().__init__(
-            precision=precision,
-            solver_type="newton",
-            n=n,
             **kwargs,
         )
 
@@ -318,6 +337,7 @@ class NewtonKrylov(MatrixFreeSolver):
         residual_function = config.residual_function
         linear_solver_fn = config.linear_solver_function
         scaled_norm_fn = config.norm_device_function
+        correction_norm_term_fn = config.correction_norm_term_function
 
         n = config.n
         max_iters = int32(config.max_iters)
@@ -366,6 +386,7 @@ class NewtonKrylov(MatrixFreeSolver):
             h,
             a_ij,
             base_state,
+            step_start,
             shared_scratch,
             persistent_scratch,
             counters,
@@ -449,8 +470,19 @@ class NewtonKrylov(MatrixFreeSolver):
                 )
                 last_lin_status = selp(active, lin_status, last_lin_status)
 
+                norm2_dz = typed_zero
+                for i in range(n_val):
+                    stage_base_bt[i] = stage_increment[i]
+                    norm2_dz += correction_norm_term_fn(
+                        i,
+                        delta[i],
+                        stage_increment,
+                        base_state,
+                        step_start,
+                        a_ij,
+                    )
+
                 # Bound the ratio before division.
-                norm2_dz = scaled_norm_fn(delta, stage_increment)
                 theta = numba_precision(
                     math_sqrt(
                         min(
@@ -469,7 +501,6 @@ class NewtonKrylov(MatrixFreeSolver):
                 )
 
                 for i in range(n_val):
-                    stage_base_bt[i] = stage_increment[i]
                     stage_increment[i] = selp(
                         accept_update,
                         stage_base_bt[i] + delta[i],
@@ -612,8 +643,16 @@ class NewtonKrylov(MatrixFreeSolver):
         all_updates["linear_solver_function"] = (
             self.linear_solver.device_function
         )
-        # update norm and compile settings through base solver class
+        # Update the norm before reading its compiled term.
         recognized |= super().update(all_updates, silent=True)
+        self.update_compile_settings(
+            {
+                "correction_norm_term_function": (
+                    self.norm.term_device_function
+                )
+            },
+            silent=True,
+        )
 
         # Buffer locations handled by registry
         recognized |= buffer_registry.update(

@@ -27,7 +27,6 @@ errorless tableau with an adaptive controller, which would fail at runtime.
 
 from typing import Callable, Optional
 
-import numpy as np
 from cubie.cuda_simsafe import cuda, int32
 
 from cubie.result_codes import CUBIE_RESULT_CODES
@@ -41,6 +40,7 @@ from cubie.integrators.algorithms.generic_firk import (
     FIRK_ADAPTIVE_DEFAULTS,
     FIRK_FIXED_DEFAULTS,
 )
+from cubie.integrators.norms import FIRKCorrectionNorm
 
 from cubie.integrators.algorithms.generic_firk_tableaus import (
     DEFAULT_FIRK_TABLEAU,
@@ -218,10 +218,21 @@ class InstrumentedFIRKStep(InstrumentedODEImplicitStep):
         if newton_max_backtracks is not None:
             solver_kwargs["newton_max_backtracks"] = newton_max_backtracks
 
-        # Call parent __init__ to create solver instances
-        super().__init__(config, controller_defaults, **solver_kwargs)
-
-        self.solver.update(n=self.tableau.stage_count * n)
+        newton_norm = FIRKCorrectionNorm(
+            precision=precision,
+            n=config.all_stages_n,
+            state_n=n,
+            stage_coefficients=tuple(tuple(row) for row in tableau.a),
+            instance_label="newton",
+            **solver_kwargs,
+        )
+        super().__init__(
+            config,
+            controller_defaults,
+            newton_norm=newton_norm,
+            solver_n=config.all_stages_n,
+            **solver_kwargs,
+        )
         self.register_buffers()
 
     def register_buffers(self) -> None:
@@ -272,7 +283,6 @@ class InstrumentedFIRKStep(InstrumentedODEImplicitStep):
         """
         config = self.compile_settings
         get_fn = config.get_solver_helper_fn
-        n = config.n
         tableau = config.tableau
 
         beta = config.beta
@@ -494,6 +504,7 @@ class InstrumentedFIRKStep(InstrumentedODEImplicitStep):
                 current_time,
                 dt_scalar,
                 typed_zero,
+                state,
                 state,
                 solver_shared,
                 solver_persistent,

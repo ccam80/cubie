@@ -85,6 +85,7 @@ def test_newton_krylov_placeholder(placeholder_system, precision, tolerance):
             h,
             a_ij,
             base,
+            base,
             shared,
             persistent_local,
             counters,
@@ -231,6 +232,7 @@ def test_newton_krylov_convergence_edges(
             precision(1.0),
             precision(1.0),
             base_state,
+            base_state,
             shared,
             persistent,
             counters,
@@ -327,6 +329,7 @@ def test_newton_krylov_warp_keeps_full_step_history(precision):
             precision(1.0),
             precision(1.0),
             base_state,
+            base_state,
             shared,
             persistent,
             counters,
@@ -410,6 +413,7 @@ def test_newton_krylov_clears_history_after_damping(precision):
             precision(0.0),
             precision(1.0),
             precision(1.0),
+            base_state,
             base_state,
             shared,
             persistent,
@@ -501,6 +505,7 @@ def test_newton_krylov_does_not_reuse_history_between_solves(precision):
             precision(1.0),
             precision(1.0),
             base_state,
+            base_state,
             shared,
             persistent,
             counters,
@@ -520,6 +525,7 @@ def test_newton_krylov_does_not_reuse_history_between_solves(precision):
             precision(1.0),
             precision(1.0),
             base_state,
+            base_state,
             shared,
             persistent,
             counters,
@@ -534,7 +540,7 @@ def test_newton_krylov_does_not_reuse_history_between_solves(precision):
     cuda.synchronize()
 
     assert np.all(statuses.copy_to_host() == CUBIE_RESULT_CODES.SUCCESS)
-    assert np.array_equal(counts.copy_to_host(), np.array([2, 3]))
+    assert np.array_equal(counts.copy_to_host(), np.array([1, 3]))
     result = second_state.copy_to_host()[0]
     assert abs(result * result - precision(4.0)) <= precision(0.01)
 
@@ -616,6 +622,7 @@ def test_newton_krylov_symbolic(
             time_scalar,
             h,
             a_ij,
+            base,
             base,
             shared,
             persistent_local,
@@ -700,6 +707,7 @@ def test_newton_krylov_failure(precision):
             h,
             a_ij,
             base,
+            base,
             shared,
             persistent_local,
             counters,
@@ -779,6 +787,7 @@ def test_newton_krylov_newton_max_iters_exceeded(
             h,
             a_ij,
             base,
+            base,
             shared,
             persistent_local,
             counters,
@@ -854,6 +863,7 @@ def test_newton_krylov_linear_solver_failure_propagates(precision):
             time_scalar,
             h,
             a_ij,
+            base,
             base,
             shared,
             persistent_local,
@@ -971,6 +981,7 @@ def test_newton_krylov_scaled_tolerance_converges(precision, tolerance):
             time_scalar,
             h,
             a_ij,
+            base_dev,
             base_dev,
             shared,
             persistent_local,
@@ -1168,17 +1179,19 @@ def test_newton_krylov_no_manual_cache_invalidation(precision):
         newton_rtol=1e-4,
     )
 
-    # Access device function to force build
     newton.update(n=n)
     _ = newton.device_function
-    # Verify initial norm_device_function is set in config
     config = newton.compile_settings
     assert config.norm_device_function is not None
+    old_term = config.correction_norm_term_function
 
-    # Update tolerance should update config.norm_device_function
     newton.update(newton_atol=1e-8)
 
-    # Config should have updated norm_device_function
+    config = newton.compile_settings
+    assert config.correction_norm_term_function is (
+        newton.norm.term_device_function
+    )
+    assert config.correction_norm_term_function is not old_term
     assert newton._cache_valid is False
 
 

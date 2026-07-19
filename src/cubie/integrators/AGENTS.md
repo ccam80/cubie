@@ -23,7 +23,7 @@ each have their own `AGENTS.md`.
 | `SingleIntegratorRun.py` | `SingleIntegratorRun(SingleIntegratorRunCore)`: read-only properties exposing compiled loop artifacts, memory sizing, controller bounds, and output metadata to `BatchSolverKernel`. No `build()` override. |
 | `SingleIntegratorRunCore.py` | `SingleIntegratorRunCore(CUDAFactory)`: owns `_output_functions`, `_algo_step`, `_step_controller`, `_loop`; wires them and delegates compilation to `IVPLoop` in `build()`. Defines `SingleIntegratorRunCache` (holds `single_integrator_function`). |
 | `IntegratorRunSettings.py` | `IntegratorRunSettings(CUDAFactoryConfig)`: thin compile-settings holding only `algorithm` and `step_controller` names (plus inherited `precision`) — the core's own cache key. |
-| `norms.py` | `ScaledNorm(MultipleInstanceCUDAFactory)`: a general scaled error-norm utility — compiles `sum((|v_i|/tol_i)^2)/n` (mean-squared, tolerance-scaled). Currently used by the matrix-free solvers for convergence testing. Defines `ScaledNormConfig`, `ScaledNormCache`. |
+| `norms.py` | CUDA factories for scaled vector norms and DIRK/FIRK Newton correction terms. |
 | `__init__.py` | Package API re-exports (`SingleIntegratorRun`, `IVPLoop`, algorithm/solver/controller classes, `get_algorithm_step`, `get_controller`); re-exports `CUBIE_RESULT_CODES` from `cubie.result_codes`. |
 
 ## Subdirectories

@@ -19,6 +19,7 @@ from cubie.integrators.algorithms.generic_dirk import (
     DIRK_ADAPTIVE_DEFAULTS,
     DIRKStepConfig
 )
+from cubie.integrators.norms import DIRKCorrectionNorm
 from cubie.buffer_registry import buffer_registry
 from tests.integrators.algorithms.instrumented.ode_implicitstep import \
     InstrumentedODEImplicitStep
@@ -191,7 +192,18 @@ class InstrumentedDIRKStep(InstrumentedODEImplicitStep):
             solver_kwargs["newton_max_backtracks"] = newton_max_backtracks
 
         # Call parent __init__ to create solver instances
-        super().__init__(config, controller_defaults, **solver_kwargs)
+        newton_norm = DIRKCorrectionNorm(
+            precision=precision,
+            n=n,
+            instance_label="newton",
+            **solver_kwargs,
+        )
+        super().__init__(
+            config,
+            controller_defaults,
+            newton_norm=newton_norm,
+            **solver_kwargs,
+        )
 
         self.register_buffers()
 
@@ -260,8 +272,6 @@ class InstrumentedDIRKStep(InstrumentedODEImplicitStep):
         logging data for each Newton and linear solver iteration.
         """
         config = self.compile_settings
-        precision = config.precision
-        n = config.n
         beta = config.beta
         gamma = config.gamma
         preconditioner_order = config.preconditioner_order
@@ -514,6 +524,7 @@ class InstrumentedDIRKStep(InstrumentedODEImplicitStep):
                         dt_scalar,
                         diagonal_coeffs[0],
                         stage_base,
+                        state,
                         solver_shared,
                         solver_persistent,
                         counters,
@@ -645,6 +656,7 @@ class InstrumentedDIRKStep(InstrumentedODEImplicitStep):
                         dt_scalar,
                         diagonal_coeffs[stage_idx],
                         stage_base,
+                        state,
                         solver_shared,
                         solver_persistent,
                         counters,

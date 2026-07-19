@@ -27,6 +27,7 @@ from cubie.integrators.algorithms.generic_firk_tableaus import (
     DEFAULT_FIRK_TABLEAU,
     FIRK_TABLEAU_REGISTRY,
 )
+from cubie.integrators.norms import DIRKCorrectionNorm, FIRKCorrectionNorm
 from cubie.integrators.algorithms.generic_rosenbrock_w import (
     GenericRosenbrockWStep,
 )
@@ -37,7 +38,6 @@ from cubie.integrators.algorithms.generic_rosenbrockw_tableaus import (
 from tests.integrators.cpu_reference import (
     CPUODESystem,
     get_ref_step_factory,
-    get_ref_stepper,
 )
 from tests.integrators.cpu_reference.algorithms import (
     CPUDIRKStep,
@@ -718,6 +718,27 @@ def test_firk_step_is_multistage_matches_tableau():
         precision=np.float32, n=3, tableau=DEFAULT_FIRK_TABLEAU,
     )
     assert step.is_multistage == (DEFAULT_FIRK_TABLEAU.stage_count > 1)
+
+
+@pytest.mark.parametrize(
+    "step_class,tableau,norm_type",
+    [
+        (BackwardsEulerStep, None, DIRKCorrectionNorm),
+        (CrankNicolsonStep, None, DIRKCorrectionNorm),
+        (DIRKStep, DEFAULT_DIRK_TABLEAU, DIRKCorrectionNorm),
+        (FIRKStep, DEFAULT_FIRK_TABLEAU, FIRKCorrectionNorm),
+    ],
+)
+def test_implicit_algorithm_selects_correction_norm(
+    step_class, tableau, norm_type
+):
+    """Each implicit family selects its correction norm."""
+    kwargs = {"precision": np.float32, "n": 3}
+    if tableau is not None:
+        kwargs["tableau"] = tableau
+    step = step_class(**kwargs)
+
+    assert isinstance(step.solver.norm, norm_type)
 
 
 # Test controller defaults selection based on tableau error estimation

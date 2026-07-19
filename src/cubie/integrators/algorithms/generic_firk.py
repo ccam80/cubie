@@ -55,6 +55,7 @@ from cubie.integrators.algorithms.ode_implicitstep import (
     ImplicitStepConfig,
     ODEImplicitStep,
 )
+from cubie.integrators.norms import FIRKCorrectionNorm
 from cubie.buffer_registry import buffer_registry
 
 
@@ -219,9 +220,21 @@ class FIRKStep(ODEImplicitStep):
         else:
             controller_defaults = FIRK_FIXED_DEFAULTS
 
-        super().__init__(config, controller_defaults, **kwargs)
-
-        self.solver.update(n=config.all_stages_n)
+        newton_norm = FIRKCorrectionNorm(
+            precision=precision,
+            n=config.all_stages_n,
+            state_n=n,
+            stage_coefficients=tuple(tuple(row) for row in tableau.a),
+            instance_label="newton",
+            **kwargs,
+        )
+        super().__init__(
+            config,
+            controller_defaults,
+            newton_norm=newton_norm,
+            solver_n=config.all_stages_n,
+            **kwargs,
+        )
         self.register_buffers()
 
     def register_buffers(self) -> None:
@@ -469,6 +482,7 @@ class FIRKStep(ODEImplicitStep):
                 current_time,
                 dt_scalar,
                 typed_zero,
+                state,
                 state,
                 solver_shared,
                 solver_persistent,

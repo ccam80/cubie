@@ -224,6 +224,7 @@ class InstrumentedBackwardsEulerPCStep(InstrumentedBackwardsEulerStep):
                 dt_scalar,
                 a_ij,
                 state,
+                state,
                 solver_scratch,
                 solver_persistent,
                 counters,

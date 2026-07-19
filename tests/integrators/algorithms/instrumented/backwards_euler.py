@@ -9,6 +9,7 @@ from cubie.buffer_registry import buffer_registry
 from cubie.integrators.algorithms.backwards_euler import \
     BackwardsEulerStepConfig, ALGO_CONSTANTS, BE_DEFAULTS
 from cubie.integrators.algorithms.base_algorithm_step import StepCache
+from cubie.integrators.norms import DIRKCorrectionNorm
 from tests.integrators.algorithms.instrumented.ode_implicitstep import \
     InstrumentedODEImplicitStep
 
@@ -127,7 +128,18 @@ class InstrumentedBackwardsEulerStep(InstrumentedODEImplicitStep):
         if newton_max_backtracks is not None:
             solver_kwargs["newton_max_backtracks"] = newton_max_backtracks
 
-        super().__init__(config, BE_DEFAULTS.copy(), **solver_kwargs)
+        newton_norm = DIRKCorrectionNorm(
+            precision=precision,
+            n=n,
+            instance_label="newton",
+            **solver_kwargs,
+        )
+        super().__init__(
+            config,
+            BE_DEFAULTS.copy(),
+            newton_norm=newton_norm,
+            **solver_kwargs,
+        )
         self.register_buffers()
 
     def register_buffers(self) -> None:
@@ -355,6 +367,7 @@ class InstrumentedBackwardsEulerStep(InstrumentedODEImplicitStep):
                 next_time,
                 dt_scalar,
                 a_ij,
+                state,
                 state,
                 solver_shared,
                 solver_persistent,

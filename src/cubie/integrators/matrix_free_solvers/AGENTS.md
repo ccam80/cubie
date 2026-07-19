@@ -39,7 +39,7 @@ is specific to the solvers.
   as the RHS and is overwritten with the residual; `x` enters as the initial guess
   and is overwritten with the solution; `krylov_iters_out` is a length-1 int32 array.
 - `NewtonKrylov`: `newton_krylov_solver(stage_increment, parameters, drivers, t, h,
-  a_ij, base_state, shared_scratch, persistent_scratch, counters) -> int32`.
+  a_ij, base_state, step_start, shared_scratch, persistent_scratch, counters) -> int32`.
   `stage_increment` is updated in place. `counters` is a length-2 int32 array:
   `[0]` = Newton iterations, `[1]` = total Krylov iterations.
 
@@ -67,16 +67,13 @@ is specific to the solvers.
   closure constants). `newton_krylov_solver` OR-combines these into a **low-bits** status
   word — it does NOT pack the iteration count into high bits (counts go to `counters`).
   Callers OR this word into their own step status.
-- Convergence is tested with the solver's **norm device function** (a `Norm`
-  CUDAFactory; see `cubie.integrators.norms`). The per-solver tolerances are the
-  prefixed params `krylov_atol`/`krylov_rtol` (linear) and `newton_atol`/`newton_rtol`
-  (Newton), read via the `*_atol`/`*_rtol` properties (`NewtonKrylov.krylov_*`
-  delegate to the inner `LinearSolver`).
+- Linear and residual norms use `ScaledNorm`. Newton corrections use
+  `DIRKCorrectionNorm` or `FIRKCorrectionNorm`.
 - **Newton convergence is update-based:** consecutive accepted full steps
-  estimate `theta`. The solve accepts when
-  `theta / (1 - theta) * ||dz|| <= 1`. Damping, linear failure, and line-search
-  failure clear the estimate. The residual norm controls the line search and
-  remains a fallback at solver exit.
+  estimate `theta`. The solve accepts when `theta / (1 - theta) * ||dz|| <= 1`.
+  The correction norm scales against the physical stage state and the step
+  start. DIRK uses one diagonal coefficient; FIRK uses the full tableau row.
+  The residual norm controls the line search and the final fallback check.
 
 ### Solver-specific gotchas
 - **Warp-coherent loops.** Iterative loops exit on warp votes (`all_sync`/`any_sync`

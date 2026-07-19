@@ -11,6 +11,7 @@ from cubie.integrators.algorithms.ode_implicitstep import (
     ImplicitStepConfig,
     StepControlDefaults
 )
+from cubie.integrators.norms import CorrectionNorm
 
 
 class InstrumentedODEImplicitStep(ODEImplicitStep):
@@ -30,12 +31,16 @@ class InstrumentedODEImplicitStep(ODEImplicitStep):
         newton_max_iters: Optional[int] = None,
         newton_damping: Optional[float] = None,
         newton_max_backtracks: Optional[int] = None,
+        newton_norm: Optional[CorrectionNorm] = None,
+        solver_n: Optional[int] = None,
         **kwargs,
     ):
             super().__init__(
                 config=config,
                 _controller_defaults=_controller_defaults,
                 solver_type=solver_type,
+                newton_norm=newton_norm,
+                solver_n=solver_n,
                 krylov_atol=krylov_atol,
                 krylov_rtol=krylov_rtol,
                 krylov_max_iters=krylov_max_iters,
@@ -49,9 +54,10 @@ class InstrumentedODEImplicitStep(ODEImplicitStep):
             )
 
             # Build instrumented solvers for use in place of production ones
+            solver_n = config.n if solver_n is None else solver_n
             linear_solver = InstrumentedMRLinearSolver(
                 precision=config.precision,
-                n=config.n,
+                n=solver_n,
                 linear_correction_type=linear_correction_type,
                 krylov_atol=krylov_atol,
                 krylov_rtol=krylov_rtol,
@@ -61,8 +67,9 @@ class InstrumentedODEImplicitStep(ODEImplicitStep):
             if solver_type == "newton":
                 self.solver = InstrumentedNewtonKrylov(
                     precision=config.precision,
-                    n=config.n,
+                    n=solver_n,
                     linear_solver=linear_solver,
+                    norm=newton_norm,
                     newton_atol=newton_atol,
                     newton_rtol=newton_rtol,
                     newton_max_iters=newton_max_iters,

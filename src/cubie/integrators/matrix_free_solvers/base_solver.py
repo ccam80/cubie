@@ -103,6 +103,7 @@ class MatrixFreeSolver(MultipleInstanceCUDAFactory):
         precision: PrecisionDType,
         solver_type: str,
         n: int,
+        norm: Optional[ScaledNorm] = None,
         **kwargs,
     ) -> None:
         """Initialize base solver with norm factory.
@@ -115,20 +116,21 @@ class MatrixFreeSolver(MultipleInstanceCUDAFactory):
             Prefix for tolerance parameters (e.g., "krylov" or "newton").
         n : int
             Size of state vectors.
+        norm : ScaledNorm, optional
+            Norm owned by the solver.
         **kwargs
-            Forwarded to
-            :class:`~cubie.integrators.norms.ScaledNorm`. Includes
-            prefixed tolerance parameters (e.g. ``krylov_atol``,
-            ``newton_rtol``).
+            Settings for the default norm.
         """
         self.solver_type = solver_type
         super().__init__(instance_label=solver_type)
-        self.norm = ScaledNorm(
-            precision=precision,
-            n=n,
-            instance_label=solver_type,
-            **kwargs,
-        )
+        if norm is None:
+            norm = ScaledNorm(
+                precision=precision,
+                n=n,
+                instance_label=solver_type,
+                **kwargs,
+            )
+        self.norm = norm
 
     def update(
         self,

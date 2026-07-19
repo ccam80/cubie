@@ -520,6 +520,7 @@ class InstrumentedNewtonKrylov(NewtonKrylov):
 
         # Get scaled norm device function from config
         scaled_norm_fn = config.norm_device_function
+        correction_norm_term_fn = config.correction_norm_term_function
 
         # Convert types for device function
         precision_dtype = np.dtype(precision)
@@ -570,6 +571,7 @@ class InstrumentedNewtonKrylov(NewtonKrylov):
             h,
             a_ij,
             base_state,
+            step_start,
             shared_scratch,
             persistent_scratch,
             counters,
@@ -690,8 +692,19 @@ class InstrumentedNewtonKrylov(NewtonKrylov):
                     active, lin_status, last_lin_status
                 )
 
+                norm2_dz = typed_zero
+                for i in range(n_val):
+                    stage_base_bt[i] = stage_increment[i]
+                    norm2_dz += correction_norm_term_fn(
+                        i,
+                        delta[i],
+                        stage_increment,
+                        base_state,
+                        step_start,
+                        a_ij,
+                    )
+
                 # Bound the ratio before division.
-                norm2_dz = scaled_norm_fn(delta, stage_increment)
                 theta = numba_precision(
                     math_sqrt(
                         min(
@@ -710,7 +723,6 @@ class InstrumentedNewtonKrylov(NewtonKrylov):
                 )
 
                 for i in range(n_val):
-                    stage_base_bt[i] = stage_increment[i]
                     stage_increment[i] = selp(
                         accept_update,
                         stage_base_bt[i] + delta[i],
