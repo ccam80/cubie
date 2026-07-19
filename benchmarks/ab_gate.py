@@ -8,9 +8,11 @@ from an ephemeral ``git worktree`` at ``--main`` (default
 ping-pongs short solve blocks between them in a drift-balancing ABBA
 order. Each block yields two statistics per config: the mean of its
 lowest ``k`` per-solve kernel times (CUDA events, kernel only) and
-the median per-solve wall time (host clock around ``Solver.solve``,
-so changes that lengthen its end-to-end critical path or destroy
-chunk-transfer overlap show up in it). The two blocks of an ABBA
+the mean of its lowest ``k`` per-solve wall times (host clock around
+``Solver.solve``). Host scatter is one-sided — delays only ever add
+time — so the wall floor excludes it while still catching changes
+that lengthen the end-to-end critical path or destroy chunk-transfer
+overlap, which slow every solve. The two blocks of an ABBA
 pair ran back to back, so each verdict statistic is the median of
 the paired percent deltas — kernel deltas gate at ``--threshold``,
 wall deltas at the coarser ``--wall-threshold``.
@@ -39,10 +41,10 @@ percent with GPU clock state. The blocks of a pair run seconds
 apart, so they sample nearly the same clock state and the wander
 cancels inside each pair — and each side pays its process startup,
 JIT compile, and grid build once instead of once per sample. Verdict
-reliability is judged from the per-pair deltas themselves: when pair
-verdicts disagree across the configured threshold boundaries, the
-row is marked DISTRUST — rerun, with more ``--pairs`` or on a
-quieter GPU, before acting on it.
+reliability is judged from the per-pair deltas themselves: when at
+least two pairs sit on each side of the regression threshold the
+call is contested and the row is marked DISTRUST — rerun, with more
+``--pairs`` or on a quieter GPU, before acting on it.
 Constant background load inflates absolute times but cancels out of
 the deltas. Both workers hold their device pools concurrently, which
 is fine at the default sizes (~0.7 GB each); much larger ``--n-runs``
@@ -267,18 +269,23 @@ def compare_meta(backend, metas, keys):
 
 
 def classify_deltas(deltas, threshold):
-    """Median delta, its verdict, and whether pair verdicts disagree."""
+    """Median delta, its verdict, and whether regression is contested.
 
-    def classify(value):
-        if value > threshold:
-            return "REGRESSION"
-        if value < -threshold:
-            return "improvement"
-        return "ok"
-
+    Only the ``+threshold`` boundary gates, so only a genuine pair
+    split over it makes a row inconclusive: at least two pairs on
+    each side. A single straggler follows the majority, and
+    improvement-vs-ok scatter never flags.
+    """
     delta = statistics.median(deltas)
-    disagree = len({classify(value) for value in deltas}) > 1
-    return delta, classify(delta), disagree
+    if delta > threshold:
+        verdict = "REGRESSION"
+    elif delta < -threshold:
+        verdict = "improvement"
+    else:
+        verdict = "ok"
+    over = sum(value > threshold for value in deltas)
+    distrust = min(over, len(deltas) - over) >= 2
+    return delta, verdict, distrust
 
 
 def run_backend(backend, main_tree, b_tree, base, args):
@@ -365,24 +372,15 @@ def run_backend(backend, main_tree, b_tree, base, args):
         "wall": args.wall_threshold,
     }
     for key in keys:
-        for stat in ("kernel", "wall"):
-            if stat == "kernel":
-                k = min(args.min_count, counts[key])
-                floors = {
-                    side: [
-                        statistics.fmean(sorted(blk[0])[:k])
-                        for blk in collected[side][key]
-                    ]
-                    for side in ("A", "B")
-                }
-            else:
-                floors = {
-                    side: [
-                        statistics.median(blk[1])
-                        for blk in collected[side][key]
-                    ]
-                    for side in ("A", "B")
-                }
+        k = min(args.min_count, counts[key])
+        for stat_index, stat in enumerate(("kernel", "wall")):
+            floors = {
+                side: [
+                    statistics.fmean(sorted(blk[stat_index])[:k])
+                    for blk in collected[side][key]
+                ]
+                for side in ("A", "B")
+            }
             a = statistics.fmean(floors["A"])
             b = statistics.fmean(floors["B"])
             # The i-th A and B blocks ran back to back (one ABBA
@@ -451,9 +449,9 @@ def main():
                              "calibrated null).")
     parser.add_argument("--wall-threshold", type=float, default=5.0,
                         help="Wall-delta regression threshold in "
-                             "percent; wall time carries host "
-                             "scatter, so it is far coarser than "
-                             "--threshold.")
+                             "percent; the wall floor still carries "
+                             "more host scatter than CUDA events, so "
+                             "it is coarser than --threshold.")
     parser.add_argument("--calibrate", action="store_true",
                         help="Point B at main too (A-vs-A null).")
     parser.add_argument("--keep", action="store_true",
@@ -519,9 +517,9 @@ def main():
           f"(kernel threshold {args.threshold:.2f}%, wall threshold "
           f"{args.wall_threshold:.2f}%)")
     if distrusted:
-        print("DISTRUST = the per-pair deltas disagree, so that "
-              "verdict is unreliable; rerun, with more --pairs or a "
-              "quieter GPU, before acting on it.")
+        print("DISTRUST = the pairs split on the regression call, "
+              "so that verdict is unreliable; rerun, with more "
+              "--pairs or a quieter GPU, before acting on it.")
     if regressed:
         return 1
     return 2 if distrusted else 0

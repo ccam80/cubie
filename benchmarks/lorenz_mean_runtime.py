@@ -44,10 +44,12 @@ by ``BatchSolverKernel``. The lowest solves are those that ran at
 full boost clock with no on-GPU contention, so they track the
 compiled kernel's intrinsic cost and drift far less between
 invocations than the mean (which the upper tail pulls around). The
-**wall** statistic is the median per-solve host time around
-``Solver.solve`` (which synchronises the stream and waits for
-chunked writeback before returning), so changes that lengthen the
-total critical path or destroy chunk overlap land in it. It carries
+**wall** statistic is the mean of the lowest ``min_count`` per-solve
+host times around ``Solver.solve`` (which synchronises the stream
+and waits for chunked writeback before returning). Host scatter is
+one-sided — delays only ever add time — so the wall floor excludes
+it while still catching changes that lengthen the total critical
+path or destroy chunk overlap, which slow every solve. It carries
 more host scatter than the kernel statistic and supports coarser
 thresholds only.
 
@@ -99,7 +101,6 @@ import io
 import os
 import re
 import shutil
-import statistics
 import sys
 import timeit
 from time import perf_counter
@@ -458,11 +459,11 @@ def benchmark(key, label, solver, n_runs, duration, repeats, k,
               grid_cache=None):
     """Run ``repeats`` solves after a warm-up; print the statistics.
 
-    Prints the config's ``@META`` compile-metrics line, the mean of
-    the ``k`` lowest per-solve kernel times and the median per-solve
-    wall time (the module docstring explains both statistics), then
-    parseable ``RESULT``/``RESULT_WALL`` lines. Returns the config's
-    compile metrics.
+    Prints the config's ``@META`` compile-metrics line and the mean
+    of the ``k`` lowest per-solve kernel and wall times (the module
+    docstring explains both statistics), then parseable
+    ``RESULT``/``RESULT_WALL`` lines. Returns the config's compile
+    metrics.
     """
     inits, params = load_grid(solver, n_runs, grid_cache)
     kernel_ms = []
@@ -485,10 +486,11 @@ def benchmark(key, label, solver, n_runs, duration, repeats, k,
     )
     kernel_arr = np.sort(np.asarray(kernel_ms[discarded_solves:]))
     kernel_stat = kernel_arr[:k].mean()
-    wall_stat = statistics.median(wall_ms[discarded_solves:])
+    wall_arr = np.sort(np.asarray(wall_ms[discarded_solves:]))
+    wall_stat = wall_arr[:k].mean()
     print(
         f"{label}: kernel {kernel_stat:.3f} ms, wall {wall_stat:.3f} "
-        f"ms (mean of {k} lowest kernel times and median wall over "
+        f"ms (means of the {k} lowest kernel and wall times over "
         f"{repeats} solves of {n_runs} trajectories)"
     )
     print(f"RESULT {key} {kernel_stat:.4f}")
