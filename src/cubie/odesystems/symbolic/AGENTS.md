@@ -48,7 +48,7 @@ attrs conventions; `BaseODE` (parent, `../AGENTS.md`) for `ODECache`/`config_has
 `stage_residual`, `n_stage_residual`, `n_stage_linear_operator`,
 `n_stage_neumann_preconditioner`, `prepare_jac`, `calculate_cached_jvp`, `time_derivative_rhs`,
 and the non-codegen `cached_aux_count`. Adding a helper means a branch here, a generator
-in `codegen/`, and an entry in the `_SOLVER_HELPER_TYPES` registry. Helper scalings persist
+in `codegen/`, and an `ODECache` field. Helper scalings persist
 in the `solver_beta`/`solver_gamma`/`preconditioner_order`/`tableau_digest` fields of
 `ODEData` via `update_compile_settings`, so a changed value invalidates the whole `ODECache`
 through the standard `CUDAFactory` path and helpers regenerate on the next request; an

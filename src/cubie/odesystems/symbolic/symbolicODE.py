@@ -115,25 +115,6 @@ _COMPOSITE_HELPER_TYPES = frozenset((
     "preconditioner_cached",
 ))
 
-_SOLVER_HELPER_TYPES = frozenset((
-    *_COMPOSITE_HELPER_TYPES,
-    "linear_operator",
-    "linear_operator_cached",
-    "neumann_preconditioner",
-    "neumann_preconditioner_cached",
-    "jacobi_preconditioner",
-    "jacobi_preconditioner_cached",
-    "stage_residual",
-    "n_stage_residual",
-    "n_stage_linear_operator",
-    "n_stage_neumann_preconditioner",
-    "n_stage_jacobi_preconditioner",
-    "prepare_jac",
-    "calculate_cached_jvp",
-    "time_derivative_rhs",
-    "cached_aux_count",
-))
-
 
 def _mass_matrix_hash_tag(mass):
     """Return a system-hash component identifying a mass matrix.
@@ -1035,9 +1016,11 @@ class SymbolicODE(BaseODE):
 
         Raises
         ------
+        KeyError
+            Raised when ``func_type`` does not name a cached output.
         NotImplementedError
-            Raised when ``func_type`` does not correspond to a supported
-            helper.
+            Raised when ``func_type`` names a cache slot with no code
+            generator.
 
         Notes
         -----
@@ -1054,11 +1037,6 @@ class SymbolicODE(BaseODE):
         configured values (and the cache) untouched.
         """
         mass = self.compile_settings.mass
-
-        if func_type not in _SOLVER_HELPER_TYPES:
-            raise NotImplementedError(
-                f"Solver helper '{func_type}' is not implemented."
-            )
 
         # Register timing event for this helper type if not already registered
         event_name = f"solver_helper_{func_type}"

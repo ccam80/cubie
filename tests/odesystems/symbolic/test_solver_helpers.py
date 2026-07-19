@@ -1404,8 +1404,8 @@ def test_unknown_helper_preserves_existing_cache(system):
     cached = system.get_solver_helper("prepare_jac")
 
     with pytest.raises(
-        NotImplementedError,
-        match="Solver helper 'not_a_helper' is not implemented",
+        KeyError,
+        match="Output 'not_a_helper' not found in cached outputs",
     ):
         system.get_solver_helper("not_a_helper")
 
