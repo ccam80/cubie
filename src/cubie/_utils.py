@@ -260,19 +260,32 @@ def merge_kwargs_into_settings(
     user_settings
         Explicit settings dictionary supplied by the caller. When provided,
         these values supply defaults that keyword arguments may override.
+        ``None`` values are ignored in both inputs.
 
     Returns
     -------
     merged
         Dictionary containing recognised settings with keyword arguments
         overriding values from ``user_settings``.
-    unused
-        Set of keys in ``kwargs`` that were not consumed.
+    recognized
+        Keys in ``kwargs`` accepted by the component.
     """
 
     allowed = set(valid_keys)
-    filtered = {key: value for key, value in kwargs.items() if key in allowed}
-    user_settings = {} if user_settings is None else user_settings.copy()
+    recognized = {key for key in kwargs if key in allowed}
+    filtered = {
+        key: value
+        for key, value in kwargs.items()
+        if key in allowed and value is not None
+    }
+    if user_settings is None:
+        user_settings = {}
+    else:
+        user_settings = {
+            key: value
+            for key, value in user_settings.items()
+            if value is not None
+        }
     duplicates = {key for key in filtered if key in user_settings}
     if duplicates:
         joined = ", ".join(sorted(duplicates))
@@ -287,7 +300,6 @@ def merge_kwargs_into_settings(
         )
 
     user_settings.update(filtered)
-    recognized = set(filtered)
     return user_settings, recognized
 
 
