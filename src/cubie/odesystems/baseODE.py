@@ -398,9 +398,9 @@ class BaseODE(CUDAFactory):
     def get_solver_helper(
         self,
         func_name: str,
-        beta: float = 1.0,
-        gamma: float = 1.0,
-        preconditioner_order: int = 0,
+        solver_beta: Optional[float] = None,
+        solver_gamma: Optional[float] = None,
+        preconditioner_order: Optional[int] = None,
     ) -> Callable:
         """Retrieve a cached solver helper function.
 
@@ -412,14 +412,15 @@ class BaseODE(CUDAFactory):
         ----------
         func_name
             Identifier for the helper function.
-        beta
-            Shift parameter for the linear operator. Defaults to ``1.0``.
-        gamma
-            Weight of the Jacobian term in the linear operator. Defaults to
-            ``1.0``.
+        solver_beta
+            Shift parameter for the linear operator. Ignored by this
+            base implementation.
+        solver_gamma
+            Weight of the Jacobian term in the linear operator. Ignored
+            by this base implementation.
         preconditioner_order
-            Polynomial order of the preconditioner. Defaults to ``0``. Unused
-            when generating the linear operator.
+            Polynomial order of the preconditioner. Ignored by this
+            base implementation.
 
         Returns
         -------
