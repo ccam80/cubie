@@ -99,6 +99,8 @@ link.
 import copy
 import inspect
 import operator
+import weakref
+from collections import defaultdict
 
 import numpy
 
@@ -133,6 +135,16 @@ from numba_cuda_mlir.lowering.math import (
     registry as _math_registry,
 )
 from numba_cuda_mlir.numba_cuda import types
+from numba_cuda_mlir.numba_cuda.core import (
+    analysis as _nb_analysis,
+    errors as _nb_errors,
+    inline_closurecall as _nb_icc,
+    ir as _nb_ir,
+    ir_utils as _nb_ir_utils,
+    postproc as _nb_postproc,
+    ssa as _nb_ssa,
+    transforms as _nb_transforms,
+)
 
 
 def _make_bitwise_cg(mlir_op):
@@ -1477,20 +1489,6 @@ register_zero_power_fold()
 # the LLVM lowering entirely. The NumbaError double-highlight fix is
 # also inapplicable: the vendored NumbaError inherits Exception
 # directly, so no base class re-highlights the message.
-
-import weakref
-from collections import defaultdict
-
-from numba_cuda_mlir.numba_cuda.core import (
-    analysis as _nb_analysis,
-    errors as _nb_errors,
-    inline_closurecall as _nb_icc,
-    ir as _nb_ir,
-    ir_utils as _nb_ir_utils,
-    postproc as _nb_postproc,
-    ssa as _nb_ssa,
-    transforms as _nb_transforms,
-)
 
 
 _BYTE_BITS = tuple(
