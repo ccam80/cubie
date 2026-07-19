@@ -1,3 +1,5 @@
+from hashlib import sha256
+
 import numpy as np
 import pytest
 import sympy as sp
@@ -32,6 +34,16 @@ def _ir(symbol):
     return ir_expr.sym(str(symbol))
 
 
+def _stable_factory_tag(*values):
+    """Return a stable short tag for generated factory names."""
+    digest = sha256()
+    for value in values:
+        encoded = value if isinstance(value, bytes) else repr(value).encode()
+        digest.update(len(encoded).to_bytes(8, "big"))
+        digest.update(encoded)
+    return digest.hexdigest()[:16]
+
+
 @pytest.fixture(scope="session")
 def operator_system(precision):
     """Build a linear system with a constant Jacobian."""
@@ -50,7 +62,8 @@ def operator_system(precision):
 def _build_operator_factory(system, precision):
     def factory(beta, gamma, M):
         fname = (
-            f"operator_apply_factory_{abs(hash((beta, gamma, M.tobytes())))}"
+            "operator_apply_factory_"
+            f"{_stable_factory_tag(beta, gamma, M.tobytes())}"
         )
         code = generate_operator_apply_code(
             system.equations,
@@ -210,7 +223,8 @@ def cached_operator_factory(cached_system, precision):
 
     def factory(beta, gamma, M):
         fname = (
-            f"cached_operator_factory_{abs(hash((beta, gamma, M.tobytes())))}"
+            "cached_operator_factory_"
+            f"{_stable_factory_tag(beta, gamma, M.tobytes())}"
         )
         code = generate_cached_operator_apply_code(
             cached_system.equations,
@@ -1164,7 +1178,10 @@ def residual_system():
 def stage_residual_factory(residual_system, precision):
     def factory(beta, gamma, a_ii, M):
         base = cuda.to_device(np.array([0.25, -0.25], dtype=precision))
-        fname = f"stage_residual_factory_{abs(hash(M.tobytes()))}"
+        fname = (
+            "stage_residual_factory_"
+            f"{_stable_factory_tag(M.tobytes())}"
+        )
         code = generate_stage_residual_code(
             residual_system.equations,
             residual_system.indices,
@@ -1244,7 +1261,9 @@ def jacobi_factory(cached_system, precision):
 
     def factory(beta, gamma, M=None):
         mass_tag = (
-            "eye" if M is None else f"{abs(hash(np.asarray(M).tobytes()))}"
+            "eye"
+            if M is None
+            else _stable_factory_tag(np.asarray(M).tobytes())
         )
         fname = (
             "jacobi_preconditioner_factory_"
