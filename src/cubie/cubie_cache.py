@@ -19,16 +19,17 @@ whose compile-result scheme (cubin/PTX payloads) carries its own
 serialization.
 """
 
+import marshal
 import os
 from contextlib import AbstractContextManager
 from functools import cache
 from hashlib import sha256
 from importlib.metadata import distributions
 from pathlib import Path
-from platform import machine, system
 from shutil import rmtree
 from sys import implementation, version_info
 from time import monotonic, sleep
+from types import CodeType
 from typing import Any, Dict, Optional, Set, Union
 from warnings import warn
 
@@ -48,6 +49,7 @@ from cubie.cuda_simsafe import (  # noqa: F401
     CacheImpl,  # noqa: F401
     CUDACache,
     IndexDataCacheFile,  # noqa: F401
+    cache_dumps,
     is_cudasim_enabled,
 )
 from cubie.cache_root import get_cache_root
@@ -158,44 +160,110 @@ filter kwargs before forwarding.
 """
 
 
-def _compiler_environment_entries() -> list[str]:
-    """List versions that affect compiled CUDA kernels."""
-    compiler_names = {"numpy"}
-    if IS_MLIR:
-        compiler_names.add("numba-cuda-mlir")
-    else:
-        compiler_names.update(
-            {"llvmlite", "numba", "numba-cuda", "packaging"}
-        )
-    compiler_prefixes = (
-        "cuda-",
-        "cupy-",
-        "nvidia-cuda-",
-        "nvidia-nvjitlink",
-        "nvidia-nvvm",
-    )
+def _environment_entries() -> list[str]:
+    """List the Python and installed-package versions."""
     entries = [
         f"python=={implementation.name}-{version_info.major}."
-        f"{version_info.minor}.{version_info.micro}",
-        f"platform=={system()}-{machine()}",
+        f"{version_info.minor}.{version_info.micro}"
     ]
     for distribution in distributions():
         name = distribution.metadata["Name"] or "unknown"
-        canonical_name = name.lower().replace("_", "-").replace(".", "-")
-        if canonical_name not in compiler_names and not (
-            canonical_name.startswith(compiler_prefixes)
-        ):
-            continue
         version = distribution.metadata["Version"] or "unknown"
-        entries.append(f"{canonical_name}=={version}")
+        entries.append(f"{name}=={version}")
     return sorted(entries)
 
 
 @cache
 def environment_hash() -> str:
-    """Return a hash of the active CUDA compiler environment."""
-    joined = "\n".join(_compiler_environment_entries())
+    """Hash Python and all installed package versions."""
+    joined = "\n".join(_environment_entries())
     return sha256(joined.encode("utf-8")).hexdigest()
+
+
+def _portable_code(code: CodeType) -> CodeType:
+    """Remove checkout paths from a code object and its children."""
+    constants = tuple(
+        _portable_code(value) if isinstance(value, CodeType) else value
+        for value in code.co_consts
+    )
+    return code.replace(co_filename="", co_consts=constants)
+
+
+def _stable_value_key(value, active: set[int]):
+    """Return a process-stable key for a captured value."""
+    py_func = getattr(value, "py_func", None)
+    if py_func is not None:
+        return (
+            "dispatcher",
+            _function_key(py_func, active),
+            _stable_value_key(value.targetoptions, active),
+        )
+    if isinstance(value, CodeType):
+        code_hash = sha256(marshal.dumps(_portable_code(value))).hexdigest()
+        return ("code", code_hash)
+    if value.__class__.__name__ == "FastMathOptions":
+        return ("fastmath", tuple(sorted(value.flags)))
+    if isinstance(value, tuple):
+        items = tuple(_stable_value_key(item, active) for item in value)
+        return ("tuple", items)
+    if isinstance(value, list):
+        items = tuple(_stable_value_key(item, active) for item in value)
+        return ("list", items)
+    if isinstance(value, dict):
+        items = (
+            (_stable_value_key(key, active), _stable_value_key(item, active))
+            for key, item in value.items()
+        )
+        return ("dict", tuple(sorted(items, key=repr)))
+    if isinstance(value, (set, frozenset)):
+        items = (_stable_value_key(item, active) for item in value)
+        return ("set", tuple(sorted(items, key=repr)))
+    return ("serialized", sha256(cache_dumps(value)).hexdigest())
+
+
+def _stable_value_hash(value) -> str:
+    """Hash a value without process-specific serialization order."""
+    key = _stable_value_key(value, set())
+    return sha256(cache_dumps(key)).hexdigest()
+
+
+def _function_key(py_func, active: Optional[set[int]] = None):
+    """Identify function code and compile-time captures."""
+    if active is None:
+        active = set()
+    identity = id(py_func)
+    if identity in active:
+        return ("recursive", py_func.__module__, py_func.__qualname__)
+    active.add(identity)
+    try:
+        closure = py_func.__closure__ or ()
+        closure_key = tuple(
+            _stable_value_key(cell.cell_contents, active) for cell in closure
+        )
+        defaults_key = _stable_value_key(
+            (py_func.__defaults__, py_func.__kwdefaults__), active
+        )
+        code_hash = sha256(
+            marshal.dumps(_portable_code(py_func.__code__))
+        ).hexdigest()
+        return (
+            py_func.__module__,
+            py_func.__qualname__,
+            sha256(cache_dumps(closure_key)).hexdigest(),
+            code_hash,
+            sha256(cache_dumps(defaults_key)).hexdigest(),
+        )
+    finally:
+        active.remove(identity)
+
+
+def _portable_magic(value):
+    """Normalize backend target values used in cache keys."""
+    if hasattr(value, "major") and hasattr(value, "minor"):
+        return (int(value.major), int(value.minor))
+    if isinstance(value, tuple):
+        return tuple(_portable_magic(item) for item in value)
+    return value
 
 
 class CUBIECacheLocator(_CacheLocator):
@@ -266,28 +334,6 @@ class CUBIECacheLocator(_CacheLocator):
             First 16 characters of compile_settings_hash.
         """
         return self._compile_settings_hash[:16]
-
-    def set_compile_settings_hash(self, compile_settings_hash: str) -> None:
-        """Update the compile settings hash.
-
-        Parameters
-        ----------
-        compile_settings_hash
-            New compile settings hash to set.
-        """
-        self._compile_settings_hash = compile_settings_hash
-
-    def set_system_hash(self, system_hash: str) -> None:
-        """Update the system hash and refresh cache path.
-
-        Parameters
-        ----------
-        system_hash
-            New system hash to set.
-        """
-        self._system_hash = system_hash
-        hash_dir = f"CUDA_cache_{system_hash[:8]}"
-        self._cache_path = self._cache_root_dir / hash_dir
 
     @classmethod
     def from_function(cls, py_func, py_file):
@@ -435,24 +481,6 @@ class CUBIECacheImpl(_KernelSerialization, CacheImpl):
         self._filename_base = f"{system_name}-{disambiguator}"
         return self._filename_base
 
-    def set_hashes(
-        self, system_hash: Optional[str], compile_settings_hash: Optional[str]
-    ) -> None:
-        """Update system and compile settings hashes in locator.
-
-        Parameters
-        ----------
-        system_hash
-            New system hash to set or None to leave unchanged.
-        compile_settings_hash
-            New compile settings hash to set or None to leave unchanged.
-        """
-        if system_hash is not None:
-            self._locator.set_system_hash(system_hash)
-        if compile_settings_hash is not None:
-            self._locator.set_compile_settings_hash(compile_settings_hash)
-
-
 class CUBIECache(CUDACache):
     """File-based cache for CuBIE compiled kernels.
 
@@ -493,6 +521,7 @@ class CUBIECache(CUDACache):
         max_entries: Optional[int] = None,
         mode: str = "hash",
         custom_cache_dir: Optional[Path] = None,
+        py_func=None,
     ) -> None:
         """Initialize CUBIECache with system and compile info.
 
@@ -512,6 +541,9 @@ class CUBIECache(CUDACache):
             custom_cache_dir = kernel_cache_dir_default()
         self._max_entries = max_entries
         self._mode = mode
+        self._function_key = None
+        if py_func is not None:
+            self._function_key = _function_key(py_func)
 
         self._impl = CUBIECacheImpl(
             system_name,
@@ -528,12 +560,6 @@ class CUBIECache(CUDACache):
         # inherited launch-config methods to work.
         self._launch_config_key = None
         self._launch_config_sensitive_flag = None
-        self._configure_cache_files()
-        self.enable()
-
-    def _configure_cache_files(self) -> None:
-        """Point cache state at the locator's current path."""
-        self._cache_path = self._impl.locator.get_cache_path()
         marker_name = f"{self._impl.filename_base}.lcs"
         self._launch_config_marker_path = os.path.join(
             self._cache_path, marker_name
@@ -547,15 +573,17 @@ class CUBIECache(CUDACache):
         self._write_lock_path = cache_path.with_name(
             f"{cache_path.name}.lock"
         )
+        self.enable()
 
     def _index_key(self, sig, codegen):
         """Return the CuBIE and launch-specific cache key."""
         key = (
             sig,
-            codegen.magic_tuple(),
+            _portable_magic(codegen.magic_tuple()),
             self._system_hash,
             self._compile_settings_hash,
             package_source_hash(),
+            self._function_key,
         )
         if self._launch_config_key is not None:
             key += (("launch_config", self._launch_config_key),)
@@ -672,66 +700,6 @@ class CUBIECache(CUDACache):
     def cache_path(self) -> Path:
         """Return the cache directory path."""
         return Path(self._cache_path)
-
-    def update_from_config(self, config) -> None:
-        """Update cache settings from CacheConfig.
-
-        Parameters
-        ----------
-        config
-            CacheConfig instance with updated settings.
-        """
-        self._max_entries = config.max_cache_entries
-        self._mode = config.cache_mode
-        self._system_hash = config.system_hash
-
-        # Note: Changing cache_dir requires recreating the cache.
-        current_locator_path = self._impl.locator.get_cache_path()
-        config_root = (
-            config.cache_dir
-            if config.cache_dir
-            else get_cache_root() / config.system_name
-        )
-        config_specified = (
-            Path(config_root) / f"CUDA_cache_{config.system_hash[:8]}"
-        )
-
-        if (
-            Path(config_specified).resolve()
-            != Path(current_locator_path).resolve()
-        ):
-            # Recreate impl with new cache directory
-            self._impl = CUBIECacheImpl(
-                self._system_name,
-                config.system_hash,
-                self._compile_settings_hash,
-                custom_cache_dir=config.cache_dir,
-            )
-            self._configure_cache_files()
-
-    def set_hashes(
-        self,
-        system_hash: Optional[str] = None,
-        compile_settings_hash: Optional[str] = None,
-    ) -> None:
-        """Update system and compile settings hashes.
-
-        Parameters
-        ----------
-        system_hash
-            New system hash to set.
-        compile_settings_hash
-            New compile settings hash to set.
-        """
-        if system_hash is not None:
-            self._system_hash = system_hash
-        if compile_settings_hash is not None:
-            self._compile_settings_hash = compile_settings_hash
-        self._impl.set_hashes(system_hash, compile_settings_hash)
-
-        if system_hash is not None or compile_settings_hash is not None:
-            self._configure_cache_files()
-
 
 @define
 class CacheConfig(_CubieConfigBase):
@@ -865,18 +833,7 @@ class CubieCacheHandler:
         )
         self.config = _config
 
-        # Create cache if enabled
-        if _config.cache_enabled:
-            self._cache = CUBIECache(
-                system_name=system_name,
-                system_hash=system_hash,
-                config_hash="UNINITIALIZED",  # Set at run time via configured_cache
-                max_entries=_config.max_cache_entries,
-                mode=_config.cache_mode,
-                custom_cache_dir=_config.cache_dir,
-            )
-        else:
-            self._cache = None
+        self._cache = None
 
     @property
     def cache(self) -> Optional[CUBIECache]:
@@ -919,24 +876,13 @@ class CubieCacheHandler:
             return set()
 
         recognized, changed = self.config.update(updates_dict)
-
-        # Handle cache being enabled via update
-        if "cache_enabled" in changed:
-            if self.config.cache_enabled:
-                self._cache = CUBIECache(
-                    system_name=self.config.system_name,
-                    system_hash=self.config.system_hash,
-                    config_hash="UNINITIALIZED",
-                    max_entries=self.config.max_cache_entries,
-                    mode=self.config.cache_mode,
-                    custom_cache_dir=self.config.cache_dir,
-                )
-            else:
-                self._cache = None
-
-        # Update cache if it exists and settings changed
-        if self._cache is not None and changed:
-            self._cache.update_from_config(self.config)
+        if changed:
+            if (
+                self._cache is not None
+                and self.config.cache_mode == "flush_on_change"
+            ):
+                self._cache.flush_cache()
+            self._cache = None
 
         unrecognized = set(updates_dict.keys()) - recognized
 
@@ -963,14 +909,17 @@ class CubieCacheHandler:
         CUBIECache or None
             Configured cache instance if enabled, else None.
         """
-        if self._cache is None:
+        if not self.config.cache_enabled:
             return None
         if system_hash != self.config.system_hash:
-            self.config.system_hash = system_hash
-
-        self._cache.set_hashes(
+            self.config.update({"system_hash": system_hash})
+        self._cache = CUBIECache(
+            system_name=self.config.system_name,
             system_hash=system_hash,
-            compile_settings_hash=compile_settings_hash,
+            config_hash=compile_settings_hash,
+            max_entries=self.config.max_cache_entries,
+            mode=self.config.cache_mode,
+            custom_cache_dir=self.config.cache_dir,
         )
         return self._cache
 

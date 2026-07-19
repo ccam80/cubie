@@ -49,7 +49,6 @@ from typing import (
     Optional,
     Sequence,
     Set,
-    TYPE_CHECKING,
     Union,
 )
 
@@ -76,10 +75,6 @@ from cubie.odesystems.symbolic.codegen import (
     generate_stage_residual_code,
 )
 from cubie.odesystems.symbolic.codegen.jacobian import generate_analytical_jvp
-from cubie.odesystems.symbolic.codegen.neumann_convergence import (
-    NeumannRHSEvaluator,
-    check_neumann_convergence,
-)
 from cubie.odesystems.symbolic.odefile import ODEFile
 from cubie.odesystems.symbolic.parsing import (
     IndexedBases,
@@ -94,17 +89,6 @@ from cubie.odesystems.symbolic.sym_utils import hash_system_definition
 from cubie.odesystems.baseODE import BaseODE, ODECache
 from cubie._utils import PrecisionDType, is_devfunc
 from cubie.time_logger import default_timelogger
-
-if TYPE_CHECKING:  # pragma: no cover - imported for static typing only
-    from cubie.cubie_cache import CacheConfig
-
-# Neumann preconditioner helper types checked by the convergence
-# diagnostic before code generation.
-_NEUMANN_PRECONDITIONER_TYPES = frozenset((
-    "neumann_preconditioner",
-    "neumann_preconditioner_cached",
-    "n_stage_neumann_preconditioner",
-))
 
 _TABLEAU_HELPER_TYPES = frozenset((
     "n_stage_residual",
@@ -393,7 +377,6 @@ class SymbolicODE(BaseODE):
         )
         self._jacobian_aux_count: Optional[int] = None
         self._jvp_exprs: Optional[JVPEquations] = None
-        self._neumann_rhs_evaluator: Optional[NeumannRHSEvaluator] = None
         self._solver_helper_cache_keys = {}
 
     @classmethod
@@ -609,27 +592,6 @@ class SymbolicODE(BaseODE):
                 cse=True,
             )
         return self._jvp_exprs
-
-    def _get_neumann_evaluator(self) -> NeumannRHSEvaluator:
-        """Return the cached finite-difference Jacobian evaluator.
-
-        The evaluator launches the compiled ``dxdt`` device function
-        on the device, so the diagnostic reflects the production code
-        at the compiled precision. The getters fetch the current
-        compiled function and precision on every call, so settings
-        changes are picked up without rebuilding the evaluator.
-        """
-        if self._neumann_rhs_evaluator is None:
-            self._neumann_rhs_evaluator = NeumannRHSEvaluator(
-                lambda: self.evaluate_f,
-                lambda: self.precision,
-                cache_key_getter=lambda: (
-                    self.name,
-                    self.fn_hash,
-                    self.config_hash,
-                ),
-            )
-        return self._neumann_rhs_evaluator
 
     def _device_function_injections(self) -> dict[str, Callable]:
         """Collect device callables the generated module must resolve.
@@ -973,7 +935,6 @@ class SymbolicODE(BaseODE):
             Sequence[Sequence[Union[float, sp.Expr]]]
         ] = None,
         stage_nodes: Optional[Sequence[Union[float, sp.Expr]]] = None,
-        cache_config: Optional["CacheConfig"] = None,
     ) -> Union[Callable, int]:
         """Return a generated solver helper device function.
 
@@ -1007,8 +968,6 @@ class SymbolicODE(BaseODE):
         stage_nodes
             FIRK stage nodes expressed as timestep fractions. The stage count
             is inferred from ``len(stage_nodes)``.
-        cache_config
-            Compiled-kernel cache policy for this solver.
 
         Returns
         -------
@@ -1072,23 +1031,9 @@ class SymbolicODE(BaseODE):
                 preconditioner_order=preconditioner_order,
                 stage_coefficients=stage_coefficients,
                 stage_nodes=stage_nodes,
-                cache_config=cache_config,
             )
             default_timelogger.stop_event(event_name)
             return func
-
-        # Run the diagnostic before returning a cached helper so a shared
-        # system uses the requesting solver's cache policy.
-        if func_type in _NEUMANN_PRECONDITIONER_TYPES:
-            check_neumann_convergence(
-                self.indices,
-                evaluator=self._get_neumann_evaluator(),
-                stage_coefficients=stage_coefficients,
-                stage_nodes=stage_nodes,
-                beta=beta,
-                gamma=gamma,
-                cache_config=cache_config,
-            )
 
         try:
             func = self.get_cached_output(func_type)

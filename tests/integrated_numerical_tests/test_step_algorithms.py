@@ -19,7 +19,6 @@ from tests.integrators.cpu_reference import (
 )
 from tests._utils import (
     MID_RUN_PARAMS,
-    attach_kernel_cache,
     merge_dicts,
     merge_param,
     ALGORITHM_PARAM_SETS,
@@ -247,16 +246,6 @@ def device_step_results(
         )
         status_vec[0] = result
 
-    attach_kernel_cache(
-        kernel,
-        "harness_device_step",
-        step_object.config_hash,
-        system.fn_hash,
-        system.config_hash,
-        driver_array.config_hash,
-        str(np.dtype(precision)),
-        int(persistent_len),
-    )
     kernel[1, 1, 0, shared_bytes](
         d_state,
         d_proposed,
@@ -467,17 +456,6 @@ def _execute_step_twice(
         )
         status_vec[1] = second_status
 
-    attach_kernel_cache(
-        kernel,
-        "harness_step_twice",
-        step_object.config_hash,
-        system.fn_hash,
-        system.config_hash,
-        driver_array.config_hash if driver_array is not None else "none",
-        str(np.dtype(precision)),
-        int(shared_elems),
-        int(persistent_len),
-    )
     kernel[1, 1, 0, shared_bytes](
         d_state,
         d_params,

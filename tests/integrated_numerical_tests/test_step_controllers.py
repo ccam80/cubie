@@ -259,7 +259,6 @@ class TestControllerNumerical:
                 state_prev=state_prev,
                 local_mem=local_mem,
                 niters=niters,
-                cache_key=step_controller.config_hash,
             )
             local_mem = device_result.local_mem.copy()
             current_dt_gpu = device_result.dt
@@ -454,7 +453,6 @@ class TestControllerEquivalence:
                 state_prev=prev_state,
                 local_mem=local_mem,
                 niters=niter,
-                cache_key=step_controller.config_hash,
             )
             gpu_trace.dt.append(device_result.dt)
             gpu_trace.accepted.append(device_result.accepted)
@@ -530,7 +528,6 @@ class TestControllerEquivalence:
             state_prev=prev_state,
             local_mem=local_mem,
             niters=3,
-            cache_key=step_controller_mutable.config_hash,
         )
 
         assert int(accept_cpu) == device_result.accepted

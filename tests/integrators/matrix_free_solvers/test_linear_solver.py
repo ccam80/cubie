@@ -49,16 +49,7 @@ def test_neumann_preconditioner(
     n = system_setup["n"]
     h = system_setup["h"]
     precond = system_setup["preconditioner"](order)
-    kernel = neumann_kernel(
-        precond,
-        n,
-        h,
-        cache_key=(
-            system_setup["sym_system"].fn_hash,
-            system_setup["sym_system"].config_hash,
-            order,
-        ),
-    )
+    kernel = neumann_kernel(precond, n, h)
 
     residual = cuda.to_device(np.ones(n, dtype=precision))
     out = cuda.device_array(n, precision)
@@ -158,13 +149,7 @@ def _run_symbolic_linear_solve(
     h = system_setup["h"]
 
     solver = linear_solver_instance.device_function
-    kernel = solver_kernel(
-        solver,
-        n,
-        h,
-        precision,
-        cache_key=linear_solver_instance.test_cache_key,
-    )
+    kernel = solver_kernel(solver, n, h, precision)
     state = system_setup["state_init"]
     rhs_dev = cuda.to_device(rhs_vec)
     x_dev = cuda.to_device(np.zeros(n, dtype=precision))

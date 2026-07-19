@@ -612,12 +612,8 @@ class TestSolverCacheParam:
                 enabled.kernel.single_integrator._get_solver_helper_fn
             )
 
-            assert disabled_callback.keywords["cache_config"] is (
-                disabled.kernel.cache_config
-            )
-            assert enabled_callback.keywords["cache_config"] is (
-                enabled.kernel.cache_config
-            )
+            assert disabled_callback.__self__ is disabled.kernel
+            assert enabled_callback.__self__ is enabled.kernel
             assert disabled.kernel.cache_config.cache_enabled is False
             assert enabled.kernel.cache_config.cache_enabled is True
             assert (

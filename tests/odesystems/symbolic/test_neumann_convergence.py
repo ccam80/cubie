@@ -1,8 +1,6 @@
 """Tests for the Neumann preconditioner convergence diagnostic.
 
-Covers the pure-numeric :func:`neumann_spectral_radius`,
-:func:`check_neumann_convergence`, and the wiring into
-:meth:`SymbolicODE.get_solver_helper`.
+Covers the numeric check and its solver-owned wiring.
 """
 
 from pathlib import Path
@@ -12,8 +10,10 @@ import numpy as np
 import pytest
 
 from cubie import SymbolicODE
-from cubie.cubie_cache import CUBIECache, CacheConfig
+from cubie.batchsolving.BatchSolverKernel import BatchSolverKernel
+from cubie.cubie_cache import CUBIECache
 from cubie.odesystems.symbolic.codegen.neumann_convergence import (
+    NeumannRHSEvaluator,
     check_neumann_convergence,
     neumann_spectral_radius,
 )
@@ -81,13 +81,20 @@ _RESULT_KEYS = {
 }
 
 
+def _evaluator(system):
+    return NeumannRHSEvaluator(
+        lambda: system.evaluate_f,
+        lambda: system.precision,
+    )
+
+
 def test_converges_for_diagonally_dominant_system(
     diagonally_dominant_system,
 ):
     """A diagonally dominant Jacobian reports convergence."""
     result = check_neumann_convergence(
         diagonally_dominant_system.indices,
-        diagonally_dominant_system._get_neumann_evaluator(),
+        _evaluator(diagonally_dominant_system),
     )
     assert result["converges"] is True
     assert result["rho_N"] < 1.0
@@ -101,7 +108,7 @@ def test_diverges_and_warns_for_off_diagonal_heavy_system(
     with pytest.warns(UserWarning):
         result = check_neumann_convergence(
             off_diagonal_heavy_system.indices,
-            off_diagonal_heavy_system._get_neumann_evaluator(),
+            _evaluator(off_diagonal_heavy_system),
         )
     assert result["converges"] is False
     assert result["rho_N"] >= 1.0
@@ -116,7 +123,7 @@ def test_gating_singularity_converges_without_false_divergence(
         warnings.simplefilter("always")
         result = check_neumann_convergence(
             gating_singularity_system.indices,
-            gating_singularity_system._get_neumann_evaluator(),
+            _evaluator(gating_singularity_system),
         )
     assert result["converges"] is True
     assert result["rho_N"] < 1.0
@@ -129,7 +136,7 @@ def test_non_finite_jacobian_reports_not_verified(
     """A non-finite Jacobian returns the full signature with no verdict."""
     result = check_neumann_convergence(
         singular_initial_state_system.indices,
-        singular_initial_state_system._get_neumann_evaluator(),
+        _evaluator(singular_initial_state_system),
     )
     assert result["converges"] is None
     # The early-return path must expose the same keys as the normal path.
@@ -143,68 +150,114 @@ def test_finite_and_non_finite_paths_share_return_signature(
     """Both convergence paths return an identical set of keys."""
     finite = check_neumann_convergence(
         diagonally_dominant_system.indices,
-        diagonally_dominant_system._get_neumann_evaluator(),
+        _evaluator(diagonally_dominant_system),
     )
     non_finite = check_neumann_convergence(
         singular_initial_state_system.indices,
-        singular_initial_state_system._get_neumann_evaluator(),
+        _evaluator(singular_initial_state_system),
     )
     assert set(finite) == set(non_finite) == _RESULT_KEYS
 
 
-def test_get_solver_helper_runs_diagnostic_for_neumann_type(
+def test_solver_runs_diagnostic_for_neumann_type(
     off_diagonal_heavy_system,
 ):
     """Requesting a Neumann helper triggers the convergence warning."""
-    with pytest.warns(UserWarning):
-        off_diagonal_heavy_system.get_solver_helper(
-            "neumann_preconditioner", beta=1.0, gamma=1.0
-        )
+    kernel = BatchSolverKernel(
+        off_diagonal_heavy_system,
+        algorithm_settings={"algorithm": "euler"},
+        cache=False,
+    )
+    try:
+        with pytest.warns(UserWarning):
+            kernel._get_solver_helper(
+                "neumann_preconditioner",
+                beta=1.0,
+                gamma=1.0,
+                preconditioner_order=0,
+            )
+    finally:
+        kernel.close()
 
 
-@pytest.mark.nocudasim
-def test_cached_helper_uses_each_solver_cache_policy(
+def test_each_solver_owns_its_neumann_cache_policy(
     diagonally_dominant_system,
     tmp_path,
-    monkeypatch,
 ):
-    """Cached helpers still apply each solver's cache policy."""
-    environment_dir = tmp_path / "environment"
-    explicit_dir = tmp_path / "explicit"
-    monkeypatch.setenv("CUBIE_KERNEL_CACHE_DIR", str(environment_dir))
-    evaluator = diagonally_dominant_system._get_neumann_evaluator()
-    disabled = CacheConfig(
-        cache_enabled=False,
-        system_name="disabled",
-        system_hash=diagonally_dominant_system.fn_hash,
+    """Each solver applies its own cache policy to the diagnostic."""
+    disabled = BatchSolverKernel(
+        diagonally_dominant_system,
+        algorithm_settings={"algorithm": "euler"},
+        cache=False,
     )
-    enabled = CacheConfig(
-        cache_enabled=True,
-        cache_dir=explicit_dir,
-        system_name="enabled",
-        system_hash=diagonally_dominant_system.fn_hash,
+    enabled = BatchSolverKernel(
+        diagonally_dominant_system,
+        algorithm_settings={"algorithm": "euler"},
+        cache=tmp_path,
     )
+    try:
+        disabled_helper = disabled._get_solver_helper(
+            "neumann_preconditioner", preconditioner_order=0
+        )
+        enabled_helper = enabled._get_solver_helper(
+            "neumann_preconditioner", preconditioner_order=0
+        )
+        disabled_again = disabled._get_solver_helper(
+            "neumann_preconditioner", preconditioner_order=0
+        )
+        disabled_cache = disabled._neumann_cache()
+        enabled_cache = enabled._neumann_cache()
 
-    disabled_helper = diagonally_dominant_system.get_solver_helper(
-        "neumann_preconditioner", cache_config=disabled
-    )
-    disabled_kernel = evaluator._kernel
-    enabled_helper = diagonally_dominant_system.get_solver_helper(
-        "neumann_preconditioner", cache_config=enabled
-    )
-    enabled_kernel = evaluator._kernel
-    disabled_again_helper = diagonally_dominant_system.get_solver_helper(
-        "neumann_preconditioner", cache_config=disabled
-    )
-    disabled_again = evaluator._kernel
+        assert disabled_helper is enabled_helper is disabled_again
+        assert disabled_cache is None
+        assert isinstance(enabled_cache, CUBIECache)
+        assert Path(enabled_cache._cache_path).parent == tmp_path
+        assert (
+            disabled._neumann_rhs_evaluator._kernel
+            is not enabled._neumann_rhs_evaluator._kernel
+        )
+    finally:
+        disabled.close()
+        enabled.close()
 
-    assert disabled_helper is enabled_helper is disabled_again_helper
-    assert not isinstance(disabled_kernel._cache, CUBIECache)
-    assert isinstance(enabled_kernel._cache, CUBIECache)
-    assert Path(enabled_kernel._cache._cache_path).parent == explicit_dir
-    assert not isinstance(disabled_again._cache, CUBIECache)
-    assert disabled_kernel is not enabled_kernel
-    assert disabled_again is not enabled_kernel
+
+def test_cache_policy_update_rebuilds_neumann_kernel(
+    diagonally_dominant_system,
+    tmp_path,
+):
+    """A cache-policy update rebuilds the diagnostic dispatcher."""
+    kernel = BatchSolverKernel(
+        diagonally_dominant_system,
+        algorithm_settings={"algorithm": "euler"},
+        cache=False,
+    )
+    try:
+        kernel._get_solver_helper(
+            "neumann_preconditioner", preconditioner_order=0
+        )
+        uncached = kernel._neumann_rhs_evaluator._kernel
+
+        initial_path = tmp_path / "initial"
+        kernel.update(cache_enabled=True, cache_dir=initial_path)
+        kernel._get_solver_helper(
+            "neumann_preconditioner", preconditioner_order=0
+        )
+        cached = kernel._neumann_rhs_evaluator._kernel
+
+        relocated_path = tmp_path / "relocated"
+        kernel.set_cache_dir(relocated_path)
+        kernel._get_solver_helper(
+            "neumann_preconditioner", preconditioner_order=0
+        )
+        relocated = kernel._neumann_rhs_evaluator._kernel
+        configured_cache = kernel._neumann_cache()
+
+        assert cached is not uncached
+        assert relocated is not cached
+        assert isinstance(configured_cache, CUBIECache)
+        assert Path(configured_cache._cache_path).parent == relocated_path
+    finally:
+        kernel.close()
 
 
 def test_spectral_radius_tracks_beta():

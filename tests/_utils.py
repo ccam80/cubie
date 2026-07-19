@@ -1,20 +1,15 @@
 from __future__ import annotations
 
 import attrs
-import inspect
 import math
-import os
-from hashlib import sha256
 from typing import Mapping, Optional, Union, Dict, Any, Callable
 
 import numpy as np
 import pytest
 from cubie.cuda_simsafe import (
-    CUDA_SIMULATION,
     cuda,
     numba_from_dtype as from_dtype,
 )
-from cubie.cubie_cache import CUBIECache
 from numpy.testing import assert_allclose
 
 from cubie.integrators.SingleIntegratorRun import SingleIntegratorRun
@@ -28,22 +23,6 @@ from tests.integrators.cpu_reference import CPUAdaptiveController
 
 Array = NDArray[np.floating]
 
-
-def attach_kernel_cache(kernel, name, *key_parts):
-    """Cache a harness kernel by source and compile-time captures."""
-    if CUDA_SIMULATION:
-        return kernel
-    source = inspect.getsource(kernel.py_func)
-    digest = sha256(repr((source, key_parts)).encode()).hexdigest()
-    if os.environ.get("CUBIE_DEBUG_KERNEL_KEYS"):
-        print(f"ATTACH {name} {digest[:8]} parts={key_parts!r}", flush=True)
-    kernel._cache = CUBIECache(
-        system_name=name,
-        system_hash=digest[:16],
-        config_hash=digest[16:32],
-        max_entries=0,
-    )
-    return kernel
 
 # --------------------------------------------------------------------------- #
 #                      Standard Parameter Sets                                #
@@ -959,21 +938,6 @@ def run_device_loop(
             summary_stop,
         )
 
-    attach_kernel_cache(
-        kernel,
-        "harness_device_loop",
-        system.fn_hash,
-        system.config_hash,
-        singleintegratorrun.config_hash,
-        str(np.dtype(precision)),
-        float(duration),
-        float(warmup),
-        float(t0),
-        float(save_stop),
-        float(summary_stop),
-        int(shared_elements),
-        int(persistent_required),
-    )
     kernel[1, 1, 0, shared_bytes](
         d_init,
         d_params,
@@ -1551,9 +1515,8 @@ def run_controller_device_step(
     state_prev=None,
     niters=1,
     truncated=False,
-    cache_key=None,
 ):
-    """Run one controller step; ``cache_key`` enables wrapper caching."""
+    """Execute a step-controller device function once on the GPU."""
 
     err = np.asarray(error, dtype=precision)
     state_arr = (
@@ -1603,13 +1566,6 @@ def run_controller_device_step(
             persistent_val,
         )
 
-    if cache_key is not None:
-        attach_kernel_cache(
-            kernel,
-            "harness_controller_step",
-            cache_key,
-            str(np.dtype(precision)),
-        )
     kernel[1, 1](
         dt, state_arr, state_prev_arr, err, niters_val, truncated_val,
         accept, shared_scratch, persistent_local, status,

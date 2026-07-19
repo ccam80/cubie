@@ -66,7 +66,6 @@ jobs:
   # Compile the test kernels on free CPU runners for every fleet GPU.
   precompile:
     needs: gate
-    continue-on-error: true
     name: precompile (${{ matrix.os }}, ${{ matrix.python-version }}, ${{ matrix.cuda }})
     permissions:
       contents: read
@@ -117,7 +116,6 @@ jobs:
         run: |
           mkdir -p kernel-cache
           uv pip freeze --system --exclude-editable > kernel-cache/constraints.txt
-          python -c "from cubie.cubie_cache import environment_hash; print(environment_hash())" > kernel-cache/environment-hash.txt
 
       - name: Precompile kernels per compute capability
         shell: bash
@@ -128,9 +126,8 @@ jobs:
           set -u
           for cc in 7.5 8.6 8.9; do
             echo "::group::precompile cc=$cc"
-            report="${GITHUB_WORKSPACE}/kernel-cache/precompile-${cc}.json"
             set +e
-            CUBIE_TARGET_CC="$cc" CUBIE_PRECOMPILE_REPORT="$report" pytest \
+            CUBIE_TARGET_CC="$cc" pytest \
               -m "not specific_algos and not sim_only" \
               -p tests.precompile_plugin -n logical \
               --no-cov -q -p no:cacheprovider
@@ -139,24 +136,6 @@ jobs:
             if [ "$status" -gt 1 ]; then
               exit "$status"
             fi
-            python - "$report" "$cc" <<'PY'
-          import json
-          import sys
-
-          report = json.load(open(sys.argv[1], encoding="utf-8"))
-          if report["target_cc"] != sys.argv[2]:
-              raise SystemExit(
-                  f"report targets {report['target_cc']!r}; expected {sys.argv[2]!r}"
-              )
-          if report["compiled"] + report["cache_hit"] <= 0:
-              raise SystemExit("report contains no cache activity")
-          if (
-              report["production_compiled"]
-              + report["production_cache_hit"]
-              <= 0
-          ):
-              raise SystemExit("report contains no production kernels")
-          PY
             echo "::endgroup::"
           done
 
@@ -168,8 +147,6 @@ jobs:
 
   cuda:
     needs: [gate, precompile]
-    # Missing precompile artifacts fall back to normal cold compilation.
-    if: always() && needs.gate.result == 'success'
     name: cuda (${{ matrix.os }}, ${{ matrix.python-version }}, ${{ matrix.cuda }})
     permissions:
       contents: read
@@ -273,7 +250,6 @@ jobs:
           cache-dependency-glob: pyproject.toml
 
       - name: Download precompiled kernel cache
-        continue-on-error: true
         uses: actions/download-artifact@37930b1c2abaa49bbe596cd826c3c89aef350131 # v7.0.0
         with:
           name: kernel-cache-${{ matrix.os }}-py${{ matrix.python-version }}-cuda${{ matrix.cuda }}
@@ -282,23 +258,8 @@ jobs:
       - name: Install cubie (${{ matrix.extra }})
         shell: bash
         run: |
-          if [ -f kernel-cache/constraints.txt ]; then
-            uv pip install --system -e ".[${{ matrix.extra }}]" \
-              -c kernel-cache/constraints.txt
-          else
-            uv pip install --system -e ".[${{ matrix.extra }}]"
-          fi
-
-      - name: Check precompile environment
-        if: hashFiles('kernel-cache/environment-hash.txt') != ''
-        shell: bash
-        run: |
-          expected=$(tr -d '\r\n' < kernel-cache/environment-hash.txt)
-          actual=$(python -c "from cubie.cubie_cache import environment_hash; print(environment_hash())")
-          if [ "$actual" != "$expected" ]; then
-            echo "::warning::Precompile environment differs; using a cold cache"
-            rm -rf kernel-cache/kernels
-          fi
+          uv pip install --system -e ".[${{ matrix.extra }}]" \
+            -c kernel-cache/constraints.txt
 
       - name: Lint with flake8
         run: flake8 . --count --select=E9,F63,F7,F82 --show-source --statistics
@@ -310,7 +271,7 @@ jobs:
         env:
           CUBIE_KERNEL_CACHE_DIR: ${{ github.workspace }}/kernel-cache/kernels
           CUBIE_MAX_CACHE_ENTRIES: "0"
-        run: pytest -m "not specific_algos and not sim_only" -n logical --junitxml=pytest-results.xml
+        run: pytest -m "not specific_algos and not sim_only" -p tests.precompile_plugin -n logical --junitxml=pytest-results.xml
 
       # The artifact service occasionally answers CreateArtifact with a
       # non-JSON error page and the action's five internal retries all

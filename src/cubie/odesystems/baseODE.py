@@ -35,7 +35,7 @@ See Also
 """
 
 from abc import abstractmethod
-from typing import TYPE_CHECKING, Any, Callable, Dict, Optional, Set, Union
+from typing import Any, Callable, Dict, Optional, Set, Union
 from hashlib import sha256
 
 from attrs import define, field
@@ -45,10 +45,6 @@ from cubie.CUDAFactory import CUDAFactory, CUDADispatcherCache, hash_tuple
 from cubie._utils import PrecisionDType
 from cubie.odesystems.ODEData import ODEData
 from cubie.odesystems.SystemValues import SystemValues
-
-if TYPE_CHECKING:  # pragma: no cover - imported for static typing only
-    from cubie.cubie_cache import CacheConfig
-
 
 @define
 class ODECache(CUDADispatcherCache):
@@ -404,7 +400,6 @@ class BaseODE(CUDAFactory):
         beta: float = 1.0,
         gamma: float = 1.0,
         preconditioner_order: int = 0,
-        cache_config: Optional["CacheConfig"] = None,
     ) -> Callable:
         """Retrieve a cached solver helper function.
 
@@ -424,8 +419,6 @@ class BaseODE(CUDAFactory):
         preconditioner_order
             Polynomial order of the preconditioner. Defaults to ``0``. Unused
             when generating the linear operator.
-        cache_config
-            Compiled-kernel cache policy for the requesting solver.
 
         Returns
         -------

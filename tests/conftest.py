@@ -894,7 +894,6 @@ def device_step_results(step_controller, precision, step_setup):
         state=step_setup["state"],
         state_prev=step_setup["state_prev"],
         local_mem=step_setup["local_mem"],
-        cache_key=step_controller.config_hash,
     )
 
 

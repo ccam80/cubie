@@ -1,8 +1,7 @@
-"""Compile test kernels into a shared cache without a GPU."""
+"""Populate and enforce the shared CUDA test-kernel cache."""
 import importlib
-import json
 import os
-from pathlib import Path
+import sys
 from types import SimpleNamespace
 
 import numpy as np
@@ -30,8 +29,8 @@ def _parse_target_cc():
     return target_cc
 
 
-TARGET_CC = _parse_target_cc()
-TARGET_CC_TEXT = ".".join(str(part) for part in TARGET_CC)
+POPULATION = bool(os.environ.get("CUBIE_TARGET_CC", "").strip())
+TARGET_CC = _parse_target_cc() if POPULATION else None
 
 if not os.environ.get("CUBIE_KERNEL_CACHE_DIR", "").strip():
     raise RuntimeError(
@@ -64,7 +63,8 @@ if BACKEND == "mlir":
     from numba_cuda_mlir import cuda as backend_cuda  # noqa: E402
     from numba_cuda_mlir import tools as mlir_tools  # noqa: E402
 
-    mlir_tools._cached_cc = ComputeCapability(*TARGET_CC)
+    if POPULATION:
+        mlir_tools._cached_cc = ComputeCapability(*TARGET_CC)
 else:
     import numba.cuda as backend_cuda  # noqa: E402
 
@@ -116,31 +116,33 @@ class _FakeEvent:
 
 
 _fake_stream = _FakeStream()
-backend_cuda.to_device = _fake_to_device
-backend_cuda.device_array = (
-    lambda shape, dtype=np.float64, *args, **kwargs: _fake_device_array(
-        np.zeros(shape, dtype=dtype)
+if POPULATION:
+    backend_cuda.to_device = _fake_to_device
+    backend_cuda.device_array = (
+        lambda shape, dtype=np.float64, *args, **kwargs: _fake_device_array(
+            np.zeros(shape, dtype=dtype)
+        )
     )
-)
-backend_cuda.device_array_like = (
-    lambda ary, stream=0: _fake_device_array(np.zeros_like(ary))
-)
-backend_cuda.pinned_array = (
-    lambda shape, dtype=np.float64, *args, **kwargs: np.zeros(
-        shape, dtype=dtype
+    backend_cuda.device_array_like = (
+        lambda ary, stream=0: _fake_device_array(np.zeros_like(ary))
     )
-)
-backend_cuda.event = lambda timing=True: _FakeEvent()
-backend_cuda.synchronize = lambda: None
-backend_cuda.stream = lambda: _fake_stream
-backend_cuda.default_stream = lambda: _fake_stream
+    backend_cuda.pinned_array = (
+        lambda shape, dtype=np.float64, *args, **kwargs: np.zeros(
+            shape, dtype=dtype
+        )
+    )
+    backend_cuda.event = lambda timing=True: _FakeEvent()
+    backend_cuda.synchronize = lambda: None
+    backend_cuda.stream = lambda: _fake_stream
+    backend_cuda.default_stream = lambda: _fake_stream
 
-if BACKEND == "numba-cuda":
+if POPULATION and BACKEND == "numba-cuda":
+    from cuda.core._device import ComputeCapability  # noqa: E402
     import numba.cuda.dispatcher as nb_dispatcher  # noqa: E402
     from numba.cuda.cudadrv import devices as nb_devices  # noqa: E402
 
     _fake_device = SimpleNamespace(
-        compute_capability=TARGET_CC,
+        compute_capability=ComputeCapability(*TARGET_CC),
         id=0,
         name=b"cubie-precompile",
         MAX_SHARED_MEMORY_PER_BLOCK=49152,
@@ -150,27 +152,6 @@ if BACKEND == "numba-cuda":
     nb_dispatcher.get_current_device = lambda: _fake_device
     nb_devices.get_context = lambda *args, **kwargs: _fake_context
     backend_cuda.get_current_device = lambda: _fake_device
-
-# Replace cubie's eager allocations with zero-filled host arrays.
-import cubie.memory.mem_manager as mem_manager  # noqa: E402
-import cubie.memory.stream_groups as stream_groups  # noqa: E402
-
-_batch_solver_kernel = importlib.import_module(
-    "cubie.batchsolving.BatchSolverKernel"
-)
-stream_groups.cuda = SimpleNamespace(stream=lambda: _fake_stream)
-mem_manager._ensure_cuda_context = lambda: None
-mem_manager._pinned_host_array = (
-    lambda shape, dtype: np.zeros(shape, dtype=dtype)
-)
-_batch_solver_kernel.max_shared_memory_per_block = lambda: 49152
-
-_MemoryManager = mem_manager.MemoryManager
-_MemoryManager.allocate = (
-    lambda self, shape, dtype, memory_type, stream=0: _fake_device_array(
-        np.zeros(shape, dtype=dtype)
-    )
-)
 
 
 def _host_copy(self, instance, from_arrays, to_arrays, stream=None):
@@ -182,58 +163,110 @@ def _host_copy(self, instance, from_arrays, to_arrays, stream=None):
             )
 
 
-_MemoryManager.to_device = _host_copy
-_MemoryManager.from_device = _host_copy
-_MemoryManager.get_available_memory = lambda self, group: 8 << 30
-_MemoryManager.get_memory_info = lambda self: (8 << 30, 24 << 30)
-
-_STAT_KEYS = (
-    "compiled",
-    "cache_hit",
-    "uncached_noop",
-    "production_compiled",
-    "production_cache_hit",
-)
-STATS = {key: 0 for key in _STAT_KEYS}
+STATS = {"cache_hits": 0, "compilations_completed": 0}
 _WORKER_STATS = []
-
-
-def _is_production_kernel(dispatcher):
-    cache_name = getattr(dispatcher._cache, "_system_name", "")
-    function_name = getattr(dispatcher.py_func, "__name__", "")
-    return not cache_name.startswith("harness_") and (
-        function_name != "evaluate_rhs"
-    )
-
-
-def _record(dispatcher, key):
-    STATS[key] += 1
-    if _is_production_kernel(dispatcher):
-        production_key = f"production_{key}"
-        if production_key in STATS:
-            STATS[production_key] += 1
+_PENDING_DISPATCHERS = []
+_CACHE_STATS_INSTALLED = False
 
 
 def _combined_stats():
     combined = STATS.copy()
     for worker_stats in _WORKER_STATS:
-        for key in _STAT_KEYS:
+        for key in combined:
             combined[key] += worker_stats.get(key, 0)
     return combined
 
 
+def _install_cache_stats():
+    global _CACHE_STATS_INSTALLED
+    if POPULATION or _CACHE_STATS_INSTALLED:
+        return
+    from cubie.cubie_cache import CUBIECache
+
+    original_load = CUBIECache.load_overload
+    original_save = CUBIECache.save_overload
+
+    def load_overload(self, sig, target_context):
+        result = original_load(self, sig, target_context)
+        if result is not None:
+            STATS["cache_hits"] += 1
+        return result
+
+    def save_overload(self, sig, data):
+        result = original_save(self, sig, data)
+        STATS["compilations_completed"] += 1
+        return result
+
+    CUBIECache.load_overload = load_overload
+    CUBIECache.save_overload = save_overload
+    _CACHE_STATS_INSTALLED = True
+
+
+def _attach_cache(dispatcher):
+    from cubie.cubie_cache import CUBIECache, _stable_value_hash
+
+    _install_cache_stats()
+    plugin_cache = (
+        isinstance(dispatcher._cache, CUBIECache)
+        and dispatcher._cache._system_name == "pytest_kernels"
+        and dispatcher._cache._function_key is not None
+    )
+    if not plugin_cache:
+        options_hash = _stable_value_hash(dispatcher.targetoptions)
+        dispatcher._cache = CUBIECache(
+            system_name="pytest_kernels",
+            system_hash="pytest_kernels",
+            config_hash=options_hash,
+            max_entries=0,
+            py_func=dispatcher.py_func,
+        )
+    if not isinstance(dispatcher._cache, CUBIECache):
+        raise RuntimeError(
+            f"CUDA dispatcher {dispatcher.py_func!r} reached compilation "
+            "without CUBIECache."
+        )
+
+
+def _attach_or_queue(dispatcher):
+    cache_module = sys.modules.get("cubie.cubie_cache")
+    if not hasattr(cache_module, "CUBIECache"):
+        _PENDING_DISPATCHERS.append(dispatcher)
+        return
+    _attach_cache(dispatcher)
+
+
+def _attach_pending():
+    while _PENDING_DISPATCHERS:
+        _attach_cache(_PENDING_DISPATCHERS.pop())
+
+
 if BACKEND == "numba-cuda":
     from numba.cuda.cext import _dispatcher  # noqa: E402
-    from numba.cuda.core.caching import NullCache  # noqa: E402
     from numba.cuda.dispatcher import (  # noqa: E402
         CUDADispatcher,
         _LAUNCH_CONFIG_KW,
         _Kernel,
     )
 
-    _Kernel.bind = (
-        lambda self: self._codelibrary.get_cubin(cc=TARGET_CC)
-    )
+    if POPULATION:
+        _Kernel.bind = (
+            lambda self: self._codelibrary.get_cubin(cc=TARGET_CC)
+        )
+
+    _dispatcher_init = CUDADispatcher.__init__
+    _dispatcher_compile = CUDADispatcher.compile
+
+    def _init_dispatcher(self, *args, **kwargs):
+        _dispatcher_init(self, *args, **kwargs)
+        _attach_or_queue(self)
+
+    def _compile_dispatcher(self, *args, **kwargs):
+        _attach_pending()
+        _attach_cache(self)
+        return _dispatcher_compile(self, *args, **kwargs)
+
+    CUDADispatcher.__init__ = _init_dispatcher
+    CUDADispatcher.compile = _compile_dispatcher
 
     def _precompile_numba(dispatcher, args, launch_config):
         previous_args = launch_config._push_args(args)
@@ -244,21 +277,13 @@ if BACKEND == "numba-cuda":
             if selected is not dispatcher:
                 selected._cache = dispatcher._cache
 
-            if isinstance(selected._cache, NullCache):
-                _record(selected, "uncached_noop")
-                return None
-
-            cache_hits = sum(selected._cache_hits.values())
-            cache_misses = sum(selected._cache_misses.values())
+            _attach_pending()
+            _attach_cache(selected)
             _dispatcher.Dispatcher._cuda_call(
                 selected,
                 *args,
                 **{_LAUNCH_CONFIG_KW: launch_config},
             )
-            if sum(selected._cache_hits.values()) > cache_hits:
-                _record(selected, "cache_hit")
-            if sum(selected._cache_misses.values()) > cache_misses:
-                _record(selected, "compiled")
             return None
         finally:
             launch_config._pop_args(previous_args)
@@ -278,20 +303,25 @@ if BACKEND == "numba-cuda":
 
         return _Shim()
 
-    CUDADispatcher.__getitem__ = _numba_getitem
-    CUDADispatcher.call = _precompile_numba
+    if POPULATION:
+        CUDADispatcher.__getitem__ = _numba_getitem
+        CUDADispatcher.call = _precompile_numba
 else:
     from numba_cuda_mlir.descriptor import MLIRDispatcher  # noqa: E402
     from numba_cuda_mlir.numba_cuda import types, typing  # noqa: E402
-    from numba_cuda_mlir.numba_cuda.core.caching import (  # noqa: E402
-        NullCache,
-    )
+
+    _dispatcher_init = MLIRDispatcher.__init__
+    _dispatcher_getitem = MLIRDispatcher.__getitem__
+
+    def _init_dispatcher(self, *args, **kwargs):
+        _dispatcher_init(self, *args, **kwargs)
+        _attach_or_queue(self)
+
+    MLIRDispatcher.__init__ = _init_dispatcher
 
     def _precompile_mlir(dispatcher, args):
-        if isinstance(dispatcher._cache, NullCache):
-            _record(dispatcher, "uncached_noop")
-            return None
-
+        _attach_pending()
+        _attach_cache(dispatcher)
         argtypes = tuple(dispatcher.typeof_pyval(arg) for arg in args)
         if argtypes in dispatcher.overloads:
             return None
@@ -299,13 +329,8 @@ else:
         dispatcher.targetoptions["chip"] = (
             f"sm_{TARGET_CC[0]}{TARGET_CC[1]}"
         )
-        cache_hits = sum(dispatcher._cache_hits.values())
         signature = typing.signature(types.none, *argtypes)
         dispatcher.compile(signature)
-        if sum(dispatcher._cache_hits.values()) > cache_hits:
-            _record(dispatcher, "cache_hit")
-        else:
-            _record(dispatcher, "compiled")
         return None
 
     def _mlir_getitem(self, config):
@@ -317,41 +342,82 @@ else:
 
         return _Shim()
 
-    # Compilation stays on MLIR's public path; only execution is suppressed.
-    MLIRDispatcher.__getitem__ = _mlir_getitem
+    if POPULATION:
+        MLIRDispatcher.__getitem__ = _mlir_getitem
+    else:
+
+        def _cached_mlir_getitem(self, config):
+            _attach_pending()
+            _attach_cache(self)
+            return _dispatcher_getitem(self, config)
+
+        MLIRDispatcher.__getitem__ = _cached_mlir_getitem
+
+
+if POPULATION:
+    # Replace eager allocations with zero-filled host arrays.
+    import cubie.memory.mem_manager as mem_manager  # noqa: E402
+    import cubie.memory.stream_groups as stream_groups  # noqa: E402
+
+    _batch_solver_kernel = importlib.import_module(
+        "cubie.batchsolving.BatchSolverKernel"
+    )
+    stream_groups.cuda = SimpleNamespace(stream=lambda: _fake_stream)
+    mem_manager._ensure_cuda_context = lambda: None
+    mem_manager._pinned_host_array = (
+        lambda shape, dtype: np.zeros(shape, dtype=dtype)
+    )
+    _batch_solver_kernel.max_shared_memory_per_block = lambda: 49152
+
+    _MemoryManager = mem_manager.MemoryManager
+    _MemoryManager.allocate = (
+        lambda self, shape, dtype, memory_type, stream=0: _fake_device_array(
+            np.zeros(shape, dtype=dtype)
+        )
+    )
+    _MemoryManager.to_device = _host_copy
+    _MemoryManager.from_device = _host_copy
+    _MemoryManager.get_available_memory = lambda self, group: 8 << 30
+    _MemoryManager.get_memory_info = lambda self: (8 << 30, 24 << 30)
+
+
+# CuBIE creates a few dispatchers while importing its cache module. Finish
+# that import, then replace the temporary NullCache objects they received.
+import cubie  # noqa: E402, F401
+
+_attach_pending()
+
+
+def pytest_configure(config):
+    _attach_pending()
 
 
 def pytest_testnodedown(node, error):
+    if POPULATION:
+        return
     worker_stats = getattr(node, "workeroutput", {}).get(
-        "cubie_precompile_stats"
+        "cubie_kernel_cache_stats"
     )
     if worker_stats:
         _WORKER_STATS.append(worker_stats)
 
 
 def pytest_sessionfinish(session, exitstatus):
+    if POPULATION:
+        return
     if hasattr(session.config, "workeroutput"):
-        session.config.workeroutput["cubie_precompile_stats"] = STATS.copy()
+        session.config.workeroutput["cubie_kernel_cache_stats"] = STATS.copy()
         return
-
-    report_path = os.environ.get("CUBIE_PRECOMPILE_REPORT", "").strip()
-    if not report_path:
-        return
-
-    report = _combined_stats()
-    report.update(
-        backend=BACKEND,
-        target_cc=TARGET_CC_TEXT,
-        exitstatus=int(exitstatus),
-    )
-    path = Path(report_path)
-    path.parent.mkdir(parents=True, exist_ok=True)
-    path.write_text(json.dumps(report, sort_keys=True), encoding="utf-8")
+    if _combined_stats()["compilations_completed"]:
+        session.exitstatus = 1
 
 
 def pytest_terminal_summary(terminalreporter):
+    if POPULATION:
+        return
     stats = _combined_stats()
     terminalreporter.write_line(
-        "PRECOMPILE_STATS "
-        + " ".join(f"{key}={stats[key]}" for key in _STAT_KEYS)
+        f"KERNEL_CACHE cache_hits={stats['cache_hits']} "
+        "compilations_completed="
+        f"{stats['compilations_completed']}"
     )

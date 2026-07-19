@@ -1,6 +1,9 @@
 """Tests for cubie_cache module."""
 
+from hashlib import sha256
+from importlib.metadata import distributions
 from pathlib import Path
+from sys import implementation, version_info
 
 import pytest
 from numpy import array, float32
@@ -16,7 +19,6 @@ from cubie.cubie_cache import (
     CacheConfig,
     ALL_CACHE_PARAMETERS,
     _CacheFileLock,
-    _compiler_environment_entries,
     environment_hash,
 )
 from cubie._utils import package_source_hash
@@ -91,12 +93,18 @@ def test_environment_hash_is_stable_hex_digest():
     assert environment_hash() == digest
 
 
-def test_environment_hash_uses_compiler_packages_only():
-    """The cache stamp ignores unrelated runner packages."""
-    entries = _compiler_environment_entries()
-    assert any(entry.startswith("numpy==") for entry in entries)
-    assert any(entry.startswith("python==") for entry in entries)
-    assert not any(entry.startswith("pytest==") for entry in entries)
+def test_environment_hash_covers_python_and_installed_packages():
+    """The hash covers Python and every installed distribution."""
+    entries = [
+        f"python=={implementation.name}-{version_info.major}."
+        f"{version_info.minor}.{version_info.micro}"
+    ]
+    for distribution in distributions():
+        name = distribution.metadata["Name"] or "unknown"
+        version = distribution.metadata["Version"] or "unknown"
+        entries.append(f"{name}=={version}")
+    expected = sha256("\n".join(sorted(entries)).encode()).hexdigest()
+    assert environment_hash() == expected
 
 
 def test_cache_file_lock_cleans_up_after_timeout(tmp_path):
@@ -267,18 +275,37 @@ def test_cubie_cache_index_key():
 
     key = cache._index_key(sig, codegen)
 
-    # Key is (sig, magic_tuple, system_hash, config_hash, package_hash)
-    assert len(key) == 5
+    # A production cache has no automatic function identity.
+    assert len(key) == 6
     assert key[0] == sig
     assert key[1] == ("magic", "tuple")
     assert key[2] == "abc123"
     assert key[3] == config_hash
     assert key[4] == package_source_hash()
+    assert key[5] is None
 
     cache._launch_config_key = (1, 2, 3)
     launch_key = cache._index_key(sig, codegen)
     assert launch_key[:-1] == key
     assert launch_key[-1] == ("launch_config", (1, 2, 3))
+
+
+def test_function_identity_includes_closure_values():
+    """Automatic caches distinguish serialized closure constants."""
+    def factory(value):
+        def kernel(argument=1):
+            return argument + value
+
+        return kernel
+
+    first = CUBIECache(
+        "functions", "system", "config", py_func=factory(1)
+    )
+    second = CUBIECache(
+        "functions", "system", "config", py_func=factory(2)
+    )
+
+    assert first._function_key != second._function_key
 
 
 def test_cubie_cache_path(monkeypatch):
@@ -393,14 +420,13 @@ def test_cache_handler_init_with_disabled_cache():
 
 
 def test_cache_handler_init_with_enabled_cache():
-    """Verify CubieCacheHandler creates CUBIECache when cache_arg=True."""
+    """An enabled handler creates its cache only for a build."""
     handler = CubieCacheHandler(
         cache_arg=True,
         system_name="test_system",
         system_hash="abc123",
     )
-    assert handler.cache is not None
-    assert isinstance(handler.cache, CUBIECache)
+    assert handler.cache is None
     assert handler.config.cache_enabled is True
 
 
@@ -428,7 +454,7 @@ def test_cache_handler_configured_cache_returns_none_when_disabled():
 
 
 def test_cache_handler_configured_cache_sets_hashes():
-    """Verify configured_cache() updates system and compile hashes."""
+    """Each build receives a new cache with fixed hashes."""
     handler = CubieCacheHandler(
         cache_arg=True,
         system_name="test_system",
@@ -437,10 +463,12 @@ def test_cache_handler_configured_cache_sets_hashes():
     compile_hash = (
         "def456789012345678901234567890123456789012345678901234567890abcd"
     )
-    result = handler.configured_cache("abc123", compile_hash)
-    assert result is not None
-    assert result._compile_settings_hash == compile_hash
-    assert result._system_hash == "abc123"
+    first = handler.configured_cache("abc123", compile_hash)
+    second = handler.configured_cache("abc123", "another_hash")
+    assert first is not second
+    assert first._compile_settings_hash == compile_hash
+    assert first._system_hash == "abc123"
+    assert second._compile_settings_hash == "another_hash"
 
 
 def test_cache_handler_flush_handles_none_cache():
@@ -455,7 +483,7 @@ def test_cache_handler_flush_handles_none_cache():
 
 
 def test_cache_handler_enable_cache_via_update():
-    """Verify cache can be enabled via update(cache_enabled=True)."""
+    """Enabling affects the next configured cache."""
     handler = CubieCacheHandler(
         cache_arg=False,
         system_name="test_system",
@@ -465,8 +493,9 @@ def test_cache_handler_enable_cache_via_update():
 
     recognized = handler.update({"cache_enabled": True})
     assert "cache_enabled" in recognized
-    assert handler.cache is not None
-    assert isinstance(handler.cache, CUBIECache)
+    assert handler.cache is None
+    cache = handler.configured_cache("abc123", "compile_hash")
+    assert isinstance(cache, CUBIECache)
 
 
 # --- BatchSolverKernel cache integration tests ---
@@ -558,8 +587,8 @@ def test_cache_handler_uses_symbolic_ode_fn_hash(system):
     assert handler.config.system_hash == system.fn_hash
     assert handler.config.system_name == system.name
 
-    # Verify cache path includes the hash
-    path_str = str(handler.cache.cache_path)
+    cache = handler.configured_cache(system.fn_hash, "compile_hash")
+    path_str = str(cache.cache_path)
     assert system.fn_hash[:8] in path_str
 
 
@@ -691,7 +720,7 @@ def test_cache_handler_disable_cache_via_update():
         system_name="disable_test",
         system_hash="h2",
     )
-    assert handler.cache is not None
+    assert handler.configured_cache("h2", "compile_hash") is not None
 
     recognized = handler.update({"cache_enabled": False})
     assert "cache_enabled" in recognized
