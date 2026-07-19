@@ -1,6 +1,7 @@
 """Populate and enforce the shared CUDA test-kernel cache."""
 import importlib
 import os
+from pathlib import Path
 import sys
 from types import SimpleNamespace
 
@@ -36,6 +37,7 @@ if not os.environ.get("CUBIE_KERNEL_CACHE_DIR", "").strip():
     raise RuntimeError(
         "tests.precompile_plugin requires CUBIE_KERNEL_CACHE_DIR."
     )
+CACHE_DIR = Path(os.environ["CUBIE_KERNEL_CACHE_DIR"]).resolve()
 
 # Keep every kernel in the uploaded artifact.
 os.environ.setdefault("CUBIE_MAX_CACHE_ENTRIES", "0")
@@ -218,6 +220,7 @@ def _attach_cache(dispatcher):
             system_hash="pytest_kernels",
             config_hash=options_hash,
             max_entries=0,
+            custom_cache_dir=CACHE_DIR,
             py_func=dispatcher.py_func,
         )
     if not isinstance(dispatcher._cache, CUBIECache):

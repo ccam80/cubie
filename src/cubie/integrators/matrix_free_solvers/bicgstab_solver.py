@@ -312,43 +312,6 @@ class BiCGSTABSolver(LinearSolverBase):
                     t, h, a_ij, vin, vout,
                 )
 
-        if preconditioned:
-            if cached:
-                @cuda.jit(device=True, inline=True, **jit_kwargs)
-                def precond(
-                    state, parameters, drivers, cached_aux, base_state,
-                    t, h, a_ij, rhs, out, temp, scratch, chain_scratch,
-                ):
-                    if chained_precond:
-                        preconditioner(
-                            state, parameters, drivers, cached_aux,
-                            base_state, t, h, a_ij, rhs, out, temp,
-                            scratch, chain_scratch,
-                        )
-                    else:
-                        preconditioner(
-                            state, parameters, drivers, cached_aux,
-                            base_state, t, h, a_ij, rhs, out, temp,
-                            scratch,
-                        )
-            else:
-                @cuda.jit(device=True, inline=True, **jit_kwargs)
-                def precond(
-                    state, parameters, drivers, cached_aux, base_state,
-                    t, h, a_ij, rhs, out, temp, scratch, chain_scratch,
-                ):
-                    if chained_precond:
-                        preconditioner(
-                            state, parameters, drivers, base_state,
-                            t, h, a_ij, rhs, out, temp,
-                            scratch, chain_scratch,
-                        )
-                    else:
-                        preconditioner(
-                            state, parameters, drivers, base_state,
-                            t, h, a_ij, rhs, out, temp, scratch,
-                        )
-
         @cuda.jit(
             device=True,
             inline=True,
@@ -469,11 +432,30 @@ class BiCGSTABSolver(LinearSolverBase):
                 # p is maintained within the clamp budget, so the
                 # unpreconditioned copy needs no re-clamp.
                 if preconditioned:
-                    precond(
-                        state, parameters, drivers, cached_aux,
-                        base_state, t, h, a_ij, p, tmp, v,
-                        precond_scratch, chain_scratch,
-                    )
+                    if cached:
+                        if chained_precond:
+                            preconditioner(
+                                state, parameters, drivers, cached_aux,
+                                base_state, t, h, a_ij, p, tmp, v,
+                                precond_scratch, chain_scratch,
+                            )
+                        else:
+                            preconditioner(
+                                state, parameters, drivers, cached_aux,
+                                base_state, t, h, a_ij, p, tmp, v,
+                                precond_scratch,
+                            )
+                    elif chained_precond:
+                        preconditioner(
+                            state, parameters, drivers, base_state,
+                            t, h, a_ij, p, tmp, v,
+                            precond_scratch, chain_scratch,
+                        )
+                    else:
+                        preconditioner(
+                            state, parameters, drivers, base_state,
+                            t, h, a_ij, p, tmp, v, precond_scratch,
+                        )
                     for i in range(n_val):
                         tmp[i] = selp(
                             tmp[i] > dot_clamp, dot_clamp, tmp[i]
@@ -531,11 +513,31 @@ class BiCGSTABSolver(LinearSolverBase):
 
                 # ── Step 7: s_hat = clamp(P(s)), scratch = tmp
                 if preconditioned:
-                    precond(
-                        state, parameters, drivers, cached_aux,
-                        base_state, t, h, a_ij, rhs, s_hat, tmp,
-                        precond_scratch, chain_scratch,
-                    )
+                    if cached:
+                        if chained_precond:
+                            preconditioner(
+                                state, parameters, drivers, cached_aux,
+                                base_state, t, h, a_ij, rhs, s_hat, tmp,
+                                precond_scratch, chain_scratch,
+                            )
+                        else:
+                            preconditioner(
+                                state, parameters, drivers, cached_aux,
+                                base_state, t, h, a_ij, rhs, s_hat, tmp,
+                                precond_scratch,
+                            )
+                    elif chained_precond:
+                        preconditioner(
+                            state, parameters, drivers, base_state,
+                            t, h, a_ij, rhs, s_hat, tmp,
+                            precond_scratch, chain_scratch,
+                        )
+                    else:
+                        preconditioner(
+                            state, parameters, drivers, base_state,
+                            t, h, a_ij, rhs, s_hat, tmp,
+                            precond_scratch,
+                        )
                     for i in range(n_val):
                         s_hat[i] = selp(
                             s_hat[i] > dot_clamp, dot_clamp, s_hat[i]

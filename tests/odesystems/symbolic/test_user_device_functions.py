@@ -12,6 +12,7 @@ import pytest
 from cubie.cuda_simsafe import cuda, INLINE_ALWAYS
 
 from cubie import create_ODE_system, solve_ivp
+from cubie.batchsolving.BatchSolverKernel import BatchSolverKernel
 from cubie.odesystems.symbolic.codegen.neumann_convergence import (
     check_neumann_convergence,
 )
@@ -133,11 +134,18 @@ def test_check_neumann_convergence_evaluates_device_function(
         precision=precision,
         name="userfunc_neumann_device",
     )
-    result = check_neumann_convergence(
-        system.indices,
-        system._get_neumann_evaluator(),
+    kernel = BatchSolverKernel(
+        system,
+        algorithm_settings={"algorithm": "euler"},
     )
-    assert result["converges"] is True
-    np.testing.assert_allclose(
-        result["J_numeric"], [[-12.0]], rtol=5e-2
-    )
+    try:
+        result = check_neumann_convergence(
+            system.indices,
+            kernel._neumann_rhs_evaluator,
+        )
+        assert result["converges"] is True
+        np.testing.assert_allclose(
+            result["J_numeric"], [[-12.0]], rtol=5e-2
+        )
+    finally:
+        kernel.close()
