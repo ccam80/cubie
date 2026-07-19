@@ -10,18 +10,17 @@ order. Each block yields two statistics per config: the mean of its
 lowest ``k`` per-solve kernel times (CUDA events, kernel only) and
 the median per-solve wall time (host clock around ``Solver.solve``,
 so changes that lengthen its end-to-end critical path or destroy
-chunk-transfer overlap show up in it). The two blocks of an ABBA pair ran
-back to
-back, so each verdict statistic is the median of the paired percent
-deltas — kernel deltas gate at ``--threshold``, wall deltas at the
-coarser ``--wall-threshold``.
+chunk-transfer overlap show up in it). The two blocks of an ABBA
+pair ran back to back, so each verdict statistic is the median of
+the paired percent deltas — kernel deltas gate at ``--threshold``,
+wall deltas at the coarser ``--wall-threshold``.
 
-The workers also exchange compile metrics read from each config's
+The workers also report compile metrics read from each config's
 loaded cufunc and exact cubin link (``@META`` lines: registers, ptxas
-spill-store/load byte counts, shared and constant memory, actual launch
-geometry, occupancy in blocks/SM, run and chunk counts). The gate
-prints an A-vs-B metrics table per backend and fails outright on an
-occupancy decrease, a spill increase, or a chunk-count mismatch;
+spill-store/load byte counts, shared and constant memory, actual
+launch geometry, occupancy in blocks/SM, run and chunk counts). The
+gate prints an A-vs-B metrics table per backend and fails outright on
+an occupancy decrease, a spill increase, or a chunk-count mismatch;
 register deltas that leave occupancy and spill unchanged are
 reported but not gated (their runtime effect, if any, is caught by
 the timing rows).
@@ -41,9 +40,9 @@ apart, so they sample nearly the same clock state and the wander
 cancels inside each pair — and each side pays its process startup,
 JIT compile, and grid build once instead of once per sample. Verdict
 reliability is judged from the per-pair deltas themselves: when pair
-verdicts disagree across the configured threshold boundaries, the row is
-marked DISTRUST — rerun, with more ``--pairs`` or on a quieter GPU,
-before acting on it.
+verdicts disagree across the configured threshold boundaries, the
+row is marked DISTRUST — rerun, with more ``--pairs`` or on a
+quieter GPU, before acting on it.
 Constant background load inflates absolute times but cancels out of
 the deltas. Both workers hold their device pools concurrently, which
 is fine at the default sizes (~0.7 GB each); much larger ``--n-runs``
@@ -65,16 +64,13 @@ inconclusive DISTRUST result, and 0 for a trusted pass.
 """
 import argparse
 import importlib.util
-import math
 import os
-import queue
 import random
 import shutil
 import statistics
 import subprocess
 import sys
 import tempfile
-import threading
 import time
 from pathlib import Path
 
@@ -101,7 +97,6 @@ META_FIELDS = (
     "runs",
     "chunks",
 )
-READY_KEYS = ("fixed", "adaptive", "chunked")
 
 
 def installed_backends():
@@ -128,148 +123,48 @@ def start_worker(tree, backend, cache_dir, grid_dir, args):
         ))
     if args.n_runs is not None:
         cmd.append(str(args.n_runs))
-    proc = subprocess.Popen(
+    return subprocess.Popen(
         cmd, env=env, cwd=str(tree), stdin=subprocess.PIPE,
         stdout=subprocess.PIPE, text=True, bufsize=1,
     )
-    proc.output_queue = queue.Queue()
-
-    def read_output():
-        for line in proc.stdout:
-            proc.output_queue.put(line)
-        proc.output_queue.put(None)
-
-    threading.Thread(target=read_output, daemon=True).start()
-    return proc
 
 
-def _worker_timeout(proc, side, timeout):
-    """Terminate one worker and report its protocol timeout."""
-    if proc.poll() is None:
-        proc.kill()
-    proc.wait()
-    raise SystemExit(
-        f"worker {side} timed out after {timeout:g} seconds"
-    )
-
-
-def read_worker_line(proc, side, timeout, deadline=None):
-    """Read one worker line with a Windows-compatible timeout."""
-    wait = timeout
-    if deadline is not None:
-        wait = deadline - time.monotonic()
-        if wait <= 0:
-            _worker_timeout(proc, side, timeout)
-    try:
-        line = proc.output_queue.get(timeout=wait)
-    except queue.Empty:
-        _worker_timeout(proc, side, timeout)
-    if line is None:
-        raise SystemExit(
-            f"worker {side} exited (code {proc.poll()})"
-        )
-    return line.strip()
-
-
-def read_reply(proc, prefix, side, timeout):
+def read_reply(proc, prefix, side):
     """Read worker stdout lines until one starts with ``prefix``."""
-    deadline = time.monotonic() + timeout
     while True:
-        line = read_worker_line(proc, side, timeout, deadline)
-        if line.startswith("@ERROR"):
-            raise SystemExit(f"worker {side}: {line}")
+        line = proc.stdout.readline()
+        if not line:
+            raise SystemExit(
+                f"worker {side} exited (code {proc.poll()})"
+            )
+        line = line.strip()
         if line.startswith(prefix):
             return line
-        if line.startswith("@"):
-            raise SystemExit(
-                f"worker {side} sent unexpected protocol line: {line}"
-            )
 
 
 def parse_meta(line):
-    """Parse an ``@META`` line into its config key and metric dict."""
+    """Parse ``@META <key> name=value ...`` into (key, metric dict)."""
     parts = line.split()
-    if len(parts) != 2 + len(META_FIELDS) or parts[0] != "@META":
-        raise ValueError("malformed @META line")
     meta = {}
-    for expected, token in zip(META_FIELDS, parts[2:]):
-        name, separator, value = token.partition("=")
-        if separator != "=" or name != expected or name in meta:
-            raise ValueError("invalid @META schema")
-        try:
-            parsed = int(value)
-        except ValueError as exc:
-            raise ValueError("@META values must be integers") from exc
-        if parsed < 0:
-            raise ValueError("@META values cannot be negative")
-        meta[name] = parsed
-    for field in (
-        "blocks_per_sm", "sms", "blocksize", "runs_per_block",
-        "runs", "chunks",
-    ):
-        if meta[field] <= 0:
-            raise ValueError(f"@META {field} must be positive")
+    for token in parts[2:]:
+        name, value = token.split("=")
+        meta[name] = int(value)
     return parts[1], meta
 
 
-def read_startup(proc, side, timeout):
+def read_startup(proc, side):
     """Collect ``@META`` lines until ``@READY``; return both."""
     metas = {}
-    deadline = time.monotonic() + timeout
     while True:
-        line = read_worker_line(proc, side, timeout, deadline)
-        if line.startswith("@ERROR"):
-            raise SystemExit(f"worker {side}: {line}")
+        line = read_reply(proc, "@", side)
         if line.startswith("@META "):
-            try:
-                key, meta = parse_meta(line)
-            except ValueError as exc:
-                raise SystemExit(f"worker {side}: {exc}") from exc
-            if key not in READY_KEYS or key in metas:
-                raise SystemExit(
-                    f"worker {side} sent duplicate/unknown meta {key!r}"
-                )
+            key, meta = parse_meta(line)
             metas[key] = meta
         elif line.startswith("@READY "):
-            keys = tuple(line.split()[1:])
-            if keys != READY_KEYS or tuple(metas) != READY_KEYS:
-                raise SystemExit(
-                    f"worker {side} startup schema mismatch"
-                )
-            return list(keys), metas
-        elif line.startswith("@"):
-            raise SystemExit(
-                f"worker {side} sent unexpected protocol line: {line}"
-            )
+            return line.split()[1:], metas
 
 
-def parse_times(line, key, count):
-    """Strictly parse one worker timing reply."""
-    parts = line.split()
-    expected_length = 4 + 2 * count
-    if len(parts) != expected_length:
-        raise ValueError(
-            f"expected {count} kernel and wall values"
-        )
-    if parts[:3] != ["@TIMES", key, "kernel"]:
-        raise ValueError("invalid @TIMES prefix")
-    wall_at = 3 + count
-    if parts[wall_at] != "wall":
-        raise ValueError("invalid @TIMES wall delimiter")
-    try:
-        kernel = [float(value) for value in parts[3:wall_at]]
-        wall = [float(value) for value in parts[wall_at + 1:]]
-    except ValueError as exc:
-        raise ValueError("@TIMES values must be numbers") from exc
-    if any(
-        not math.isfinite(value) or value <= 0
-        for value in kernel + wall
-    ):
-        raise ValueError("@TIMES values must be finite and positive")
-    return kernel, wall
-
-
-def run_block(proc, side, key, count, timeout):
+def run_block(proc, side, key, count):
     """Ask one worker for ``count`` solves; return kernel/wall ms."""
     try:
         proc.stdin.write(f"run {key} {count}\n")
@@ -278,11 +173,16 @@ def run_block(proc, side, key, count, timeout):
         raise SystemExit(
             f"worker {side} pipe closed (exit {proc.poll()})"
         )
-    reply = read_reply(proc, "@TIMES ", side, timeout)
-    try:
-        return parse_times(reply, key, count)
-    except ValueError as exc:
-        raise SystemExit(f"worker {side}: {exc}") from exc
+    reply = read_reply(proc, "@TIMES ", side).split()
+    if reply[1] != key:
+        raise SystemExit(
+            f"worker {side} answered for {reply[1]!r}, "
+            f"expected {key!r}"
+        )
+    wall_at = reply.index("wall")
+    kernel = [float(v) for v in reply[3:wall_at]]
+    wall = [float(v) for v in reply[wall_at + 1:]]
+    return kernel, wall
 
 
 def stop_worker(proc):
@@ -295,7 +195,6 @@ def stop_worker(proc):
         proc.wait(timeout=60)
     except subprocess.TimeoutExpired:
         proc.kill()
-        proc.wait()
 
 
 def add_main_worktree(main_ref):
@@ -367,17 +266,8 @@ def compare_meta(backend, metas, keys):
     return regressed
 
 
-def block_statistic(stat, values, k):
-    """Reduce one block's per-solve times to its statistic."""
-    if stat == "kernel":
-        return statistics.fmean(sorted(values)[:k])
-    return statistics.median(values)
-
-
 def classify_deltas(deltas, threshold):
-    """Classify paired deltas and whether pair verdicts disagree."""
-    if not deltas or any(not math.isfinite(value) for value in deltas):
-        raise ValueError("paired deltas must be finite and nonempty")
+    """Median delta, its verdict, and whether pair verdicts disagree."""
 
     def classify(value):
         if value > threshold:
@@ -387,8 +277,8 @@ def classify_deltas(deltas, threshold):
         return "ok"
 
     delta = statistics.median(deltas)
-    pair_verdicts = {classify(value) for value in deltas}
-    return delta, classify(delta), len(pair_verdicts) > 1
+    disagree = len({classify(value) for value in deltas}) > 1
+    return delta, classify(delta), disagree
 
 
 def run_backend(backend, main_tree, b_tree, base, args):
@@ -407,7 +297,7 @@ def run_backend(backend, main_tree, b_tree, base, args):
         ready = {}
         for side in ("A", "B"):
             ready[side], metas[side] = read_startup(
-                workers[side], side, args.worker_timeout)
+                workers[side], side)
             print(f"[{backend}] {side} ready", file=sys.stderr)
         if ready["A"] != ready["B"]:
             raise SystemExit(
@@ -431,19 +321,8 @@ def run_backend(backend, main_tree, b_tree, base, args):
             workers[side].stdin.write(f"wave {wave_runs}\n")
             workers[side].stdin.flush()
         for side in ("A", "B"):
-            line = read_reply(
-                workers[side], "@META wave", side,
-                args.worker_timeout,
-            )
-            try:
-                meta_key, meta = parse_meta(line)
-            except ValueError as exc:
-                raise SystemExit(f"worker {side}: {exc}") from exc
-            if meta_key != "wave":
-                raise SystemExit(
-                    f"worker {side} answered with meta {meta_key!r}"
-                )
-            metas[side]["wave"] = meta
+            line = read_reply(workers[side], "@META wave ", side)
+            metas[side]["wave"] = parse_meta(line)[1]
         keys = ready["A"] + ["wave"]
         counts = {
             key: (args.chunked_solves if key == "chunked"
@@ -454,9 +333,7 @@ def run_backend(backend, main_tree, b_tree, base, args):
         def block(side, store=None):
             for key in keys:
                 vals = run_block(
-                    workers[side], side, key, counts[key],
-                    args.worker_timeout,
-                )
+                    workers[side], side, key, counts[key])
                 if store is not None:
                     store[side][key].append(vals)
             # Idle gap: without it the GPU sits pinned at its power
@@ -488,12 +365,12 @@ def run_backend(backend, main_tree, b_tree, base, args):
         "wall": args.wall_threshold,
     }
     for key in keys:
-        for stat_idx, stat in enumerate(("kernel", "wall")):
+        for stat in ("kernel", "wall"):
             if stat == "kernel":
                 k = min(args.min_count, counts[key])
                 floors = {
                     side: [
-                        block_statistic(stat, blk[stat_idx], k)
+                        statistics.fmean(sorted(blk[0])[:k])
                         for blk in collected[side][key]
                     ]
                     for side in ("A", "B")
@@ -501,27 +378,13 @@ def run_backend(backend, main_tree, b_tree, base, args):
             else:
                 floors = {
                     side: [
-                        statistics.median(blk[stat_idx])
+                        statistics.median(blk[1])
                         for blk in collected[side][key]
                     ]
                     for side in ("A", "B")
                 }
-            if any(
-                not math.isfinite(value) or value <= 0
-                for side in floors.values() for value in side
-            ):
-                raise SystemExit(
-                    f"{backend}/{key}/{stat}: block statistics must "
-                    "be finite and positive"
-                )
             a = statistics.fmean(floors["A"])
             b = statistics.fmean(floors["B"])
-            if any(not math.isfinite(value) or value <= 0
-                   for value in (a, b)):
-                raise SystemExit(
-                    f"{backend}/{key}/{stat}: side means must be "
-                    "finite and positive"
-                )
             # The i-th A and B blocks ran back to back (one ABBA
             # pair), so they share clock state; the median paired
             # delta cancels wander that survives in the side means.
@@ -529,57 +392,16 @@ def run_backend(backend, main_tree, b_tree, base, args):
                 100.0 * (bf - af) / af
                 for af, bf in zip(floors["A"], floors["B"])
             ]
-            threshold = thresholds[stat]
-            try:
-                delta, verdict, distrust = classify_deltas(
-                    deltas, threshold
-                )
-            except ValueError as exc:
-                raise SystemExit(
-                    f"{backend}/{key}/{stat}: {exc}"
-                ) from exc
+            delta, verdict, distrust = classify_deltas(
+                deltas, thresholds[stat]
+            )
             rows.append(
                 (backend, key, stat, a, b, delta, verdict, distrust)
             )
     return rows, meta_regressed
 
 
-def positive_int(value):
-    """Argparse type requiring a positive integer."""
-    parsed = int(value)
-    if parsed <= 0:
-        raise argparse.ArgumentTypeError("must be positive")
-    return parsed
-
-
-def positive_finite(value):
-    """Argparse type requiring a positive finite float."""
-    parsed = float(value)
-    if not math.isfinite(parsed) or parsed <= 0:
-        raise argparse.ArgumentTypeError("must be finite and positive")
-    return parsed
-
-
-def nonnegative_finite(value):
-    """Argparse type requiring a nonnegative finite float."""
-    parsed = float(value)
-    if not math.isfinite(parsed) or parsed < 0:
-        raise argparse.ArgumentTypeError(
-            "must be finite and nonnegative"
-        )
-    return parsed
-
-
-def finite_proportion(value):
-    """Argparse type requiring a finite proportion in (0, 1]."""
-    parsed = float(value)
-    if not math.isfinite(parsed) or not 0 < parsed <= 1:
-        raise argparse.ArgumentTypeError("must be finite and in (0, 1]")
-    return parsed
-
-
-def build_parser():
-    """Build the command-line parser for tests and ``main``."""
+def main():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--main", default="origin/main",
                         help="A-side ref (default origin/main; the "
@@ -587,20 +409,20 @@ def build_parser():
     parser.add_argument("--backends", default=None,
                         help="Comma-separated subset of: "
                              + ", ".join(BACKENDS))
-    parser.add_argument("--block-solves", type=positive_int, default=25,
+    parser.add_argument("--block-solves", type=int, default=25,
                         help="Solves per block per config.")
-    parser.add_argument("--chunked-solves", type=positive_int, default=10,
+    parser.add_argument("--chunked-solves", type=int, default=10,
                         help="Solves per block for the chunked "
                              "config (its solves are slow and its "
                              "signal coarse, so fewer suffice).")
-    parser.add_argument("--pairs", type=positive_int, default=4,
+    parser.add_argument("--pairs", type=int, default=4,
                         help="A/B block pairs per backend; even "
                              "cancels linear drift, multiples of 4 "
                              "also quadratic.")
-    parser.add_argument("--min-count", type=positive_int, default=5,
+    parser.add_argument("--min-count", type=int, default=5,
                         help="Lowest per-solve kernel times averaged "
                              "into each block's kernel statistic.")
-    parser.add_argument("--gap", type=nonnegative_finite, nargs=2,
+    parser.add_argument("--gap", type=float, nargs=2,
                         default=(1.5, 3.5),
                         metavar=("MIN", "MAX"),
                         help="Idle seconds after each block, drawn "
@@ -608,28 +430,26 @@ def build_parser():
                              "GPU re-enter its repeatable boost state; "
                              "the jitter stops concurrent periodic GPU "
                              "loads phase-locking with the rhythm.")
-    parser.add_argument("--n-runs", type=positive_int, default=None,
+    parser.add_argument("--n-runs", type=int, default=None,
                         help="Trajectory count for the fixed and "
                              "adaptive configs (small values "
                              "smoke-test the harness).")
-    parser.add_argument("--chunked-runs", type=positive_int,
-                        default=None,
+    parser.add_argument("--chunked-runs", type=int, default=None,
                         help="Trajectory count for the chunked "
                              "config (defaults to --n-runs when "
                              "supplied, otherwise 2**22).")
-    parser.add_argument("--chunked-proportion", type=finite_proportion,
+    parser.add_argument("--chunked-proportion", type=float,
                         default=None,
                         help="Manual VRAM proportion for each of the "
                              "chunked config's three memory-manager "
                              "instances; the batch chunks once it "
                              "exceeds three times this share of "
                              "total VRAM.")
-    parser.add_argument("--threshold", type=positive_finite, default=0.50,
+    parser.add_argument("--threshold", type=float, default=0.50,
                         help="Kernel-delta regression threshold in "
                              "percent (two to three times the "
                              "calibrated null).")
-    parser.add_argument("--wall-threshold", type=positive_finite,
-                        default=5.0,
+    parser.add_argument("--wall-threshold", type=float, default=5.0,
                         help="Wall-delta regression threshold in "
                              "percent; wall time carries host "
                              "scatter, so it is far coarser than "
@@ -638,31 +458,11 @@ def build_parser():
                         help="Point B at main too (A-vs-A null).")
     parser.add_argument("--keep", action="store_true",
                         help="Keep the ephemeral main tree and caches.")
-    parser.add_argument(
-        "--worker-timeout", type=positive_finite, default=300.0,
-        help="Maximum seconds to wait for any worker protocol reply.",
-    )
-    return parser
-
-
-def parse_args(argv=None):
-    """Parse and validate command-line arguments."""
-    parser = build_parser()
-    args = parser.parse_args(argv)
-    if args.gap[0] > args.gap[1]:
-        parser.error("--gap MIN cannot exceed MAX")
-    return args
-
-
-def main(argv=None):
-    """Run the A/B gate and return its process exit status."""
-    args = parse_args(argv)
+    args = parser.parse_args()
 
     backends = installed_backends()
     if args.backends:
         wanted = [b.strip() for b in args.backends.split(",")]
-        if len(set(wanted)) != len(wanted):
-            raise SystemExit("--backends cannot contain duplicates")
         missing = [b for b in wanted if b not in backends]
         if missing:
             raise SystemExit(
