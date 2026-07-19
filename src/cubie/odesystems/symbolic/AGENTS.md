@@ -47,10 +47,14 @@ attrs conventions; `BaseODE` (parent, `../AGENTS.md`) for `ODECache`/`config_has
 `linear_operator_cached`, `neumann_preconditioner`, `neumann_preconditioner_cached`,
 `stage_residual`, `n_stage_residual`, `n_stage_linear_operator`,
 `n_stage_neumann_preconditioner`, `prepare_jac`, `calculate_cached_jvp`, `time_derivative_rhs`,
-and the non-codegen `cached_aux_count`. Adding a helper means a branch here **and** a generator
-in `codegen/`. The `_HELPERS_NEEDING_PRECONDITIONER_KWARGS` frozenset selects which helpers get
-`beta`/`gamma`/`order` factory kwargs. `n_stage_*` helper names include the full tableau digest,
-so different coefficients and nodes cannot share source. The
+and the non-codegen `cached_aux_count`. Adding a helper means a branch here, a generator
+in `codegen/`, and an entry in the `_SOLVER_HELPER_TYPES` registry. Helper scalings
+(`beta`/`gamma`/`preconditioner_order`, plus the FIRK tableau digest) persist in the
+`solver_*` fields of `ODEData` via `update_compile_settings`, so a changed value invalidates
+the whole `ODECache` through the standard `CUDAFactory` path and helpers regenerate on the
+next request; an omitted argument keeps the configured value and the cache. Each factory
+receives only the kwargs its own signature declares. `n_stage_*` helper names include the
+full tableau digest, so different coefficients and nodes cannot share source. The
 cached helpers (`linear_operator_cached`, `neumann_preconditioner_cached`, `prepare_jac`,
 `calculate_cached_jvp`, `cached_aux_count`) are requested by `GenericRosenbrockWStep` and run
 every step; how many auxiliaries actually get precomputed is set by the caching planner's

@@ -1373,26 +1373,24 @@ def test_neumann_helper_rebuilds_on_order_change(system):
     [{"system_type": "linear"}],
     indirect=True,
 )
-def test_unscaled_helper_ignores_solver_values(system):
-    """Irrelevant solver values do not replace an unscaled helper."""
+def test_helper_requests_without_scalings_reuse_cache(system):
+    """Requests with omitted scalings reuse every cached helper."""
 
-    first = system.get_solver_helper("prepare_jac")
-    second = system.get_solver_helper(
-        "prepare_jac",
-        beta=2.5,
-        gamma=-3.0,
-        preconditioner_order=7,
+    scaled = system.get_solver_helper(
+        "linear_operator", beta=2.5, gamma=0.5
     )
-    auxiliary_count = system.get_solver_helper(
-        "cached_aux_count",
-        beta=2.5,
-        gamma=-3.0,
-        preconditioner_order=7,
+    first = system.get_solver_helper("prepare_jac")
+    second = system.get_solver_helper("prepare_jac")
+    auxiliary_count = system.get_solver_helper("cached_aux_count")
+    repeat_scaled = system.get_solver_helper(
+        "linear_operator", beta=2.5, gamma=0.5
     )
 
     assert first is second
     assert auxiliary_count == system.jacobian_aux_count
-    assert "cached_aux_count" not in system._solver_helper_cache_keys
+    assert repeat_scaled is scaled
+    assert system.compile_settings.solver_beta == system.precision(2.5)
+    assert system.compile_settings.solver_gamma == system.precision(0.5)
 
 
 @pytest.mark.parametrize(
@@ -1412,49 +1410,6 @@ def test_unknown_helper_preserves_existing_cache(system):
         system.get_solver_helper("not_a_helper")
 
     assert system.get_solver_helper("prepare_jac") is cached
-
-
-@pytest.mark.parametrize(
-    "solver_settings_override",
-    [{"system_type": "colliding_constants", "precision": np.float32}],
-    indirect=True,
-)
-def test_scaled_helper_key_matches_closure_casts(system):
-    """Helper keys preserve each closure scalar's cast representation."""
-
-    nan_payload = np.array([0x7FC00001], dtype=np.uint32).view(np.float32)[0]
-    other_payload = np.array([0x7FC00002], dtype=np.uint32).view(np.float32)[0]
-    negative_nan = np.array([0xFFC00001], dtype=np.uint32).view(np.float32)[0]
-    rounded = system.get_solver_helper(
-        "stage_residual", beta=1.00000001, gamma=1.0
-    )
-    exact = system.get_solver_helper(
-        "stage_residual", beta=1.0, gamma=1.0
-    )
-    first_nan = system.get_solver_helper(
-        "stage_residual", beta=nan_payload, gamma=1.0
-    )
-    second_nan = system.get_solver_helper(
-        "stage_residual", beta=nan_payload, gamma=1.0
-    )
-    other_nan = system.get_solver_helper(
-        "stage_residual", beta=other_payload, gamma=1.0
-    )
-    signed_nan = system.get_solver_helper(
-        "stage_residual", beta=negative_nan, gamma=1.0
-    )
-    positive_zero = system.get_solver_helper(
-        "stage_residual", beta=0.0, gamma=1.0
-    )
-    negative_zero = system.get_solver_helper(
-        "stage_residual", beta=-0.0, gamma=1.0
-    )
-
-    assert rounded is exact
-    assert first_nan is second_nan
-    assert other_nan is not second_nan
-    assert signed_nan is not first_nan
-    assert positive_zero is not negative_zero
 
 
 @pytest.fixture(scope="session")

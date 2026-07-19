@@ -52,7 +52,7 @@ from typing import (
     Union,
 )
 
-from numpy import asarray, float32, int32 as np_int32, ndarray
+from numpy import asarray, float32, ndarray
 import sympy as sp
 from cubie.array_interpolator import ArrayInterpolator
 from cubie.odesystems.symbolic.codegen.dxdt import (
@@ -109,7 +109,14 @@ _TABLEAU_HELPER_TYPES = frozenset((
     "n_stage_jacobi_preconditioner",
 ))
 
-_SCALED_HELPER_TYPES = frozenset((
+_COMPOSITE_HELPER_TYPES = frozenset((
+    "preconditioner",
+    "n_stage_preconditioner",
+    "preconditioner_cached",
+))
+
+_SOLVER_HELPER_TYPES = frozenset((
+    *_COMPOSITE_HELPER_TYPES,
     "linear_operator",
     "linear_operator_cached",
     "neumann_preconditioner",
@@ -121,49 +128,11 @@ _SCALED_HELPER_TYPES = frozenset((
     "n_stage_linear_operator",
     "n_stage_neumann_preconditioner",
     "n_stage_jacobi_preconditioner",
-))
-
-_DISPATCHED_HELPER_TYPES = frozenset((
-    *_SCALED_HELPER_TYPES,
     "prepare_jac",
     "calculate_cached_jvp",
     "time_derivative_rhs",
+    "cached_aux_count",
 ))
-
-_COMPOSITE_HELPER_TYPES = frozenset((
-    "preconditioner",
-    "n_stage_preconditioner",
-    "preconditioner_cached",
-))
-
-
-def _canonical_solver_float(value, precision):
-    """Return a float's compiled-precision cache value."""
-
-    return precision(value).tobytes()
-
-
-def _solver_helper_cache_key(
-    func_type,
-    precision,
-    beta,
-    gamma,
-    preconditioner_order,
-    tableau_hash,
-):
-    """Return the values that affect a helper's generated code."""
-
-    key = []
-    if func_type in _SCALED_HELPER_TYPES:
-        key.extend((
-            _canonical_solver_float(beta, precision),
-            _canonical_solver_float(gamma, precision),
-        ))
-    if func_type in _NEUMANN_PRECONDITIONER_TYPES:
-        key.append(np_int32(preconditioner_order))
-    if func_type in _TABLEAU_HELPER_TYPES:
-        key.append(tableau_hash)
-    return tuple(key)
 
 
 def _mass_matrix_hash_tag(mass):
@@ -446,7 +415,6 @@ class SymbolicODE(BaseODE):
         self._jacobian_aux_count: Optional[int] = None
         self._jvp_exprs: Optional[JVPEquations] = None
         self._neumann_rhs_evaluator: Optional[NeumannRHSEvaluator] = None
-        self._solver_helper_cache_keys = {}
 
     @classmethod
     def create(
@@ -1012,9 +980,9 @@ class SymbolicODE(BaseODE):
     def get_solver_helper(
         self,
         func_type: str,
-        beta: float = 1.0,
-        gamma: float = 1.0,
-        preconditioner_order: int = 2,
+        beta: Optional[float] = None,
+        gamma: Optional[float] = None,
+        preconditioner_order: Optional[int] = None,
         preconditioner_type: Union[str, list] = "neumann",
         stage_coefficients: Optional[
             Sequence[Sequence[Union[float, sp.Expr]]]
@@ -1042,11 +1010,16 @@ class SymbolicODE(BaseODE):
             chained as ``P1(P0(v))``) to the matching concrete
             helper(s).
         beta
-            Shift parameter for the linear operator.
+            Shift parameter for the linear operator. ``None`` keeps the
+            configured ``solver_beta`` compile setting.
         gamma
             Weight applied to the Jacobian term in the linear operator.
+            ``None`` keeps the configured ``solver_gamma`` compile
+            setting.
         preconditioner_order
-            Polynomial order of the Neumann preconditioner.
+            Polynomial order of the Neumann preconditioner. ``None``
+            keeps the configured ``solver_preconditioner_order``
+            compile setting.
         stage_coefficients
             FIRK tableau coefficients used to evaluate stage states. Required
             for flattened helpers.
@@ -1071,24 +1044,18 @@ class SymbolicODE(BaseODE):
         Helpers that consume a mass matrix read the system's own
         ``compile_settings.mass``; the matrix is part of the system
         definition, not an algorithm parameter.
+
+        Supplied scalings persist in the ``solver_*`` compile settings
+        through :meth:`update_compile_settings`, so a changed value
+        invalidates the cache exactly like any other compile-critical
+        setting and the helper regenerates on lookup. Omitted arguments
+        leave the configured values (and the cache) untouched.
         """
         mass = self.compile_settings.mass
 
-        supported_types = (
-            _DISPATCHED_HELPER_TYPES
-            | _COMPOSITE_HELPER_TYPES
-            | {"cached_aux_count"}
-        )
-        if func_type not in supported_types:
+        if func_type not in _SOLVER_HELPER_TYPES:
             raise NotImplementedError(
                 f"Solver helper '{func_type}' is not implemented."
-            )
-
-        tableau_hash = None
-        if func_type in _TABLEAU_HELPER_TYPES:
-            tableau_hash = _stage_tableau_hash(
-                stage_coefficients,
-                stage_nodes,
             )
 
         # Register timing event for this helper type if not already registered
@@ -1120,6 +1087,28 @@ class SymbolicODE(BaseODE):
             default_timelogger.stop_event(event_name)
             return func
 
+        # Persist supplied scalings in the compile settings; a changed
+        # value invalidates the cache through the standard CUDAFactory
+        # path, so stale helpers regenerate on the lookup below.
+        solver_updates = {}
+        if beta is not None:
+            solver_updates["solver_beta"] = beta
+        if gamma is not None:
+            solver_updates["solver_gamma"] = gamma
+        if preconditioner_order is not None:
+            solver_updates["solver_preconditioner_order"] = (
+                preconditioner_order
+            )
+        tableau_hash = None
+        if func_type in _TABLEAU_HELPER_TYPES:
+            tableau_hash = _stage_tableau_hash(
+                stage_coefficients,
+                stage_nodes,
+            )
+            solver_updates["solver_tableau_digest"] = tableau_hash
+        if solver_updates:
+            self.update_compile_settings(solver_updates)
+
         # The auxiliary count is metadata, not a device dispatcher.
         if func_type == "cached_aux_count":
             default_timelogger.start_event(event_name, skipped=True)
@@ -1128,25 +1117,16 @@ class SymbolicODE(BaseODE):
             default_timelogger.stop_event(event_name)
             return self._jacobian_aux_count
 
-        helper_key = _solver_helper_cache_key(
-            func_type,
-            self.precision,
-            beta,
-            gamma,
-            preconditioner_order,
-            tableau_hash,
-        )
-        if self._solver_helper_cache_keys.get(func_type) != helper_key:
-            if self._cache is not None:
-                setattr(self._cache, func_type, -1)
-            self._solver_helper_cache_keys.pop(func_type, None)
-
         try:
-            func = self.get_cached_output(func_type)
-            if self._solver_helper_cache_keys.get(func_type) == helper_key:
-                return func
+            return self.get_cached_output(func_type)
         except NotImplementedError:
             pass
+
+        beta = self.compile_settings.solver_beta
+        gamma = self.compile_settings.solver_gamma
+        preconditioner_order = (
+            self.compile_settings.solver_preconditioner_order
+        )
 
         # Determine factory_name for n_stage helpers (needed to check cache)
         # Preconditioner names encode the order so that different
@@ -1357,7 +1337,6 @@ class SymbolicODE(BaseODE):
             **{k: v for k, v in factory_kwargs.items() if k in accepted}
         )
         setattr(self._cache, func_type, func)
-        self._solver_helper_cache_keys[func_type] = helper_key
         default_timelogger.stop_event(event_name)
 
         return func
