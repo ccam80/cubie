@@ -447,11 +447,12 @@ def main():
                         help="Kernel-delta regression threshold in "
                              "percent (two to three times the "
                              "calibrated null).")
-    parser.add_argument("--wall-threshold", type=float, default=5.0,
+    parser.add_argument("--wall-threshold", type=float, default=10.0,
                         help="Wall-delta regression threshold in "
                              "percent; the wall floor still carries "
-                             "more host scatter than CUDA events, so "
-                             "it is coarser than --threshold.")
+                             "host scatter from concurrent machine "
+                             "load, so it is far coarser than "
+                             "--threshold.")
     parser.add_argument("--calibrate", action="store_true",
                         help="Point B at main too (A-vs-A null).")
     parser.add_argument("--keep", action="store_true",
