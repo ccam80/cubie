@@ -38,7 +38,7 @@ Recognised Variables
     Explicit CUDA backend selection, ``numba-cuda`` or ``mlir``.
     Read by :mod:`cubie.cuda_backend` at import. When unset, the
     installed backend is used; when both backends are installed,
-    numba-cuda is auto-selected with a warning.
+    the MLIR backend is auto-selected.
 """
 
 import os
