@@ -5,8 +5,8 @@
 ## Purpose
 CUDA device-function factories for the inner solvers of implicit methods: a
 Jacobian-free preconditioned **linear** solver (steepest-descent /
-minimal-residual) and a damped-backtracking **Newton–Krylov** nonlinear solver
-that calls the linear solver for each correction. The implicit algorithm steps
+minimal-residual) and a **Newton–Krylov** nonlinear solver that calls the
+linear solver for each correction. The implicit algorithm steps
 (`generic_dirk`, `generic_firk`, `backwards_euler`, `crank_nicolson`,
 Rosenbrock-W) invoke these once per implicit stage. No Jacobian is materialised —
 the caller passes device callbacks that apply the operator / preconditioner /
@@ -23,7 +23,7 @@ is specific to the solvers.
 | `__init__.py` | Re-exports factories/configs/caches; re-exports `CUBIE_RESULT_CODES` from `cubie.result_codes`. |
 | `base_solver.py` | `MatrixFreeSolver` / `MatrixFreeSolverConfig` base — holds the norm device function and the shared `n` / `max_iters` / tolerance plumbing. |
 | `linear_solver.py` | `LinearSolver` — matrix-free preconditioned steepest-descent / minimal-residual linear solve (cached and non-cached variants). |
-| `newton_krylov.py` | `NewtonKrylov` — damped backtracking Newton iteration that calls a `LinearSolver` for each correction. |
+| `newton_krylov.py` | `NewtonKrylov` — Newton iteration with optional backtracking. |
 
 ## For AI Agents
 
@@ -56,9 +56,8 @@ is specific to the solvers.
 
 ### Registered buffers (length `n` unless noted)
 - `LinearSolver`: `preconditioned_vec`, `temp`.
-- `NewtonKrylov`: `delta`, `residual`, `residual_temp`, `stage_base_bt`, and
-  `krylov_iters_local` (length 1, int32). It carves child buffers for its inner
-  `LinearSolver` via `buffer_registry.get_child_allocators(self, self.linear_solver)`.
+- `NewtonKrylov`: `delta`, `residual`, and `krylov_iters_local` (length 1,
+  int32). Backtracking also uses `residual_temp` and `stage_base_bt`.
 
 ### Status codes & convergence
 - Status codes come from the package-central `CUBIE_RESULT_CODES` (`cubie/result_codes.py`,
@@ -69,19 +68,20 @@ is specific to the solvers.
   Callers OR this word into their own step status.
 - Linear and residual norms use `ScaledNorm`. Newton corrections use
   `DIRKCorrectionNorm` or `FIRKCorrectionNorm`.
-- **Newton convergence is update-based:** consecutive accepted full steps
-  estimate `theta`. The solve accepts when `theta / (1 - theta) * ||dz|| <= 1`.
+- **Newton convergence is update-based:** consecutive full steps estimate
+  `theta`. The solve accepts when `theta / (1 - theta) * ||dz|| <= 1`.
   The correction norm scales against the physical stage state and the step
   start. DIRK uses one diagonal coefficient; FIRK uses the full tableau row.
-  The residual norm controls the line search and the final fallback check.
+  The residual norm is checked before each correction. It also controls the
+  optional line search.
 
 ### Solver-specific gotchas
 - **Warp-coherent loops.** Iterative loops exit on warp votes (`all_sync`/`any_sync`
   from `cuda_simsafe`) so every active lane agrees before breaking; `selp` gives
   branchless commits. Don't add un-voted data-dependent `break`/early-return — it
   breaks lane lockstep.
-- **`newton_max_backtracks` is `+1` in `build()`** ("off by 1"), so the configured
-  value is the number of *additional* damping attempts.
+- `newton_max_backtracks=0` compiles out backtracking and its buffers. A
+  positive value is the number of damped trials after the full trial.
 
 ### Testing
 Solver behaviour is exercised through the implicit algorithm steps under

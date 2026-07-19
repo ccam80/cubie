@@ -157,8 +157,9 @@ Newton (outer loop) options:
     - Default: ``0.5`` (range 0--1)
 
 **newton_max_backtracks** — backtracking attempt limit.
+    Set this above zero to enable damped retries.
 
-    - Default: ``8``
+    - Default: ``0``
 
 Krylov (inner loop) options:
 

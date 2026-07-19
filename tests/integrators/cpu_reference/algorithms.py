@@ -72,7 +72,7 @@ class CPUStep:
         instrument: bool = False,
         tableau: Optional[ButcherTableau] = None,
         newton_damping: float = 0.5,
-        newton_max_backtracks: int = 8,
+        newton_max_backtracks: int = 0,
     ) -> None:
         self.evaluator = evaluator
         self.driver_evaluator = driver_evaluator
@@ -606,7 +606,7 @@ class CPUBackwardEulerStep(CPUStep):
         preconditioner_order: int = 2,
         instrument: bool = False,
         newton_damping: float = 0.5,
-        newton_max_backtracks: int = 8,
+        newton_max_backtracks: int = 0,
     ) -> None:
         super().__init__(
             evaluator,
@@ -767,7 +767,7 @@ class CPUCrankNicolsonStep(CPUStep):
         backward_step: Optional[CPUBackwardEulerStep] = None,
         instrument: bool = False,
         newton_damping: float = 0.5,
-        newton_max_backtracks: int = 8,
+        newton_max_backtracks: int = 0,
     ) -> None:
         super().__init__(
             evaluator,
@@ -793,7 +793,6 @@ class CPUCrankNicolsonStep(CPUStep):
         self._cn_dt = self.precision(0.0)
         self._cn_stage_coefficient = self.precision(0.0)
         self._cn_base_state = np.zeros(self._state_size, dtype=self.precision)
-        self._cn_increment = np.zeros(self._state_size, dtype=self.precision)
         if backward_step is None:
             backward_step = CPUBackwardEulerStep(
                 evaluator,
@@ -890,7 +889,7 @@ class CPUCrankNicolsonStep(CPUStep):
         base_increment = self._cn_dt * self._cn_stage_coefficient
         self._cn_base_state = state_vector + base_increment * derivative_now
 
-        guess = self._cn_increment
+        guess = dt_value * derivative_now
         logging = None
         if self.instrument:
             logging = self._create_logging_buffers(stage_count=1)
@@ -931,7 +930,6 @@ class CPUCrankNicolsonStep(CPUStep):
         )
         error = next_state - backward_result.state
         status = self._status(converged, niters) | backward_result.status
-        self._cn_increment = increment
         if logging:
             residual_vector = self.residual(increment)
             logging.residuals[0, :] = residual_vector
@@ -979,7 +977,7 @@ class CPUERKStep(CPUStep):
         tableau: Optional[ERKTableau] = None,
         instrument: bool = False,
         newton_damping: float = 0.5,
-        newton_max_backtracks: int = 8,
+        newton_max_backtracks: int = 0,
     ) -> None:
         resolved = DEFAULT_ERK_TABLEAU if tableau is None else tableau
         super().__init__(
@@ -1133,7 +1131,7 @@ class CPUDIRKStep(CPUStep):
         tableau: Optional[DIRKTableau] = None,
         instrument: bool = False,
         newton_damping: float = 0.5,
-        newton_max_backtracks: int = 8,
+        newton_max_backtracks: int = 0,
     ) -> None:
         resolved = DEFAULT_DIRK_TABLEAU if tableau is None else tableau
         super().__init__(
@@ -1394,7 +1392,7 @@ class CPUFIRKStep(CPUStep):
         tableau: Optional[FIRKTableau] = None,
         instrument: bool = False,
         newton_damping: float = 0.5,
-        newton_max_backtracks: int = 8,
+        newton_max_backtracks: int = 0,
     ) -> None:
         resolved = DEFAULT_FIRK_TABLEAU if tableau is None else tableau
         super().__init__(
@@ -1730,7 +1728,7 @@ class CPURosenbrockWStep(CPUStep):
         tableau: Optional[RosenbrockTableau] = None,
         instrument: bool = False,
         newton_damping: float = 0.5,
-        newton_max_backtracks: int = 8,
+        newton_max_backtracks: int = 0,
     ) -> None:
         resolved = (
             DEFAULT_ROSENBROCK_TABLEAU if tableau is None else tableau
@@ -2008,7 +2006,7 @@ class CPUBackwardEulerPCStep(CPUStep):
         corrector: Optional[CPUBackwardEulerStep] = None,
         instrument: bool = False,
         newton_damping: float = 0.5,
-        newton_max_backtracks: int = 8,
+        newton_max_backtracks: int = 0,
     ) -> None:
         super().__init__(
             evaluator,
@@ -2169,7 +2167,7 @@ def get_ref_step_factory(
         preconditioner_order: int = 2,
         instrument: bool = False,
         newton_damping: float = 0.5,
-        newton_max_backtracks: int = 8,
+        newton_max_backtracks: int = 0,
     ) -> Callable:
         if tableau_value is None:
             return step_class(
@@ -2223,7 +2221,7 @@ def get_ref_stepper(
     tableau: Optional[Union[str, ButcherTableau]] = None,
     instrument: bool = False,
     newton_damping: float = 0.5,
-    newton_max_backtracks: int = 8,
+    newton_max_backtracks: int = 0,
 ) -> CPUStep:
     """Return a configured CPU reference stepper for ``algorithm``."""
 

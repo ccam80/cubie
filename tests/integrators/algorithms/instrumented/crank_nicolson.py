@@ -338,6 +338,7 @@ class InstrumentedCrankNicolsonStep(InstrumentedODEImplicitStep):
             # Form the Crank-Nicolson stage base
             for idx in range(n):
                 base_state[idx] = state[idx] + half_dt * dxdt[idx]
+                proposed_state[idx] = dt_scalar * dxdt[idx]
 
             # Solve Crank-Nicolson step (main solution)
             if has_evaluate_driver_at_t:

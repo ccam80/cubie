@@ -526,9 +526,8 @@ def newton_solve(
     backtrack_limit = int(newton_max_backtracks)
 
     state = np.asarray(initial_guess, dtype=dtype).copy()
-    residual = np.asarray(residual_fn(state), dtype=dtype)
-    norm2_prev = _scaled_norm_impl(residual, state, atol_value, rtol_value)
-    direction = np.zeros_like(residual)
+    residual = np.zeros_like(state)
+    direction = np.zeros_like(state)
 
     typed_zero = scalar_type(0.0)
     typed_tiny = scalar_type(np.finfo(dtype).tiny)
@@ -539,28 +538,42 @@ def newton_solve(
         newton_initial_guesses[stage_index, :] = state
 
     log_index = 0
-    _log_newton_iteration(
-        instrumented=instrumented,
-        stage_index=stage_index,
-        index=log_index,
-        candidate=state,
-        residual=residual,
-        squared_norm=norm2_prev,
-        logging_iteration_guesses=newton_iteration_guesses,
-        logging_residuals=newton_residuals,
-        logging_squared_norms=newton_squared_norms,
-    )
-    log_index += 1
+    if instrumented:
+        residual = np.asarray(residual_fn(state), dtype=dtype)
+        norm2_prev = _scaled_norm_impl(
+            residual, state, atol_value, rtol_value
+        )
+        _log_newton_iteration(
+            instrumented=True,
+            stage_index=stage_index,
+            index=log_index,
+            candidate=state,
+            residual=residual,
+            squared_norm=norm2_prev,
+            logging_iteration_guesses=newton_iteration_guesses,
+            logging_residuals=newton_residuals,
+            logging_squared_norms=newton_squared_norms,
+        )
+        log_index += 1
 
-    converged = norm2_prev <= typed_one
+    norm2_prev = typed_zero
+    converged = False
     iterations_used = 0
     for iteration in range(iteration_limit):
         if converged:
             break
+        residual = np.asarray(residual_fn(state), dtype=dtype)
+        norm2_prev = _scaled_norm_impl(
+            residual, state, atol_value, rtol_value
+        )
+        if norm2_prev <= typed_one:
+            converged = True
+            break
+
         iterations_used = iteration + 1
         jacobian = np.asarray(jacobian_fn(state), dtype=dtype)
 
-        # The previous direction warm-starts the linear solve.
+        direction.fill(typed_zero)
         linear_kwargs: dict[str, Any] = {"initial_guess": direction}
         if instrumented:
             slot = stage_index * max(iteration_limit, 1) + iteration
@@ -623,42 +636,63 @@ def newton_solve(
             break
 
         scale = typed_one
-        norm2_dz_next = typed_zero
-
-        for _ in range(backtrack_limit + 1):
-            trial_state = state + scale * step
-            trial_residual = np.asarray(residual_fn(trial_state), dtype=dtype)
-            trial_norm2 = _scaled_norm_impl(
-                trial_residual, trial_state, atol_value, rtol_value
+        if backtrack_limit == 0:
+            state = np.asarray(state + step, dtype=dtype)
+            norm2_dz_prev = (
+                norm2_dz if linear_converged else typed_zero
             )
+            if instrumented:
+                residual = np.asarray(residual_fn(state), dtype=dtype)
+                norm2_prev = _scaled_norm_impl(
+                    residual, state, atol_value, rtol_value
+                )
+                _log_newton_iteration(
+                    instrumented=True,
+                    stage_index=stage_index,
+                    index=log_index,
+                    candidate=state,
+                    residual=residual,
+                    squared_norm=norm2_prev,
+                    logging_iteration_guesses=newton_iteration_guesses,
+                    logging_residuals=newton_residuals,
+                    logging_squared_norms=newton_squared_norms,
+                )
+                log_index += 1
+        else:
+            norm2_dz_next = typed_zero
+            for _ in range(backtrack_limit + 1):
+                trial_state = state + scale * step
+                trial_residual = np.asarray(
+                    residual_fn(trial_state), dtype=dtype
+                )
+                trial_norm2 = _scaled_norm_impl(
+                    trial_residual, trial_state, atol_value, rtol_value
+                )
 
-            _log_newton_iteration(
-                instrumented=instrumented,
-                stage_index=stage_index,
-                index=log_index,
-                candidate=trial_state,
-                residual=trial_residual,
-                squared_norm=trial_norm2,
-                logging_iteration_guesses=newton_iteration_guesses,
-                logging_residuals=newton_residuals,
-                logging_squared_norms=newton_squared_norms,
-            )
-            log_index += 1
+                _log_newton_iteration(
+                    instrumented=instrumented,
+                    stage_index=stage_index,
+                    index=log_index,
+                    candidate=trial_state,
+                    residual=trial_residual,
+                    squared_norm=trial_norm2,
+                    logging_iteration_guesses=newton_iteration_guesses,
+                    logging_residuals=newton_residuals,
+                    logging_squared_norms=newton_squared_norms,
+                )
+                log_index += 1
 
-            if trial_norm2 < norm2_prev:
-                state = trial_state
-                residual = trial_residual
-                norm2_prev = trial_norm2
-                converged = trial_norm2 <= typed_one
-                if linear_converged and scale == typed_one:
-                    norm2_dz_next = norm2_dz
-                break
-            scale = scalar_type(scale * damping_value)
+                if trial_norm2 < norm2_prev:
+                    state = trial_state
+                    residual = trial_residual
+                    norm2_prev = trial_norm2
+                    converged = trial_norm2 <= typed_one
+                    if linear_converged and scale == typed_one:
+                        norm2_dz_next = norm2_dz
+                    break
+                scale = scalar_type(scale * damping_value)
 
-        norm2_dz_prev = norm2_dz_next
-
-        # A failed backtrack keeps the iterate and retries with a
-        # refined direction.
+            norm2_dz_prev = norm2_dz_next
 
         if (
             instrumented
@@ -666,8 +700,6 @@ def newton_solve(
             and iteration < newton_iteration_scale.shape[1]
         ):
             newton_iteration_scale[stage_index, iteration] = scale
-
-    converged = converged or norm2_prev <= typed_one
 
     return state, converged, iterations_used
 

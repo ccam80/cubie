@@ -139,7 +139,7 @@ the Krylov and preconditioner settings below apply to it and the
    * - ``newton_damping``
      - ``0.5``
    * - ``newton_max_backtracks``
-     - ``8``
+     - ``0``
    * - ``krylov_atol`` / ``krylov_rtol``
      - ``1e-6``
    * - ``krylov_max_iters``

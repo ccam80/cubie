@@ -3,6 +3,7 @@ import pytest
 from cubie.cuda_simsafe import cuda
 from numpy.testing import assert_allclose
 
+from cubie.buffer_registry import buffer_registry
 from cubie.integrators.matrix_free_solvers.linear_solver import (
     MRLinearSolver,
 )
@@ -12,6 +13,29 @@ from cubie.integrators.matrix_free_solvers.newton_krylov import (
 from cubie.integrators.matrix_free_solvers import CUBIE_RESULT_CODES
 
 STATUS_MASK = 0xFFFF
+
+
+def test_newton_backtracking_is_compile_time_optional(precision):
+    """Disabled backtracking registers no vector storage."""
+
+    n = 5
+    linear_solver = MRLinearSolver(precision=precision, n=n)
+    newton = NewtonKrylov(
+        precision=precision,
+        n=n,
+        linear_solver=linear_solver,
+    )
+
+    assert newton.newton_max_backtracks == 0
+    entries = buffer_registry._groups[newton].entries
+    assert entries["residual_temp"].size == 0
+    assert entries["stage_base_bt"].size == 0
+
+    newton.update(newton_max_backtracks=1)
+    newton.register_buffers()
+    entries = buffer_registry._groups[newton].entries
+    assert entries["residual_temp"].size == n
+    assert entries["stage_base_bt"].size == n
 
 
 @pytest.fixture(scope="session")
@@ -838,6 +862,7 @@ def test_newton_krylov_linear_solver_failure_propagates(precision):
         newton_atol=1e-8,
         newton_rtol=1e-8,
         newton_max_iters=4,
+        newton_max_backtracks=8,
     )
 
     newton_instance.update(residual_function=residual)
@@ -878,6 +903,81 @@ def test_newton_krylov_linear_solver_failure_propagates(precision):
         CUBIE_RESULT_CODES.MAX_NEWTON_ITERATIONS_EXCEEDED
         | CUBIE_RESULT_CODES.NEWTON_BACKTRACKING_NO_SUITABLE_STEP
         | CUBIE_RESULT_CODES.MAX_LINEAR_ITERATIONS_EXCEEDED
+    )
+
+
+def test_newton_krylov_recovers_after_linear_failures(precision):
+    """A later residual check can clear an earlier linear failure."""
+
+    @cuda.jit(device=True)
+    def residual(state, parameters, drivers, t, h, a_ij, base_state, out):
+        out[0] = state[0] - precision(1.0)
+        out[1] = precision(2.0) * state[1] - precision(1.0)
+
+    @cuda.jit(device=True)
+    def operator(
+        state, parameters, drivers, base_state, t, h, a_ij, vec, out
+    ):
+        out[0] = vec[0]
+        out[1] = precision(2.0) * vec[1]
+
+    linear_solver = MRLinearSolver(
+        precision=precision,
+        n=2,
+        krylov_atol=1e-12,
+        krylov_rtol=0.0,
+        krylov_max_iters=1,
+    )
+    linear_solver.update(operator_apply=operator)
+    newton = NewtonKrylov(
+        precision=precision,
+        n=2,
+        linear_solver=linear_solver,
+        newton_atol=1e-3,
+        newton_rtol=0.0,
+        newton_max_iters=32,
+    )
+    newton.update(residual_function=residual)
+    solver = newton.device_function
+    shared_size = max(newton.shared_buffer_size, 1)
+    persistent_size = max(newton.persistent_local_buffer_size, 1)
+
+    @cuda.jit
+    def kernel(state, status, counts):
+        parameters = cuda.local.array(1, precision)
+        drivers = cuda.local.array(1, precision)
+        base_state = cuda.local.array(2, precision)
+        counters = cuda.local.array(2, np.int32)
+        shared = cuda.shared.array(shared_size, precision)
+        persistent = cuda.local.array(persistent_size, precision)
+        status[0] = solver(
+            state,
+            parameters,
+            drivers,
+            precision(0.0),
+            precision(1.0),
+            precision(1.0),
+            base_state,
+            base_state,
+            shared,
+            persistent,
+            counters,
+        )
+        counts[0] = counters[0]
+
+    state = cuda.to_device(np.zeros(2, dtype=precision))
+    status = cuda.to_device(np.zeros(1, dtype=np.int32))
+    counts = cuda.to_device(np.zeros(1, dtype=np.int32))
+    kernel[1, 1](state, status, counts)
+    cuda.synchronize()
+
+    assert int(status.copy_to_host()[0]) == CUBIE_RESULT_CODES.SUCCESS
+    assert int(counts.copy_to_host()[0]) > 1
+    assert_allclose(
+        state.copy_to_host(),
+        np.array([1.0, 0.5], dtype=precision),
+        atol=precision(1e-3),
+        rtol=precision(0.0),
     )
 
 

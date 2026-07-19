@@ -84,7 +84,7 @@ class NewtonKrylovConfig(MatrixFreeSolverConfig):
     newton_damping : float
         Step shrink factor for backtracking.
     newton_max_backtracks : int
-        Maximum damping attempts per Newton step.
+        Extra damping attempts. Zero disables backtracking.
     delta_location : str
         Memory location for delta buffer.
     residual_location : str
@@ -123,7 +123,7 @@ class NewtonKrylovConfig(MatrixFreeSolverConfig):
         default=0.5, validator=inrangetype_validator(float, 0, 1)
     )
     newton_max_backtracks: int = field(
-        default=8, validator=inrangetype_validator(int, 1, 32767)
+        default=0, validator=inrangetype_validator(int, 0, 32767)
     )
     delta_location: str = field(
         default="local", validator=validators.in_(["local", "shared"])
@@ -189,8 +189,7 @@ class NewtonKrylovCache(CUDADispatcherCache):
 class NewtonKrylov(MatrixFreeSolver):
     """Factory for Newton--Krylov solver device functions.
 
-    Implements damped Newton iteration using a matrix-free linear
-    solver for the correction equation.
+    Uses a matrix-free linear solver for each Newton correction.
 
     Parameters
     ----------
@@ -206,14 +205,6 @@ class NewtonKrylov(MatrixFreeSolver):
         factory. Includes prefixed tolerance parameters
         (``newton_atol``, ``newton_rtol``).
 
-    See Also
-    --------
-    :class:`NewtonKrylovConfig`
-        Configuration container for this factory.
-    :class:`~cubie.integrators.matrix_free_solvers.base_solver.MatrixFreeSolver`
-        Parent class providing norm and tolerance management.
-    :class:`~cubie.integrators.matrix_free_solvers.linear_solver_base.LinearSolverBase`
-        Inner linear solver used for the Newton correction equation.
     """
 
     def __init__(
@@ -279,6 +270,7 @@ class NewtonKrylov(MatrixFreeSolver):
         # Register buffers with buffer_registry
         config = self.compile_settings
         precision = config.precision
+        backtracking_size = config.n if config.newton_max_backtracks else 0
 
         buffer_registry.register(
             "delta", self, config.n, config.delta_location, precision=precision
@@ -293,14 +285,14 @@ class NewtonKrylov(MatrixFreeSolver):
         buffer_registry.register(
             "residual_temp",
             self,
-            config.n,
+            backtracking_size,
             config.residual_temp_location,
             precision=precision,
         )
         buffer_registry.register(
             "stage_base_bt",
             self,
-            config.n,
+            backtracking_size,
             config.stage_base_bt_location,
             precision=precision,
         )
@@ -319,17 +311,12 @@ class NewtonKrylov(MatrixFreeSolver):
         )
 
     def build(self) -> NewtonKrylovCache:
-        """Compile Newton-Krylov solver device function.
+        """Compile the Newton solver.
 
         Returns
         -------
         NewtonKrylovCache
-            Container with compiled newton_krylov_solver device function.
-
-        Raises
-        ------
-        ValueError
-            If residual_function or linear_solver is None when build() is called.
+            Compiled device function.
         """
         config = self.compile_settings
 
@@ -341,8 +328,9 @@ class NewtonKrylov(MatrixFreeSolver):
 
         n = config.n
         max_iters = int32(config.max_iters)
+        use_backtracking = config.newton_max_backtracks > 0
         newton_damping = config.newton_damping
-        # Loop counting is off by 1 - this gives the correct number of attempts
+        # Include the full trial before the configured damped trials.
         max_backtracks = int32(config.newton_max_backtracks + 1)
 
         numba_precision = config.numba_precision
@@ -396,37 +384,16 @@ class NewtonKrylov(MatrixFreeSolver):
             # Allocate buffers from registry
             delta = alloc_delta(shared_scratch, persistent_scratch)
             residual = alloc_residual(shared_scratch, persistent_scratch)
-            residual_temp = alloc_residual_temp(
-                shared_scratch, persistent_scratch
-            )
-            stage_base_bt = alloc_stage_base_bt(
-                shared_scratch, persistent_scratch
-            )
             lin_shared = alloc_lin_shared(shared_scratch, persistent_scratch)
             lin_persistent = alloc_lin_persistent(
                 shared_scratch, persistent_scratch
             )
 
-            residual_function(
-                stage_increment,
-                parameters,
-                drivers,
-                t,
-                h,
-                a_ij,
-                base_state,
-                residual,
-            )
-            # Compute initial residual norm BEFORE negation
-            norm2_prev = scaled_norm_fn(residual, stage_increment)
-            for i in range(n_val):
-                residual[i] = -residual[i]
-                delta[i] = typed_zero
-
             # Zero marks unavailable contraction history.
             norm2_dz_prev = typed_zero
 
-            converged = norm2_prev <= typed_one
+            norm2_prev = typed_zero
+            converged = False
             final_status = success
 
             krylov_iters_local = alloc_krylov_iters_local(
@@ -444,10 +411,28 @@ class NewtonKrylov(MatrixFreeSolver):
                 if all_sync(mask, converged):
                     break
 
-                active = not converged
+                residual_function(
+                    stage_increment,
+                    parameters,
+                    drivers,
+                    t,
+                    h,
+                    a_ij,
+                    base_state,
+                    residual,
+                )
+                norm2_prev = scaled_norm_fn(residual, stage_increment)
+                active = (not converged) & (norm2_prev > typed_one)
+                converged = converged | (norm2_prev <= typed_one)
                 iters_count = selp(
                     active, int32(iters_count + int32(1)), iters_count
                 )
+
+                for i in range(n_val):
+                    residual[i] = -residual[i]
+                    delta[i] = typed_zero
+                if all_sync(mask, converged):
+                    break
 
                 krylov_iters_local[0] = int32(0)
                 lin_status = linear_solver_fn(
@@ -472,7 +457,6 @@ class NewtonKrylov(MatrixFreeSolver):
 
                 norm2_dz = typed_zero
                 for i in range(n_val):
-                    stage_base_bt[i] = stage_increment[i]
                     norm2_dz += correction_norm_term_fn(
                         i,
                         delta[i],
@@ -500,86 +484,96 @@ class NewtonKrylov(MatrixFreeSolver):
                     & (scaled_update <= typed_one - theta)
                 )
 
-                for i in range(n_val):
-                    stage_increment[i] = selp(
-                        accept_update,
-                        stage_base_bt[i] + delta[i],
-                        stage_increment[i],
+                if use_backtracking:
+                    residual_temp = alloc_residual_temp(
+                        shared_scratch, persistent_scratch
                     )
-                converged = converged | accept_update
-                searching = active & (not converged)
-                accepted_alpha = selp(
-                    accept_update, typed_one, typed_zero
-                )
-                norm2_dz_next = typed_zero
-                alpha = typed_one
-
-                for _ in range(max_backtracks):
-                    if not any_sync(mask, searching):
-                        break
-
+                    stage_base_bt = alloc_stage_base_bt(
+                        shared_scratch, persistent_scratch
+                    )
                     for i in range(n_val):
-                        stage_increment[i] = (
-                            stage_base_bt[i] + alpha * delta[i]
+                        stage_base_bt[i] = stage_increment[i]
+                        stage_increment[i] = selp(
+                            accept_update,
+                            stage_base_bt[i] + delta[i],
+                            stage_increment[i],
                         )
-
-                    residual_function(
-                        stage_increment,
-                        parameters,
-                        drivers,
-                        t,
-                        h,
-                        a_ij,
-                        base_state,
-                        residual_temp,
-                    )
-
-                    norm2_new = scaled_norm_fn(
-                        residual_temp, stage_increment
-                    )
-
-                    accept_trial = searching & (norm2_new < norm2_prev)
-                    for i in range(n_val):
-                        residual[i] = selp(
-                            accept_trial,
-                            -residual_temp[i],
-                            residual[i],
-                        )
-                    norm2_prev = selp(
-                        accept_trial, norm2_new, norm2_prev
-                    )
-                    converged = converged | (
-                        accept_trial & (norm2_new <= typed_one)
-                    )
+                    converged = converged | accept_update
+                    searching = active & (not converged)
                     accepted_alpha = selp(
-                        accept_trial, alpha, accepted_alpha
+                        accept_update, typed_one, typed_zero
                     )
-                    searching = searching & (not accept_trial)
-                    norm2_dz_next = selp(
-                        accept_trial
-                        & (alpha == typed_one)
-                        & (lin_status == success),
-                        norm2_dz,
-                        norm2_dz_next,
-                    )
-                    for i in range(n_val):
-                        stage_increment[i] = (
-                            stage_base_bt[i] + accepted_alpha * delta[i]
+                    norm2_dz_next = typed_zero
+                    alpha = typed_one
+
+                    for _ in range(max_backtracks):
+                        if not any_sync(mask, searching):
+                            break
+
+                        for i in range(n_val):
+                            stage_increment[i] = (
+                                stage_base_bt[i] + alpha * delta[i]
+                            )
+
+                        residual_function(
+                            stage_increment,
+                            parameters,
+                            drivers,
+                            t,
+                            h,
+                            a_ij,
+                            base_state,
+                            residual_temp,
+                        )
+                        norm2_new = scaled_norm_fn(
+                            residual_temp, stage_increment
                         )
 
-                    alpha *= typed_damping
+                        accept_trial = searching & (norm2_new < norm2_prev)
+                        converged = converged | (
+                            accept_trial & (norm2_new <= typed_one)
+                        )
+                        accepted_alpha = selp(
+                            accept_trial, alpha, accepted_alpha
+                        )
+                        searching = searching & (not accept_trial)
+                        norm2_dz_next = selp(
+                            accept_trial
+                            & (alpha == typed_one)
+                            & (lin_status == success),
+                            norm2_dz,
+                            norm2_dz_next,
+                        )
+                        for i in range(n_val):
+                            stage_increment[i] = (
+                                stage_base_bt[i]
+                                + accepted_alpha * delta[i]
+                            )
 
-                norm2_dz_prev = norm2_dz_next
-                last_backtrack_failed = searching
+                        alpha *= typed_damping
 
-                for i in range(n_val):
-                    stage_increment[i] = selp(
-                        searching,
-                        stage_base_bt[i],
-                        stage_increment[i],
+                    norm2_dz_prev = norm2_dz_next
+                    last_backtrack_failed = searching
+                    for i in range(n_val):
+                        stage_increment[i] = selp(
+                            searching,
+                            stage_base_bt[i],
+                            stage_increment[i],
+                        )
+                else:
+                    commit_update = active
+                    for i in range(n_val):
+                        stage_increment[i] = selp(
+                            commit_update,
+                            stage_increment[i] + delta[i],
+                            stage_increment[i],
+                        )
+                    converged = converged | accept_update
+                    norm2_dz_prev = selp(
+                        commit_update & (lin_status == success),
+                        norm2_dz,
+                        typed_zero,
                     )
-
-            converged = converged | (norm2_prev <= typed_one)
 
             final_status = selp(
                 not converged,
@@ -689,7 +683,7 @@ class NewtonKrylov(MatrixFreeSolver):
 
     @property
     def newton_max_backtracks(self) -> int:
-        """Return maximum backtracking steps."""
+        """Return the number of damped trials."""
         return self.compile_settings.newton_max_backtracks
 
     @property
