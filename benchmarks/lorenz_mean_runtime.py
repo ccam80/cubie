@@ -253,11 +253,16 @@ def build_solvers(n_fixed, n_adaptive, n_chunked, chunked_proportion):
 
     fixed_solver = build_fixed_style_solver(lorenz_system)
 
+    # An implicit adaptive config so the gate exercises the Newton
+    # and Krylov solvers, not just explicit tableaus. The truncated
+    # Neumann preconditioner diverges on the coupled Radau stages of
+    # this system, so the diagonal Jacobi preconditioner is used.
     adaptive_solver = qb.Solver(
         lorenz_system,
-        algorithm="tsit5",
-        atol=1e-08,
-        rtol=1e-08,
+        algorithm="radau",
+        preconditioner_type="jacobi",
+        atol=1e-06,
+        rtol=1e-06,
         save_every=1.0,
         dt_min=1e-12,
         dt_max=1e3,
