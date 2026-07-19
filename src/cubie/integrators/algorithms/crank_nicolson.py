@@ -34,7 +34,6 @@ from cubie.integrators.algorithms import ImplicitStepConfig
 from cubie.integrators.algorithms.base_algorithm_step import StepCache, \
     StepControlDefaults
 from cubie.integrators.algorithms.ode_implicitstep import ODEImplicitStep
-from cubie.integrators.norms import DIRKCorrectionNorm
 
 ALGO_CONSTANTS = {'beta': 1.0,
                   'gamma': 1.0}
@@ -121,18 +120,7 @@ class CrankNicolsonStep(ODEImplicitStep):
             **kwargs
         )
 
-        newton_norm = DIRKCorrectionNorm(
-            precision=precision,
-            n=n,
-            instance_label="newton",
-            **kwargs,
-        )
-        super().__init__(
-            config,
-            CN_DEFAULTS.copy(),
-            newton_norm=newton_norm,
-            **kwargs,
-        )
+        super().__init__(config, CN_DEFAULTS.copy(), **kwargs)
 
         self.register_buffers()
 

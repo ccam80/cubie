@@ -39,7 +39,6 @@ from cubie.integrators.matrix_free_solvers.bicgstab_solver import (
 from cubie.integrators.matrix_free_solvers.newton_krylov import (
     NewtonKrylov,
 )
-from cubie.integrators.norms import CorrectionNorm
 from cubie.integrators.algorithms.base_algorithm_step import (
     BaseAlgorithmStep,
     BaseStepConfig,
@@ -85,6 +84,11 @@ class ImplicitStepConfig(BaseStepConfig):
         validator=validators.optional(is_device_validator),
         eq=False,
     )
+
+    @property
+    def solver_n(self) -> int:
+        """Return the nonlinear solver's vector length."""
+        return self.n
 
     @property
     def preconditioner_is_chained(self) -> bool:
@@ -169,8 +173,6 @@ class ODEImplicitStep(BaseAlgorithmStep):
         config: ImplicitStepConfig,
         _controller_defaults: StepControlDefaults,
         solver_type: str = "newton",
-        newton_norm: Optional[CorrectionNorm] = None,
-        solver_n: Optional[int] = None,
         **kwargs,
     ) -> None:
         """Initialise the implicit step with its configuration.
@@ -183,12 +185,12 @@ class ODEImplicitStep(BaseAlgorithmStep):
            Per-algorithm default runtime collaborators.
         solver_type
             Type of solver to create: 'newton' or 'linear'.
-        newton_norm
-            Correction norm for Newton solves.
-        solver_n
-            Solver vector length. Defaults to the state count.
         **kwargs
-            Solver settings.
+            Optional solver parameters (krylov_atol, krylov_max_iters,
+            newton_rtol, etc.). None values are ignored and defaults
+            from solver config classes are used. ``newton_norm``
+            supplies a :class:`CorrectionNorm` for Newton solves;
+            when absent the solver builds its default.
         """
         super().__init__(config, _controller_defaults)
 
@@ -196,6 +198,8 @@ class ODEImplicitStep(BaseAlgorithmStep):
             raise ValueError(
                 f"solver_type must be 'newton' or 'linear', got '{solver_type}'"
             )
+
+        newton_norm = kwargs.pop("newton_norm", None)
 
         # Extract kwargs for each solver, filtering None values
         linear_kwargs = {
@@ -212,7 +216,7 @@ class ODEImplicitStep(BaseAlgorithmStep):
         correction_type = linear_kwargs.pop(
             "linear_correction_type", "minimal_residual"
         )
-        solver_n = config.n if solver_n is None else solver_n
+        solver_n = config.solver_n
 
         if correction_type == "bicgstab":
             linear_solver = BiCGSTABSolver(
@@ -392,7 +396,7 @@ class ODEImplicitStep(BaseAlgorithmStep):
                 config.preconditioner_is_chained
             ),
             residual_function=residual,
-            n=self.compile_settings.n,
+            n=config.solver_n,
         )
 
         self.update_compile_settings(

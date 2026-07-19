@@ -114,7 +114,7 @@ class NewtonKrylovConfig(MatrixFreeSolverConfig):
         validator=validators.optional(is_device_validator),
         eq=False,
     )
-    correction_norm_term_function: Optional[Callable] = field(
+    correction_norm_function: Optional[Callable] = field(
         default=None,
         validator=validators.optional(is_device_validator),
         eq=False,
@@ -252,8 +252,8 @@ class NewtonKrylov(MatrixFreeSolver):
                 "precision": precision,
                 "n": n,
                 "norm_device_function": self.norm.device_function,
-                "correction_norm_term_function": (
-                    self.norm.term_device_function
+                "correction_norm_function": (
+                    self.norm.correction_device_function
                 ),
             },
             instance_label="newton",
@@ -303,6 +303,15 @@ class NewtonKrylov(MatrixFreeSolver):
             config.krylov_iters_local_location,
             precision=np_int32,
         )
+        # Warm-started contraction estimate carried between solves.
+        buffer_registry.register(
+            "prev_theta",
+            self,
+            1,
+            "local",
+            persistent=True,
+            precision=precision,
+        )
         # Record the linear solver as a child at registration time so
         # clear_parent cascades reach it before this solver has built;
         # build refreshes the same named registration with real sizes.
@@ -324,7 +333,7 @@ class NewtonKrylov(MatrixFreeSolver):
         residual_function = config.residual_function
         linear_solver_fn = config.linear_solver_function
         scaled_norm_fn = config.norm_device_function
-        correction_norm_term_fn = config.correction_norm_term_function
+        correction_norm_fn = config.correction_norm_function
 
         n = config.n
         max_iters = int32(config.max_iters)
@@ -342,9 +351,21 @@ class NewtonKrylov(MatrixFreeSolver):
         newton_backtracking_failed = int32(
             CUBIE_RESULT_CODES.NEWTON_BACKTRACKING_NO_SUITABLE_STEP
         )
+        newton_divergence = int32(CUBIE_RESULT_CODES.NEWTON_DIVERGENCE)
         typed_one = numba_precision(1.0)
         typed_damping = numba_precision(newton_damping)
-        typed_tiny = numba_precision(float(np_finfo(config.precision).tiny))
+        typed_huge = numba_precision(float(np_finfo(config.precision).max))
+        # Convergence and divergence constants follow OrdinaryDiffEq's
+        # NLNewton: accept when eta * ||dz|| < kappa, bail out when the
+        # contraction estimate exceeds two, and settle ties at the
+        # floating-point stagnation limit by the update norm alone.
+        kappa = numba_precision(0.01)
+        first_iteration_bound = numba_precision(1.0e-5)
+        theta_decay = numba_precision(0.3)
+        theta_divergence_bound = numba_precision(2.0)
+        stagnation_eps = numba_precision(
+            100.0 * math_sqrt(float(np_finfo(config.precision).eps))
+        )
         n_val = int32(n)
 
         # Get allocators from buffer_registry
@@ -354,6 +375,7 @@ class NewtonKrylov(MatrixFreeSolver):
         alloc_residual_temp = get_alloc("residual_temp", self)
         alloc_stage_base_bt = get_alloc("stage_base_bt", self)
         alloc_krylov_iters_local = get_alloc("krylov_iters_local", self)
+        alloc_prev_theta = get_alloc("prev_theta", self)
 
         # Get child allocators for linear solver. Named registration
         # keeps re-registration idempotent if the linear solver
@@ -384,21 +406,37 @@ class NewtonKrylov(MatrixFreeSolver):
             # Allocate buffers from registry
             delta = alloc_delta(shared_scratch, persistent_scratch)
             residual = alloc_residual(shared_scratch, persistent_scratch)
+            residual_temp = alloc_residual_temp(
+                shared_scratch, persistent_scratch
+            )
+            stage_base_bt = alloc_stage_base_bt(
+                shared_scratch, persistent_scratch
+            )
+            prev_theta_store = alloc_prev_theta(
+                shared_scratch, persistent_scratch
+            )
             lin_shared = alloc_lin_shared(shared_scratch, persistent_scratch)
             lin_persistent = alloc_lin_persistent(
                 shared_scratch, persistent_scratch
             )
-
-            # Zero marks unavailable contraction history.
-            norm2_dz_prev = typed_zero
-
-            norm2_prev = typed_zero
-            converged = False
-            final_status = success
-
             krylov_iters_local = alloc_krylov_iters_local(
                 shared_scratch, persistent_scratch
             )
+
+            # Warm-started contraction estimate; zero marks a fresh
+            # scratch buffer or a failed previous solve.
+            stored_theta = prev_theta_store[0]
+            prev_theta = selp(
+                stored_theta > typed_zero, stored_theta, typed_one
+            )
+
+            # RMS norm of the previous accepted full-step correction;
+            # zero marks unavailable contraction history.
+            ndz_prev = typed_zero
+
+            converged = False
+            failed = False
+            final_status = success
 
             # Track the latest active iteration's status signals.
             last_lin_status = success
@@ -406,10 +444,13 @@ class NewtonKrylov(MatrixFreeSolver):
 
             iters_count = int32(0)
             total_krylov_iters = int32(0)
+            iteration = int32(0)
             mask = activemask()
             for _ in range(max_iters):
-                if all_sync(mask, converged):
+                if all_sync(mask, converged | failed):
                     break
+                iteration += int32(1)
+                active = (not converged) & (not failed)
 
                 residual_function(
                     stage_increment,
@@ -421,18 +462,13 @@ class NewtonKrylov(MatrixFreeSolver):
                     base_state,
                     residual,
                 )
-                norm2_prev = scaled_norm_fn(residual, stage_increment)
-                active = (not converged) & (norm2_prev > typed_one)
-                converged = converged | (norm2_prev <= typed_one)
-                iters_count = selp(
-                    active, int32(iters_count + int32(1)), iters_count
-                )
-
+                if use_backtracking:
+                    norm2_residual = scaled_norm_fn(
+                        residual, stage_increment
+                    )
                 for i in range(n_val):
                     residual[i] = -residual[i]
                     delta[i] = typed_zero
-                if all_sync(mask, converged):
-                    break
 
                 krylov_iters_local[0] = int32(0)
                 lin_status = linear_solver_fn(
@@ -454,42 +490,41 @@ class NewtonKrylov(MatrixFreeSolver):
                     active, krylov_iters_local[0], int32(0)
                 )
                 last_lin_status = selp(active, lin_status, last_lin_status)
-
-                norm2_dz = typed_zero
-                for i in range(n_val):
-                    norm2_dz += correction_norm_term_fn(
-                        i,
-                        delta[i],
-                        stage_increment,
-                        base_state,
-                        step_start,
-                        a_ij,
-                    )
-
-                # Bound the ratio before division.
-                theta = numba_precision(
-                    math_sqrt(
-                        min(
-                            norm2_dz,
-                            max(norm2_dz_prev, typed_tiny),
-                        )
-                        / max(norm2_dz_prev, typed_tiny)
-                    )
+                iters_count = selp(
+                    active, int32(iters_count + int32(1)), iters_count
                 )
-                scaled_update = theta * math_sqrt(norm2_dz)
-                accept_update = (
-                    active
-                    & (norm2_dz_prev > typed_zero)
-                    & (lin_status == success)
-                    & (scaled_update <= typed_one - theta)
+
+                norm2_dz = correction_norm_fn(
+                    delta,
+                    stage_increment,
+                    base_state,
+                    step_start,
+                    a_ij,
+                )
+                ndz = numba_precision(math_sqrt(norm2_dz))
+
+                # A failed linear solve yields no usable correction:
+                # nothing commits and no contraction evidence accrues.
+                judged = active & (lin_status == success)
+                history = ndz_prev > typed_zero
+                ndz_prev_safe = selp(history, ndz_prev, typed_one)
+                theta = selp(
+                    history,
+                    max(theta_decay * prev_theta, ndz / ndz_prev_safe),
+                    prev_theta,
+                )
+                small_first_step = (iteration == int32(1)) & (
+                    ndz < first_iteration_bound
+                )
+                eta_accept = (theta < typed_one) & (
+                    theta * ndz < kappa * (typed_one - theta)
                 )
 
                 if use_backtracking:
-                    residual_temp = alloc_residual_temp(
-                        shared_scratch, persistent_scratch
-                    )
-                    stage_base_bt = alloc_stage_base_bt(
-                        shared_scratch, persistent_scratch
+                    # Full-step acceptance by the update-error bound;
+                    # damped trials fall back to residual descent.
+                    accept_update = judged & (
+                        eta_accept | small_first_step
                     )
                     for i in range(n_val):
                         stage_base_bt[i] = stage_increment[i]
@@ -499,11 +534,12 @@ class NewtonKrylov(MatrixFreeSolver):
                             stage_increment[i],
                         )
                     converged = converged | accept_update
+                    prev_theta = selp(judged & history, theta, prev_theta)
                     searching = active & (not converged)
                     accepted_alpha = selp(
                         accept_update, typed_one, typed_zero
                     )
-                    norm2_dz_next = typed_zero
+                    ndz_next = selp(accept_update, ndz, typed_zero)
                     alpha = typed_one
 
                     for _ in range(max_backtracks):
@@ -529,7 +565,9 @@ class NewtonKrylov(MatrixFreeSolver):
                             residual_temp, stage_increment
                         )
 
-                        accept_trial = searching & (norm2_new < norm2_prev)
+                        accept_trial = searching & (
+                            norm2_new < norm2_residual
+                        )
                         converged = converged | (
                             accept_trial & (norm2_new <= typed_one)
                         )
@@ -537,12 +575,12 @@ class NewtonKrylov(MatrixFreeSolver):
                             accept_trial, alpha, accepted_alpha
                         )
                         searching = searching & (not accept_trial)
-                        norm2_dz_next = selp(
+                        ndz_next = selp(
                             accept_trial
                             & (alpha == typed_one)
                             & (lin_status == success),
-                            norm2_dz,
-                            norm2_dz_next,
+                            ndz,
+                            ndz_next,
                         )
                         for i in range(n_val):
                             stage_increment[i] = (
@@ -552,7 +590,7 @@ class NewtonKrylov(MatrixFreeSolver):
 
                         alpha *= typed_damping
 
-                    norm2_dz_prev = norm2_dz_next
+                    ndz_prev = ndz_next
                     last_backtrack_failed = searching
                     for i in range(n_val):
                         stage_increment[i] = selp(
@@ -561,23 +599,57 @@ class NewtonKrylov(MatrixFreeSolver):
                             stage_increment[i],
                         )
                 else:
-                    commit_update = active
+                    # Divergence and stagnation are judged before the
+                    # commit, mirroring OrdinaryDiffEq's NLNewton.
+                    nonfinite = not (norm2_dz <= typed_huge)
+                    stagnant = (
+                        judged
+                        & history
+                        & (abs(theta - typed_one) <= stagnation_eps)
+                    )
+                    diverging = judged & (
+                        (history & (theta > theta_divergence_bound))
+                        | nonfinite
+                    )
+                    converged_stagnant = (
+                        stagnant & (ndz <= typed_one) & (not diverging)
+                    )
+                    failed_now = diverging | (
+                        stagnant & (ndz > typed_one)
+                    )
+                    failed = failed | failed_now
+
+                    commit = (
+                        judged
+                        & (not failed_now)
+                        & (not converged_stagnant)
+                    )
                     for i in range(n_val):
                         stage_increment[i] = selp(
-                            commit_update,
+                            commit,
                             stage_increment[i] + delta[i],
                             stage_increment[i],
                         )
-                    converged = converged | accept_update
-                    norm2_dz_prev = selp(
-                        commit_update & (lin_status == success),
-                        norm2_dz,
-                        typed_zero,
+                    converged = (
+                        converged
+                        | converged_stagnant
+                        | (commit & (eta_accept | small_first_step))
                     )
+                    ndz_prev = selp(commit, ndz, typed_zero)
+                    prev_theta = selp(judged & history, theta, prev_theta)
+
+            # Persist contraction history for the next solve; a failed
+            # solve resets it to the conservative estimate.
+            prev_theta_store[0] = selp(converged, prev_theta, typed_one)
 
             final_status = selp(
-                not converged,
+                (not converged) & (not failed),
                 int32(final_status | max_newton_iters_exceeded),
+                final_status,
+            )
+            final_status = selp(
+                (not converged) & failed,
+                int32(final_status | newton_divergence),
                 final_status,
             )
             final_status = selp(
@@ -637,12 +709,12 @@ class NewtonKrylov(MatrixFreeSolver):
         all_updates["linear_solver_function"] = (
             self.linear_solver.device_function
         )
-        # Update the norm before reading its compiled term.
+        # Update the norm before reading its compiled functions.
         recognized |= super().update(all_updates, silent=True)
         self.update_compile_settings(
             {
-                "correction_norm_term_function": (
-                    self.norm.term_device_function
+                "correction_norm_function": (
+                    self.norm.correction_device_function
                 )
             },
             silent=True,

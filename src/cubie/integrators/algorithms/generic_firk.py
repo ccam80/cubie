@@ -133,6 +133,12 @@ class FIRKStepConfig(ImplicitStepConfig):
 
         return self.stage_count * self.n
 
+    @property
+    def solver_n(self) -> int:
+        """Return the coupled solver dimension across all stages."""
+
+        return self.all_stages_n
+
 
 class FIRKStep(ODEImplicitStep):
     """Fully implicit Runge--Kutta step with an embedded error estimate."""
@@ -224,7 +230,7 @@ class FIRKStep(ODEImplicitStep):
             precision=precision,
             n=config.all_stages_n,
             state_n=n,
-            stage_coefficients=tuple(tuple(row) for row in tableau.a),
+            stage_coefficients=tableau.a_flat(float),
             instance_label="newton",
             **kwargs,
         )
@@ -232,7 +238,6 @@ class FIRKStep(ODEImplicitStep):
             config,
             controller_defaults,
             newton_norm=newton_norm,
-            solver_n=config.all_stages_n,
             **kwargs,
         )
         self.register_buffers()

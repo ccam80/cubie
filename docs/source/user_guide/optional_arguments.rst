@@ -136,7 +136,10 @@ only the linear-solver and preconditioner options below apply to them.
 Newton (outer loop) options:
 
 **newton_atol** / **newton_rtol** — Newton convergence tolerances.
-    When to declare the nonlinear solve converged.
+    Scale the Newton update in the convergence test: the solve
+    accepts when the estimated update error drops below one percent
+    of the scaled tolerance, matching OrdinaryDiffEq's Newton
+    criterion.
 
     - Default: the step controller's ``atol``/``rtol`` divided by 10
       (so stage solves always converge tighter than the error estimate

@@ -37,7 +37,6 @@ from cubie.integrators.algorithms.base_algorithm_step import StepCache, \
 from cubie.integrators.algorithms.ode_implicitstep import (
     ImplicitStepConfig, ODEImplicitStep
 )
-from cubie.integrators.norms import DIRKCorrectionNorm
 
 
 @define
@@ -111,18 +110,7 @@ class BackwardsEulerStep(ODEImplicitStep):
             **kwargs
         )
 
-        newton_norm = DIRKCorrectionNorm(
-            precision=precision,
-            n=n,
-            instance_label="newton",
-            **kwargs,
-        )
-        super().__init__(
-            config,
-            BE_DEFAULTS.copy(),
-            newton_norm=newton_norm,
-            **kwargs,
-        )
+        super().__init__(config, BE_DEFAULTS.copy(), **kwargs)
 
         self.register_buffers()
 

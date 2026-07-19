@@ -56,8 +56,10 @@ is specific to the solvers.
 
 ### Registered buffers (length `n` unless noted)
 - `LinearSolver`: `preconditioned_vec`, `temp`.
-- `NewtonKrylov`: `delta`, `residual`, and `krylov_iters_local` (length 1,
-  int32). Backtracking also uses `residual_temp` and `stage_base_bt`.
+- `NewtonKrylov`: `delta`, `residual`, `krylov_iters_local` (length 1,
+  int32), and `prev_theta` (length 1, persistent local — contraction
+  history carried between solves). Backtracking also uses
+  `residual_temp` and `stage_base_bt` (zero-sized when disabled).
 
 ### Status codes & convergence
 - Status codes come from the package-central `CUBIE_RESULT_CODES` (`cubie/result_codes.py`,
@@ -66,14 +68,24 @@ is specific to the solvers.
   closure constants). `newton_krylov_solver` OR-combines these into a **low-bits** status
   word — it does NOT pack the iteration count into high bits (counts go to `counters`).
   Callers OR this word into their own step status.
-- Linear and residual norms use `ScaledNorm`. Newton corrections use
-  `DIRKCorrectionNorm` or `FIRKCorrectionNorm`.
-- **Newton convergence is update-based:** consecutive full steps estimate
-  `theta`. The solve accepts when `theta / (1 - theta) * ||dz|| <= 1`.
-  The correction norm scales against the physical stage state and the step
-  start. DIRK uses one diagonal coefficient; FIRK uses the full tableau row.
-  The residual norm is checked before each correction. It also controls the
-  optional line search.
+- Linear norms use `ScaledNorm`. Newton corrections use
+  `DIRKCorrectionNorm` or `FIRKCorrectionNorm`, whose whole-vector
+  `correction_norm` scales the update by
+  `atol + rtol * max(|stage_value|, |step_start|)` (DIRK: one diagonal
+  coefficient; FIRK: the full tableau row).
+- **Newton convergence follows OrdinaryDiffEq's NLNewton.** Consecutive
+  full steps estimate the contraction `theta` (decay-floored at
+  `0.3 * prev_theta`, warm-started across solves via the persistent
+  `prev_theta` buffer; a failed solve resets the stored value). The
+  solve accepts when `theta / (1 - theta) * ||dz|| < 1/100`, or on the
+  first iteration when `||dz|| < 1e-5`. `theta > 2` or a non-finite
+  update norm exits with `NEWTON_DIVERGENCE=256`; at the
+  floating-point stagnation limit (`theta ≈ 1`) the update norm alone
+  decides between convergence and divergence. Commits are gated on
+  linear-solver success — a failed linear solve moves nothing and
+  clears the in-solve contraction history.
+- The residual `ScaledNorm` is compiled only into the opt-in
+  backtracking path, where it drives the damped line search.
 
 ### Solver-specific gotchas
 - **Warp-coherent loops.** Iterative loops exit on warp votes (`all_sync`/`any_sync`

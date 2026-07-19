@@ -54,7 +54,6 @@ from cubie.integrators.algorithms.ode_implicitstep import (
     ImplicitStepConfig,
     ODEImplicitStep,
 )
-from cubie.integrators.norms import DIRKCorrectionNorm
 from cubie.buffer_registry import buffer_registry
 
 
@@ -211,18 +210,7 @@ class DIRKStep(ODEImplicitStep):
         else:
             controller_defaults = DIRK_FIXED_DEFAULTS
 
-        newton_norm = DIRKCorrectionNorm(
-            precision=precision,
-            n=n,
-            instance_label="newton",
-            **kwargs,
-        )
-        super().__init__(
-            config,
-            controller_defaults,
-            newton_norm=newton_norm,
-            **kwargs,
-        )
+        super().__init__(config, controller_defaults, **kwargs)
 
         self.register_buffers()
 

@@ -116,6 +116,23 @@ def _scaled_norm_impl(
     return nrm2 * inv_n
 
 
+def correction_norm_reference(
+    update: Array,
+    stage_state: Array,
+    step_start: Array,
+    atol: np.floating,
+    rtol: np.floating,
+) -> np.floating:
+    """Return the scaled correction norm against the stage state.
+
+    Mirrors the device correction norms: the update is scaled by
+    ``atol + rtol * max(|stage_state|, |step_start|)``.
+    """
+
+    reference = np.maximum(np.abs(stage_state), np.abs(step_start))
+    return _scaled_norm_impl(update, reference, atol, rtol)
+
+
 def scaled_norm(
     values: Union[Sequence[float], Array],
     reference: Union[Sequence[float], Array],
@@ -502,6 +519,8 @@ def newton_solve(
     newton_damping: np.floating,
     newton_max_backtracks: int,
     newton_rtol: np.floating = 0.0,
+    correction_norm: Optional[Callable[[Array, Array], np.floating]] = None,
+    prev_theta_store: Optional[Array] = None,
     stage_index: int = 0,
     instrumented: bool = False,
     newton_initial_guesses: Optional[Array] = None,
@@ -515,7 +534,16 @@ def newton_solve(
     linear_squared_norms: Optional[Array] = None,
     linear_preconditioned_vectors: Optional[Array] = None,
 ) -> tuple[Array, bool, int]:
-    """Solve the nonlinear system on the CPU."""
+    """Solve the nonlinear system on the CPU.
+
+    Mirrors the device Newton solver: the update-error bound with
+    warm-started contraction estimates decides convergence, and the
+    optional line search falls back to residual descent.
+    ``correction_norm`` computes the scaled update norm against the
+    stage context; when absent the update is scaled against the
+    iterate. ``prev_theta_store`` is a one-element array persisting
+    the contraction estimate between solves.
+    """
 
     dtype, scalar_type = resolve_precision_signature(precision)
     atol_value = scalar_type(newton_tol)
@@ -531,8 +559,28 @@ def newton_solve(
 
     typed_zero = scalar_type(0.0)
     typed_tiny = scalar_type(np.finfo(dtype).tiny)
-    # Zero marks unavailable contraction history.
-    norm2_dz_prev = typed_zero
+    typed_huge = scalar_type(np.finfo(dtype).max)
+    kappa = scalar_type(0.01)
+    first_iteration_bound = scalar_type(1.0e-5)
+    theta_decay = scalar_type(0.3)
+    theta_divergence_bound = scalar_type(2.0)
+    stagnation_eps = scalar_type(100.0 * np.sqrt(np.finfo(dtype).eps))
+
+    if correction_norm is None:
+        def correction_norm(update, iterate):
+            return _scaled_norm_impl(
+                update, iterate, atol_value, rtol_value
+            )
+
+    # Warm-started contraction estimate; zero marks a fresh store or
+    # a failed previous solve.
+    stored_theta = typed_zero
+    if prev_theta_store is not None:
+        stored_theta = scalar_type(prev_theta_store[0])
+    prev_theta = stored_theta if stored_theta > typed_zero else typed_one
+
+    # RMS norm of the previous accepted full-step correction.
+    ndz_prev = typed_zero
 
     if instrumented and newton_initial_guesses is not None:
         newton_initial_guesses[stage_index, :] = state
@@ -540,7 +588,7 @@ def newton_solve(
     log_index = 0
     if instrumented:
         residual = np.asarray(residual_fn(state), dtype=dtype)
-        norm2_prev = _scaled_norm_impl(
+        entry_norm2 = _scaled_norm_impl(
             residual, state, atol_value, rtol_value
         )
         _log_newton_iteration(
@@ -549,28 +597,25 @@ def newton_solve(
             index=log_index,
             candidate=state,
             residual=residual,
-            squared_norm=norm2_prev,
+            squared_norm=entry_norm2,
             logging_iteration_guesses=newton_iteration_guesses,
             logging_residuals=newton_residuals,
             logging_squared_norms=newton_squared_norms,
         )
         log_index += 1
 
-    norm2_prev = typed_zero
     converged = False
+    failed = False
     iterations_used = 0
     for iteration in range(iteration_limit):
-        if converged:
+        if converged or failed:
             break
+        iterations_used = iteration + 1
+
         residual = np.asarray(residual_fn(state), dtype=dtype)
-        norm2_prev = _scaled_norm_impl(
+        norm2_residual = _scaled_norm_impl(
             residual, state, atol_value, rtol_value
         )
-        if norm2_prev <= typed_one:
-            converged = True
-            break
-
-        iterations_used = iteration + 1
         jacobian = np.asarray(jacobian_fn(state), dtype=dtype)
 
         direction.fill(typed_zero)
@@ -591,8 +636,6 @@ def newton_solve(
                 }
             )
 
-        # An unconverged linear solve still yields a usable search
-        # direction; do not abort the Newton iteration.
         direction, linear_converged, _ = linear_solver(
             jacobian,
             -residual,
@@ -601,49 +644,58 @@ def newton_solve(
 
         step = np.asarray(direction, dtype=dtype)
 
-        # Bound the ratio before division.
-        norm2_dz = _scaled_norm_impl(step, state, atol_value, rtol_value)
-        ratio = scalar_type(
-            min(norm2_dz, max(norm2_dz_prev, typed_tiny))
-            / max(norm2_dz_prev, typed_tiny)
-        )
-        theta = scalar_type(np.sqrt(ratio))
-        scaled_update = scalar_type(theta * np.sqrt(norm2_dz))
-        accept_update = bool(
-            (norm2_dz_prev > typed_zero)
-            & linear_converged
-            & (scaled_update <= typed_one - theta)
-        )
+        norm2_dz = scalar_type(correction_norm(step, state))
+        ndz = scalar_type(np.sqrt(norm2_dz))
 
-        if accept_update:
-            update_bound = scalar_type(
-                scaled_update / max(typed_one - theta, typed_tiny)
+        # A failed linear solve yields no usable correction: nothing
+        # commits and no contraction evidence accrues.
+        judged = bool(linear_converged)
+        history = ndz_prev > typed_zero
+        if history:
+            theta = scalar_type(
+                max(
+                    theta_decay * prev_theta,
+                    ndz / max(ndz_prev, typed_tiny),
+                )
             )
-            state = np.asarray(state + step, dtype=dtype)
-            converged = True
-            _log_newton_iteration(
-                instrumented=instrumented,
-                stage_index=stage_index,
-                index=log_index,
-                candidate=state,
-                residual=np.zeros_like(residual),
-                squared_norm=scalar_type(update_bound * update_bound),
-                logging_iteration_guesses=newton_iteration_guesses,
-                logging_residuals=newton_residuals,
-                logging_squared_norms=newton_squared_norms,
-            )
-            log_index += 1
-            break
+        else:
+            theta = prev_theta
+        small_first_step = iteration == 0 and ndz < first_iteration_bound
+        eta_accept = bool(
+            theta < typed_one
+            and theta * ndz < kappa * (typed_one - theta)
+        )
 
         scale = typed_one
         if backtrack_limit == 0:
-            state = np.asarray(state + step, dtype=dtype)
-            norm2_dz_prev = (
-                norm2_dz if linear_converged else typed_zero
+            nonfinite = not (norm2_dz <= typed_huge)
+            stagnant = (
+                judged
+                and history
+                and abs(theta - typed_one) <= stagnation_eps
             )
-            if instrumented:
+            diverging = judged and (
+                (history and theta > theta_divergence_bound)
+                or nonfinite
+            )
+            converged_stagnant = (
+                stagnant and ndz <= typed_one and not diverging
+            )
+            failed_now = diverging or (stagnant and ndz > typed_one)
+            failed = failed or failed_now
+
+            commit = judged and not failed_now and not converged_stagnant
+            if commit:
+                state = np.asarray(state + step, dtype=dtype)
+            converged = converged or converged_stagnant or (
+                commit and (eta_accept or small_first_step)
+            )
+            ndz_prev = ndz if commit else typed_zero
+            if judged and history:
+                prev_theta = theta
+            if instrumented and commit:
                 residual = np.asarray(residual_fn(state), dtype=dtype)
-                norm2_prev = _scaled_norm_impl(
+                post_norm2 = _scaled_norm_impl(
                     residual, state, atol_value, rtol_value
                 )
                 _log_newton_iteration(
@@ -652,47 +704,73 @@ def newton_solve(
                     index=log_index,
                     candidate=state,
                     residual=residual,
-                    squared_norm=norm2_prev,
+                    squared_norm=post_norm2,
                     logging_iteration_guesses=newton_iteration_guesses,
                     logging_residuals=newton_residuals,
                     logging_squared_norms=newton_squared_norms,
                 )
                 log_index += 1
         else:
-            norm2_dz_next = typed_zero
-            for _ in range(backtrack_limit + 1):
-                trial_state = state + scale * step
-                trial_residual = np.asarray(
-                    residual_fn(trial_state), dtype=dtype
-                )
-                trial_norm2 = _scaled_norm_impl(
-                    trial_residual, trial_state, atol_value, rtol_value
-                )
+            accept_update = judged and (eta_accept or small_first_step)
+            if judged and history:
+                prev_theta = theta
+            ndz_next = typed_zero
+            if accept_update:
+                state = np.asarray(state + step, dtype=dtype)
+                converged = True
+                ndz_next = ndz
+                if instrumented:
+                    residual = np.asarray(residual_fn(state), dtype=dtype)
+                    post_norm2 = _scaled_norm_impl(
+                        residual, state, atol_value, rtol_value
+                    )
+                    _log_newton_iteration(
+                        instrumented=True,
+                        stage_index=stage_index,
+                        index=log_index,
+                        candidate=state,
+                        residual=residual,
+                        squared_norm=post_norm2,
+                        logging_iteration_guesses=newton_iteration_guesses,
+                        logging_residuals=newton_residuals,
+                        logging_squared_norms=newton_squared_norms,
+                    )
+                    log_index += 1
+            else:
+                for _ in range(backtrack_limit + 1):
+                    trial_state = np.asarray(
+                        state + scale * step, dtype=dtype
+                    )
+                    trial_residual = np.asarray(
+                        residual_fn(trial_state), dtype=dtype
+                    )
+                    trial_norm2 = _scaled_norm_impl(
+                        trial_residual, trial_state, atol_value, rtol_value
+                    )
 
-                _log_newton_iteration(
-                    instrumented=instrumented,
-                    stage_index=stage_index,
-                    index=log_index,
-                    candidate=trial_state,
-                    residual=trial_residual,
-                    squared_norm=trial_norm2,
-                    logging_iteration_guesses=newton_iteration_guesses,
-                    logging_residuals=newton_residuals,
-                    logging_squared_norms=newton_squared_norms,
-                )
-                log_index += 1
+                    _log_newton_iteration(
+                        instrumented=instrumented,
+                        stage_index=stage_index,
+                        index=log_index,
+                        candidate=trial_state,
+                        residual=trial_residual,
+                        squared_norm=trial_norm2,
+                        logging_iteration_guesses=newton_iteration_guesses,
+                        logging_residuals=newton_residuals,
+                        logging_squared_norms=newton_squared_norms,
+                    )
+                    log_index += 1
 
-                if trial_norm2 < norm2_prev:
-                    state = trial_state
-                    residual = trial_residual
-                    norm2_prev = trial_norm2
-                    converged = trial_norm2 <= typed_one
-                    if linear_converged and scale == typed_one:
-                        norm2_dz_next = norm2_dz
-                    break
-                scale = scalar_type(scale * damping_value)
+                    if trial_norm2 < norm2_residual:
+                        state = trial_state
+                        residual = trial_residual
+                        converged = trial_norm2 <= typed_one
+                        if linear_converged and scale == typed_one:
+                            ndz_next = ndz
+                        break
+                    scale = scalar_type(scale * damping_value)
 
-            norm2_dz_prev = norm2_dz_next
+            ndz_prev = ndz_next
 
         if (
             instrumented
@@ -700,6 +778,11 @@ def newton_solve(
             and iteration < newton_iteration_scale.shape[1]
         ):
             newton_iteration_scale[stage_index, iteration] = scale
+
+    # Persist contraction history for the next solve; a failed solve
+    # resets it to the conservative estimate.
+    if prev_theta_store is not None:
+        prev_theta_store[0] = prev_theta if converged else typed_one
 
     return state, converged, iterations_used
 

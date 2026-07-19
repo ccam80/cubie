@@ -32,7 +32,6 @@ class InstrumentedODEImplicitStep(ODEImplicitStep):
         newton_damping: Optional[float] = None,
         newton_max_backtracks: Optional[int] = None,
         newton_norm: Optional[CorrectionNorm] = None,
-        solver_n: Optional[int] = None,
         **kwargs,
     ):
             super().__init__(
@@ -40,7 +39,6 @@ class InstrumentedODEImplicitStep(ODEImplicitStep):
                 _controller_defaults=_controller_defaults,
                 solver_type=solver_type,
                 newton_norm=newton_norm,
-                solver_n=solver_n,
                 krylov_atol=krylov_atol,
                 krylov_rtol=krylov_rtol,
                 krylov_max_iters=krylov_max_iters,
@@ -54,7 +52,7 @@ class InstrumentedODEImplicitStep(ODEImplicitStep):
             )
 
             # Build instrumented solvers for use in place of production ones
-            solver_n = config.n if solver_n is None else solver_n
+            solver_n = config.solver_n
             linear_solver = InstrumentedMRLinearSolver(
                 precision=config.precision,
                 n=solver_n,

@@ -2,7 +2,7 @@
 
 from typing import Callable
 
-from numpy import asarray, ndarray, all, full, tile
+from numpy import asarray, ndarray, all, full
 from cubie.cuda_simsafe import cuda
 from attrs import define, field, Converter
 
@@ -110,25 +110,34 @@ class ScaledNormConfig(MultipleInstanceCUDAFactoryConfig):
 
 @define
 class FIRKCorrectionNormConfig(ScaledNormConfig):
-    """Configure a coupled FIRK correction norm."""
+    """Configure a coupled FIRK correction norm.
+
+    Attributes
+    ----------
+    state_n : int
+        Number of physical states per stage.
+    stage_coefficients : tuple
+        Row-major flattened Butcher ``a`` matrix, as produced by
+        ``tableau.a_flat``.
+    """
 
     state_n: int = field(default=1, validator=getype_validator(int, 1))
-    stage_coefficients: tuple = field(default=((1.0,),))
+    stage_coefficients: tuple = field(default=(1.0,))
 
     def __attrs_post_init__(self):
         super().__attrs_post_init__()
-        stage_count = len(self.stage_coefficients)
-        if stage_count < 1:
-            raise ValueError("stage_coefficients must not be empty")
-        if any(len(row) != stage_count for row in self.stage_coefficients):
-            raise ValueError("stage_coefficients must be square")
-        if self.n != self.state_n * stage_count:
-            raise ValueError("n must equal state_n times the stage count")
+        if self.n % self.state_n != 0:
+            raise ValueError("n must be a multiple of state_n")
+        stage_count = self.n // self.state_n
+        if len(self.stage_coefficients) != stage_count * stage_count:
+            raise ValueError(
+                "stage_coefficients must hold stage_count**2 values"
+            )
 
     @property
     def stage_count(self) -> int:
         """Return the number of coupled stages."""
-        return len(self.stage_coefficients)
+        return self.n // self.state_n
 
 
 @define
@@ -140,9 +149,9 @@ class ScaledNormCache(CUDADispatcherCache):
 
 @define
 class CorrectionNormCache(ScaledNormCache):
-    """Hold vector and scalar norm functions."""
+    """Hold residual and correction norm functions."""
 
-    scaled_norm_term: Callable = field(validator=is_device_validator)
+    correction_norm: Callable = field(validator=is_device_validator)
 
 
 class ScaledNorm(MultipleInstanceCUDAFactory):
@@ -283,49 +292,61 @@ class ScaledNorm(MultipleInstanceCUDAFactory):
 
 
 class CorrectionNorm(ScaledNorm):
-    """Base factory for Newton correction norms."""
+    """Base factory for Newton correction norms.
+
+    Correction norms scale the Newton update against the physical
+    stage state and the step-start state, matching the reference
+    scaling ``atol + rtol * max(|stage_value|, |step_start|)``.
+    """
 
     @property
-    def term_device_function(self) -> Callable:
-        """Return the scalar correction term function."""
-        return self.get_cached_output("scaled_norm_term")
+    def correction_device_function(self) -> Callable:
+        """Return the whole-vector correction norm function."""
+        return self.get_cached_output("correction_norm")
 
 
 class DIRKCorrectionNorm(CorrectionNorm):
     """Compile a DIRK correction norm."""
 
     def build(self) -> CorrectionNormCache:
-        """Compile DIRK vector and scalar norm functions."""
+        """Compile residual and correction norm functions."""
         config = self.compile_settings
         atol = config.atol
         rtol = config.rtol
         inv_n = config.inv_n
         tol_floor = config.tol_floor
+        numba_precision = config.numba_precision
+        n_val = config.n
+        typed_zero = numba_precision(0.0)
 
         scaled_norm = self._build_scaled_norm()
 
         # no cover: start
         @cuda.jit(device=True, inline=True, **self.jit_kwargs)
-        def scaled_norm_term(
-            index,
-            value,
+        def correction_norm(
+            values,
             stage_increment,
             stage_base,
             step_start,
             a_ij,
         ):
-            """Return one DIRK correction term."""
-            stage_value = stage_base[index] + a_ij * stage_increment[index]
-            reference = max(abs(stage_value), abs(step_start[index]))
-            tolerance = atol[index] + rtol[index] * reference
-            tolerance = max(tolerance, tol_floor)
-            ratio = value / tolerance
-            return ratio * ratio * inv_n
+            """Return the mean squared scaled correction norm."""
+            nrm2 = typed_zero
+            for i in range(n_val):
+                stage_value = (
+                    stage_base[i] + a_ij * stage_increment[i]
+                )
+                reference = max(abs(stage_value), abs(step_start[i]))
+                tolerance = atol[i] + rtol[i] * reference
+                tolerance = max(tolerance, tol_floor)
+                ratio = values[i] / tolerance
+                nrm2 += ratio * ratio
+            return nrm2 * inv_n
 
         # no cover: end
         return CorrectionNormCache(
             scaled_norm=scaled_norm,
-            scaled_norm_term=scaled_norm_term,
+            correction_norm=correction_norm,
         )
 
 
@@ -334,104 +355,62 @@ class FIRKCorrectionNorm(CorrectionNorm):
 
     config_type = FIRKCorrectionNormConfig
 
-    def __init__(
-        self,
-        precision: PrecisionDType,
-        n: int,
-        state_n: int,
-        stage_coefficients: tuple,
-        instance_label: str = "",
-        **kwargs,
-    ) -> None:
-        stage_count = len(stage_coefficients)
-        kwargs = self._expand_state_tolerances(
-            kwargs, state_n, stage_count
-        )
-        super().__init__(
-            precision=precision,
-            n=n,
-            instance_label=instance_label,
-            state_n=state_n,
-            stage_coefficients=stage_coefficients,
-            **kwargs,
-        )
-
-    @staticmethod
-    def _expand_state_tolerances(updates, state_n, stage_count):
-        """Repeat per-state tolerances for each stage."""
-        expanded = dict(updates)
-        for name in ("atol", "rtol", "newton_atol", "newton_rtol"):
-            if name not in expanded:
-                continue
-            values = asarray(expanded[name])
-            if values.ndim == 1 and values.shape[0] == state_n:
-                expanded[name] = tile(values, stage_count)
-        return expanded
-
-    def update(self, updates_dict=None, silent=False, **kwargs):
-        """Update settings, repeating per-state tolerances."""
-        updates = {}
-        if updates_dict:
-            updates.update(updates_dict)
-        updates.update(kwargs)
-        config = self.compile_settings
-        updates = self._expand_state_tolerances(
-            updates, config.state_n, config.stage_count
-        )
-        return super().update(updates, silent=silent)
-
     def build(self) -> CorrectionNormCache:
-        """Compile FIRK vector and scalar norm functions."""
+        """Compile residual and correction norm functions."""
         config = self.compile_settings
         atol = config.atol
         rtol = config.rtol
         inv_n = config.inv_n
         tol_floor = config.tol_floor
         numba_precision = config.numba_precision
+        n_val = config.n
         state_n = config.state_n
         stage_count = config.stage_count
         stage_coefficients = tuple(
-            numba_precision(value)
-            for row in config.stage_coefficients
-            for value in row
+            numba_precision(value) for value in config.stage_coefficients
         )
+        typed_zero = numba_precision(0.0)
 
         scaled_norm = self._build_scaled_norm()
 
         # no cover: start
         @cuda.jit(device=True, inline=True, **self.jit_kwargs)
-        def scaled_norm_term(
-            index,
-            value,
+        def correction_norm(
+            values,
             stage_increment,
             stage_base,
             step_start,
             a_ij,
         ):
-            """Return one FIRK correction term."""
-            stage_index = index // state_n
-            state_index = index - stage_index * state_n
-            stage_value = stage_base[state_index]
-            for contribution_index in range(stage_count):
-                coefficient_index = (
-                    stage_index * stage_count + contribution_index
-                )
-                increment_index = (
-                    contribution_index * state_n + state_index
-                )
-                stage_value += (
-                    stage_coefficients[coefficient_index]
-                    * stage_increment[increment_index]
-                )
+            """Return the mean squared scaled correction norm."""
+            nrm2 = typed_zero
+            for index in range(n_val):
+                stage_index = index // state_n
+                state_index = index - stage_index * state_n
+                stage_value = stage_base[state_index]
+                for contribution_index in range(stage_count):
+                    coefficient_index = (
+                        stage_index * stage_count + contribution_index
+                    )
+                    increment_index = (
+                        contribution_index * state_n + state_index
+                    )
+                    stage_value += (
+                        stage_coefficients[coefficient_index]
+                        * stage_increment[increment_index]
+                    )
 
-            reference = max(abs(stage_value), abs(step_start[state_index]))
-            tolerance = atol[index] + rtol[index] * reference
-            tolerance = max(tolerance, tol_floor)
-            ratio = value / tolerance
-            return ratio * ratio * inv_n
+                reference = max(
+                    abs(stage_value), abs(step_start[state_index])
+                )
+                tolerance = atol[index] + rtol[index] * reference
+                tolerance = max(tolerance, tol_floor)
+                ratio = values[index] / tolerance
+                nrm2 += ratio * ratio
+            return nrm2 * inv_n
 
         # no cover: end
         return CorrectionNormCache(
             scaled_norm=scaled_norm,
-            scaled_norm_term=scaled_norm_term,
+            correction_norm=correction_norm,
         )

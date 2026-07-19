@@ -293,29 +293,25 @@ def test_build_mean_squared_norm():
     assert_allclose(result, 1.0, rtol=1e-10)
 
 
-def test_dirk_correction_term_uses_physical_stage_state():
-    """DIRK terms use step and stage states."""
+def test_dirk_correction_norm_uses_physical_stage_state():
+    """The DIRK correction norm scales by step and stage states."""
     factory = DIRKCorrectionNorm(
         precision=np.float32,
         n=2,
         atol=1.0,
         rtol=0.1,
     )
-    term = factory.term_device_function
+    correction_norm = factory.correction_device_function
 
     @cuda.jit
     def kernel(delta, increment, stage_base, step_start, result):
-        total = np.float32(0.0)
-        for i in range(2):
-            total += term(
-                i,
-                delta[i],
-                increment,
-                stage_base,
-                step_start,
-                np.float32(0.5),
-            )
-        result[0] = total
+        result[0] = correction_norm(
+            delta,
+            increment,
+            stage_base,
+            step_start,
+            np.float32(0.5),
+        )
 
     delta = cuda.to_device(np.array([0.21, 0.3], dtype=np.float32))
     increment = cuda.to_device(np.array([2.0, -1.0], dtype=np.float32))
@@ -328,31 +324,27 @@ def test_dirk_correction_term_uses_physical_stage_state():
     assert_allclose(result.copy_to_host()[0], 0.025, rtol=1e-5)
 
 
-def test_firk_correction_term_uses_tableau_stage_state():
-    """FIRK terms use the matching tableau row."""
+def test_firk_correction_norm_uses_tableau_stage_state():
+    """The FIRK correction norm scales by the matching tableau row."""
     factory = FIRKCorrectionNorm(
         precision=np.float32,
         n=4,
         state_n=2,
-        stage_coefficients=((0.5, 0.0), (0.5, 0.5)),
+        stage_coefficients=(0.5, 0.0, 0.5, 0.5),
         atol=1.0,
         rtol=0.1,
     )
-    term = factory.term_device_function
+    correction_norm = factory.correction_device_function
 
     @cuda.jit
     def kernel(delta, increment, stage_base, step_start, result):
-        total = np.float32(0.0)
-        for i in range(4):
-            total += term(
-                i,
-                delta[i],
-                increment,
-                stage_base,
-                step_start,
-                np.float32(0.0),
-            )
-        result[0] = total
+        result[0] = correction_norm(
+            delta,
+            increment,
+            stage_base,
+            step_start,
+            np.float32(0.0),
+        )
 
     delta = cuda.to_device(
         np.array([0.21, 0.3, 0.46, 0.15], dtype=np.float32)
@@ -367,25 +359,6 @@ def test_firk_correction_term_uses_tableau_stage_state():
     kernel[1, 1](delta, increment, stage_base, step_start, result)
 
     assert_allclose(result.copy_to_host()[0], 0.025, rtol=1e-5)
-
-
-def test_firk_correction_norm_repeats_state_tolerances():
-    """FIRK repeats each state tolerance for every stage."""
-    coefficients = ((0.5, 0.0), (0.5, 0.5))
-    norm = FIRKCorrectionNorm(
-        precision=np.float32,
-        n=4,
-        state_n=2,
-        stage_coefficients=coefficients,
-        atol=np.array([1e-5, 2e-5]),
-        rtol=np.array([1e-3, 2e-3]),
-    )
-
-    assert_allclose(norm.atol, [1e-5, 2e-5, 1e-5, 2e-5])
-    assert_allclose(norm.rtol, [1e-3, 2e-3, 1e-3, 2e-3])
-
-    norm.update(atol=np.array([3e-5, 4e-5]))
-    assert_allclose(norm.atol, [3e-5, 4e-5, 3e-5, 4e-5])
 
 
 # ── ScaledNorm.update ────────────────────────────────────── #

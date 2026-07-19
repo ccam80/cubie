@@ -19,7 +19,6 @@ from cubie.integrators.algorithms.generic_dirk import (
     DIRK_ADAPTIVE_DEFAULTS,
     DIRKStepConfig
 )
-from cubie.integrators.norms import DIRKCorrectionNorm
 from cubie.buffer_registry import buffer_registry
 from tests.integrators.algorithms.instrumented.ode_implicitstep import \
     InstrumentedODEImplicitStep
@@ -192,16 +191,9 @@ class InstrumentedDIRKStep(InstrumentedODEImplicitStep):
             solver_kwargs["newton_max_backtracks"] = newton_max_backtracks
 
         # Call parent __init__ to create solver instances
-        newton_norm = DIRKCorrectionNorm(
-            precision=precision,
-            n=n,
-            instance_label="newton",
-            **solver_kwargs,
-        )
         super().__init__(
             config,
             controller_defaults,
-            newton_norm=newton_norm,
             **solver_kwargs,
         )
 

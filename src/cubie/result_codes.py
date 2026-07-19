@@ -44,6 +44,9 @@ class CUBIE_RESULT_CODES(IntFlag):
     BICGSTAB_BREAKDOWN
         BiCGSTAB linear solve broke down (a recurrence scalar collapsed to
         zero) before converging.
+    NEWTON_DIVERGENCE
+        Newton iteration diverged: the contraction estimate exceeded the
+        divergence bound or the update norm was not finite.
     """
 
     SUCCESS = 0
@@ -55,6 +58,7 @@ class CUBIE_RESULT_CODES(IntFlag):
     MAX_LOOP_ITERS_EXCEEDED = 32
     STAGNATION = 64
     BICGSTAB_BREAKDOWN = 128
+    NEWTON_DIVERGENCE = 256
 
 
 def decode_status_codes(status_codes):

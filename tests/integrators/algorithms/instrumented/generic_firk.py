@@ -222,7 +222,7 @@ class InstrumentedFIRKStep(InstrumentedODEImplicitStep):
             precision=precision,
             n=config.all_stages_n,
             state_n=n,
-            stage_coefficients=tuple(tuple(row) for row in tableau.a),
+            stage_coefficients=tableau.a_flat(float),
             instance_label="newton",
             **solver_kwargs,
         )
@@ -230,7 +230,6 @@ class InstrumentedFIRKStep(InstrumentedODEImplicitStep):
             config,
             controller_defaults,
             newton_norm=newton_norm,
-            solver_n=config.all_stages_n,
             **solver_kwargs,
         )
         self.register_buffers()

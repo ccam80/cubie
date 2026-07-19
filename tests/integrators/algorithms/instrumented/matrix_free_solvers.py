@@ -481,7 +481,7 @@ class InstrumentedNewtonKrylov(NewtonKrylov):
 
         # Get scaled norm device function from config
         scaled_norm_fn = config.norm_device_function
-        correction_norm_term_fn = config.correction_norm_term_function
+        correction_norm_fn = config.correction_norm_function
 
         # Convert types for device function
         precision_dtype = np.dtype(precision)
@@ -494,9 +494,17 @@ class InstrumentedNewtonKrylov(NewtonKrylov):
         newton_backtracking_failed = int32(
             CUBIE_RESULT_CODES.NEWTON_BACKTRACKING_NO_SUITABLE_STEP
         )
+        newton_divergence = int32(CUBIE_RESULT_CODES.NEWTON_DIVERGENCE)
         typed_one = numba_precision(1.0)
         typed_damping = numba_precision(damping)
-        typed_tiny = numba_precision(float(np.finfo(precision_dtype).tiny))
+        typed_huge = numba_precision(float(np.finfo(precision_dtype).max))
+        kappa = numba_precision(0.01)
+        first_iteration_bound = numba_precision(1.0e-5)
+        theta_decay = numba_precision(0.3)
+        theta_divergence_bound = numba_precision(2.0)
+        stagnation_eps = numba_precision(
+            100.0 * math_sqrt(float(np.finfo(precision_dtype).eps))
+        )
         n_val = int32(n)
         max_iters_val = int32(max_iters)
         newton_max_backtracks_val = int32(newton_max_backtracks + 1)
@@ -512,6 +520,9 @@ class InstrumentedNewtonKrylov(NewtonKrylov):
         )
         alloc_krylov_iters_local = buffer_registry.get_allocator(
             'krylov_iters_local', self
+        )
+        alloc_prev_theta = buffer_registry.get_allocator(
+            'prev_theta', self
         )
         # Allocate the linear solver's buffers.
         alloc_lin_shared, alloc_lin_persistent = (
@@ -554,6 +565,12 @@ class InstrumentedNewtonKrylov(NewtonKrylov):
             # Allocate buffers from registry
             delta = alloc_delta(shared_scratch, persistent_scratch)
             residual = alloc_residual(shared_scratch, persistent_scratch)
+            residual_temp = alloc_residual_temp(
+                shared_scratch, persistent_scratch
+            )
+            stage_base_bt = alloc_stage_base_bt(
+                shared_scratch, persistent_scratch
+            )
             lin_shared = alloc_lin_shared(shared_scratch, persistent_scratch)
             lin_persistent = alloc_lin_persistent(shared_scratch, persistent_scratch)
             
@@ -592,27 +609,41 @@ class InstrumentedNewtonKrylov(NewtonKrylov):
             newton_squared_norms[stage_index, log_index] = norm2_prev
             log_index += int32(1)
             
-            # Zero marks unavailable contraction history.
-            norm2_dz_prev = typed_zero
+            # Warm-started contraction estimate; zero marks a fresh
+            # scratch buffer or a failed previous solve.
+            prev_theta_store = alloc_prev_theta(
+                shared_scratch, persistent_scratch
+            )
+            stored_theta = prev_theta_store[0]
+            prev_theta = selp(
+                stored_theta > typed_zero, stored_theta, typed_one
+            )
 
-            converged = norm2_prev <= typed_one
+            # RMS norm of the previous accepted full-step correction.
+            ndz_prev = typed_zero
+
+            converged = False
+            failed = False
             final_status = success
 
             krylov_iters_local = alloc_krylov_iters_local(
                 shared_scratch, persistent_scratch
             )
-            
+
             iters_count = int32(0)
             total_krylov_iters = int32(0)
+            iteration = int32(0)
             last_lin_status = success
             last_backtrack_failed = False
             mask = activemask()
             stage_increment_snapshot = cuda.local.array(n, numba_precision)
             residual_snapshot = cuda.local.array(n, numba_precision)
-            
+
             for _ in range(max_iters_val):
-                if all_sync(mask, converged):
+                if all_sync(mask, converged | failed):
                     break
+                iteration += int32(1)
+                active = (not converged) & (not failed)
 
                 residual_function(
                     stage_increment,
@@ -624,21 +655,14 @@ class InstrumentedNewtonKrylov(NewtonKrylov):
                     base_state,
                     residual,
                 )
-                norm2_prev = scaled_norm_fn(residual, stage_increment)
-                active = (not converged) & (norm2_prev > typed_one)
-                converged = converged | (norm2_prev <= typed_one)
-                iters_count = selp(
-                    active, int32(iters_count + int32(1)), iters_count
-                )
+                norm2_residual = scaled_norm_fn(residual, stage_increment)
 
                 for i in range(n_val):
                     residual[i] = -residual[i]
                     delta[i] = typed_zero
-                if all_sync(mask, converged):
-                    break
-                
-                iter_slot = int(iters_count) - 1
-                
+
+                iter_slot = int32(iteration - int32(1))
+
                 krylov_iters_local[0] = int32(0)
                 lin_status = linear_solver_fn(
                     stage_increment,
@@ -661,58 +685,51 @@ class InstrumentedNewtonKrylov(NewtonKrylov):
                     linear_squared_norms,
                     linear_preconditioned_vectors,
                 )
-                
+
                 total_krylov_iters += selp(
                     active, krylov_iters_local[0], int32(0)
                 )
                 last_lin_status = selp(
                     active, lin_status, last_lin_status
                 )
-
-                norm2_dz = typed_zero
-                for i in range(n_val):
-                    norm2_dz += correction_norm_term_fn(
-                        i,
-                        delta[i],
-                        stage_increment,
-                        base_state,
-                        step_start,
-                        a_ij,
-                    )
-
-                # Bound the ratio before division.
-                theta = numba_precision(
-                    math_sqrt(
-                        min(
-                            norm2_dz,
-                            max(norm2_dz_prev, typed_tiny),
-                        )
-                        / max(norm2_dz_prev, typed_tiny)
-                    )
+                iters_count = selp(
+                    active, int32(iters_count + int32(1)), iters_count
                 )
-                scaled_update = theta * math_sqrt(norm2_dz)
-                accept_update = (
-                    active
-                    & (norm2_dz_prev > typed_zero)
-                    & (lin_status == success)
-                    & (scaled_update <= typed_one - theta)
+
+                norm2_dz = correction_norm_fn(
+                    delta,
+                    stage_increment,
+                    base_state,
+                    step_start,
+                    a_ij,
+                )
+                ndz = numba_precision(math_sqrt(norm2_dz))
+
+                judged = active & (lin_status == success)
+                history = ndz_prev > typed_zero
+                ndz_prev_safe = selp(history, ndz_prev, typed_one)
+                theta = selp(
+                    history,
+                    max(theta_decay * prev_theta, ndz / ndz_prev_safe),
+                    prev_theta,
+                )
+                small_first_step = (iteration == int32(1)) & (
+                    ndz < first_iteration_bound
+                )
+                eta_accept = (theta < typed_one) & (
+                    theta * ndz < kappa * (typed_one - theta)
                 )
 
                 alpha = typed_one
-                update_scale = max(typed_one - theta, typed_tiny)
-                norm2_new = min(scaled_update, update_scale) / update_scale
-                norm2_new *= norm2_new
+                norm2_new = typed_zero
                 snapshot_ready = False
                 for i in range(n_val):
                     stage_increment_snapshot[i] = stage_increment[i]
                     residual_snapshot[i] = typed_zero
 
                 if use_backtracking:
-                    residual_temp = alloc_residual_temp(
-                        shared_scratch, persistent_scratch
-                    )
-                    stage_base_bt = alloc_stage_base_bt(
-                        shared_scratch, persistent_scratch
+                    accept_update = judged & (
+                        eta_accept | small_first_step
                     )
                     for i in range(n_val):
                         stage_base_bt[i] = stage_increment[i]
@@ -722,11 +739,14 @@ class InstrumentedNewtonKrylov(NewtonKrylov):
                             stage_increment[i],
                         )
                     converged = converged | accept_update
+                    prev_theta = selp(
+                        judged & history, theta, prev_theta
+                    )
                     searching = active & (not converged)
                     accepted_alpha = selp(
                         accept_update, typed_one, typed_zero
                     )
-                    norm2_dz_next = typed_zero
+                    ndz_next = selp(accept_update, ndz, typed_zero)
                     snapshot_ready = accept_update
 
                     for _ in range(newton_max_backtracks_val):
@@ -769,7 +789,7 @@ class InstrumentedNewtonKrylov(NewtonKrylov):
                         )
 
                         accept_trial = searching & (
-                            trial_norm2 < norm2_prev
+                            trial_norm2 < norm2_residual
                         )
                         converged = converged | (
                             accept_trial & (trial_norm2 <= typed_one)
@@ -778,12 +798,12 @@ class InstrumentedNewtonKrylov(NewtonKrylov):
                             accept_trial, alpha, accepted_alpha
                         )
                         searching = searching & (not accept_trial)
-                        norm2_dz_next = selp(
+                        ndz_next = selp(
                             accept_trial
                             & (alpha == typed_one)
                             & (lin_status == success),
-                            norm2_dz,
-                            norm2_dz_next,
+                            ndz,
+                            ndz_next,
                         )
                         for i in range(n_val):
                             stage_increment[i] = (
@@ -793,7 +813,7 @@ class InstrumentedNewtonKrylov(NewtonKrylov):
 
                         alpha *= typed_damping
 
-                    norm2_dz_prev = norm2_dz_next
+                    ndz_prev = ndz_next
                     last_backtrack_failed = searching
                     for i in range(n_val):
                         stage_increment[i] = selp(
@@ -802,18 +822,43 @@ class InstrumentedNewtonKrylov(NewtonKrylov):
                             stage_increment[i],
                         )
                 else:
-                    commit_update = active
+                    nonfinite = not (norm2_dz <= typed_huge)
+                    stagnant = (
+                        judged
+                        & history
+                        & (abs(theta - typed_one) <= stagnation_eps)
+                    )
+                    diverging = judged & (
+                        (history & (theta > theta_divergence_bound))
+                        | nonfinite
+                    )
+                    converged_stagnant = (
+                        stagnant & (ndz <= typed_one) & (not diverging)
+                    )
+                    failed_now = diverging | (
+                        stagnant & (ndz > typed_one)
+                    )
+                    failed = failed | failed_now
+
+                    commit = (
+                        judged
+                        & (not failed_now)
+                        & (not converged_stagnant)
+                    )
                     for i in range(n_val):
                         stage_increment[i] = selp(
-                            commit_update,
+                            commit,
                             stage_increment[i] + delta[i],
                             stage_increment[i],
                         )
-                    converged = converged | accept_update
-                    norm2_dz_prev = selp(
-                        commit_update & (lin_status == success),
-                        norm2_dz,
-                        typed_zero,
+                    converged = (
+                        converged
+                        | converged_stagnant
+                        | (commit & (eta_accept | small_first_step))
+                    )
+                    ndz_prev = selp(commit, ndz, typed_zero)
+                    prev_theta = selp(
+                        judged & history, theta, prev_theta
                     )
                     residual_function(
                         stage_increment,
@@ -828,30 +873,37 @@ class InstrumentedNewtonKrylov(NewtonKrylov):
                     norm2_new = scaled_norm_fn(
                         residual_copy, stage_increment
                     )
-                    snapshot_ready = commit_update
+                    snapshot_ready = commit
                     for i in range(n_val):
                         stage_increment_snapshot[i] = stage_increment[i]
                         residual_snapshot[i] = residual_copy[i]
-                
+
                 # Log iteration state if snapshot is ready
-                iter_slot = int(iters_count) - 1
-                if iter_slot >= 0:
-                    if snapshot_ready:
-                        for i in range(n_val):
-                            newton_iteration_guesses[
-                                stage_index, log_index, i
-                            ] = stage_increment_snapshot[i]
-                            newton_residuals[
-                                stage_index, log_index, i
-                            ] = residual_snapshot[i]
-                        newton_squared_norms[stage_index, log_index] = norm2_new
-                        log_index += int32(1)
-                    newton_iteration_scale[stage_index, iter_slot] = alpha
-            
+                if snapshot_ready:
+                    for i in range(n_val):
+                        newton_iteration_guesses[
+                            stage_index, log_index, i
+                        ] = stage_increment_snapshot[i]
+                        newton_residuals[
+                            stage_index, log_index, i
+                        ] = residual_snapshot[i]
+                    newton_squared_norms[stage_index, log_index] = norm2_new
+                    log_index += int32(1)
+                newton_iteration_scale[stage_index, iter_slot] = alpha
+
+            # Persist contraction history for the next solve; a failed
+            # solve resets it to the conservative estimate.
+            prev_theta_store[0] = selp(converged, prev_theta, typed_one)
+
             final_status = selp(
-                not converged,
+                (not converged) & (not failed),
                 int32(final_status | max_newton_iters_exceeded),
                 final_status
+            )
+            final_status = selp(
+                (not converged) & failed,
+                int32(final_status | newton_divergence),
+                final_status,
             )
             final_status = selp(
                 (not converged) & last_backtrack_failed,

@@ -7,7 +7,6 @@ from cubie.cuda_simsafe import cuda, int32
 from cubie._utils import PrecisionDType
 from cubie.buffer_registry import buffer_registry
 from cubie.integrators.algorithms.base_algorithm_step import StepCache
-from cubie.integrators.norms import DIRKCorrectionNorm
 from tests.integrators.algorithms.instrumented.ode_implicitstep import (
     InstrumentedODEImplicitStep,
 )
@@ -140,16 +139,9 @@ class InstrumentedCrankNicolsonStep(InstrumentedODEImplicitStep):
         if newton_max_backtracks is not None:
             solver_kwargs["newton_max_backtracks"] = newton_max_backtracks
 
-        newton_norm = DIRKCorrectionNorm(
-            precision=precision,
-            n=n,
-            instance_label="newton",
-            **solver_kwargs,
-        )
         super().__init__(
             config,
             CN_DEFAULTS.copy(),
-            newton_norm=newton_norm,
             **solver_kwargs,
         )
 

@@ -5,78 +5,123 @@ from cubie.array_interpolator import ArrayInterpolator
 from tests.integrators.cpu_reference.cpu_utils import DriverEvaluator, newton_solve
 
 
+# Each case runs two sequential solves sharing one contraction
+# history store, mirroring the device edge cases.
 @pytest.mark.parametrize(
-    "mode, initial, atol, rtol, max_iters, expected_converged, expected_iters",
+    "mode, initials, atol, max_iters, expected_converged, "
+    "expected_iters, expected_finals",
     [
-        ("zero", 3.0, 1e-6, 0.0, 4, True, 0),
-        ("stalled", 1e8, 1.0, 1.0, 2, False, 2),
-        ("small", 1e8, 1e8, 0.0, 2, False, 2),
-        ("residual", 0.0, 1e-6, 0.0, 4, True, 1),
+        ("zero", (3.0, 3.0), 1e-6, 4, (True, True), (1, 1), (3.0, 3.0)),
+        (
+            "linear",
+            (3.0, 3.9999),
+            1e-2,
+            8,
+            (True, True),
+            (2, 1),
+            (4.0, 4.0),
+        ),
+        (
+            "constant",
+            (0.0, 0.0),
+            1e-2,
+            4,
+            (False, False),
+            (2, 2),
+            (-1.0, -1.0),
+        ),
+        (
+            "root",
+            (1.0, 1.0),
+            1e-2,
+            4,
+            (False, False),
+            (2, 2),
+            (-3.0, -3.0),
+        ),
+        (
+            "linear-failure",
+            (3.0, 3.0),
+            1e-2,
+            3,
+            (False, False),
+            (3, 3),
+            (3.0, 3.0),
+        ),
     ],
     ids=(
-        "zero-residual",
-        "noncontracting",
-        "small-update",
-        "accepted-residual",
+        "small-first-step",
+        "warm-start",
+        "stagnation-divergence",
+        "theta-growth-divergence",
+        "linear-failure-no-commit",
     ),
 )
 def test_cpu_newton_convergence_edges(
     mode,
-    initial,
+    initials,
     atol,
-    rtol,
     max_iters,
     expected_converged,
     expected_iters,
+    expected_finals,
 ):
-    """Newton reports exact convergence iterations."""
+    """The CPU Newton mirror matches the device convergence rules."""
     precision = np.float32
+    target = precision(4.0)
 
     def residual(state):
         if mode == "zero":
             return np.zeros_like(state)
-        if mode == "residual":
-            return precision(4.0) - state
-        return precision(2e9) - state
+        if mode == "constant":
+            return np.ones_like(state)
+        if mode == "root":
+            magnitude = np.abs(state) ** precision(0.25)
+            return np.copysign(magnitude, state).astype(precision)
+        return (target - state).astype(precision)
 
     def jacobian(state):
-        step = precision(1.0)
-        if mode == "stalled":
-            step = precision(10.0)
-        elif mode == "small":
-            step = precision(10000.0) - precision(1e-5) * (
-                state[0] - precision(1e8)
+        if mode == "root":
+            value = precision(0.25) * np.abs(state[0]) ** precision(
+                -0.75
             )
-        elif mode == "residual":
-            step = precision(4.0)
-        return np.array([[step]], dtype=precision)
+        elif mode in ("linear", "linear-failure"):
+            value = precision(-1.0)
+        else:
+            value = precision(1.0)
+        return np.array([[value]], dtype=precision)
 
-    def linear_solver(operator, rhs, **kwargs):
-        return np.array([operator[0, 0]], dtype=precision), True, 1
+    def linear_solver(jac, rhs, **kwargs):
+        direction = np.asarray(rhs, dtype=precision) / jac[0, 0]
+        lin_converged = mode != "linear-failure"
+        return direction.astype(precision), lin_converged, 1
 
-    initial_state = np.array([initial], dtype=precision)
-    result, converged, iterations = newton_solve(
-        initial_state,
-        precision=precision,
-        residual_fn=residual,
-        jacobian_fn=jacobian,
-        linear_solver=linear_solver,
-        newton_tol=precision(atol),
-        newton_rtol=precision(rtol),
-        newton_max_iters=max_iters,
-        newton_damping=precision(0.5),
-        newton_max_backtracks=2,
-    )
+    prev_theta_store = np.zeros(1, dtype=precision)
+    for solve_index in range(2):
+        state = np.array([initials[solve_index]], dtype=precision)
+        result, converged, iterations = newton_solve(
+            state,
+            precision=precision,
+            residual_fn=residual,
+            jacobian_fn=jacobian,
+            linear_solver=linear_solver,
+            newton_tol=precision(atol),
+            newton_rtol=precision(0.0),
+            newton_max_iters=max_iters,
+            newton_damping=precision(0.5),
+            newton_max_backtracks=0,
+            prev_theta_store=prev_theta_store,
+        )
 
-    assert bool(converged) is expected_converged
-    assert iterations == expected_iters
-    if mode == "zero":
-        np.testing.assert_array_equal(result, initial_state)
-    elif mode == "residual":
-        np.testing.assert_array_equal(result, np.array([4.0], dtype=precision))
-    else:
-        scale = precision(atol) + precision(rtol) * abs(result[0])
-        assert abs(residual(result)[0]) / scale > precision(1.0)
+        assert bool(converged) is expected_converged[solve_index]
+        assert iterations == expected_iters[solve_index]
+        np.testing.assert_allclose(
+            result,
+            np.array(
+                [expected_finals[solve_index]], dtype=precision
+            ),
+            atol=1e-3,
+        )
 
 
 @pytest.mark.parametrize(

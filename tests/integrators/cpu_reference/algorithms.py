@@ -43,6 +43,7 @@ from .cpu_utils import (
     Array,
     DriverEvaluator,
     StepResultLike,
+    correction_norm_reference,
     make_step_result,
     newton_solve,
     _encode_solver_status,
@@ -101,6 +102,8 @@ class CPUStep:
             raise ValueError("Preconditioner order must be non-negative.")
         self._newton_damping = self.precision(newton_damping)
         self._newton_max_backtracks = int(newton_max_backtracks)
+        # Contraction history persisted between Newton solves.
+        self._newton_prev_theta = np.zeros(1, dtype=self.precision)
         self.tableau = tableau
         self.instrument = instrument
 
@@ -696,6 +699,16 @@ class CPUBackwardEulerStep(CPUStep):
             stage_index=0,
             logging=logging,
         )
+        def correction_norm(update, iterate):
+            stage_state = state_vector + iterate
+            return correction_norm_reference(
+                update,
+                stage_state,
+                state_vector,
+                self._newton_tol,
+                self._newton_rtol,
+            )
+
         increment, converged, niters = newton_solve(
             guess,
             precision=self.precision,
@@ -707,6 +720,8 @@ class CPUBackwardEulerStep(CPUStep):
             newton_max_iters=self._newton_max_iters,
             newton_damping=self._newton_damping,
             newton_max_backtracks=self._newton_max_backtracks,
+            correction_norm=correction_norm,
+            prev_theta_store=self._newton_prev_theta,
             **newton_kwargs,
         )
         next_state = state_vector + increment
@@ -809,6 +824,9 @@ class CPUCrankNicolsonStep(CPUStep):
                 newton_damping=newton_damping,
                 newton_max_backtracks=newton_max_backtracks,
             )
+            # The device solver shares one contraction history across
+            # the trapezoidal and backward Euler stages.
+            backward_step._newton_prev_theta = self._newton_prev_theta
             self._backward = backward_step
 
     def residual(self, candidate: Array) -> Array:
@@ -898,6 +916,19 @@ class CPUCrankNicolsonStep(CPUStep):
             logging=logging,
         )
 
+        def correction_norm(update, iterate):
+            stage_state = (
+                self._cn_base_state
+                + self._cn_stage_coefficient * iterate
+            )
+            return correction_norm_reference(
+                update,
+                stage_state,
+                state_vector,
+                self._newton_tol,
+                self._newton_rtol,
+            )
+
         increment, converged, niters = newton_solve(
             guess,
             precision=self.precision,
@@ -909,6 +940,8 @@ class CPUCrankNicolsonStep(CPUStep):
             newton_max_iters=self._newton_max_iters,
             newton_damping=self._newton_damping,
             newton_max_backtracks=self._newton_max_backtracks,
+            correction_norm=correction_norm,
+            prev_theta_store=self._newton_prev_theta,
             **newton_kwargs,
         )
         stage_increment = self._cn_stage_coefficient * increment
@@ -1283,6 +1316,19 @@ class CPUDIRKStep(CPUStep):
                 logging=logging,
             )
 
+            def correction_norm(update, iterate):
+                stage_value = (
+                    self._dirk_reference
+                    + self._dirk_diag_coeff * iterate
+                )
+                return correction_norm_reference(
+                    update,
+                    stage_value,
+                    state_vector,
+                    self._newton_tol,
+                    self._newton_rtol,
+                )
+
             increment, converged, niters = newton_solve(
                 guess,
                 precision=self.precision,
@@ -1294,6 +1340,8 @@ class CPUDIRKStep(CPUStep):
                 newton_max_iters=self._newton_max_iters,
                 newton_damping=self._newton_damping,
                 newton_max_backtracks=self._newton_max_backtracks,
+                correction_norm=correction_norm,
+                prev_theta_store=self._newton_prev_theta,
                 **newton_kwargs,
             )
 
@@ -1588,6 +1636,27 @@ class CPUFIRKStep(CPUStep):
             logging=logging,
         )
 
+        def correction_norm(update, iterate):
+            stage_values = np.zeros(all_dim, dtype=self.precision)
+            for stage_idx in range(stage_count):
+                stage_state = state_vector.copy()
+                for j in range(stage_count):
+                    j_start = j * state_dim
+                    stage_state = stage_state + (
+                        a_matrix[stage_idx, j]
+                        * iterate[j_start:j_start + state_dim]
+                    )
+                i_start = stage_idx * state_dim
+                stage_values[i_start:i_start + state_dim] = stage_state
+            step_start_tiled = np.tile(state_vector, stage_count)
+            return correction_norm_reference(
+                update,
+                stage_values,
+                step_start_tiled,
+                self._newton_tol,
+                self._newton_rtol,
+            )
+
         # Solve the fully implicit system for all stage increments simultaneously
         stage_increments_flat, converged, niters = newton_solve(
             guess,
@@ -1600,6 +1669,8 @@ class CPUFIRKStep(CPUStep):
             newton_max_iters=self._newton_max_iters,
             newton_damping=self._newton_damping,
             newton_max_backtracks=self._newton_max_backtracks,
+            correction_norm=correction_norm,
+            prev_theta_store=self._newton_prev_theta,
             **newton_kwargs,
         )
 

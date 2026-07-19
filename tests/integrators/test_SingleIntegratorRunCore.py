@@ -980,3 +980,48 @@ def test_update_controller_swap_builds(single_integrator_run_mutable):
     run.update({"step_controller": target})
     assert run.compile_settings.step_controller == target
     assert run.device_function is not None
+
+
+# ── Inner-solver tolerance defaults ─────────────────────────────────── #
+
+# Adaptive implicit configuration with one explicit inner tolerance;
+# the rest are left unset (``None`` marks not-given) and must be
+# derived from the controller. The derivation ratio is a tuning
+# constant and is deliberately not pinned here.
+_CN_ADAPTIVE_KRYLOV_GIVEN = {
+    "algorithm": "crank_nicolson",
+    "step_controller": "pid",
+    "atol": 1e-8,
+    "rtol": 1e-8,
+    "dt_min": 1e-10,
+    "dt_max": 0.1,
+    "krylov_atol": 3e-5,
+    "krylov_rtol": None,
+    "newton_atol": None,
+    "newton_rtol": None,
+}
+
+
+@pytest.mark.parametrize(
+    "solver_settings_override", [_CN_ADAPTIVE_KRYLOV_GIVEN], indirect=True
+)
+def test_explicit_inner_tolerance_survives_derivation(
+    single_integrator_run,
+):
+    """An explicit inner tolerance survives; unset ones are derived."""
+    run = single_integrator_run
+    algo = run._algo_step
+    controller = run._step_controller
+    assert controller.is_adaptive
+    assert algo.is_implicit
+
+    assert np.allclose(algo.krylov_atol, 3e-5)
+    # Unset tolerances leave the solver defaults and end up at least
+    # as tight as the controller's error tolerance.
+    assert not np.allclose(algo.newton_atol, 1e-6)
+    assert np.all(
+        np.asarray(algo.newton_atol) <= np.asarray(controller.atol)
+    )
+    assert np.all(
+        np.asarray(algo.newton_rtol) <= np.asarray(controller.rtol)
+    )
