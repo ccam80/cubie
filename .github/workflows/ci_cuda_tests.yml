@@ -122,6 +122,11 @@ jobs:
         env:
           CUBIE_KERNEL_CACHE_DIR: ${{ github.workspace }}/kernel-cache/kernels
           CUBIE_MAX_CACHE_ENTRIES: "0"
+          # Strip plain asserts (with rewriting off) so tests that
+          # would fail on headless placeholder results keep running
+          # and reach every kernel launch; test verdicts are
+          # irrelevant here, only compile coverage matters.
+          PYTHONOPTIMIZE: "1"
         run: |
           set -u
           for cc in 7.5 8.6 8.9; do
@@ -130,6 +135,7 @@ jobs:
             CUBIE_TARGET_CC="$cc" pytest \
               -m "not specific_algos and not sim_only" \
               -p tests.precompile_plugin -n logical \
+              --assert=plain \
               --no-cov -q -p no:cacheprovider
             status=$?
             set -e

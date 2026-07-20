@@ -348,9 +348,39 @@ if BACKEND == "numba-cuda":
 else:
     from numba_cuda_mlir.descriptor import MLIRDispatcher  # noqa: E402
     from numba_cuda_mlir.numba_cuda import types, typing  # noqa: E402
+    from numba_cuda_mlir.numba_cuda.typing.typeof import (  # noqa: E402
+        typeof as _mlir_typeof,
+    )
 
     _dispatcher_init = MLIRDispatcher.__init__
     _dispatcher_getitem = MLIRDispatcher.__getitem__
+
+    def _marshal_launch_arg(value):
+        """Normalize a launch argument the way the real launch does.
+
+        Mirrors ``_ArgMarshaller._maybe_copy_to_device_item``'s scalar
+        rules: the launch path converts numpy integer scalars to
+        Python ints (typed int64), float64 scalars to Python floats,
+        and numpy bools to Python bools before typing, so population
+        signatures must do the same or GPU consumers recompile with
+        promoted-scalar signatures.
+        """
+        if isinstance(value, (tuple, list)):
+            processed = [_marshal_launch_arg(item) for item in value]
+            if hasattr(value, "_fields"):
+                return type(value)(*processed)
+            return type(value)(processed)
+        if isinstance(value, (np.datetime64, np.timedelta64)):
+            return value
+        if isinstance(value, np.integer):
+            return int(value)
+        if isinstance(value, (np.float16, np.float32)):
+            return value
+        if isinstance(value, np.floating):
+            return float(value)
+        if isinstance(value, np.bool_):
+            return bool(value)
+        return value
 
     def _init_dispatcher(self, *args, **kwargs):
         _dispatcher_init(self, *args, **kwargs)
@@ -361,7 +391,9 @@ else:
     def _precompile_mlir(dispatcher, args):
         _attach_pending()
         _attach_cache(dispatcher)
-        argtypes = tuple(dispatcher.typeof_pyval(arg) for arg in args)
+        argtypes = tuple(
+            _mlir_typeof(_marshal_launch_arg(arg)) for arg in args
+        )
         if argtypes in dispatcher.overloads:
             return None
 

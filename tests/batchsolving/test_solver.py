@@ -4,6 +4,7 @@ import pytest
 import numpy as np
 
 from tests._utils import _build_solver_instance
+from tests.system_fixtures import build_three_state_nonlinear_system
 
 from cubie import create_ODE_system
 from cubie.batchsolving.solver import Solver, solve_ivp
@@ -441,8 +442,15 @@ def test_update_lineinfo(solver_mutable):
     assert solver.kernel.compile_settings.lineinfo is False
 
 
-def test_lineinfo_constructor_propagates_to_children(system):
-    """Explicit lineinfo reaches every child factory's compile settings."""
+def test_lineinfo_constructor_propagates_to_children(precision):
+    """Explicit lineinfo reaches every child factory's compile settings.
+
+    Uses a private system: lineinfo propagates into the system's own
+    compile settings, and flipping the shared session system would
+    leak lineinfo-flavoured device functions into every kernel later
+    tests build on the same worker.
+    """
+    system = build_three_state_nonlinear_system(precision)
     solver = Solver(system, algorithm="euler", lineinfo=True)
 
     kernel = solver.kernel
