@@ -2702,12 +2702,16 @@ register_selective_fastmath_shims()
 def register_standalone_ftz_shim() -> None:
     """Enable the libnvvm ftz knob for truthy fastmath flag sets.
 
-    No-ops when the installed package accepts ``ftz`` natively.
+    No-ops when the installed package accepts ``ftz`` natively or
+    when the required submodule is absent.
     """
-    import numba_cuda_mlir.fastmath as fastmath_module
-    from numba_cuda_mlir.numba_cuda.core.options import (
-        FastMathOptions,
-    )
+    try:
+        import numba_cuda_mlir.fastmath as fastmath_module
+        from numba_cuda_mlir.numba_cuda.core.options import (
+            FastMathOptions,
+        )
+    except ImportError:
+        return
 
     try:
         FastMathOptions({"ftz"})
@@ -2758,7 +2762,10 @@ def register_fma_uplift_removal_shim() -> None:
         return
 
     def pipeline_without_fma_uplift():
-        return stock_pipeline().replace("math-uplift-to-fma,", "")
+        p = stock_pipeline()
+        p = p.replace(",math-uplift-to-fma", "")
+        p = p.replace("math-uplift-to-fma,", "")
+        return p
 
     mlir_optimization.get_base_pipeline = pipeline_without_fma_uplift
 
