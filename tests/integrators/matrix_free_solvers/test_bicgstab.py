@@ -9,6 +9,7 @@ fixture is parameterized with ``linear_correction_type="bicgstab"``.
 import numpy as np
 import pytest
 from cubie.cuda_simsafe import cuda
+from cubie.memory import default_memmgr
 from numpy.testing import assert_allclose
 
 from cubie.integrators.matrix_free_solvers.bicgstab_solver import (
@@ -72,8 +73,9 @@ def test_bicgstab_breakdown_detection(precision):
         )
 
     out_flag = cuda.to_device(np.array([0], dtype=np.int32))
-    kernel[1, 1](out_flag, precision(0.01))
-    cuda.synchronize()
+    stream = default_memmgr.get_group_stream()
+    kernel[1, 1, stream](out_flag, precision(0.01))
+    stream.synchronize()
     status_code = int(out_flag.copy_to_host()[0]) & 0xFF
     # Zero operator: v = A(p) = 0 with a nonzero residual, so the
     # pivot quotient rho/<r0_hat, v> overflows on the first
@@ -246,8 +248,9 @@ def test_bicgstab_cached_auxiliaries(precision, tolerance, with_precond):
     x_dev = cuda.to_device(np.zeros(n, dtype=precision))
     flag = cuda.to_device(np.array([0], dtype=np.int32))
 
-    kernel[1, 1](state, rhs_dev, base, aux, x_dev, flag)
-    cuda.synchronize()
+    stream = default_memmgr.get_group_stream()
+    kernel[1, 1, stream](state, rhs_dev, base, aux, x_dev, flag)
+    stream.synchronize()
 
     assert (flag.copy_to_host()[0] & 0xFF) == CUBIE_RESULT_CODES.SUCCESS
     assert_allclose(

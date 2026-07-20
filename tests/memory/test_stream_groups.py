@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import pytest
 
+from cubie.memory.mem_manager import MemoryManager
 from cubie.memory.stream_groups import StreamGroups
 
 
@@ -90,6 +91,46 @@ def test_get_group_handles_object():
     obj = object()
     sg.add_instance(obj, "beta")
     assert sg.get_group(obj) == "beta"
+
+
+# ── get_group_stream ──────────────────────────────────────────── #
+
+def test_get_group_stream_creates_dedicated_stream():
+    """get_group_stream lazily creates a dedicated per-group stream."""
+    sg = StreamGroups()
+    stream = sg.get_group_stream("default")
+    assert "default" in sg.groups
+    assert stream is not None
+    assert stream != 0
+    assert sg.get_group_stream("default") is stream
+    assert sg.get_group_stream("other") is not stream
+
+
+def test_get_group_stream_backfills_group_without_stream():
+    """A group created without a stream receives one on first access."""
+    sg = StreamGroups(groups=None)
+    assert "default" not in sg.streams
+    stream = sg.get_group_stream("default")
+    sg.add_instance(1, "default")
+    assert sg.get_stream(1) is stream
+
+
+def test_add_instance_shares_group_stream():
+    """Instances added after get_group_stream share the same stream."""
+    sg = StreamGroups()
+    stream = sg.get_group_stream("default")
+    sg.add_instance(11, "default")
+    assert sg.get_stream(11) is stream
+
+
+def test_memory_manager_get_group_stream_passthrough():
+    """MemoryManager.get_group_stream returns the group's stream."""
+    mgr = MemoryManager()
+    stream = mgr.get_group_stream()
+    assert stream is not None
+    assert stream != 0
+    mgr.stream_groups.add_instance(21, "default")
+    assert mgr.get_stream(21) is stream
 
 
 # ── get_stream ────────────────────────────────────────────────── #

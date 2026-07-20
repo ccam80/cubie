@@ -1,6 +1,7 @@
 import numpy as np
 import pytest
 from cubie.cuda_simsafe import cuda
+from cubie.memory import default_memmgr
 from numpy.testing import assert_allclose
 
 from cubie.integrators.matrix_free_solvers.linear_solver import (
@@ -56,8 +57,9 @@ def test_neumann_preconditioner(
     state = system_setup["state_init"]
     empty_base = cuda.to_device(np.empty(0, dtype=precision))
 
-    kernel[1, 1](state, residual, empty_base, out)
-    cuda.synchronize()
+    stream = default_memmgr.get_group_stream()
+    kernel[1, 1, stream](state, residual, empty_base, out)
+    stream.synchronize()
 
     expected_scalar = sum((h * precision(0.5)) ** k for k in range(order + 1))
     expected = np.full(n, expected_scalar, dtype=precision)
@@ -127,8 +129,9 @@ def test_linear_solver_placeholder(
     x_dev = cuda.to_device(np.zeros(3, dtype=precision))
     flag = cuda.to_device(np.array([0], dtype=np.int32))
     empty_base = cuda.to_device(np.empty(0, dtype=precision))
-    kernel[1, 1](state, rhs_dev, empty_base, x_dev, flag)
-    cuda.synchronize()
+    stream = default_memmgr.get_group_stream()
+    kernel[1, 1, stream](state, rhs_dev, empty_base, x_dev, flag)
+    stream.synchronize()
     code = flag.copy_to_host()[0] & 0xFF
     assert code == CUBIE_RESULT_CODES.SUCCESS
     assert np.allclose(
@@ -155,8 +158,9 @@ def _run_symbolic_linear_solve(
     x_dev = cuda.to_device(np.zeros(n, dtype=precision))
     flag = cuda.to_device(np.array([0], dtype=np.int32))
     empty_base = cuda.to_device(np.empty(0, dtype=precision))
-    kernel[1, 1](state, rhs_dev, empty_base, x_dev, flag)
-    cuda.synchronize()
+    stream = default_memmgr.get_group_stream()
+    kernel[1, 1, stream](state, rhs_dev, empty_base, x_dev, flag)
+    stream.synchronize()
     code = flag.copy_to_host()[0] & 0xFF
     assert code == CUBIE_RESULT_CODES.SUCCESS
     assert np.allclose(
@@ -280,8 +284,9 @@ def test_linear_solver_max_iters_exceeded(solver_kernel, precision):
     x_dev = cuda.to_device(np.zeros(n, dtype=precision))
     flag = cuda.to_device(np.array([0], dtype=np.int32))
     empty_base = cuda.to_device(np.empty(0, dtype=precision))
-    kernel[1, 1](state, rhs_dev, empty_base, x_dev, flag)
-    cuda.synchronize()
+    stream = default_memmgr.get_group_stream()
+    kernel[1, 1, stream](state, rhs_dev, empty_base, x_dev, flag)
+    stream.synchronize()
     code = flag.copy_to_host()[0] & 0xFF
     assert code == CUBIE_RESULT_CODES.MAX_LINEAR_ITERATIONS_EXCEEDED
 
@@ -358,8 +363,9 @@ def test_linear_solver_scaled_tolerance_converges(
     x_dev = cuda.to_device(np.zeros(3, dtype=precision))
     flag = cuda.to_device(np.array([0], dtype=np.int32))
     empty_base = cuda.to_device(np.empty(0, dtype=precision))
-    kernel[1, 1](state, rhs_dev, empty_base, x_dev, flag)
-    cuda.synchronize()
+    stream = default_memmgr.get_group_stream()
+    kernel[1, 1, stream](state, rhs_dev, empty_base, x_dev, flag)
+    stream.synchronize()
     code = flag.copy_to_host()[0] & 0xFF
     assert code == CUBIE_RESULT_CODES.SUCCESS
     assert np.allclose(
