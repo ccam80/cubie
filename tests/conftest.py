@@ -535,7 +535,6 @@ def solver_settings(solver_settings_override, system, precision):
         "memory_manager": default_memmgr,
         "stream_group": "test_group",
         "mem_proportion": None,
-        "allow_memory_eviction": True,
         "host_spill_threshold": None,
         "spill_directory": None,
         "step_controller": "fixed",

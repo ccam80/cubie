@@ -43,6 +43,7 @@ from attrs.validators import (
 )
 from numpy import (
     array_equal as np_array_equal,
+    ascontiguousarray as np_ascontiguousarray,
     float32 as np_float32,
     memmap as np_memmap,
     zeros as np_zeros,
@@ -51,7 +52,11 @@ from numpy import (
 from numpy.typing import NDArray
 
 from cubie._utils import opt_gttype_validator, getype_validator
-from cubie.cuda_simsafe import CUDA_SIMULATION, DeviceNDArrayBase
+from cubie.cuda_simsafe import (
+    CUDA_SIMULATION,
+    DeviceNDArrayBase,
+    is_pinned_array,
+)
 from cubie.memory import default_memmgr
 from cubie.memory.mem_manager import (
     ArrayRequest,
@@ -353,10 +358,10 @@ class BaseArrayManager(ABC):
     _requested_labels: set[str] = field(factory=set, init=False)
     _needs_overwrite: list[str] = field(factory=list, init=False)
     _memory_manager: MemoryManager = field(default=default_memmgr)
+    # Owner whose registration carries spill settings and whose
+    # registrations are evicted as one unit; the kernel for solver
+    # array managers, this instance itself when unset.
     _memory_owner: Optional[object] = field(default=None, eq=False)
-    _allow_memory_eviction: bool = field(default=False)
-    _host_spill_threshold: Optional[int] = field(default=None)
-    _spill_directory: Optional[object] = field(default=None)
     num_runs: int = field(default=1, validator=getype_validator(int, 1))
     # Signature of the solver state that determines array sizes; when
     # unchanged, update_from_solver skips rebuilding the size objects.
@@ -530,11 +535,8 @@ class BaseArrayManager(ABC):
             allocation_ready_hook=self._on_allocation_complete,
             stream_group=self._stream_group,
             owner=self._memory_owner,
-            evictable=self._allow_memory_eviction,
-            host_spill_threshold=self._host_spill_threshold,
-            spill_directory=self._spill_directory,
         )
-        settings = self._memory_manager.registry[id(self)]
+        settings = self._memory_manager.get_registration(self)
         self._finalizer = finalize(
             self,
             run_instance_teardown,
@@ -808,12 +810,12 @@ class BaseArrayManager(ABC):
         shape_only: bool = False,
     ) -> None:
         """
-        Mark host arrays for overwrite or reallocation based on updates.
+        Attach one incoming host array and record allocation needs.
 
         Parameters
         ----------
         new_array
-            Updated array whose values should land in the host buffer.
+            Replacement array for the slot.
         current_array
             Previously stored host array or ``None``.
         label
@@ -830,36 +832,41 @@ class BaseArrayManager(ABC):
 
         Notes
         -----
-        When the stored buffer already matches in shape and dtype, values
-        are copied into it in place and a host-to-device copy is queued
-        (unless ``shape_only``). Values are never compared: re-submitted
-        same-size arrays usually carry new values, and the copy is cheaper
-        than an element-wise comparison. Otherwise the array is staged
-        into a fresh buffer of the slot's memory type and queued for
-        reallocation.
+        Incoming arrays are attached verbatim: the slot records the
+        array's actual backing (pinned, pageable, or memmap) and
+        transfers read from it directly, so no copy is made. The one
+        exception is a dtype mismatch, which is cast once into a fresh
+        buffer. The solve reads input arrays when it runs — mutating a
+        submitted array between solves changes what the next solve
+        integrates.
         """
         if new_array is None:
             raise ValueError("New array is None")
         managed = self.host.get_managed_array(label)
 
-        if (
-            current_array is not None
-            and current_array.shape == new_array.shape
-            and current_array.dtype == managed.dtype
-        ):
-            if not shape_only:
-                current_array[...] = new_array
-                if label not in self._needs_overwrite:
-                    self._needs_overwrite.append(label)
+        if not shape_only and new_array.dtype != managed.dtype:
+            # The only copy in the update path: device transfers need
+            # the slot dtype, so a mismatched array is cast once.
+            new_array = np_ascontiguousarray(
+                new_array.astype(managed.dtype)
+            )
+
+        if current_array is new_array:
+            if not shape_only and label not in self._needs_overwrite:
+                self._needs_overwrite.append(label)
             return None
 
         if current_array is None:
             self._needs_reallocation.append(label)
             self._needs_overwrite.append(label)
         else:
-            if label not in self._needs_reallocation:
+            same_size = (
+                current_array.shape == new_array.shape
+                and new_array.dtype == managed.dtype
+            )
+            if not same_size and label not in self._needs_reallocation:
                 self._needs_reallocation.append(label)
-            if label not in self._needs_overwrite:
+            if not shape_only and label not in self._needs_overwrite:
                 self._needs_overwrite.append(label)
             if 0 in new_array.shape:
                 # Zero-size updates keep a unit placeholder buffer.
@@ -874,35 +881,10 @@ class BaseArrayManager(ABC):
                 else:
                     new_array = np_zeros(newshape, dtype=managed.dtype)
 
-        if not shape_only and managed.memory_type in ("pinned", "memmap"):
-            # Incoming arrays are external; copy into a slot-owned
-            # buffer so later mutation of the caller's array cannot
-            # leak into the solve. Small buffers are pinned for direct
-            # asynchronous transfer; larger ones are pageable and
-            # stage through bounded pinned blocks; only sizes above
-            # the spill policy go to disk.
-            memory_type = self._memory_manager.choose_host_memory_type(
-                new_array.nbytes, instance=self
-            )
-            staged = self._memory_manager.create_host_array(
-                new_array.shape,
-                managed.dtype,
-                memory_type,
-                like=new_array,
-                instance=self,
-            )
-            new_array = staged
-            replacement_memory_type = memory_type
-        else:
-            # The slot's recorded type follows the array actually
-            # attached.
-            replacement_memory_type = self._host_memory_type(
-                new_array, self._base_memory_type(managed.memory_type)
-            )
         if current_array is not new_array:
             self._memory_manager.release_host_array(current_array)
         self.host.attach(label, new_array)
-        managed.memory_type = replacement_memory_type
+        managed.memory_type = self._host_memory_type(new_array)
         return None
 
     def loan_host_arrays(self, owner: object) -> None:
@@ -959,16 +941,24 @@ class BaseArrayManager(ABC):
         return "pinned" if memory_type == "memmap" else memory_type
 
     @staticmethod
-    def _host_memory_type(array: NDArray, requested_type: str) -> str:
-        """Return the memory type of an allocated host array."""
+    def _host_memory_type(array: NDArray) -> str:
+        """Classify a host array's actual backing.
+
+        ``"pinned"`` requires C-contiguous page-locked memory, which
+        transfers directly and asynchronously. Strided or pageable
+        arrays stage through bounded pinned blocks, and memmaps are
+        disk-backed.
+        """
         if isinstance(array, np_memmap):
             return "memmap"
-        return requested_type
+        if is_pinned_array(array) and array.flags["C_CONTIGUOUS"]:
+            return "pinned"
+        return "host"
 
     @staticmethod
     def _requires_staging(array: NDArray, memory_type: str) -> bool:
         """Return whether a host array needs pinned staging."""
-        return memory_type != "pinned" or isinstance(array, np_memmap)
+        return memory_type != "pinned"
 
     def update_host_arrays(
         self,
@@ -1113,50 +1103,47 @@ class BaseArrayManager(ABC):
         )
 
     def _convert_host_to_pinned(self) -> None:
-        """Pin small host arrays for direct unchunked transfers.
+        """Repin small kernel-written slots for direct transfers.
 
-        The manager's policy decides each slot's backing: arrays above
-        the pinned ceiling stay pageable and stage through bounded
-        pinned buffers, and arrays above the spill threshold are
-        disk-backed.
+        Runs after the chunk decision, so pinning never happens for a
+        chunked solve. Slot content is not preserved: this applies
+        only to buffers the kernel's device transfers overwrite, and
+        input managers override it as a no-op because their slots hold
+        caller-supplied arrays verbatim.
         """
         for _, slot in self.host.iter_managed_arrays():
             old_array = slot.array
-            if old_array is None or slot.memory_type == "pinned":
-                continue
-            if isinstance(old_array, np_memmap):
-                slot.memory_type = "memmap"
+            if old_array is None or slot.memory_type in (
+                "pinned",
+                "memmap",
+            ):
                 continue
             target_type = self._memory_manager.choose_host_memory_type(
                 old_array.nbytes, instance=self
             )
-            if target_type == "host":
-                slot.memory_type = "host"
+            if target_type != "pinned":
                 continue
             new_array = self._memory_manager.create_host_array(
                 old_array.shape,
                 old_array.dtype,
-                target_type,
-                like=old_array,
+                "pinned",
                 instance=self,
             )
             self._memory_manager.release_host_array(old_array)
             slot.array = new_array
-            slot.memory_type = target_type
+            slot.memory_type = "pinned"
 
     def _convert_host_to_numpy(self) -> None:
-        """Convert pinned host arrays to regular numpy for chunked mode.
+        """Move chunk-staged kernel-written slots to pageable backing.
 
-        When chunking is active, host arrays should be regular numpy
-        to limit pinned memory usage. Per-chunk pinned buffers are
-        used for staging during transfers. An array whose size exceeds
-        the memory manager's spill threshold comes back disk-backed;
-        its slot is marked ``"memmap"``.
+        When chunking is active, full-size host buffers stay pageable
+        and per-chunk transfers stage through the bounded pinned
+        pool. Slot content is not preserved: this applies only to
+        buffers each chunk writes back into, and input managers
+        override it as a no-op because their slots hold
+        caller-supplied arrays verbatim.
         """
         for _, slot in self.host.iter_managed_arrays():
-            if isinstance(slot.array, np_memmap):
-                slot.memory_type = "memmap"
-                continue
             if slot.memory_type == "pinned" and slot.needs_chunked_transfer:
                 old_array = slot.array
                 if old_array is not None:
@@ -1164,10 +1151,8 @@ class BaseArrayManager(ABC):
                         old_array.shape,
                         old_array.dtype,
                         "host",
-                        like=old_array,
                         instance=self,
                     )
-                    new_type = self._host_memory_type(new_array, "host")
                     self._memory_manager.release_host_array(old_array)
                     slot.array = new_array
-                    slot.memory_type = new_type
+                    slot.memory_type = "host"

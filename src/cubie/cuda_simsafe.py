@@ -82,7 +82,7 @@ from typing import Any, Callable, Mapping, Optional, Tuple, Union
 
 from attrs import Factory, define, field
 from attrs import validators as attrs_validators
-from numpy import dtype
+from numpy import dtype, ndarray as np_ndarray
 
 from cubie.cuda_backend import IS_MLIR
 from cubie._env import lineinfo_default
@@ -371,6 +371,22 @@ def is_cuda_array(value: Any) -> bool:
     return _is_cuda_array(value)
 
 
+def is_pinned_array(array: Any) -> bool:
+    """Return whether a host array is backed by page-locked memory.
+
+    Walks the view chain to the owning object and checks for the
+    CuPy pinned-pool pointer, which backs every pinned allocation
+    CuBIE makes. Always ``False`` under the CUDA simulator, which
+    has no page-locked memory.
+    """
+    if CUDA_SIMULATION:  # pragma: no cover - simulated
+        return False
+    base = array
+    while isinstance(base, np_ndarray):
+        base = base.base
+    return isinstance(base, cupy.cuda.PinnedMemoryPointer)
+
+
 def from_dtype(dt: dtype):
     """Return a CUDA-ready dtype or a simulator-safe placeholder.
 
@@ -646,6 +662,7 @@ __all__ = [
     "int32",
     "is_cuda_array",
     "is_cudasim_enabled",
+    "is_pinned_array",
     "max_shared_memory_per_block",
     "is_devfunc",
     "MappedNDArray",

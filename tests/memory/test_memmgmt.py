@@ -314,7 +314,11 @@ class TestMemoryManager:
             callback_called["flag"] = True
             callback_called["response"] = response
 
-        mgr.register(instance, allocation_ready_hook=allocation_hook)
+        mgr.register(
+            instance,
+            allocation_ready_hook=allocation_hook,
+            invalidate_cache_hook=instance.notice_invalidate,
+        )
 
         requests = {
             "arr1": ArrayRequest(
@@ -646,7 +650,11 @@ class TestMemoryManager:
             callback_called["flag"] = True
             callback_called["response"] = response
 
-        mgr.register(instance, allocation_ready_hook=allocation_hook)
+        mgr.register(
+            instance,
+            allocation_ready_hook=allocation_hook,
+            invalidate_cache_hook=instance.notice_invalidate,
+        )
 
         requests = {
             "arr1": ArrayRequest(
@@ -688,8 +696,18 @@ class TestMemoryManager:
             callbacks_called["inst2"]["flag"] = True
             callbacks_called["inst2"]["response"] = response
 
-        mgr.register(inst1, allocation_ready_hook=hook1, stream_group="test")
-        mgr.register(inst2, allocation_ready_hook=hook2, stream_group="test")
+        mgr.register(
+            inst1,
+            allocation_ready_hook=hook1,
+            invalidate_cache_hook=inst1.notice_invalidate,
+            stream_group="test",
+        )
+        mgr.register(
+            inst2,
+            allocation_ready_hook=hook2,
+            invalidate_cache_hook=inst2.notice_invalidate,
+            stream_group="test",
+        )
 
         requests1 = {
             "arr1": ArrayRequest(
@@ -735,7 +753,9 @@ class TestMemoryManager:
         instance = memory_client
         responses = []
         mgr.register(
-            instance, allocation_ready_hook=lambda r: responses.append(r)
+            instance,
+            allocation_ready_hook=lambda r: responses.append(r),
+            invalidate_cache_hook=instance.notice_invalidate,
         )
 
         requests = {
@@ -924,7 +944,11 @@ class TestGetChunkParameters:
         """Verify error when unchunkable arrays exceed available memory."""
         # Register an instance
         inst = memory_client
-        mgr.register(inst, stream_group="test")
+        mgr.register(
+            inst,
+            stream_group="test",
+            invalidate_cache_hook=inst.notice_invalidate,
+        )
 
         # Create a request where unchunkable size exceeds available memory
         # Memory manager has 1GB free (1 * 1024**3 bytes)
@@ -988,6 +1012,9 @@ class TestAllocateQueueExtractsNumRuns:
             def __init__(self, runs):
                 self.run_params = MockRunParams(runs)
 
+            def notice_invalidate(self):
+                pass
+
         instance = MockInstance(runs=100)
 
         # Track whether the allocation callback was called with correct
@@ -998,7 +1025,11 @@ class TestAllocateQueueExtractsNumRuns:
             callback_called["flag"] = True
             callback_called["response"] = response
 
-        mgr.register(instance, allocation_ready_hook=allocation_hook)
+        mgr.register(
+            instance,
+            allocation_ready_hook=allocation_hook,
+            invalidate_cache_hook=instance.notice_invalidate,
+        )
 
         # Create requests with arrays that have run axis
         # The shape indicates 50 runs, but run_params.runs is 100
@@ -1047,6 +1078,9 @@ class TestAllocateQueueExtractsNumRuns:
             def __init__(self, runs):
                 self.run_params = MockRunParams(runs)
 
+            def notice_invalidate(self):
+                pass
+
         # Use large num_runs to increase memory requirements
         instance = MockInstance(runs=10000)
 
@@ -1056,7 +1090,11 @@ class TestAllocateQueueExtractsNumRuns:
             callback_called["flag"] = True
             callback_called["response"] = response
 
-        mgr.register(instance, allocation_ready_hook=allocation_hook)
+        mgr.register(
+            instance,
+            allocation_ready_hook=allocation_hook,
+            invalidate_cache_hook=instance.notice_invalidate,
+        )
 
         # Create large requests to force chunking
         # Each element is 4 bytes, so 10000 runs * 100 vars * 4 bytes =
@@ -1126,6 +1164,9 @@ def test_allocate_queue_no_chunked_slices_in_response(mgr):
         def __init__(self, runs):
             self.run_params = MockRunParams(runs)
 
+        def notice_invalidate(self):
+            pass
+
     instance = MockInstance(runs=100)
 
     # Track the allocation callback response
@@ -1135,7 +1176,11 @@ def test_allocate_queue_no_chunked_slices_in_response(mgr):
         callback_called["flag"] = True
         callback_called["response"] = response
 
-    mgr.register(instance, allocation_ready_hook=allocation_hook)
+    mgr.register(
+            instance,
+            allocation_ready_hook=allocation_hook,
+            invalidate_cache_hook=instance.notice_invalidate,
+        )
 
     # Create requests with chunkable arrays
     requests = {
@@ -1187,7 +1232,8 @@ def test_allocate_queue_uses_first_request_total_runs(mgr):
 
     # Create instance without run_params (not needed anymore)
     class MockInstance:
-        pass
+        def notice_invalidate(self):
+            pass
 
     instance = MockInstance()
 
@@ -1198,7 +1244,11 @@ def test_allocate_queue_uses_first_request_total_runs(mgr):
         callback_called["flag"] = True
         callback_called["response"] = response
 
-    mgr.register(instance, allocation_ready_hook=allocation_hook)
+    mgr.register(
+            instance,
+            allocation_ready_hook=allocation_hook,
+            invalidate_cache_hook=instance.notice_invalidate,
+        )
 
     # Create requests where first request has total_runs=150
     requests = {
@@ -1241,7 +1291,8 @@ def test_allocate_queue_handles_all_requests_same_total_runs(mgr):
 
     # Create instance without run_params (not needed anymore)
     class MockInstance:
-        pass
+        def notice_invalidate(self):
+            pass
 
     instance = MockInstance()
 
@@ -1252,7 +1303,11 @@ def test_allocate_queue_handles_all_requests_same_total_runs(mgr):
         callback_called["flag"] = True
         callback_called["response"] = response
 
-    mgr.register(instance, allocation_ready_hook=allocation_hook)
+    mgr.register(
+            instance,
+            allocation_ready_hook=allocation_hook,
+            invalidate_cache_hook=instance.notice_invalidate,
+        )
 
     # Create multiple requests all with same total_runs=200
     requests = {
@@ -1661,8 +1716,18 @@ def test_allocate_queue_notifies_notaries(mgr, memory_clients):
     def hook2(response):
         responses["inst2"] = response
 
-    mgr.register(inst1, allocation_ready_hook=hook1, stream_group="grp")
-    mgr.register(inst2, allocation_ready_hook=hook2, stream_group="grp")
+    mgr.register(
+        inst1,
+        allocation_ready_hook=hook1,
+        invalidate_cache_hook=inst1.notice_invalidate,
+        stream_group="grp",
+    )
+    mgr.register(
+        inst2,
+        allocation_ready_hook=hook2,
+        invalidate_cache_hook=inst2.notice_invalidate,
+        stream_group="grp",
+    )
 
     requests = {
         "arr1": ArrayRequest(
@@ -1836,10 +1901,17 @@ def test_allocation_pressure_does_not_run_cyclic_gc(mgr, memory_client):
         def __init__(self):
             self._cycle = self
 
+        def notice_invalidate(self):
+            pass
+
     gc.disable()
     try:
         holder = CyclicClient()
-        mgr.register(holder, stream_group="pressure_holder")
+        mgr.register(
+            holder,
+            stream_group="pressure_holder",
+            invalidate_cache_hook=holder.notice_invalidate,
+        )
         mgr.queue_request(
             holder,
             {
@@ -1859,7 +1931,11 @@ def test_allocation_pressure_does_not_run_cyclic_gc(mgr, memory_client):
         assert dead_id in mgr.registry
 
         requester = memory_client
-        mgr.register(requester, stream_group="pressure_requester")
+        mgr.register(
+            requester,
+            stream_group="pressure_requester",
+            invalidate_cache_hook=requester.notice_invalidate,
+        )
         mgr.queue_request(
             requester,
             {
@@ -1886,13 +1962,9 @@ def test_allocation_pressure_does_not_run_cyclic_gc(mgr, memory_client):
 
 
 def test_owner_work_state_tracks_submission(mgr, memory_client):
-    """Owner work stays active until its completion event finishes.
-
-    Registered with ``evictable=True`` so ``end_work`` records a real
-    completion event instead of skipping straight to work_complete.
-    """
+    """Owner work stays active until its completion event finishes."""
     inst = memory_client
-    mgr.register(inst, stream_group="flags", evictable=True)
+    mgr.register(inst, stream_group="flags")
     settings = mgr.registry[id(inst)]
     assert settings.work_complete
     mgr.begin_work(inst)
@@ -1910,8 +1982,8 @@ def test_owner_work_state_tracks_submission(mgr, memory_client):
     indirect=True,
 )
 @pytest.mark.parametrize("memory_clients", [3], indirect=True)
-def test_pressure_evicts_opted_in_complete_owner(mgr, memory_clients):
-    """Physical pressure evicts only opted-in completed owners.
+def test_pressure_evicts_idle_complete_owner(mgr, memory_clients):
+    """Physical pressure evicts idle completed owners.
 
     The idle client's allocations are freed and its invalidate hook
     runs (so it reallocates on its next solve); a client marked
@@ -1922,13 +1994,11 @@ def test_pressure_evicts_opted_in_complete_owner(mgr, memory_clients):
         idle,
         invalidate_cache_hook=idle.notice_invalidate,
         stream_group="evict_idle",
-        evictable=True,
     )
     mgr.register(
         busy,
         invalidate_cache_hook=busy.notice_invalidate,
         stream_group="evict_busy",
-        evictable=True,
     )
     for instance in (idle, busy):
         mgr.queue_request(
@@ -1950,7 +2020,11 @@ def test_pressure_evicts_opted_in_complete_owner(mgr, memory_clients):
     busy.proportion = "armed"
     mgr.begin_work(busy)
 
-    mgr.register(requester, stream_group="evict_requester")
+    mgr.register(
+        requester,
+        stream_group="evict_requester",
+        invalidate_cache_hook=requester.notice_invalidate,
+    )
     mgr.queue_request(
         requester,
         {
@@ -1976,33 +2050,34 @@ def test_pressure_evicts_opted_in_complete_owner(mgr, memory_clients):
     [{"free": 2048, "total": 8 * 1024**3}],
     indirect=True,
 )
-@pytest.mark.parametrize("memory_clients", [4], indirect=True)
-def test_external_and_inflight_owners_are_not_evicted(mgr, memory_clients):
-    """Pressure keeps external and in-flight allocations."""
-    external, inflight, no_invalidator, requester = memory_clients
-    mgr.register(external, stream_group="external")
-    mgr.register(inflight, stream_group="inflight", evictable=True)
+@pytest.mark.parametrize("memory_clients", [2], indirect=True)
+def test_inflight_owner_is_not_evicted(mgr, memory_clients):
+    """Pressure keeps allocations whose CUDA work is still in flight."""
+    inflight, requester = memory_clients
     mgr.register(
-        no_invalidator,
-        stream_group="no_invalidator",
-        evictable=True,
+        inflight,
+        invalidate_cache_hook=inflight.notice_invalidate,
+        stream_group="inflight",
     )
-    for instance in (external, inflight, no_invalidator):
-        mgr.queue_request(
-            instance,
-            {
-                "buf": ArrayRequest(
-                    shape=(4, 4, 4),
-                    dtype=np.float32,
-                    memory="device",
-                    total_runs=4,
-                )
-            },
-        )
-        mgr.allocate_queue(instance)
+    mgr.queue_request(
+        inflight,
+        {
+            "buf": ArrayRequest(
+                shape=(4, 4, 4),
+                dtype=np.float32,
+                memory="device",
+                total_runs=4,
+            )
+        },
+    )
+    mgr.allocate_queue(inflight)
     mgr.begin_work(inflight)
 
-    mgr.register(requester, stream_group="protected_requester")
+    mgr.register(
+        requester,
+        stream_group="protected_requester",
+        invalidate_cache_hook=requester.notice_invalidate,
+    )
     mgr.queue_request(
         requester,
         {
@@ -2016,9 +2091,29 @@ def test_external_and_inflight_owners_are_not_evicted(mgr, memory_clients):
     )
     mgr.allocate_queue(requester)
 
-    assert mgr.registry[id(external)].allocated_bytes > 0
     assert mgr.registry[id(inflight)].allocated_bytes > 0
-    assert mgr.registry[id(no_invalidator)].allocated_bytes > 0
+
+
+def test_queue_request_requires_live_invalidate_hook(mgr, memory_client):
+    """Requesting allocations without an invalidate hook is an error.
+
+    Allocation holders are eviction candidates, so a registration
+    that cannot drop its device handles must be rejected before it
+    ever holds any.
+    """
+    mgr.register(memory_client, stream_group="no_hook")
+    with pytest.raises(ValueError, match="invalidate_cache_hook"):
+        mgr.queue_request(
+            memory_client,
+            {
+                "buf": ArrayRequest(
+                    shape=(4, 4, 4),
+                    dtype=np.float32,
+                    memory="device",
+                    total_runs=4,
+                )
+            },
+        )
 
 
 @pytest.mark.parametrize(
@@ -2035,7 +2130,6 @@ def test_pressure_evicts_only_required_lru_owner(mgr, memory_clients):
         mgr.register(
             owner,
             stream_group=f"lru_{index}",
-            evictable=True,
             invalidate_cache_hook=owner.notice_invalidate,
         )
         mgr.queue_request(
@@ -2055,7 +2149,11 @@ def test_pressure_evicts_only_required_lru_owner(mgr, memory_clients):
         mgr.end_work(owner, stream)
         stream.synchronize()
 
-    mgr.register(requester, stream_group="lru_requester")
+    mgr.register(
+        requester,
+        stream_group="lru_requester",
+        invalidate_cache_hook=requester.notice_invalidate,
+    )
     mgr.queue_request(
         requester,
         {
@@ -2080,7 +2178,9 @@ def test_total_system_ram_reports_positive():
     assert ram_total > 0
 
 
-def test_choose_host_memory_type_applies_policy(mgr, tmp_path):
+def test_choose_host_memory_type_applies_policy(
+    registered_mgr, registered_instance, tmp_path
+):
     """The chooser maps sizes to pinned, pageable, and disk backing.
 
     Sizes at or below the pinned ceiling are pinned (unless the
@@ -2089,27 +2189,34 @@ def test_choose_host_memory_type_applies_policy(mgr, tmp_path):
     arrays are created zeroed in the spill directory, ``like`` data
     is copied, and the backing file is deleted on collection.
     """
+    mgr = registered_mgr
+    client = registered_instance
     mgr.spill_directory = str(tmp_path)
     mgr.host_spill_threshold = 1024
     mgr.pinned_max_bytes = 256
 
-    assert mgr.choose_host_memory_type(128) == "pinned"
-    assert mgr.choose_host_memory_type(512) == "host"
-    assert mgr.choose_host_memory_type(4096) == "memmap"
-    assert mgr.choose_host_memory_type(128, allow_pinned=False) == "host"
+    assert mgr.choose_host_memory_type(128, client) == "pinned"
+    assert mgr.choose_host_memory_type(512, client) == "host"
+    assert mgr.choose_host_memory_type(4096, client) == "memmap"
+    assert (
+        mgr.choose_host_memory_type(128, client, allow_pinned=False)
+        == "host"
+    )
 
     small = mgr.create_host_array((4, 4), np.float64, "host")
     assert not isinstance(small, np.memmap)
 
-    big_type = mgr.choose_host_memory_type(64 * 64 * 8)
-    big = mgr.create_host_array((64, 64), np.float64, big_type)
+    big_type = mgr.choose_host_memory_type(64 * 64 * 8, client)
+    big = mgr.create_host_array(
+        (64, 64), np.float64, big_type, instance=client
+    )
     assert isinstance(big, np.memmap)
     assert (np.asarray(big) == 0.0).all()
     assert len(list(tmp_path.iterdir())) == 1
 
     source = np.arange(16, dtype=np.float64).reshape(4, 4)
     explicit = mgr.create_host_array(
-        (4, 4), np.float64, "memmap", like=source
+        (4, 4), np.float64, "memmap", like=source, instance=client
     )
     assert isinstance(explicit, np.memmap)
     assert np.array_equal(np.asarray(explicit), source)
@@ -2125,10 +2232,15 @@ def test_manager_rejects_negative_spill_threshold():
         MemoryManager(host_spill_threshold=-1)
 
 
-def test_release_host_array_reports_unlink_failure(mgr, tmp_path):
+def test_release_host_array_reports_unlink_failure(
+    registered_mgr, registered_instance, tmp_path
+):
     """Explicit spill cleanup reports a filesystem failure."""
+    mgr = registered_mgr
     mgr.spill_directory = tmp_path
-    array = mgr.create_host_array((4,), np.float64, "memmap")
+    array = mgr.create_host_array(
+        (4,), np.float64, "memmap", instance=registered_instance
+    )
     path = Path(array._cubie_spill_path)
     cleanup = array._cubie_spill_cleanup
     array._mmap.close()
@@ -2144,14 +2256,17 @@ def test_release_host_array_reports_unlink_failure(mgr, tmp_path):
 
 @pytest.mark.nocudasim
 def test_host_spill_does_not_wait_for_unrelated_stream(
-    tmp_path, start_cuda_busy_work
+    memory_client, tmp_path, start_cuda_busy_work
 ):
     """Host spill setup leaves unrelated CUDA work running."""
     work, stream, done = start_cuda_busy_work()
     manager = MemoryManager(host_spill_threshold=1, spill_directory=tmp_path)
+    manager.register(memory_client)
     try:
-        memory_type = manager.choose_host_memory_type(32 * 4)
-        arr = manager.create_host_array((32,), np.float32, memory_type)
+        memory_type = manager.choose_host_memory_type(32 * 4, memory_client)
+        arr = manager.create_host_array(
+            (32,), np.float32, memory_type, instance=memory_client
+        )
         assert isinstance(arr, np.memmap)
         assert not done.query()
     finally:

@@ -26,7 +26,8 @@ Allocation, streams, and chunk math live in `cubie.memory`.
 ### Two containers per manager
 Each manager owns a `host` and a `device` container of the same type; arrays are matched by
 field name. Iterate both via `_iter_managed_arrays` (device then host), one container via
-`container.iter_managed_arrays()`. Host is pinned by default; device is `"device"`.
+`container.iter_managed_arrays()`. Host slot types describe the attached array's actual
+backing (`pinned`/`host`/`memmap`); device is `"device"`.
 
 ### ManagedArray & chunking
 - A `ManagedArray` always holds a real backing array — `__attrs_post_init__` allocates a
@@ -41,14 +42,16 @@ field name. Iterate both via `_iter_managed_arrays` (device then host), one cont
 
 ### Lifecycle
 `from_solver(...)` builds a manager with sizes only (no allocation). `update(...)` refreshes
-sizes/precision/run-count, sets host arrays (`update_host_arrays` — same-shape updates copy
-values into the existing host buffer in place and queue `_needs_overwrite`; shape changes
-stage into a buffer of the slot's memory type and queue reallocation), and calls
-`allocate()`, which queues `ArrayRequest`s with the memory manager. The memory manager later drives
-`_on_allocation_complete(response)`: attach device arrays, record
-`chunked_shape`/`chunk_length`/`num_chunks`, set `_chunks`, and convert host arrays to pinned
-(non-chunked) or plain numpy (chunked). `_invalidate_hook` drops device refs and re-marks
-everything for reallocation.
+sizes/precision/run-count, sets host arrays (`update_host_arrays` — incoming arrays are
+attached **verbatim** with their actual backing recorded on the slot; the only copy is a
+dtype cast; same-shape attaches queue `_needs_overwrite`, shape changes also queue
+reallocation), and calls `allocate()`, which queues `ArrayRequest`s with the memory manager.
+The memory manager later drives `_on_allocation_complete(response)`: attach device arrays,
+record `chunked_shape`/`chunk_length`/`num_chunks`, set `_chunks`, and re-back
+kernel-written output slots (repin small non-chunked buffers, pageable for chunked — fresh
+allocations, never copies, since the kernel overwrites them; input managers override both
+conversions as no-ops). `_invalidate_hook` drops device refs and re-marks everything for
+reallocation.
 
 ### Teardown
 Explicit close drains transfer watchers before clearing staging pools and
@@ -56,21 +59,27 @@ device registrations. Failures leave resources attached so close can be
 retried. Finalizers use cleanup calls that do not capture the manager.
 
 ### Per-chunk hooks (called by `BatchSolverKernel.run` around each launch)
-- `initialise(chunk_index)` — pre-launch. `InputArrays`: H2D (non-chunked copies the
-  `_needs_overwrite` arrays; chunked stages each run-axis slice through a `ChunkBufferPool`
-  pinned buffer). `OutputArrays`: no-op.
+- `initialise(chunk_index)` — pre-launch. `InputArrays`: H2D. Pinned contiguous sources
+  transfer directly; everything else (pageable, memmap, or any chunk slice) stages
+  block-by-block through `ChunkBufferPool` pinned buffers, each handed to the transfer
+  watcher with its own event. `OutputArrays`: no-op.
 - `finalise(chunk_index)` — post-launch. `OutputArrays`: D2H for the outputs the compile
-  flags enable (placeholder arrays are skipped); chunked copies into a pooled pinned buffer
-  and submits a `PendingBuffer` to the `WritebackWatcher`; non-chunked transfers immediately
-  (still async). `InputArrays`: releases its staging buffers.
+  flags enable (placeholder arrays are skipped); pinned slots transfer directly, everything
+  else stages block-by-block, each block submitted to the `WritebackWatcher` with its own
+  event for the trimmed copy into the host target and buffer release.
+- Neither hook ever blocks the host on the stream: pacing comes from the pool's
+  RAM-headroom bound, so the CPU stages chunk N+1 while kernel N runs and writebacks of
+  chunk N drain during kernel N+1.
 
 ### Memory types
 Output host arrays are created pageable (or `"memmap"` above the spill
 threshold); after the chunk decision, non-chunked arrays at or below
-the manager's `pinned_max_bytes` are converted to pinned for direct
-async transfer. Everything pageable or memmapped stages through pinned
-buffers capped by `HOST_STAGING_BYTES`. Full-size pinned allocations
-above the ceiling never happen.
+the manager's `pinned_max_bytes` are re-backed pinned (fresh, no copy)
+for direct async transfer. Input slots record the attached array's
+actual backing; the grid handler materialises assembled inputs into
+pinned buffers below the ceiling, so they transfer directly. Staging
+blocks are capped by `HOST_STAGING_BYTES`. Full-size pinned
+allocations above the ceiling never happen.
 
 ### Result buffer loans
 After a solve, `loan_host_arrays(result)` empties every host slot into
@@ -106,7 +115,7 @@ warns (doesn't raise) on an unknown label.
 - `cubie.memory` (`default_memmgr`, `MemoryManager`, `ArrayRequest`/`ArrayResponse`,
   `chunk_buffer_pool.ChunkBufferPool`/`PinnedBuffer`); `cubie.outputhandling.output_sizes`
   (`ArraySizingClass`, `BatchInputSizes`, `BatchOutputSizes`); `cubie.batchsolving`
-  (`ArrayTypes`); `cubie.batchsolving.writeback_watcher` (`WritebackWatcher`, `PendingBuffer`);
+  (`ArrayTypes`); `cubie.batchsolving.writeback_watcher` (`WritebackWatcher`);
   `cubie.cuda_simsafe` (`DeviceNDArrayBase`, `CUDA_SIMULATION`); `cubie._utils` (validators).
 ### External
 - `numpy`; `attrs`; `numba.cuda` (events in `OutputArrays.finalise`).

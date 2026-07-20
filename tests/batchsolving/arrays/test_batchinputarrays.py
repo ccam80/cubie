@@ -185,17 +185,6 @@ def test_update_from_solver_sizes_precision_runs(solverkernel_mutable):
             assert arr_obj.dtype == sk.precision
 
 
-# ── finalise (item 20) ──────────────────────────────────── #
-
-
-def test_finalise_releases_buffers(solverkernel_mutable):
-    """finalise calls release_buffers, clearing _active_buffers."""
-    ia = solverkernel_mutable.input_arrays
-    ia._active_buffers.clear()
-    ia.finalise(0)
-    assert ia._active_buffers == []
-
-
 # ── initialise non-chunked (items 21, 23, 25) ───────────── #
 
 
@@ -224,25 +213,13 @@ def test_initialise_non_chunked_clears_overwrite_list(
 # integration tests through the conftest fixtures.
 
 
-# ── release_buffers (item 26) ───────────────────────────── #
-
-
-def test_release_buffers_clears_active_buffers(solverkernel_mutable):
-    """release_buffers returns all pooled buffers and clears list."""
-    ia = solverkernel_mutable.input_arrays
-    ia._active_buffers.clear()
-    ia.release_buffers()
-    assert ia._active_buffers == []
-
-
 # ── reset (items 27-28) ─────────────────────────────────── #
 
 
 def test_reset_clears_pool_and_buffers(solverkernel_mutable):
-    """reset calls super().reset() and clears pool + active buffers."""
+    """reset calls super().reset() and clears the staging pool."""
     ia = solverkernel_mutable.input_arrays
     ia.reset()
-    assert ia._active_buffers == []
     assert ia._buffer_pool._buffers == {}
     # super().reset() clears host/device and tracking lists
     assert ia._needs_reallocation == []

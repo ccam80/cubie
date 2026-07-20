@@ -139,3 +139,44 @@ def test_thread_safe_concurrent_acquire_release():
     for t in threads:
         t.join()
     assert len(errors) == 0
+
+
+# ── headroom-bounded growth ───────────────────────────────────── #
+
+class _ThrottledPool(ChunkBufferPool):
+    """Pool whose headroom check is forced closed for testing."""
+
+    def _headroom_allows(self, shape, dtype):
+        return False
+
+
+def test_acquire_grows_first_buffer_even_without_headroom():
+    """A label with nothing in flight always gets one buffer."""
+    pool = _ThrottledPool()
+    buf = pool.acquire("state", (10,), np.float32)
+    assert buf.in_use is True
+
+
+def test_acquire_blocks_until_release_when_headroom_exhausted():
+    """With headroom exhausted, acquire waits for an in-flight
+    buffer to be released rather than growing the pool."""
+    pool = _ThrottledPool()
+    first = pool.acquire("state", (10,), np.float32)
+    acquired = []
+    started = threading.Event()
+
+    def worker():
+        started.set()
+        acquired.append(pool.acquire("state", (10,), np.float32))
+
+    thread = threading.Thread(target=worker, daemon=True)
+    thread.start()
+    started.wait(timeout=2.0)
+    thread.join(timeout=0.2)
+    assert thread.is_alive()
+    assert acquired == []
+
+    pool.release(first)
+    thread.join(timeout=2.0)
+    assert not thread.is_alive()
+    assert acquired[0] is first

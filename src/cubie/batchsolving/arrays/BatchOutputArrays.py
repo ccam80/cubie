@@ -22,7 +22,7 @@ See Also
     Primary consumer that owns output array instances.
 """
 
-from typing import TYPE_CHECKING, Dict, List, Optional, Union
+from typing import TYPE_CHECKING, Dict, Optional, Union
 
 if TYPE_CHECKING:
     from cubie.batchsolving.BatchSolverKernel import BatchSolverKernel
@@ -51,10 +51,7 @@ from cubie.batchsolving.arrays.BaseArrayManager import (
 from cubie.batchsolving import ArrayTypes
 from cubie.memory.chunk_buffer_pool import ChunkBufferPool
 from cubie.memory.mem_manager import HOST_STAGING_BYTES
-from cubie.batchsolving.writeback_watcher import (
-    WritebackWatcher,
-    PendingBuffer,
-)
+from cubie.batchsolving.writeback_watcher import WritebackWatcher
 from cubie.cuda_simsafe import CUDA_SIMULATION
 
 ChunkIndices = Union[slice, NDArray[np_integer]]
@@ -194,7 +191,6 @@ class OutputArrays(BaseArrayManager):
     )
     _buffer_pool: ChunkBufferPool = field(factory=ChunkBufferPool, init=False)
     _watcher: WritebackWatcher = field(factory=WritebackWatcher, init=False)
-    _pending_buffers: List[PendingBuffer] = field(factory=list, init=False)
     # Outputs the kernel writes this run; None means transfer all.
     _active_names: Optional[frozenset] = field(default=None, init=False)
 
@@ -324,9 +320,6 @@ class OutputArrays(BaseArrayManager):
             memory_manager=solver_instance.memory_manager,
             stream_group=solver_instance.stream_group,
             memory_owner=solver_instance,
-            allow_memory_eviction=solver_instance.allow_memory_eviction,
-            host_spill_threshold=solver_instance.host_spill_threshold,
-            spill_directory=solver_instance.spill_directory,
         )
 
     def update_from_solver(
@@ -397,11 +390,13 @@ class OutputArrays(BaseArrayManager):
             ):
                 new_arrays[name] = current
             else:
-                # Kernel outputs are written by device transfers, so
-                # they never need a pinned allocation up front: small
-                # unchunked arrays are pinned after the chunk decision
-                # in _convert_host_to_pinned, and everything else is
-                # pageable or, above the spill policy, disk-backed.
+                # This runs before the chunk decision, so pinning is
+                # deferred: a chunked solve must not hold full-size
+                # pinned buffers. _convert_host_to_pinned repins small
+                # unchunked slots once the decision lands; chunked and
+                # oversized slots stay pageable (or disk-backed above
+                # the spill policy) and D2H stays asynchronous by
+                # staging through the pooled pinned buffers.
                 nbytes = int(prod(newshape)) * np_dtype(dtype).itemsize
                 base_type = self._memory_manager.choose_host_memory_type(
                     nbytes, instance=self, allow_pinned=False
@@ -468,25 +463,10 @@ class OutputArrays(BaseArrayManager):
         if from_:
             self.from_device(from_, to_, stream=stream)
 
-        # Record events and submit to watcher for chunked mode
-        if self._pending_buffers:
-            if not CUDA_SIMULATION:
-                event = cuda.event()
-                event.record(stream)
-            else:
-                event = None
-
-            for buffer in self._pending_buffers:
-                self._watcher.submit_from_pending_buffer(
-                    event=event,
-                    pending_buffer=buffer,
-                )
-            self._pending_buffers.clear()
-
     def _stage_array(
         self, array_name, device_array, host_array, stream
     ) -> None:
-        """Stage one device output through bounded pinned buffers.
+        """Stage one device output through pooled pinned buffers.
 
         The host target may be a strided view (a chunk slice or a
         memmap), so completed blocks are written through strided
@@ -495,13 +475,16 @@ class OutputArrays(BaseArrayManager):
         to keep each pinned buffer within ``HOST_STAGING_BYTES``, and
         the buffer is trimmed to the host block's shape because the
         device array can carry extra run-axis padding on the final
-        chunk.
+        chunk. Each block is handed to the writeback watcher with its
+        own event: the watcher copies it to the host target and
+        releases the buffer as soon as its transfer lands, so this
+        method never blocks on the stream and the drain of one chunk
+        overlaps the next chunk's kernel.
         """
         dtype = host_array.dtype
         row_elements = max(1, prod(device_array.shape[1:]))
         rows = max(1, HOST_STAGING_BYTES // (row_elements * dtype.itemsize))
         length = device_array.shape[0]
-        single_block = rows >= length
         for start in range(0, length, rows):
             stop = min(start + rows, length)
             device_block = device_array[start:stop]
@@ -510,28 +493,23 @@ class OutputArrays(BaseArrayManager):
                 array_name, device_block.shape, dtype
             )
             self.from_device([device_block], [buffer.array], stream=stream)
-            trim = tuple(slice(0, extent) for extent in host_block.shape)
             if CUDA_SIMULATION:
+                trim = tuple(
+                    slice(0, extent) for extent in host_block.shape
+                )
                 host_block[...] = buffer.array[trim]
                 self._buffer_pool.release(buffer)
-            elif single_block:
-                self._pending_buffers.append(
-                    PendingBuffer(
-                        buffer=buffer,
-                        target_array=host_block,
-                        array_name=array_name,
-                        data_shape=host_block.shape,
-                        buffer_pool=self._buffer_pool,
-                    )
-                )
             else:
-                # Reuse waits only for this D2H slice. Single-block
-                # transfers stay fully asynchronous via the watcher.
                 event = cuda.event()
                 event.record(stream)
-                event.synchronize()
-                host_block[...] = buffer.array[trim]
-                self._buffer_pool.release(buffer)
+                self._watcher.submit(
+                    event=event,
+                    buffer=buffer,
+                    target_array=host_block,
+                    buffer_pool=self._buffer_pool,
+                    array_name=array_name,
+                    data_shape=host_block.shape,
+                )
 
     def wait_pending(self, timeout: Optional[float] = None) -> None:
         """Wait for all pending async writebacks to complete.
@@ -568,7 +546,6 @@ class OutputArrays(BaseArrayManager):
         super().reset()
         self._watcher.shutdown()
         self._buffer_pool.clear()
-        self._pending_buffers.clear()
 
     def _teardown_cleanups(self):
         """Return writeback cleanup calls."""

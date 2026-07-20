@@ -20,10 +20,10 @@ See `CUDAFactory` (root) for build/cache/`update`, config, and attrs conventions
 | `solver.py` | `Solver` + `solve_ivp()` — the public API. `solve_ivp` also accepts raw equations (callable / string / iterable of strings), building the system via `_system_from_equations` (state names from a `y0` dict, parameter defaults from a `parameters` dict; array `parameters` rejected). `Solver` owns `system_interface`, `input_handler` (`BatchInputHandler`), `driver_interpolator` (`ArrayInterpolator`), and `kernel` (`BatchSolverKernel`); most getters are thin pass-throughs to `kernel`. |
 | `BatchSolverKernel.py` | `BatchSolverKernel(CUDAFactory)` — the batch `@cuda.jit` kernel; maps each run to the `SingleIntegratorRun` device loop. Defines `RunParams` (frozen: duration/warmup/t0/runs + chunk metadata) and `BatchSolverCache`; owns the `InputArrays`/`OutputArrays` managers and memory-manager registration. |
 | `BatchSolverConfig.py` | `BatchSolverConfig(CUDAFactoryConfig)` — holds `precision`, `loop_fn`, `compile_flags`. `ActiveOutputs(_CubieConfigBase)` — booleans for which output arrays are produced, built via `ActiveOutputs.from_compile_flags(...)`. |
-| `BatchInputHandler.py` | `BatchInputHandler` (plain class) + module-level grid builders (`unique_cartesian_product`, `combinatorial_grid`, `verbatim_grid`, `generate_grid`, `combine_grids`, `extend_grid_to_array`). Converts user dicts/arrays into `(variable, run)` 2D arrays. |
+| `BatchInputHandler.py` | `BatchInputHandler` (plain class) + module-level grid builders (`unique_cartesian_product`, `combinatorial_grid`, `verbatim_grid`, `generate_grid`, `combine_grids`, `extend_grid_to_array`). Converts user dicts/arrays into `(variable, run)` 2D arrays; anything it materialises (cast or assembly) lands in a memory-manager buffer, pinned below `pinned_max_bytes`, while a right-sized correct-precision user array passes through untouched. |
 | `SystemInterface.py` | `SystemInterface` — wraps the system's `SystemValues`; resolves labels↔indices, and `merge_variable_labels_and_idxs` merges `save_variables`/`summarise_variables` labels + index kwargs into final index arrays. |
 | `solveresult.py` | `SolveSpec` (attrs config snapshot) and `SolveResult` — owns the solve's host buffers via `OutputArrays.loan_host_arrays` (zero copy), applies NaN-on-error masking in place, and derives `time`/`time_domain_array`/`summaries_array` plus `as_numpy`/`as_numpy_per_summary`/`as_pandas` lazily. |
-| `writeback_watcher.py` | `WritebackWatcher` (daemon thread) + `WritebackTask`/`PendingBuffer` — polls CUDA events via `event.query()` and copies completed pinned-buffer data into host arrays for chunked async D2H writeback. |
+| `writeback_watcher.py` | `WritebackWatcher` (daemon thread) + `WritebackTask` — polls CUDA events via `event.query()`, copies completed pinned-buffer data into host arrays (D2H writeback) or just releases H2D staging buffers. |
 | `_utils.py` | Docstring only — no exports (dead validators removed). |
 | `__init__.py` | Defines the `ArrayTypes` alias (`Optional[Union[NDArray, DeviceNDArrayBase, MappedNDArray]]`) and re-exports the public surface. |
 
@@ -58,13 +58,13 @@ deregisters the kernel and array managers. Explicit failures are reported and
 the close can be retried. `solve_ivp` closes its temporary solver before it
 returns. Finalizers provide best-effort cleanup for abandoned solvers.
 
-`allow_memory_eviction` (default True) lets physical VRAM pressure evict a
-completed solver's buffers; the evicted solver reallocates on its next run.
-Completion is checked with a CUDA event. Host arrays above
-`host_spill_threshold` use `numpy.memmap` and bounded pinned staging. Full
-and raw results keep disk backing and support close or context cleanup.
-`as_numpy`/`as_pandas` materialise in RAM and raise `MemoryError` before
-copying when the outputs exceed free RAM.
+Physical VRAM pressure evicts a completed solver's buffers (completion
+checked with a CUDA event); the evicted solver reallocates on its next
+run. Host arrays above `host_spill_threshold` use `numpy.memmap` and
+pooled pinned staging. Results keep disk backing and support close or
+context cleanup; `as_numpy`/`as_pandas` materialise in RAM on demand.
+Spill settings live on the kernel's memory-manager registration; the
+array managers resolve them through their `owner` registration.
 
 ### Grids
 `BatchInputHandler` converts user dicts/arrays into `(variable, run)` arrays via the

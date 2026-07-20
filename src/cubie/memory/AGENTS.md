@@ -42,23 +42,29 @@ simulator never touches CuPy — it keeps its own numpy-backed fakes. Supporting
   best effort and do not raise during interpreter shutdown.
 - Allocation, copies, launch, and release use the run's stream. Memory caps
   cause chunking without device-wide synchronization or garbage collection.
-- Physical pressure may evict opted-in owners after their completion event
-  (recorded only for evictable owners). Eviction is opt-in per registration
-  (`evictable`, default False, so external clients are untouchable), and
-  every allocation-holding registration of an evicted owner must have a
-  real invalidate hook. A manual-proportion owner that opts in is treated
-  like any other.
+- Physical pressure evicts whole idle owners, oldest first, once their
+  completion event (recorded by `end_work`) has fired; owners with work
+  in flight are never candidates. Eviction is core behaviour, not an
+  option: every registration is a candidate, and `queue_request`
+  rejects any instance that registered without a live
+  `invalidate_cache_hook`, since allocation holders must be able to
+  drop handles when their buffers are freed. Evicted owners
+  reallocate on their next solve.
 
 ### Host backing policy
 - `choose_host_memory_type(nbytes, instance, allow_pinned)` picks the
   backing ladder: pinned up to `pinned_max_bytes` (default 1 GiB),
   pageable NumPy above it, and a temporary memmap only above the spill
   threshold (default 80% of total system RAM — a stable anchor, not a
-  sample of currently-free RAM).
+  sample of currently-free RAM). `instance` must be registered: spill
+  settings resolve instance → owner registration → manager-wide →
+  default fraction, so array managers registered with `owner=kernel`
+  inherit the kernel's settings without carrying copies.
 - `create_host_array` allocates exactly the requested type; it never
-  escalates a request to another backing.
-- Pageable and memmap transfers use bounded pinned staging buffers.
-- Spill settings belong to the solver owner, not the shared manager.
+  escalates a request to another backing. `instance` is required for
+  `"memmap"` (directory resolution), unused otherwise.
+- Pageable and memmap transfers stage through the pinned buffer pool.
+- Spill settings are registered once, on the solver kernel's entry.
 - Chunk parameters are cached per `(stream group, owner)`: a peer of
   the owner that is not reallocating keeps device arrays laid out for
   the cached run partition, so partial reallocations reuse it and only
@@ -113,10 +119,15 @@ must be allocated (via `allocate_queue`) before `to_device` copies into them.
 
 ### ChunkBufferPool (internal, not exported)
 Reusable pinned staging buffers for chunked transfers, keyed by `(array_name, shape, dtype)`.
-`acquire` reuses a free matching buffer or allocates one; `release` marks it free (doesn't
-free); `clear` frees all (call on error paths). Thread-safe via a `Lock`. Under
-`CUDA_SIMULATION` it allocates plain numpy arrays; otherwise it uses CuPy's pinned memory pool
-(`cupyx.empty_pinned`). Consumers: `InputArrays`/`OutputArrays`.
+`acquire` reuses a free matching buffer, grows the pool while available physical RAM stays
+above `(1 - HOST_SPILL_FRACTION)` of total (a label with nothing in flight always gets one
+buffer), and otherwise blocks on a `Condition` until the transfer watcher releases an
+in-flight buffer — this depth bound is the pipeline's pacing: on a spilled solve the pool can
+hold a whole chunk so the CPU pre-stages the next chunk while the kernel runs, and on a
+RAM-resident solve (whose pageable results occupy the headroom) it stays shallow. `release`
+marks a buffer free and wakes blocked acquirers; `clear` frees all (call on error paths).
+Under `CUDA_SIMULATION` it allocates plain numpy arrays; otherwise it uses CuPy's pinned
+memory pool (`cupyx.empty_pinned`). Consumers: `InputArrays`/`OutputArrays`.
 
 ### Testing
 `tests/memory/` (`test_memmgmt.py`, `test_array_requests.py`, `test_stream_groups.py`,

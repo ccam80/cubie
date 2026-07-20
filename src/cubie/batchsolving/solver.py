@@ -353,19 +353,17 @@ class Solver:
         be supplied as keyword arguments.
     memory_settings
         Memory configuration; each key may also be a keyword argument.
-        ``allow_memory_eviction`` (default ``True``) lets an idle
-        solver's completed buffers be freed when another solver faces a
-        genuine VRAM shortage; the evicted solver reallocates on its
-        next solve. Set it ``False`` to pin a latency-critical solver's
-        buffers resident. ``host_spill_threshold`` is the size in bytes
-        above which host result arrays are disk-backed instead of held
-        in RAM; by default only arrays larger than 80% of total system
-        RAM spill — everything smaller is pageable RAM the operating
-        system manages. Lower it to keep RAM free for other work, or
-        raise it to keep even larger results in RAM.
-        ``spill_directory`` is an existing directory for spill files
-        (default: the system temp directory); point it at a fast disk
-        for large spilled runs.
+        ``host_spill_threshold`` is the size in bytes above which host
+        result arrays are disk-backed instead of held in RAM; by
+        default only arrays larger than 80% of total system RAM spill
+        — everything smaller is pageable RAM the operating system
+        manages. Lower it to keep RAM free for other work, or raise it
+        to keep even larger results in RAM. ``spill_directory`` is an
+        existing directory for spill files (default: the system temp
+        directory); point it at a fast disk for large spilled runs.
+        An idle solver's completed device buffers are freed when
+        another solver faces a genuine VRAM shortage; the evicted
+        solver reallocates on its next solve.
     loop_settings
         Explicit loop configuration overriding solver defaults. Keys such as
         ``save_every`` and ``summarise_every`` may also be supplied as loose
@@ -445,8 +443,6 @@ class Solver:
             },
         )
 
-        self.input_handler = BatchInputHandler(interface)
-
         recognized_kwargs: set[str] = set()
 
         output_settings, output_recognized = merge_kwargs_into_settings(
@@ -519,6 +515,12 @@ class Solver:
             kernel_settings=kernel_settings,
         )
         self._finalizer = finalize(self, _finalize_solver, self.kernel)
+        # The handler materialises assembled grids into pinned buffers
+        # below the manager's ceiling, so inputs attach ready for
+        # direct asynchronous transfer.
+        self.input_handler = BatchInputHandler(
+            interface, memory_manager=self.kernel.memory_manager
+        )
 
         if set(kwargs) - recognized_kwargs:
             raise KeyError(

@@ -98,7 +98,6 @@ ALL_MEMORY_MANAGER_PARAMETERS = {
     "mem_proportion",
     "host_spill_threshold",
     "spill_directory",
-    "allow_memory_eviction",
 }
 """Solver memory keyword names."""
 
@@ -168,6 +167,28 @@ def total_system_ram() -> Optional[int]:
             ctypes.byref(status)
         ):
             return int(status.ullTotalPhys)
+    return None
+
+
+def available_system_ram() -> Optional[int]:
+    """Return currently available physical RAM in bytes, or ``None``.
+
+    Used to bound transient pinned staging growth: staging pools stop
+    growing once an extra buffer would push available RAM below
+    ``(1 - HOST_SPILL_FRACTION)`` of total. Spill decisions use
+    :func:`total_system_ram` instead, so they stay stable across a
+    solve regardless of ambient memory traffic.
+    """
+    names = getattr(os, "sysconf_names", {})
+    if "SC_AVPHYS_PAGES" in names and "SC_PAGE_SIZE" in names:
+        return os.sysconf("SC_AVPHYS_PAGES") * os.sysconf("SC_PAGE_SIZE")
+    if sys.platform == "win32":  # pragma: no cover - Windows-only path
+        status = _MemoryStatusEx()
+        status.dwLength = ctypes.sizeof(_MemoryStatusEx)
+        if ctypes.windll.kernel32.GlobalMemoryStatusEx(
+            ctypes.byref(status)
+        ):
+            return int(status.ullAvailPhys)
     return None
 
 
@@ -543,9 +564,6 @@ class InstanceMemorySettings:
     # register() always assigns an owner id; registrations sharing one
     # owner id are evicted together or not at all.
     owner_id: Optional[int] = field(default=None)
-    evictable: bool = field(
-        default=False, validator=attrsval_instance_of(bool)
-    )
     last_used: int = field(default=0, validator=attrsval_instance_of(int))
     # Bytes above which this instance's host arrays spill to disk;
     # None defers to the manager-wide policy.
@@ -739,7 +757,6 @@ class MemoryManager:
         allocation_ready_hook: Callable = placeholder_dataready,
         stream_group: str = "default",
         owner: Optional[object] = None,
-        evictable: bool = False,
         host_spill_threshold: Optional[int] = None,
         spill_directory: Optional[os.PathLike | str] = None,
     ) -> None:
@@ -760,20 +777,19 @@ class MemoryManager:
         stream_group
             Name of the stream group to assign the instance to.
         owner
-            Eviction unit for this registration. A solver kernel passes
-            itself when registering its input and output array
-            managers, so pressure evicts the whole solver or nothing.
-            ``None`` (external clients, standalone managers) makes the
-            instance its own eviction unit.
-        evictable
-            Allow this registration's completed allocations to be
-            evicted under physical VRAM pressure.
+            Eviction and settings unit for this registration. A solver
+            kernel passes itself when registering its input and output
+            array managers, so pressure evicts the whole solver or
+            nothing and the managers resolve spill settings from the
+            kernel's registration. Defaults to the instance itself.
         host_spill_threshold
             Bytes above which this instance's host arrays spill to
-            disk. ``None`` defers to the manager-wide policy.
+            disk. ``None`` defers to the owner's registration, then
+            the manager-wide policy.
         spill_directory
             Directory for this instance's spill files. ``None`` defers
-            to the manager-wide setting.
+            to the owner's registration, then the manager-wide
+            setting.
 
         Raises
         ------
@@ -799,7 +815,6 @@ class MemoryManager:
             allocation_ready_hook=allocation_ready_hook,
             instance_ref=instance_ref,
             owner_id=owner_id,
-            evictable=evictable,
             host_spill_threshold=host_spill_threshold,
             spill_directory=spill_directory,
         )
@@ -812,6 +827,21 @@ class MemoryManager:
             self._add_manual_proportion(instance, proportion)
         else:
             self._add_auto_proportion(instance)
+
+    def get_registration(self, instance: object) -> InstanceMemorySettings:
+        """Return the registry entry for a registered instance.
+
+        Parameters
+        ----------
+        instance
+            Registered instance to look up.
+
+        Raises
+        ------
+        KeyError
+            If the instance is not registered.
+        """
+        return self.registry[id(instance)]
 
     def set_limit_mode(self, mode: str) -> None:
         """
@@ -1172,11 +1202,7 @@ class MemoryManager:
         """Record completion of an owner's submitted CUDA work."""
         owned = self._owner_settings(id(owner))
         event = None
-        # Only eviction candidates ever consult work_complete, so the
-        # completion event is recorded only for evictable owners.
-        if not CUDA_SIMULATION and any(
-            settings.evictable for settings in owned
-        ):
+        if not CUDA_SIMULATION:
             event = cuda.event()
             event.record(stream)
         for settings in owned:
@@ -1187,7 +1213,7 @@ class MemoryManager:
     def _evict_idle_owners(
         self, exclude_ids: set[int], required_bytes: int
     ) -> int:
-        """Free the least-recently-used evictable owners.
+        """Free the least-recently-used idle owners.
 
         Whole owners are evicted, oldest first, until ``required_bytes``
         are released. Returns the number of bytes actually released.
@@ -1206,18 +1232,6 @@ class MemoryManager:
         for owner_id, owned in owners.items():
             # Never evict the requester's own registrations.
             if owner_id in excluded_owners:
-                continue
-            # Eviction is opt-in for every registration in the unit.
-            if not all(settings.evictable for settings in owned):
-                continue
-            # Every allocation holder must have a real invalidate hook,
-            # or it would keep handles to freed device buffers.
-            if not all(
-                settings.invalidate_hook.target()
-                not in (None, placeholder_invalidate)
-                for settings in owned
-                if settings.allocations
-            ):
                 continue
             # Skip owners with submitted CUDA work still running.
             if not all(settings.work_complete for settings in owned):
@@ -1327,7 +1341,9 @@ class MemoryManager:
         like
             Optional source data.
         instance
-            Registered owner whose spill policy applies.
+            Registered instance whose spill policy applies. Required
+            for ``"memmap"`` arrays, which resolve their directory
+            through the instance's registration; unused otherwise.
 
         Returns
         -------
@@ -1364,7 +1380,7 @@ class MemoryManager:
     def choose_host_memory_type(
         self,
         nbytes: int,
-        instance: Optional[object] = None,
+        instance: object,
         allow_pinned: bool = True,
     ) -> str:
         """Pick the backing for a host array of ``nbytes`` bytes.
@@ -1379,7 +1395,8 @@ class MemoryManager:
         nbytes
             Size of the array in bytes.
         instance
-            Registered owner whose spill policy applies.
+            Registered instance whose spill policy applies, resolved
+            through its owner's registration when unset there.
         allow_pinned
             Permit the ``"pinned"`` choice. Callers that cannot use a
             direct transfer (for example chunked staging) pass
@@ -1397,23 +1414,21 @@ class MemoryManager:
             return "pinned"
         return "host"
 
-    def _resolved_spill_threshold(
-        self, instance: Optional[object] = None
-    ) -> Optional[int]:
+    def _resolved_spill_threshold(self, instance: object) -> Optional[int]:
         """Return the applicable spill threshold in bytes.
 
-        Precedence: the instance's registered threshold, then the
-        manager-wide threshold, then ``HOST_SPILL_FRACTION`` of total
-        system RAM. ``create_host_array`` is public, so ``instance``
-        may be ``None`` or unregistered; both fall back to manager
-        policy. ``None`` is returned when total RAM cannot be probed,
-        and the array then never spills by size.
+        Precedence: the instance's registered threshold, then its
+        owner's, then the manager-wide threshold, then
+        ``HOST_SPILL_FRACTION`` of total system RAM. ``None`` is
+        returned when total RAM cannot be probed, and the array then
+        never spills by size.
         """
-        settings = (
-            self.registry.get(id(instance)) if instance is not None else None
-        )
-        if settings is not None and settings.host_spill_threshold is not None:
+        settings = self.registry[id(instance)]
+        if settings.host_spill_threshold is not None:
             return settings.host_spill_threshold
+        owner = self.registry.get(settings.owner_id)
+        if owner is not None and owner.host_spill_threshold is not None:
+            return owner.host_spill_threshold
         if self.host_spill_threshold is not None:
             return self.host_spill_threshold
         ram_total = total_system_ram()
@@ -1425,20 +1440,22 @@ class MemoryManager:
         self,
         shape: tuple[int, ...],
         dtype: DTypeLike,
-        instance: Optional[object] = None,
+        instance: object,
     ) -> np_memmap:
         """Create a temporary disk-backed array.
 
         Directory precedence mirrors ``_resolved_spill_threshold``:
-        instance setting, then manager setting, then the system temp
-        directory.
+        instance setting, then owner setting, then manager setting,
+        then the system temp directory.
         """
-        directory = self.spill_directory
-        settings = (
-            self.registry.get(id(instance)) if instance is not None else None
-        )
-        if settings is not None and settings.spill_directory is not None:
-            directory = settings.spill_directory
+        settings = self.registry[id(instance)]
+        directory = settings.spill_directory
+        if directory is None:
+            owner = self.registry.get(settings.owner_id)
+            if owner is not None:
+                directory = owner.spill_directory
+        if directory is None:
+            directory = self.spill_directory
         directory = directory or gettempdir()
         handle, path = mkstemp(
             prefix="cubie-spill-", suffix=".dat", dir=directory
@@ -1655,18 +1672,35 @@ class MemoryManager:
         requests
             Dictionary mapping labels to array requests.
 
+        Raises
+        ------
+        ValueError
+            If the instance registered without a live invalidate hook.
+            Allocation holders are eviction candidates, so they must
+            be able to drop handles when their buffers are freed.
+
         Notes
         -----
         Requests are queued per stream group, allowing multiple components
         to contribute to a single coordinated allocation that can be
         optimally chunked together.
-
         """
         self._check_requests(requests)
+        instance_id = id(instance)
+        settings = self.registry[instance_id]
+        if settings.invalidate_hook.target() in (
+            None,
+            placeholder_invalidate,
+        ):
+            raise ValueError(
+                "Instances that request allocations must register a "
+                "live invalidate_cache_hook: allocated buffers are "
+                "evicted under VRAM pressure, and the hook is how the "
+                "instance drops its handles."
+            )
         stream_group = self.get_stream_group(instance)
         if self._queued_allocations.get(stream_group) is None:
             self._queued_allocations[stream_group] = {}
-        instance_id = id(instance)
         self._queued_allocations[stream_group].update({instance_id: requests})
 
     def to_device(
@@ -1807,12 +1841,7 @@ class MemoryManager:
         # whose registrations participate), not to the whole group:
         # solvers sharing a group must not inherit each other's
         # chunking.
-        trigger_settings = self.registry.get(id(triggering_instance))
-        owner_id = (
-            trigger_settings.owner_id
-            if trigger_settings is not None
-            else id(triggering_instance)
-        )
+        owner_id = self.registry[id(triggering_instance)].owner_id
         cache_key = (stream_group, owner_id)
 
         if not queued_requests:
