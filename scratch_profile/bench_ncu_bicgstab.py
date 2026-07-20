@@ -82,7 +82,7 @@ solver_kwargs = {
 
 BICG_VECS = ("r0_hat", "p", "v", "tmp", "s_hat")
 NEWTON_VECS = (
-    "delta", "residual", "residual_temp", "stage_base_bt",
+    "delta", "residual",
 )
 
 if VARIANT == "mr_local":

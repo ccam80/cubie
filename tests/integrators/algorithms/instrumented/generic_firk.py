@@ -27,7 +27,6 @@ errorless tableau with an adaptive controller, which would fail at runtime.
 
 from typing import Callable, Optional
 
-import numpy as np
 from cubie.cuda_simsafe import cuda, int32
 
 from cubie.result_codes import CUBIE_RESULT_CODES
@@ -41,6 +40,7 @@ from cubie.integrators.algorithms.generic_firk import (
     FIRK_ADAPTIVE_DEFAULTS,
     FIRK_FIXED_DEFAULTS,
 )
+from cubie.integrators.norms import FIRKCorrectionNorm
 
 from cubie.integrators.algorithms.generic_firk_tableaus import (
     DEFAULT_FIRK_TABLEAU,
@@ -70,8 +70,6 @@ class InstrumentedFIRKStep(InstrumentedODEImplicitStep):
         newton_atol: Optional[float] = None,
         newton_rtol: Optional[float] = None,
         newton_max_iters: Optional[int] = None,
-        newton_damping: Optional[float] = None,
-        newton_max_backtracks: Optional[int] = None,
         tableau: FIRKTableau = DEFAULT_FIRK_TABLEAU,
         n_drivers: int = 0,
         stage_increment_location: Optional[str] = None,
@@ -126,12 +124,6 @@ class InstrumentedFIRKStep(InstrumentedODEImplicitStep):
         newton_max_iters
             Maximum iterations permitted for the Newton solver. If None, uses
             default from NewtonKrylovConfig.
-        newton_damping
-            Damping factor applied within Newton updates. If None, uses
-            default from NewtonKrylovConfig.
-        newton_max_backtracks
-            Maximum number of backtracking steps within the Newton solver. If
-            None, uses default from NewtonKrylovConfig.
         tableau
             FIRK tableau describing the coefficients. Defaults to
             :data:`DEFAULT_FIRK_TABLEAU`.
@@ -213,15 +205,21 @@ class InstrumentedFIRKStep(InstrumentedODEImplicitStep):
             solver_kwargs["newton_rtol"] = newton_rtol
         if newton_max_iters is not None:
             solver_kwargs["newton_max_iters"] = newton_max_iters
-        if newton_damping is not None:
-            solver_kwargs["newton_damping"] = newton_damping
-        if newton_max_backtracks is not None:
-            solver_kwargs["newton_max_backtracks"] = newton_max_backtracks
 
-        # Call parent __init__ to create solver instances
-        super().__init__(config, controller_defaults, **solver_kwargs)
-
-        self.solver.update(n=self.tableau.stage_count * n)
+        newton_norm = FIRKCorrectionNorm(
+            precision=precision,
+            n=config.all_stages_n,
+            state_n=n,
+            stage_coefficients=tableau.a_flat(float),
+            instance_label="newton",
+            **solver_kwargs,
+        )
+        super().__init__(
+            config,
+            controller_defaults,
+            newton_norm=newton_norm,
+            **solver_kwargs,
+        )
         self.register_buffers()
 
     def register_buffers(self) -> None:
@@ -272,7 +270,6 @@ class InstrumentedFIRKStep(InstrumentedODEImplicitStep):
         """
         config = self.compile_settings
         get_fn = config.get_solver_helper_fn
-        n = config.n
         tableau = config.tableau
 
         beta = config.beta
@@ -436,7 +433,6 @@ class InstrumentedFIRKStep(InstrumentedODEImplicitStep):
             newton_iteration_guesses,
             newton_residuals,
             newton_squared_norms,
-            newton_iteration_scale,
             linear_initial_guesses,
             linear_iteration_guesses,
             linear_residuals,
@@ -495,6 +491,7 @@ class InstrumentedFIRKStep(InstrumentedODEImplicitStep):
                 dt_scalar,
                 typed_zero,
                 state,
+                state,
                 solver_shared,
                 solver_persistent,
                 counters,
@@ -503,7 +500,6 @@ class InstrumentedFIRKStep(InstrumentedODEImplicitStep):
                 newton_iteration_guesses,
                 newton_residuals,
                 newton_squared_norms,
-                newton_iteration_scale,
                 linear_initial_guesses,
                 linear_iteration_guesses,
                 linear_residuals,

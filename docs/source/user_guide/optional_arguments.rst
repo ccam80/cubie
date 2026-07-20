@@ -136,7 +136,10 @@ only the linear-solver and preconditioner options below apply to them.
 Newton (outer loop) options:
 
 **newton_atol** / **newton_rtol** — Newton convergence tolerances.
-    When to declare the nonlinear solve converged.
+    Scale the Newton update in the convergence test: the solve
+    accepts when the estimated update error drops below one percent
+    of the scaled tolerance, matching OrdinaryDiffEq's Newton
+    criterion.
 
     - Default: the step controller's ``atol``/``rtol`` divided by 10
       (so stage solves always converge tighter than the error estimate
@@ -149,16 +152,6 @@ Newton (outer loop) options:
     control).
 
     - Default: ``100``
-
-**newton_damping** — backtracking shrink factor.
-    When a Newton step fails to reduce the residual, the update is
-    scaled by this factor and retried.
-
-    - Default: ``0.5`` (range 0--1)
-
-**newton_max_backtracks** — backtracking attempt limit.
-
-    - Default: ``8``
 
 Krylov (inner loop) options:
 

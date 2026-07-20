@@ -51,7 +51,6 @@ def test_reexport_available(name):
     "member, value",
     [
         ("SUCCESS", 0),
-        ("NEWTON_BACKTRACKING_NO_SUITABLE_STEP", 1),
         ("MAX_NEWTON_ITERATIONS_EXCEEDED", 2),
         ("MAX_LINEAR_ITERATIONS_EXCEEDED", 4),
         ("STEP_TOO_SMALL", 8),

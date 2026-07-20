@@ -28,15 +28,13 @@ class InstrumentationHostBuffers:
     stage_increments:
         Stage-wise state increments.
     newton_initial_guesses:
-        Initial Newton guesses prior to backtracking.
+        Initial Newton guesses for each stage solve.
     newton_iteration_guesses:
-        Newton iteration guesses including backtracking slots.
+        Committed Newton iterates per iteration.
     newton_residuals:
-        Residual vectors captured during Newton backtracking.
+        Residual vectors captured per Newton iteration.
     newton_squared_norms:
-        Residual norms accumulated during Newton backtracking.
-    newton_iteration_scale:
-        Applied damping factors for each Newton iteration.
+        Residual norms accumulated per Newton iteration.
     linear_initial_guesses:
         Initial guesses for linear Krylov solves.
     linear_iteration_guesses:
@@ -61,7 +59,6 @@ class InstrumentationHostBuffers:
     newton_iteration_guesses: np.ndarray
     newton_residuals: np.ndarray
     newton_squared_norms: np.ndarray
-    newton_iteration_scale: np.ndarray
     linear_initial_guesses: np.ndarray
     linear_iteration_guesses: np.ndarray
     linear_residuals: np.ndarray
@@ -78,7 +75,6 @@ def create_instrumentation_host_buffers(
     observable_size: int,
     driver_size: int,
     newton_max_iters: int,
-    newton_max_backtracks: int,
     linear_max_iters: int,
     flattened_solver: bool = False,
 ) -> InstrumentationHostBuffers:
@@ -100,8 +96,6 @@ def create_instrumentation_host_buffers(
         Dimension of the driver vector.
     newton_max_iters:
         Maximum allowed Newton iterations per stage.
-    newton_max_backtracks:
-        Maximum number of backtracking attempts per Newton iteration.
     linear_max_iters:
         Maximum iterations permitted for Krylov solves.
     flattened_solver:
@@ -120,8 +114,7 @@ def create_instrumentation_host_buffers(
     observable_dim = int(observable_size)
     driver_dim = int(driver_size)
     newton_iters = int(newton_max_iters)
-    backtracks = int(newton_max_backtracks)
-    newton_slots = newton_iters * (backtracks + 1) + 1
+    newton_slots = newton_iters + 1
     linear_iters = int(linear_max_iters)
     linear_slots = resolved_stage_count * newton_iters
     dtype = np.dtype(precision)
@@ -162,10 +155,6 @@ def create_instrumentation_host_buffers(
         _step_shape(solver_stage_count, newton_slots),
         dtype=dtype,
     )
-    newton_iteration_scale = np.zeros(
-        _step_shape(solver_stage_count, newton_iters),
-        dtype=dtype,
-    )
     linear_initial_guesses = np.zeros(
         _step_shape(linear_slots, solver_dim),
         dtype=dtype,
@@ -194,7 +183,6 @@ def create_instrumentation_host_buffers(
         newton_iteration_guesses=newton_iteration_guesses,
         newton_residuals=newton_residuals,
         newton_squared_norms=newton_squared_norms,
-        newton_iteration_scale=newton_iteration_scale,
         linear_initial_guesses=linear_initial_guesses,
         linear_iteration_guesses=linear_iteration_guesses,
         linear_residuals=linear_residuals,
