@@ -97,6 +97,7 @@ sizes.
 import argparse
 import contextlib
 import hashlib
+import inspect
 import io
 import os
 import re
@@ -347,6 +348,16 @@ def load_grid(solver, n_runs, grid_cache):
     return inits, params
 
 
+# Both gate workers run this driver, so it must measure the lean
+# result path on either API generation: trees with results_type get
+# "raw"; trees without it return the zero-copy SolveResult by default.
+_solve_extra_kwargs = (
+    {"results_type": "raw"}
+    if "results_type" in inspect.signature(qb.Solver.solve).parameters
+    else {}
+)
+
+
 def solve_once(solver, inits, params, kernel_ms, wall_ms, duration):
     """Run one solve; record its kernel and wall times (ms)."""
     start = perf_counter()
@@ -356,6 +367,7 @@ def solve_once(solver, inits, params, kernel_ms, wall_ms, duration):
             parameters=params,
             blocksize=blocksize,
             duration=duration,
+            **_solve_extra_kwargs,
         )
     wall_ms.append(1000.0 * (perf_counter() - start))
     collect_kernel_time(solver, kernel_ms)
