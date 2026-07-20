@@ -19,3 +19,5 @@ radau_iia_5,RadauIIA5(),5,firk,true,
 ros3p,ROS3P(),3,rosenbrock,true,
 rodas3p,Rodas3P(),3,rosenbrock,true,
 rosenbrock23_sciml,Rosenbrock23(),2,rosenbrock,true,
+kvaerno3,Kvaerno3(),3,dirk,true,Kvaerno (2004) ESDIRK; cubie kvaerno3 tableau
+kvaerno5,Kvaerno5(),5,dirk,true,Kvaerno (2004) ESDIRK; cubie kvaerno5 tableau

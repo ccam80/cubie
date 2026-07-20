@@ -17,3 +17,5 @@ radau_iia_5,PredictiveController,,,0.2,8.0,0.9,1.0,1.2,5
 ros3p,PIController,0.23333333,0.13333334,0.2,10.0,0.9,1.0,1.2,3
 rodas3p,PIController,0.23333333,0.13333334,0.2,10.0,0.9,1.0,1.2,3
 rosenbrock23_sciml,PIController,0.35,0.2,0.2,10.0,0.9,1.0,1.2,2
+kvaerno3,PIController,0.23333333,0.13333334,0.2,10.0,0.9,1.0,1.2,3
+kvaerno5,PIController,0.14,0.08,0.2,10.0,0.9,1.0,1.2,5
