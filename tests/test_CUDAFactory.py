@@ -753,7 +753,9 @@ def test_post_init_sets_prefixed_attributes_when_label_nonempty():
         plain: int = 10
 
     c = _C(precision=np.float32, instance_label="krylov")
-    assert "_atol" in c.prefixed_attributes
+    # Prefixed attributes are held as aliases, so the external key for
+    # ``_atol`` is ``krylov_atol`` rather than ``krylov__atol``.
+    assert "atol" in c.prefixed_attributes
     assert "plain" not in c.prefixed_attributes
 
     # Empty label -> empty set
@@ -774,9 +776,10 @@ def test_mi_update_removes_non_prefixed_for_prefixed_attrs():
 
     c = _C(precision=np.float32, instance_label="krylov")
     # Passing unprefixed key for a prefixed attribute: should be removed
-    recognized, changed = c.update({"_atol": 1e-8})
-    # _atol is stripped, krylov__atol not present -> no change
-    assert "_atol" not in changed
+    recognized, changed = c.update({"atol": 1e-8})
+    # atol is stripped, krylov_atol not present -> no change
+    assert "atol" not in changed
+    assert c._atol == 1e-6
 
 
 def test_mi_update_maps_prefixed_to_unprefixed():
@@ -788,8 +791,8 @@ def test_mi_update_maps_prefixed_to_unprefixed():
         )
 
     c = _C(precision=np.float32, instance_label="krylov")
-    recognized, changed = c.update({"krylov__atol": 1e-10})
-    assert "krylov__atol" in recognized
+    recognized, changed = c.update({"krylov_atol": 1e-10})
+    assert "krylov_atol" in recognized
     assert c._atol == 1e-10
 
 
@@ -802,9 +805,9 @@ def test_mi_update_returns_prefixed_key_names():
         )
 
     c = _C(precision=np.float32, instance_label="test")
-    recognized, changed = c.update({"test__atol": 1e-10})
-    assert "test__atol" in recognized
-    assert "test__atol" in changed
+    recognized, changed = c.update({"test_atol": 1e-10})
+    assert "test_atol" in recognized
+    assert "test_atol" in changed
 
 
 # ── MultipleInstanceCUDAFactory ────────────────────────────── #
