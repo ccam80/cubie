@@ -100,6 +100,40 @@ NEWTON_CONVERGENCE_EDGE_CASES = {
         expected_finals=((0.0, 0.0), (0.0, 0.0)),
         final_tolerance=0.0,
     ),
+    "max-iters-exceeded": dict(
+        kind="cubic",
+        n=1,
+        newton_atol=1e-20,
+        newton_max_iters=1,
+        krylov_atol=1e-8,
+        krylov_max_iters=20,
+        initials=(0.0, 0.0),
+        expected_statuses=(
+            CUBIE_RESULT_CODES.MAX_NEWTON_ITERATIONS_EXCEEDED,
+            CUBIE_RESULT_CODES.MAX_NEWTON_ITERATIONS_EXCEEDED,
+        ),
+        expected_counts=(1, 1),
+        expected_finals=(1.0 / 3.0, 1.0 / 3.0),
+        final_tolerance=1e-6,
+    ),
+    "linear-failure-blocks-accept": dict(
+        kind="zero-operator",
+        n=1,
+        newton_atol=1e-8,
+        newton_max_iters=4,
+        krylov_atol=1e-20,
+        krylov_max_iters=8,
+        initials=(0.0, 0.0),
+        expected_statuses=(
+            CUBIE_RESULT_CODES.MAX_NEWTON_ITERATIONS_EXCEEDED
+            | CUBIE_RESULT_CODES.MAX_LINEAR_ITERATIONS_EXCEEDED,
+            CUBIE_RESULT_CODES.MAX_NEWTON_ITERATIONS_EXCEEDED
+            | CUBIE_RESULT_CODES.MAX_LINEAR_ITERATIONS_EXCEEDED,
+        ),
+        expected_counts=(4, 4),
+        expected_finals=(0.0, 0.0),
+        final_tolerance=0.0,
+    ),
 }
 
 
@@ -123,8 +157,11 @@ def newton_edge_system(newton_edge_case, precision):
             out[0] = precision(0.0)
         elif kind == "linear":
             out[0] = target - state[0]
-        elif kind == "constant":
+        elif kind == "constant" or kind == "zero-operator":
             out[0] = precision(1.0)
+        elif kind == "cubic":
+            diff = state[0] - precision(1.0)
+            out[0] = diff * diff * diff
         elif kind == "mixed-diag":
             for index in range(out.shape[0]):
                 out[index] = (
@@ -147,6 +184,11 @@ def newton_edge_system(newton_edge_case, precision):
                 * abs(state[0]) ** precision(-0.75)
                 * vec[0]
             )
+        elif kind == "cubic":
+            diff = state[0] - precision(1.0)
+            out[0] = precision(3.0) * diff * diff * vec[0]
+        elif kind == "zero-operator":
+            out[0] = precision(0.0)
         elif kind == "mixed-diag":
             for index in range(out.shape[0]):
                 out[index] = precision(index + 1) * vec[index]
@@ -533,6 +575,57 @@ def linear_solver_instance(solver_settings, system_setup, precision):
         preconditioner=preconditioner,
     )
     return solver
+
+
+@pytest.fixture(scope="function")
+def newton_kernel(precision):
+    """Compile a kernel around a Newton solver instance.
+
+    Returns a factory taking the solver instance; buffer sizes come
+    from the instance's registered buffers, so the kernel matches the
+    solver it wraps. The kernel signature is
+    ``(state, base_state, flag, h)``.
+    """
+
+    def factory(newton_solver):
+        solver = newton_solver.device_function
+        shared_size = max(newton_solver.shared_buffer_size, 1)
+        persistent_size = max(
+            newton_solver.persistent_local_buffer_size, 1
+        )
+
+        @cuda.jit
+        def kernel(state, base, flag, h):
+            params = cuda.local.array(1, precision)
+            drivers = cuda.local.array(1, precision)
+            counters = cuda.local.array(2, np.int32)
+            a_ij = precision(1.0)
+            shared = cuda.shared.array(shared_size, precision)
+            persistent_local = cuda.local.array(
+                persistent_size, precision
+            )
+            for index in range(shared_size):
+                shared[index] = precision(0.0)
+            for index in range(persistent_size):
+                persistent_local[index] = precision(0.0)
+            time_scalar = precision(0.0)
+            flag[0] = solver(
+                state,
+                params,
+                drivers,
+                time_scalar,
+                h,
+                a_ij,
+                base,
+                base,
+                shared,
+                persistent_local,
+                counters,
+            )
+
+        return kernel
+
+    return factory
 
 
 @pytest.fixture(scope="function")
