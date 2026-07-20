@@ -360,8 +360,9 @@ class SingleIntegratorRunCore(CUDAFactory):
         vector length; a non-uniform per-state vector must match the
         solver vector exactly.
 
-        The defaults apply whenever the algorithm is implicit (it
-        then owns inner solvers).
+        Every controller carries ``atol``/``rtol`` — fixed-step
+        included — so the defaults apply whenever the algorithm is
+        implicit (it then owns inner solvers).
 
         Returns
         -------
@@ -485,13 +486,17 @@ class SingleIntegratorRunCore(CUDAFactory):
                 stacklevel=3
             )
             
-            # Replace with fixed step controller
+            # Replace with a fixed step controller, keeping the outgoing
+            # controller's atol/rtol so implicit algorithms still derive
+            # their inner-solver tolerances from the user's request.
             self._step_controller = get_controller(
                 precision=precision,
                 settings={
                     "step_controller": "fixed",
                     "dt": dt,
                     "n": self._system.sizes.states,
+                    "atol": self._step_controller.atol,
+                    "rtol": self._step_controller.rtol,
                 },
                 warn_on_unused=False,
             )

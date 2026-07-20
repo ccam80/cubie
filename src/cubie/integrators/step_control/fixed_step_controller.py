@@ -48,6 +48,12 @@ class FixedStepControlConfig(BaseStepControllerConfig):
         Precision used for numerical operations.
     n
         Number of state variables controlled per step.
+    atol
+        Absolute tolerance vector inherited from the base config. The
+        fixed controller never rejects steps, but implicit algorithms
+        derive their inner-solver tolerances from it.
+    rtol
+        Relative tolerance vector, on the same terms as ``atol``.
     """
 
     _dt: float = field(default=1e-3, validator=getype_validator(float, 0))
