@@ -36,8 +36,8 @@ from abc import ABC, abstractmethod
 from typing import Callable, Optional, Union
 import warnings
 
-from attrs import Converter, define, field, validators
-from numpy import asarray, ndarray
+from attrs import Converter, cmp_using, define, field, validators
+from numpy import array_equal, asarray, ndarray
 
 from cubie.CUDAFactory import (
     CUDAFactory,
@@ -196,11 +196,13 @@ class BaseStepControllerConfig(CUDAFactoryConfig, ABC):
         default=asarray([1e-6]),
         validator=nonnegative_float_array_validator,
         converter=Converter(tol_converter, takes_self=True),
+        eq=cmp_using(eq=array_equal),
     )
     rtol: ndarray = field(
         default=asarray([1e-6]),
         validator=nonnegative_float_array_validator,
         converter=Converter(tol_converter, takes_self=True),
+        eq=cmp_using(eq=array_equal),
     )
 
     def __attrs_post_init__(self):
