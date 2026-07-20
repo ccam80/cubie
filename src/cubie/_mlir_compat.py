@@ -80,7 +80,8 @@ code. The Python-side branches are
 fix-numpy-scalar-constants, fix-nested-tuple-dynamic-getitem,
 fix-integer-mod-floordiv-lowering, fix-dynamic-shared-memory-ub,
 fix-frozen-array-device-malloc, ssa-iterative-def-search,
-selective-fastmath, fix-float-minmax-lowering, fix-pow-zero-fold).
+selective-fastmath, fix-float-minmax-lowering, fix-pow-zero-fold,
+ftz-standalone-flag).
 
 The iterative SSA def-search shim removes the RecursionError that
 large flattened kernels hit inside ``reconstruct_ssa``, and the
@@ -88,7 +89,10 @@ selective fastmath shims accept numba-cuda's per-flag ``fastmath``
 form (bool | set | dict), stamping ``#arith.fastmath`` per op and
 rewriting ``arcp`` division / ``afn`` tanh to their hardware
 approximations; both groups no-op on builds that carry the fixes
-natively.
+natively. The standalone-ftz shim enables the libnvvm
+denormal-flush knob for every truthy flag set — numba-cuda's
+module-knob behaviour — until the fork's ftz-standalone-flag
+branch ships in the wheel.
 Remove the corresponding shim once each lands upstream. With the
 shared-memory shim in place CuBIE requests LTO-link optimization
 explicitly; set
@@ -2672,6 +2676,54 @@ def register_selective_fastmath_shims() -> None:
 
 
 register_selective_fastmath_shims()
+
+
+# ------------------------------------------------------------------ #
+# Standalone ftz module knob                                          #
+# ------------------------------------------------------------------ #
+# numba-cuda enables the libnvvm ftz knob for any truthy ``fastmath``
+# value, so identical JITFlags flush denormals there. The installed
+# numba-cuda-mlir gates ftz on full ``fast``, which leaves cubie's
+# selective sets on the denormal-safe libdevice paths (the
+# ``__nv_fast_fdividef`` overflow guard alone costs three extra
+# hot-loop instructions per division) and the two backends disagree
+# numerically on denormals. The fork's ftz-standalone-flag branch
+# accepts ``ftz`` as a module-only flag name; until a wheel carries
+# it, wrap ``nvvm_fastmath_options`` so every truthy flag set enables
+# the knob, matching numba-cuda's behaviour for the values cubie
+# passes. All three consumers (both nvvmCompileProgram paths and the
+# LTO-link knobs) import the function lazily, so patching the module
+# attribute covers every path.
+
+
+def register_standalone_ftz_shim() -> None:
+    """Enable the libnvvm ftz knob for truthy fastmath flag sets.
+
+    No-ops when the installed package accepts ``ftz`` natively.
+    """
+    import numba_cuda_mlir.fastmath as fastmath_module
+    from numba_cuda_mlir.numba_cuda.core.options import (
+        FastMathOptions,
+    )
+
+    try:
+        FastMathOptions({"ftz"})
+        return
+    except ValueError:
+        pass
+
+    stock_options = fastmath_module.nvvm_fastmath_options
+
+    def nvvm_options_with_ftz(value):
+        knobs = dict(stock_options(value))
+        if FastMathOptions(value).flags:
+            knobs["ftz"] = True
+        return knobs
+
+    fastmath_module.nvvm_fastmath_options = nvvm_options_with_ftz
+
+
+register_standalone_ftz_shim()
 
 
 def _lower_array_slice_getitem_empty_safe(builder, target, args, kwargs):
