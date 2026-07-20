@@ -43,12 +43,13 @@ def _solve_finals(solver, solver_settings, initials_array, parameter_array):
         initial_values=initials_array,
         parameters=parameter_array,
         blocksize=solver_settings["blocksize"],
-        results_type='raw',
         duration=solver_settings["duration"],
+        nan_error_trajectories=False,
     )
-    # Copy: the returned array views cubie's output buffer, which the
-    # next solve overwrites in place.
-    finals = np.array(solution['state'][-1, :, :].T, copy=True)
+    # Copy: time_domain_array views cubie's output buffer (state only,
+    # no time column), which the next solve overwrites in place.
+    finals = np.array(
+        solution.time_domain_array[-1, :, :].T, copy=True)
     if finals.dtype != np.float32:
         raise TypeError(
             "expected float32 output, got {0}".format(finals.dtype))
