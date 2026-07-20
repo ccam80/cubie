@@ -49,7 +49,7 @@ See Also
 """
 
 from types import TracebackType
-from typing import Any, Optional, Callable, Dict, Tuple
+from typing import Any, Optional, Callable, Dict, Tuple, Union
 from warnings import warn
 from copy import deepcopy
 from inspect import ismethod
@@ -682,7 +682,7 @@ class MemoryManager:
         """
         return self.stream_groups.get_stream(instance)
 
-    def get_group_stream(self, group: str = "default") -> object:
+    def get_group_stream(self, group: str = "default") -> Union[Stream, int]:
         """
         Get the dedicated stream for a named group, creating it if needed.
 
