@@ -143,7 +143,7 @@ Newton (outer loop) options:
 
     - Default: the step controller's ``atol``/``rtol`` divided by 10
       (so stage solves always converge tighter than the error estimate
-      they feed); ``1e-6`` when there is no adaptive controller.
+      they feed); ``1e-6`` when the controller carries no tolerances.
     - Type: ``float`` or array, non-negative
 
 **newton_max_iters** — Newton iteration limit.
@@ -160,7 +160,7 @@ Krylov (inner loop) options:
     residual of one sits at this envelope.
 
     - Default: the step controller's ``atol``/``rtol``; ``1e-6``
-      when there is no adaptive controller.
+      when the controller carries no tolerances.
 
 **krylov_max_iters** — linear iteration limit per Newton step.
 
@@ -172,8 +172,8 @@ Krylov (inner loop) options:
     right-hand side at entry, so early Newton iterations avoid
     over-solving.
 
-    - Default: the step controller's smallest ``rtol`` entry;
-      machine epsilon when there is no adaptive ``rtol``.
+    - Default: the adaptive step controller's smallest ``rtol``
+      entry; machine epsilon for non-adaptive runs.
     - Type: ``float`` in ``[0, 1]``
 
 **krylov_residual_floor** — absolute linear stopping term.
