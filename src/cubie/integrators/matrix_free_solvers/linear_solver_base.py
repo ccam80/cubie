@@ -76,10 +76,9 @@ class LinearSolverBaseConfig(MatrixFreeSolverConfig):
         :class:`~cubie.integrators.SingleIntegratorRunCore.SingleIntegratorRunCore`
         derives the step controller's ``rtol`` for adaptive runs.
     _residual_floor : Optional[float]
-        Weighted-residual value below which the solve always stops.
-        The weighted norm equals one when the residual sits at the
-        ``krylov_atol``/``krylov_rtol`` envelope, so the derived
-        default of one stops solves at that envelope.
+        Absolute term of the stopping rule, in weighted-norm units
+        (one sits at the ``krylov_atol``/``krylov_rtol`` envelope).
+        ``None`` derives ``sqrt(eps)`` of the configured precision.
     """
 
     operator_apply: Optional[Callable] = field(
@@ -122,9 +121,11 @@ class LinearSolverBaseConfig(MatrixFreeSolverConfig):
 
     @property
     def residual_floor(self) -> float:
-        """Return the weighted-residual floor in configured precision."""
+        """Return the absolute stopping term in configured precision."""
         if self._residual_floor is None:
-            return self.precision(1.0)
+            return self.precision(
+                float(np_finfo(self.precision).eps) ** 0.5
+            )
         return self.precision(self._residual_floor)
 
 

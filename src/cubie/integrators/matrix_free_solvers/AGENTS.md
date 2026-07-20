@@ -75,17 +75,16 @@ is specific to the solvers.
   diagonal coefficient; FIRK: the full tableau row).
 - **Every linear solve (MR, SD, and BiCGSTAB, Newton-owned or
   direct) stops on the same weighted-residual criterion**:
-  `||r|| <= max(krylov_residual_floor, krylov_residual_reduction *
-  ||b||)`, where `||.||` is the solver's `ScaledNorm` (so a value of
+  `||r|| <= krylov_residual_floor + krylov_residual_reduction *
+  ||b||`, where `||.||` is the solver's `ScaledNorm` (a value of
   one sits at the `krylov_atol`/`krylov_rtol` envelope) and `||b||`
   is fixed from the untouched right-hand side at solve entry. The
   norm's scaling reference is the stage base state for Newton-owned
   solves and the model state for direct solves (`norm_reference`
-  config field, bound at compile time). Unset, the reduction derives
-  machine epsilon (the floor criterion governs) and the floor derives
-  one (the envelope); adaptive runs derive the reduction from the
-  step controller's `rtol`, matching OrdinaryDiffEq.jl's
-  `dolinsolve(...; reltol = opts.reltol)`.
+  config field, bound at compile time). Unset, both terms derive:
+  the reduction follows the adaptive step controller's `rtol`
+  (machine epsilon when there is no adaptive `rtol`) and the floor
+  derives `sqrt(eps)` of the precision.
 - **Newton convergence follows OrdinaryDiffEq's NLNewton.** Consecutive
   full steps estimate the contraction `theta` (decay-floored at
   `0.3 * prev_theta`, warm-started across solves via the persistent

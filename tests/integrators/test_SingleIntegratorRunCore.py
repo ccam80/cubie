@@ -1025,10 +1025,13 @@ def test_explicit_inner_tolerance_survives_derivation(
     assert np.all(
         np.asarray(algo.newton_rtol) <= np.asarray(controller.rtol)
     )
-    # The unset linear stopping factor derives the controller's rtol;
-    # the floor keeps its envelope default.
+    # The unset linear stopping terms derive the controller's rtol
+    # and sqrt(eps) of the precision.
     assert np.isclose(
         float(algo.krylov_residual_reduction),
         float(np.min(np.asarray(controller.rtol))),
     )
-    assert float(algo.krylov_residual_floor) == 1.0
+    assert np.isclose(
+        float(algo.krylov_residual_floor),
+        float(np.finfo(run.precision).eps) ** 0.5,
+    )

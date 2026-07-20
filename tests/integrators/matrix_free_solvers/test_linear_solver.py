@@ -696,14 +696,15 @@ def test_residual_reduction_measures_entry_rhs(
 def test_residual_settings_derive_and_override(precision):
     """Unset stopping settings derive; explicit values stick and update."""
     solver = MRLinearSolver(precision=precision, n=3)
+    derived_floor = precision(float(np.finfo(precision).eps) ** 0.5)
     assert solver.krylov_residual_reduction == precision(
         np.finfo(precision).eps
     )
-    assert solver.krylov_residual_floor == precision(1.0)
+    assert solver.krylov_residual_floor == derived_floor
     assert solver.settings_dict["krylov_residual_reduction"] == precision(
         np.finfo(precision).eps
     )
-    assert solver.settings_dict["krylov_residual_floor"] == precision(1.0)
+    assert solver.settings_dict["krylov_residual_floor"] == derived_floor
 
     solver = MRLinearSolver(
         precision=precision,

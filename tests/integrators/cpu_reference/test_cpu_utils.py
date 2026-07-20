@@ -207,23 +207,40 @@ def test_cpu_krylov_reduction_measures_entry_rhs(
     assert np.array_equal(solution, guess)
 
 
-def test_cpu_krylov_default_floor_is_envelope(precision):
-    """Unset stopping settings reproduce the tolerance-envelope stop."""
+def test_cpu_krylov_default_floor_derives_sqrt_eps(precision):
+    """Unset stopping settings derive the sqrt(eps) absolute term.
+
+    The derived defaults must reproduce an explicit
+    ``sqrt(eps)``/``eps`` pin exactly (same iterates, same solution)
+    and stop later than an explicit envelope-level floor.
+    """
     matrix = np.diag(np.array([4.0, 3.0, 2.0], dtype=precision))
     rhs = np.array([1.0, 2.0, 3.0], dtype=precision)
     expected = rhs / np.diag(matrix)
+    eps = float(np.finfo(precision).eps)
 
-    solution, converged, _ = krylov_solve(
-        matrix,
-        rhs,
+    common = dict(
         tolerance=precision(1e-5),
         max_iterations=64,
         precision=precision,
         neumann_order=0,
     )
+    derived, converged_default, iters_default = krylov_solve(
+        matrix, rhs, **common
+    )
+    pinned, converged_pinned, iters_pinned = krylov_solve(
+        matrix,
+        rhs,
+        residual_reduction=eps,
+        residual_floor=eps ** 0.5,
+        **common,
+    )
+    envelope, _, iters_envelope = krylov_solve(
+        matrix, rhs, residual_floor=1.0, **common
+    )
 
-    assert converged
-    residual = rhs - matrix @ solution
-    scaled = residual / precision(1e-5)
-    assert np.mean(scaled * scaled) <= precision(1.0)
-    assert np.allclose(solution, expected, atol=1e-4)
+    assert converged_default and converged_pinned
+    assert iters_default == iters_pinned
+    assert np.array_equal(derived, pinned)
+    assert iters_envelope < iters_default
+    assert np.allclose(derived, expected, atol=1e-4)

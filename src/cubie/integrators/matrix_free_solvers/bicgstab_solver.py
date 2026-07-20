@@ -21,6 +21,7 @@ See Also
     Newton--Krylov solver that wraps a linear solver.
 """
 
+from math import sqrt as math_sqrt
 from typing import Dict, Any, Optional
 
 from attrs import define, field, validators
@@ -245,10 +246,8 @@ class BiCGSTABSolver(LinearSolverBase):
         max_iters_val = int32(max_iters)
         precision_numba = from_dtype(np_dtype(precision))
         typed_zero = precision_numba(0.0)
-        typed_reduction2 = precision_numba(
-            float(config.residual_reduction) ** 2
-        )
-        typed_floor2 = precision_numba(float(config.residual_floor) ** 2)
+        typed_reduction = precision_numba(float(config.residual_reduction))
+        typed_floor = precision_numba(float(config.residual_floor))
         success = int32(CUBIE_RESULT_CODES.SUCCESS)
         max_linear_iters_exceeded = int32(
             CUBIE_RESULT_CODES.MAX_LINEAR_ITERATIONS_EXCEEDED
@@ -402,9 +401,13 @@ class BiCGSTABSolver(LinearSolverBase):
 
             # ── INIT ────────────────────────────────────
             # The stopping target is fixed against the untouched
-            # right-hand side before it becomes the residual.
+            # right-hand side before it becomes the residual:
+            # ||r|| <= floor + reduction * ||b||.
             rhs_norm2 = weighted_norm(rhs, state, base_state)
-            tol2 = max(typed_floor2, typed_reduction2 * rhs_norm2)
+            tol = typed_floor + typed_reduction * precision_numba(
+                math_sqrt(rhs_norm2)
+            )
+            tol2 = tol * tol
 
             # I1-I5 fused: r = rhs - clamp(A(x)); freeze witness,
             # seed search direction, accumulate rho_prev = <r0, r0>

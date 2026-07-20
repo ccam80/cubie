@@ -347,10 +347,10 @@ class SingleIntegratorRunCore(CUDAFactory):
         ``atol``/``rtol`` divided by ten, so every stage solve converges
         tighter than the embedded error estimate it feeds.  Unset
         ``krylov_residual_reduction`` defaults to the controller's
-        ``rtol`` itself (its tightest entry), matching
-        OrdinaryDiffEq.jl, which passes the integrator's relative
-        tolerance to every Newton and Rosenbrock linear sub-solve.
-        Values the user set explicitly (tracked in
+        ``rtol`` itself (its tightest entry), so each linear solve
+        reduces its residual by the same relative tolerance the
+        controller enforces on steps.  Values the user set
+        explicitly (tracked in
         ``_user_given_inner_tols``) are preserved.  The solver norms'
         tolerance converter broadcasts uniform arrays to their own
         vector length; a non-uniform per-state vector must match the

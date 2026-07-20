@@ -178,11 +178,12 @@ components use this set to filter kwargs before forwarding.
      - Maximum linear solver iterations.
    * - ``krylov_residual_reduction``
      - :class:`LinearSolverBaseConfig`
-     - Relative factor the weighted linear residual must fall below,
-       against the weighted right-hand side, to stop the solve.
+     - Relative term of the linear stopping rule
+       ``||r|| <= floor + reduction * ||b||``.
    * - ``krylov_residual_floor``
      - :class:`LinearSolverBaseConfig`
-     - Weighted-residual value below which the solve always stops.
+     - Absolute term of the linear stopping rule, in weighted-norm
+       units.
    * - ``linear_correction_type``
      - :class:`LinearSolverBaseConfig`
      - Correction strategy identifier.

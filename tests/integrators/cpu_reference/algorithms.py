@@ -94,7 +94,9 @@ class CPUStep:
         else:
             self._residual_reduction = self.precision(residual_reduction)
         if residual_floor is None:
-            self._residual_floor = self.precision(1.0)
+            self._residual_floor = self.precision(
+                float(np.finfo(self.precision).eps) ** 0.5
+            )
         else:
             self._residual_floor = self.precision(residual_floor)
         # Weighted-norm reference for linear solves; steps stash the

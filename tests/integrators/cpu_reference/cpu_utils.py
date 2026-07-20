@@ -315,9 +315,8 @@ def _krylov_solve_dense_impl(
     """Return the Krylov solution for a dense operator matrix.
 
     Converged when the weighted residual norm falls below
-    ``max(residual_floor, residual_reduction * ||rhs||)`` in the
-    weighted norm, with the target fixed from the untouched
-    right-hand side.
+    ``residual_floor + residual_reduction * ||rhs||``, with the
+    target fixed from the untouched right-hand side.
     """
 
     solution = np.empty_like(rhs)
@@ -334,10 +333,8 @@ def _krylov_solve_dense_impl(
     iteration_limit = max_iterations
 
     rhs_norm2 = _scaled_norm_impl(rhs, norm_reference, tolerance, rtol)
-    tol2 = max(
-        residual_floor * residual_floor,
-        residual_reduction * residual_reduction * rhs_norm2,
-    )
+    tol = residual_floor + residual_reduction * np.sqrt(rhs_norm2)
+    tol2 = tol * tol
 
     operator_buffer = np.empty_like(rhs)
     residual = np.empty_like(rhs)
@@ -428,7 +425,7 @@ def _bicgstab_solve_dense_impl(
     before each operator application, and a vanished recurrence
     scalar (pivot, omega, or rho) exits unconverged as breakdown.
     Converged when the weighted residual norm falls below
-    ``max(residual_floor, residual_reduction * ||rhs||)``.
+    ``residual_floor + residual_reduction * ||rhs||``.
     """
 
     dtype = operator_matrix.dtype
@@ -441,10 +438,8 @@ def _bicgstab_solve_dense_impl(
             solution[index] = zero
 
     rhs_norm2 = _scaled_norm_impl(rhs, norm_reference, tolerance, rtol)
-    tol2 = max(
-        residual_floor * residual_floor,
-        residual_reduction * residual_reduction * rhs_norm2,
-    )
+    tol = residual_floor + residual_reduction * np.sqrt(rhs_norm2)
+    tol2 = tol * tol
 
     operator_buffer = np.empty_like(rhs)
     residual = np.empty_like(rhs)
@@ -1008,8 +1003,8 @@ def krylov_solve(
         the weighted right-hand side. ``None`` derives machine epsilon
         so the floor criterion governs.
     residual_floor
-        Weighted-residual value below which the solve always stops.
-        ``None`` derives one, the ``tolerance``/``rtol`` envelope.
+        Absolute term of the stopping rule, in weighted-norm units.
+        ``None`` derives ``sqrt(eps)`` of the precision.
     instrumented
         When ``True`` the logging arrays are populated on each iteration.
     logging_initial_guess
@@ -1071,7 +1066,7 @@ def krylov_solve(
     else:
         reduction_value = scalar_type(residual_reduction)
     if residual_floor is None:
-        floor_value = scalar_type(1.0)
+        floor_value = scalar_type(float(np.finfo(dtype).eps) ** 0.5)
     else:
         floor_value = scalar_type(residual_floor)
 
