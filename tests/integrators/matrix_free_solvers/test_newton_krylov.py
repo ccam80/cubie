@@ -78,6 +78,8 @@ def test_newton_krylov_placeholder(placeholder_system, precision, tolerance):
         a_ij = precision(1.0)
         shared = cuda.shared.array(scratch_len, precision)
         persistent_local = cuda.local.array(scratch_len, precision)
+        for index in range(scratch_len):
+            persistent_local[index] = precision(0.0)
         time_scalar = precision(0.0)
         flag[0] = solver(
             state,
@@ -249,6 +251,8 @@ def newton_edge_case_runner(precision):
             counters = cuda.local.array(2, np.int32)
             shared = cuda.shared.array(shared_size, precision)
             persistent = cuda.local.array(persistent_size, precision)
+            for index in range(persistent_size):
+                persistent[index] = precision(0.0)
             for index in range(shared_size):
                 shared[index] = precision(0.0)
             for index in range(persistent_size):
@@ -452,6 +456,8 @@ def test_newton_krylov_clears_history_after_damping(precision):
         counters = cuda.local.array(2, np.int32)
         shared = cuda.shared.array(shared_size, precision)
         persistent = cuda.local.array(persistent_size, precision)
+        for index in range(persistent_size):
+            persistent[index] = precision(0.0)
         for index in range(shared_size):
             shared[index] = precision(0.0)
         for index in range(persistent_size):
@@ -558,6 +564,8 @@ def test_newton_krylov_symbolic(
         a_ij = precision(1.0)
         shared = cuda.shared.array(scratch_len, precision)
         persistent_local = cuda.local.array(scratch_len, precision)
+        for index in range(scratch_len):
+            persistent_local[index] = precision(0.0)
         time_scalar = precision(0.0)
         flag[0] = solver(
             state,
@@ -652,6 +660,8 @@ def test_newton_krylov_newton_max_iters_exceeded(
         a_ij = precision(1.0)
         shared = cuda.shared.array(scratch_len, precision)
         persistent_local = cuda.local.array(scratch_len, precision)
+        for index in range(scratch_len):
+            persistent_local[index] = precision(0.0)
         time_scalar = precision(0.0)
         flag[0] = solver(
             state,
@@ -730,6 +740,8 @@ def test_newton_krylov_linear_solver_failure_propagates(precision):
         base = cuda.local.array(1, precision)
         shared = cuda.shared.array(scratch_len, precision)
         persistent_local = cuda.local.array(scratch_len, precision)
+        for index in range(scratch_len):
+            persistent_local[index] = precision(0.0)
         time_scalar = precision(0.0)
         flag[0] = solver(
             state,
@@ -800,6 +812,8 @@ def test_newton_krylov_linear_failure_gates_commit(precision):
         counters = cuda.local.array(2, np.int32)
         shared = cuda.shared.array(shared_size, precision)
         persistent = cuda.local.array(persistent_size, precision)
+        for index in range(persistent_size):
+            persistent[index] = precision(0.0)
         status[0] = solver(
             state,
             parameters,
@@ -927,6 +941,8 @@ def test_newton_krylov_scaled_tolerance_converges(precision, tolerance):
         a_ij = precision(1.0)
         shared = cuda.shared.array(scratch_len, precision)
         persistent_local = cuda.local.array(scratch_len, precision)
+        for index in range(scratch_len):
+            persistent_local[index] = precision(0.0)
         time_scalar = precision(0.0)
         flag[0] = solver(
             state,

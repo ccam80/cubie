@@ -423,12 +423,15 @@ class NewtonKrylov(MatrixFreeSolver):
                 shared_scratch, persistent_scratch
             )
 
-            # Warm-started contraction estimate; zero marks a fresh
-            # scratch buffer or a failed previous solve.
+            # Warm-started contraction estimate. Only values in the
+            # valid band are trusted: converged solves store estimates
+            # at or below one, so anything else marks a fresh or
+            # uninitialised scratch buffer and starts conservatively.
             stored_theta = prev_theta_store[0]
-            prev_theta = selp(
-                stored_theta > typed_zero, stored_theta, typed_one
+            theta_valid = (stored_theta > typed_zero) & (
+                stored_theta <= typed_one
             )
+            prev_theta = selp(theta_valid, stored_theta, typed_one)
 
             # RMS norm of the previous accepted full-step correction;
             # zero marks unavailable contraction history.
