@@ -33,13 +33,15 @@ from numpy import (
 )
 
 from numpy.typing import NDArray
-from typing import List, Optional, TYPE_CHECKING
+from math import prod
+from typing import Optional, TYPE_CHECKING
 
 if TYPE_CHECKING:
     from cubie.batchsolving.BatchSolverKernel import BatchSolverKernel
 
 from cubie.cuda_simsafe import cuda, CUDA_SIMULATION
-from cubie.memory.chunk_buffer_pool import ChunkBufferPool, PinnedBuffer
+from cubie.memory.chunk_buffer_pool import ChunkBufferPool
+from cubie.memory.mem_manager import HOST_STAGING_BYTES
 from cubie.batchsolving.writeback_watcher import WritebackWatcher
 from cubie.outputhandling.output_sizes import BatchInputSizes
 from cubie.batchsolving.arrays.BaseArrayManager import (
@@ -154,9 +156,6 @@ class InputArrays(BaseArrayManager):
         init=False,
     )
     _buffer_pool: ChunkBufferPool = field(factory=ChunkBufferPool, init=False)
-    _active_buffers: List[tuple[str, PinnedBuffer]] = field(
-        factory=list, init=False
-    )
     _transfer_watcher: WritebackWatcher = field(
         factory=WritebackWatcher, init=False
     )
@@ -263,6 +262,7 @@ class InputArrays(BaseArrayManager):
             precision=solver_instance.precision,
             memory_manager=solver_instance.memory_manager,
             stream_group=solver_instance.stream_group,
+            memory_owner=solver_instance,
         )
 
     def update_from_solver(self, solver_instance: "BatchSolverKernel") -> None:
@@ -295,6 +295,21 @@ class InputArrays(BaseArrayManager):
                 arr_obj.dtype = self._precision
         self._size_sig = sig
 
+    def _convert_host_to_pinned(self) -> None:
+        """Input slots hold caller-supplied arrays verbatim.
+
+        Their backing is classified at attach time and never
+        converted; non-pinned sources stage through the bounded
+        pinned pool instead.
+        """
+
+    def _convert_host_to_numpy(self) -> None:
+        """Input slots hold caller-supplied arrays verbatim.
+
+        Chunked transfers stage slices straight from the attached
+        array, so no conversion is needed.
+        """
+
     def finalise(self, chunk_index: int, stream=None) -> None:
         """Finish input handling for a chunk."""
 
@@ -308,10 +323,11 @@ class InputArrays(BaseArrayManager):
 
         Notes
         -----
-        For chunked mode, pinned buffers are acquired from the pool for
-        staging data before H2D transfer. Buffers are stored in
-        _active_buffers and released after the H2D transfer completes.
-        For non-chunked mode, pinned buffers are allocated directly.
+        Pinned host arrays transfer directly and asynchronously.
+        Everything else stages through pooled pinned buffers whose
+        releases are event-driven via the transfer watcher, so this
+        method never blocks on the stream: with the pool deep enough,
+        the CPU stages the next chunk while the previous kernel runs.
         """
         if stream is None:
             stream = self._memory_manager.get_stream(self)
@@ -326,56 +342,68 @@ class InputArrays(BaseArrayManager):
 
         for array_name in arrays_to_copy:
             device_obj = self.device.get_managed_array(array_name)
-            to_.append(device_obj.array)
-
             host_obj = self.host.get_managed_array(array_name)
-
-            # Direct transfer when shapes match; chunked transfer otherwise
-            if not host_obj.needs_chunked_transfer:
-                from_.append(host_obj.array)
-            else:
-                host_slice = host_obj.chunk_slice(chunk_index)
-
-                # Chunked mode: use buffer pool for pinned staging
-                # Buffer must match device array shape for H2D copy
-                device_shape = device_obj.array.shape
-                buffer = self._buffer_pool.acquire(
-                    array_name, device_shape, host_slice.dtype
-                )
-                # Copy host slice into smallest indices of buffer,
-                # as the final host slice may be smaller than the buffer.
-                data_slice = tuple(slice(0, s) for s in host_slice.shape)
-                buffer.array[data_slice] = host_slice
-                from_.append(buffer.array)
-                # Record that we're using this buffer for later release.
-                self._active_buffers.append((array_name, buffer))
-
-        self.to_device(from_, to_, stream=stream)
-        if not self._active_buffers:
-            return
-        if CUDA_SIMULATION:
-            self.release_buffers()
-            return
-        event = cuda.event()
-        event.record(stream)
-        for array_name, buffer in self._active_buffers:
-            self._transfer_watcher.submit_release(
-                event,
-                buffer,
-                self._buffer_pool,
-                array_name,
+            host_slice = (
+                host_obj.chunk_slice(chunk_index)
+                if host_obj.needs_chunked_transfer
+                else host_obj.array
             )
-        self._active_buffers.clear()
+            needs_staging = host_obj.needs_chunked_transfer or (
+                self._requires_staging(host_slice, host_obj.memory_type)
+            )
+            if needs_staging:
+                self._stage_array(
+                    array_name,
+                    host_slice,
+                    device_obj.array,
+                    stream,
+                )
+            else:
+                from_.append(host_slice)
+                to_.append(device_obj.array)
 
-    def release_buffers(self) -> None:
-        """Release all active buffers back to the pool.
+        if from_:
+            self.to_device(from_, to_, stream=stream)
 
-        Should be called after H2D transfer completes to return pooled
-        pinned buffers for reuse by subsequent chunks.
+    def _stage_array(
+        self, array_name, host_array, device_array, stream
+    ) -> None:
+        """Stage one non-pinned input through pooled pinned buffers.
+
+        The host source may be a strided view (a chunk slice or a
+        memmap) whose run extent is smaller than the device array's on
+        the final chunk, so each block is copied into its buffer with
+        shape-aware indexing; a flat copy would misalign the runs.
+        Blocks are cut along the leading axis to keep each pinned
+        buffer within ``HOST_STAGING_BYTES``. Each block's buffer is
+        handed to the transfer watcher with its own event, so it
+        returns to the pool as soon as its copy lands on the device.
         """
-        for _, buffer in self._active_buffers:
-            self._buffer_pool.release(buffer)
-        self._active_buffers.clear()
+        dtype = host_array.dtype
+        row_elements = max(1, prod(device_array.shape[1:]))
+        rows = max(1, HOST_STAGING_BYTES // (row_elements * dtype.itemsize))
+        length = min(host_array.shape[0], device_array.shape[0])
+        for start in range(0, length, rows):
+            stop = min(start + rows, length)
+            host_block = host_array[start:stop]
+            device_block = device_array[start:stop]
+            buffer = self._buffer_pool.acquire(
+                array_name, device_block.shape, dtype
+            )
+            trim = tuple(slice(0, extent) for extent in host_block.shape)
+            buffer.array[trim] = host_block
+            self.to_device([buffer.array], [device_block], stream=stream)
+            if CUDA_SIMULATION:
+                self._buffer_pool.release(buffer)
+            else:
+                event = cuda.event()
+                event.record(stream)
+                self._transfer_watcher.submit_release(
+                    event,
+                    buffer,
+                    self._buffer_pool,
+                    array_name,
+                )
 
     def wait_pending(self, timeout: Optional[float] = None) -> None:
         """Wait for pending staging-buffer releases."""
@@ -386,7 +414,6 @@ class InputArrays(BaseArrayManager):
         super().reset()
         self._transfer_watcher.shutdown()
         self._buffer_pool.clear()
-        self._active_buffers.clear()
 
     def _teardown_cleanups(self):
         """Return transfer cleanup calls."""

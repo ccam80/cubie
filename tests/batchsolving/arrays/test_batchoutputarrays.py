@@ -147,7 +147,7 @@ class TestOutputArrays:
 
     def test_from_solver_factory(self, solver):
         """Test creating OutputArrays from solver"""
-        output_arrays = OutputArrays.from_solver(solver)
+        output_arrays = OutputArrays.from_solver(solver.kernel)
 
         assert isinstance(output_arrays, OutputArrays)
         assert isinstance(output_arrays._sizes, BatchOutputSizes)

@@ -142,18 +142,18 @@ See Also
     Primary consumer that delegates input processing here.
 """
 from itertools import product
-from typing import Dict, List, Optional, Tuple, Union
+from typing import Dict, List, Optional, TYPE_CHECKING, Tuple, Union
 from warnings import warn
 
 from numpy import (
     ndarray,
     array as np_array,
+    dtype as np_dtype,
     tile as np_tile,
     repeat as np_repeat,
     newaxis as np_newaxis,
     asarray as np_asarray,
     empty as np_empty,
-    ascontiguousarray as np_ascontiguousarray,
     vstack as np_vstack,
     atleast_1d as np_atleast_1d,
     column_stack as np_column_stack,
@@ -162,8 +162,12 @@ from numpy import (
 from numpy.typing import ArrayLike
 
 from cubie.batchsolving.SystemInterface import SystemInterface
+from cubie.memory import default_memmgr
 from cubie.odesystems.baseODE import BaseODE
 from cubie.odesystems.SystemValues import SystemValues
+
+if TYPE_CHECKING:
+    from cubie.memory.mem_manager import MemoryManager
 
 
 def unique_cartesian_product(arrays: List[ndarray]) -> ndarray:
@@ -469,6 +473,8 @@ class BatchInputHandler:
     ----------
     interface
         System interface containing parameter and state metadata.
+    memory_manager
+        Manager whose policy sizes pinned output buffers.
 
     Attributes
     ----------
@@ -478,22 +484,35 @@ class BatchInputHandler:
         State metadata sourced from ``interface``.
     precision
         Floating-point precision for returned arrays.
+    memory_manager
+        Manager whose policy sizes pinned output buffers.
     """
 
-    def __init__(self, interface: SystemInterface):
+    def __init__(
+        self,
+        interface: SystemInterface,
+        memory_manager: "MemoryManager" = default_memmgr,
+    ):
         """Initialise the handler with a system interface."""
         self.parameters = interface.parameters
         self.states = interface.states
         self.precision = interface.parameters.precision
+        self.memory_manager = memory_manager
 
     @classmethod
-    def from_system(cls, system: BaseODE) -> "BatchInputHandler":
+    def from_system(
+        cls,
+        system: BaseODE,
+        memory_manager: "MemoryManager" = default_memmgr,
+    ) -> "BatchInputHandler":
         """Create a handler from a system model.
 
         Parameters
         ----------
         system
             System model providing parameter and state metadata.
+        memory_manager
+            Manager whose policy sizes pinned output buffers.
 
         Returns
         -------
@@ -501,7 +520,7 @@ class BatchInputHandler:
             Handler configured for ``system``.
         """
         interface = SystemInterface.from_system(system)
-        return cls(interface)
+        return cls(interface, memory_manager=memory_manager)
 
     def __call__(
         self,
@@ -760,7 +779,7 @@ class BatchInputHandler:
     def _cast_to_precision(
         self, states: ndarray, params: ndarray
     ) -> tuple[ndarray, ndarray]:
-        """Cast state and parameter arrays to the system precision.
+        """Return arrays in system precision, pinned when materialised.
 
         Parameters
         ----------
@@ -773,11 +792,30 @@ class BatchInputHandler:
         -------
         tuple of ndarray and ndarray
             State and parameter arrays with ``dtype`` matching
-            ``self.precision``.
+            ``self.precision``. An array already C-contiguous in the
+            system precision passes through untouched; one that needs
+            materialising (a dtype cast or contiguity fix) lands
+            directly in a buffer chosen by the memory manager —
+            pinned below the manager's ceiling for direct
+            asynchronous transfer, pageable above it.
         """
         return (
-            np_ascontiguousarray(states.astype(self.precision, copy=False)),
-            np_ascontiguousarray(params.astype(self.precision, copy=False)),
+            self._materialise(states),
+            self._materialise(params),
+        )
+
+    def _materialise(self, array: ndarray) -> ndarray:
+        """Return ``array`` in precision, copying at most once."""
+        if array.dtype == self.precision and array.flags["C_CONTIGUOUS"]:
+            return array
+        nbytes = int(array.size) * np_dtype(self.precision).itemsize
+        memory_type = (
+            "pinned"
+            if nbytes <= self.memory_manager.pinned_max_bytes
+            else "host"
+        )
+        return self.memory_manager.create_host_array(
+            array.shape, self.precision, memory_type, like=array
         )
 
     def _is_right_sized_array(

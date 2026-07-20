@@ -32,7 +32,7 @@ See Also
 from abc import ABC, abstractmethod
 from typing import Any, Callable, Dict, Iterator, List, Optional, Union
 from warnings import warn
-from weakref import finalize
+from weakref import finalize, ref as weakref_ref
 
 from attrs import define, field
 from attrs.validators import (
@@ -43,21 +43,27 @@ from attrs.validators import (
 )
 from numpy import (
     array_equal as np_array_equal,
+    ascontiguousarray as np_ascontiguousarray,
     float32 as np_float32,
+    memmap as np_memmap,
     zeros as np_zeros,
     ndarray,
 )
 from numpy.typing import NDArray
 
 from cubie._utils import opt_gttype_validator, getype_validator
-from cubie.cuda_simsafe import CUDA_SIMULATION, DeviceNDArrayBase
+from cubie.cuda_simsafe import (
+    CUDA_SIMULATION,
+    DeviceNDArrayBase,
+    is_pinned_array,
+)
 from cubie.memory import default_memmgr
 from cubie.memory.mem_manager import (
     ArrayRequest,
     ArrayResponse,
     MemoryManager,
     current_cupy_stream,
-    run_instance_teardown,
+    defer_instance_teardown,
 )
 from cubie.outputhandling.output_sizes import ArraySizingClass
 
@@ -85,7 +91,7 @@ class ManagedArray:
     )
     memory_type: str = field(
         default="device",
-        validator=attrsval_in(["device", "pinned", "host"]),
+        validator=attrsval_in(["device", "pinned", "host", "memmap"]),
     )
     is_chunked: bool = field(
         default=True, validator=attrsval_instance_of(bool)
@@ -291,7 +297,6 @@ class ArrayContainer(ABC):
             )
 
 
-
 @define
 class BaseArrayManager(ABC):
     """Coordinate allocation and transfer for batch host and device arrays.
@@ -348,12 +353,27 @@ class BaseArrayManager(ABC):
         default=None, validator=attrsval_optional(attrsval_instance_of(float))
     )
     _needs_reallocation: list[str] = field(factory=list, init=False)
+    # Labels sent in the most recent allocation request; a response
+    # missing one of these is a genuine allocation mismatch.
+    _requested_labels: set[str] = field(factory=set, init=False)
     _needs_overwrite: list[str] = field(factory=list, init=False)
     _memory_manager: MemoryManager = field(default=default_memmgr)
+    # Owner whose registration carries spill settings and whose
+    # registrations are evicted as one unit; the kernel for solver
+    # array managers, this instance itself when unset.
+    _memory_owner: Optional[object] = field(default=None, eq=False)
     num_runs: int = field(default=1, validator=getype_validator(int, 1))
     # Signature of the solver state that determines array sizes; when
     # unchanged, update_from_solver skips rebuilding the size objects.
     _size_sig: object = field(default=None, init=False)
+    # Host buffers loaned to a result object: (weakref to the owner,
+    # label -> array, label -> memory type, saved size signature).
+    # If the owner is collected before the next solve the buffers
+    # return to their slots; otherwise the next solve allocates
+    # fresh backing and the owner keeps the data.
+    _loan: Optional[tuple] = field(
+        default=None, init=False, eq=False, repr=False
+    )
     # weakref.finalize handle that deregisters this manager and frees its
     # buffers when the manager is collected (or when close() runs it early).
     _finalizer: object = field(default=None, init=False, eq=False, repr=False)
@@ -456,36 +476,47 @@ class BaseArrayManager(ABC):
         """
         chunked_shapes = response.chunked_shapes
         arrays = response.arr
+        if not arrays:
+            return
 
         # Extract chunk parameters from response
         chunks = response.chunks
         chunk_length = response.chunk_length
 
         for array_label in self._needs_reallocation:
-            try:
-                self.device.attach(array_label, arrays[array_label])
-                # Store chunked_shape and chunk parameters in ManagedArray
-                if array_label in response.chunked_shapes:
-                    for container in (self.device, self.host):
-                        array = container.get_managed_array(array_label)
-                        array.chunked_shape = chunked_shapes[array_label]
-                        array.chunk_length = chunk_length
-                        array.num_chunks = chunks
-            except KeyError:
-                warn(
-                    f"Device array {array_label} not found in allocation "
-                    f"response. See "
-                    f"BaseArrayManager._on_allocation_complete docstring "
-                    f"for more info.",
-                    UserWarning,
-                )
+            if array_label not in arrays:
+                # Only a label that was actually requested and not
+                # answered signals a mismatch; labels waiting on host
+                # data are simply not requested yet.
+                if array_label in self._requested_labels:
+                    warn(
+                        f"Device array {array_label} not found in "
+                        f"allocation response. See "
+                        f"BaseArrayManager._on_allocation_complete "
+                        f"docstring for more info.",
+                        UserWarning,
+                    )
+                continue
+            self.device.attach(array_label, arrays[array_label])
+            # Store chunked_shape and chunk parameters in ManagedArray
+            if array_label in response.chunked_shapes:
+                for container in (self.device, self.host):
+                    array = container.get_managed_array(array_label)
+                    array.chunked_shape = chunked_shapes[array_label]
+                    array.chunk_length = chunk_length
+                    array.num_chunks = chunks
 
         self._chunks = response.chunks
         if self.is_chunked:
             self._convert_host_to_numpy()
         else:
             self._convert_host_to_pinned()
-        self._needs_reallocation.clear()
+        self._needs_reallocation = [
+            label
+            for label in self._needs_reallocation
+            if label not in arrays
+        ]
+        self._requested_labels -= set(arrays)
 
     def register_with_memory_manager(self) -> None:
         """
@@ -503,11 +534,12 @@ class BaseArrayManager(ABC):
             invalidate_cache_hook=self._invalidate_hook,
             allocation_ready_hook=self._on_allocation_complete,
             stream_group=self._stream_group,
+            owner=self._memory_owner,
         )
-        settings = self._memory_manager.registry[id(self)]
+        settings = self._memory_manager.get_registration(self)
         self._finalizer = finalize(
             self,
-            run_instance_teardown,
+            defer_instance_teardown,
             self._memory_manager,
             id(self),
             settings,
@@ -778,12 +810,12 @@ class BaseArrayManager(ABC):
         shape_only: bool = False,
     ) -> None:
         """
-        Mark host arrays for overwrite or reallocation based on updates.
+        Attach one incoming host array and record allocation needs.
 
         Parameters
         ----------
         new_array
-            Updated array whose values should land in the host buffer.
+            Replacement array for the slot.
         current_array
             Previously stored host array or ``None``.
         label
@@ -800,52 +832,133 @@ class BaseArrayManager(ABC):
 
         Notes
         -----
-        When the stored buffer already matches in shape and dtype, values
-        are copied into it in place and a host-to-device copy is queued
-        (unless ``shape_only``). Values are never compared: re-submitted
-        same-size arrays usually carry new values, and the copy is cheaper
-        than an element-wise comparison. Otherwise the array is staged
-        into a fresh buffer of the slot's memory type and queued for
-        reallocation.
+        Incoming arrays are attached verbatim: the slot records the
+        array's actual backing (pinned, pageable, or memmap) and
+        transfers read from it directly, so no copy is made. The one
+        exception is a dtype mismatch, which is cast once into a fresh
+        buffer. The solve reads input arrays when it runs — mutating a
+        submitted array between solves changes what the next solve
+        integrates.
         """
         if new_array is None:
             raise ValueError("New array is None")
         managed = self.host.get_managed_array(label)
 
-        if (
-            current_array is not None
-            and current_array.shape == new_array.shape
-            and current_array.dtype == managed.dtype
-        ):
-            if not shape_only:
-                current_array[...] = new_array
-                if label not in self._needs_overwrite:
-                    self._needs_overwrite.append(label)
+        if not shape_only and new_array.dtype != managed.dtype:
+            # The only copy in the update path: device transfers need
+            # the slot dtype, so a mismatched array is cast once.
+            new_array = np_ascontiguousarray(
+                new_array.astype(managed.dtype)
+            )
+
+        if current_array is new_array:
+            if not shape_only and label not in self._needs_overwrite:
+                self._needs_overwrite.append(label)
             return None
 
         if current_array is None:
             self._needs_reallocation.append(label)
             self._needs_overwrite.append(label)
         else:
-            if label not in self._needs_reallocation:
+            same_size = (
+                current_array.shape == new_array.shape
+                and new_array.dtype == managed.dtype
+            )
+            if not same_size and label not in self._needs_reallocation:
                 self._needs_reallocation.append(label)
-            if label not in self._needs_overwrite:
+            if not shape_only and label not in self._needs_overwrite:
                 self._needs_overwrite.append(label)
             if 0 in new_array.shape:
+                # Zero-size updates keep a unit placeholder buffer.
                 newshape = (1,) * len(current_array.shape)
-                new_array = np_zeros(newshape, dtype=managed.dtype)
+                if shape_only:
+                    new_array = self._memory_manager.create_host_array(
+                        newshape,
+                        managed.dtype,
+                        self._base_memory_type(managed.memory_type),
+                        instance=self,
+                    )
+                else:
+                    new_array = np_zeros(newshape, dtype=managed.dtype)
 
-        if not shape_only and managed.memory_type == "pinned":
-            # Incoming arrays are external; copy into a buffer of the
-            # slot's declared memory type so device transfers can run
-            # asynchronously from pinned memory.
-            staged = self._memory_manager.create_host_array(
-                new_array.shape, managed.dtype, "pinned"
-            )
-            staged[...] = new_array
-            new_array = staged
+        if current_array is not new_array:
+            self._memory_manager.release_host_array(current_array)
         self.host.attach(label, new_array)
+        managed.memory_type = self._host_memory_type(new_array)
         return None
+
+    def loan_host_arrays(self, owner: object) -> None:
+        """Hand every host buffer to ``owner``, emptying the slots.
+
+        ``owner`` (a result object that already references the
+        arrays) keeps the data for as long as it lives. If it has
+        been garbage collected by the next solve, the buffers return
+        to their slots and are reused; otherwise the next solve
+        allocates fresh backing.
+        """
+        self.reclaim_or_release_loan()
+        arrays = {}
+        types = {}
+        for label, managed in self.host.iter_managed_arrays():
+            arrays[label] = managed.array
+            types[label] = managed.memory_type
+            managed.array = None
+        # The emptied slots must not satisfy the same-size fast path
+        # before the loan is resolved; the signature is restored when
+        # the buffers come back.
+        size_sig = self._size_sig
+        self._size_sig = None
+        self._loan = (weakref_ref(owner), arrays, types, size_sig)
+
+    def reclaim_or_release_loan(self) -> None:
+        """Recover loaned host buffers if their owner was collected.
+
+        A live owner keeps its buffers: the loan record is dropped so
+        the arrays belong solely to the owner, and the next
+        allocation builds fresh backing. A collected owner cannot be
+        holding views, so the buffers return to their slots for
+        reuse.
+        """
+        if self._loan is None:
+            return
+        owner_ref, arrays, types, size_sig = self._loan
+        self._loan = None
+        if owner_ref() is not None:
+            return
+        for label, array in arrays.items():
+            managed = self.host.get_managed_array(label)
+            managed.array = array
+            managed.memory_type = types[label]
+        self._size_sig = size_sig
+
+    @staticmethod
+    def _base_memory_type(memory_type: str) -> str:
+        """Return the type to request when replacing a slot's array.
+
+        A spilled slot re-requests pinned backing; the replacement
+        spills again only if its size still exceeds the policy.
+        """
+        return "pinned" if memory_type == "memmap" else memory_type
+
+    @staticmethod
+    def _host_memory_type(array: NDArray) -> str:
+        """Classify a host array's actual backing.
+
+        ``"pinned"`` requires C-contiguous page-locked memory, which
+        transfers directly and asynchronously. Strided or pageable
+        arrays stage through bounded pinned blocks, and memmaps are
+        disk-backed.
+        """
+        if isinstance(array, np_memmap):
+            return "memmap"
+        if is_pinned_array(array) and array.flags["C_CONTIGUOUS"]:
+            return "pinned"
+        return "host"
+
+    @staticmethod
+    def _requires_staging(array: NDArray, memory_type: str) -> bool:
+        """Return whether a host array needs pinned staging."""
+        return memory_type != "pinned"
 
     def update_host_arrays(
         self,
@@ -911,6 +1024,9 @@ class BaseArrayManager(ABC):
             host_array_object = self.host.get_managed_array(array_label)
             host_array = host_array_object.array
             if host_array is None:
+                # No host data yet (e.g. driver coefficients that have
+                # not been supplied); the label stays pending and is
+                # requested once data arrives.
                 continue
             device_array_object = self.device.get_managed_array(array_label)
             total_runs = self.num_runs
@@ -923,14 +1039,22 @@ class BaseArrayManager(ABC):
                 total_runs=total_runs,
             )
             requests[array_label] = request
+        self._requested_labels = set(requests)
         if requests:
             self.request_allocation(requests)
 
     def reset(self) -> None:
-        """
-        Clear all cached arrays and reset allocation tracking.
-
-        """
+        """Clear cached arrays and allocation tracking."""
+        if self._loan is not None:
+            owner_ref, arrays, _, _ = self._loan
+            self._loan = None
+            if owner_ref() is None:
+                # No owner survives to use or release these buffers.
+                for array in arrays.values():
+                    self._memory_manager.release_host_array(array)
+        for _, managed in self.host.iter_managed_arrays():
+            if managed.array is not None:
+                self._memory_manager.release_host_array(managed.array)
         self.host.delete_all()
         self.device.delete_all()
         self._needs_reallocation.clear()
@@ -979,33 +1103,47 @@ class BaseArrayManager(ABC):
         )
 
     def _convert_host_to_pinned(self) -> None:
-        """Convert regular numpy host arrays to pinned for non-chunked mode.
+        """Repin small kernel-written slots for direct transfers.
 
-        When a run is not chunked, the host arrays should be pinned to
-        enable asynchronous transfers.
+        Runs after the chunk decision, so pinning never happens for a
+        chunked solve. Slot content is not preserved: this applies
+        only to buffers the kernel's device transfers overwrite, and
+        input managers override it as a no-op because their slots hold
+        caller-supplied arrays verbatim.
         """
-        for name, slot in self.host.iter_managed_arrays():
+        for _, slot in self.host.iter_managed_arrays():
             old_array = slot.array
-            if old_array is not None:
-                if slot.memory_type == "host":
-                    new_array = self._memory_manager.create_host_array(
-                        old_array.shape,
-                        old_array.dtype,
-                        "pinned",
-                        like=old_array,
-                    )
-                    slot.array = new_array
-        self.host.set_memory_type("pinned")
+            if old_array is None or slot.memory_type in (
+                "pinned",
+                "memmap",
+            ):
+                continue
+            target_type = self._memory_manager.choose_host_memory_type(
+                old_array.nbytes, instance=self
+            )
+            if target_type != "pinned":
+                continue
+            new_array = self._memory_manager.create_host_array(
+                old_array.shape,
+                old_array.dtype,
+                "pinned",
+                instance=self,
+            )
+            self._memory_manager.release_host_array(old_array)
+            slot.array = new_array
+            slot.memory_type = "pinned"
 
     def _convert_host_to_numpy(self) -> None:
-        """Convert pinned host arrays to regular numpy for chunked mode.
+        """Move chunk-staged kernel-written slots to pageable backing.
 
-        When chunking is active, host arrays should be regular numpy
-        to limit pinned memory usage. Per-chunk pinned buffers are
-        used for staging during transfers.
+        When chunking is active, full-size host buffers stay pageable
+        and per-chunk transfers stage through the bounded pinned
+        pool. Slot content is not preserved: this applies only to
+        buffers each chunk writes back into, and input managers
+        override it as a no-op because their slots hold
+        caller-supplied arrays verbatim.
         """
-        for name, slot in self.host.iter_managed_arrays():
-            # Convert to regular numpy only for arrays with chunked transfers
+        for _, slot in self.host.iter_managed_arrays():
             if slot.memory_type == "pinned" and slot.needs_chunked_transfer:
                 old_array = slot.array
                 if old_array is not None:
@@ -1013,7 +1151,8 @@ class BaseArrayManager(ABC):
                         old_array.shape,
                         old_array.dtype,
                         "host",
-                        like=old_array,
+                        instance=self,
                     )
+                    self._memory_manager.release_host_array(old_array)
                     slot.array = new_array
                     slot.memory_type = "host"

@@ -1,8 +1,8 @@
 """Batch solver run specifications and result containers.
 
-This module exposes :class:`SolveSpec` to describe solver configuration and
-:class:`SolveResult` to aggregate output arrays, legends, and metadata once a
-batch integration completes.
+This module exposes :class:`SolveSpec` to describe solver configuration
+and :class:`SolveResult` to own the output arrays, legends, and metadata
+of one completed batch integration.
 
 Published Classes
 -----------------
@@ -10,8 +10,18 @@ Published Classes
     Frozen attrs dataclass describing the configuration used for a solver run.
 
 :class:`SolveResult`
-    Aggregates output arrays, legends, and metadata from a completed batch
-    integration.
+    Owns the solve's host output buffers and derives every user-facing
+    representation from them lazily.
+
+Ownership
+---------
+A :class:`SolveResult` takes ownership of the host buffers the solve
+wrote — nothing is copied. Keep the result object alive for as long as
+its data is needed: once it is garbage collected, the solver reuses
+the buffers on its next run. Arrays extracted from a result are only
+valid while the result lives. Disk-backed (spilled) results release
+their files on :meth:`SolveResult.close`, on context-manager exit, or
+at garbage collection.
 
 See Also
 --------
@@ -26,7 +36,6 @@ from typing import Optional, TYPE_CHECKING, Union, List, Any, Tuple
 
 if TYPE_CHECKING:
     from cubie.batchsolving.solver import Solver
-    from cubie.batchsolving.BatchSolverKernel import BatchSolverKernel
     import pandas as pd
 
 from attrs import (
@@ -83,6 +92,19 @@ def _format_time_domain_label(label: str, unit: str) -> str:
     if unit != "dimensionless":
         return f"{label} [{unit}]"
     return label
+
+
+def _release_spill_arrays(memory_manager, arrays) -> None:
+    """Release each spill mapping once."""
+    cleanups = set()
+    for array in arrays:
+        owner = array
+        while isinstance(owner, ndarray):
+            cleanup = getattr(owner, "_cubie_spill_cleanup", None)
+            if cleanup is not None and id(cleanup) not in cleanups:
+                cleanups.add(id(cleanup))
+                memory_manager.release_host_array(owner)
+            owner = getattr(owner, "base", None)
 
 
 @define
@@ -165,55 +187,82 @@ class SolveSpec:
 
 @define
 class SolveResult:
-    """Aggregate output arrays and related metadata for a solver run.
+    """Own the host outputs of one solve and derive views on demand.
+
+    The result takes the solve's host buffers wholesale — no copies.
+    ``state`` (with its time column when time is saved),
+    ``observables``, the summary buffers, ``status_codes``, and
+    ``iteration_counters`` are the arrays the kernel wrote. Combined
+    representations (:attr:`time_domain_array`,
+    :attr:`summaries_array`) and the RAM materialisations
+    (:attr:`as_numpy`, :attr:`as_pandas`,
+    :attr:`as_numpy_per_summary`) are built lazily on first access.
+
+    Keep the result object alive while its data is needed: once it is
+    garbage collected the solver reuses the buffers on its next run,
+    so arrays extracted from a dead result are not safe to read.
+    Disk-backed (spilled) buffers release their files on
+    :meth:`close`, context exit, or collection.
 
     Parameters
     ----------
-    time_domain_array
-        NumPy array containing time-domain results.
-    summaries_array
-        NumPy array containing summary results.
-    time
-        Optional NumPy array containing time values.
-    iteration_counters
-        NumPy array containing iteration counts per run.
+    state
+        State output buffer, including the trailing time column when
+        time saving is enabled.
+    observables
+        Observable output buffer.
+    state_summaries
+        State summary buffer.
+    observable_summaries
+        Observable summary buffer.
     status_codes
-        Optional NumPy array containing solver status codes per run (0 for
-        success, nonzero for errors). Shape is (n_runs,) with dtype int32.
+        Per-run status codes, shape ``(n_runs,)``, dtype int32.
+    iteration_counters
+        Per-save iteration counters when requested.
     time_domain_legend
-        Optional mapping from time-domain indices to labels.
+        Mapping from time-domain indices to labels.
     summaries_legend
-        Optional mapping from summary indices to labels.
+        Mapping from summary indices to labels.
     solve_settings
-        Optional solver run configuration.
-    active_outputs
-        Optional :class:`ActiveOutputs` instance describing enabled arrays.
-    stride_order
-        Sequence describing the order of axes in host arrays.
+        Solver run configuration snapshot.
     singlevar_summary_legend
-        Optional mapping from summary offsets to legend labels.
+        Mapping from summary offsets to legend labels.
+    active_outputs
+        :class:`ActiveOutputs` flags describing enabled arrays.
+    stride_order
+        Order of axes in the host arrays.
+    save_time
+        Whether the state buffer carries a trailing time column.
+    memory_manager
+        Manager used to release disk-backed buffers.
     """
 
-    time_domain_array: NDArray = field(
-        default=attrsFactory(lambda: np_array([])),
-        validator=attrsval_instance_of(ndarray),
-        eq=attrs_cmp_using(eq=np_array_equal),
-    )
-    summaries_array: NDArray = field(
-        default=attrsFactory(lambda: np_array([])),
-        validator=attrsval_instance_of(ndarray),
-        eq=attrs_cmp_using(eq=np_array_equal),
-    )
-    time: Optional[NDArray] = field(
-        default=attrsFactory(lambda: np_array([])),
+    _state: Optional[NDArray] = field(
+        default=None,
         validator=attrsval_optional(attrsval_instance_of(ndarray)),
+        eq=attrs_cmp_using(eq=np_array_equal),
     )
-    iteration_counters: NDArray = field(
-        default=attrsFactory(lambda: np_array([])),
-        validator=attrsval_instance_of(ndarray),
+    _observables: Optional[NDArray] = field(
+        default=None,
+        validator=attrsval_optional(attrsval_instance_of(ndarray)),
+        eq=attrs_cmp_using(eq=np_array_equal),
+    )
+    _state_summaries: Optional[NDArray] = field(
+        default=None,
+        validator=attrsval_optional(attrsval_instance_of(ndarray)),
+        eq=attrs_cmp_using(eq=np_array_equal),
+    )
+    _observable_summaries: Optional[NDArray] = field(
+        default=None,
+        validator=attrsval_optional(attrsval_instance_of(ndarray)),
         eq=attrs_cmp_using(eq=np_array_equal),
     )
     status_codes: Optional[NDArray] = field(
+        default=None,
+        validator=attrsval_optional(attrsval_instance_of(ndarray)),
+        eq=attrs_cmp_using(eq=np_array_equal),
+    )
+    _iteration_counters: Optional[NDArray] = field(
         default=None,
         validator=attrsval_optional(attrsval_instance_of(ndarray)),
         eq=attrs_cmp_using(eq=np_array_equal),
@@ -240,139 +289,254 @@ class SolveResult:
     _stride_order: Union[tuple[str, ...], list[str]] = field(
         default=("time", "variable", "run")
     )
+    _save_time: bool = field(
+        default=False, validator=attrsval_instance_of(bool)
+    )
+    _memory_manager: Optional[Any] = field(
+        default=None, repr=False, eq=False
+    )
+    _closed: bool = field(default=False, init=False, repr=False, eq=False)
+    _time_domain_cache: Optional[NDArray] = field(
+        default=None, init=False, repr=False, eq=False
+    )
+    _summaries_cache: Optional[NDArray] = field(
+        default=None, init=False, repr=False, eq=False
+    )
 
     @classmethod
     def from_solver(
         cls,
-        solver: Union["Solver", "BatchSolverKernel"],
-        results_type: str = "full",
+        solver: "Solver",
         nan_error_trajectories: bool = True,
-    ) -> Union["SolveResult", dict[str, Any]]:
-        """Create a :class:`SolveResult` from a solver instance.
+    ) -> "SolveResult":
+        """Create a :class:`SolveResult` owning the solver's buffers.
+
+        The solver's host output buffers are handed to the result
+        without copying. The solver reuses them on its next run only
+        after the result has been garbage collected; while the result
+        lives, the next run allocates fresh backing.
 
         Parameters
         ----------
         solver
             Object providing access to output arrays and metadata.
-        results_type
-            Format of the returned results. Options are ``"full"``, ``"numpy"``,
-            ``"numpy_per_summary"``, ``raw``, and ``"pandas"``. Defaults to
-            ``"full"``. ``raw`` shortcuts all processing and outputs numpy
-            arrays that are a direct copy of the host, without legends or
-            supporting information.
         nan_error_trajectories
-            When ``True`` (default), trajectories with nonzero status codes
-            are set to NaN. When ``False``, all trajectories are returned
-            with original values regardless of status. This parameter is
-            ignored when ``results_type`` is ``"raw"``.
+            When ``True`` (default), trajectories with nonzero status
+            codes are overwritten with NaN in place, making failed
+            runs easy to identify and exclude from analysis.
 
         Returns
         -------
-        SolveResult or dict[str, Any]
-            ``SolveResult`` when ``results_type`` is ``"full"``; otherwise a
-            dictionary containing the requested representation.
+        SolveResult
+            Result owning the solve's host buffers.
         """
-        if results_type == "raw":
-            return {
-                "state": solver.state,
-                "observables": solver.observables,
-                "state_summaries": solver.state_summaries,
-                "observable_summaries": solver.observable_summaries,
-                "iteration_counters": solver.iteration_counters,
-                "status_codes": solver.status_codes,
-            }
-        active_outputs = solver.active_outputs
-        state_active = active_outputs.state
-        observables_active = active_outputs.observables
-        state_summaries_active = active_outputs.state_summaries
-        observable_summaries_active = active_outputs.observable_summaries
-        solve_settings = solver.solve_info
-
-        # Retrieve status codes for non-raw results
-        status_codes = solver.status_codes
-        iteration_counters = solver.iteration_counters
-        time, state_less_time = cls.cleave_time(
-            solver.state,
-            time_saved=solver.save_time,
-            stride_order=solver.kernel.output_arrays.host.state.stride_order,
+        outputs = solver.kernel.output_arrays
+        # Buffers loaned to an already-collected result come back to
+        # their slots here, so a second from_solver call after the
+        # first result died hands over the same solve's data.
+        outputs.reclaim_or_release_loan()
+        result = cls(
+            state=outputs.state,
+            observables=outputs.observables,
+            state_summaries=outputs.state_summaries,
+            observable_summaries=outputs.observable_summaries,
+            status_codes=outputs.status_codes,
+            iteration_counters=outputs.iteration_counters,
+            time_domain_legend=cls.time_domain_legend_from_solver(solver),
+            summaries_legend=cls.summary_legend_from_solver(solver),
+            solve_settings=solver.solve_info,
+            singlevar_summary_legend=solver.summary_legend_per_variable,
+            active_outputs=solver.active_outputs,
+            stride_order=outputs.host.state.stride_order,
+            save_time=bool(solver.save_time),
+            memory_manager=solver.kernel.memory_manager,
         )
+        outputs.loan_host_arrays(result)
+        if nan_error_trajectories:
+            result._mask_error_runs()
+        return result
 
-        time_domain_array = cls.combine_time_domain_arrays(
-            state_less_time,
-            solver.observables,
-            state_active,
-            observables_active,
+    def _mask_error_runs(self) -> None:
+        """Overwrite failed runs with NaN in the owned buffers.
+
+        The time column of the state buffer is left untouched so the
+        time base of failed runs stays readable.
+        """
+        codes = self.status_codes
+        if codes is None or codes.size == 0:
+            return
+        error_runs = np_where(codes != 0)[0]
+        if len(error_runs) == 0:
+            return
+        run_index = self._stride_order.index("run")
+        targets = []
+        if self._active_outputs.state:
+            targets.append(self._state_less_time)
+        if self._active_outputs.observables:
+            targets.append(self._observables)
+        if self._active_outputs.state_summaries:
+            targets.append(self._state_summaries)
+        if self._active_outputs.observable_summaries:
+            targets.append(self._observable_summaries)
+        for array in targets:
+            if array is None or array.size == 0:
+                continue
+            if run_index == 0:
+                array[error_runs, :, :] = np_nan
+            elif run_index == 1:
+                array[:, error_runs, :] = np_nan
+            else:
+                array[:, :, error_runs] = np_nan
+
+    @property
+    def _state_less_time(self) -> Optional[NDArray]:
+        """State buffer view without the trailing time column."""
+        if self._state is None:
+            return None
+        if not self._save_time:
+            return self._state
+        var_index = self._stride_order.index("variable")
+        state_slice = slice_variable_dimension(
+            slice(None, -1), var_index, self._state.ndim
         )
+        return self._state[state_slice]
 
-        summaries_array = cls.combine_summaries_array(
-            solver.state_summaries,
-            solver.observable_summaries,
-            state_summaries_active,
-            observable_summaries_active,
+    @property
+    def state(self) -> Optional[NDArray]:
+        """State output buffer, with its time column when time is saved."""
+        if self._active_outputs.state or self._save_time:
+            return self._state
+        return None
+
+    @property
+    def observables(self) -> Optional[NDArray]:
+        """Observable output buffer, or ``None`` when not saved."""
+        if self._active_outputs.observables:
+            return self._observables
+        return None
+
+    @property
+    def state_summaries(self) -> Optional[NDArray]:
+        """State summary buffer, or ``None`` when not summarised."""
+        if self._active_outputs.state_summaries:
+            return self._state_summaries
+        return None
+
+    @property
+    def observable_summaries(self) -> Optional[NDArray]:
+        """Observable summary buffer, or ``None`` when not summarised."""
+        if self._active_outputs.observable_summaries:
+            return self._observable_summaries
+        return None
+
+    @property
+    def iteration_counters(self) -> Optional[NDArray]:
+        """Iteration counters, or ``None`` when not requested."""
+        if self._active_outputs.iteration_counters:
+            return self._iteration_counters
+        return None
+
+    @property
+    def time(self) -> Optional[NDArray]:
+        """Time samples cleaved from the state buffer, or ``None``."""
+        if not self._save_time or self._state is None:
+            return None
+        var_index = self._stride_order.index("variable")
+        time_slice = slice_variable_dimension(
+            slice(-1, None, None), var_index, self._state.ndim
         )
+        return np_squeeze(self._state[time_slice], axis=var_index)
 
-        # Process error trajectories when enabled
-        if (
-            nan_error_trajectories
-            and status_codes is not None
-            and status_codes.size > 0
-        ):
-            # Find runs with nonzero status codes
-            error_run_indices = np_where(status_codes != 0)[0]
+    @property
+    def time_domain_array(self) -> NDArray:
+        """Combined time-domain outputs (states then observables).
 
-            if len(error_run_indices) > 0:
-                # Get stride order and find run dimension
-                stride_order = (
-                    solver.kernel.output_arrays.host.state.stride_order
-                )
-                run_index = stride_order.index("run")
+        A single active source is returned as a view of the owned
+        buffer — no copy, no RAM beyond what the solve already used.
+        Two active sources concatenate into RAM on first access.
+        """
+        if self._time_domain_cache is None:
+            self._time_domain_cache = self._combine_active(
+                (
+                    self._state_less_time
+                    if self._active_outputs.state
+                    else None
+                ),
+                (
+                    self._observables
+                    if self._active_outputs.observables
+                    else None
+                ),
+            )
+        return self._time_domain_cache
 
-                # Set error trajectories to NaN using vectorized indexing
-                if time_domain_array.size > 0:
-                    if run_index == 0:
-                        time_domain_array[error_run_indices, :, :] = np_nan
-                    elif run_index == 1:
-                        time_domain_array[:, error_run_indices, :] = np_nan
-                    else:  # run_index == 2
-                        time_domain_array[:, :, error_run_indices] = np_nan
+    @property
+    def summaries_array(self) -> NDArray:
+        """Combined summary outputs (states then observables)."""
+        if self._summaries_cache is None:
+            self._summaries_cache = self._combine_active(
+                (
+                    self._state_summaries
+                    if self._active_outputs.state_summaries
+                    else None
+                ),
+                (
+                    self._observable_summaries
+                    if self._active_outputs.observable_summaries
+                    else None
+                ),
+            )
+        return self._summaries_cache
 
-                if summaries_array.size > 0:
-                    if run_index == 0:
-                        summaries_array[error_run_indices, :, :] = np_nan
-                    elif run_index == 1:
-                        summaries_array[:, error_run_indices, :] = np_nan
-                    else:  # run_index == 2
-                        summaries_array[:, :, error_run_indices] = np_nan
+    @staticmethod
+    def _combine_active(
+        first: Optional[NDArray], second: Optional[NDArray]
+    ) -> NDArray:
+        """Combine up to two active buffers along the variable axis."""
+        active = [
+            array
+            for array in (first, second)
+            if array is not None and array.size > 0
+        ]
+        if not active:
+            return np_array([])
+        if len(active) == 1:
+            return active[0]
+        return np_concatenate(active, axis=1)
 
-        time_domain_legend = cls.time_domain_legend_from_solver(solver)
-
-        summaries_legend = cls.summary_legend_from_solver(solver)
-        singlevar_summary_legend = solver.summary_legend_per_variable
-
-        user_arrays = cls(
-            time_domain_array=time_domain_array,
-            summaries_array=summaries_array,
-            time=time,
-            iteration_counters=iteration_counters,
-            status_codes=status_codes,
-            time_domain_legend=time_domain_legend,
-            summaries_legend=summaries_legend,
-            active_outputs=active_outputs,
-            solve_settings=solve_settings,
-            stride_order=solver.kernel.output_arrays.host.state.stride_order,
-            singlevar_summary_legend=singlevar_summary_legend,
+    def close(self) -> None:
+        """Release spill files owned by this result and drop its data."""
+        if self._closed:
+            return
+        arrays = (
+            self._state,
+            self._observables,
+            self._state_summaries,
+            self._observable_summaries,
+            self.status_codes,
+            self._iteration_counters,
+            self._time_domain_cache,
+            self._summaries_cache,
         )
+        if self._memory_manager is not None:
+            _release_spill_arrays(self._memory_manager, arrays)
+        self._state = None
+        self._observables = None
+        self._state_summaries = None
+        self._observable_summaries = None
+        self.status_codes = None
+        self._iteration_counters = None
+        self._time_domain_cache = None
+        self._summaries_cache = None
+        self._closed = True
 
-        if results_type == "full":
-            return user_arrays
-        elif results_type == "numpy":
-            return user_arrays.as_numpy
-        elif results_type == "numpy_per_summary":
-            return user_arrays.as_numpy_per_summary
-        elif results_type == "pandas":
-            return user_arrays.as_pandas
-        else:
-            return user_arrays
+    def __enter__(self) -> "SolveResult":
+        """Return this result."""
+        return self
+
+    def __exit__(self, exc_type, exc, traceback) -> None:
+        """Release spill files on context exit."""
+        self.close()
 
     @property
     def as_pandas(self) -> dict[str, "pd.DataFrame"]:
@@ -418,18 +582,21 @@ class SolveResult:
         # Resolve time index once (use first run's time for multi-run)
         time_index = None
         if self.time is not None and self.time.size > 0:
-            if self.time.ndim > 1:
-                time_index = self.time[:, 0]
-            else:
-                time_index = self.time
+            # time is (n_saves, n_runs); every run shares the save
+            # schedule, so the first run's samples index the frame.
+            time_index = np_array(self.time[:, 0], copy=True, subok=False)
 
         for run in range(n_runs):
             run_slice = slice_variable_dimension(
                 slice(run, run + 1, None), run_index, ndim
             )
 
-            singlerun_array = np_squeeze(
-                self.time_domain_array[run_slice], axis=run_index
+            singlerun_array = np_array(
+                np_squeeze(
+                    self.time_domain_array[run_slice], axis=run_index
+                ),
+                copy=True,
+                subok=False,
             )
             df = pd.DataFrame(singlerun_array, columns=time_headings)
 
@@ -440,8 +607,12 @@ class SolveResult:
             time_dfs.append(df)
 
             if any_summaries:
-                singlerun_array = np_squeeze(
-                    self.summaries_array[run_slice], axis=run_index
+                singlerun_array = np_array(
+                    np_squeeze(
+                        self.summaries_array[run_slice], axis=run_index
+                    ),
+                    copy=True,
+                    subok=False,
                 )
                 df = pd.DataFrame(singlerun_array, columns=summary_headings)
                 summaries_dfs.append(df)
@@ -464,7 +635,7 @@ class SolveResult:
     @property
     def as_numpy(self) -> dict[str, Optional[NDArray]]:
         """
-        Return the results as copies of NumPy arrays.
+        Return the results as in-RAM copies of NumPy arrays.
 
         Returns
         -------
@@ -473,13 +644,26 @@ class SolveResult:
             summaries_array, time_domain_legend, summaries_legend, and
             iteration_counters.
         """
+        counters = self.iteration_counters
         return {
-            "time": self.time.copy() if self.time is not None else None,
-            "time_domain_array": self.time_domain_array.copy(),
-            "summaries_array": self.summaries_array.copy(),
+            "time": (
+                np_array(self.time, copy=True, subok=False)
+                if self.time is not None
+                else None
+            ),
+            "time_domain_array": np_array(
+                self.time_domain_array, copy=True, subok=False
+            ),
+            "summaries_array": np_array(
+                self.summaries_array, copy=True, subok=False
+            ),
             "time_domain_legend": self.time_domain_legend.copy(),
             "summaries_legend": self.summaries_legend.copy(),
-            "iteration_counters": self.iteration_counters.copy(),
+            "iteration_counters": (
+                np_array(counters, copy=True, subok=False)
+                if counters is not None
+                else None
+            ),
         }
 
     @property
@@ -493,11 +677,22 @@ class SolveResult:
             Dictionary containing time, time_domain_array, time_domain_legend,
             iteration counters, and individual summary arrays.
         """
+        counters = self.iteration_counters
         arrays = {
-            "time": self.time.copy() if self.time is not None else None,
-            "time_domain_array": self.time_domain_array.copy(),
+            "time": (
+                np_array(self.time, copy=True, subok=False)
+                if self.time is not None
+                else None
+            ),
+            "time_domain_array": np_array(
+                self.time_domain_array, copy=True, subok=False
+            ),
             "time_domain_legend": self.time_domain_legend.copy(),
-            "iteration_counters": self.iteration_counters.copy(),
+            "iteration_counters": (
+                np_array(counters, copy=True, subok=False)
+                if counters is not None
+                else None
+            ),
         }
         arrays.update(**self.per_summary_arrays)
 
@@ -534,7 +729,9 @@ class SolveResult:
             summ_slice = slice_variable_dimension(
                 summ_slice, variable_index, len(self._stride_order)
             )
-            per_summary_arrays[label] = self.summaries_array[summ_slice].copy()
+            per_summary_arrays[label] = np_array(
+                self.summaries_array[summ_slice], copy=True, subok=False
+            )
         per_summary_arrays["summary_legend"] = variable_legend
 
         return per_summary_arrays
@@ -601,79 +798,6 @@ class SolveResult:
             return time, state_less_time
         else:
             return None, state
-
-    @staticmethod
-    def combine_time_domain_arrays(
-        state: ArrayTypes,
-        observables: ArrayTypes,
-        state_active: bool = True,
-        observables_active: bool = True,
-    ) -> NDArray:
-        """Combine state and observable arrays into a single time-domain array.
-
-        Parameters
-        ----------
-        state
-            Array of state values.
-        observables
-            Array of observable values.
-        state_active
-            Flag indicating if state values are active.
-        observables_active
-            Flag indicating if observable values are active.
-
-        Returns
-        -------
-        NDArray
-            Combined array along the variable axis (axis=1) for 3D arrays,
-            or a copy of the active array.
-        """
-        if state_active and observables_active:
-            # Concatenate along variable axis (axis=1) for (time, variable, run)
-            return np_concatenate((state, observables), axis=1)
-        elif state_active:
-            return state.copy()
-        elif observables_active:
-            return observables.copy()
-        else:
-            return np_array([])
-
-    @staticmethod
-    def combine_summaries_array(
-        state_summaries: ArrayTypes,
-        observable_summaries: ArrayTypes,
-        summarise_states: bool,
-        summarise_observables: bool,
-    ) -> ndarray:
-        """Combine state and observable summary arrays into a single array.
-
-        Parameters
-        ----------
-        state_summaries
-            Array containing state summaries.
-        observable_summaries
-            Array containing observable summaries.
-        summarise_states
-            Flag indicating if state summaries are active.
-        summarise_observables
-            Flag indicating if observable summaries are active.
-
-        Returns
-        -------
-        ndarray
-            Combined summary array along the variable axis (axis=1).
-        """
-        if summarise_states and summarise_observables:
-            # Concatenate along variable axis (axis=1) for (time, variable, run)
-            return np_concatenate(
-                (state_summaries, observable_summaries), axis=1
-            )
-        elif summarise_states:
-            return state_summaries.copy()
-        elif summarise_observables:
-            return observable_summaries.copy()
-        else:
-            return np_array([])
 
     @staticmethod
     def summary_legend_from_solver(solver: "Solver") -> dict[int, str]:

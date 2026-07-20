@@ -6,7 +6,6 @@ import numpy as np
 import pytest
 
 from cubie.batchsolving.writeback_watcher import (
-    PendingBuffer,
     WritebackTask,
     WritebackWatcher,
 )
@@ -55,43 +54,6 @@ def _make_pinned_buffer(shape=(4, 3), dtype=np.float32, fill=1.0):
     return PinnedBuffer(buffer_id=0, array=arr)
 
 
-def _make_pending_buffer(shape=(4, 3), dtype=np.float32, fill=1.0):
-    """Return a PendingBuffer with matching target array."""
-    buf = _make_pinned_buffer(shape=shape, dtype=dtype, fill=fill)
-    target = np.zeros(shape, dtype=dtype)
-    pool = _make_pool()
-    return PendingBuffer(
-        buffer=buf,
-        target_array=target,
-        array_name="state",
-        data_shape=shape,
-        buffer_pool=pool,
-    )
-
-
-# ── PendingBuffer attrs dataclass (item 1) ──────────────────── #
-
-
-def test_pending_buffer_stores_all_fields():
-    """PendingBuffer stores buffer, target_array, array_name, data_shape, buffer_pool."""
-    buf = _make_pinned_buffer()
-    target = np.zeros((4, 3), dtype=np.float32)
-    pool = _make_pool()
-    shape = (4, 3)
-    pb = PendingBuffer(
-        buffer=buf,
-        target_array=target,
-        array_name="obs",
-        data_shape=shape,
-        buffer_pool=pool,
-    )
-    assert pb.buffer is buf
-    assert pb.target_array is target
-    assert pb.array_name == "obs"
-    assert pb.data_shape == (4, 3)
-    assert pb.buffer_pool is pool
-
-
 # ── WritebackTask attrs dataclass (item 2) ──────────────────── #
 
 
@@ -130,22 +92,6 @@ def test_writeback_task_data_shape_defaults_none():
         array_name="state",
     )
     assert task.data_shape is None
-
-
-# ── from_pending_buffer classmethod (item 3) ─────────────────── #
-
-
-def test_from_pending_buffer_transfers_all_fields():
-    """from_pending_buffer creates WritebackTask with PendingBuffer fields + event."""
-    pb = _make_pending_buffer()
-    event = object()
-    task = WritebackTask.from_pending_buffer(pb, event)
-    assert task.event is event
-    assert task.buffer is pb.buffer
-    assert task.target_array is pb.target_array
-    assert task.buffer_pool is pb.buffer_pool
-    assert task.array_name == pb.array_name
-    assert task.data_shape == pb.data_shape
 
 
 # ── WritebackWatcher.__init__ (item 4) ───────────────────────── #
@@ -211,20 +157,6 @@ def test_submit_task_starts_thread_and_processes():
     # Task was processed: pending_count back to 0, data copied (items 7, 8)
     assert w._pending_count == 0
     np.testing.assert_array_equal(target, 99.0)
-    w.shutdown()
-
-
-# ── submit_from_pending_buffer (item 10) ──────────────────────── #
-
-
-def test_submit_from_pending_buffer():
-    """submit_from_pending_buffer creates task and submits."""
-    w = WritebackWatcher()
-    pb = _make_pending_buffer(fill=7.0)
-    w.submit_from_pending_buffer(pb, event=None)
-    # In CUDASIM, event=None means immediate completion
-    w.wait_all(timeout=2.0)
-    np.testing.assert_array_equal(pb.target_array, pb.buffer.array)
     w.shutdown()
 
 

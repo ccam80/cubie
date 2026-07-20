@@ -11,12 +11,12 @@ import pytest
 @pytest.mark.parametrize(
     "forced_free_mem",
     [
-        860,
-        1024,
-        1240,
-        1460,
+        660,
+        760,
+        950,
+        1130,
         2048,  # unchunked to verify
-    ],  # magic numbers explained in arrays/conftest.py
+    ],  # magic numbers explained at the chunked_solved_solver fixture
     indirect=True,
 )
 def test_chunked_solver_produces_correct_results(

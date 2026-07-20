@@ -2,8 +2,16 @@
 
 This module manages allocation and lifecycle of pinned memory buffers
 used for staging data during chunked host-device transfers. Buffers
-are sized for one chunk and reused across chunks to avoid repeated
-allocation overhead.
+are sized for one transfer block and reused across blocks and chunks
+to avoid repeated allocation overhead.
+
+Pool depth is bounded by RAM headroom rather than a fixed count: the
+pool grows while available physical RAM stays above the reserve
+fraction, so a spilled solve can pre-stage a whole chunk while the
+kernel runs, and a RAM-resident solve (whose pageable result arrays
+already occupy that headroom) stays shallow. When the pool cannot
+grow, :meth:`ChunkBufferPool.acquire` blocks until an in-flight
+buffer is released by the transfer watcher.
 
 Published Classes
 -----------------
@@ -32,8 +40,9 @@ See Also
     Primary consumer for device-to-host staging.
 """
 
+from math import prod
 from typing import Dict, List, Tuple
-from threading import Lock
+from threading import Condition
 
 from attrs import define, field
 from attrs.validators import instance_of as attrsval_instance_of
@@ -41,6 +50,11 @@ from numpy import ndarray, zeros as np_zeros
 from numpy import dtype as np_dtype
 
 from cubie.cuda_simsafe import CUDA_SIMULATION, cupyx
+from cubie.memory.mem_manager import (
+    HOST_SPILL_FRACTION,
+    available_system_ram,
+    total_system_ram,
+)
 
 
 @define
@@ -68,20 +82,20 @@ class ChunkBufferPool:
 
     Manages allocation and lifecycle of pinned memory buffers used
     for staging data during chunked device transfers. Buffers are
-    sized for one chunk and reused across chunks.
+    sized for one transfer block and reused across blocks and chunks.
 
     Attributes
     ----------
     _buffers : Dict[str, List[PinnedBuffer]]
         Pool of buffers organized by array name.
-    _lock : Lock
-        Thread-safe access to buffer pool.
+    _condition : Condition
+        Guards the pool and wakes blocked acquirers on release.
     _next_id : int
         Counter for unique buffer IDs.
     """
 
     _buffers: Dict[str, List[PinnedBuffer]] = field(factory=dict)
-    _lock: Lock = field(factory=Lock)
+    _condition: Condition = field(factory=Condition)
     _next_id: int = field(default=0)
 
     def acquire(
@@ -91,6 +105,12 @@ class ChunkBufferPool:
         dtype: np_dtype,
     ) -> PinnedBuffer:
         """Acquire a pinned buffer for the given array.
+
+        Reuses a free matching buffer when one exists, grows the pool
+        while RAM headroom allows, and otherwise blocks until the
+        transfer watcher releases an in-flight buffer. Blocking is the
+        pipeline's natural pacing: the CPU runs ahead of the GPU by
+        exactly the depth the machine's RAM can hold.
 
         Parameters
         ----------
@@ -106,26 +126,50 @@ class ChunkBufferPool:
         PinnedBuffer
             A buffer ready for use, either reused or newly allocated.
         """
-        with self._lock:
-            # Check pool for available buffer matching shape/dtype
-            if array_name in self._buffers:
-                for buf in self._buffers[array_name]:
-                    if (not buf.in_use and
-                            buf.array.shape == shape and
-                            buf.array.dtype == dtype):
-                        buf.in_use = True
-                        return buf
+        with self._condition:
+            while True:
+                matching_in_flight = False
+                for buf in self._buffers.get(array_name, []):
+                    if (buf.array.shape == shape
+                            and buf.array.dtype == dtype):
+                        if not buf.in_use:
+                            buf.in_use = True
+                            return buf
+                        matching_in_flight = True
 
-            # Allocate new buffer since no suitable one found
-            new_buffer = self._allocate_buffer(shape, dtype)
-            new_buffer.in_use = True
+                # Grow the pool unless RAM headroom is exhausted; a
+                # label with nothing in flight must always get one
+                # buffer, or no release could ever unblock it.
+                if not matching_in_flight or self._headroom_allows(
+                    shape, dtype
+                ):
+                    new_buffer = self._allocate_buffer(shape, dtype)
+                    new_buffer.in_use = True
+                    self._buffers.setdefault(array_name, []).append(
+                        new_buffer
+                    )
+                    return new_buffer
 
-            # Add to pool
-            if array_name not in self._buffers:
-                self._buffers[array_name] = []
-            self._buffers[array_name].append(new_buffer)
+                self._condition.wait()
 
-            return new_buffer
+    @staticmethod
+    def _headroom_allows(shape: Tuple[int, ...], dtype: np_dtype) -> bool:
+        """Return whether RAM headroom permits one more buffer.
+
+        The pool may grow while available physical RAM, after the new
+        buffer, stays above ``(1 - HOST_SPILL_FRACTION)`` of total —
+        the same reserve the spill policy leaves for the operating
+        system. When RAM cannot be probed the pool grows freely,
+        matching the spill policy's behaviour on such platforms.
+        """
+        if CUDA_SIMULATION:  # pragma: no cover - simulated
+            return True
+        available = available_system_ram()
+        total = total_system_ram()
+        if available is None or total is None:
+            return True
+        nbytes = int(prod(shape)) * np_dtype(dtype).itemsize
+        return available - nbytes > (1 - HOST_SPILL_FRACTION) * total
 
     def release(self, buffer: PinnedBuffer) -> None:
         """Release a buffer back to the pool.
@@ -135,17 +179,21 @@ class ChunkBufferPool:
         buffer
             The buffer to release.
         """
-        with self._lock:
+        with self._condition:
             buffer.in_use = False
+            self._condition.notify_all()
 
     def clear(self) -> None:
         """Clear all buffers from the pool.
 
         Should be called on cleanup or error to free pinned memory.
+        Wakes any blocked acquirer so it re-evaluates against the
+        emptied pool.
         """
-        with self._lock:
+        with self._condition:
             self._buffers.clear()
             self._next_id = 0
+            self._condition.notify_all()
 
     def _allocate_buffer(
         self,
