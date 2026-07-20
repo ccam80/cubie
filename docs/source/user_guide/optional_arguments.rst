@@ -142,8 +142,8 @@ Newton (outer loop) options:
     criterion.
 
     - Default: the step controller's ``atol``/``rtol`` divided by 10
-      (so stage solves always converge tighter than the error estimate
-      they feed); ``1e-6`` when the controller carries no tolerances.
+      (so stage solves always converge tighter than the error
+      estimate they feed).
     - Type: ``float`` or array, non-negative
 
 **newton_max_iters** — Newton iteration limit.
@@ -159,8 +159,7 @@ Krylov (inner loop) options:
     These weight the linear solver's stopping norm: a weighted
     residual of one sits at this envelope.
 
-    - Default: the step controller's ``atol``/``rtol``; ``1e-6``
-      when the controller carries no tolerances.
+    - Default: the step controller's ``atol``/``rtol``.
 
 **krylov_max_iters** — linear iteration limit per Newton step.
 

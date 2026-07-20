@@ -360,9 +360,8 @@ class SingleIntegratorRunCore(CUDAFactory):
         vector length; a non-uniform per-state vector must match the
         solver vector exactly.
 
-        The defaults apply only when the controller carries
-        ``atol``/``rtol`` and the algorithm is implicit (it then owns
-        inner solvers).
+        The defaults apply whenever the algorithm is implicit (it
+        then owns inner solvers).
 
         Returns
         -------
@@ -372,11 +371,9 @@ class SingleIntegratorRunCore(CUDAFactory):
         """
         if not self._algo_step.is_implicit:
             return set()
-        controller_atol = getattr(self._step_controller, "atol", None)
-        controller_rtol = getattr(self._step_controller, "rtol", None)
-        if controller_atol is None or controller_rtol is None:
-            return set()
 
+        controller_atol = self._step_controller.atol
+        controller_rtol = self._step_controller.rtol
         derived_source = {
             "krylov_atol": controller_atol.copy(),
             "krylov_rtol": controller_rtol.copy(),
