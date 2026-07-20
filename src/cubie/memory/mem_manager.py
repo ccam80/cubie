@@ -682,6 +682,25 @@ class MemoryManager:
         """
         return self.stream_groups.get_stream(instance)
 
+    def get_group_stream(self, group: str = "default") -> object:
+        """
+        Get the dedicated stream for a named group, creating it if needed.
+
+        Parameters
+        ----------
+        group
+            Name of the stream group.
+
+        Returns
+        -------
+        Stream
+            The group's dedicated CUDA stream. Because each process
+            owns its own manager, this stream is private to the
+            process; synchronizing it never orders against the
+            device-wide default stream.
+        """
+        return self.stream_groups.get_group_stream(group)
+
     def change_stream_group(self, instance: object, new_group: str) -> None:
         """
         Move instance to another stream group.

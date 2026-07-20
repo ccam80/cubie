@@ -5,6 +5,7 @@ from __future__ import annotations
 import numpy as np
 import pytest
 from cubie.cuda_simsafe import cuda, numba_from_dtype as from_dtype, int32
+from cubie.memory import default_memmgr
 
 from cubie.outputhandling.save_state import save_state_factory
 
@@ -72,11 +73,12 @@ def _run_save_state_kernel(
             return
         fn(st, obs, ctrs, step, st_out, obs_out, ctrs_out)
 
-    kernel[1, 1](
+    stream = default_memmgr.get_group_stream()
+    kernel[1, 1, stream](
         d_state, d_obs, d_counters, step_val,
         d_state_out, d_obs_out, d_counters_out,
     )
-    cuda.synchronize()
+    stream.synchronize()
 
     return (
         d_state_out.copy_to_host(),

@@ -11,6 +11,7 @@ import numpy as np
 import pytest
 from numpy.testing import assert_allclose
 from cubie.cuda_simsafe import cuda, numba_from_dtype as from_dtype
+from cubie.memory import default_memmgr
 
 from cubie.outputhandling import OutputFunctions
 from tests._utils import deterministic_array, calculate_expected_summaries
@@ -426,7 +427,8 @@ def compare_input_output(
         kernel_shared_memory + summary_shared_memory
     ) * precision().itemsize
 
-    output_functions_test_kernel[1, 1, 0, dynamic_shared_memory](
+    stream = default_memmgr.get_group_stream()
+    output_functions_test_kernel[1, 1, stream, dynamic_shared_memory](
         d_state_input,
         d_observable_input,
         d_state_output,
@@ -436,7 +438,7 @@ def compare_input_output(
         d_counters_output,
     )
 
-    cuda.synchronize()
+    stream.synchronize()
 
     state_output = d_state_output.copy_to_host()
     observable_output = d_observable_output.copy_to_host()
