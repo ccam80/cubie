@@ -67,6 +67,12 @@ def test_recovered_transient_failure_reports_success():
     must stay open long enough for the reduced steps to converge, and
     a springier controller can walk ``dt`` through ``dt_min`` before
     the inner solve first succeeds.
+
+    ``krylov_residual_reduction`` is pinned tight so the starved
+    two-iteration budget genuinely fails at the oversized step; the
+    derived relative target would instead let the truncated solve
+    pass loosely at huge ``dt``, removing the transient failure this
+    scenario exists to observe.
     """
     system = _build_system()
     duration = 1.0
@@ -84,6 +90,7 @@ def test_recovered_transient_failure_reports_success():
         rtol=1e-3,
         save_every=duration / 10.0,
         krylov_max_iters=2,
+        krylov_residual_reduction=1e-12,
         step_controller="pid",
         kp=0.6,
         ki=-0.4,

@@ -163,6 +163,24 @@ Krylov (inner loop) options:
 
     - Default: ``100``
 
+**krylov_residual_reduction** — relative linear stopping factor.
+    Each linear solve stops once its weighted residual falls below
+    this fraction of the weighted right-hand side, so early Newton
+    iterations avoid over-solving, matching OrdinaryDiffEq's use of
+    the integrator ``rtol`` for iterative linear solves.
+
+    - Default: the step controller's smallest ``rtol`` entry;
+      machine epsilon (so the floor governs) when there is no
+      adaptive controller.
+    - Type: ``float`` in ``(0, 1)``
+
+**krylov_residual_floor** — weighted-residual stop value.
+    The solve always stops below this value of the weighted norm,
+    where one sits at the ``krylov_atol``/``krylov_rtol`` envelope.
+
+    - Default: ``1.0`` (the envelope)
+    - Type: ``float``, non-negative
+
 **linear_correction_type** — linear solver strategy.
     ``"minimal_residual"`` (default) minimises the residual along the
     search direction; ``"steepest_descent"`` is more robust but often

@@ -138,3 +138,39 @@ def test_implicit_step_settings_dict_merges_solver_settings(precision):
     solver_settings = step.solver.settings_dict
     for key, value in solver_settings.items():
         assert key in settings
+
+
+@pytest.mark.parametrize(
+    "solver_kwargs",
+    [
+        {},
+        {"solver_type": "linear"},
+        {"linear_correction_type": "bicgstab"},
+    ],
+    ids=["newton-mr", "direct-linear", "newton-bicgstab"],
+)
+def test_implicit_step_routes_residual_settings(precision, solver_kwargs):
+    """Every solver arrangement routes the linear stopping settings."""
+    step = BackwardsEulerStep(
+        precision=precision,
+        n=3,
+        krylov_residual_reduction=0.2,
+        krylov_residual_floor=0.03,
+        **solver_kwargs,
+    )
+
+    assert step.krylov_residual_reduction == precision(0.2)
+    assert step.krylov_residual_floor == precision(0.03)
+    assert step.settings_dict["krylov_residual_reduction"] == precision(0.2)
+    assert step.settings_dict["krylov_residual_floor"] == precision(0.03)
+
+    recognized = step.update(
+        krylov_residual_reduction=0.25,
+        krylov_residual_floor=0.04,
+    )
+    assert {
+        "krylov_residual_reduction",
+        "krylov_residual_floor",
+    } <= recognized
+    assert step.krylov_residual_reduction == precision(0.25)
+    assert step.krylov_residual_floor == precision(0.04)

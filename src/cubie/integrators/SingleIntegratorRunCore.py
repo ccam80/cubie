@@ -95,6 +95,7 @@ class SingleIntegratorRunCore(CUDAFactory):
     _INNER_TOLERANCE_KEYS = (
         "krylov_atol",
         "krylov_rtol",
+        "krylov_residual_reduction",
         "newton_atol",
         "newton_rtol",
     )
@@ -344,11 +345,16 @@ class SingleIntegratorRunCore(CUDAFactory):
         Unset ``krylov_atol``/``krylov_rtol``/``newton_atol``/
         ``newton_rtol`` default to the adaptive controller's
         ``atol``/``rtol`` divided by ten, so every stage solve converges
-        tighter than the embedded error estimate it feeds.  Values the
-        user set explicitly (tracked in ``_user_given_inner_tols``) are
-        preserved.  The solver norms' tolerance converter broadcasts
-        uniform arrays to their own vector length; a non-uniform
-        per-state vector must match the solver vector exactly.
+        tighter than the embedded error estimate it feeds.  Unset
+        ``krylov_residual_reduction`` defaults to the controller's
+        ``rtol`` itself (its tightest entry), matching
+        OrdinaryDiffEq.jl, which passes the integrator's relative
+        tolerance to every Newton and Rosenbrock linear sub-solve.
+        Values the user set explicitly (tracked in
+        ``_user_given_inner_tols``) are preserved.  The solver norms'
+        tolerance converter broadcasts uniform arrays to their own
+        vector length; a non-uniform per-state vector must match the
+        solver vector exactly.
 
         The defaults apply only when the controller is adaptive (it then
         has ``atol``/``rtol``) and the algorithm is implicit (it then
@@ -373,6 +379,13 @@ class SingleIntegratorRunCore(CUDAFactory):
             "krylov_rtol": rtol,
             "newton_rtol": rtol,
         }
+        # A pure-absolute controller (rtol of zero) offers no relative
+        # target; the residual floor then governs the linear solves.
+        controller_rtol_floor = float(self._step_controller.rtol.min())
+        if controller_rtol_floor > 0.0:
+            derived_source["krylov_residual_reduction"] = (
+                controller_rtol_floor
+            )
         derived = {
             key: value
             for key, value in derived_source.items()

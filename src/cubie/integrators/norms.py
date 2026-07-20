@@ -279,6 +279,78 @@ class ScaledNorm(MultipleInstanceCUDAFactory):
         return self.compile_settings.rtol
 
 
+@define
+class TiledScaledNormConfig(ScaledNormConfig):
+    """Configure a scaled norm with a stage-tiled reference.
+
+    Attributes
+    ----------
+    state_n : int
+        Number of physical states per stage. The reference vector
+        holds one entry per physical state and is reused for every
+        stage block of the ``n``-element value vector.
+    """
+
+    state_n: int = field(default=1, validator=getype_validator(int, 1))
+
+    def __attrs_post_init__(self):
+        super().__attrs_post_init__()
+        if self.n % self.state_n != 0:
+            raise ValueError("n must be a multiple of state_n")
+
+
+class TiledScaledNorm(ScaledNorm):
+    """Compile a scaled norm whose reference tiles across stages.
+
+    Coupled FIRK solves stack ``n = stage_count * state_n`` values,
+    but the physical reference vector holds only ``state_n`` entries.
+    The compiled function reads the reference entry for value ``i``
+    at ``i mod state_n`` so callers pass the single-stage reference
+    directly.
+    """
+
+    config_type = TiledScaledNormConfig
+
+    def build(self) -> ScaledNormCache:
+        """Compile the stage-tiled norm."""
+        config = self.compile_settings
+
+        atol = config.atol
+        rtol = config.rtol
+        numba_precision = config.numba_precision
+        inv_n = config.inv_n
+        tol_floor = config.tol_floor
+        n_val = config.n
+        state_n = config.state_n
+
+        typed_zero = numba_precision(0.0)
+
+        # no cover: start
+        @cuda.jit(
+            device=True,
+            inline=True,
+            **self.jit_kwargs,
+        )
+        def scaled_norm(values, reference):
+            """Return the mean squared scaled norm."""
+            nrm2 = typed_zero
+            for index in range(n_val):
+                stage_index = index // state_n
+                state_index = index - stage_index * state_n
+                ref_i = reference[state_index]
+                abs_ref = ref_i if ref_i >= typed_zero else -ref_i
+                tol_i = atol[index] + rtol[index] * abs_ref
+                tol_i = tol_i if tol_i > tol_floor else tol_floor
+                value_i = values[index]
+                abs_val = value_i if value_i >= typed_zero else -value_i
+                ratio = abs_val / tol_i
+                nrm2 += ratio * ratio
+            return nrm2 * inv_n
+
+        # no cover: end
+        return ScaledNormCache(scaled_norm=scaled_norm)
+
+
 class CorrectionNorm(ScaledNorm):
     """Base factory for Newton correction norms.
 

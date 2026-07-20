@@ -141,6 +141,8 @@ class ODEImplicitStep(BaseAlgorithmStep):
             "krylov_atol",
             "krylov_rtol",
             "krylov_max_iters",
+            "krylov_residual_reduction",
+            "krylov_residual_floor",
             # MR buffer locations
             "preconditioned_vec_location",
             "temp_location",
@@ -188,7 +190,9 @@ class ODEImplicitStep(BaseAlgorithmStep):
             newton_rtol, etc.). None values are ignored and defaults
             from solver config classes are used. ``newton_norm``
             supplies a :class:`CorrectionNorm` for Newton solves;
-            when absent the solver builds its default.
+            ``krylov_norm`` supplies a :class:`ScaledNorm` for the
+            linear solver's convergence weighting; when absent each
+            solver builds its default.
         """
         super().__init__(config, _controller_defaults)
 
@@ -198,6 +202,7 @@ class ODEImplicitStep(BaseAlgorithmStep):
             )
 
         newton_norm = kwargs.pop("newton_norm", None)
+        krylov_norm = kwargs.pop("krylov_norm", None)
 
         # Extract kwargs for each solver, filtering None values
         linear_kwargs = {
@@ -216,10 +221,17 @@ class ODEImplicitStep(BaseAlgorithmStep):
         )
         solver_n = config.solver_n
 
+        # Newton-owned solves receive the stage increment as their
+        # first argument, so their weighted norm scales against the
+        # stage base state; direct solves receive the model state.
+        norm_reference = "base_state" if solver_type == "newton" else "state"
+
         if correction_type == "bicgstab":
             linear_solver = BiCGSTABSolver(
                 precision=config.precision,
                 n=solver_n,
+                norm=krylov_norm,
+                norm_reference=norm_reference,
                 **linear_kwargs,
             )
         else:
@@ -227,6 +239,8 @@ class ODEImplicitStep(BaseAlgorithmStep):
                 precision=config.precision,
                 n=solver_n,
                 linear_correction_type=correction_type,
+                norm=krylov_norm,
+                norm_reference=norm_reference,
                 **linear_kwargs,
             )
 
@@ -443,6 +457,16 @@ class ODEImplicitStep(BaseAlgorithmStep):
     def krylov_max_iters(self) -> int:
         """Return the maximum number of linear iterations allowed."""
         return int(self.solver.krylov_max_iters)
+
+    @property
+    def krylov_residual_reduction(self) -> float:
+        """Return the linear solver's relative stopping factor."""
+        return self.solver.krylov_residual_reduction
+
+    @property
+    def krylov_residual_floor(self) -> float:
+        """Return the linear solver's weighted-residual floor."""
+        return self.solver.krylov_residual_floor
 
     @property
     def linear_correction_type(self) -> str:

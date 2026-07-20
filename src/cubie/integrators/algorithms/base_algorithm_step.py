@@ -69,6 +69,8 @@ ALL_ALGORITHM_STEP_PARAMETERS = {
     "krylov_atol",
     "krylov_rtol",
     "krylov_max_iters",
+    "krylov_residual_reduction",
+    "krylov_residual_floor",
     "linear_correction_type",
     "newton_atol",
     "newton_rtol",
@@ -174,6 +176,13 @@ components use this set to filter kwargs before forwarding.
    * - ``krylov_max_iters``
      - :class:`LinearSolverBaseConfig`
      - Maximum linear solver iterations.
+   * - ``krylov_residual_reduction``
+     - :class:`LinearSolverBaseConfig`
+     - Relative factor the weighted linear residual must fall below,
+       against the weighted right-hand side, to stop the solve.
+   * - ``krylov_residual_floor``
+     - :class:`LinearSolverBaseConfig`
+     - Weighted-residual value below which the solve always stops.
    * - ``linear_correction_type``
      - :class:`LinearSolverBaseConfig`
      - Correction strategy identifier.

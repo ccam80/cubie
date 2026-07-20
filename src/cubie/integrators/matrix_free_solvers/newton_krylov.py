@@ -603,6 +603,16 @@ class NewtonKrylov(MatrixFreeSolver):
         return self.linear_solver.max_iters
 
     @property
+    def krylov_residual_reduction(self) -> float:
+        """Return the linear solver's relative stopping factor."""
+        return self.linear_solver.krylov_residual_reduction
+
+    @property
+    def krylov_residual_floor(self) -> float:
+        """Return the linear solver's weighted-residual floor."""
+        return self.linear_solver.krylov_residual_floor
+
+    @property
     def linear_correction_type(self) -> str:
         """Return correction type from nested linear solver."""
         return self.linear_solver.linear_correction_type

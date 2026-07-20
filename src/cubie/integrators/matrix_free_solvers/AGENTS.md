@@ -67,11 +67,25 @@ is specific to the solvers.
   closure constants). `newton_krylov_solver` OR-combines these into a **low-bits** status
   word — it does NOT pack the iteration count into high bits (counts go to `counters`).
   Callers OR this word into their own step status.
-- Linear norms use `ScaledNorm`. The Newton norm is a
-  `DIRKCorrectionNorm` or `FIRKCorrectionNorm`, whose whole-vector
-  function scales the update by
-  `atol + rtol * max(|stage_value|, |step_start|)` (DIRK: one diagonal
-  coefficient; FIRK: the full tableau row).
+- Linear norms use `ScaledNorm` (`TiledScaledNorm` for coupled FIRK
+  solves, whose reference tiles the single-stage base state across
+  all stages). The Newton norm is a `DIRKCorrectionNorm` or
+  `FIRKCorrectionNorm`, whose whole-vector function scales the update
+  by `atol + rtol * max(|stage_value|, |step_start|)` (DIRK: one
+  diagonal coefficient; FIRK: the full tableau row).
+- **Every linear solve (MR, SD, and BiCGSTAB, Newton-owned or
+  direct) stops on the same weighted-residual criterion**:
+  `||r|| <= max(krylov_residual_floor, krylov_residual_reduction *
+  ||b||)`, where `||.||` is the solver's `ScaledNorm` (so a value of
+  one sits at the `krylov_atol`/`krylov_rtol` envelope) and `||b||`
+  is fixed from the untouched right-hand side at solve entry. The
+  norm's scaling reference is the stage base state for Newton-owned
+  solves and the model state for direct solves (`norm_reference`
+  config field, bound at compile time). Unset, the reduction derives
+  machine epsilon (the floor criterion governs) and the floor derives
+  one (the envelope); adaptive runs derive the reduction from the
+  step controller's `rtol`, matching OrdinaryDiffEq.jl's
+  `dolinsolve(...; reltol = opts.reltol)`.
 - **Newton convergence follows OrdinaryDiffEq's NLNewton.** Consecutive
   full steps estimate the contraction `theta` (decay-floored at
   `0.3 * prev_theta`, warm-started across solves via the persistent
