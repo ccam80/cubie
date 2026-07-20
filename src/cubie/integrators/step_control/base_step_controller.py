@@ -36,7 +36,8 @@ from abc import ABC, abstractmethod
 from typing import Callable, Optional, Union
 import warnings
 
-from attrs import define, field, validators
+from attrs import Converter, define, field, validators
+from numpy import asarray, ndarray
 
 from cubie.CUDAFactory import (
     CUDAFactory,
@@ -45,9 +46,11 @@ from cubie.CUDAFactory import (
 )
 from cubie._utils import (
     getype_validator,
+    nonnegative_float_array_validator,
     opt_getype_validator,
     build_config,
     PrecisionDType,
+    tol_converter,
 )
 from cubie.buffer_registry import buffer_registry
 
@@ -105,10 +108,10 @@ by parent components to filter kwargs before forwarding them.
      - :class:`~cubie.integrators.step_control.adaptive_step_controller.AdaptiveStepControlConfig`
      - Maximum permissible step size.
    * - ``atol``
-     - :class:`~cubie.integrators.step_control.adaptive_step_controller.AdaptiveStepControlConfig`
+     - :class:`BaseStepControllerConfig`
      - Absolute tolerance vector.
    * - ``rtol``
-     - :class:`~cubie.integrators.step_control.adaptive_step_controller.AdaptiveStepControlConfig`
+     - :class:`BaseStepControllerConfig`
      - Relative tolerance vector.
    * - ``algorithm_order``
      - :class:`~cubie.integrators.step_control.adaptive_step_controller.AdaptiveStepControlConfig`
@@ -173,6 +176,13 @@ class BaseStepControllerConfig(CUDAFactoryConfig, ABC):
         Precision used for controller calculations.
     n
         Number of state variables controlled per step.
+    atol
+        Absolute tolerance vector. Adaptive controllers scale their
+        error norms with it; every controller carries it so implicit
+        algorithms can derive inner-solver tolerances from it.
+    rtol
+        Relative tolerance vector, carried on the same terms as
+        ``atol``.
     """
 
     n: int = field(default=1, validator=getype_validator(int, 0))
@@ -181,6 +191,16 @@ class BaseStepControllerConfig(CUDAFactoryConfig, ABC):
     )
     timestep_memory_location: str = field(
         default="local", validator=validators.in_(["local", "shared"])
+    )
+    atol: ndarray = field(
+        default=asarray([1e-6]),
+        validator=nonnegative_float_array_validator,
+        converter=Converter(tol_converter, takes_self=True),
+    )
+    rtol: ndarray = field(
+        default=asarray([1e-6]),
+        validator=nonnegative_float_array_validator,
+        converter=Converter(tol_converter, takes_self=True),
     )
 
     def __attrs_post_init__(self):
@@ -213,6 +233,8 @@ class BaseStepControllerConfig(CUDAFactoryConfig, ABC):
 
         return {
             "n": self.n,
+            "atol": self.atol,
+            "rtol": self.rtol,
         }
 
 
@@ -341,6 +363,18 @@ class BaseStepController(CUDAFactory):
         """Return ``True`` if the controller is adaptive."""
 
         return self.compile_settings.is_adaptive
+
+    @property
+    def atol(self) -> ndarray:
+        """Return absolute tolerance."""
+
+        return self.compile_settings.atol
+
+    @property
+    def rtol(self) -> ndarray:
+        """Return relative tolerance."""
+
+        return self.compile_settings.rtol
 
     @property
     def settings_dict(self) -> dict[str, object]:

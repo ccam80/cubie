@@ -342,17 +342,15 @@ class SingleIntegratorRunCore(CUDAFactory):
         """Derive unset inner-solver tolerances from the controller.
 
         Unset ``krylov_atol``/``krylov_rtol``/``newton_atol``/
-        ``newton_rtol`` default to the adaptive controller's
-        ``atol``/``rtol`` divided by ten, so every stage solve converges
-        tighter than the embedded error estimate it feeds.  Values the
+        ``newton_rtol`` default to the controller's ``atol``/``rtol``
+        divided by ten, so every stage solve converges tighter than the
+        step error it feeds.  Every controller carries ``atol``/``rtol``
+        — fixed-step included — so the derivation applies whenever the
+        algorithm is implicit (it then owns inner solvers).  Values the
         user set explicitly (tracked in ``_user_given_inner_tols``) are
         preserved.  The solver norms' tolerance converter broadcasts
         uniform arrays to their own vector length; a non-uniform
         per-state vector must match the solver vector exactly.
-
-        The defaults apply only when the controller is adaptive (it then
-        has ``atol``/``rtol``) and the algorithm is implicit (it then
-        owns inner solvers).
 
         Returns
         -------
@@ -360,8 +358,6 @@ class SingleIntegratorRunCore(CUDAFactory):
             The inner-tolerance keys forwarded to the algorithm step;
             keys its solvers do not use are ignored there.
         """
-        if not self._step_controller.is_adaptive:
-            return set()
         if not self._algo_step.is_implicit:
             return set()
 
@@ -466,13 +462,17 @@ class SingleIntegratorRunCore(CUDAFactory):
                 stacklevel=3
             )
             
-            # Replace with fixed step controller
+            # Replace with a fixed step controller, keeping the outgoing
+            # controller's atol/rtol so implicit algorithms still derive
+            # their inner-solver tolerances from the user's request.
             self._step_controller = get_controller(
                 precision=precision,
                 settings={
                     "step_controller": "fixed",
                     "dt": dt,
                     "n": self._system.sizes.states,
+                    "atol": self._step_controller.atol,
+                    "rtol": self._step_controller.rtol,
                 },
                 warn_on_unused=False,
             )
