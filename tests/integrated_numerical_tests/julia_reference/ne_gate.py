@@ -142,6 +142,15 @@ def matched_controller_settings(constants, alias, order):
     if c is None:
         return None
     if c["controller"] == "PIController":
+        required = ("beta1", "beta2", "gamma", "qmin", "qmax",
+                    "qsteady_min", "qsteady_max")
+        missing = [key for key in required if c[key] is None]
+        if missing:
+            raise ValueError(
+                "controller constants for '{0}' are missing {1}; "
+                "regenerate data/ with "
+                "benchmarks/vendor_julia_reference.py".format(
+                    alias, ", ".join(missing)))
         return {
             "step_controller": "pi",
             "kp": c["beta1"] * (order + 1),
