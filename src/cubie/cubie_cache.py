@@ -19,7 +19,6 @@ whose compile-result scheme (cubin/PTX payloads) carries its own
 serialization.
 """
 
-import marshal
 import os
 from contextlib import AbstractContextManager
 from functools import cache
@@ -29,8 +28,7 @@ from pathlib import Path
 from shutil import rmtree
 from sys import implementation, version_info
 from time import monotonic, sleep
-from types import CodeType
-from typing import Any, Dict, Optional, Set, Union
+from typing import Optional, Set, Union
 from warnings import warn
 
 if os.name == "nt":
@@ -42,14 +40,13 @@ from attrs import field, validators as val, define, converters
 
 from cubie.CUDAFactory import _CubieConfigBase
 from cubie._env import kernel_cache_dir_default, max_cache_entries_default
-from cubie._utils import getype_validator, build_config
+from cubie._utils import getype_validator
 from cubie.cuda_backend import IS_MLIR
 from cubie.cuda_simsafe import (  # noqa: F401
     _CacheLocator,  # noqa: F401
     CacheImpl,  # noqa: F401
     CUDACache,
     IndexDataCacheFile,  # noqa: F401
-    cache_dumps,
     is_cudasim_enabled,
 )
 from cubie.cache_root import get_cache_root
@@ -178,92 +175,6 @@ def environment_hash() -> str:
     """Hash Python and all installed package versions."""
     joined = "\n".join(_environment_entries())
     return sha256(joined.encode("utf-8")).hexdigest()
-
-
-def _portable_code(code: CodeType) -> CodeType:
-    """Remove checkout paths from a code object and its children."""
-    constants = tuple(
-        _portable_code(value) if isinstance(value, CodeType) else value
-        for value in code.co_consts
-    )
-    return code.replace(co_filename="", co_consts=constants)
-
-
-def _stable_value_key(value, active: set[int]):
-    """Return a process-stable key for a captured value."""
-    py_func = getattr(value, "py_func", None)
-    if py_func is not None:
-        return (
-            "dispatcher",
-            _function_key(py_func, active),
-            _stable_value_key(value.targetoptions, active),
-        )
-    if isinstance(value, CodeType):
-        code_hash = sha256(marshal.dumps(_portable_code(value))).hexdigest()
-        return ("code", code_hash)
-    if value.__class__.__name__ == "FastMathOptions":
-        return ("fastmath", tuple(sorted(value.flags)))
-    if isinstance(value, tuple):
-        items = tuple(_stable_value_key(item, active) for item in value)
-        return ("tuple", items)
-    if isinstance(value, list):
-        items = tuple(_stable_value_key(item, active) for item in value)
-        return ("list", items)
-    if isinstance(value, dict):
-        items = (
-            (_stable_value_key(key, active), _stable_value_key(item, active))
-            for key, item in value.items()
-        )
-        return ("dict", tuple(sorted(items, key=repr)))
-    if isinstance(value, (set, frozenset)):
-        items = (_stable_value_key(item, active) for item in value)
-        return ("set", tuple(sorted(items, key=repr)))
-    return ("serialized", sha256(cache_dumps(value)).hexdigest())
-
-
-def _stable_value_hash(value) -> str:
-    """Hash a value without process-specific serialization order."""
-    key = _stable_value_key(value, set())
-    return sha256(cache_dumps(key)).hexdigest()
-
-
-def _function_key(py_func, active: Optional[set[int]] = None):
-    """Identify function code and compile-time captures."""
-    if active is None:
-        active = set()
-    identity = id(py_func)
-    if identity in active:
-        return ("recursive", py_func.__module__, py_func.__qualname__)
-    active.add(identity)
-    try:
-        closure = py_func.__closure__ or ()
-        closure_key = tuple(
-            _stable_value_key(cell.cell_contents, active) for cell in closure
-        )
-        defaults_key = _stable_value_key(
-            (py_func.__defaults__, py_func.__kwdefaults__), active
-        )
-        code_hash = sha256(
-            marshal.dumps(_portable_code(py_func.__code__))
-        ).hexdigest()
-        return (
-            py_func.__module__,
-            py_func.__qualname__,
-            sha256(cache_dumps(closure_key)).hexdigest(),
-            code_hash,
-            sha256(cache_dumps(defaults_key)).hexdigest(),
-        )
-    finally:
-        active.remove(identity)
-
-
-def _portable_magic(value):
-    """Normalize backend target values used in cache keys."""
-    if hasattr(value, "major") and hasattr(value, "minor"):
-        return (int(value.major), int(value.minor))
-    if isinstance(value, tuple):
-        return tuple(_portable_magic(item) for item in value)
-    return value
 
 
 class CUBIECacheLocator(_CacheLocator):
@@ -521,7 +432,6 @@ class CUBIECache(CUDACache):
         max_entries: Optional[int] = None,
         mode: str = "hash",
         custom_cache_dir: Optional[Path] = None,
-        py_func=None,
     ) -> None:
         """Initialize CUBIECache with system and compile info.
 
@@ -541,9 +451,6 @@ class CUBIECache(CUDACache):
             custom_cache_dir = kernel_cache_dir_default()
         self._max_entries = max_entries
         self._mode = mode
-        self._function_key = None
-        if py_func is not None:
-            self._function_key = _function_key(py_func)
 
         self._impl = CUBIECacheImpl(
             system_name,
@@ -576,14 +483,19 @@ class CUBIECache(CUDACache):
         self.enable()
 
     def _index_key(self, sig, codegen):
-        """Return the CuBIE and launch-specific cache key."""
+        """Return the CuBIE and launch-specific cache key.
+
+        Includes the cubie package source hash so package edits
+        invalidate cached kernels compiled from earlier source, and
+        the launch-config component the vendored ``CUDACache`` appends
+        for launch-config-sensitive kernels.
+        """
         key = (
             sig,
-            _portable_magic(codegen.magic_tuple()),
+            codegen.magic_tuple(),
             self._system_hash,
             self._compile_settings_hash,
             package_source_hash(),
-            self._function_key,
         )
         if self._launch_config_key is not None:
             key += (("launch_config", self._launch_config_key),)
@@ -789,108 +701,41 @@ class CacheConfig(_CubieConfigBase):
 
 
 class CubieCacheHandler:
-    """Handler for managing CuBIE kernel cache.
+    """Create and flush kernel disk caches for one factory.
+
+    The handler holds a reference to a :class:`CacheConfig` owned by
+    the factory's compile settings. Setting updates flow through the
+    factory's ``update_compile_settings`` (which invalidates its
+    build), so the handler only builds configured caches and applies
+    ``flush_on_change`` when the factory invalidates.
 
     Parameters
     ----------
-    system_name
-        Name of the ODE system for directory organization.
-    system_hash
-        Hash representing the ODE system definition.
-    cache_arg
-        Cache configuration shorthand: ``True`` enables caching with
-        default path, ``False``/``None`` disables, a string or
-        ``Path`` enables at that directory.
-    **kwargs
-        Additional overrides forwarded to :class:`CacheConfig`.
-        See :data:`ALL_CACHE_PARAMETERS` for accepted keywords.
+    config
+        Cache configuration shared with the owning factory's compile
+        settings.
 
     See Also
     --------
     :class:`CacheConfig`
         Configuration container for cache settings.
     :data:`ALL_CACHE_PARAMETERS`
-        Complete set of accepted keyword arguments.
+        Cache keywords recognised by :class:`CacheConfig`.
     """
 
-    def __init__(
-        self,
-        system_name: str,
-        system_hash: str,
-        cache_arg: Union[bool, str, Path] = None,
-        **kwargs,
-    ) -> None:
-        # Convert single cache arg into cache_enabled, path kwargs
-        config_params = CacheConfig.params_from_user_kwarg(cache_arg)
-        # Let user kwargs override default config_params
-        config_params.update(kwargs)
-
-        # Build CacheConfig using build_config utility
-        _config = build_config(
-            CacheConfig,
-            {"system_name": system_name, "system_hash": system_hash},
-            **config_params,
-        )
-        self.config = _config
-
+    def __init__(self, config: CacheConfig) -> None:
+        self.config = config
         self._cache = None
 
     @property
     def cache(self) -> Optional[CUBIECache]:
-        """Return the managed CUBIECache instance."""
+        """Return the most recently configured CUBIECache instance."""
         return self._cache
 
     def flush(self) -> None:
         """Flush the managed cache."""
         if self._cache is not None:
             self._cache.flush_cache()
-
-    def update(
-        self,
-        updates_dict: Optional[Dict[str, Any]] = None,
-        silent: bool = False,
-        **kwargs,
-    ) -> Set[str]:
-        """Update cache configuration and recreate cache if needed.
-
-        Parameters
-        ----------
-        updates_dict
-            Dictionary of configuration updates.
-        silent
-            Suppress errors for unrecognized parameters.
-        **kwargs
-            Additional configuration overrides.
-
-        Returns
-        -------
-        Set[str]
-            Set of recognized parameter names.
-        """
-        if updates_dict is None:
-            updates_dict = {}
-        updates_dict = updates_dict.copy()
-        updates_dict.update(kwargs)
-
-        if not updates_dict:
-            return set()
-
-        recognized, changed = self.config.update(updates_dict)
-        if changed:
-            if (
-                self._cache is not None
-                and self.config.cache_mode == "flush_on_change"
-            ):
-                self._cache.flush_cache()
-            self._cache = None
-
-        unrecognized = set(updates_dict.keys()) - recognized
-
-        if unrecognized:
-            if not silent:
-                raise KeyError(f"Unrecognized parameters: {unrecognized}")
-
-        return recognized
 
     def configured_cache(
         self, system_hash: str, compile_settings_hash: str

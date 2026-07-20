@@ -5,7 +5,7 @@ for all algorithm families across two consecutive integration steps.
 """
 
 import attrs
-from typing import Optional
+from typing import Any, Optional
 
 import numpy as np
 import pytest
@@ -15,6 +15,7 @@ from numpy.testing import assert_allclose
 from cubie.integrators.algorithms import get_algorithm_step
 from tests.integrators.cpu_reference import (
     CPUODESystem,
+    get_ref_step_factory,
     get_ref_stepper,
 )
 from tests._utils import (

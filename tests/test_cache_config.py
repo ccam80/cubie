@@ -393,10 +393,9 @@ class TestCustomCacheDir:
         assert Path(cache._cache_path) == custom_dir / "CUDA_cache_abc123"
 
     def test_custom_cache_dir_none_uses_default(
-        self, tmp_path, precision, monkeypatch
+        self, precision, isolated_cache_root
     ):
         """Verify None cache_dir uses the shared cache root path."""
-        monkeypatch.delenv("CUBIE_KERNEL_CACHE_DIR", raising=False)
         cache = CUBIECache(
             system_name="test_system",
             system_hash="abc123",
@@ -595,31 +594,6 @@ class TestSolverCacheParam:
         solver = Solver(simple_system, cache=False)
 
         assert solver.kernel.cache_config.cache_enabled is False
-
-    def test_solver_helper_cache_policies_are_independent(
-        self, simple_system, tmp_path
-    ):
-        """Shared systems receive each solver's cache configuration."""
-        from cubie.batchsolving.solver import Solver
-
-        with Solver(simple_system, cache=False) as disabled, Solver(
-            simple_system, cache=tmp_path / "enabled"
-        ) as enabled:
-            disabled_callback = (
-                disabled.kernel.single_integrator._get_solver_helper_fn
-            )
-            enabled_callback = (
-                enabled.kernel.single_integrator._get_solver_helper_fn
-            )
-
-            assert disabled_callback.__self__ is disabled.kernel
-            assert enabled_callback.__self__ is enabled.kernel
-            assert disabled.kernel.cache_config.cache_enabled is False
-            assert enabled.kernel.cache_config.cache_enabled is True
-            assert (
-                disabled.kernel.cache_config
-                is not enabled.kernel.cache_config
-            )
 
     def test_solver_cache_flush_on_change(self, simple_system):
         """Verify cache='flush_on_change' sets mode."""

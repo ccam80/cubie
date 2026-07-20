@@ -117,9 +117,6 @@ if IS_MLIR:
         _CacheLocator,
         IndexDataCacheFile,
     )
-    from numba_cuda_mlir.numba_cuda.serialize import (
-        dumps as cache_dumps,
-    )
 
     # The MLIR backend accepts a boolean cuda.jit inline argument;
     # numba-cuda takes the string form and deprecates the boolean.
@@ -133,7 +130,6 @@ else:
         CacheImpl,
         IndexDataCacheFile,
     )
-    from numba.cuda.serialize import dumps as cache_dumps
 
     INLINE_ALWAYS = "always"
 
@@ -628,7 +624,6 @@ __all__ = [
     "any_sync",
     "bool_",
     "CacheImpl",
-    "cache_dumps",
     "compile_kwargs",
     "cuda",
     "compute_capability_code",

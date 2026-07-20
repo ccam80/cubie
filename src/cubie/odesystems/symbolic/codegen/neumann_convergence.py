@@ -26,7 +26,8 @@ device code evaluates it cleanly.
 Published Objects
 -----------------
 :class:`NeumannRHSEvaluator`
-    Finite-difference Jacobian evaluator running the compiled ``dxdt``.
+    CUDAFactory building the finite-difference Jacobian kernel that
+    runs the compiled ``dxdt``.
 :func:`neumann_spectral_radius`
     Pure-numeric Jacobi spectral-radius diagnostic as a function of the
     Jacobian and the ``beta``/``gamma``/tableau parameters.
@@ -41,73 +42,130 @@ from typing import Callable, Dict, Optional, Sequence, Union
 
 import numpy as np
 import sympy as sp
-from cubie.cuda_simsafe import cuda
+from attrs import define, field, validators as val
 
-from cubie.cuda_simsafe import CUDA_SIMULATION, get_jit_kwargs
+from cubie.CUDAFactory import (
+    CUDADispatcherCache,
+    CUDAFactory,
+    CUDAFactoryConfig,
+)
+from cubie._utils import PrecisionDType
+from cubie.cubie_cache import CacheConfig, CubieCacheHandler
+from cubie.cuda_simsafe import CUDA_SIMULATION, cuda
 from cubie.odesystems.symbolic.indexedbasemaps import IndexedBases
 
 logger = logging.getLogger(__name__)
 
 
-class NeumannRHSEvaluator:
+@define
+class NeumannEvaluatorConfig(CUDAFactoryConfig):
+    """Compile settings for the Jacobian evaluation kernel.
+
+    Parameters
+    ----------
+    dxdt_function
+        Compiled ``dxdt`` device function the kernel wraps. Excluded
+        from hashing; a change still invalidates the build.
+    dxdt_settings_hash
+        Hash of the owning system's own settings and constants, so the
+        disk-cache key changes whenever ``dxdt`` is regenerated with
+        different semantics under the same equations.
+    cache_config
+        Disk-cache configuration. Excluded from hashing so cache
+        relocation never alters the disk-cache key; a change still
+        invalidates the build, which reattaches a fresh cache.
+    """
+
+    dxdt_function: Optional[Callable] = field(default=None, eq=False)
+    dxdt_settings_hash: str = field(
+        default="",
+        validator=val.instance_of(str),
+    )
+    cache_config: CacheConfig = field(
+        factory=CacheConfig,
+        validator=val.instance_of(CacheConfig),
+        eq=False,
+    )
+
+    def __attrs_post_init__(self):
+        super().__attrs_post_init__()
+
+
+@define
+class NeumannEvaluatorCache(CUDADispatcherCache):
+    """Container for the compiled Jacobian evaluation kernel."""
+
+    evaluation_kernel: Union[int, Callable] = field(default=-1)
+
+
+class NeumannRHSEvaluator(CUDAFactory):
     """Finite-difference Jacobian evaluator for a compiled system.
 
     Launches the system's compiled ``dxdt`` device function at
     perturbed initial states and forms the Jacobian by central finite
     differences, so the diagnostic sees exactly the device code the
-    solver runs, at the compiled precision. The object is cached on
-    the owning :class:`SymbolicODE`; each call fetches the current
-    compiled ``dxdt`` through ``dxdt_getter`` (rebuilding the wrapper
-    kernel only when the device function changes) and reads current
-    values from the index map, so value and constant changes are
-    reflected without rebuilding the evaluator.
+    solver runs, at the compiled precision. The owning
+    :class:`SymbolicODE` refreshes ``dxdt_function`` and
+    ``dxdt_settings_hash`` before each use, so the kernel rebuilds
+    through the standard compile-settings invalidation whenever the
+    system's device code changes. Cache settings arrive through the
+    same ``update`` chain; the build attaches a configured disk cache
+    when caching is enabled.
     """
 
     def __init__(
         self,
-        dxdt_getter: Callable,
-        precision_getter: Callable,
-        cache_factory: Optional[Callable] = None,
+        precision: PrecisionDType,
+        cache_config: CacheConfig,
     ) -> None:
-        self._dxdt_getter = dxdt_getter
-        self._precision_getter = precision_getter
-        self._cache_factory = cache_factory
-        self._kernel = None
-        self._kernel_key = None
+        super().__init__()
+        # The handler must exist before setup_compile_settings, which
+        # invalidates the build and reaches the handler through
+        # _invalidate_cache.
+        self._cache_handler = CubieCacheHandler(cache_config)
+        self.setup_compile_settings(
+            NeumannEvaluatorConfig(
+                precision=precision,
+                cache_config=cache_config,
+            )
+        )
 
-    def invalidate(self) -> None:
-        """Discard the evaluator kernel."""
-        self._kernel = None
-        self._kernel_key = None
+    def build(self) -> NeumannEvaluatorCache:
+        """Compile the evaluation kernel for the configured ``dxdt``."""
+        config = self.compile_settings
+        dxdt_function = config.dxdt_function
+        if dxdt_function is None:
+            return NeumannEvaluatorCache()
 
-    def _evaluation_kernel(self):
-        """Return the wrapper for the current compiled ``dxdt``."""
-        dxdt_function = self._dxdt_getter()
-        kernel_key = dxdt_function
-        if kernel_key != self._kernel_key:
-            # no cover: start
-            @cuda.jit(**get_jit_kwargs())
-            def evaluate_rhs(
-                states, parameters, drivers, observables, out, t
-            ):
-                i = cuda.grid(1)
-                if i < states.shape[0]:
-                    dxdt_function(
-                        states[i],
-                        parameters,
-                        drivers,
-                        observables[i],
-                        out[i],
-                        t,
-                    )
-            # no cover: end
-            if self._cache_factory is not None and not CUDA_SIMULATION:
-                cache = self._cache_factory()
-                if cache is not None:
-                    evaluate_rhs._cache = cache
-            self._kernel = evaluate_rhs
-            self._kernel_key = kernel_key
-        return self._kernel
+        # no cover: start
+        @cuda.jit(**self.jit_kwargs)
+        def evaluate_rhs(
+            states, parameters, drivers, observables, out, t
+        ):
+            i = cuda.grid(1)
+            if i < states.shape[0]:
+                dxdt_function(
+                    states[i],
+                    parameters,
+                    drivers,
+                    observables[i],
+                    out[i],
+                    t,
+                )
+        # no cover: end
+        if not CUDA_SIMULATION:
+            disk_cache = self._cache_handler.configured_cache(
+                config.cache_config.system_hash,
+                config.values_hash,
+            )
+            if disk_cache is not None:
+                evaluate_rhs._cache = disk_cache
+        return NeumannEvaluatorCache(evaluation_kernel=evaluate_rhs)
+
+    def _invalidate_cache(self) -> None:
+        """Invalidate the built kernel, flushing in flush-on-change mode."""
+        super()._invalidate_cache()
+        self._cache_handler.invalidate()
 
     def jacobian(
         self,
@@ -129,7 +187,7 @@ class NeumannRHSEvaluator:
             The ``state_count x state_count`` Jacobian in float64.
             Entries that cannot be evaluated are returned as ``nan``.
         """
-        precision = np.dtype(self._precision_getter())
+        precision = np.dtype(self.precision)
         state_map = index_map.states.index_map
         n = len(state_map)
         base = np.zeros(n, dtype=np.float64)
@@ -171,7 +229,7 @@ class NeumannRHSEvaluator:
             states[2 * col] = forward
             states[2 * col + 1] = backward
 
-        kernel = self._evaluation_kernel()
+        kernel = self.get_cached_output("evaluation_kernel")
         threads = 32
         blocks = (2 * n + threads - 1) // threads
 

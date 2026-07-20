@@ -7,6 +7,12 @@ from types import SimpleNamespace
 
 import numpy as np
 
+from tests._precompile_hashing import (
+    _function_key,
+    _portable_magic,
+    _stable_value_hash,
+)
+
 
 def _parse_target_cc():
     raw_cc = os.environ.get("CUBIE_TARGET_CC", "").strip()
@@ -204,29 +210,59 @@ def _install_cache_stats():
     _CACHE_STATS_INSTALLED = True
 
 
-def _attach_cache(dispatcher):
-    from cubie.cubie_cache import CUBIECache, _stable_value_hash
+_PLUGIN_CACHE_CLASS = None
 
+
+def _plugin_cache_class():
+    """Return the function-keyed cache class, defined on first use.
+
+    Deferred because :mod:`cubie.cubie_cache` finishes importing only
+    after the plugin's backend patches are installed.
+    """
+    global _PLUGIN_CACHE_CLASS
+    if _PLUGIN_CACHE_CLASS is not None:
+        return _PLUGIN_CACHE_CLASS
+
+    from cubie._utils import package_source_hash
+    from cubie.cubie_cache import CUBIECache
+
+    class _PrecompileCache(CUBIECache):
+        """Shared-artifact cache keyed by kernel function identity."""
+
+        def __init__(self, py_func, options_hash):
+            super().__init__(
+                system_name="pytest_kernels",
+                system_hash="pytest_kernels",
+                config_hash=options_hash,
+                max_entries=0,
+                custom_cache_dir=CACHE_DIR,
+            )
+            self._function_key = _function_key(py_func)
+
+        def _index_key(self, sig, codegen):
+            key = (
+                sig,
+                _portable_magic(codegen.magic_tuple()),
+                self._system_hash,
+                self._compile_settings_hash,
+                package_source_hash(),
+                self._function_key,
+            )
+            if self._launch_config_key is not None:
+                key += (("launch_config", self._launch_config_key),)
+            return key
+
+    _PLUGIN_CACHE_CLASS = _PrecompileCache
+    return _PrecompileCache
+
+
+def _attach_cache(dispatcher):
     _install_cache_stats()
-    plugin_cache = (
-        isinstance(dispatcher._cache, CUBIECache)
-        and dispatcher._cache._system_name == "pytest_kernels"
-        and dispatcher._cache._function_key is not None
-    )
-    if not plugin_cache:
-        options_hash = _stable_value_hash(dispatcher.targetoptions)
-        dispatcher._cache = CUBIECache(
-            system_name="pytest_kernels",
-            system_hash="pytest_kernels",
-            config_hash=options_hash,
-            max_entries=0,
-            custom_cache_dir=CACHE_DIR,
-            py_func=dispatcher.py_func,
-        )
-    if not isinstance(dispatcher._cache, CUBIECache):
-        raise RuntimeError(
-            f"CUDA dispatcher {dispatcher.py_func!r} reached compilation "
-            "without CUBIECache."
+    cache_class = _plugin_cache_class()
+    if not isinstance(dispatcher._cache, cache_class):
+        dispatcher._cache = cache_class(
+            dispatcher.py_func,
+            _stable_value_hash(dispatcher.targetoptions),
         )
 
 

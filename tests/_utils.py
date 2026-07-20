@@ -6,10 +6,7 @@ from typing import Mapping, Optional, Union, Dict, Any, Callable
 
 import numpy as np
 import pytest
-from cubie.cuda_simsafe import (
-    cuda,
-    numba_from_dtype as from_dtype,
-)
+from cubie.cuda_simsafe import cuda, numba_from_dtype as from_dtype
 from numpy.testing import assert_allclose
 
 from cubie.integrators.SingleIntegratorRun import SingleIntegratorRun
@@ -22,7 +19,6 @@ from numpy.typing import NDArray
 from tests.integrators.cpu_reference import CPUAdaptiveController
 
 Array = NDArray[np.floating]
-
 
 # --------------------------------------------------------------------------- #
 #                      Standard Parameter Sets                                #

@@ -55,10 +55,12 @@ from tests._utils import (
     run_controller_device_step,
     run_device_loop,
 )
-from numpy.typing import NDArray
-Array = NDArray[np.floating]
 from tests.system_fixtures import (
+    build_diagonally_dominant_system,
+    build_gating_singularity_system,
     build_large_nonlinear_system,
+    build_off_diagonal_heavy_system,
+    build_singular_initial_state_system,
     build_three_chamber_system,
     build_three_state_constant_deriv_system,
     build_three_state_linear_system,
@@ -66,9 +68,12 @@ from tests.system_fixtures import (
     build_three_state_very_stiff_system,
     build_two_driver_system,
 )
+from numpy.typing import NDArray
+
+Array = NDArray[np.floating]
 
 enable_tempdir = "1"
-os.environ.setdefault("CUBIE_GENERATED_DIR_REDIRECT", enable_tempdir)
+os.environ["CUBIE_GENERATED_DIR_REDIRECT"] = enable_tempdir
 np.set_printoptions(linewidth=120, threshold=np.inf, precision=12)
 
 
@@ -306,6 +311,14 @@ def system(request, solver_settings_override, precision):
         return build_large_nonlinear_system(precision)
     if model_type == "constant_deriv":
         return build_three_state_constant_deriv_system(precision)
+    if model_type == "diagonally_dominant":
+        return build_diagonally_dominant_system(precision)
+    if model_type == "off_diagonal_heavy":
+        return build_off_diagonal_heavy_system(precision)
+    if model_type == "gating_singularity":
+        return build_gating_singularity_system(precision)
+    if model_type == "singular_initial_state":
+        return build_singular_initial_state_system(precision)
     if isinstance(model_type, object):
         return model_type
 

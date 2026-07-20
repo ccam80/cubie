@@ -49,10 +49,6 @@ from cubie.cuda_simsafe import int32
 from attrs import define, field, evolve
 
 from cubie.odesystems import SymbolicODE
-from cubie.odesystems.symbolic.codegen.neumann_convergence import (
-    NeumannRHSEvaluator,
-    check_neumann_convergence,
-)
 from cubie.cuda_simsafe import (
     is_cudasim_enabled,
     max_shared_memory_per_block,
@@ -78,7 +74,7 @@ from cubie.batchsolving.BatchSolverConfig import BatchSolverConfig
 from cubie.odesystems.baseODE import BaseODE
 from cubie.outputhandling.output_config import OutputCompileFlags
 from cubie.integrators.SingleIntegratorRun import SingleIntegratorRun
-from cubie._utils import unpack_dict_values, getype_validator
+from cubie._utils import build_config, unpack_dict_values, getype_validator
 
 if TYPE_CHECKING:
     from cubie.memory import MemoryManager
@@ -90,18 +86,6 @@ DEFAULT_MEMORY_SETTINGS = {
     "stream_group": "solver",
     "mem_proportion": None,
 }
-
-_NEUMANN_HELPERS = frozenset((
-    "neumann_preconditioner",
-    "neumann_preconditioner_cached",
-    "n_stage_neumann_preconditioner",
-))
-_COMPOSITE_PRECONDITIONERS = frozenset((
-    "preconditioner",
-    "preconditioner_cached",
-    "n_stage_preconditioner",
-))
-
 
 @define(frozen=True)
 class RunParams:
@@ -244,7 +228,7 @@ class BatchSolverKernel(CUDAFactory):
         typically via :mod:`cubie.memory`.
     cache_settings
         Mapping of cache configuration forwarded to
-        :class:`cubie.cubie_cache.CubieCacheHandler`.
+        :class:`cubie.cubie_cache.CacheConfig`.
     cache
         Cache mode control. ``True`` enables default caching, ``False``
         disables caching, or a string/``Path`` sets a custom cache
@@ -285,7 +269,6 @@ class BatchSolverKernel(CUDAFactory):
             loop_settings = {}
 
         precision = system.precision
-        self._system = system
 
         # Initialize run parameters with defaults
         self.run_params = RunParams(
@@ -310,19 +293,26 @@ class BatchSolverKernel(CUDAFactory):
             system_name = f"unnamed_{system_hash[:8]}"
         if cache_settings is None:
             cache_settings = {}
-        self.cache_handler = CubieCacheHandler(
-            cache_arg=cache,
-            system_name=system_name,
-            system_hash=system_hash,
-            **cache_settings,
+        cache_params = CacheConfig.params_from_user_kwarg(cache)
+        cache_params.update(cache_settings)
+        cache_config = build_config(
+            CacheConfig,
+            {"system_name": system_name, "system_hash": system_hash},
+            **cache_params,
         )
-        self._neumann_rhs_evaluator = None
-        if isinstance(system, SymbolicODE):
-            self._neumann_rhs_evaluator = NeumannRHSEvaluator(
-                lambda: system.evaluate_f,
-                lambda: system.precision,
-                cache_factory=self._neumann_cache,
-            )
+        self.cache_handler = CubieCacheHandler(cache_config)
+        # The solver's cache settings flow to the system so factories
+        # it owns (the Neumann convergence evaluator) apply the same
+        # policy to the kernels they compile.
+        system.update(
+            {
+                "cache_enabled": cache_config.cache_enabled,
+                "cache_mode": cache_config.cache_mode,
+                "max_cache_entries": cache_config.max_cache_entries,
+                "cache_dir": cache_config.cache_dir,
+            },
+            silent=True,
+        )
 
         # Build the single integrator to derive compile-critical metadata
         self.single_integrator = SingleIntegratorRun(
@@ -333,7 +323,6 @@ class BatchSolverKernel(CUDAFactory):
             step_control_settings=step_control_settings,
             algorithm_settings=algorithm_settings,
             output_settings=output_settings,
-            get_solver_helper_fn=self._get_solver_helper,
         )
         # An explicit lineinfo argument must reach every child factory;
         # None leaves the CUBIE_LINEINFO-derived config defaults in place.
@@ -346,6 +335,7 @@ class BatchSolverKernel(CUDAFactory):
             precision=precision,
             loop_fn=None,
             compile_flags=self.single_integrator.output_compile_flags,
+            cache_config=cache_config,
             **(kernel_settings or {}),
         )
         self.setup_compile_settings(initial_config)
@@ -777,35 +767,6 @@ class BatchSolverKernel(CUDAFactory):
             )
         return blocksize, dynamic_sharedmem
 
-    def _neumann_cache(self):
-        """Create the convergence evaluator's dispatcher cache."""
-        return self.cache_handler.configured_cache(
-            self._system.fn_hash,
-            self._system.config_hash,
-        )
-
-    def _get_solver_helper(self, func_type: str, **kwargs):
-        """Return a helper after solver-owned convergence checks."""
-        preconditioner_type = kwargs.get("preconditioner_type", "neumann")
-        if isinstance(preconditioner_type, str):
-            preconditioner_types = (preconditioner_type,)
-        else:
-            preconditioner_types = tuple(preconditioner_type)
-        uses_neumann = func_type in _NEUMANN_HELPERS or (
-            func_type in _COMPOSITE_PRECONDITIONERS
-            and "neumann" in preconditioner_types
-        )
-        if uses_neumann and self._neumann_rhs_evaluator is not None:
-            check_neumann_convergence(
-                self._system.indices,
-                evaluator=self._neumann_rhs_evaluator,
-                stage_coefficients=kwargs.get("stage_coefficients"),
-                stage_nodes=kwargs.get("stage_nodes"),
-                beta=kwargs.get("beta", 1.0),
-                gamma=kwargs.get("gamma", 1.0),
-            )
-        return self._system.get_solver_helper(func_type, **kwargs)
-
     def build_kernel(self) -> None:
         """Build and compile the CUDA integration kernel."""
         config = self.compile_settings
@@ -1032,13 +993,6 @@ class BatchSolverKernel(CUDAFactory):
             updates_dict, silent=True
         )
 
-        cache_config_hash = self.cache_handler.config.values_hash
-        all_unrecognized -= self.cache_handler.update(
-            updates_dict, silent=True
-        )
-        if cache_config_hash != self.cache_handler.config.values_hash:
-            self._invalidate_cache()
-
         recognised = set(updates_dict.keys()) - all_unrecognized
 
         if all_unrecognized:
@@ -1156,8 +1110,6 @@ class BatchSolverKernel(CUDAFactory):
         in "flush on change" mode."""
         super()._invalidate_cache()
         self.cache_handler.invalidate()
-        if self._neumann_rhs_evaluator is not None:
-            self._neumann_rhs_evaluator.invalidate()
 
     @property
     def output_heights(self) -> Any:

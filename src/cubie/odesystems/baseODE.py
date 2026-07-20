@@ -46,6 +46,7 @@ from cubie._utils import PrecisionDType
 from cubie.odesystems.ODEData import ODEData
 from cubie.odesystems.SystemValues import SystemValues
 
+
 @define
 class ODECache(CUDADispatcherCache):
     """Cache compiled CUDA device and support functions for an ODE system.
@@ -384,14 +385,30 @@ class BaseODE(CUDAFactory):
         return self.get_cached_output("observables")
 
     @property
-    def config_hash(self):
-        """Configuration hash incorporating constant values."""
-        own_hash = super().config_hash
+    def _constants_hash(self) -> str:
+        """Hash of the current constant values."""
         const_values = tuple()
         if self.constants is not None:
             const_values = tuple(sorted(self.constants.values_dict.items()))
-        const_hash = hash_tuple(const_values)
-        combined = "|".join([own_hash, const_hash])
+        return hash_tuple(const_values)
+
+    @property
+    def config_hash(self):
+        """Configuration hash incorporating constant values."""
+        combined = "|".join([super().config_hash, self._constants_hash])
+        return sha256(combined.encode("utf-8")).hexdigest()
+
+    @property
+    def settings_and_constants_hash(self) -> str:
+        """Hash of this system's own compile settings and constants.
+
+        Excludes child factories, so a factory owned by the system can
+        fold this hash into its own configuration without creating a
+        self-referential hash chain.
+        """
+        combined = "|".join(
+            [self.compile_settings.values_hash, self._constants_hash]
+        )
         return sha256(combined.encode("utf-8")).hexdigest()
 
     def get_solver_helper(

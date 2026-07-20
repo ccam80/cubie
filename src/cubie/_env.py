@@ -1,12 +1,58 @@
-"""Read process-wide ``CUBIE_*`` defaults.
+"""Central registry for ``CUBIE_*`` environment variable overrides.
 
-Explicit arguments override environment values. Values are read when the
-relevant object is created.
+Environment variables provide process-wide defaults for behaviour that can
+also be controlled per-solver through arguments. Explicit arguments always
+take precedence over environment values; environment values take precedence
+over built-in defaults.
 
-``CUBIE_LINEINFO`` enables line information. ``CUBIE_CACHE_DIR`` sets the
-root for every disk cache. ``CUBIE_KERNEL_CACHE_DIR`` moves only compiled
-kernels. ``CUBIE_MAX_CACHE_ENTRIES`` sets their per-system LRU limit; zero
-disables eviction. ``CUBIE_CUDA_BACKEND`` selects ``numba-cuda`` or ``mlir``.
+Values are read lazily at the point of use (factory construction or module
+import), so setting a variable after the relevant object has been created
+has no effect. This is deliberate: compiled device functions are cached
+against their compile settings, and re-reading the environment mid-session
+would bypass that bookkeeping.
+
+Published Functions
+-------------------
+:func:`env_bool`
+    Parse a boolean-valued environment variable.
+:func:`lineinfo_default`
+    Default for the ``lineinfo`` compile setting (``CUBIE_LINEINFO``).
+:func:`cache_dir_default`
+    Default for the on-disk cache root (``CUBIE_CACHE_DIR``).
+:func:`kernel_cache_dir_default`
+    Default directory for compiled-kernel caches
+    (``CUBIE_KERNEL_CACHE_DIR``).
+:func:`max_cache_entries_default`
+    Default kernel-cache LRU limit (``CUBIE_MAX_CACHE_ENTRIES``).
+:func:`cuda_backend_requested`
+    Explicitly requested CUDA backend (``CUBIE_CUDA_BACKEND``).
+
+Recognised Variables
+--------------------
+``CUBIE_LINEINFO``
+    Compile all device functions and kernels with source-line correlation
+    data (``-lineinfo``) for profilers such as Nsight Compute. Truthy
+    values: ``1``, ``true``, ``yes``, ``on`` (case-insensitive). Default
+    off.
+``CUBIE_CACHE_DIR``
+    Root directory for all on-disk caches (generated source, CellML
+    parse results, compiled kernels). Overridden by an explicit
+    :func:`cubie.cache_root.set_cache_root` call; defaults to
+    ``<current working directory>/generated`` when unset.
+``CUBIE_KERNEL_CACHE_DIR``
+    Directory for compiled-kernel caches only, leaving generated source
+    and parse caches at the shared root. Overridden by an explicit
+    ``cache_dir`` argument. CI sets this to relocate kernel caches into
+    a portable artifact.
+``CUBIE_MAX_CACHE_ENTRIES``
+    Per-system LRU limit for compiled-kernel cache entries; zero
+    disables eviction. Overridden by an explicit ``max_cache_entries``
+    argument. Default 10.
+``CUBIE_CUDA_BACKEND``
+    Explicit CUDA backend selection, ``numba-cuda`` or ``mlir``.
+    Read by :mod:`cubie.cuda_backend` at import. When unset, the
+    installed backend is used; when both backends are installed,
+    numba-cuda is auto-selected with a warning.
 """
 
 import os
