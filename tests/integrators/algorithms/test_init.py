@@ -16,19 +16,14 @@ from cubie.integrators.algorithms import (
     FIRKStep,
     ERKStep,
     GenericRosenbrockWStep,
-    ERKTableau,
     ERK_TABLEAU_REGISTRY,
-    DIRKTableau,
     DIRK_TABLEAU_REGISTRY,
-    FIRKTableau,
     FIRK_TABLEAU_REGISTRY,
-    RosenbrockTableau,
     ROSENBROCK_TABLEAUS,
     resolve_alias,
     resolve_supplied_tableau,
     get_algorithm_step,
 )
-from cubie.integrators.algorithms.base_algorithm_step import ButcherTableau
 
 
 # ── _ALGORITHM_REGISTRY (items 1-2) ──────────────────────── #
@@ -108,6 +103,16 @@ def test_resolve_alias_lowercases():
     cls, tab = resolve_alias("EULER")
     assert cls is ExplicitEulerStep
     assert tab is None
+
+
+@pytest.mark.parametrize("alias", ["Kvaerno3", "KvAeRnO5"])
+def test_resolve_kvaerno_alias_is_case_insensitive(alias):
+    """Kvaerno aliases resolve independently of input case."""
+
+    canonical_alias = alias.lower()
+    cls, tab = resolve_alias(alias)
+    assert cls is DIRKStep
+    assert tab is DIRK_TABLEAU_REGISTRY[canonical_alias]
 
 
 def test_resolve_alias_returns_tuple():

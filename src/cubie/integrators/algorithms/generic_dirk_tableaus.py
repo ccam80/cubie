@@ -14,6 +14,12 @@ Constants
 :data:`TRAPEZOIDAL_DIRK_TABLEAU`
     Two-stage ESDIRK Crank–Nicolson (trapezoidal) rule.
 
+:data:`KVAERNO3_TABLEAU`
+    Four-stage, third-order A-L stable stiffly accurate ESDIRK method.
+
+:data:`KVAERNO5_TABLEAU`
+    Seven-stage, fifth-order A-L stable stiffly accurate ESDIRK method.
+
 :data:`LOBATTO_IIIC_3_TABLEAU`
     Three-stage, fourth-order Lobatto IIIC scheme.
 
@@ -122,6 +128,143 @@ Crank, J., & Nicolson, P. (1947). A practical method for numerical
 solution of partial differential equations of the heat-conduction type.
 *Mathematical Proceedings of the Cambridge Philosophical Society*,
 43(1), 50-67.
+"""
+
+KVAERNO3_GAMMA = 0.4358665215
+KVAERNO3_TABLEAU = DIRKTableau(
+    a=(
+        (0.0, 0.0, 0.0, 0.0),
+        (KVAERNO3_GAMMA, KVAERNO3_GAMMA, 0.0, 0.0),
+        (
+            0.490563388419108,
+            0.073570090080892,
+            KVAERNO3_GAMMA,
+            0.0,
+        ),
+        (
+            0.308809969973036,
+            1.490563388254106,
+            -1.235239879727145,
+            KVAERNO3_GAMMA,
+        ),
+    ),
+    b=(
+        0.308809969973036,
+        1.490563388254106,
+        -1.235239879727145,
+        KVAERNO3_GAMMA,
+    ),
+    b_hat=(
+        0.490563388419108,
+        0.073570090080892,
+        KVAERNO3_GAMMA,
+        0.0,
+    ),
+    c=(0.0, 2.0 * KVAERNO3_GAMMA, 1.0, 1.0),
+    order=3,
+)
+"""Four-stage, third-order Kvaerno ESDIRK tableau.
+
+The method is A-L stable, stiffly accurate, and has an explicit first
+stage. The embedded estimate is the third stage.
+
+References
+----------
+Kvaerno, A. (2004). Singly diagonally implicit Runge--Kutta methods
+with an explicit first stage. *BIT Numerical Mathematics*, 44,
+489--502.
+"""
+
+KVAERNO5_GAMMA = 0.26
+KVAERNO5_TABLEAU = DIRKTableau(
+    a=(
+        (0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0),
+        (KVAERNO5_GAMMA, KVAERNO5_GAMMA, 0.0, 0.0, 0.0, 0.0, 0.0),
+        (
+            0.13,
+            0.84033320996790809,
+            KVAERNO5_GAMMA,
+            0.0,
+            0.0,
+            0.0,
+            0.0,
+        ),
+        (
+            0.22371961478320505,
+            0.47675532319799699,
+            -0.06470895363112615,
+            KVAERNO5_GAMMA,
+            0.0,
+            0.0,
+            0.0,
+        ),
+        (
+            0.16648564323248321,
+            0.1045001884159172,
+            0.03631482272098715,
+            -0.13090704451073998,
+            KVAERNO5_GAMMA,
+            0.0,
+            0.0,
+        ),
+        (
+            0.13855640231268224,
+            0.0,
+            -0.04245337201752043,
+            0.02446657898003141,
+            0.61943039072480676,
+            KVAERNO5_GAMMA,
+            0.0,
+        ),
+        (
+            0.13659751177640291,
+            0.0,
+            -0.05496908796538376,
+            -0.04118626728321046,
+            0.62993304899016403,
+            0.06962479448202728,
+            KVAERNO5_GAMMA,
+        ),
+    ),
+    b=(
+        0.13659751177640291,
+        0.0,
+        -0.05496908796538376,
+        -0.04118626728321046,
+        0.62993304899016403,
+        0.06962479448202728,
+        KVAERNO5_GAMMA,
+    ),
+    b_hat=(
+        0.13855640231268224,
+        0.0,
+        -0.04245337201752043,
+        0.02446657898003141,
+        0.61943039072480676,
+        KVAERNO5_GAMMA,
+        0.0,
+    ),
+    c=(
+        0.0,
+        2.0 * KVAERNO5_GAMMA,
+        1.230333209967908,
+        0.895765984350076,
+        0.436393609858648,
+        1.0,
+        1.0,
+    ),
+    order=5,
+)
+"""Seven-stage, fifth-order Kvaerno ESDIRK tableau.
+
+The method is A-L stable, stiffly accurate, and has an explicit first
+stage. The embedded estimate is the sixth stage.
+
+References
+----------
+Kvaerno, A. (2004). Singly diagonally implicit Runge--Kutta methods
+with an explicit first stage. *BIT Numerical Mathematics*, 44,
+489--502.
 """
 
 LOBATTO_IIIC_3_TABLEAU = DIRKTableau(
@@ -280,6 +423,8 @@ DIRK_TABLEAU_REGISTRY: Dict[str, DIRKTableau] = {
     "implicit_midpoint": IMPLICIT_MIDPOINT_TABLEAU,
     "trapezoidal_dirk": TRAPEZOIDAL_DIRK_TABLEAU,
     "ode23t": TRAPEZOIDAL_DIRK_TABLEAU,
+    "kvaerno3": KVAERNO3_TABLEAU,
+    "kvaerno5": KVAERNO5_TABLEAU,
     "lobatto_iiic_3": LOBATTO_IIIC_3_TABLEAU,
     "sdirk_2_2": SDIRK_2_2_TABLEAU,
     "l_stable_dirk_3": L_STABLE_DIRK3_TABLEAU,
