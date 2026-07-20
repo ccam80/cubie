@@ -28,7 +28,6 @@ See Also
     Output array manager owned by the kernel.
 """
 
-from pathlib import Path
 from typing import (
     TYPE_CHECKING,
     Any,
@@ -40,6 +39,7 @@ from typing import (
     Union,
 )
 from warnings import warn
+from pathlib import Path
 from weakref import finalize
 
 from numpy import ceil as np_ceil, float64 as np_float64, floating
@@ -86,6 +86,7 @@ DEFAULT_MEMORY_SETTINGS = {
     "stream_group": "solver",
     "mem_proportion": None,
 }
+
 
 @define(frozen=True)
 class RunParams:
