@@ -108,8 +108,6 @@ def test_cpu_newton_convergence_edges(
             newton_tol=precision(atol),
             newton_rtol=precision(0.0),
             newton_max_iters=max_iters,
-            newton_damping=precision(0.5),
-            newton_max_backtracks=0,
             prev_theta_store=prev_theta_store,
         )
 

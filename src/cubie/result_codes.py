@@ -26,8 +26,6 @@ class CUBIE_RESULT_CODES(IntFlag):
     -------
     SUCCESS
         No error; step accepted / current step kept.
-    NEWTON_BACKTRACKING_NO_SUITABLE_STEP
-        Newton damped backtracking found no acceptable step.
     MAX_NEWTON_ITERATIONS_EXCEEDED
         Newton iteration did not converge within its iteration budget.
     MAX_LINEAR_ITERATIONS_EXCEEDED
@@ -50,7 +48,6 @@ class CUBIE_RESULT_CODES(IntFlag):
     """
 
     SUCCESS = 0
-    NEWTON_BACKTRACKING_NO_SUITABLE_STEP = 1
     MAX_NEWTON_ITERATIONS_EXCEEDED = 2
     MAX_LINEAR_ITERATIONS_EXCEEDED = 4
     STEP_TOO_SMALL = 8

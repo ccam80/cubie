@@ -737,7 +737,6 @@ def test_comprehensive_config_plumbing(
         "newton_rtol": precision(5e-7),
         "krylov_max_iters": 300,
         "newton_max_iters": 300,
-        "newton_damping": precision(0.75),
         "preconditioner_order": 1,
     }
 

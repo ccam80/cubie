@@ -147,13 +147,6 @@ class ScaledNormCache(CUDADispatcherCache):
     scaled_norm: Callable = field(validator=is_device_validator)
 
 
-@define
-class CorrectionNormCache(ScaledNormCache):
-    """Hold residual and correction norm functions."""
-
-    correction_norm: Callable = field(validator=is_device_validator)
-
-
 class ScaledNorm(MultipleInstanceCUDAFactory):
     """Compile a mean squared scaled norm."""
 
@@ -194,7 +187,7 @@ class ScaledNorm(MultipleInstanceCUDAFactory):
 
         self.setup_compile_settings(config)
 
-    def _build_scaled_norm(self) -> Callable:
+    def build(self) -> ScaledNormCache:
         """Compile the whole-vector norm."""
         config = self.compile_settings
 
@@ -229,11 +222,6 @@ class ScaledNorm(MultipleInstanceCUDAFactory):
             return nrm2 * inv_n
 
         # no cover: end
-        return scaled_norm
-
-    def build(self) -> ScaledNormCache:
-        """Compile the norm."""
-        scaled_norm = self._build_scaled_norm()
         return ScaledNormCache(scaled_norm=scaled_norm)
 
     def update(self, updates_dict=None, silent=False, **kwargs):
@@ -296,20 +284,17 @@ class CorrectionNorm(ScaledNorm):
 
     Correction norms scale the Newton update against the physical
     stage state and the step-start state, matching the reference
-    scaling ``atol + rtol * max(|stage_value|, |step_start|)``.
+    scaling ``atol + rtol * max(|stage_value|, |step_start|)``. The
+    compiled function takes ``(values, stage_increment, stage_base,
+    step_start, a_ij)`` in place of the two-argument scaled norm.
     """
-
-    @property
-    def correction_device_function(self) -> Callable:
-        """Return the whole-vector correction norm function."""
-        return self.get_cached_output("correction_norm")
 
 
 class DIRKCorrectionNorm(CorrectionNorm):
     """Compile a DIRK correction norm."""
 
-    def build(self) -> CorrectionNormCache:
-        """Compile residual and correction norm functions."""
+    def build(self) -> ScaledNormCache:
+        """Compile the correction norm function."""
         config = self.compile_settings
         atol = config.atol
         rtol = config.rtol
@@ -318,8 +303,6 @@ class DIRKCorrectionNorm(CorrectionNorm):
         numba_precision = config.numba_precision
         n_val = config.n
         typed_zero = numba_precision(0.0)
-
-        scaled_norm = self._build_scaled_norm()
 
         # no cover: start
         @cuda.jit(device=True, inline=True, **self.jit_kwargs)
@@ -344,10 +327,7 @@ class DIRKCorrectionNorm(CorrectionNorm):
             return nrm2 * inv_n
 
         # no cover: end
-        return CorrectionNormCache(
-            scaled_norm=scaled_norm,
-            correction_norm=correction_norm,
-        )
+        return ScaledNormCache(scaled_norm=correction_norm)
 
 
 class FIRKCorrectionNorm(CorrectionNorm):
@@ -355,8 +335,8 @@ class FIRKCorrectionNorm(CorrectionNorm):
 
     config_type = FIRKCorrectionNormConfig
 
-    def build(self) -> CorrectionNormCache:
-        """Compile residual and correction norm functions."""
+    def build(self) -> ScaledNormCache:
+        """Compile the correction norm function."""
         config = self.compile_settings
         atol = config.atol
         rtol = config.rtol
@@ -370,8 +350,6 @@ class FIRKCorrectionNorm(CorrectionNorm):
             numba_precision(value) for value in config.stage_coefficients
         )
         typed_zero = numba_precision(0.0)
-
-        scaled_norm = self._build_scaled_norm()
 
         # no cover: start
         @cuda.jit(device=True, inline=True, **self.jit_kwargs)
@@ -410,7 +388,4 @@ class FIRKCorrectionNorm(CorrectionNorm):
             return nrm2 * inv_n
 
         # no cover: end
-        return CorrectionNormCache(
-            scaled_norm=scaled_norm,
-            correction_norm=correction_norm,
-        )
+        return ScaledNormCache(scaled_norm=correction_norm)

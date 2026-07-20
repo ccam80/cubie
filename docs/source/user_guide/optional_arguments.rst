@@ -153,17 +153,6 @@ Newton (outer loop) options:
 
     - Default: ``100``
 
-**newton_damping** — backtracking shrink factor.
-    When a Newton step fails to reduce the residual, the update is
-    scaled by this factor and retried.
-
-    - Default: ``0.5`` (range 0--1)
-
-**newton_max_backtracks** — backtracking attempt limit.
-    Set this above zero to enable damped retries.
-
-    - Default: ``0``
-
 Krylov (inner loop) options:
 
 **krylov_atol** / **krylov_rtol** — linear-solve tolerances.

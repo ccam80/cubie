@@ -2,7 +2,11 @@
 
 This module wraps a linear solver provided by
 :mod:`cubie.integrators.matrix_free_solvers.linear_solver_base` to build
-damped Newton iterations suitable for CUDA device execution.
+Newton iterations suitable for CUDA device execution. Convergence
+follows OrdinaryDiffEq.jl's NLNewton: the solve accepts when the
+warm-started contraction estimate bounds the update error below the
+scaled tolerance, and diverging or stagnant solves exit early for the
+step controller to handle.
 
 Published Classes
 -----------------
@@ -40,7 +44,6 @@ from numpy import ndarray
 from cubie._utils import (
     PrecisionDType,
     build_config,
-    inrangetype_validator,
     is_device_validator,
 )
 from cubie.integrators.matrix_free_solvers.base_solver import (
@@ -53,7 +56,6 @@ from cubie.cuda_simsafe import (
     activemask,
     all_sync,
     selp,
-    any_sync,
 )
 from cubie.result_codes import CUBIE_RESULT_CODES
 
@@ -76,26 +78,21 @@ class NewtonKrylovConfig(MatrixFreeSolverConfig):
     max_iters : int
         Maximum solver iterations permitted.
     norm_device_function : Optional[Callable]
-        Compiled norm function for convergence checks.
+        Compiled correction norm for convergence checks.
     residual_function : Optional[Callable]
         Device function evaluating residuals.
     linear_solver_function : Optional[Callable]
         Device function for solving linear systems.
-    newton_damping : float
-        Step shrink factor for backtracking.
-    newton_max_backtracks : int
-        Extra damping attempts. Zero disables backtracking.
     delta_location : str
         Memory location for delta buffer.
     residual_location : str
         Memory location for residual buffer.
-    residual_temp_location : str
-        Memory location for residual_temp buffer.
-    stage_base_bt_location : str
-        Memory location for stage_base_bt buffer.
     krylov_iters_local_location : str
         Memory location for the single-element Krylov iteration
         counter buffer.
+    prev_theta_location : str
+        Memory location for the persistent contraction-estimate
+        buffer.
 
     Notes
     -----
@@ -114,40 +111,18 @@ class NewtonKrylovConfig(MatrixFreeSolverConfig):
         validator=validators.optional(is_device_validator),
         eq=False,
     )
-    correction_norm_function: Optional[Callable] = field(
-        default=None,
-        validator=validators.optional(is_device_validator),
-        eq=False,
-    )
-    _newton_damping: float = field(
-        default=0.5, validator=inrangetype_validator(float, 0, 1)
-    )
-    newton_max_backtracks: int = field(
-        default=0, validator=inrangetype_validator(int, 0, 32767)
-    )
     delta_location: str = field(
         default="local", validator=validators.in_(["local", "shared"])
     )
     residual_location: str = field(
         default="local", validator=validators.in_(["local", "shared"])
     )
-    residual_temp_location: str = field(
-        default="local", validator=validators.in_(["local", "shared"])
-    )
-    stage_base_bt_location: str = field(
-        default="local", validator=validators.in_(["local", "shared"])
-    )
     krylov_iters_local_location: str = field(
         default="local", validator=validators.in_(["local", "shared"])
     )
-
-    def __attrs_post_init__(self):
-        super().__attrs_post_init__()
-
-    @property
-    def newton_damping(self) -> float:
-        """Return damping factor in configured precision."""
-        return self.precision(self._newton_damping)
+    prev_theta_location: str = field(
+        default="local", validator=validators.in_(["local", "shared"])
+    )
 
     @property
     def settings_dict(self) -> Dict[str, Any]:
@@ -163,13 +138,10 @@ class NewtonKrylovConfig(MatrixFreeSolverConfig):
         """
         return {
             "newton_max_iters": self.max_iters,
-            "newton_damping": self.newton_damping,
-            "newton_max_backtracks": self.newton_max_backtracks,
             "delta_location": self.delta_location,
             "residual_location": self.residual_location,
-            "residual_temp_location": self.residual_temp_location,
-            "stage_base_bt_location": self.stage_base_bt_location,
             "krylov_iters_local_location": self.krylov_iters_local_location,
+            "prev_theta_location": self.prev_theta_location,
         }
 
 
@@ -252,9 +224,6 @@ class NewtonKrylov(MatrixFreeSolver):
                 "precision": precision,
                 "n": n,
                 "norm_device_function": self.norm.device_function,
-                "correction_norm_function": (
-                    self.norm.correction_device_function
-                ),
             },
             instance_label="newton",
             **kwargs,
@@ -270,7 +239,6 @@ class NewtonKrylov(MatrixFreeSolver):
         # Register buffers with buffer_registry
         config = self.compile_settings
         precision = config.precision
-        backtracking_size = config.n if config.newton_max_backtracks else 0
 
         buffer_registry.register(
             "delta", self, config.n, config.delta_location, precision=precision
@@ -280,20 +248,6 @@ class NewtonKrylov(MatrixFreeSolver):
             self,
             config.n,
             config.residual_location,
-            precision=precision,
-        )
-        buffer_registry.register(
-            "residual_temp",
-            self,
-            backtracking_size,
-            config.residual_temp_location,
-            precision=precision,
-        )
-        buffer_registry.register(
-            "stage_base_bt",
-            self,
-            backtracking_size,
-            config.stage_base_bt_location,
             precision=precision,
         )
         buffer_registry.register(
@@ -308,7 +262,7 @@ class NewtonKrylov(MatrixFreeSolver):
             "prev_theta",
             self,
             1,
-            "local",
+            config.prev_theta_location,
             persistent=True,
             precision=precision,
         )
@@ -322,6 +276,9 @@ class NewtonKrylov(MatrixFreeSolver):
     def build(self) -> NewtonKrylovCache:
         """Compile the Newton solver.
 
+        Acceptance, stagnation, and divergence rules follow
+        OrdinaryDiffEq.jl's NLNewton.
+
         Returns
         -------
         NewtonKrylovCache
@@ -332,37 +289,31 @@ class NewtonKrylov(MatrixFreeSolver):
         # Extract parameters from config
         residual_function = config.residual_function
         linear_solver_fn = config.linear_solver_function
-        scaled_norm_fn = config.norm_device_function
-        correction_norm_fn = config.correction_norm_function
+        correction_norm_fn = config.norm_device_function
 
         n = config.n
         max_iters = int32(config.max_iters)
-        use_backtracking = config.newton_max_backtracks > 0
-        newton_damping = config.newton_damping
-        # Include the full trial before the configured damped trials.
-        max_backtracks = int32(config.newton_max_backtracks + 1)
 
         numba_precision = config.numba_precision
         typed_zero = numba_precision(0.0)
+        typed_one = numba_precision(1.0)
         success = int32(CUBIE_RESULT_CODES.SUCCESS)
         max_newton_iters_exceeded = int32(
             CUBIE_RESULT_CODES.MAX_NEWTON_ITERATIONS_EXCEEDED
         )
-        newton_backtracking_failed = int32(
-            CUBIE_RESULT_CODES.NEWTON_BACKTRACKING_NO_SUITABLE_STEP
-        )
         newton_divergence = int32(CUBIE_RESULT_CODES.NEWTON_DIVERGENCE)
-        typed_one = numba_precision(1.0)
-        typed_damping = numba_precision(newton_damping)
+        # Largest finite value; comparison against it is False for
+        # inf and NaN.
         typed_huge = numba_precision(float(np_finfo(config.precision).max))
-        # Convergence and divergence constants follow OrdinaryDiffEq's
-        # NLNewton: accept when eta * ||dz|| < kappa, bail out when the
-        # contraction estimate exceeds two, and settle ties at the
-        # floating-point stagnation limit by the update norm alone.
+        # Acceptance bound on eta * ||dz||.
         kappa = numba_precision(0.01)
+        # First-iteration acceptance bound on ||dz||.
         first_iteration_bound = numba_precision(1.0e-5)
+        # Decay floor on the carried contraction estimate.
         theta_decay = numba_precision(0.3)
+        # Contraction estimate above this diverges.
         theta_divergence_bound = numba_precision(2.0)
+        # Half-width of the theta ~ 1 stagnation band.
         stagnation_eps = numba_precision(
             100.0 * math_sqrt(float(np_finfo(config.precision).eps))
         )
@@ -372,8 +323,6 @@ class NewtonKrylov(MatrixFreeSolver):
         get_alloc = buffer_registry.get_allocator
         alloc_delta = get_alloc("delta", self)
         alloc_residual = get_alloc("residual", self)
-        alloc_residual_temp = get_alloc("residual_temp", self)
-        alloc_stage_base_bt = get_alloc("stage_base_bt", self)
         alloc_krylov_iters_local = get_alloc("krylov_iters_local", self)
         alloc_prev_theta = get_alloc("prev_theta", self)
 
@@ -406,12 +355,6 @@ class NewtonKrylov(MatrixFreeSolver):
             # Allocate buffers from registry
             delta = alloc_delta(shared_scratch, persistent_scratch)
             residual = alloc_residual(shared_scratch, persistent_scratch)
-            residual_temp = alloc_residual_temp(
-                shared_scratch, persistent_scratch
-            )
-            stage_base_bt = alloc_stage_base_bt(
-                shared_scratch, persistent_scratch
-            )
             prev_theta_store = alloc_prev_theta(
                 shared_scratch, persistent_scratch
             )
@@ -437,11 +380,9 @@ class NewtonKrylov(MatrixFreeSolver):
 
             converged = False
             failed = False
-            final_status = success
 
-            # Track the latest active iteration's status signals.
+            # Track the latest active iteration's linear status.
             last_lin_status = success
-            last_backtrack_failed = False
 
             iters_count = int32(0)
             total_krylov_iters = int32(0)
@@ -463,10 +404,6 @@ class NewtonKrylov(MatrixFreeSolver):
                     base_state,
                     residual,
                 )
-                if use_backtracking:
-                    norm2_residual = scaled_norm_fn(
-                        residual, stage_increment
-                    )
                 for i in range(n_val):
                     residual[i] = -residual[i]
                     delta[i] = typed_zero
@@ -521,148 +458,58 @@ class NewtonKrylov(MatrixFreeSolver):
                     theta * ndz < kappa * (typed_one - theta)
                 )
 
-                if use_backtracking:
-                    # Full-step acceptance by the update-error bound;
-                    # damped trials fall back to residual descent.
-                    accept_update = judged & (
-                        eta_accept | small_first_step
-                    )
-                    for i in range(n_val):
-                        stage_base_bt[i] = stage_increment[i]
-                        stage_increment[i] = selp(
-                            accept_update,
-                            stage_base_bt[i] + delta[i],
-                            stage_increment[i],
-                        )
-                    converged = converged | accept_update
-                    prev_theta = selp(judged & history, theta, prev_theta)
-                    searching = active & (not converged)
-                    accepted_alpha = selp(
-                        accept_update, typed_one, typed_zero
-                    )
-                    ndz_next = selp(accept_update, ndz, typed_zero)
-                    alpha = typed_one
+                # Divergence and stagnation are judged before the
+                # commit.
+                nonfinite = not (norm2_dz <= typed_huge)
+                stagnant = (
+                    judged
+                    & history
+                    & (abs(theta - typed_one) <= stagnation_eps)
+                )
+                diverging = judged & (
+                    (history & (theta > theta_divergence_bound))
+                    | nonfinite
+                )
+                converged_stagnant = (
+                    stagnant & (ndz <= typed_one) & (not diverging)
+                )
+                failed_now = diverging | (
+                    stagnant & (ndz > typed_one)
+                )
+                failed = failed | failed_now
 
-                    for _ in range(max_backtracks):
-                        if not any_sync(mask, searching):
-                            break
-
-                        for i in range(n_val):
-                            stage_increment[i] = (
-                                stage_base_bt[i] + alpha * delta[i]
-                            )
-
-                        residual_function(
-                            stage_increment,
-                            parameters,
-                            drivers,
-                            t,
-                            h,
-                            a_ij,
-                            base_state,
-                            residual_temp,
-                        )
-                        norm2_new = scaled_norm_fn(
-                            residual_temp, stage_increment
-                        )
-
-                        accept_trial = searching & (
-                            norm2_new < norm2_residual
-                        )
-                        converged = converged | (
-                            accept_trial & (norm2_new <= typed_one)
-                        )
-                        accepted_alpha = selp(
-                            accept_trial, alpha, accepted_alpha
-                        )
-                        searching = searching & (not accept_trial)
-                        ndz_next = selp(
-                            accept_trial
-                            & (alpha == typed_one)
-                            & (lin_status == success),
-                            ndz,
-                            ndz_next,
-                        )
-                        for i in range(n_val):
-                            stage_increment[i] = (
-                                stage_base_bt[i]
-                                + accepted_alpha * delta[i]
-                            )
-
-                        alpha *= typed_damping
-
-                    ndz_prev = ndz_next
-                    last_backtrack_failed = searching
-                    for i in range(n_val):
-                        stage_increment[i] = selp(
-                            searching,
-                            stage_base_bt[i],
-                            stage_increment[i],
-                        )
-                else:
-                    # Divergence and stagnation are judged before the
-                    # commit, mirroring OrdinaryDiffEq's NLNewton.
-                    nonfinite = not (norm2_dz <= typed_huge)
-                    stagnant = (
-                        judged
-                        & history
-                        & (abs(theta - typed_one) <= stagnation_eps)
+                commit = (
+                    judged
+                    & (not failed_now)
+                    & (not converged_stagnant)
+                )
+                for i in range(n_val):
+                    stage_increment[i] = selp(
+                        commit,
+                        stage_increment[i] + delta[i],
+                        stage_increment[i],
                     )
-                    diverging = judged & (
-                        (history & (theta > theta_divergence_bound))
-                        | nonfinite
-                    )
-                    converged_stagnant = (
-                        stagnant & (ndz <= typed_one) & (not diverging)
-                    )
-                    failed_now = diverging | (
-                        stagnant & (ndz > typed_one)
-                    )
-                    failed = failed | failed_now
-
-                    commit = (
-                        judged
-                        & (not failed_now)
-                        & (not converged_stagnant)
-                    )
-                    for i in range(n_val):
-                        stage_increment[i] = selp(
-                            commit,
-                            stage_increment[i] + delta[i],
-                            stage_increment[i],
-                        )
-                    converged = (
-                        converged
-                        | converged_stagnant
-                        | (commit & (eta_accept | small_first_step))
-                    )
-                    ndz_prev = selp(commit, ndz, typed_zero)
-                    prev_theta = selp(judged & history, theta, prev_theta)
+                converged = (
+                    converged
+                    | converged_stagnant
+                    | (commit & (eta_accept | small_first_step))
+                )
+                ndz_prev = selp(commit, ndz, typed_zero)
+                prev_theta = selp(judged & history, theta, prev_theta)
 
             # Persist contraction history for the next solve; a failed
             # solve resets it to the conservative estimate.
             prev_theta_store[0] = selp(converged, prev_theta, typed_one)
 
-            final_status = selp(
-                (not converged) & (not failed),
-                int32(final_status | max_newton_iters_exceeded),
-                final_status,
+            fail_bits = selp(
+                failed, newton_divergence, max_newton_iters_exceeded
             )
-            final_status = selp(
-                (not converged) & failed,
-                int32(final_status | newton_divergence),
-                final_status,
+            fail_bits = selp(
+                last_lin_status != success,
+                int32(fail_bits | last_lin_status),
+                fail_bits,
             )
-            final_status = selp(
-                (not converged) & last_backtrack_failed,
-                int32(final_status | newton_backtracking_failed),
-                final_status,
-            )
-            final_status = selp(
-                (not converged) & (last_lin_status != success),
-                int32(final_status | last_lin_status),
-                final_status,
-            )
+            final_status = selp(converged, success, fail_bits)
 
             counters[0] = iters_count
             counters[1] = total_krylov_iters
@@ -710,16 +557,7 @@ class NewtonKrylov(MatrixFreeSolver):
         all_updates["linear_solver_function"] = (
             self.linear_solver.device_function
         )
-        # Update the norm before reading its compiled functions.
         recognized |= super().update(all_updates, silent=True)
-        self.update_compile_settings(
-            {
-                "correction_norm_function": (
-                    self.norm.correction_device_function
-                )
-            },
-            silent=True,
-        )
 
         # Buffer locations handled by registry
         recognized |= buffer_registry.update(
@@ -748,16 +586,6 @@ class NewtonKrylov(MatrixFreeSolver):
     def newton_max_iters(self) -> int:
         """Return maximum Newton iterations."""
         return self.max_iters
-
-    @property
-    def newton_damping(self) -> float:
-        """Return damping factor."""
-        return self.compile_settings.newton_damping
-
-    @property
-    def newton_max_backtracks(self) -> int:
-        """Return the number of damped trials."""
-        return self.compile_settings.newton_max_backtracks
 
     @property
     def krylov_atol(self) -> ndarray:

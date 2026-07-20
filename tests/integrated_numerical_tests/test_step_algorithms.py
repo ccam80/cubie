@@ -540,10 +540,6 @@ def _execute_cpu_step_twice(
         ],
         preconditioner_order=solver_settings["preconditioner_order"],
         tableau=tableau,
-        newton_damping=solver_settings["newton_damping"],
-        newton_max_backtracks=solver_settings[
-            "newton_max_backtracks"
-        ],
     )
 
     first_result = stepper.step(
@@ -624,10 +620,6 @@ def cpu_step_results(
         ],
         preconditioner_order=solver_settings["preconditioner_order"],
         tableau=tableau,
-        newton_damping=solver_settings["newton_damping"],
-        newton_max_backtracks=solver_settings[
-            "newton_max_backtracks"
-        ],
     )
 
     result = stepper.step(

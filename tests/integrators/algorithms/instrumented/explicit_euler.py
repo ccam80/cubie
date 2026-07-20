@@ -160,7 +160,6 @@ class InstrumentedExplicitEulerStep(ODEExplicitStep):
             newton_iteration_guesses,
             newton_residuals,
             newton_squared_norms,
-            newton_iteration_scale,
             linear_initial_guesses,
             linear_iteration_guesses,
             linear_residuals,

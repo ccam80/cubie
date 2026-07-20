@@ -159,12 +159,10 @@ class ODEImplicitStep(BaseAlgorithmStep):
             "newton_atol",
             "newton_rtol",
             "newton_max_iters",
-            "newton_damping",
-            "newton_max_backtracks",
             "delta_location",
             "residual_location",
-            "residual_temp_location",
-            "stage_base_bt_location",
+            "krylov_iters_local_location",
+            "prev_theta_location",
         }
     )
 
@@ -465,17 +463,6 @@ class ODEImplicitStep(BaseAlgorithmStep):
     def newton_max_iters(self) -> Optional[int]:
         """Return the maximum allowed Newton iterations."""
         val = getattr(self.solver, "newton_max_iters", None)
-        return int(val) if val is not None else None
-
-    @property
-    def newton_damping(self) -> Optional[float]:
-        """Return the Newton damping factor."""
-        return getattr(self.solver, "newton_damping", None)
-
-    @property
-    def newton_max_backtracks(self) -> Optional[int]:
-        """Return the maximum number of Newton backtracking steps."""
-        val = getattr(self.solver, "newton_max_backtracks", None)
         return int(val) if val is not None else None
 
     @property

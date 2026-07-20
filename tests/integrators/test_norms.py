@@ -301,7 +301,7 @@ def test_dirk_correction_norm_uses_physical_stage_state():
         atol=1.0,
         rtol=0.1,
     )
-    correction_norm = factory.correction_device_function
+    correction_norm = factory.device_function
 
     @cuda.jit
     def kernel(delta, increment, stage_base, step_start, result):
@@ -334,7 +334,7 @@ def test_firk_correction_norm_uses_tableau_stage_state():
         atol=1.0,
         rtol=0.1,
     )
-    correction_norm = factory.correction_device_function
+    correction_norm = factory.device_function
 
     @cuda.jit
     def kernel(delta, increment, stage_base, step_start, result):

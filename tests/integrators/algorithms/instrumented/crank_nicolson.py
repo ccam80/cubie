@@ -36,8 +36,6 @@ class InstrumentedCrankNicolsonStep(InstrumentedODEImplicitStep):
         newton_atol: Optional[float] = None,
         newton_rtol: Optional[float] = None,
         newton_max_iters: Optional[int] = None,
-        newton_damping: Optional[float] = None,
-        newton_max_backtracks: Optional[int] = None,
         dxdt_location: Optional[str] = None,
         **kwargs,
     ) -> None:
@@ -81,12 +79,6 @@ class InstrumentedCrankNicolsonStep(InstrumentedODEImplicitStep):
         newton_max_iters
             Maximum iterations permitted for the Newton solver. If None, uses
             default from NewtonKrylovConfig.
-        newton_damping
-            Damping factor applied within Newton updates. If None, uses
-            default from NewtonKrylovConfig.
-        newton_max_backtracks
-            Maximum number of backtracking steps within the Newton solver. If
-            None, uses default from NewtonKrylovConfig.
         dxdt_location
             Memory location for dxdt buffer: 'local' or 'shared'. If None,
             defaults to 'local'.
@@ -134,10 +126,6 @@ class InstrumentedCrankNicolsonStep(InstrumentedODEImplicitStep):
             solver_kwargs["newton_rtol"] = newton_rtol
         if newton_max_iters is not None:
             solver_kwargs["newton_max_iters"] = newton_max_iters
-        if newton_damping is not None:
-            solver_kwargs["newton_damping"] = newton_damping
-        if newton_max_backtracks is not None:
-            solver_kwargs["newton_max_backtracks"] = newton_max_backtracks
 
         super().__init__(
             config,
@@ -274,7 +262,6 @@ class InstrumentedCrankNicolsonStep(InstrumentedODEImplicitStep):
             newton_iteration_guesses,
             newton_residuals,
             newton_squared_norms,
-            newton_iteration_scale,
             linear_initial_guesses,
             linear_iteration_guesses,
             linear_residuals,
@@ -359,7 +346,6 @@ class InstrumentedCrankNicolsonStep(InstrumentedODEImplicitStep):
                 newton_iteration_guesses,
                 newton_residuals,
                 newton_squared_norms,
-                newton_iteration_scale,
                 linear_initial_guesses,
                 linear_iteration_guesses,
                 linear_residuals,
@@ -397,7 +383,6 @@ class InstrumentedCrankNicolsonStep(InstrumentedODEImplicitStep):
                 newton_iteration_guesses,
                 newton_residuals,
                 newton_squared_norms,
-                newton_iteration_scale,
                 linear_initial_guesses,
                 linear_iteration_guesses,
                 linear_residuals,

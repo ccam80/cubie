@@ -72,8 +72,6 @@ class CPUStep:
         preconditioner_order: int = 2,
         instrument: bool = False,
         tableau: Optional[ButcherTableau] = None,
-        newton_damping: float = 0.5,
-        newton_max_backtracks: int = 0,
     ) -> None:
         self.evaluator = evaluator
         self.driver_evaluator = driver_evaluator
@@ -100,8 +98,6 @@ class CPUStep:
         self._preconditioner_order = int(preconditioner_order)
         if self._preconditioner_order < 0:
             raise ValueError("Preconditioner order must be non-negative.")
-        self._newton_damping = self.precision(newton_damping)
-        self._newton_max_backtracks = int(newton_max_backtracks)
         # Contraction history persisted between Newton solves.
         self._newton_prev_theta = np.zeros(1, dtype=self.precision)
         self.tableau = tableau
@@ -239,7 +235,6 @@ class CPUStep:
             observable_size=self.evaluator.system.sizes.observables,
             driver_size=self.evaluator.system.sizes.drivers,
             newton_max_iters=self._newton_max_iters,
-            newton_max_backtracks=self._newton_max_backtracks,
             linear_max_iters=self._linear_max_iters,
         )
 
@@ -260,7 +255,6 @@ class CPUStep:
             "newton_iteration_guesses": logging.newton_iteration_guesses,
             "newton_residuals": logging.newton_residuals,
             "newton_squared_norms": logging.newton_squared_norms,
-            "newton_iteration_scale": logging.newton_iteration_scale,
             "linear_initial_guesses": logging.linear_initial_guesses,
             "linear_iteration_guesses": logging.linear_iteration_guesses,
             "linear_residuals": logging.linear_residuals,
@@ -291,7 +285,6 @@ class CPUStep:
             "newton_iteration_guesses": logging.newton_iteration_guesses,
             "newton_residuals": logging.newton_residuals,
             "newton_squared_norms": logging.newton_squared_norms,
-            "newton_iteration_scale": logging.newton_iteration_scale,
             "linear_initial_guesses": logging.linear_initial_guesses,
             "linear_iteration_guesses": logging.linear_iteration_guesses,
             "linear_residuals": logging.linear_residuals,
@@ -326,7 +319,6 @@ class CPUStep:
         newton_iteration_guesses: Optional[Array] = None,
         newton_residuals: Optional[Array] = None,
         newton_squared_norms: Optional[Array] = None,
-        newton_iteration_scale: Optional[Array] = None,
         linear_initial_guesses: Optional[Array] = None,
         linear_iteration_guesses: Optional[Array] = None,
         linear_residuals: Optional[Array] = None,
@@ -355,7 +347,6 @@ class CPUStep:
             newton_iteration_guesses=newton_iteration_guesses,
             newton_residuals=newton_residuals,
             newton_squared_norms=newton_squared_norms,
-            newton_iteration_scale=newton_iteration_scale,
             linear_initial_guesses=linear_initial_guesses,
             linear_iteration_guesses=linear_iteration_guesses,
             linear_residuals=linear_residuals,
@@ -608,8 +599,6 @@ class CPUBackwardEulerStep(CPUStep):
         linear_correction_type: str = "minimal_residual",
         preconditioner_order: int = 2,
         instrument: bool = False,
-        newton_damping: float = 0.5,
-        newton_max_backtracks: int = 0,
     ) -> None:
         super().__init__(
             evaluator,
@@ -623,8 +612,6 @@ class CPUBackwardEulerStep(CPUStep):
             linear_correction_type=linear_correction_type,
             preconditioner_order=preconditioner_order,
             instrument=instrument,
-            newton_damping=newton_damping,
-            newton_max_backtracks=newton_max_backtracks,
         )
         self._be_state = np.zeros(self._state_size, dtype=self.precision)
         self._be_params = np.zeros(0, dtype=self.precision)
@@ -718,8 +705,6 @@ class CPUBackwardEulerStep(CPUStep):
             newton_tol=self._newton_tol,
             newton_rtol=self._newton_rtol,
             newton_max_iters=self._newton_max_iters,
-            newton_damping=self._newton_damping,
-            newton_max_backtracks=self._newton_max_backtracks,
             correction_norm=correction_norm,
             prev_theta_store=self._newton_prev_theta,
             **newton_kwargs,
@@ -781,8 +766,6 @@ class CPUCrankNicolsonStep(CPUStep):
         preconditioner_order: int = 2,
         backward_step: Optional[CPUBackwardEulerStep] = None,
         instrument: bool = False,
-        newton_damping: float = 0.5,
-        newton_max_backtracks: int = 0,
     ) -> None:
         super().__init__(
             evaluator,
@@ -796,8 +779,6 @@ class CPUCrankNicolsonStep(CPUStep):
             linear_correction_type=linear_correction_type,
             preconditioner_order=preconditioner_order,
             instrument=instrument,
-            newton_damping=newton_damping,
-            newton_max_backtracks=newton_max_backtracks,
         )
         self._cn_previous_state = np.zeros(
             self._state_size, dtype=self.precision
@@ -821,8 +802,6 @@ class CPUCrankNicolsonStep(CPUStep):
                 linear_correction_type=linear_correction_type,
                 preconditioner_order=preconditioner_order,
                 instrument=instrument,
-                newton_damping=newton_damping,
-                newton_max_backtracks=newton_max_backtracks,
             )
             # The device solver shares one contraction history across
             # the trapezoidal and backward Euler stages.
@@ -938,8 +917,6 @@ class CPUCrankNicolsonStep(CPUStep):
             newton_tol=self._newton_tol,
             newton_rtol=self._newton_rtol,
             newton_max_iters=self._newton_max_iters,
-            newton_damping=self._newton_damping,
-            newton_max_backtracks=self._newton_max_backtracks,
             correction_norm=correction_norm,
             prev_theta_store=self._newton_prev_theta,
             **newton_kwargs,
@@ -1009,8 +986,6 @@ class CPUERKStep(CPUStep):
         preconditioner_order: int = 2,
         tableau: Optional[ERKTableau] = None,
         instrument: bool = False,
-        newton_damping: float = 0.5,
-        newton_max_backtracks: int = 0,
     ) -> None:
         resolved = DEFAULT_ERK_TABLEAU if tableau is None else tableau
         super().__init__(
@@ -1026,8 +1001,6 @@ class CPUERKStep(CPUStep):
             preconditioner_order=preconditioner_order,
             instrument=instrument,
             tableau=resolved,
-            newton_damping=newton_damping,
-            newton_max_backtracks=newton_max_backtracks,
         )
 
     def step(
@@ -1163,8 +1136,6 @@ class CPUDIRKStep(CPUStep):
         preconditioner_order: int = 2,
         tableau: Optional[DIRKTableau] = None,
         instrument: bool = False,
-        newton_damping: float = 0.5,
-        newton_max_backtracks: int = 0,
     ) -> None:
         resolved = DEFAULT_DIRK_TABLEAU if tableau is None else tableau
         super().__init__(
@@ -1180,8 +1151,6 @@ class CPUDIRKStep(CPUStep):
             preconditioner_order=preconditioner_order,
             instrument=instrument,
             tableau=resolved,
-            newton_damping=newton_damping,
-            newton_max_backtracks=newton_max_backtracks,
         )
         self._dirk_reference = np.zeros(
             self._state_size, dtype=self.precision
@@ -1338,8 +1307,6 @@ class CPUDIRKStep(CPUStep):
                 newton_tol=self._newton_tol,
                 newton_rtol=self._newton_rtol,
                 newton_max_iters=self._newton_max_iters,
-                newton_damping=self._newton_damping,
-                newton_max_backtracks=self._newton_max_backtracks,
                 correction_norm=correction_norm,
                 prev_theta_store=self._newton_prev_theta,
                 **newton_kwargs,
@@ -1439,8 +1406,6 @@ class CPUFIRKStep(CPUStep):
         preconditioner_order: int = 2,
         tableau: Optional[FIRKTableau] = None,
         instrument: bool = False,
-        newton_damping: float = 0.5,
-        newton_max_backtracks: int = 0,
     ) -> None:
         resolved = DEFAULT_FIRK_TABLEAU if tableau is None else tableau
         super().__init__(
@@ -1456,8 +1421,6 @@ class CPUFIRKStep(CPUStep):
             preconditioner_order=preconditioner_order,
             instrument=instrument,
             tableau=resolved,
-            newton_damping=newton_damping,
-            newton_max_backtracks=newton_max_backtracks,
         )
         self._firk_state = np.zeros(self._state_size, dtype=self.precision)
         self._firk_params = np.zeros(0, dtype=self.precision)
@@ -1475,7 +1438,6 @@ class CPUFIRKStep(CPUStep):
             observable_size=self.evaluator.system.sizes.observables,
             driver_size=self.evaluator.system.sizes.drivers,
             newton_max_iters=self._newton_max_iters,
-            newton_max_backtracks=self._newton_max_backtracks,
             linear_max_iters=self._linear_max_iters,
             flattened_solver=True,
         )
@@ -1667,8 +1629,6 @@ class CPUFIRKStep(CPUStep):
             newton_tol=self._newton_tol,
             newton_rtol=self._newton_rtol,
             newton_max_iters=self._newton_max_iters,
-            newton_damping=self._newton_damping,
-            newton_max_backtracks=self._newton_max_backtracks,
             correction_norm=correction_norm,
             prev_theta_store=self._newton_prev_theta,
             **newton_kwargs,
@@ -1798,8 +1758,6 @@ class CPURosenbrockWStep(CPUStep):
         preconditioner_order: int = 2,
         tableau: Optional[RosenbrockTableau] = None,
         instrument: bool = False,
-        newton_damping: float = 0.5,
-        newton_max_backtracks: int = 0,
     ) -> None:
         resolved = (
             DEFAULT_ROSENBROCK_TABLEAU if tableau is None else tableau
@@ -1817,8 +1775,6 @@ class CPURosenbrockWStep(CPUStep):
             preconditioner_order=preconditioner_order,
             instrument=instrument,
             tableau=resolved,
-            newton_damping=newton_damping,
-            newton_max_backtracks=newton_max_backtracks,
         )
         self._increment_cache = np.zeros(self._state_size, dtype=self.precision)
 
@@ -2076,8 +2032,6 @@ class CPUBackwardEulerPCStep(CPUStep):
         preconditioner_order: int = 2,
         corrector: Optional[CPUBackwardEulerStep] = None,
         instrument: bool = False,
-        newton_damping: float = 0.5,
-        newton_max_backtracks: int = 0,
     ) -> None:
         super().__init__(
             evaluator,
@@ -2091,8 +2045,6 @@ class CPUBackwardEulerPCStep(CPUStep):
             linear_correction_type=linear_correction_type,
             preconditioner_order=preconditioner_order,
             instrument=instrument,
-            newton_damping=newton_damping,
-            newton_max_backtracks=newton_max_backtracks,
         )
         if corrector is None:
             corrector = CPUBackwardEulerStep(
@@ -2107,8 +2059,6 @@ class CPUBackwardEulerPCStep(CPUStep):
                 linear_correction_type=linear_correction_type,
                 preconditioner_order=preconditioner_order,
                 instrument=instrument,
-                newton_damping=newton_damping,
-                newton_max_backtracks=newton_max_backtracks,
             )
         self._corrector = corrector
 
@@ -2237,8 +2187,6 @@ def get_ref_step_factory(
         linear_correction_type: str = "minimal_residual",
         preconditioner_order: int = 2,
         instrument: bool = False,
-        newton_damping: float = 0.5,
-        newton_max_backtracks: int = 0,
     ) -> Callable:
         if tableau_value is None:
             return step_class(
@@ -2253,8 +2201,6 @@ def get_ref_step_factory(
                 linear_correction_type=linear_correction_type,
                 preconditioner_order=preconditioner_order,
                 instrument=instrument,
-                newton_damping=newton_damping,
-                newton_max_backtracks=newton_max_backtracks,
             )
         return step_class(
             evaluator,
@@ -2269,8 +2215,6 @@ def get_ref_step_factory(
             preconditioner_order=preconditioner_order,
             instrument=instrument,
             tableau=tableau_value,
-            newton_damping=newton_damping,
-            newton_max_backtracks=newton_max_backtracks,
         )
 
     return factory
@@ -2291,8 +2235,6 @@ def get_ref_stepper(
     preconditioner_order: int = 2,
     tableau: Optional[Union[str, ButcherTableau]] = None,
     instrument: bool = False,
-    newton_damping: float = 0.5,
-    newton_max_backtracks: int = 0,
 ) -> CPUStep:
     """Return a configured CPU reference stepper for ``algorithm``."""
 
@@ -2309,6 +2251,4 @@ def get_ref_stepper(
         linear_correction_type=linear_correction_type,
         preconditioner_order=preconditioner_order,
         instrument=instrument,
-        newton_damping=newton_damping,
-        newton_max_backtracks=newton_max_backtracks,
     )

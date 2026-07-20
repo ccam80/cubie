@@ -23,7 +23,7 @@ is specific to the solvers.
 | `__init__.py` | Re-exports factories/configs/caches; re-exports `CUBIE_RESULT_CODES` from `cubie.result_codes`. |
 | `base_solver.py` | `MatrixFreeSolver` / `MatrixFreeSolverConfig` base — holds the norm device function and the shared `n` / `max_iters` / tolerance plumbing. |
 | `linear_solver.py` | `LinearSolver` — matrix-free preconditioned steepest-descent / minimal-residual linear solve (cached and non-cached variants). |
-| `newton_krylov.py` | `NewtonKrylov` — Newton iteration with optional backtracking. |
+| `newton_krylov.py` | `NewtonKrylov` — NLNewton-style Newton iteration. |
 
 ## For AI Agents
 
@@ -57,20 +57,19 @@ is specific to the solvers.
 ### Registered buffers (length `n` unless noted)
 - `LinearSolver`: `preconditioned_vec`, `temp`.
 - `NewtonKrylov`: `delta`, `residual`, `krylov_iters_local` (length 1,
-  int32), and `prev_theta` (length 1, persistent local — contraction
-  history carried between solves). Backtracking also uses
-  `residual_temp` and `stage_base_bt` (zero-sized when disabled).
+  int32), and `prev_theta` (length 1, persistent — contraction
+  history carried between solves).
 
 ### Status codes & convergence
 - Status codes come from the package-central `CUBIE_RESULT_CODES` (`cubie/result_codes.py`,
-  re-exported from this package): `SUCCESS=0`, `NEWTON_BACKTRACKING_NO_SUITABLE_STEP=1`,
+  re-exported from this package): `SUCCESS=0`,
   `MAX_NEWTON_ITERATIONS_EXCEEDED=2`, `MAX_LINEAR_ITERATIONS_EXCEEDED=4` (captured as device
   closure constants). `newton_krylov_solver` OR-combines these into a **low-bits** status
   word — it does NOT pack the iteration count into high bits (counts go to `counters`).
   Callers OR this word into their own step status.
-- Linear norms use `ScaledNorm`. Newton corrections use
+- Linear norms use `ScaledNorm`. The Newton norm is a
   `DIRKCorrectionNorm` or `FIRKCorrectionNorm`, whose whole-vector
-  `correction_norm` scales the update by
+  function scales the update by
   `atol + rtol * max(|stage_value|, |step_start|)` (DIRK: one diagonal
   coefficient; FIRK: the full tableau row).
 - **Newton convergence follows OrdinaryDiffEq's NLNewton.** Consecutive
@@ -84,16 +83,15 @@ is specific to the solvers.
   decides between convergence and divergence. Commits are gated on
   linear-solver success — a failed linear solve moves nothing and
   clears the in-solve contraction history.
-- The residual `ScaledNorm` is compiled only into the opt-in
-  backtracking path, where it drives the damped line search.
+- There is no line search: a diverging solve exits early with a
+  nonzero status and the adaptive step controller rejects the step
+  and shrinks `dt`.
 
 ### Solver-specific gotchas
 - **Warp-coherent loops.** Iterative loops exit on warp votes (`all_sync`/`any_sync`
   from `cuda_simsafe`) so every active lane agrees before breaking; `selp` gives
   branchless commits. Don't add un-voted data-dependent `break`/early-return — it
   breaks lane lockstep.
-- `newton_max_backtracks=0` compiles out backtracking and its buffers. A
-  positive value is the number of damped trials after the full trial.
 
 ### Testing
 Solver behaviour is exercised through the implicit algorithm steps under

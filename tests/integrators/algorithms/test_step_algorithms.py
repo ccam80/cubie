@@ -602,9 +602,6 @@ def test_algorithm(
             assert step_object.newton_max_iters == solver_settings[
                 "newton_max_iters"
             ], "newton_max_iters set"
-            assert step_object.newton_max_backtracks == solver_settings[
-                "newton_max_backtracks"
-            ], "newton_max_backtracks set"
             assert step_object.krylov_atol == pytest.approx(
                 solver_settings["krylov_atol"],
                 rel=tolerance.rel_tight,
@@ -625,11 +622,6 @@ def test_algorithm(
                 rel=tolerance.rel_tight,
                 abs=tolerance.abs_tight,
             ), "newton_rtol set"
-            assert step_object.newton_damping == pytest.approx(
-                solver_settings["newton_damping"],
-                rel=tolerance.rel_tight,
-                abs=tolerance.abs_tight,
-            ), "newton_damping set"
         assert callable(system.get_solver_helper)
 
     if step_object.is_implicit:
@@ -672,8 +664,6 @@ def test_algorithm(
                 solver_settings["newton_atol"] * 0.5,
                 "newton_rtol":
                 solver_settings["newton_rtol"] * 0.5,
-                "newton_damping":
-                solver_settings["newton_damping"] * 0.9,
                 "preconditioner_order":
                 solver_settings["preconditioner_order"] + 1,
             }
@@ -705,11 +695,6 @@ def test_algorithm(
                 rel=tolerance.rel_tight,
                 abs=tolerance.abs_tight,
             ), "newton_rtol update"
-            assert step_object.newton_damping == pytest.approx(
-                updates["newton_damping"],
-                rel=tolerance.rel_tight,
-                abs=tolerance.abs_tight,
-            ), "newton_damping update"
 
 
 def test_firk_step_is_multistage_matches_tableau():

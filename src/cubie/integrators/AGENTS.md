@@ -40,7 +40,7 @@ each have their own `AGENTS.md`.
 The status vocabulary is the package-central `CUBIE_RESULT_CODES(IntFlag)` (defined in
 `cubie/result_codes.py`, re-exported from this package and from `cubie`). Device functions
 capture its values as closure constants and OR them into the returned status word:
-`SUCCESS=0`, `NEWTON_BACKTRACKING_NO_SUITABLE_STEP=1`, `MAX_NEWTON_ITERATIONS_EXCEEDED=2`,
+`SUCCESS=0`, `MAX_NEWTON_ITERATIONS_EXCEEDED=2`,
 `MAX_LINEAR_ITERATIONS_EXCEEDED=4`, `STEP_TOO_SMALL=8` (controllers' reject-at-min),
 `DT_EFF_EFFECTIVELY_ZERO=16` and `MAX_LOOP_ITERS_EXCEEDED=32` (reserved, unemitted),
 `STAGNATION=64` (loop no-progress). Iteration counts are returned separately via the

@@ -29,8 +29,6 @@ class InstrumentedODEImplicitStep(ODEImplicitStep):
         newton_atol: Optional[float] = None,
         newton_rtol: Optional[float] = None,
         newton_max_iters: Optional[int] = None,
-        newton_damping: Optional[float] = None,
-        newton_max_backtracks: Optional[int] = None,
         newton_norm: Optional[CorrectionNorm] = None,
         **kwargs,
     ):
@@ -46,8 +44,6 @@ class InstrumentedODEImplicitStep(ODEImplicitStep):
                 newton_atol=newton_atol,
                 newton_rtol=newton_rtol,
                 newton_max_iters=newton_max_iters,
-                newton_damping=newton_damping,
-                newton_max_backtracks=newton_max_backtracks,
                 **kwargs,
             )
 
@@ -71,8 +67,6 @@ class InstrumentedODEImplicitStep(ODEImplicitStep):
                     newton_atol=newton_atol,
                     newton_rtol=newton_rtol,
                     newton_max_iters=newton_max_iters,
-                    newton_damping=newton_damping,
-                    newton_max_backtracks=newton_max_backtracks,
                 )
             else:  # solver_type == 'linear'
                 self.solver = linear_solver

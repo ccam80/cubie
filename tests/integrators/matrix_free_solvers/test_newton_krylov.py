@@ -1,5 +1,3 @@
-from math import copysign as math_copysign
-
 import numpy as np
 import pytest
 from cubie.cuda_simsafe import cuda
@@ -118,191 +116,22 @@ def test_newton_krylov_placeholder(placeholder_system, precision, tolerance):
     )
 
 
-# Each case runs two sequential solves in one thread sharing the
-# solver's persistent scratch, so warm-started contraction history
-# carries from the first solve into the second.
-_CONVERGENCE_EDGE_CASES = {
-    "small-first-step": dict(
-        kind="zero",
-        newton_atol=1e-6,
-        newton_max_iters=4,
-        krylov_atol=1e-6,
-        krylov_max_iters=8,
-        initials=(3.0, 3.0),
-        expected_statuses=(
-            CUBIE_RESULT_CODES.SUCCESS,
-            CUBIE_RESULT_CODES.SUCCESS,
-        ),
-        expected_counts=(1, 1),
-        expected_finals=(3.0, 3.0),
-        final_tolerance=0.0,
-    ),
-    "warm-start": dict(
-        kind="linear",
-        newton_atol=1e-2,
-        newton_max_iters=8,
-        krylov_atol=1e-6,
-        krylov_max_iters=8,
-        initials=(3.0, 3.9999),
-        expected_statuses=(
-            CUBIE_RESULT_CODES.SUCCESS,
-            CUBIE_RESULT_CODES.SUCCESS,
-        ),
-        expected_counts=(2, 1),
-        expected_finals=(4.0, 4.0),
-        final_tolerance=1e-3,
-    ),
-    "stagnation-divergence": dict(
-        kind="constant",
-        newton_atol=1e-2,
-        newton_max_iters=4,
-        krylov_atol=1e-6,
-        krylov_max_iters=8,
-        initials=(0.0, 0.0),
-        expected_statuses=(
-            CUBIE_RESULT_CODES.NEWTON_DIVERGENCE,
-            CUBIE_RESULT_CODES.NEWTON_DIVERGENCE,
-        ),
-        expected_counts=(2, 2),
-        expected_finals=(-1.0, -1.0),
-        final_tolerance=1e-6,
-    ),
-    "theta-growth-divergence": dict(
-        kind="root",
-        newton_atol=1e-2,
-        newton_max_iters=4,
-        krylov_atol=1e-6,
-        krylov_max_iters=8,
-        initials=(1.0, 1.0),
-        expected_statuses=(
-            CUBIE_RESULT_CODES.NEWTON_DIVERGENCE,
-            CUBIE_RESULT_CODES.NEWTON_DIVERGENCE,
-        ),
-        expected_counts=(2, 2),
-        expected_finals=(-3.0, -3.0),
-        final_tolerance=1e-4,
-    ),
-}
-
-
-@pytest.fixture(scope="module")
-def newton_edge_case_runner(precision):
-    """Run one convergence edge case through two sequential solves."""
-
-    def run(case):
-        kind = case["kind"]
-        target = precision(4.0)
-
-        @cuda.jit(device=True)
-        def residual(
-            state, parameters, drivers, t, h, a_ij, base_state, out
-        ):
-            if kind == "zero":
-                out[0] = precision(0.0)
-            elif kind == "linear":
-                out[0] = target - state[0]
-            elif kind == "constant":
-                out[0] = precision(1.0)
-            else:
-                magnitude = abs(state[0]) ** precision(0.25)
-                out[0] = math_copysign(magnitude, state[0])
-
-        @cuda.jit(device=True)
-        def operator(
-            state, parameters, drivers, base_state, t, h, a_ij, vec, out
-        ):
-            if kind == "linear":
-                out[0] = -vec[0]
-            elif kind == "root":
-                out[0] = (
-                    precision(0.25)
-                    * abs(state[0]) ** precision(-0.75)
-                    * vec[0]
-                )
-            else:
-                out[0] = vec[0]
-
-        linear_solver = MRLinearSolver(
-            precision=precision,
-            n=1,
-            krylov_atol=case["krylov_atol"],
-            krylov_rtol=0.0,
-            krylov_max_iters=case["krylov_max_iters"],
-        )
-        linear_solver.update(operator_apply=operator)
-        newton = NewtonKrylov(
-            precision=precision,
-            n=1,
-            linear_solver=linear_solver,
-            newton_atol=case["newton_atol"],
-            newton_rtol=0.0,
-            newton_max_iters=case["newton_max_iters"],
-        )
-        newton.update(residual_function=residual)
-        solver = newton.device_function
-        shared_size = max(newton.shared_buffer_size, 1)
-        persistent_size = max(newton.persistent_local_buffer_size, 1)
-
-        @cuda.jit
-        def kernel(states, statuses, counts):
-            parameters = cuda.local.array(1, precision)
-            drivers = cuda.local.array(1, precision)
-            base_state = cuda.local.array(1, precision)
-            counters = cuda.local.array(2, np.int32)
-            shared = cuda.shared.array(shared_size, precision)
-            persistent = cuda.local.array(persistent_size, precision)
-            for index in range(persistent_size):
-                persistent[index] = precision(0.0)
-            for index in range(shared_size):
-                shared[index] = precision(0.0)
-            for index in range(persistent_size):
-                persistent[index] = precision(0.0)
-            parameters[0] = precision(0.0)
-            drivers[0] = precision(0.0)
-            base_state[0] = precision(0.0)
-            for solve in range(2):
-                counters[0] = np.int32(0)
-                counters[1] = np.int32(0)
-                statuses[solve] = solver(
-                    states[solve : solve + 1],
-                    parameters,
-                    drivers,
-                    precision(0.0),
-                    precision(1.0),
-                    precision(1.0),
-                    base_state,
-                    base_state,
-                    shared,
-                    persistent,
-                    counters,
-                )
-                counts[solve] = counters[0]
-
-        states = cuda.to_device(
-            np.array(case["initials"], dtype=precision)
-        )
-        statuses = cuda.to_device(np.zeros(2, dtype=np.int32))
-        counts = cuda.to_device(np.zeros(2, dtype=np.int32))
-        kernel[1, 1](states, statuses, counts)
-        cuda.synchronize()
-        return (
-            states.copy_to_host(),
-            statuses.copy_to_host(),
-            counts.copy_to_host(),
-        )
-
-    return run
-
-
 @pytest.mark.parametrize(
-    "case_name", sorted(_CONVERGENCE_EDGE_CASES), ids=str
+    "newton_edge_case",
+    [
+        "small-first-step",
+        "stagnation-divergence",
+        "theta-growth-divergence",
+        "warm-start",
+    ],
+    indirect=True,
 )
 def test_newton_krylov_convergence_edges(
-    case_name, newton_edge_case_runner, precision
+    newton_edge_case, newton_edge_outcome
 ):
-    """Acceptance, warm start, and divergence match the Julia rules."""
-    case = _CONVERGENCE_EDGE_CASES[case_name]
-    finals, statuses, counts = newton_edge_case_runner(case)
+    """Acceptance, warm start, and divergence match the NLNewton rules."""
+    case = newton_edge_case
+    finals, statuses, counts = newton_edge_outcome
 
     expected_statuses = [
         int(status) for status in case["expected_statuses"]
@@ -311,188 +140,9 @@ def test_newton_krylov_convergence_edges(
     assert list(counts) == list(case["expected_counts"])
     assert_allclose(
         finals,
-        np.array(case["expected_finals"], dtype=precision),
+        np.array(case["expected_finals"], dtype=finals.dtype),
         atol=max(case["final_tolerance"], 0.0) + 1e-12,
     )
-
-
-def test_newton_krylov_warp_keeps_full_step_history(precision):
-    """A lane keeps full-step history while another lane backtracks."""
-
-    @cuda.jit(device=True)
-    def residual(state, parameters, drivers, t, h, a_ij, base_state, out):
-        value = state[0]
-        out[0] = (
-            parameters[0] * value * value
-            + parameters[1] * value
-            + parameters[2]
-        )
-
-    @cuda.jit(device=True)
-    def operator(
-        state, parameters, drivers, base_state, t, h, a_ij, vec, out
-    ):
-        out[0] = (
-            precision(2.0) * parameters[0] * state[0]
-            + parameters[1]
-        ) * vec[0]
-
-    linear_solver = MRLinearSolver(
-        precision=precision,
-        n=1,
-        krylov_atol=1e-8,
-        krylov_rtol=0.0,
-        krylov_max_iters=8,
-    )
-    linear_solver.update(operator_apply=operator)
-    newton = NewtonKrylov(
-        precision=precision,
-        n=1,
-        linear_solver=linear_solver,
-        newton_atol=0.01,
-        newton_rtol=0.0,
-        newton_max_iters=8,
-        newton_damping=0.5,
-        newton_max_backtracks=8,
-    )
-    newton.update(residual_function=residual)
-    solver = newton.device_function
-    lane_count = 2
-    assert newton.shared_buffer_size == 0
-    persistent_size = max(newton.persistent_local_buffer_size, 1)
-
-    @cuda.jit
-    def kernel(states, coefficients, statuses, counts):
-        lane = cuda.threadIdx.x
-        state = cuda.local.array(1, precision)
-        parameters = cuda.local.array(3, precision)
-        drivers = cuda.local.array(1, precision)
-        base_state = cuda.local.array(1, precision)
-        counters = cuda.local.array(2, np.int32)
-        shared = cuda.shared.array(1, precision)
-        persistent = cuda.local.array(persistent_size, precision)
-        for index in range(persistent_size):
-            persistent[index] = precision(0.0)
-        state[0] = states[lane]
-        for index in range(3):
-            parameters[index] = coefficients[lane, index]
-        drivers[0] = precision(0.0)
-        base_state[0] = precision(0.0)
-        counters[0] = np.int32(0)
-        counters[1] = np.int32(0)
-        statuses[lane] = solver(
-            state,
-            parameters,
-            drivers,
-            precision(0.0),
-            precision(1.0),
-            precision(1.0),
-            base_state,
-            base_state,
-            shared,
-            persistent,
-            counters,
-        )
-        states[lane] = state[0]
-        counts[lane] = counters[0]
-
-    states = cuda.to_device(np.array([0.1, 0.1], dtype=precision))
-    coefficients = cuda.to_device(
-        np.array([[0.0, 1.0, 0.0], [1.0, 0.0, -1.0]], dtype=precision)
-    )
-    statuses = cuda.to_device(np.zeros(lane_count, dtype=np.int32))
-    counts = cuda.to_device(np.zeros(lane_count, dtype=np.int32))
-    kernel[1, lane_count](states, coefficients, statuses, counts)
-    cuda.synchronize()
-
-    results = states.copy_to_host()
-    assert np.all(statuses.copy_to_host() == CUBIE_RESULT_CODES.SUCCESS)
-    assert np.array_equal(counts.copy_to_host(), np.array([1, 3]))
-    assert results[0] == precision(0.0)
-    assert abs(results[1] * results[1] - precision(1.0)) <= precision(0.01)
-
-
-def test_newton_krylov_clears_history_after_damping(precision):
-    """Only an accepted full step supplies contraction history."""
-
-    @cuda.jit(device=True)
-    def residual(state, parameters, drivers, t, h, a_ij, base_state, out):
-        out[0] = state[0] * state[0] - precision(1.0)
-
-    @cuda.jit(device=True)
-    def operator(
-        state, parameters, drivers, base_state, t, h, a_ij, vec, out
-    ):
-        out[0] = precision(2.0) * state[0] * vec[0]
-
-    linear_solver = MRLinearSolver(
-        precision=precision,
-        n=1,
-        krylov_atol=1e-8,
-        krylov_rtol=0.0,
-        krylov_max_iters=8,
-    )
-    linear_solver.update(operator_apply=operator)
-    newton = NewtonKrylov(
-        precision=precision,
-        n=1,
-        linear_solver=linear_solver,
-        newton_atol=0.05,
-        newton_rtol=0.0,
-        newton_max_iters=8,
-        newton_damping=0.5,
-        newton_max_backtracks=8,
-    )
-    newton.update(residual_function=residual)
-    solver = newton.device_function
-    shared_size = max(newton.shared_buffer_size, 1)
-    persistent_size = max(newton.persistent_local_buffer_size, 1)
-
-    @cuda.jit
-    def kernel(state, status, counts):
-        parameters = cuda.local.array(1, precision)
-        drivers = cuda.local.array(1, precision)
-        base_state = cuda.local.array(1, precision)
-        counters = cuda.local.array(2, np.int32)
-        shared = cuda.shared.array(shared_size, precision)
-        persistent = cuda.local.array(persistent_size, precision)
-        for index in range(persistent_size):
-            persistent[index] = precision(0.0)
-        for index in range(shared_size):
-            shared[index] = precision(0.0)
-        for index in range(persistent_size):
-            persistent[index] = precision(0.0)
-        parameters[0] = precision(0.0)
-        drivers[0] = precision(0.0)
-        base_state[0] = precision(0.0)
-        counters[0] = np.int32(0)
-        counters[1] = np.int32(0)
-        status[0] = solver(
-            state,
-            parameters,
-            drivers,
-            precision(0.0),
-            precision(1.0),
-            precision(1.0),
-            base_state,
-            base_state,
-            shared,
-            persistent,
-            counters,
-        )
-        counts[0] = counters[0]
-        counts[1] = counters[1]
-
-    state = cuda.to_device(np.array([0.1], dtype=precision))
-    status = cuda.to_device(np.zeros(1, dtype=np.int32))
-    counts = cuda.to_device(np.zeros(2, dtype=np.int32))
-    kernel[1, 1](state, status, counts)
-    cuda.synchronize()
-
-    result = state.copy_to_host()[0]
-    assert int(status.copy_to_host()[0]) == CUBIE_RESULT_CODES.SUCCESS
-    assert int(counts.copy_to_host()[0]) == 3
-    assert abs(result * result - precision(1.0)) <= precision(0.05)
 
 
 _NEWTON_SOLVER_SETTINGS = {
@@ -588,12 +238,6 @@ def test_newton_krylov_symbolic(
     kernel[1, 1](x, base_state, out_flag, h)
     cuda.synchronize()
     status_code = int(out_flag.copy_to_host()[0]) & STATUS_MASK
-    # Nonlinear system needs preconditioning.
-    # if system_setup["id"] == "nonlinear" and precond_order == 0:
-    #     assert (
-    #         status_code == CUBIE_RESULT_CODES.NEWTON_BACKTRACKING_NO_SUITABLE_STEP
-    #     )
-    # else:
     assert status_code == CUBIE_RESULT_CODES.SUCCESS
     # Scaled norm may converge at different iterations than L2 norm,
     # producing slightly different final values (~5% difference).
@@ -722,7 +366,6 @@ def test_newton_krylov_linear_solver_failure_propagates(precision):
         newton_atol=1e-8,
         newton_rtol=1e-8,
         newton_max_iters=4,
-        newton_max_backtracks=8,
     )
 
     newton_instance.update(residual_function=residual)
@@ -763,7 +406,6 @@ def test_newton_krylov_linear_solver_failure_propagates(precision):
     status_code = int(out_flag.copy_to_host()[0]) & STATUS_MASK
     assert status_code == (
         CUBIE_RESULT_CODES.MAX_NEWTON_ITERATIONS_EXCEEDED
-        | CUBIE_RESULT_CODES.NEWTON_BACKTRACKING_NO_SUITABLE_STEP
         | CUBIE_RESULT_CODES.MAX_LINEAR_ITERATIONS_EXCEEDED
     )
 
@@ -1078,13 +720,10 @@ def test_newton_krylov_config_settings_dict_excludes_tolerance_arrays(
 
     # Verify other expected keys ARE present
     assert "newton_max_iters" in settings
-    assert "newton_damping" in settings
-    assert "newton_max_backtracks" in settings
     assert "delta_location" in settings
     assert "residual_location" in settings
-    assert "residual_temp_location" in settings
-    assert "stage_base_bt_location" in settings
     assert "krylov_iters_local_location" in settings
+    assert "prev_theta_location" in settings
 
 
 def test_newton_krylov_inherits_from_matrix_free_solver(precision):
@@ -1152,16 +791,14 @@ def test_newton_krylov_no_manual_cache_invalidation(precision):
     newton.update(n=n)
     _ = newton.device_function
     config = newton.compile_settings
-    assert config.norm_device_function is not None
-    old_correction = config.correction_norm_function
+    old_norm_function = config.norm_device_function
+    assert old_norm_function is not None
 
     newton.update(newton_atol=1e-8)
 
     config = newton.compile_settings
-    assert config.correction_norm_function is (
-        newton.norm.correction_device_function
-    )
-    assert config.correction_norm_function is not old_correction
+    assert config.norm_device_function is newton.norm.device_function
+    assert config.norm_device_function is not old_norm_function
     assert newton._cache_valid is False
 
 
@@ -1188,8 +825,6 @@ def test_newton_krylov_settings_dict_includes_tolerance_arrays(precision):
 
     # Other expected settings from config should also be present
     assert "newton_max_iters" in settings
-    assert "newton_damping" in settings
-    assert "newton_max_backtracks" in settings
     assert "delta_location" in settings
     assert "residual_location" in settings
 
