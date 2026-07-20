@@ -8,6 +8,7 @@ from cubie.integrators.algorithms.generic_dirk_tableaus import (
     DEFAULT_DIRK_TABLEAU_NAME,
     DIRK_TABLEAU_REGISTRY,
     DIRKTableau,
+    L_STABLE_SDIRK4_TABLEAU,
 )
 
 
@@ -31,6 +32,14 @@ def test_dirk_tableau_default_matches_registry():
     """Default DIRK tableau should coincide with the registry entry."""
 
     assert DIRK_TABLEAU_REGISTRY[DEFAULT_DIRK_TABLEAU_NAME] is DEFAULT_DIRK_TABLEAU
+
+
+def test_l_stable_sdirk4_fourth_stage_is_consistent():
+    """Hairer4's fourth-stage row sum must equal its abscissa."""
+
+    assert sum(L_STABLE_SDIRK4_TABLEAU.a[3]) == pytest.approx(
+        L_STABLE_SDIRK4_TABLEAU.c[3]
+    )
 
 
 def test_dirk_step_accepts_tableau_instance(precision):
