@@ -57,7 +57,11 @@ from tests._utils import (
 )
 from tests.system_fixtures import (
     build_colliding_constants_system,
+    build_diagonally_dominant_system,
+    build_gating_singularity_system,
     build_large_nonlinear_system,
+    build_off_diagonal_heavy_system,
+    build_singular_initial_state_system,
     build_three_chamber_system,
     build_three_state_constant_deriv_system,
     build_three_state_linear_system,
@@ -214,15 +218,12 @@ def codegen_dir():
 
 
 @pytest.fixture(scope="function")
-def isolated_cache_root(tmp_path):
-    """Point every disk cache layer at a fresh per-test directory.
-
-    Cache-behaviour tests need a root no other test has written to;
-    the session-wide redirect is shared, so cold-cache assertions
-    would otherwise depend on execution order.
-    """
+def isolated_cache_root(tmp_path, monkeypatch):
+    """Give cache tests a fresh root and no environment overrides."""
     from cubie import cache_root
 
+    monkeypatch.delenv("CUBIE_KERNEL_CACHE_DIR", raising=False)
+    monkeypatch.delenv("CUBIE_MAX_CACHE_ENTRIES", raising=False)
     previous = cache_root.get_cache_root_override()
     root = tmp_path / "generated"
     cache_root.set_cache_root(root)
@@ -313,6 +314,14 @@ def system(request, solver_settings_override, precision):
         return build_three_state_constant_deriv_system(precision)
     if model_type == "colliding_constants":
         return build_colliding_constants_system(precision)
+    if model_type == "diagonally_dominant":
+        return build_diagonally_dominant_system(precision)
+    if model_type == "off_diagonal_heavy":
+        return build_off_diagonal_heavy_system(precision)
+    if model_type == "gating_singularity":
+        return build_gating_singularity_system(precision)
+    if model_type == "singular_initial_state":
+        return build_singular_initial_state_system(precision)
     if isinstance(model_type, object):
         return model_type
 
