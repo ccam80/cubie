@@ -37,18 +37,11 @@ DT_MAX_NE = 0.5
 
 N_NE = 1024
 
-# Fixed-sweep pins for cubie's inner Newton/Krylov tolerances, mapped from
-# what OrdinaryDiffEq enforces in the paired Julia run (kappa = 1/100 with
-# abstol_j = 1e-6, reltol_j = 1e-3, through the golden state scale). A
-# three-way sensitivity study changed the implicit-algorithm ensemble
-# errors by < 0.05%, so the mapping is a protocol invariant rather than a
-# binding choice. Keys not used by an algorithm family are ignored.
-INNER_SOLVER_SETTINGS = {
-    "newton_atol": 6e-5,
-    "newton_rtol": 1e-5,
-    "krylov_atol": 6e-6,
-    "krylov_rtol": 1e-6,
-}
+# Solve-request tolerances for the fixed sweep: OrdinaryDiffEq's
+# defaults (abstol = 1e-6, reltol = 1e-3), which the paired Julia
+# fixed-step runs used for their nonlinear stage solves.
+ATOL_FIXED_NE = 1e-6
+RTOL_FIXED_NE = 1e-3
 
 # Error bounds (relative to the golden scale) delimiting where each check
 # applies. Below FLOOR_REL the error is float32 roundoff, not truncation.

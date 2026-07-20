@@ -11,9 +11,16 @@ implementation per algorithm. Protocol, thresholds, and provenance:
 
 import pytest
 
-from cubie.integrators.algorithms import resolve_alias
+from cubie.integrators.algorithms import algorithm_is_adaptive
 
 from tests.integrated_numerical_tests.julia_reference.ne_gate import (
+    ATOL_FIXED_NE,
+    DT0_NE,
+    DT_MIN_NE,
+    DT_MAX_NE,
+    DTS_NE,
+    RTOL_FIXED_NE,
+    TOLS_NE,
     adaptive_table,
     fixed_points,
     fixed_table,
@@ -31,15 +38,55 @@ pytestmark = pytest.mark.nocudasim
 
 ALGORITHMS = {row["cubie_alias"]: row for row in load_algorithms()}
 
+# Shared solve pins for every gate run: the protocol saves only the
+# final state of all three Lorenz states at t = 1.0, and leaves the
+# inner Newton/Krylov tolerances unset so they derive from atol/rtol
+# exactly as they do for a library user.
+_GATE_BASE_OVERRIDE = {
+    "system_type": "lorenz_julia",
+    "duration": 1.0,
+    "save_every": 1.0,
+    "summarise_every": None,
+    "sample_summaries_every": None,
+    "output_types": ["state"],
+    "saved_state_indices": [0, 1, 2],
+    "saved_observable_indices": [],
+    "summarised_state_indices": [],
+    "summarised_observable_indices": [],
+    "blocksize": 64,
+    "krylov_atol": None,
+    "krylov_rtol": None,
+    "newton_atol": None,
+    "newton_rtol": None,
+}
 
-def _cubie_is_adaptive(alias):
-    """Whether cubie's implementation carries an embedded error estimate."""
-    _, tableau = resolve_alias(alias)
-    if tableau is not None:
-        return tableau.has_error_estimate
-    # Bespoke (non-tableau) steps: crank_nicolson derives an embedded
-    # estimate; explicit/backwards euler do not.
-    return {"crank_nicolson": True}.get(alias, False)
+
+def _fixed_override(alias):
+    """Solver settings for one algorithm's fixed-step sweep."""
+    override = dict(_GATE_BASE_OVERRIDE)
+    override.update(
+        algorithm=alias,
+        step_controller="fixed",
+        dt=DTS_NE[0],
+        atol=ATOL_FIXED_NE,
+        rtol=RTOL_FIXED_NE,
+    )
+    return override
+
+
+def _adaptive_override(alias, matched):
+    """Solver settings for one algorithm's matched-controller sweep."""
+    override = dict(_GATE_BASE_OVERRIDE)
+    override.update(
+        algorithm=alias,
+        dt=DT0_NE,
+        dt_min=DT_MIN_NE,
+        dt_max=DT_MAX_NE,
+        atol=TOLS_NE[0],
+        rtol=TOLS_NE[0],
+    )
+    override.update(matched)
+    return override
 
 
 def _adaptive_aliases():
@@ -49,7 +96,7 @@ def _adaptive_aliases():
         keys = set(archive.files)
     aliases = []
     for alias, row in ALGORITHMS.items():
-        if not _cubie_is_adaptive(alias):
+        if not algorithm_is_adaptive(alias):
             continue
         if "adaptive_{0}_tols".format(alias) not in keys:
             continue
@@ -61,19 +108,25 @@ def _adaptive_aliases():
 
 
 FIXED_PARAMS = [
-    pytest.param(alias, id=alias,
-                 marks=pytest.mark.xdist_group("julia-ne-{0}".format(alias)))
-    for alias in ALGORITHMS
+    pytest.param(_fixed_override(alias), id=alias) for alias in ALGORITHMS
 ]
 
+_ADAPTIVE_CONSTANTS = load_controller_constants()
 ADAPTIVE_PARAMS = [
-    pytest.param(alias, id=alias,
-                 marks=pytest.mark.xdist_group("julia-ne-{0}".format(alias)))
+    pytest.param(
+        _adaptive_override(
+            alias,
+            matched_controller_settings(
+                _ADAPTIVE_CONSTANTS, alias, ALGORITHMS[alias]["order"]),
+        ),
+        id=alias,
+    )
     for alias in _adaptive_aliases()
 ]
 
 
-@pytest.mark.parametrize("fixed_sweep", FIXED_PARAMS, indirect=True)
+@pytest.mark.parametrize(
+    "solver_settings_override", FIXED_PARAMS, indirect=True)
 def test_fixed_step_matches_julia(fixed_sweep, julia_reference,
                                   golden_ensemble):
     """Fixed-step sweep converges like, and agrees with, the Julia side."""
@@ -94,7 +147,7 @@ def test_fixed_step_matches_julia(fixed_sweep, julia_reference,
 
 
 @pytest.mark.parametrize(
-    "adaptive_matched_sweep", ADAPTIVE_PARAMS, indirect=True)
+    "solver_settings_override", ADAPTIVE_PARAMS, indirect=True)
 def test_adaptive_matched_controller_tracks_julia(
         adaptive_matched_sweep, julia_reference, golden_ensemble):
     """Adaptive solve under Julia-matched control tracks the Julia side."""

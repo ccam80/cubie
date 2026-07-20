@@ -109,10 +109,11 @@ protocols the shared hierarchy cannot express:
   parametrization still flows through `solver_settings_override`.
 - `tests/integrated_numerical_tests/julia_reference/conftest.py` — the
   golden-reference gate against vendored DifferentialEquations.jl
-  sweeps. It pins its own Lorenz ensemble, solver settings, and
-  dt/tolerance grids to the numerical-equivalence protocol shared with
-  GPUODEBenchmarks; routing it through `solver_settings` would break
-  bit-identical-input parity with the vendored Julia data.
+  sweeps. Solvers and the Lorenz system flow through the shared
+  `solver_settings` hierarchy (one `solver_settings_override` param
+  set per algorithm); this conftest only loads the vendored data and
+  runs the per-algorithm dt/tolerance sweeps required by the
+  numerical-equivalence protocol shared with GPUODEBenchmarks.
 
 ### Fixture hierarchy
 
