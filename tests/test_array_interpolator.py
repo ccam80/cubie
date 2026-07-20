@@ -1318,3 +1318,62 @@ def test_not_a_knot_order_two_uses_single_start_constraint(precision):
     )
     assert interp.coefficients is not None
 
+
+# ── update: coefficients track the compiled configuration ───────────── #
+
+
+def test_settings_only_update_recomputes_coefficients(precision):
+    """``update`` keeps coefficients matched to the compiled layout."""
+    times = np.arange(0.0, 6.0, 1.0, dtype=precision)
+    interp = ArrayInterpolator(
+        precision=precision,
+        input_dict={
+            "values": times**2,
+            "time": times,
+            "order": 2,
+            "wrap": False,
+            "boundary_condition": "clamped",
+        },
+    )
+    base_segments = interp.num_samples - 1
+    assert interp.num_segments == base_segments + 2
+    assert interp.coefficients.shape == interp.coefficients_shape
+
+    interp.update({"boundary_condition": "natural"})
+    assert interp.num_segments == base_segments
+    assert interp.coefficients.shape == interp.coefficients_shape
+
+    interp.update({"order": 4})
+    assert interp.boundary_condition == "natural"
+    assert interp.coefficients_shape == (base_segments, 1, 5)
+    assert interp.coefficients.shape == interp.coefficients_shape
+
+    evaluated = interp.get_interpolated(
+        np.linspace(0.5, 4.5, 9, dtype=precision)
+    )
+    assert evaluated.shape == (9, 1)
+    assert np.all(np.isfinite(evaluated))
+
+
+def test_update_from_dict_applies_config_change_with_equal_arrays(
+    precision,
+):
+    """Equal arrays with new settings still refresh the evaluator."""
+    times = np.arange(0.0, 6.0, 1.0, dtype=precision)
+    input_dict = {
+        "values": times**2,
+        "time": times,
+        "order": 2,
+        "wrap": False,
+        "boundary_condition": "clamped",
+    }
+    interp = ArrayInterpolator(precision=precision, input_dict=input_dict)
+    assert interp.update_from_dict(dict(input_dict)) is False
+
+    changed_dict = dict(input_dict)
+    changed_dict["order"] = 3
+    assert interp.update_from_dict(changed_dict) is True
+    assert interp.order == 3
+    assert interp.coefficients_shape[2] == 4
+    assert interp.coefficients.shape == interp.coefficients_shape
+

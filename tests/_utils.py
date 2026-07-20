@@ -1270,7 +1270,7 @@ NON_SOLVER_SETTINGS = {
 def _build_solver_instance(
     system: SymbolicODE,
     solver_settings: Dict[str, Any],
-    driver_array: Optional[ArrayInterpolator],
+    driver_settings: Optional[Dict[str, Any]],
     memory_manager: Optional[Any] = None,
 ) -> Solver:
     """Instantiate :class:`Solver` configured with ``solver_settings``."""
@@ -1282,8 +1282,8 @@ def _build_solver_instance(
     if memory_manager:
         settings.update(memory_manager=memory_manager)
     solver = Solver(system, **settings)
-    evaluate_driver_at_t = _get_evaluate_driver_at_t(driver_array)
-    solver.update({"evaluate_driver_at_t": evaluate_driver_at_t})
+    if driver_settings is not None:
+        solver._configure_drivers(driver_settings)
     return solver
 
 

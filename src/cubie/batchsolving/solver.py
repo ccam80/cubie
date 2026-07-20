@@ -605,6 +605,29 @@ class Solver:
         """
         self.system_interface.merge_variable_labels_and_idxs(output_settings)
 
+    def _configure_drivers(self, drivers: Dict[str, Any]) -> None:
+        """Update owned driver data and evaluators as one unit.
+
+        Parameters
+        ----------
+        drivers
+            Driver samples plus interpolation settings, as accepted by
+            :meth:`ArrayInterpolator.update_from_dict`.
+        """
+        drivers = ArrayInterpolator.check_against_system_drivers(
+            drivers, self.system
+        )
+        fn_changed = self.driver_interpolator.update_from_dict(drivers)
+        if fn_changed:
+            self.kernel.update(
+                {
+                    "evaluate_driver_at_t": (
+                        self.driver_interpolator.evaluation_function
+                    ),
+                    "driver_del_t": self.driver_interpolator.driver_del_t,
+                }
+            )
+
     def solve(
         self,
         initial_values: Union[ndarray, Dict[str, Union[float, ndarray]]],
@@ -693,19 +716,8 @@ class Solver:
             states=initial_values, params=parameters, kind=grid_type
         )
 
-        fn_changed = False
         if drivers is not None:
-            drivers = ArrayInterpolator.check_against_system_drivers(
-                drivers, self.system
-            )
-            fn_changed = self.driver_interpolator.update_from_dict(drivers)
-        if fn_changed:
-            self.update(
-                {
-                    "evaluate_driver_at_t": self.driver_interpolator.evaluation_function,
-                    "driver_del_t": self.driver_interpolator.driver_del_t,
-                }
-            )
+            self._configure_drivers(drivers)
 
         self.kernel.run(
             inits=inits,

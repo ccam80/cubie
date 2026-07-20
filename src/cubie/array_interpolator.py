@@ -193,7 +193,8 @@ class ArrayInterpolator(CUDAFactory):
         Returns
         -------
         bool
-            ``True`` when the coefficients or configuration changed.
+            ``True`` when the compiled evaluator configuration changed
+            and consumers must refresh their device-function handles.
 
         Notes
         -----
@@ -253,19 +254,38 @@ class ArrayInterpolator(CUDAFactory):
         time = {k: v for k, v in input_dict.items() if k in self.time_info}
 
         # Update order first, for checks  in _normalise_input_array
-        fn_changed = any(self.update_compile_settings(config))
+        initial_hash = self.compile_settings.values_hash
+        self.update_compile_settings(config)
 
         input_array = self._normalise_input_array(inputs)
-        if array_equal(input_array, self.input_array):
-            return False
-        else:
+        arrays_changed = not array_equal(input_array, self.input_array)
+        if arrays_changed:
             self._input_array = input_array
 
         dt, t0 = self._validate_time_inputs(time)
-        base_segments = self.num_samples - 1
         config.update({"t0": t0, "dt": dt, "num_inputs": self.num_inputs})
 
         # Final update; invalidates cache if settings have changed.
+        self._derive_segment_settings(config)
+        self.update_compile_settings(config)
+        fn_changed = self.compile_settings.values_hash != initial_hash
+        if fn_changed or arrays_changed:
+            self._coefficients = self._compute_coefficients()
+
+        return fn_changed
+
+    def _derive_segment_settings(self, config: Dict[str, Any]) -> None:
+        """Fill derived boundary-condition and segment-count settings.
+
+        Parameters
+        ----------
+        config
+            Pending driver configuration updates, modified in place.
+            ``boundary_condition`` defaults from the wrap setting when
+            absent, and ``num_segments`` is set from the sample count
+            and boundary condition.
+        """
+        base_segments = self.num_samples - 1
         wrap_setting = config.get("wrap", self.wrap)
         if wrap_setting:
             if "boundary_condition" not in config:
@@ -281,10 +301,6 @@ class ArrayInterpolator(CUDAFactory):
             else:
                 num_segments = base_segments
         config["num_segments"] = num_segments
-        fn_changed |= any(self.update_compile_settings(config))
-        self._coefficients = self._compute_coefficients()
-
-        return fn_changed
 
     def _normalise_input_array(
         self, input_dict: Dict[str, FloatArray]
@@ -545,6 +561,15 @@ class ArrayInterpolator(CUDAFactory):
         ------
         KeyError
             Raised when an unknown key is provided while ``silent`` is False.
+
+        Notes
+        -----
+        Updates naming a key in ``config_keys`` rederive
+        ``num_segments`` from the resulting wrap and boundary
+        condition; keys absent from the update keep their current
+        values. Changed settings recompute the host coefficients so
+        they always match the configuration captured by the compiled
+        device evaluators.
         """
         if updates_dict is None:
             updates_dict = {}
@@ -554,6 +579,7 @@ class ArrayInterpolator(CUDAFactory):
         if updates_dict == {}:
             return set()
 
+        initial_hash = self.compile_settings.values_hash
         recognised = self.update_compile_settings(updates_dict, silent=True)
         unrecognised = set(updates_dict.keys()) - recognised
 
@@ -562,6 +588,20 @@ class ArrayInterpolator(CUDAFactory):
                 f"Unrecognized parameters in update: {unrecognised}. "
                 "These parameters were not updated.",
             )
+
+        driver_config = {
+            key: updates_dict[key]
+            for key in recognised
+            if key in self.config_keys
+        }
+        if driver_config:
+            driver_config.setdefault(
+                "boundary_condition", self.boundary_condition
+            )
+            self._derive_segment_settings(driver_config)
+            self.update_compile_settings(driver_config, silent=True)
+        if self.compile_settings.values_hash != initial_hash:
+            self._coefficients = self._compute_coefficients()
 
         return recognised
 
@@ -580,6 +620,11 @@ class ArrayInterpolator(CUDAFactory):
     def coefficients(self) -> FloatArray:
         """Return the host-side coefficients array."""
         return self._coefficients
+
+    @property
+    def coefficients_shape(self) -> Tuple[int, int, int]:
+        """Exact coefficient layout captured by the device evaluators."""
+        return (self.num_segments, self.num_inputs, self.order + 1)
 
     # ---------------------------------------------------------------------- #
     # Inspection interface

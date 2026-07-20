@@ -1627,7 +1627,6 @@ def test_shared_loop_buffers_leave_results_unchanged(
     solver,
     solver_settings,
     system,
-    driver_array,
     driver_settings,
     thread_mem_manager,
     simple_initial_values,
@@ -1668,10 +1667,54 @@ def test_shared_loop_buffers_leave_results_unchanged(
     shared_solver = _build_solver_instance(
         system=system,
         solver_settings=shared_settings,
-        driver_array=driver_array,
+        driver_settings=driver_settings,
         memory_manager=thread_mem_manager,
     )
     shared_output = run_solve(shared_solver)
 
     assert np.all(np.isfinite(local_output))
     np.testing.assert_array_equal(shared_output, local_output)
+
+
+def test_driver_setting_update_syncs_evaluator_and_coefficients(
+    solver_mutable,
+    system,
+    solver_settings,
+    driver_settings,
+    thread_mem_manager,
+    simple_initial_values,
+    simple_parameters,
+):
+    """Settings-only driver updates flow through ``Solver.update``.
+
+    Switching ``boundary_condition`` from "clamped" to "natural"
+    changes the coefficient tensor's segment count, so the updated
+    solver only reproduces a natural-from-scratch solver when the
+    evaluator and coefficients are refreshed together.
+    """
+
+    def run_solve(active_solver, drivers):
+        result = active_solver.solve(
+            initial_values=simple_initial_values,
+            parameters=simple_parameters,
+            drivers=drivers,
+            duration=solver_settings["duration"],
+        )
+        return np.asarray(result.time_domain_array)
+
+    run_solve(solver_mutable, driver_settings)
+    solver_mutable.update({"boundary_condition": "natural"})
+    updated_output = run_solve(solver_mutable, None)
+
+    natural_settings = dict(driver_settings)
+    natural_settings["boundary_condition"] = "natural"
+    reference_solver = _build_solver_instance(
+        system=system,
+        solver_settings=solver_settings,
+        driver_settings=natural_settings,
+        memory_manager=thread_mem_manager,
+    )
+    reference_output = run_solve(reference_solver, None)
+
+    assert np.all(np.isfinite(updated_output))
+    np.testing.assert_array_equal(updated_output, reference_output)

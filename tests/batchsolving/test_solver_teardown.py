@@ -259,7 +259,7 @@ def test_solve_ivp_spill_survives_solver_close(
 def test_custom_stream_close_does_not_wait_for_unrelated_stream(
     solver_mutable,
     batch_input_arrays,
-    driver_array,
+    driver_settings,
     solver_settings,
     system,
     thread_mem_manager,
@@ -301,7 +301,7 @@ def test_custom_stream_close_does_not_wait_for_unrelated_stream(
     reference_solver = _build_solver_instance(
         system=system,
         solver_settings=reference_settings,
-        driver_array=driver_array,
+        driver_settings=driver_settings,
         memory_manager=MemoryManager(),
     )
     try:
