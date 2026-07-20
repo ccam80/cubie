@@ -1,4 +1,5 @@
 """Populate and enforce the shared CUDA test-kernel cache."""
+import contextlib
 import importlib
 import os
 from pathlib import Path
@@ -95,6 +96,12 @@ class _FakeDeviceArray(np.ndarray):
 
     def copy_to_device(self, ary, stream=0):
         np.copyto(self, np.asarray(ary).reshape(self.shape))
+
+    def get(self, stream=None, order="C", out=None):
+        if out is not None:
+            np.copyto(out, np.array(self))
+            return out
+        return np.array(self)
 
 
 def _fake_device_array(array):
@@ -475,6 +482,23 @@ if POPULATION:
     _MemoryManager.from_device = _host_copy
     _MemoryManager.get_available_memory = lambda self, group: 8 << 30
     _MemoryManager.get_memory_info = lambda self: (8 << 30, 24 << 30)
+
+    # ArrayInterpolator.get_interpolated stages its kernel arguments
+    # through cupy directly; without a CUDA driver those calls raise
+    # before the launch, so the kernel would never reach the cache.
+    import cubie.array_interpolator as _array_interpolator  # noqa: E402
+
+    @contextlib.contextmanager
+    def _fake_cupy_stream(stream):
+        yield stream
+
+    _array_interpolator.cupy = SimpleNamespace(
+        asarray=lambda a: _fake_device_array(np.array(a, copy=True)),
+        empty=lambda shape, dtype=np.float64: _fake_device_array(
+            np.empty(shape, dtype=dtype)
+        ),
+    )
+    _array_interpolator.current_cupy_stream = _fake_cupy_stream
 
 
 # CuBIE creates a few dispatchers while importing its cache module. Finish
