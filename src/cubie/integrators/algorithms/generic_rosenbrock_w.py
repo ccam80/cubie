@@ -321,14 +321,14 @@ class GenericRosenbrockWStep(ODEImplicitStep):
         preconditioner = get_fn(
             "preconditioner_cached",
             preconditioner_type=config.preconditioner_type,
-            beta=beta,
-            gamma=gamma,
+            solver_beta=beta,
+            solver_gamma=gamma,
             preconditioner_order=preconditioner_order,
         )
         operator = get_fn(
             "linear_operator_cached",
-            beta=beta,
-            gamma=gamma,
+            solver_beta=beta,
+            solver_gamma=gamma,
             preconditioner_order=preconditioner_order,
         )
 

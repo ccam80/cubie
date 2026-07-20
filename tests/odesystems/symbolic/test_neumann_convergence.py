@@ -114,7 +114,7 @@ def test_get_solver_helper_runs_diagnostic_for_neumann_type(system):
     """Requesting a Neumann helper triggers the convergence warning."""
     with pytest.warns(UserWarning):
         system.get_solver_helper(
-            "neumann_preconditioner", beta=1.0, gamma=1.0
+            "neumann_preconditioner", solver_beta=1.0, solver_gamma=1.0
         )
 
 

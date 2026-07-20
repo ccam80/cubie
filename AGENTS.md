@@ -99,8 +99,12 @@ change — the full suite is slow (run it as a pre-commit check only, and only w
 - **Core:** numpy>=2.0, numba, attrs, sympy>=1.13.0. cellmlmanip is vendored under
   `src/cubie/vendored/cellmlmanip` (its `lxml`/`networkx`/`Pint>=0.24`/`rdflib` runtime deps are core).
 - **CUDA backend (installed by extra, so installs stay clean):** `numba-cuda`
-  (`cuda`/`cuda12`/`cuda13` extras) or `numba-cuda-mlir` (Python >= 3.11;
-  `mlir`/`mlir-cuda12`/`mlir-cuda13` extras). A backendless install fails at `import cubie` with
+  (`cuda`/`cuda12`/`cuda13` extras) or numba-cuda-mlir (Python >= 3.11;
+  `mlir`/`mlir-cuda12`/`mlir-cuda13` extras — these install `cubie-numba-cuda-mlir`,
+  cubie's own build carrying the native-code fixes pending upstream, with the same
+  `numba_cuda_mlir` import package; never co-install it with the stock wheel, and treat
+  the installed wheel, not upstream numba-cuda-mlir source, as ground truth when
+  debugging how device code compiles). A backendless install fails at `import cubie` with
   instructions. `cubie.cuda_backend` resolves the active backend at import: `CUBIE_CUDA_BACKEND`
   overrides; otherwise the installed backend is used, preferring numba-cuda under CUDASIM and
   (with a warning) when an environment ends up with both. The CUDA simulator exists only on

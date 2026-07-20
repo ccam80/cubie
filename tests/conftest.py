@@ -56,6 +56,7 @@ from tests._utils import (
     run_device_loop,
 )
 from tests.system_fixtures import (
+    build_colliding_constants_system,
     build_diagonally_dominant_system,
     build_gating_singularity_system,
     build_large_nonlinear_system,
@@ -311,6 +312,8 @@ def system(request, solver_settings_override, precision):
         return build_large_nonlinear_system(precision)
     if model_type == "constant_deriv":
         return build_three_state_constant_deriv_system(precision)
+    if model_type == "colliding_constants":
+        return build_colliding_constants_system(precision)
     if model_type == "diagonally_dominant":
         return build_diagonally_dominant_system(precision)
     if model_type == "off_diagonal_heavy":

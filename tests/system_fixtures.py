@@ -409,7 +409,36 @@ def build_singular_initial_state_system(precision: np_dtype) -> BaseODE:
     return system
 
 
+# ---------------------------------------------------------------------------
+# Solver-scaling constant collision system
+# ---------------------------------------------------------------------------
+
+COLLIDING_CONSTANTS_EQUATIONS = [
+    "dx0 = -beta * x0 + gamma * x1",
+    "dx1 = -gamma * x1",
+]
+
+COLLIDING_CONSTANTS_STATES = {"x0": 1.0, "x1": 2.0}
+COLLIDING_CONSTANTS = {"beta": 2.5, "gamma": 0.75}
+
+
+def build_colliding_constants_system(precision: np_dtype) -> BaseODE:
+    """Return a system whose constants share solver-scaling names."""
+
+    system = create_ODE_system(
+        dxdt=COLLIDING_CONSTANTS_EQUATIONS,
+        states=COLLIDING_CONSTANTS_STATES,
+        constants=COLLIDING_CONSTANTS,
+        precision=precision,
+        name="colliding_constants",
+        strict=True,
+    )
+
+    return system
+
+
 __all__ = [
+    "build_colliding_constants_system",
     "build_two_driver_system",
     "build_three_state_linear_system",
     "build_three_state_nonlinear_system",

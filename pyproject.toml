@@ -50,12 +50,19 @@ Issues = "https://github.com/ccam80/cubie/issues"
 # bare 'cuda'/'mlir' extras install a backend without toolkit wheels,
 # for machines with a system CUDA install. The mlir lanes need
 # Python >= 3.11 (enforced by the numba-cuda-mlir wheel).
+#
+# The mlir* extras install cubie-numba-cuda-mlir: cubie's build of
+# numba-cuda-mlir carrying the native (C++) fixes pending upstream,
+# from the cubie-wheel branch of ccam80/numba-cuda-mlir (runbook:
+# CUBIE_WHEEL.md there). Same numba_cuda_mlir import package — never
+# co-install it with the stock wheel. Python-side fixes are applied
+# at runtime by cubie._mlir_compat instead.
 cuda = ["numba-cuda"] # numba-cuda backend, system toolkit
 cuda12 = ["numba-cuda[cu12]", "cupy-cuda12x"] # CUDA 12 toolkit + CuPy
 cuda13 = ["numba-cuda[cu13]", "cupy-cuda13x"] # CUDA 13 toolkit + CuPy
-mlir = ["numba-cuda-mlir"] # MLIR backend, system toolkit
-mlir-cuda12 = ["numba-cuda-mlir[cu12]", "cupy-cuda12x"]
-mlir-cuda13 = ["numba-cuda-mlir[cu13]", "cupy-cuda13x"]
+mlir = ["cubie-numba-cuda-mlir>=0.4.1.1"] # MLIR backend, system toolkit
+mlir-cuda12 = ["cubie-numba-cuda-mlir[cu12]>=0.4.1.1", "cupy-cuda12x"]
+mlir-cuda13 = ["cubie-numba-cuda-mlir[cu13]>=0.4.1.1", "cupy-cuda13x"]
 test = [
     "pytest",
     "pytest-cov",

@@ -361,20 +361,20 @@ class ODEImplicitStep(BaseAlgorithmStep):
         preconditioner = get_fn(
             "preconditioner",
             preconditioner_type=config.preconditioner_type,
-            beta=beta,
-            gamma=gamma,
+            solver_beta=beta,
+            solver_gamma=gamma,
             preconditioner_order=preconditioner_order,
         )
         residual = get_fn(
             "stage_residual",
-            beta=beta,
-            gamma=gamma,
+            solver_beta=beta,
+            solver_gamma=gamma,
             preconditioner_order=preconditioner_order,
         )
         operator = get_fn(
             "linear_operator",
-            beta=beta,
-            gamma=gamma,
+            solver_beta=beta,
+            solver_gamma=gamma,
             preconditioner_order=preconditioner_order,
         )
 
