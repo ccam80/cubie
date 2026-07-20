@@ -278,16 +278,16 @@ class FIRKStep(ODEImplicitStep):
 
         residual = get_fn(
             "n_stage_residual",
-            beta=beta,
-            gamma=gamma,
+            solver_beta=beta,
+            solver_gamma=gamma,
             stage_coefficients=stage_coefficients,
             stage_nodes=stage_nodes,
         )
 
         operator = get_fn(
             "n_stage_linear_operator",
-            beta=beta,
-            gamma=gamma,
+            solver_beta=beta,
+            solver_gamma=gamma,
             stage_coefficients=stage_coefficients,
             stage_nodes=stage_nodes,
         )
@@ -295,8 +295,8 @@ class FIRKStep(ODEImplicitStep):
         preconditioner = get_fn(
             "n_stage_preconditioner",
             preconditioner_type=config.preconditioner_type,
-            beta=beta,
-            gamma=gamma,
+            solver_beta=beta,
+            solver_gamma=gamma,
             preconditioner_order=config.preconditioner_order,
             stage_coefficients=stage_coefficients,
             stage_nodes=stage_nodes,

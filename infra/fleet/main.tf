@@ -1,0 +1,204 @@
+# RunsOn Fleet stack for cubie's GPU CI (ci_cuda_tests.yml).
+#
+# Fleet (runs-on.com/docs/flex-vs-fleet/) registers GitHub runner scale
+# sets and launches EC2 capacity from *assigned-job* demand, so the
+# workflow's `strategy.max-parallel` bounds runner demand on the RunsOn
+# side as well, keeping it inside the fixed 8-vCPU "All G and VT Spot"
+# quota (on-demand G/VT quota is 0 in ap-southeast-2 and not
+# grantable). Two xlarge legs fit that quota concurrently.
+#
+# Deliberately no `schedule` (hot/stopped standby) on the fleets: warm
+# pool inventory uses on-demand EC2 capacity, which this account cannot
+# launch for G instances. All capacity comes from cold spot launches.
+
+terraform {
+  required_version = ">= 1.5.7"
+
+  required_providers {
+    aws = {
+      source  = "hashicorp/aws"
+      version = ">= 6.45"
+    }
+  }
+}
+
+provider "aws" {
+  region  = var.aws_region
+  profile = var.aws_profile
+}
+
+locals {
+  # Custom image catalog. Same contract as the Flex .github/runs-on.yml
+  # `images:` block: RunsOn picks the newest AMI matching `name` owned
+  # by this account ("self"), so the Packer bake workflow
+  # (.github/workflows/build-windows-gpu-ami.yml) keeps working
+  # unchanged.
+  images = {
+    cubie-win-gpu = {
+      platform = "windows"
+      arch     = "x64"
+      owner    = "self"
+      name     = "cubie-win-gpu-*"
+    }
+  }
+
+  # Runner shapes. Both xlarge (4 vCPU) and 2xlarge (8 vCPU) sizes of
+  # three GPU families (T4/A10G/L4); the single AWS GRID driver package
+  # in the baked AMI covers all of them, and the workflow's
+  # `pytest -n logical` scales the worker count to whichever size a
+  # leg lands on. 2xlarge is preferred but spot placement scores show
+  # ap-southeast-2 is structurally starved of 2xlarge GPU capacity
+  # (score 1/10 vs 9/10 for xlarge), so xlarge keeps the suite running;
+  # price-capacity-optimized allocation will usually pick it. Either
+  # size fits the fixed 8-vCPU G/VT spot quota, and max-parallel: 2 in
+  # the workflow keeps demand to at most two xlarge-sized legs.
+  runners = {
+    gpu-linux-2xl = {
+      family = [
+        "g4dn.2xlarge", "g5.2xlarge", "g6.2xlarge",
+        "g4dn.xlarge", "g5.xlarge", "g6.xlarge",
+      ]
+      image = "ubuntu24-gpu-x64"
+      spot  = "price-capacity-optimized"
+      # No s3-cache (Magic Cache) extra, deliberately: it requires a
+      # runs-on/action@v2 step in every job (without one the sidecar
+      # intercepts the GitHub artifact service and CreateArtifact
+      # fails on a non-JSON response), and RunsOn documents that
+      # the shared cache bucket must not be enabled for
+      # runners public repositories can use; cubie is public.
+    }
+    gpu-windows-2xl = {
+      family = [
+        "g4dn.2xlarge", "g5.2xlarge", "g6.2xlarge",
+        "g4dn.xlarge", "g5.xlarge", "g6.xlarge",
+      ]
+      image = "cubie-win-gpu"
+      spot  = "price-capacity-optimized"
+      # No s3-cache (Magic Cache) extra, deliberately: it requires a
+      # runs-on/action@v2 step in every job (without one the sidecar
+      # intercepts the GitHub artifact service and CreateArtifact
+      # fails on a non-JSON response), and RunsOn documents that
+      # the shared cache bucket must not be enabled for
+      # runners public repositories can use; cubie is public.
+    }
+  }
+
+  # One fleet per OS; each maps to one GitHub runner scale set named
+  # <stack_name>-<fleet name>. Workflows target them with
+  #   runs-on: runs-on/fleet=gpu-linux/env=production
+  # No runner_group: scale sets register into the organization's
+  # default runner group (custom groups need a paid GitHub plan).
+  fleets = {
+    gpu-linux = {
+      timezone = "UTC"
+      runner   = "gpu-linux-2xl"
+    }
+    gpu-windows = {
+      timezone = "UTC"
+      runner   = "gpu-windows-2xl"
+    }
+  }
+}
+
+# Self-contained network: the stack owns its VPC and shares no
+# networking with any other stack, so nothing outside this
+# configuration can take the fleet's network down. Public subnets in
+# all three AZs: g4dn/g5/g6 GPU spot pools span 2a/2b/2c and g5 exists
+# only in 2a/2c, so full AZ coverage maximises the pools reachable at
+# the fixed 8-vCPU quota. Public-only (no NAT) keeps the VPC free.
+resource "aws_vpc" "this" {
+  cidr_block           = var.vpc_cidr
+  enable_dns_support   = true
+  enable_dns_hostnames = true
+
+  tags = {
+    Name    = "${var.stack_name}-vpc"
+    stack   = var.stack_name
+    project = "cubie"
+  }
+}
+
+resource "aws_internet_gateway" "this" {
+  vpc_id = aws_vpc.this.id
+
+  tags = {
+    Name    = "${var.stack_name}-igw"
+    stack   = var.stack_name
+    project = "cubie"
+  }
+}
+
+resource "aws_route_table" "public" {
+  vpc_id = aws_vpc.this.id
+
+  route {
+    cidr_block = "0.0.0.0/0"
+    gateway_id = aws_internet_gateway.this.id
+  }
+
+  tags = {
+    Name    = "${var.stack_name}-public"
+    stack   = var.stack_name
+    project = "cubie"
+  }
+}
+
+resource "aws_subnet" "public" {
+  count = length(var.availability_zones)
+
+  vpc_id                  = aws_vpc.this.id
+  cidr_block              = cidrsubnet(var.vpc_cidr, 4, count.index)
+  availability_zone       = var.availability_zones[count.index]
+  map_public_ip_on_launch = true
+
+  tags = {
+    Name    = "${var.stack_name}-public-${var.availability_zones[count.index]}"
+    stack   = var.stack_name
+    project = "cubie"
+  }
+}
+
+resource "aws_route_table_association" "public" {
+  count = length(var.availability_zones)
+
+  subnet_id      = aws_subnet.public[count.index].id
+  route_table_id = aws_route_table.public.id
+}
+
+module "runs_on_fleet" {
+  source  = "runs-on/runs-on/aws//modules/fleet"
+  version = "3.1.3"
+
+  stack_name  = var.stack_name
+  environment = "production"
+
+  # Organization mode: a GitHub App installed on exactly one
+  # organization, with organization self-hosted runner write access.
+  github_app_id          = var.github_app_id
+  github_app_private_key = file(var.github_app_private_key_path)
+
+  license_key = var.license_key
+  email       = var.alert_email
+
+  images  = local.images
+  runners = local.runners
+  fleets  = local.fleets
+
+  vpc_id            = aws_vpc.this.id
+  public_subnet_ids = aws_subnet.public[*].id
+
+  # CI runs three times a week; fargate_spot keeps the always-on Fleet
+  # worker's idle cost down, and the Fleet runtime reconciles any
+  # in-flight jobs if the Fargate task is interrupted.
+  app_size              = "small"
+  app_capacity_provider = "fargate_spot"
+
+  # A full-matrix leg (install + flake8 + real-GPU pytest) fits well
+  # inside an hour today; 120 leaves headroom for suite growth without
+  # letting a hung leg hold the quota for long.
+  runner_max_runtime = 120
+
+  tags = {
+    project = "cubie"
+  }
+}

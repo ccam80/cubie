@@ -55,9 +55,8 @@ from tests._utils import (
     run_controller_device_step,
     run_device_loop,
 )
-from numpy.typing import NDArray
-Array = NDArray[np.floating]
 from tests.system_fixtures import (
+    build_colliding_constants_system,
     build_large_nonlinear_system,
     build_three_chamber_system,
     build_three_state_constant_deriv_system,
@@ -66,6 +65,9 @@ from tests.system_fixtures import (
     build_three_state_very_stiff_system,
     build_two_driver_system,
 )
+from numpy.typing import NDArray
+
+Array = NDArray[np.floating]
 
 enable_tempdir = "1"
 os.environ["CUBIE_GENERATED_DIR_REDIRECT"] = enable_tempdir
@@ -309,6 +311,8 @@ def system(request, solver_settings_override, precision):
         return build_large_nonlinear_system(precision)
     if model_type == "constant_deriv":
         return build_three_state_constant_deriv_system(precision)
+    if model_type == "colliding_constants":
+        return build_colliding_constants_system(precision)
     if isinstance(model_type, object):
         return model_type
 

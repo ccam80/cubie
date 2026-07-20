@@ -145,16 +145,29 @@ class TestTimeLogger:
         assert logger.events[0].metadata["message"] == "50% complete"
 
     def test_get_event_duration(self):
-        """Test calculating duration between start and stop events."""
+        """Test calculating duration between start and stop events.
+
+        Durations are bounded using ``time.perf_counter`` readings taken
+        immediately outside and inside the ``start_event``/``stop_event``
+        calls. The reported duration must lie between the inner interval
+        (measured strictly inside the event) and the outer interval
+        (measured around the entire call pair), guaranteeing correctness
+        on any platform regardless of sleep precision.
+        """
         logger = TimeLogger(verbosity='default')
         logger.register_event("test_operation", "runtime", "Test operation")
+        outer_start = time.perf_counter()
         logger.start_event("test_operation")
+        inner_start = time.perf_counter()
         time.sleep(0.02)
+        inner_end = time.perf_counter()
         logger.stop_event("test_operation")
-        
+        outer_end = time.perf_counter()
+
         duration = logger.get_event_duration("test_operation")
         assert duration is not None
-        assert duration >= 0.02
+        assert duration >= inner_end - inner_start
+        assert duration <= outer_end - outer_start
 
     def test_get_event_duration_no_stop(self):
         """Test get_event_duration returns None when stop event missing."""
@@ -262,19 +275,30 @@ class TestTimeLogger:
         assert "Summary" in captured.out
 
     def test_get_aggregate_durations(self):
-        """Test aggregating event durations."""
+        """Test aggregating event durations.
+
+        Each start/stop pair is bracketed with the logger's own clock
+        (time.perf_counter); the aggregate must lie between the sum of
+        the inner intervals and the sum of the outer intervals, which
+        holds regardless of how long the sleeps actually last.
+        """
         logger = TimeLogger(verbosity='default')
         logger.register_event("operation1", "runtime", "Operation 1")
-        logger.start_event("operation1")
-        time.sleep(0.01)
-        logger.stop_event("operation1")
-        logger.start_event("operation1")
-        time.sleep(0.01)
-        logger.stop_event("operation1")
-        
+        inner_total = 0.0
+        outer_total = 0.0
+        for _ in range(2):
+            outer_start = time.perf_counter()
+            logger.start_event("operation1")
+            inner_start = time.perf_counter()
+            time.sleep(0.01)
+            inner_total += time.perf_counter() - inner_start
+            logger.stop_event("operation1")
+            outer_total += time.perf_counter() - outer_start
+
         durations = logger.get_aggregate_durations()
         assert "operation1" in durations
-        assert durations["operation1"] >= 0.02
+        assert durations["operation1"] >= inner_total
+        assert durations["operation1"] <= outer_total
 
     def test_empty_event_name_raises(self):
         """Test that empty event names raise ValueError."""
@@ -369,19 +393,26 @@ class TestTimeLogger:
         logger.register_event("compile1", "compile", "Compile 1")
         logger.register_event("runtime1", "runtime", "Runtime 1")
         
+        outer_start = time.perf_counter()
         logger.start_event("compile1")
+        inner_start = time.perf_counter()
         time.sleep(0.01)
+        inner_end = time.perf_counter()
         logger.stop_event("compile1")
-        
+        outer_end = time.perf_counter()
+
         logger.start_event("runtime1")
         time.sleep(0.01)
         logger.stop_event("runtime1")
-        
-        # Test filtering by compile category
+
+        # Test filtering by compile category. The duration is bracketed
+        # with the logger's own clock (time.perf_counter), so the bound
+        # holds regardless of sleep precision on any platform.
         compile_durations = logger.get_aggregate_durations(category="compile")
         assert "compile1" in compile_durations
         assert "runtime1" not in compile_durations
-        assert compile_durations["compile1"] >= 0.01
+        assert compile_durations["compile1"] >= inner_end - inner_start
+        assert compile_durations["compile1"] <= outer_end - outer_start
 
     def test_print_summary_by_category(self, capsys):
         """Test printing summary for specific categories.
