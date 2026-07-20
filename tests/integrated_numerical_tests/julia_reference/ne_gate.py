@@ -43,10 +43,6 @@ N_NE = 1024
 # three-way sensitivity study changed the implicit-algorithm ensemble
 # errors by < 0.05%, so the mapping is a protocol invariant rather than a
 # binding choice. Keys not used by an algorithm family are ignored.
-# The mapping targets the residual-scaled acceptance criterion; if the
-# Newton acceptance rule changes to Julia's own dz-scaled NLNewton test
-# (kappa internal), re-pin with Julia's abstol/reltol (1e-6 / 1e-3)
-# directly — see issue #641.
 INNER_SOLVER_SETTINGS = {
     "newton_atol": 6e-5,
     "newton_rtol": 1e-5,
@@ -74,12 +70,9 @@ EQ_FLOOR_MULT = 3.0
 ORDER_TOL = 0.6
 RATIO_LIM = 4.0
 
-# Adaptive matched-controller tier: a single float32 accept/reject flip
-# decouples the dt sequences, after which the mutual distance is bounded
-# below by the local truncation error, so the gate is relative: the
-# mutual rms distance must not exceed this multiple of the Julia run's
-# own error. Healthy algorithms sit at ratio ~1; broken ones sit orders
-# of magnitude above.
+# Adaptive matched-controller tier: the mutual rms distance must not
+# exceed this multiple of the Julia run's own error at any in-range
+# tolerance.
 ADAPTIVE_EQ_FRACTION = 2.0
 
 

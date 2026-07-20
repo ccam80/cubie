@@ -31,41 +31,6 @@ pytestmark = pytest.mark.nocudasim
 
 ALGORITHMS = {row["cubie_alias"]: row for row in load_algorithms()}
 
-# Known deviations from DifferentialEquations.jl, tracked in issue #641:
-# the matrix-free Krylov inner solves (truncated-Neumann preconditioner,
-# fixed inner tolerances) leave a per-step residual floor that Julia's
-# dense-LU stage solves do not have, so cubie's error stops converging
-# and then grows as dt shrinks. Pinned with xfail(strict=True): fixing
-# the implicit stack turns these XPASS, forcing removal of the marks.
-KNOWN_FIXED_MISMATCH = {
-    "backwards_euler",
-    "crank_nicolson",
-    "trapezoidal_dirk",
-    "implicit_midpoint",
-    "sdirk_2_2",
-    "l_stable_sdirk_4",
-    "radau_iia_5",
-    "ros3p",
-    "rodas3p",
-    "rosenbrock23_sciml",
-}
-KNOWN_ADAPTIVE_DIVERGENT = {
-    "l_stable_sdirk_4",
-    "radau_iia_5",
-    "rodas3p",
-}
-
-
-def _marks(alias, known_bad):
-    marks = [pytest.mark.xdist_group("julia-ne-{0}".format(alias))]
-    if alias in known_bad:
-        marks.append(pytest.mark.xfail(
-            strict=True,
-            reason="implicit inner-solve error floor vs Julia dense LU; "
-                   "issue #641",
-        ))
-    return marks
-
 
 def _cubie_is_adaptive(alias):
     """Whether cubie's implementation carries an embedded error estimate."""
@@ -96,13 +61,14 @@ def _adaptive_aliases():
 
 
 FIXED_PARAMS = [
-    pytest.param(alias, id=alias, marks=_marks(alias, KNOWN_FIXED_MISMATCH))
+    pytest.param(alias, id=alias,
+                 marks=pytest.mark.xdist_group("julia-ne-{0}".format(alias)))
     for alias in ALGORITHMS
 ]
 
 ADAPTIVE_PARAMS = [
     pytest.param(alias, id=alias,
-                 marks=_marks(alias, KNOWN_ADAPTIVE_DIVERGENT))
+                 marks=pytest.mark.xdist_group("julia-ne-{0}".format(alias)))
     for alias in _adaptive_aliases()
 ]
 
