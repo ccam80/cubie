@@ -1,4 +1,5 @@
 from math import copysign as math_copysign
+import os
 
 import numpy as np
 import pytest
@@ -418,7 +419,16 @@ def system_setup(request, precision):
         temp_in[j] = precision(1.0)
         operator_kernel[1, 1](state_fp, params, drivers, base_state, zero_time, h, temp_in, temp_out)
         F[:, j] = temp_out
-    mr_expected = np.linalg.solve(F, mr_rhs)
+    if os.environ.get("CUBIE_TARGET_CC", "").strip():
+        # Headless precompile launches return zero-filled results,
+        # leaving F singular; keep collecting so later kernels still
+        # compile. Real runs must surface a singular operator.
+        try:
+            mr_expected = np.linalg.solve(F, mr_rhs)
+        except np.linalg.LinAlgError:
+            mr_expected = np.full_like(mr_rhs, np.nan)
+    else:
+        mr_expected = np.linalg.solve(F, mr_rhs)
 
 
     return {

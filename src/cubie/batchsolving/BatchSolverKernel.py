@@ -74,7 +74,7 @@ from cubie.batchsolving.BatchSolverConfig import BatchSolverConfig
 from cubie.odesystems.baseODE import BaseODE
 from cubie.outputhandling.output_config import OutputCompileFlags
 from cubie.integrators.SingleIntegratorRun import SingleIntegratorRun
-from cubie._utils import unpack_dict_values, getype_validator
+from cubie._utils import build_config, unpack_dict_values, getype_validator
 
 if TYPE_CHECKING:
     from cubie.memory import MemoryManager
@@ -229,7 +229,7 @@ class BatchSolverKernel(CUDAFactory):
         typically via :mod:`cubie.memory`.
     cache_settings
         Mapping of cache configuration forwarded to
-        :class:`cubie.cubie_cache.CubieCacheHandler`.
+        :class:`cubie.cubie_cache.CacheConfig`.
     cache
         Cache mode control. ``True`` enables default caching, ``False``
         disables caching, or a string/``Path`` sets a custom cache
@@ -288,6 +288,33 @@ class BatchSolverKernel(CUDAFactory):
         self._work_complete = True
         self._memory_manager = self._setup_memory_manager(memory_settings)
 
+        system_name = system.name
+        system_hash = system.fn_hash
+        if system_name == system_hash:
+            system_name = f"unnamed_{system_hash[:8]}"
+        if cache_settings is None:
+            cache_settings = {}
+        cache_params = CacheConfig.params_from_user_kwarg(cache)
+        cache_params.update(cache_settings)
+        cache_config = build_config(
+            CacheConfig,
+            {"system_name": system_name, "system_hash": system_hash},
+            **cache_params,
+        )
+        self.cache_handler = CubieCacheHandler(cache_config)
+        # The solver's cache settings flow to the system so factories
+        # it owns (the Neumann convergence evaluator) apply the same
+        # policy to the kernels they compile.
+        system.update(
+            {
+                "cache_enabled": cache_config.cache_enabled,
+                "cache_mode": cache_config.cache_mode,
+                "max_cache_entries": cache_config.max_cache_entries,
+                "cache_dir": cache_config.cache_dir,
+            },
+            silent=True,
+        )
+
         # Build the single integrator to derive compile-critical metadata
         self.single_integrator = SingleIntegratorRun(
             system,
@@ -305,29 +332,11 @@ class BatchSolverKernel(CUDAFactory):
                 {"lineinfo": lineinfo}, silent=True
             )
 
-        # Extract system identification for cache
-        system_name = system.name
-        system_hash = system.fn_hash
-        if system_name == system_hash:
-            system_name = f"unnamed_{system_hash[:8]}"
-
-        # Build cache settings dict from cache_settings
-        if cache_settings is None:
-            cache_settings = {}
-
-        # Initialize cache_handler BEFORE setup_compile_settings since
-        # _invalidate_cache is called during setup and requires cache_handler
-        self.cache_handler = CubieCacheHandler(
-            cache_arg=cache,
-            system_name=system_name,
-            system_hash=system_hash,
-            **cache_settings,
-        )
-
         initial_config = BatchSolverConfig(
             precision=precision,
             loop_fn=None,
             compile_flags=self.single_integrator.output_compile_flags,
+            cache_config=cache_config,
             **(kernel_settings or {}),
         )
         self.setup_compile_settings(initial_config)
@@ -985,10 +994,6 @@ class BatchSolverKernel(CUDAFactory):
             updates_dict, silent=True
         )
 
-        all_unrecognized -= self.cache_handler.update(
-            updates_dict, silent=True
-        )
-
         recognised = set(updates_dict.keys()) - all_unrecognized
 
         if all_unrecognized:
@@ -1069,7 +1074,7 @@ class BatchSolverKernel(CUDAFactory):
         path
             New cache directory path. Can be absolute or relative.
         """
-        self.cache_handler.update(cache_dir=Path(path))
+        self.update(cache_dir=Path(path))
 
     @property
     def shared_memory_needs_padding(self) -> bool:

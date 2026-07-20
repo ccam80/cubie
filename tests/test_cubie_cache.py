@@ -3,6 +3,7 @@
 from hashlib import sha256
 from importlib.metadata import distributions
 from pathlib import Path
+from sys import implementation, version_info
 
 import pytest
 from numpy import array, float32
@@ -17,6 +18,7 @@ from cubie.cubie_cache import (
     CubieCacheHandler,
     CacheConfig,
     ALL_CACHE_PARAMETERS,
+    _CacheFileLock,
     environment_hash,
 )
 from cubie._utils import package_source_hash
@@ -91,16 +93,30 @@ def test_environment_hash_is_stable_hex_digest():
     assert environment_hash() == digest
 
 
-def test_environment_hash_covers_installed_packages():
-    """Verify the hash is built from every installed distribution."""
-    entries = []
+def test_environment_hash_covers_python_and_installed_packages():
+    """The hash covers Python and every installed distribution."""
+    entries = [
+        f"python=={implementation.name}-{version_info.major}."
+        f"{version_info.minor}.{version_info.micro}"
+    ]
     for distribution in distributions():
         name = distribution.metadata["Name"] or "unknown"
         version = distribution.metadata["Version"] or "unknown"
         entries.append(f"{name}=={version}")
-    joined = "\n".join(sorted(entries))
-    expected = sha256(joined.encode("utf-8")).hexdigest()
+    expected = sha256("\n".join(sorted(entries)).encode()).hexdigest()
     assert environment_hash() == expected
+
+
+def test_cache_file_lock_cleans_up_after_timeout(tmp_path):
+    """An unsuccessful entry closes and clears its file handle."""
+    path = tmp_path / "cache.lock"
+    waiting_lock = _CacheFileLock(path, timeout=0.0)
+
+    with _CacheFileLock(path):
+        with pytest.raises(TimeoutError):
+            waiting_lock.__enter__()
+
+    assert waiting_lock._handle is None
 
 
 def test_cache_locator_get_disambiguator():
@@ -239,7 +255,7 @@ def test_cubie_cache_init():
 
 
 def test_cubie_cache_index_key():
-    """Verify _index_key includes system and settings hashes."""
+    """The index key includes CuBIE and launch settings."""
     config_hash = (
         "def456789012345678901234567890123456789012345678901234567890abcd"
     )
@@ -267,8 +283,13 @@ def test_cubie_cache_index_key():
     assert key[3] == config_hash
     assert key[4] == package_source_hash()
 
+    cache._launch_config_key = (1, 2, 3)
+    launch_key = cache._index_key(sig, codegen)
+    assert launch_key[:-1] == key
+    assert launch_key[-1] == ("launch_config", (1, 2, 3))
 
-def test_cubie_cache_path():
+
+def test_cubie_cache_path(isolated_cache_root):
     """Verify cache_path includes system_hash subdirectory."""
     cache = CUBIECache(
         system_name="test_system",
@@ -280,6 +301,44 @@ def test_cubie_cache_path():
     assert "test_system" in path_str
     assert "abc123" in path_str  # system_hash in path
     assert "CUDA_cache" in path_str
+
+
+def test_kernel_cache_dir_env_relocates(tmp_path, monkeypatch):
+    """An explicit cache directory overrides the environment."""
+    env_dir = tmp_path / "artifact"
+    monkeypatch.setenv("CUBIE_KERNEL_CACHE_DIR", str(env_dir))
+    cache = CUBIECache(
+        system_name="test_system",
+        system_hash="abc123",
+        config_hash="def456",
+    )
+    assert str(cache.cache_path).startswith(str(env_dir))
+    explicit_dir = tmp_path / "explicit"
+    cache = CUBIECache(
+        system_name="test_system",
+        system_hash="abc123",
+        config_hash="def456",
+        custom_cache_dir=explicit_dir,
+    )
+    assert str(cache.cache_path).startswith(str(explicit_dir))
+
+
+def test_max_cache_entries_env_default(monkeypatch):
+    """An explicit cache limit overrides the environment."""
+    monkeypatch.setenv("CUBIE_MAX_CACHE_ENTRIES", "0")
+    cache = CUBIECache(
+        system_name="test_system",
+        system_hash="abc123",
+        config_hash="def456",
+    )
+    assert cache._max_entries == 0
+    cache = CUBIECache(
+        system_name="test_system",
+        system_hash="abc123",
+        config_hash="def456",
+        max_entries=3,
+    )
+    assert cache._max_entries == 3
 
 
 # --- BatchSolverKernel integration tests ---
@@ -329,92 +388,69 @@ def test_cache_impl_instantiation_works():
 # --- CubieCacheHandler tests ---
 
 
+def _handler(cache_enabled, system_name, system_hash):
+    """Build a handler around a fresh CacheConfig."""
+    return CubieCacheHandler(
+        CacheConfig(
+            cache_enabled=cache_enabled,
+            system_name=system_name,
+            system_hash=system_hash,
+        )
+    )
+
+
 def test_cache_handler_init_with_disabled_cache():
     """Verify CubieCacheHandler initializes with None cache when disabled."""
-    handler = CubieCacheHandler(
-        cache_arg=False,
-        system_name="test_system",
-        system_hash="abc123",
-    )
+    handler = _handler(False, "test_system", "abc123")
     assert handler.cache is None
     assert handler.config.cache_enabled is False
 
 
 def test_cache_handler_init_with_enabled_cache():
-    """Verify CubieCacheHandler creates CUBIECache when cache_arg=True."""
-    handler = CubieCacheHandler(
-        cache_arg=True,
-        system_name="test_system",
-        system_hash="abc123",
-    )
-    assert handler.cache is not None
-    assert isinstance(handler.cache, CUBIECache)
+    """An enabled handler creates its cache only for a build."""
+    handler = _handler(True, "test_system", "abc123")
+    assert handler.cache is None
     assert handler.config.cache_enabled is True
-
-
-def test_cache_handler_update_returns_recognized_params():
-    """Verify update() returns set of recognized parameter names."""
-    handler = CubieCacheHandler(
-        cache_arg=True,
-        system_name="test_system",
-        system_hash="abc123",
-    )
-    recognized = handler.update({"cache_mode": "flush_on_change"})
-    assert "cache_mode" in recognized
-    assert handler.config.cache_mode == "flush_on_change"
 
 
 def test_cache_handler_configured_cache_returns_none_when_disabled():
     """Verify configured_cache() returns None when cache disabled."""
-    handler = CubieCacheHandler(
-        cache_arg=False,
-        system_name="test_system",
-        system_hash="abc123",
-    )
+    handler = _handler(False, "test_system", "abc123")
     result = handler.configured_cache("abc123", "compile_settings_hash_123")
     assert result is None
 
 
 def test_cache_handler_configured_cache_sets_hashes():
-    """Verify configured_cache() updates system and compile hashes."""
-    handler = CubieCacheHandler(
-        cache_arg=True,
-        system_name="test_system",
-        system_hash="abc123",
-    )
+    """Each build receives a new cache with fixed hashes."""
+    handler = _handler(True, "test_system", "abc123")
     compile_hash = (
         "def456789012345678901234567890123456789012345678901234567890abcd"
     )
-    result = handler.configured_cache("abc123", compile_hash)
-    assert result is not None
-    assert result._compile_settings_hash == compile_hash
-    assert result._system_hash == "abc123"
+    first = handler.configured_cache("abc123", compile_hash)
+    second = handler.configured_cache("abc123", "another_hash")
+    assert first is not second
+    assert first._compile_settings_hash == compile_hash
+    assert first._system_hash == "abc123"
+    assert second._compile_settings_hash == "another_hash"
 
 
 def test_cache_handler_flush_handles_none_cache():
     """Verify flush() does not error when cache is None."""
-    handler = CubieCacheHandler(
-        cache_arg=False,
-        system_name="test_system",
-        system_hash="abc123",
-    )
+    handler = _handler(False, "test_system", "abc123")
     # This should not raise
     handler.flush()
 
 
-def test_cache_handler_enable_cache_via_update():
-    """Verify cache can be enabled via update(cache_enabled=True)."""
-    handler = CubieCacheHandler(
-        cache_arg=False,
-        system_name="test_system",
-        system_hash="abc123",
-    )
-    assert handler.cache is None
+def test_cache_handler_follows_shared_config_updates():
+    """Enabling through the shared config affects the next build."""
+    handler = _handler(False, "test_system", "abc123")
+    assert handler.configured_cache("abc123", "compile_hash") is None
 
-    recognized = handler.update({"cache_enabled": True})
+    recognized, changed = handler.config.update({"cache_enabled": True})
     assert "cache_enabled" in recognized
-    assert handler.cache is not None
-    assert isinstance(handler.cache, CUBIECache)
+    assert "cache_enabled" in changed
+    cache = handler.configured_cache("abc123", "compile_hash")
+    assert isinstance(cache, CUBIECache)
 
 
 # --- BatchSolverKernel cache integration tests ---
@@ -497,17 +533,13 @@ def test_batch_solver_kernel_update_forwards_cache_params(
 
 def test_cache_handler_uses_symbolic_ode_fn_hash(system):
     """Verify CubieCacheHandler uses fn_hash from SymbolicODE."""
-    handler = CubieCacheHandler(
-        cache_arg=True,
-        system_name=system.name,
-        system_hash=system.fn_hash,
-    )
+    handler = _handler(True, system.name, system.fn_hash)
 
     assert handler.config.system_hash == system.fn_hash
     assert handler.config.system_name == system.name
 
-    # Verify cache path includes the hash
-    path_str = str(handler.cache.cache_path)
+    cache = handler.configured_cache(system.fn_hash, "compile_hash")
+    path_str = str(cache.cache_path)
     assert system.fn_hash[:8] in path_str
 
 
@@ -621,61 +653,19 @@ def test_flush_cache_handles_rmtree_failure_silently(tmp_path):
 # --- CubieCacheHandler additional coverage ---
 
 
-def test_cache_handler_update_empty_returns_empty_set():
-    """Verify update() with no arguments returns an empty set."""
-    handler = CubieCacheHandler(
-        cache_arg=True,
-        system_name="empty_update",
-        system_hash="h1",
-    )
-    recognized = handler.update()
-    assert recognized == set()
+def test_cache_handler_disable_stops_configured_caches():
+    """Disabling through the shared config stops new configured caches."""
+    handler = _handler(True, "disable_test", "h2")
+    assert handler.configured_cache("h2", "compile_hash") is not None
 
-
-def test_cache_handler_disable_cache_via_update():
-    """Verify cache is torn down when cache_enabled is set to False."""
-    handler = CubieCacheHandler(
-        cache_arg=True,
-        system_name="disable_test",
-        system_hash="h2",
-    )
-    assert handler.cache is not None
-
-    recognized = handler.update({"cache_enabled": False})
-    assert "cache_enabled" in recognized
-    assert handler.cache is None
-
-
-def test_cache_handler_update_unrecognized_raises_keyerror():
-    """Verify update() raises KeyError for unrecognized parameters."""
-    handler = CubieCacheHandler(
-        cache_arg=True,
-        system_name="keyerror_test",
-        system_hash="h3",
-    )
-    with pytest.raises(KeyError, match="Unrecognized parameters"):
-        handler.update({"not_a_real_param": 1})
-
-
-def test_cache_handler_update_unrecognized_silent_no_raise():
-    """Verify update() with silent=True suppresses the KeyError."""
-    handler = CubieCacheHandler(
-        cache_arg=True,
-        system_name="silent_test",
-        system_hash="h4",
-    )
-    recognized = handler.update({"not_a_real_param": 1}, silent=True)
-    assert "not_a_real_param" not in recognized
+    handler.config.update({"cache_enabled": False})
+    assert handler.configured_cache("h2", "compile_hash") is None
 
 
 def test_cache_handler_configured_cache_updates_system_hash_in_config():
     """Verify configured_cache() writes a changed system_hash back into
     the handler's config."""
-    handler = CubieCacheHandler(
-        cache_arg=True,
-        system_name="hash_update_test",
-        system_hash="old_hash",
-    )
+    handler = _handler(True, "hash_update_test", "old_hash")
     assert handler.config.system_hash == "old_hash"
 
     handler.configured_cache("new_hash", "c" * 64)
@@ -684,16 +674,8 @@ def test_cache_handler_configured_cache_updates_system_hash_in_config():
 
 def test_cache_handler_cache_enabled_property():
     """Verify the cache_enabled property reflects the config."""
-    handler_on = CubieCacheHandler(
-        cache_arg=True,
-        system_name="enabled_prop",
-        system_hash="h5",
-    )
+    handler_on = _handler(True, "enabled_prop", "h5")
     assert handler_on.cache_enabled is True
 
-    handler_off = CubieCacheHandler(
-        cache_arg=False,
-        system_name="disabled_prop",
-        system_hash="h6",
-    )
+    handler_off = _handler(False, "disabled_prop", "h6")
     assert handler_off.cache_enabled is False

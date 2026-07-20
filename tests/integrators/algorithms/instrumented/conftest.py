@@ -4,6 +4,7 @@ from typing import Dict, List, Optional, Union, Tuple, Any
 import numpy as np
 import pytest
 from cubie.cuda_simsafe import cuda, int32
+from cubie.memory import default_memmgr
 from cubie.cuda_simsafe import numba_from_dtype as from_dtype
 
 from tests._utils import _build_enhanced_algorithm_settings
@@ -446,8 +447,9 @@ def instrumented_step_results(
     d_linear_squared_norms = device_buffers["linear_squared_norms"]
     d_linear_preconditioned_vectors = device_buffers["linear_preconditioned_vectors"]
 
-    # Launch kernel (single block/grid as before) and synchronize
-    kernel[1, 1, 0, shared_bytes](
+    # Launch on the process's own stream and synchronize only it
+    stream = default_memmgr.get_group_stream()
+    kernel[1, 1, stream, shared_bytes](
         d_state,
         d_proposed,
         d_params,
@@ -477,7 +479,7 @@ def instrumented_step_results(
         d_dts,
         numba_precision(0.0),
     )
-    cuda.synchronize()
+    stream.synchronize()
 
     results = _copy_device_instrumentation(
         d_proposed,

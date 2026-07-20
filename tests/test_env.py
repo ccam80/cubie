@@ -3,7 +3,11 @@
 import pytest
 from numpy import float32
 
-from cubie._env import env_bool, lineinfo_default
+from cubie._env import (
+    env_bool,
+    lineinfo_default,
+    max_cache_entries_default,
+)
 from cubie.CUDAFactory import CUDAFactoryConfig
 from cubie.cuda_simsafe import JITFlags, compile_kwargs, get_jit_kwargs
 
@@ -38,6 +42,14 @@ class TestLineinfoDefault:
     def test_env_enables(self, monkeypatch):
         monkeypatch.setenv("CUBIE_LINEINFO", "1")
         assert lineinfo_default() is True
+
+
+class TestMaxCacheEntriesDefault:
+    @pytest.mark.parametrize("raw", ["-1", "invalid"])
+    def test_invalid_raises(self, monkeypatch, raw):
+        monkeypatch.setenv("CUBIE_MAX_CACHE_ENTRIES", raw)
+        with pytest.raises(ValueError, match="CUBIE_MAX_CACHE_ENTRIES"):
+            max_cache_entries_default()
 
 
 class TestLineinfoPrecedence:

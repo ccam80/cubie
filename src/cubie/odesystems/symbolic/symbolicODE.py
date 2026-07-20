@@ -45,6 +45,7 @@ from hashlib import sha256
 from typing import (
     Any,
     Callable,
+    Dict,
     Iterable,
     Optional,
     Sequence,
@@ -92,6 +93,7 @@ from cubie.odesystems.symbolic.codegen.time_derivative import (
 from cubie.odesystems.symbolic.sym_utils import hash_system_definition
 from cubie.odesystems.baseODE import BaseODE, ODECache
 from cubie._utils import PrecisionDType, is_devfunc
+from cubie.cubie_cache import CacheConfig
 from cubie.time_logger import default_timelogger
 
 # Neumann preconditioner helper types checked by the convergence
@@ -395,7 +397,22 @@ class SymbolicODE(BaseODE):
         )
         self._jacobian_aux_count: Optional[int] = None
         self._jvp_exprs: Optional[JVPEquations] = None
-        self._neumann_rhs_evaluator: Optional[NeumannRHSEvaluator] = None
+
+        system_name = name
+        if system_name == fn_hash:
+            system_name = f"unnamed_{fn_hash[:8]}"
+        # Held in a dict so _iter_child_factories skips it: the
+        # diagnostic kernel never shapes generated code, so its
+        # configuration must stay out of the system's config_hash.
+        self._diagnostic_factories = {
+            "neumann_rhs": NeumannRHSEvaluator(
+                precision=precision,
+                cache_config=CacheConfig(
+                    system_name=system_name,
+                    system_hash=fn_hash,
+                ),
+            ),
+        }
 
     @classmethod
     def create(
@@ -611,21 +628,81 @@ class SymbolicODE(BaseODE):
             )
         return self._jvp_exprs
 
+    def update(
+        self,
+        updates_dict: Optional[Dict[str, float]] = None,
+        silent: bool = False,
+        **kwargs: float,
+    ) -> Set[str]:
+        """Update system settings, forwarding to diagnostic factories.
+
+        Cache settings (see
+        :data:`cubie.cubie_cache.ALL_CACHE_PARAMETERS`) are applied to
+        the convergence evaluator's compile settings alongside the
+        system's own updates, so a solver's cache configuration flows
+        down the ordinary ``update`` chain.
+
+        Parameters
+        ----------
+        updates_dict
+            Dictionary of updates to apply.
+        silent
+            Set to ``True`` to suppress errors about unrecognized keys.
+        **kwargs
+            Additional updates specified as keyword arguments.
+
+        Returns
+        -------
+        set of str
+            Labels that were recognized and updated.
+        """
+        if updates_dict is None:
+            updates_dict = {}
+        updates = updates_dict.copy()
+        if kwargs:
+            updates.update(kwargs)
+        if updates == {}:
+            return set()
+
+        recognised = super().update(updates, silent=True)
+        for factory in self._diagnostic_factories.values():
+            recognised |= factory.update_compile_settings(
+                updates, silent=True
+            )
+
+        if not silent:
+            unrecognised = set(updates.keys()) - recognised
+            if unrecognised:
+                raise KeyError(
+                    "Unrecognized parameters in update: "
+                    f"{unrecognised}. These parameters were not updated.",
+                )
+        return recognised
+
     def _get_neumann_evaluator(self) -> NeumannRHSEvaluator:
-        """Return the cached finite-difference Jacobian evaluator.
+        """Return the convergence evaluator, refreshed for current code.
 
         The evaluator launches the compiled ``dxdt`` device function
         on the device, so the diagnostic reflects the production code
-        at the compiled precision. The getters fetch the current
-        compiled function and precision on every call, so settings
-        changes are picked up without rebuilding the evaluator.
+        at the compiled precision. Refreshing the compile settings
+        here rebuilds the wrapper kernel through the standard
+        invalidation path whenever the compiled ``dxdt`` or the
+        settings shaping it change. ``settings_and_constants_hash``
+        stands in for ``config_hash``, which would self-reference if
+        the evaluator's configuration fed back into it.
         """
-        if self._neumann_rhs_evaluator is None:
-            self._neumann_rhs_evaluator = NeumannRHSEvaluator(
-                lambda: self.evaluate_f,
-                lambda: self.precision,
-            )
-        return self._neumann_rhs_evaluator
+        evaluator = self._diagnostic_factories["neumann_rhs"]
+        evaluator.update_compile_settings(
+            {
+                "dxdt_function": self.evaluate_f,
+                "dxdt_settings_hash": self.settings_and_constants_hash,
+                "precision": self.precision,
+                "jit_flags": self.compile_settings.jit_flags,
+                "system_hash": self.fn_hash,
+            },
+            silent=True,
+        )
+        return evaluator
 
     def _device_function_injections(self) -> dict[str, Callable]:
         """Collect device callables the generated module must resolve.
