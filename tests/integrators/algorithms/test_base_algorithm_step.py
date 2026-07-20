@@ -2,6 +2,7 @@
 
 import pytest
 
+from cubie.integrators.algorithms import algorithm_is_adaptive
 from cubie.integrators.algorithms.base_algorithm_step import (
     ButcherTableau,
 )
@@ -98,3 +99,33 @@ def test_n_drivers_property(precision):
     """n_drivers returns the configured driver count."""
     step = ExplicitEulerStep(precision=precision, n=2, n_drivers=3)
     assert step.n_drivers == 3
+
+
+@pytest.mark.parametrize(
+    "alias, expected",
+    [
+        ("euler", False),
+        ("backwards_euler", False),
+        ("backwards_euler_pc", False),
+        ("crank_nicolson", True),
+        ("tsit5", True),
+        ("implicit_midpoint", False),
+        ("radau_iia_5", True),
+        ("ros3p", True),
+    ],
+)
+def test_algorithm_is_adaptive_by_alias(alias, expected):
+    """algorithm_is_adaptive reports the embedded-estimate flag."""
+    assert algorithm_is_adaptive(alias) is expected
+
+
+def test_algorithm_is_adaptive_family_alias_raises():
+    """A bare family alias has no tableau, so adaptivity is undefined."""
+    with pytest.raises(ValueError, match="algorithm family"):
+        algorithm_is_adaptive("dirk")
+
+
+def test_algorithm_is_adaptive_unknown_alias_raises():
+    """An unregistered alias raises KeyError."""
+    with pytest.raises(KeyError):
+        algorithm_is_adaptive("not_an_algorithm")
