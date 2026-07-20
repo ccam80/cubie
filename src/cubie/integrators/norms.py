@@ -3,7 +3,7 @@
 from typing import Callable
 
 from numpy import asarray, ndarray, all, full
-from cubie.cuda_simsafe import cuda
+from cubie.cuda_simsafe import cuda, int32
 from attrs import define, field, Converter
 
 from cubie._utils import (
@@ -199,7 +199,7 @@ class ScaledNorm(MultipleInstanceCUDAFactory):
         tol_floor = config.tol_floor
 
         typed_zero = numba_precision(0.0)
-        n_val = n
+        n_val = int32(n)
 
         # no cover: start
         @cuda.jit(
@@ -211,13 +211,9 @@ class ScaledNorm(MultipleInstanceCUDAFactory):
             """Return the mean squared scaled norm."""
             nrm2 = typed_zero
             for i in range(n_val):
-                value_i = values[i]
-                ref_i = reference[i]
-                abs_ref = ref_i if ref_i >= typed_zero else -ref_i
-                tol_i = atol[i] + rtol[i] * abs_ref
-                tol_i = tol_i if tol_i > tol_floor else tol_floor
-                abs_val = value_i if value_i >= typed_zero else -value_i
-                ratio = abs_val / tol_i
+                tol_i = atol[i] + rtol[i] * abs(reference[i])
+                tol_i = max(tol_i, tol_floor)
+                ratio = abs(values[i]) / tol_i
                 nrm2 += ratio * ratio
             return nrm2 * inv_n
 
@@ -320,8 +316,8 @@ class TiledScaledNorm(ScaledNorm):
         numba_precision = config.numba_precision
         inv_n = config.inv_n
         tol_floor = config.tol_floor
-        n_val = config.n
-        state_n = config.state_n
+        n_val = int32(config.n)
+        state_n = int32(config.state_n)
 
         typed_zero = numba_precision(0.0)
 
@@ -337,13 +333,12 @@ class TiledScaledNorm(ScaledNorm):
             for index in range(n_val):
                 stage_index = index // state_n
                 state_index = index - stage_index * state_n
-                ref_i = reference[state_index]
-                abs_ref = ref_i if ref_i >= typed_zero else -ref_i
-                tol_i = atol[index] + rtol[index] * abs_ref
-                tol_i = tol_i if tol_i > tol_floor else tol_floor
-                value_i = values[index]
-                abs_val = value_i if value_i >= typed_zero else -value_i
-                ratio = abs_val / tol_i
+                tol_i = (
+                    atol[index]
+                    + rtol[index] * abs(reference[state_index])
+                )
+                tol_i = max(tol_i, tol_floor)
+                ratio = abs(values[index]) / tol_i
                 nrm2 += ratio * ratio
             return nrm2 * inv_n
 
@@ -373,7 +368,7 @@ class DIRKCorrectionNorm(CorrectionNorm):
         inv_n = config.inv_n
         tol_floor = config.tol_floor
         numba_precision = config.numba_precision
-        n_val = config.n
+        n_val = int32(config.n)
         typed_zero = numba_precision(0.0)
 
         # no cover: start
@@ -415,9 +410,9 @@ class FIRKCorrectionNorm(CorrectionNorm):
         inv_n = config.inv_n
         tol_floor = config.tol_floor
         numba_precision = config.numba_precision
-        n_val = config.n
-        state_n = config.state_n
-        stage_count = config.stage_count
+        n_val = int32(config.n)
+        state_n = int32(config.state_n)
+        stage_count = int32(config.stage_count)
         stage_coefficients = tuple(
             numba_precision(value) for value in config.stage_coefficients
         )

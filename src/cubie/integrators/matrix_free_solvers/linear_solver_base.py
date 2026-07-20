@@ -36,9 +36,9 @@ from numpy import ndarray
 from cubie._utils import (
     PrecisionDType,
     build_config,
-    getype_validator,
-    gttype_validator,
+    inrangetype_validator,
     is_device_validator,
+    opt_getype_validator,
 )
 from cubie.integrators.matrix_free_solvers.base_solver import (
     MatrixFreeSolverConfig,
@@ -72,13 +72,15 @@ class LinearSolverBaseConfig(MatrixFreeSolverConfig):
     _residual_reduction : Optional[float]
         Factor the weighted residual must fall below, relative to the
         weighted right-hand side, for the solve to stop. ``None``
-        derives machine epsilon so the floor criterion governs;
+        resolves to machine epsilon at construction so the floor
+        criterion governs;
         :class:`~cubie.integrators.SingleIntegratorRunCore.SingleIntegratorRunCore`
         derives the step controller's ``rtol`` for adaptive runs.
     _residual_floor : Optional[float]
         Absolute term of the stopping rule, in weighted-norm units
         (one sits at the ``krylov_atol``/``krylov_rtol`` envelope).
-        ``None`` derives ``sqrt(eps)`` of the configured precision.
+        ``None`` resolves to ``sqrt(eps)`` of the configured
+        precision at construction.
     """
 
     operator_apply: Optional[Callable] = field(
@@ -100,32 +102,33 @@ class LinearSolverBaseConfig(MatrixFreeSolverConfig):
     _residual_reduction: Optional[float] = field(
         default=None,
         validator=validators.optional(
-            validators.and_(
-                gttype_validator(float, 0.0), validators.lt(1.0)
-            )
+            inrangetype_validator(float, 0.0, 1.0)
         ),
         metadata={"prefixed": True},
     )
     _residual_floor: Optional[float] = field(
         default=None,
-        validator=validators.optional(getype_validator(float, 0.0)),
+        validator=opt_getype_validator(float, 0.0),
         metadata={"prefixed": True},
     )
+
+    def __attrs_post_init__(self):
+        if self._residual_reduction is None:
+            self._residual_reduction = float(np_finfo(self.precision).eps)
+        if self._residual_floor is None:
+            self._residual_floor = (
+                float(np_finfo(self.precision).eps) ** 0.5
+            )
+        super().__attrs_post_init__()
 
     @property
     def residual_reduction(self) -> float:
         """Return the relative stopping factor in configured precision."""
-        if self._residual_reduction is None:
-            return self.precision(np_finfo(self.precision).eps)
         return self.precision(self._residual_reduction)
 
     @property
     def residual_floor(self) -> float:
         """Return the absolute stopping term in configured precision."""
-        if self._residual_floor is None:
-            return self.precision(
-                float(np_finfo(self.precision).eps) ** 0.5
-            )
         return self.precision(self._residual_floor)
 
 
@@ -160,10 +163,7 @@ class LinearSolverBase(MatrixFreeSolver):
     instance_label : str
         Prefix for tolerance parameters.
     norm : ScaledNorm, optional
-        Weighted norm used for convergence checks. Owners inject a
-        variant whose reference indexing matches the vectors they
-        pass (e.g. a stage-tiled norm for coupled FIRK solves); the
-        default is a plain :class:`ScaledNorm` over ``n`` elements.
+        Weighted norm used for convergence checks.
     **kwargs
         Forwarded to config class and the norm factory.
 

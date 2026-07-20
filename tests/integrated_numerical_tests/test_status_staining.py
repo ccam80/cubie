@@ -69,10 +69,7 @@ def test_recovered_transient_failure_reports_success():
     the inner solve first succeeds.
 
     ``krylov_residual_reduction`` is pinned tight so the starved
-    two-iteration budget genuinely fails at the oversized step; the
-    derived relative target would instead let the truncated solve
-    pass loosely at huge ``dt``, removing the transient failure this
-    scenario exists to observe.
+    two-iteration budget genuinely fails at the oversized step.
     """
     system = _build_system()
     duration = 1.0

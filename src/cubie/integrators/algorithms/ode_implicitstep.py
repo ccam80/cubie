@@ -221,9 +221,8 @@ class ODEImplicitStep(BaseAlgorithmStep):
         )
         solver_n = config.solver_n
 
-        # Newton-owned solves receive the stage increment as their
-        # first argument, so their weighted norm scales against the
-        # stage base state; direct solves receive the model state.
+        # Newton solves weight the norm by the stage base state,
+        # direct Rosenbrock solves by the model state.
         norm_reference = "base_state" if solver_type == "newton" else "state"
 
         if correction_type == "bicgstab":

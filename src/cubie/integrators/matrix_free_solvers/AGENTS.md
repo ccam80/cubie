@@ -22,22 +22,25 @@ is specific to the solvers.
 |------|-------------|
 | `__init__.py` | Re-exports factories/configs/caches; re-exports `CUBIE_RESULT_CODES` from `cubie.result_codes`. |
 | `base_solver.py` | `MatrixFreeSolver` / `MatrixFreeSolverConfig` base — holds the norm device function and the shared `n` / `max_iters` / tolerance plumbing. |
-| `linear_solver.py` | `LinearSolver` — matrix-free preconditioned steepest-descent / minimal-residual linear solve (cached and non-cached variants). |
+| `linear_solver_base.py` | `LinearSolverBase` / `LinearSolverBaseConfig` — shared linear-solver infrastructure: stopping settings, `norm_reference`, buffer and update plumbing. |
+| `linear_solver.py` | `MRLinearSolver` — matrix-free preconditioned steepest-descent / minimal-residual linear solve (cached and non-cached variants). |
+| `bicgstab_solver.py` | `BiCGSTABSolver` — matrix-free preconditioned BiCGSTAB linear solve. |
 | `newton_krylov.py` | `NewtonKrylov` — NLNewton-style Newton iteration. |
 
 ## For AI Agents
 
 **Class factories, not free functions.** The public surface is the classes
-`LinearSolver` and `NewtonKrylov`; there are no `linear_solver_factory` /
-`newton_krylov_solver_factory` functions. Get the compiled callable from
-`.device_function`.
+`MRLinearSolver`, `BiCGSTABSolver`, and `NewtonKrylov`; there are no
+`linear_solver_factory` / `newton_krylov_solver_factory` functions. Get the
+compiled callable from `.device_function`.
 
 ### Compiled device-function signatures (the caller contract)
-- `LinearSolver` (non-cached): `linear_solver(state, parameters, drivers,
-  base_state, t, h, a_ij, rhs, x, shared, persistent_local, krylov_iters_out) ->
-  int32`. The cached variant inserts `cached_aux` after `base_state`. `rhs` enters
-  as the RHS and is overwritten with the residual; `x` enters as the initial guess
-  and is overwritten with the solution; `krylov_iters_out` is a length-1 int32 array.
+- Linear solvers (MR/SD and BiCGSTAB share it; non-cached): `linear_solver(state,
+  parameters, drivers, base_state, t, h, a_ij, rhs, x, shared, persistent_local,
+  krylov_iters_out) -> int32`. The cached variant inserts `cached_aux` after
+  `base_state`. `rhs` enters as the RHS and is overwritten with the residual; `x`
+  enters as the initial guess and is overwritten with the solution;
+  `krylov_iters_out` is a length-1 int32 array.
 - `NewtonKrylov`: `newton_krylov_solver(stage_increment, parameters, drivers, t, h,
   a_ij, base_state, step_start, shared_scratch, persistent_scratch, counters) -> int32`.
   `stage_increment` is updated in place. `counters` is a length-2 int32 array:
@@ -50,12 +53,16 @@ is specific to the solvers.
   `(state, parameters, drivers, base_state, t, h, a_ij, rhs, preconditioned_vec, temp)`.
 - `residual_function` (Newton); sig `(stage_increment, parameters, drivers, t, h,
   a_ij, base_state, residual_out)`.
-- `linear_solver_function` (Newton) — the inner `LinearSolver.device_function`.
-  `NewtonKrylov` owns a child `LinearSolver`: its `update` forwards `krylov_`-prefixed
-  params to the child and re-injects the recompiled device function.
+- `linear_solver_function` (Newton) — the inner linear solver's
+  `device_function`. `NewtonKrylov` owns a child linear solver: its `update`
+  forwards `krylov_`-prefixed params to the child and re-injects the
+  recompiled device function.
 
 ### Registered buffers (length `n` unless noted)
-- `LinearSolver`: `preconditioned_vec`, `temp`.
+- `MRLinearSolver`: `preconditioned_vec`, `temp`, `mr_precond_scratch`,
+  `mr_chain_scratch`.
+- `BiCGSTABSolver`: `bicg_r0_hat`, `bicg_p`, `bicg_v`, `bicg_tmp`,
+  `bicg_s_hat`, `bicg_precond_scratch`, `bicg_chain_scratch`.
 - `NewtonKrylov`: `delta`, `residual`, `krylov_iters_local` (length 1,
   int32), and `prev_theta` (length 1, persistent — contraction
   history carried between solves).
@@ -73,18 +80,16 @@ is specific to the solvers.
   `FIRKCorrectionNorm`, whose whole-vector function scales the update
   by `atol + rtol * max(|stage_value|, |step_start|)` (DIRK: one
   diagonal coefficient; FIRK: the full tableau row).
-- **Every linear solve (MR, SD, and BiCGSTAB, Newton-owned or
-  direct) stops on the same weighted-residual criterion**:
-  `||r|| <= krylov_residual_floor + krylov_residual_reduction *
-  ||b||`, where `||.||` is the solver's `ScaledNorm` (a value of
-  one sits at the `krylov_atol`/`krylov_rtol` envelope) and `||b||`
-  is fixed from the untouched right-hand side at solve entry. The
-  norm's scaling reference is the stage base state for Newton-owned
-  solves and the model state for direct solves (`norm_reference`
-  config field, bound at compile time). Unset, both terms derive:
-  the reduction follows the adaptive step controller's `rtol`
-  (machine epsilon when there is no adaptive `rtol`) and the floor
-  derives `sqrt(eps)` of the precision.
+- **Every linear solve (MR, SD, BiCGSTAB; Newton-owned or direct)
+  stops on** `||r|| <= krylov_residual_floor +
+  krylov_residual_reduction * ||b||`. `||.||` = the solver's
+  `ScaledNorm` (1.0 sits at the `krylov_atol`/`krylov_rtol`
+  envelope); `||b||` = the untouched RHS at solve entry. Norm
+  reference: stage base state (Newton-owned) or model state
+  (direct) — `norm_reference` config field, bound at compile time.
+  Derived defaults: `krylov_atol`/`krylov_rtol` = the adaptive
+  controller's `atol`/`rtol`; reduction = controller min `rtol`
+  (machine epsilon without one); floor = `sqrt(eps)`.
 - **Newton convergence follows OrdinaryDiffEq's NLNewton.** Consecutive
   full steps estimate the contraction `theta` (decay-floored at
   `0.3 * prev_theta`, warm-started across solves via the persistent

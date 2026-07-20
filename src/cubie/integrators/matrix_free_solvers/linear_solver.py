@@ -29,8 +29,7 @@ from math import sqrt as math_sqrt
 from typing import Dict, Any
 
 from attrs import define, field, validators
-from cubie.cuda_simsafe import cuda, int32, numba_from_dtype as from_dtype
-from numpy import dtype as np_dtype
+from cubie.cuda_simsafe import cuda, int32
 
 from cubie._utils import PrecisionDType
 from cubie.integrators.matrix_free_solvers.linear_solver_base import (
@@ -174,7 +173,6 @@ class MRLinearSolver(LinearSolverBase):
         n = config.n
         linear_correction_type = config.linear_correction_type
         max_iters = config.max_iters
-        precision = config.precision
         use_cached_auxiliaries = config.use_cached_auxiliaries
         jit_kwargs = self.jit_kwargs
 
@@ -188,10 +186,10 @@ class MRLinearSolver(LinearSolverBase):
         # Convert types for device function
         n_val = int32(n)
         max_iters_val = int32(max_iters)
-        precision_numba = from_dtype(np_dtype(precision))
+        precision_numba = config.numba_precision
         typed_zero = precision_numba(0.0)
-        typed_reduction = precision_numba(float(config.residual_reduction))
-        typed_floor = precision_numba(float(config.residual_floor))
+        typed_reduction = config.residual_reduction
+        typed_floor = config.residual_floor
         success = int32(CUBIE_RESULT_CODES.SUCCESS)
         max_linear_iters_exceeded = int32(
             CUBIE_RESULT_CODES.MAX_LINEAR_ITERATIONS_EXCEEDED
@@ -205,9 +203,7 @@ class MRLinearSolver(LinearSolverBase):
         alloc_chain_scratch = get_alloc("mr_chain_scratch", self)
 
         # no cover: start
-        # The adapter binds the norm's scaling reference to one solver
-        # argument at compile time (same pruning mechanism as
-        # ``preconditioned`` below).
+        # Bind the norm's scaling reference at compile time.
         if reference_is_state:
             @cuda.jit(device=True, inline=True, **jit_kwargs)
             def weighted_norm(values, state, base_state):

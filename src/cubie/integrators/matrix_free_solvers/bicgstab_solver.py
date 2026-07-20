@@ -25,7 +25,7 @@ from math import sqrt as math_sqrt
 from typing import Dict, Any, Optional
 
 from attrs import define, field, validators
-from cubie.cuda_simsafe import cuda, int32, numba_from_dtype as from_dtype
+from cubie.cuda_simsafe import cuda, int32
 from numpy import (
     dtype as np_dtype,
     float32 as np_float32,
@@ -244,10 +244,10 @@ class BiCGSTABSolver(LinearSolverBase):
         # Convert types for device function
         n_val = int32(n)
         max_iters_val = int32(max_iters)
-        precision_numba = from_dtype(np_dtype(precision))
+        precision_numba = config.numba_precision
         typed_zero = precision_numba(0.0)
-        typed_reduction = precision_numba(float(config.residual_reduction))
-        typed_floor = precision_numba(float(config.residual_floor))
+        typed_reduction = config.residual_reduction
+        typed_floor = config.residual_floor
         success = int32(CUBIE_RESULT_CODES.SUCCESS)
         max_linear_iters_exceeded = int32(
             CUBIE_RESULT_CODES.MAX_LINEAR_ITERATIONS_EXCEEDED
@@ -315,9 +315,7 @@ class BiCGSTABSolver(LinearSolverBase):
                     t, h, a_ij, vin, vout,
                 )
 
-        # The adapter binds the norm's scaling reference to one solver
-        # argument at compile time (same pruning mechanism as
-        # ``preconditioned`` above).
+        # Bind the norm's scaling reference at compile time.
         if reference_is_state:
             @cuda.jit(device=True, inline=True, **jit_kwargs)
             def weighted_norm(values, state, base_state):

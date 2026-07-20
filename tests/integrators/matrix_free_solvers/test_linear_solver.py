@@ -4,6 +4,9 @@ from cubie.cuda_simsafe import cuda
 from cubie.memory import default_memmgr
 from numpy.testing import assert_allclose
 
+from cubie.integrators.matrix_free_solvers.bicgstab_solver import (
+    BiCGSTABSolver,
+)
 from cubie.integrators.matrix_free_solvers.linear_solver import (
     MRLinearSolver,
 )
@@ -642,10 +645,6 @@ def test_residual_reduction_measures_entry_rhs(
     percent reduction target, so the solve accepts without moving the
     iterate. A cold start must iterate to the solution.
     """
-    from cubie.integrators.matrix_free_solvers.bicgstab_solver import (
-        BiCGSTABSolver,
-    )
-
     common = {
         "precision": precision,
         "n": 3,
@@ -729,13 +728,13 @@ def test_residual_settings_derive_and_override(precision):
 @pytest.mark.parametrize(
     "settings",
     [
-        {"krylov_residual_reduction": 0.0},
-        {"krylov_residual_reduction": 1.0},
+        {"krylov_residual_reduction": -0.1},
+        {"krylov_residual_reduction": 1.5},
         {"krylov_residual_floor": -0.5},
     ],
-    ids=["reduction-zero", "reduction-one", "floor-negative"],
+    ids=["reduction-negative", "reduction-above-one", "floor-negative"],
 )
 def test_residual_settings_reject_out_of_range(precision, settings):
-    """The reduction stays inside (0, 1) and the floor non-negative."""
+    """The reduction stays inside [0, 1] and the floor non-negative."""
     with pytest.raises((ValueError, TypeError)):
         MRLinearSolver(precision=precision, n=3, **settings)

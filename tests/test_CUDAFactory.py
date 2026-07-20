@@ -753,8 +753,6 @@ def test_post_init_sets_prefixed_attributes_when_label_nonempty():
         plain: int = 10
 
     c = _C(precision=np.float32, instance_label="krylov")
-    # Prefixed attributes are held as aliases, so the external key for
-    # ``_atol`` is ``krylov_atol`` rather than ``krylov__atol``.
     assert "atol" in c.prefixed_attributes
     assert "plain" not in c.prefixed_attributes
 

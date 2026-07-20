@@ -156,8 +156,11 @@ Newton (outer loop) options:
 Krylov (inner loop) options:
 
 **krylov_atol** / **krylov_rtol** — linear-solve tolerances.
+    These weight the linear solver's stopping norm: a weighted
+    residual of one sits at this envelope.
 
-    - Default: derived like ``newton_atol``/``newton_rtol`` above.
+    - Default: the step controller's ``atol``/``rtol``; ``1e-6``
+      when there is no adaptive controller.
 
 **krylov_max_iters** — linear iteration limit per Newton step.
 
@@ -171,7 +174,7 @@ Krylov (inner loop) options:
 
     - Default: the step controller's smallest ``rtol`` entry;
       machine epsilon when there is no adaptive ``rtol``.
-    - Type: ``float`` in ``(0, 1)``
+    - Type: ``float`` in ``[0, 1]``
 
 **krylov_residual_floor** — absolute linear stopping term.
     The absolute part of the stopping rule, in weighted-norm units
