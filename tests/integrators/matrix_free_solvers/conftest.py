@@ -15,10 +15,12 @@ from cubie.odesystems.symbolic.symbolicODE import create_ODE_system
 
 # Each case runs two sequential solves in one thread sharing the
 # solver's persistent scratch, so warm-started contraction history
-# carries from the first solve into the second.
+# carries from the first solve into the second. ``initials`` and
+# ``expected_finals`` hold one state vector per solve.
 NEWTON_CONVERGENCE_EDGE_CASES = {
     "small-first-step": dict(
         kind="zero",
+        n=1,
         newton_atol=1e-6,
         newton_max_iters=4,
         krylov_atol=1e-6,
@@ -34,6 +36,7 @@ NEWTON_CONVERGENCE_EDGE_CASES = {
     ),
     "warm-start": dict(
         kind="linear",
+        n=1,
         newton_atol=1e-2,
         newton_max_iters=8,
         krylov_atol=1e-6,
@@ -49,6 +52,7 @@ NEWTON_CONVERGENCE_EDGE_CASES = {
     ),
     "stagnation-divergence": dict(
         kind="constant",
+        n=1,
         newton_atol=1e-2,
         newton_max_iters=4,
         krylov_atol=1e-6,
@@ -64,6 +68,7 @@ NEWTON_CONVERGENCE_EDGE_CASES = {
     ),
     "theta-growth-divergence": dict(
         kind="root",
+        n=1,
         newton_atol=1e-2,
         newton_max_iters=4,
         krylov_atol=1e-6,
@@ -76,6 +81,24 @@ NEWTON_CONVERGENCE_EDGE_CASES = {
         expected_counts=(2, 2),
         expected_finals=(-3.0, -3.0),
         final_tolerance=1e-4,
+    ),
+    "linear-failure-gates-commit": dict(
+        kind="mixed-diag",
+        n=2,
+        newton_atol=1e-3,
+        newton_max_iters=32,
+        krylov_atol=1e-12,
+        krylov_max_iters=1,
+        initials=((0.0, 0.0), (0.0, 0.0)),
+        expected_statuses=(
+            CUBIE_RESULT_CODES.MAX_NEWTON_ITERATIONS_EXCEEDED
+            | CUBIE_RESULT_CODES.MAX_LINEAR_ITERATIONS_EXCEEDED,
+            CUBIE_RESULT_CODES.MAX_NEWTON_ITERATIONS_EXCEEDED
+            | CUBIE_RESULT_CODES.MAX_LINEAR_ITERATIONS_EXCEEDED,
+        ),
+        expected_counts=(32, 32),
+        expected_finals=((0.0, 0.0), (0.0, 0.0)),
+        final_tolerance=0.0,
     ),
 }
 
@@ -102,6 +125,12 @@ def newton_edge_system(newton_edge_case, precision):
             out[0] = target - state[0]
         elif kind == "constant":
             out[0] = precision(1.0)
+        elif kind == "mixed-diag":
+            for index in range(out.shape[0]):
+                out[index] = (
+                    precision(index + 1) * state[index]
+                    - precision(1.0)
+                )
         else:
             magnitude = abs(state[0]) ** precision(0.25)
             out[0] = math_copysign(magnitude, state[0])
@@ -118,6 +147,9 @@ def newton_edge_system(newton_edge_case, precision):
                 * abs(state[0]) ** precision(-0.75)
                 * vec[0]
             )
+        elif kind == "mixed-diag":
+            for index in range(out.shape[0]):
+                out[index] = precision(index + 1) * vec[index]
         else:
             out[0] = vec[0]
 
@@ -130,7 +162,7 @@ def newton_edge_solver(newton_edge_case, newton_edge_system, precision):
     case = newton_edge_case
     linear_solver = MRLinearSolver(
         precision=precision,
-        n=1,
+        n=case["n"],
         krylov_atol=case["krylov_atol"],
         krylov_rtol=0.0,
         krylov_max_iters=case["krylov_max_iters"],
@@ -138,7 +170,7 @@ def newton_edge_solver(newton_edge_case, newton_edge_system, precision):
     linear_solver.update(operator_apply=newton_edge_system["operator"])
     newton = NewtonKrylov(
         precision=precision,
-        n=1,
+        n=case["n"],
         linear_solver=linear_solver,
         newton_atol=case["newton_atol"],
         newton_rtol=0.0,
@@ -149,9 +181,10 @@ def newton_edge_solver(newton_edge_case, newton_edge_system, precision):
 
 
 @pytest.fixture(scope="session")
-def newton_edge_kernel(newton_edge_solver, precision):
+def newton_edge_kernel(newton_edge_case, newton_edge_solver, precision):
     """Compile the two-solve kernel once per parameter set."""
     solver = newton_edge_solver.device_function
+    n_states = newton_edge_case["n"]
     shared_size = max(newton_edge_solver.shared_buffer_size, 1)
     persistent_size = max(
         newton_edge_solver.persistent_local_buffer_size, 1
@@ -161,7 +194,7 @@ def newton_edge_kernel(newton_edge_solver, precision):
     def kernel(states, statuses, counts):
         parameters = cuda.local.array(1, precision)
         drivers = cuda.local.array(1, precision)
-        base_state = cuda.local.array(1, precision)
+        base_state = cuda.local.array(n_states, precision)
         counters = cuda.local.array(2, np.int32)
         shared = cuda.shared.array(shared_size, precision)
         persistent = cuda.local.array(persistent_size, precision)
@@ -171,12 +204,13 @@ def newton_edge_kernel(newton_edge_solver, precision):
             persistent[index] = precision(0.0)
         parameters[0] = precision(0.0)
         drivers[0] = precision(0.0)
-        base_state[0] = precision(0.0)
+        for index in range(n_states):
+            base_state[index] = precision(0.0)
         for solve in range(2):
             counters[0] = np.int32(0)
             counters[1] = np.int32(0)
             statuses[solve] = solver(
-                states[solve : solve + 1],
+                states[solve],
                 parameters,
                 drivers,
                 precision(0.0),
@@ -196,8 +230,11 @@ def newton_edge_kernel(newton_edge_solver, precision):
 @pytest.fixture(scope="function")
 def newton_edge_outcome(newton_edge_case, newton_edge_kernel, precision):
     """Run two sequential solves and return finals/statuses/counts."""
+    case = newton_edge_case
     states = cuda.to_device(
-        np.array(newton_edge_case["initials"], dtype=precision)
+        np.array(case["initials"], dtype=precision).reshape(
+            2, case["n"]
+        )
     )
     statuses = cuda.to_device(np.zeros(2, dtype=np.int32))
     counts = cuda.to_device(np.zeros(2, dtype=np.int32))

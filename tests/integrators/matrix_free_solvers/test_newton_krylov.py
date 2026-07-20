@@ -119,6 +119,7 @@ def test_newton_krylov_placeholder(placeholder_system, precision, tolerance):
 @pytest.mark.parametrize(
     "newton_edge_case",
     [
+        "linear-failure-gates-commit",
         "small-first-step",
         "stagnation-divergence",
         "theta-growth-divergence",
@@ -140,7 +141,9 @@ def test_newton_krylov_convergence_edges(
     assert list(counts) == list(case["expected_counts"])
     assert_allclose(
         finals,
-        np.array(case["expected_finals"], dtype=finals.dtype),
+        np.array(
+            case["expected_finals"], dtype=finals.dtype
+        ).reshape(finals.shape),
         atol=max(case["final_tolerance"], 0.0) + 1e-12,
     )
 
@@ -407,87 +410,6 @@ def test_newton_krylov_linear_solver_failure_propagates(precision):
     assert status_code == (
         CUBIE_RESULT_CODES.MAX_NEWTON_ITERATIONS_EXCEEDED
         | CUBIE_RESULT_CODES.MAX_LINEAR_ITERATIONS_EXCEEDED
-    )
-
-
-def test_newton_krylov_linear_failure_gates_commit(precision):
-    """A failed linear solve commits nothing and fails the solve."""
-
-    @cuda.jit(device=True)
-    def residual(state, parameters, drivers, t, h, a_ij, base_state, out):
-        out[0] = state[0] - precision(1.0)
-        out[1] = precision(2.0) * state[1] - precision(1.0)
-
-    @cuda.jit(device=True)
-    def operator(
-        state, parameters, drivers, base_state, t, h, a_ij, vec, out
-    ):
-        out[0] = vec[0]
-        out[1] = precision(2.0) * vec[1]
-
-    linear_solver = MRLinearSolver(
-        precision=precision,
-        n=2,
-        krylov_atol=1e-12,
-        krylov_rtol=0.0,
-        krylov_max_iters=1,
-    )
-    linear_solver.update(operator_apply=operator)
-    newton = NewtonKrylov(
-        precision=precision,
-        n=2,
-        linear_solver=linear_solver,
-        newton_atol=1e-3,
-        newton_rtol=0.0,
-        newton_max_iters=32,
-    )
-    newton.update(residual_function=residual)
-    solver = newton.device_function
-    shared_size = max(newton.shared_buffer_size, 1)
-    persistent_size = max(newton.persistent_local_buffer_size, 1)
-
-    @cuda.jit
-    def kernel(state, status, counts):
-        parameters = cuda.local.array(1, precision)
-        drivers = cuda.local.array(1, precision)
-        base_state = cuda.local.array(2, precision)
-        counters = cuda.local.array(2, np.int32)
-        shared = cuda.shared.array(shared_size, precision)
-        persistent = cuda.local.array(persistent_size, precision)
-        for index in range(persistent_size):
-            persistent[index] = precision(0.0)
-        status[0] = solver(
-            state,
-            parameters,
-            drivers,
-            precision(0.0),
-            precision(1.0),
-            precision(1.0),
-            base_state,
-            base_state,
-            shared,
-            persistent,
-            counters,
-        )
-        counts[0] = counters[0]
-
-    state = cuda.to_device(np.zeros(2, dtype=precision))
-    status = cuda.to_device(np.zeros(1, dtype=np.int32))
-    counts = cuda.to_device(np.zeros(1, dtype=np.int32))
-    kernel[1, 1](state, status, counts)
-    cuda.synchronize()
-
-    expected_status = int(
-        CUBIE_RESULT_CODES.MAX_NEWTON_ITERATIONS_EXCEEDED
-        | CUBIE_RESULT_CODES.MAX_LINEAR_ITERATIONS_EXCEEDED
-    )
-    assert int(status.copy_to_host()[0]) & STATUS_MASK == expected_status
-    assert int(counts.copy_to_host()[0]) == 32
-    assert_allclose(
-        state.copy_to_host(),
-        np.zeros(2, dtype=precision),
-        atol=precision(0.0),
-        rtol=precision(0.0),
     )
 
 
