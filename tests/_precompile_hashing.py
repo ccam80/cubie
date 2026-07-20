@@ -13,7 +13,7 @@ system and compile-settings hashes and never need function identity.
 """
 import marshal
 from hashlib import sha256
-from types import CodeType
+from types import CodeType, FunctionType
 from typing import Optional
 
 # Whichever backend serializer is installed; population and consumer
@@ -26,11 +26,34 @@ except ImportError:
     )
 
 
+def _portable_const(value):
+    """Return a deterministically ordered stand-in for a constant.
+
+    The compiler folds ``in {...}`` and ``in (...)`` membership tests
+    into frozenset constants, and before Python 3.12 ``marshal``
+    serialized their members in hash-iteration order, which varies
+    with each process's hash seed. Replace every frozenset with a
+    marker tuple of its members sorted by their own marshal bytes so
+    the code hash is identical across processes and machines. The
+    result is only marshaled for hashing, never executed.
+    """
+    if isinstance(value, CodeType):
+        return _portable_code(value)
+    if isinstance(value, frozenset):
+        members = sorted(
+            (_portable_const(member) for member in value),
+            key=marshal.dumps,
+        )
+        return ("__frozenset__",) + tuple(members)
+    if isinstance(value, tuple):
+        return tuple(_portable_const(member) for member in value)
+    return value
+
+
 def _portable_code(code: CodeType) -> CodeType:
-    """Remove source locations from a code object and its children."""
+    """Remove source locations and hash-order detail from a code object."""
     constants = tuple(
-        _portable_code(value) if isinstance(value, CodeType) else value
-        for value in code.co_consts
+        _portable_const(value) for value in code.co_consts
     )
     return code.replace(
         co_filename="", co_firstlineno=1, co_consts=constants
@@ -46,6 +69,11 @@ def _stable_value_key(value, active: set[int]):
             _function_key(py_func, active),
             _stable_value_key(value.targetoptions, active),
         )
+    if isinstance(value, FunctionType):
+        # The serialized fallback pickles plain functions by value,
+        # embedding co_filename, which differs between the CPU
+        # population checkout and the GPU consumer checkout.
+        return ("function", _function_key(value, active))
     if isinstance(value, CodeType):
         code_hash = sha256(marshal.dumps(_portable_code(value))).hexdigest()
         return ("code", code_hash)
