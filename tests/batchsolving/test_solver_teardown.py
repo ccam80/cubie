@@ -67,7 +67,13 @@ def _registered_bytes(manager, ids):
 def test_solver_releases_registry_on_gc(
     system, batch_input_arrays, thread_mem_manager
 ):
-    """Collection releases registry entries and buffers."""
+    """Collection defers teardown to the manager's next entry point.
+
+    GC finalizers only record the teardown — running it inside the
+    collection could mutate the registry while the manager iterates
+    it — so the entries survive gc.collect() and disappear once any
+    manager entry point drains the recorded teardowns.
+    """
     manager = thread_mem_manager
     solver = Solver(system, algorithm="euler", dt=0.01, memory_manager=manager)
     y0, params = batch_input_arrays
@@ -80,7 +86,11 @@ def test_solver_releases_registry_on_gc(
     del solver
     gc.collect()
 
+    assert len(manager._pending_teardowns) > 0
+    manager._purge_dead_instances()
+
     assert _still_registered(manager, ids) == []
+    assert manager._pending_teardowns == []
 
 
 def test_close_releases_registry_immediately(
@@ -174,6 +184,11 @@ def test_solve_ivp_releases_temporary_solver(
 ):
     """solve_ivp releases its temporary solver."""
     manager = thread_mem_manager
+    # Reclaim earlier tests' dead registrants first: the baseline
+    # must not contain entries whose deferred teardown would drain
+    # during solve_ivp's own manager calls.
+    gc.collect()
+    manager._purge_dead_instances()
     baseline = set(manager.registry)
     y0, params = batch_input_arrays
 
@@ -304,4 +319,8 @@ def test_repeated_solvers_do_not_grow_registry(
         del solver
         gc.collect()
 
+    # Each Solver construction is a manager entry point, so every
+    # iteration reclaims its predecessor's deferred teardown; one
+    # final drain covers the last solver.
+    manager._purge_dead_instances()
     assert len(manager.registry) <= baseline

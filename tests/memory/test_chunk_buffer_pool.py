@@ -50,8 +50,13 @@ def test_acquire_reuses_released_buffer():
 
 
 def test_acquire_allocates_new_when_all_in_use():
-    """acquire allocates new buffer when existing ones are in use."""
-    pool = ChunkBufferPool()
+    """acquire grows the pool when in-use buffers block reuse.
+
+    Growth is forced open so the assertion does not depend on the
+    machine's free RAM at test time; the headroom-exhausted branch
+    is exercised by the blocking tests below.
+    """
+    pool = _UnthrottledPool()
     buf1 = pool.acquire("x", (10,), np.float32)
     buf2 = pool.acquire("x", (10,), np.float32)
     assert buf1.buffer_id != buf2.buffer_id
@@ -148,6 +153,13 @@ class _ThrottledPool(ChunkBufferPool):
 
     def _headroom_allows(self, shape, dtype):
         return False
+
+
+class _UnthrottledPool(ChunkBufferPool):
+    """Pool whose headroom check is forced open for testing."""
+
+    def _headroom_allows(self, shape, dtype):
+        return True
 
 
 def test_acquire_grows_first_buffer_even_without_headroom():

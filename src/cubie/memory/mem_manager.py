@@ -50,6 +50,7 @@ See Also
 
 from tempfile import gettempdir, mkstemp
 from types import TracebackType
+from functools import partial
 from typing import Any, Optional, Callable, Dict, Tuple
 from warnings import warn
 from copy import deepcopy
@@ -708,6 +709,12 @@ class MemoryManager:
         default=attrsFactory(dict), validator=attrsval_instance_of(dict)
     )
     _usage_clock: int = field(default=0, init=False)
+    # Teardowns recorded by garbage-collection finalizers, run at the
+    # manager's next entry point. GC can fire inside any allocation —
+    # including mid-iteration over the registry, or on the transfer
+    # watcher's own thread — so finalizers must not deregister (or
+    # join threads) directly; they append here instead.
+    _pending_teardowns: list = field(factory=list, init=False)
     # Bytes above which a host array is backed by a disk spill file;
     # None derives the threshold from available RAM at creation time.
     host_spill_threshold: Optional[int] = field(
@@ -1136,6 +1143,18 @@ class MemoryManager:
         self._rebalance_auto_pool()
         return self.registry[instance_id].proportion
 
+    def defer_teardown(self, teardown: Callable[[], None]) -> None:
+        """Record a teardown to run at the manager's next entry point.
+
+        Garbage-collection finalizers call this instead of
+        deregistering directly: GC runs inside whatever allocation
+        triggered it — possibly while this manager iterates its
+        registry, possibly on the transfer watcher's own thread — so
+        the callback only appends. ``_purge_dead_instances`` runs the
+        recorded teardowns in normal call context.
+        """
+        self._pending_teardowns.append(teardown)
+
     def _purge_dead_instances(self) -> None:
         """
         Drop registry entries whose instance has been collected.
@@ -1143,9 +1162,13 @@ class MemoryManager:
         Registered instances are held weakly. Once an instance is
         garbage collected, its manual or auto reservation is
         released, its stream-group membership is removed, and any
-        allocations it still had queued are discarded.
+        allocations it still had queued are discarded. Teardowns
+        recorded by GC finalizers run first, here, in normal call
+        context.
 
         """
+        while self._pending_teardowns:
+            self._pending_teardowns.pop()()
         dead_ids = [
             instance_id
             for instance_id, settings in self.registry.items()
@@ -2127,6 +2150,28 @@ class MemoryManager:
                 chunked_shapes[key] = request.shape
 
         return chunked_shapes
+
+
+def defer_instance_teardown(
+    memory_manager: MemoryManager,
+    instance_id: int,
+    settings: InstanceMemorySettings,
+    cleanups: Tuple[Callable[[], None], ...],
+) -> None:
+    """Record a collected client's teardown; the GC finalizer target.
+
+    See :meth:`MemoryManager.defer_teardown` for why the callback
+    must not run the teardown itself.
+    """
+    memory_manager.defer_teardown(
+        partial(
+            run_instance_teardown,
+            memory_manager,
+            instance_id,
+            settings,
+            cleanups,
+        )
+    )
 
 
 def run_instance_teardown(

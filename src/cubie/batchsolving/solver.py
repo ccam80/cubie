@@ -32,6 +32,7 @@ See Also
 """
 
 from pathlib import Path
+from functools import partial
 from weakref import finalize
 from typing import (
     Any,
@@ -83,12 +84,25 @@ default_timelogger.register_event(
 )
 
 
-def _finalize_solver(kernel: BatchSolverKernel) -> None:
-    """Best-effort cleanup for a collected solver."""
+def _close_abandoned_kernel(kernel: BatchSolverKernel) -> None:
+    """Best-effort close for a collected solver's kernel."""
     try:
         kernel.close()
-    except Exception:  # pragma: no cover - interpreter shutdown
+    except Exception:  # pragma: no cover - context already gone
         pass
+
+
+def _finalize_solver(kernel: BatchSolverKernel) -> None:
+    """Record an abandoned solver's teardown; the GC finalizer target.
+
+    GC can fire inside any allocation — including while the memory
+    manager iterates its registry — so the kernel is closed at the
+    manager's next entry point, not here. See
+    :meth:`MemoryManager.defer_teardown`.
+    """
+    kernel.memory_manager.defer_teardown(
+        partial(_close_abandoned_kernel, kernel)
+    )
 
 
 default_timelogger.register_event(

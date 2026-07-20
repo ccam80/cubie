@@ -62,7 +62,7 @@ from cubie.time_logger import CUDAEvent
 from numpy.typing import NDArray
 
 from cubie.memory import default_memmgr
-from cubie.memory.mem_manager import run_instance_teardown
+from cubie.memory.mem_manager import defer_instance_teardown
 from cubie.buffer_registry import buffer_registry
 from cubie.CUDAFactory import CUDAFactory, CUDADispatcherCache
 from cubie.batchsolving.arrays.BatchInputArrays import InputArrays
@@ -377,7 +377,7 @@ class BatchSolverKernel(CUDAFactory):
         settings = memory_manager.get_registration(self)
         self._finalizer = finalize(
             self,
-            run_instance_teardown,
+            defer_instance_teardown,
             memory_manager,
             id(self),
             settings,

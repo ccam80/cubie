@@ -63,7 +63,7 @@ from cubie.memory.mem_manager import (
     ArrayResponse,
     MemoryManager,
     current_cupy_stream,
-    run_instance_teardown,
+    defer_instance_teardown,
 )
 from cubie.outputhandling.output_sizes import ArraySizingClass
 
@@ -539,7 +539,7 @@ class BaseArrayManager(ABC):
         settings = self._memory_manager.get_registration(self)
         self._finalizer = finalize(
             self,
-            run_instance_teardown,
+            defer_instance_teardown,
             self._memory_manager,
             id(self),
             settings,
