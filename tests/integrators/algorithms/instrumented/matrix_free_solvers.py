@@ -1,6 +1,7 @@
 """Instrumented matrix-free solver factories for CUDA device kernels."""
 
 import attrs
+from math import sqrt as math_sqrt
 from typing import Callable
 
 import numpy as np
@@ -10,7 +11,7 @@ from cubie._utils import is_device_validator
 from cubie.buffer_registry import buffer_registry
 from cubie.CUDAFactory import CUDADispatcherCache
 from cubie.cuda_simsafe import (
-    activemask, all_sync, selp, any_sync, compile_kwargs
+    activemask, all_sync, selp, compile_kwargs
 )
 from cubie.result_codes import CUBIE_RESULT_CODES
 from cubie.integrators.matrix_free_solvers.linear_solver import (
@@ -19,6 +20,7 @@ from cubie.integrators.matrix_free_solvers.linear_solver import (
 from cubie.integrators.matrix_free_solvers.newton_krylov import (
     NewtonKrylov,
 )
+from cubie.integrators.norms import ScaledNorm
 
 
 @attrs.define
@@ -455,70 +457,36 @@ class InstrumentedNewtonKrylovCache(CUDADispatcherCache):
 
 
 class InstrumentedNewtonKrylov(NewtonKrylov):
-    """Factory for instrumented Newton-Krylov solver device functions.
-    
-    Inherits from NewtonKrylov and adds iteration logging to device function.
-    Logging arrays are passed as device function parameters and populated
-    during Newton iteration. Embeds InstrumentedMRLinearSolver for nested
-    linear solve logging.
-    """
+    """Build a Newton solver that records its iterations."""
     
     def build(self) -> InstrumentedNewtonKrylovCache:
-        """Compile instrumented Newton-Krylov solver device function.
-        
+        """Compile the instrumented Newton solver.
+
         Returns
         -------
         InstrumentedNewtonKrylovCache
-            Container with compiled newton_krylov_solver device function
-            including logging parameters.
-        
-        Logging Parameters (added to device function signature)
-        ---------------------------------------------------
-        stage_index : int32
-            Index into first dimension of Newton logging arrays.
-        newton_initial_guesses : array[num_stages, n]
-            Records initial guess values for each stage.
-        newton_iteration_guesses : array[num_stages, max_iters+1, n]
-            Records state values at each Newton iteration.
-        newton_residuals : array[num_stages, max_iters+1, n]
-            Records residual values at each Newton iteration.
-        newton_squared_norms : array[num_stages, max_iters+1]
-            Records squared residual norms at each Newton iteration.
-        newton_iteration_scale : array[num_stages, max_iters]
-            Records alpha scaling factor at each Newton iteration.
-        linear_initial_guesses : array[total_linear_slots, n]
-            Records initial guess x values for embedded linear solves.
-        linear_iteration_guesses : array[total_linear_slots, max_iters, n]
-            Records x values at each linear solver iteration.
-        linear_residuals : array[total_linear_slots, max_iters, n]
-            Records residual values at each linear solver iteration.
-        linear_squared_norms : array[total_linear_slots, max_iters]
-            Records squared residual norms at each linear solver iteration.
-        linear_preconditioned_vectors : array[total_linear_slots, max_iters, n]
-            Records preconditioned search direction at each linear iteration.
-        
-        Raises
-        ------
-        ValueError
-            If residual_function or linear_solver is None when build() is
-            called.
-        TypeError
-            If linear_solver is not InstrumentedMRLinearSolver instance.
+            Compiled device function with logging arguments.
         """
         config = self.compile_settings
-        
+
         # Extract parameters from config
         residual_function = config.residual_function
         linear_solver_fn = config.linear_solver_function
 
         n = config.n
         max_iters = config.max_iters
-        damping = config.newton_damping
-        newton_max_backtracks = config.newton_max_backtracks
         precision = config.precision
 
-        # Get scaled norm device function from config
-        scaled_norm_fn = config.norm_device_function
+        # The production config carries only the correction norm; the
+        # residual norm logged for parity is built here from the same
+        # tolerances.
+        correction_norm_fn = config.norm_device_function
+        scaled_norm_fn = ScaledNorm(
+            precision=precision,
+            n=n,
+            atol=self.norm.atol,
+            rtol=self.norm.rtol,
+        ).device_function
 
         # Convert types for device function
         precision_dtype = np.dtype(precision)
@@ -528,30 +496,29 @@ class InstrumentedNewtonKrylov(NewtonKrylov):
         max_newton_iters_exceeded = int32(
             CUBIE_RESULT_CODES.MAX_NEWTON_ITERATIONS_EXCEEDED
         )
-        newton_backtracking_failed = int32(
-            CUBIE_RESULT_CODES.NEWTON_BACKTRACKING_NO_SUITABLE_STEP
-        )
+        newton_divergence = int32(CUBIE_RESULT_CODES.NEWTON_DIVERGENCE)
         typed_one = numba_precision(1.0)
-        typed_damping = numba_precision(damping)
+        typed_huge = numba_precision(float(np.finfo(precision_dtype).max))
+        kappa = numba_precision(0.01)
+        first_iteration_bound = numba_precision(1.0e-5)
+        theta_decay = numba_precision(0.3)
+        theta_divergence_bound = numba_precision(2.0)
+        stagnation_eps = numba_precision(
+            100.0 * math_sqrt(float(np.finfo(precision_dtype).eps))
+        )
         n_val = int32(n)
         max_iters_val = int32(max_iters)
-        newton_max_backtracks_val = int32(newton_max_backtracks + 1)
-        
-        # Get allocators from buffer_registry using production buffer names
-        # (registered by parent NewtonKrylov.register_buffers)
+
+        # NewtonKrylov registers these buffers.
         alloc_delta = buffer_registry.get_allocator('delta', self)
         alloc_residual = buffer_registry.get_allocator('residual', self)
-        alloc_residual_temp = buffer_registry.get_allocator(
-            'residual_temp', self
-        )
-        alloc_stage_base_bt = buffer_registry.get_allocator(
-            'stage_base_bt', self
-        )
         alloc_krylov_iters_local = buffer_registry.get_allocator(
             'krylov_iters_local', self
         )
-        
-        # Get child allocators for linear solver (same pattern as production)
+        alloc_prev_theta = buffer_registry.get_allocator(
+            'prev_theta', self
+        )
+        # Allocate the linear solver's buffers.
         alloc_lin_shared, alloc_lin_persistent = (
             buffer_registry.get_child_allocators(self, self.linear_solver)
         )
@@ -570,6 +537,7 @@ class InstrumentedNewtonKrylov(NewtonKrylov):
             h,
             a_ij,
             base_state,
+            step_start,
             shared_scratch,
             persistent_scratch,
             counters,
@@ -579,20 +547,17 @@ class InstrumentedNewtonKrylov(NewtonKrylov):
             newton_iteration_guesses,
             newton_residuals,
             newton_squared_norms,
-            newton_iteration_scale,
             linear_initial_guesses,
             linear_iteration_guesses,
             linear_residuals,
             linear_squared_norms,
             linear_preconditioned_vectors,
         ):
-            """Solve a nonlinear system with damped Newton-Krylov and logging."""
-            
+            """Solve a nonlinear system and record each iteration."""
+
             # Allocate buffers from registry
             delta = alloc_delta(shared_scratch, persistent_scratch)
             residual = alloc_residual(shared_scratch, persistent_scratch)
-            residual_temp = alloc_residual_temp(shared_scratch, persistent_scratch)
-            stage_base_bt = alloc_stage_base_bt(shared_scratch, persistent_scratch)
             lin_shared = alloc_lin_shared(shared_scratch, persistent_scratch)
             lin_persistent = alloc_lin_persistent(shared_scratch, persistent_scratch)
             
@@ -631,32 +596,55 @@ class InstrumentedNewtonKrylov(NewtonKrylov):
             newton_squared_norms[stage_index, log_index] = norm2_prev
             log_index += int32(1)
             
-            converged = norm2_prev <= typed_one
-            has_error = False
-            final_status = success
-            
+            # Warm-started contraction estimate; zero marks a fresh
+            # scratch buffer or a failed previous solve. Callers zero
+            # the persistent scratch before the first solve.
+            prev_theta_store = alloc_prev_theta(
+                shared_scratch, persistent_scratch
+            )
+            stored_theta = prev_theta_store[0]
+            prev_theta = selp(
+                stored_theta > typed_zero, stored_theta, typed_one
+            )
+
+            # RMS norm of the previous accepted full-step correction.
+            ndz_prev = typed_zero
+
+            converged = False
+            failed = False
+
             krylov_iters_local = alloc_krylov_iters_local(
                 shared_scratch, persistent_scratch
             )
-            
+
             iters_count = int32(0)
             total_krylov_iters = int32(0)
+            iteration = int32(0)
+            last_lin_status = success
             mask = activemask()
-            stage_increment_snapshot = cuda.local.array(n, numba_precision)
-            residual_snapshot = cuda.local.array(n, numba_precision)
-            
+
             for _ in range(max_iters_val):
-                done = converged or has_error
-                if all_sync(mask, done):
+                if all_sync(mask, converged | failed):
                     break
-                
-                active = not done
-                iters_count = selp(
-                    active, int32(iters_count + int32(1)), iters_count
+                iteration += int32(1)
+                active = (not converged) & (not failed)
+
+                residual_function(
+                    stage_increment,
+                    parameters,
+                    drivers,
+                    t,
+                    h,
+                    a_ij,
+                    base_state,
+                    residual,
                 )
-                
-                iter_slot = int(iters_count) - 1
-                
+                for i in range(n_val):
+                    residual[i] = -residual[i]
+                    delta[i] = typed_zero
+
+                iter_slot = int32(iteration - int32(1))
+
                 krylov_iters_local[0] = int32(0)
                 lin_status = linear_solver_fn(
                     stage_increment,
@@ -679,98 +667,119 @@ class InstrumentedNewtonKrylov(NewtonKrylov):
                     linear_squared_norms,
                     linear_preconditioned_vectors,
                 )
-                
-                lin_failed = lin_status != int32(0)
-                has_error = has_error or lin_failed
-                final_status = selp(
-                    lin_failed, int32(final_status | lin_status), final_status
-                )
+
                 total_krylov_iters += selp(
                     active, krylov_iters_local[0], int32(0)
                 )
-                
-                for i in range(n_val):
-                    stage_base_bt[i] = stage_increment[i]
-                
-                alpha = typed_one
-                found_step = False
-                snapshot_ready = False
-                
-                for _ in range(newton_max_backtracks_val):
-                    active_bt = active and (not found_step) and (not converged)
-                    if not any_sync(mask, active_bt):
-                        break
-                    
-                    if active_bt:
-                        for i in range(n_val):
-                            stage_increment[i] = (
-                                stage_base_bt[i] + alpha * delta[i]
-                            )
-                        
-                        residual_function(
-                            stage_increment,
-                            parameters,
-                            drivers,
-                            t,
-                            h,
-                            a_ij,
-                            base_state,
-                            residual_temp,
-                        )
-                        
-                        norm2_new = scaled_norm_fn(residual_temp, stage_increment)
-                        for i in range(n_val):
-                            stage_increment_snapshot[i] = stage_increment[i]
-                            residual_snapshot[i] = residual_temp[i]
-                        snapshot_ready = True
-                        
-                        if norm2_new <= typed_one:
-                            converged = True
-                            found_step = True
-                        
-                        if norm2_new < norm2_prev:
-                            for i in range(n_val):
-                                residual[i] = -residual_temp[i]
-                            norm2_prev = norm2_new
-                            found_step = True
-                    
-                    alpha *= typed_damping
-                
-                backtrack_failed = active and (not found_step) and (not converged)
-                has_error = has_error or backtrack_failed
-                final_status = selp(
-                    backtrack_failed,
-                    int32(final_status | newton_backtracking_failed),
-                    final_status
+                last_lin_status = selp(
+                    active, lin_status, last_lin_status
                 )
-                
-                if backtrack_failed:
-                    # Revert stage increment for another round
+                iters_count = selp(
+                    active, int32(iters_count + int32(1)), iters_count
+                )
+
+                norm2_dz = correction_norm_fn(
+                    delta,
+                    stage_increment,
+                    base_state,
+                    step_start,
+                    a_ij,
+                )
+                ndz = numba_precision(math_sqrt(norm2_dz))
+
+                judged = active & (lin_status == success)
+                history = ndz_prev > typed_zero
+                ndz_prev_safe = selp(history, ndz_prev, typed_one)
+                theta = selp(
+                    history,
+                    max(theta_decay * prev_theta, ndz / ndz_prev_safe),
+                    prev_theta,
+                )
+                small_first_step = (iteration == int32(1)) & (
+                    ndz < first_iteration_bound
+                )
+                eta_accept = (theta < typed_one) & (
+                    theta * ndz < kappa * (typed_one - theta)
+                )
+
+                nonfinite = not (norm2_dz <= typed_huge)
+                stagnant = (
+                    judged
+                    & history
+                    & (abs(theta - typed_one) <= stagnation_eps)
+                )
+                diverging = judged & (
+                    (history & (theta > theta_divergence_bound))
+                    | nonfinite
+                )
+                converged_stagnant = (
+                    stagnant & (ndz <= typed_one) & (not diverging)
+                )
+                failed_now = diverging | (
+                    stagnant & (ndz > typed_one)
+                )
+                failed = failed | failed_now
+
+                commit = (
+                    judged
+                    & (not failed_now)
+                    & (not converged_stagnant)
+                )
+                for i in range(n_val):
+                    stage_increment[i] = selp(
+                        commit,
+                        stage_increment[i] + delta[i],
+                        stage_increment[i],
+                    )
+                converged = (
+                    converged
+                    | converged_stagnant
+                    | (commit & (eta_accept | small_first_step))
+                )
+                ndz_prev = selp(commit, ndz, typed_zero)
+                prev_theta = selp(
+                    judged & history, theta, prev_theta
+                )
+
+                # Log the committed iterate and its residual.
+                if commit:
+                    residual_function(
+                        stage_increment,
+                        parameters,
+                        drivers,
+                        t,
+                        h,
+                        a_ij,
+                        base_state,
+                        residual_copy,
+                    )
+                    norm2_new = scaled_norm_fn(
+                        residual_copy, stage_increment
+                    )
                     for i in range(n_val):
-                        stage_increment[i] = stage_base_bt[i]
-                
-                # Log iteration state if snapshot is ready
-                iter_slot = int(iters_count) - 1
-                if iter_slot >= 0:
-                    if snapshot_ready:
-                        for i in range(n_val):
-                            newton_iteration_guesses[
-                                stage_index, log_index, i
-                            ] = stage_increment_snapshot[i]
-                            newton_residuals[
-                                stage_index, log_index, i
-                            ] = residual_snapshot[i]
-                        newton_squared_norms[stage_index, log_index] = norm2_new
-                        log_index += int32(1)
-                    newton_iteration_scale[stage_index, iter_slot] = alpha
-            
-            max_iters_exceeded = (not converged) and (not has_error)
-            final_status = selp(
-                max_iters_exceeded,
-                int32(final_status | max_newton_iters_exceeded),
-                final_status
+                        newton_iteration_guesses[
+                            stage_index, log_index, i
+                        ] = stage_increment[i]
+                        newton_residuals[
+                            stage_index, log_index, i
+                        ] = residual_copy[i]
+                    newton_squared_norms[stage_index, log_index] = norm2_new
+                    log_index += int32(1)
+
+            # Persist contraction history for the next solve; a failed
+            # solve resets it to the conservative estimate.
+            prev_theta_store[0] = selp(converged, prev_theta, typed_one)
+
+            fail_bits = selp(
+                failed, newton_divergence, max_newton_iters_exceeded
             )
-            
+            fail_bits = selp(
+                last_lin_status != success,
+                int32(fail_bits | last_lin_status),
+                fail_bits,
+            )
+            final_status = selp(converged, success, fail_bits)
+
             counters[0] = iters_count
             counters[1] = total_krylov_iters
             

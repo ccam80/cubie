@@ -73,8 +73,6 @@ ALL_ALGORITHM_STEP_PARAMETERS = {
     "newton_atol",
     "newton_rtol",
     "newton_max_iters",
-    "newton_damping",
-    "newton_max_backtracks",
     "n_drivers",
     # DIRK buffer location parameters
     "stage_increment_location",
@@ -104,10 +102,9 @@ ALL_ALGORITHM_STEP_PARAMETERS = {
     "s_hat_location",
     "delta_location",
     "residual_location",
-    "residual_temp_location",
-    "stage_base_bt_location",
     # Newton-Krylov buffer location parameters
     "krylov_iters_local_location",
+    "prev_theta_location",
     # Rosenbrock int32 buffer location parameters
     "base_state_placeholder_location",
     "krylov_iters_out_location",
@@ -189,12 +186,6 @@ components use this set to filter kwargs before forwarding.
    * - ``newton_max_iters``
      - :class:`NewtonKrylovConfig`
      - Maximum Newton iterations.
-   * - ``newton_damping``
-     - :class:`NewtonKrylovConfig`
-     - Newton damping factor.
-   * - ``newton_max_backtracks``
-     - :class:`NewtonKrylovConfig`
-     - Maximum Newton backtracking steps.
    * - Buffer location parameters
      - Various algorithm configs
      - Memory location (``'local'`` or ``'shared'``) for

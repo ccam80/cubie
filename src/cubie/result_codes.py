@@ -26,8 +26,6 @@ class CUBIE_RESULT_CODES(IntFlag):
     -------
     SUCCESS
         No error; step accepted / current step kept.
-    NEWTON_BACKTRACKING_NO_SUITABLE_STEP
-        Newton damped backtracking found no acceptable step.
     MAX_NEWTON_ITERATIONS_EXCEEDED
         Newton iteration did not converge within its iteration budget.
     MAX_LINEAR_ITERATIONS_EXCEEDED
@@ -44,10 +42,12 @@ class CUBIE_RESULT_CODES(IntFlag):
     BICGSTAB_BREAKDOWN
         BiCGSTAB linear solve broke down (a recurrence scalar collapsed to
         zero) before converging.
+    NEWTON_DIVERGENCE
+        Newton iteration diverged: the contraction estimate exceeded the
+        divergence bound or the update norm was not finite.
     """
 
     SUCCESS = 0
-    NEWTON_BACKTRACKING_NO_SUITABLE_STEP = 1
     MAX_NEWTON_ITERATIONS_EXCEEDED = 2
     MAX_LINEAR_ITERATIONS_EXCEEDED = 4
     STEP_TOO_SMALL = 8
@@ -55,6 +55,7 @@ class CUBIE_RESULT_CODES(IntFlag):
     MAX_LOOP_ITERS_EXCEEDED = 32
     STAGNATION = 64
     BICGSTAB_BREAKDOWN = 128
+    NEWTON_DIVERGENCE = 256
 
 
 def decode_status_codes(status_codes):

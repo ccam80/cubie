@@ -10,6 +10,7 @@ from typing import Any, Optional
 import numpy as np
 import pytest
 from cubie.cuda_simsafe import cuda, numba_from_dtype as from_dtype, int32
+from cubie.memory import default_memmgr
 from numpy.testing import assert_allclose
 
 from cubie.integrators.algorithms import get_algorithm_step
@@ -247,7 +248,8 @@ def device_step_results(
         )
         status_vec[0] = result
 
-    kernel[1, 1, 0, shared_bytes](
+    stream = default_memmgr.get_group_stream()
+    kernel[1, 1, stream, shared_bytes](
         d_state,
         d_proposed,
         d_params,
@@ -262,7 +264,7 @@ def device_step_results(
         dt_value,
         numba_precision(0.0),
     )
-    cuda.synchronize()
+    stream.synchronize()
 
     status_value = int(d_status.copy_to_host()[0])
     return StepResult(
@@ -457,7 +459,8 @@ def _execute_step_twice(
         )
         status_vec[1] = second_status
 
-    kernel[1, 1, 0, shared_bytes](
+    stream = default_memmgr.get_group_stream()
+    kernel[1, 1, stream, shared_bytes](
         d_state,
         d_params,
         d_driver_coeffs,
@@ -476,7 +479,7 @@ def _execute_step_twice(
         d_counters_second,
         dt_value,
     )
-    cuda.synchronize()
+    stream.synchronize()
     status_host = d_status.copy_to_host()
 
     first_state = d_proposed_first.copy_to_host()
@@ -540,10 +543,6 @@ def _execute_cpu_step_twice(
         ],
         preconditioner_order=solver_settings["preconditioner_order"],
         tableau=tableau,
-        newton_damping=solver_settings["newton_damping"],
-        newton_max_backtracks=solver_settings[
-            "newton_max_backtracks"
-        ],
     )
 
     first_result = stepper.step(
@@ -624,10 +623,6 @@ def cpu_step_results(
         ],
         preconditioner_order=solver_settings["preconditioner_order"],
         tableau=tableau,
-        newton_damping=solver_settings["newton_damping"],
-        newton_max_backtracks=solver_settings[
-            "newton_max_backtracks"
-        ],
     )
 
     result = stepper.step(

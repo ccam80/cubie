@@ -72,6 +72,7 @@ from cubie._utils import (
     getype_validator,
     gttype_validator,
 )
+from cubie.memory import current_cupy_stream, default_memmgr
 
 if TYPE_CHECKING:
     from cubie.odesystems.symbolic.symbolicODE import SymbolicODE
@@ -641,6 +642,7 @@ class ArrayInterpolator(CUDAFactory):
 
         # no cover: end
 
+        stream = default_memmgr.get_group_stream()
         if CUDA_SIMULATION:  # pragma: no cover - simulated
             # The simulator runs kernels on host memory: NumPy arrays
             # pass straight in and the kernel writes the output array
@@ -652,23 +654,24 @@ class ArrayInterpolator(CUDAFactory):
                 dtype=self.precision,
             )
         else:
-            times_device = cupy.asarray(times)
-            coefficients_device = cupy.asarray(coefficients)
-            out_device = cupy.empty(
-                (num_points, self.num_inputs),
-                dtype=self.precision,
-            )
+            with current_cupy_stream(stream):
+                times_device = cupy.asarray(times)
+                coefficients_device = cupy.asarray(coefficients)
+                out_device = cupy.empty(
+                    (num_points, self.num_inputs),
+                    dtype=self.precision,
+                )
 
         threads_per_block = 128
         blocks_per_grid = (num_points + threads_per_block - 1) // (
             threads_per_block
         )
-        _evaluate_kernel[blocks_per_grid, threads_per_block](
+        _evaluate_kernel[blocks_per_grid, threads_per_block, stream](
             times_device,
             coefficients_device,
             out_device,
         )
-        cuda.synchronize()
+        stream.synchronize()
 
         if CUDA_SIMULATION:  # pragma: no cover - simulated
             return out_device

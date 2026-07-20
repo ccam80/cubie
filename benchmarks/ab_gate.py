@@ -53,10 +53,9 @@ could change chunking between sides.
 Usage::
 
     python benchmarks/ab_gate.py [--main REF] [--backends numba-cuda,mlir]
-        [--block-solves N] [--chunked-solves N] [--pairs P]
-        [--min-count K] [--threshold PCT] [--wall-threshold PCT]
-        [--n-runs N] [--chunked-runs N] [--chunked-proportion P]
-        [--calibrate] [--keep]
+        [--pairs P] [--min-count K] [--threshold PCT]
+        [--wall-threshold PCT] [--n-runs N] [--chunked-runs N]
+        [--chunked-proportion P] [--calibrate] [--keep]
 
 ``--calibrate`` points B at ``main`` too (A-vs-A); rerun it a few
 times to measure this machine's null |delta| for both statistics and
@@ -78,6 +77,14 @@ from pathlib import Path
 
 REPO = Path(__file__).resolve().parent.parent
 BENCH = Path(__file__).resolve().parent / "lorenz_mean_runtime.py"
+
+# Solves per block for every config. Fixed on purpose: the verdict
+# statistics assume the same block shape on every run and machine,
+# so solve counts are not a tuning lever. Fifteen solves keep the
+# floor statistic well populated while the whole two-backend gate
+# stays inside its five-minute budget with the implicit adaptive
+# config included.
+BLOCK_SOLVES = 15
 
 # label -> (importable spec, CUBIE_CUDA_BACKEND value)
 BACKENDS = {
@@ -331,16 +338,11 @@ def run_backend(backend, main_tree, b_tree, base, args):
             line = read_reply(workers[side], "@META wave ", side)
             metas[side]["wave"] = parse_meta(line)[1]
         keys = ready["A"] + ["wave"]
-        counts = {
-            key: (args.chunked_solves if key == "chunked"
-                  else args.block_solves)
-            for key in keys
-        }
 
         def block(side, store=None):
             for key in keys:
                 vals = run_block(
-                    workers[side], side, key, counts[key])
+                    workers[side], side, key, BLOCK_SOLVES)
                 if store is not None:
                     store[side][key].append(vals)
             # Idle gap: without it the GPU sits pinned at its power
@@ -372,7 +374,7 @@ def run_backend(backend, main_tree, b_tree, base, args):
         "wall": args.wall_threshold,
     }
     for key in keys:
-        k = min(args.min_count, counts[key])
+        k = min(args.min_count, BLOCK_SOLVES)
         for stat_index, stat in enumerate(("kernel", "wall")):
             floors = {
                 side: [
@@ -407,12 +409,6 @@ def main():
     parser.add_argument("--backends", default=None,
                         help="Comma-separated subset of: "
                              + ", ".join(BACKENDS))
-    parser.add_argument("--block-solves", type=int, default=25,
-                        help="Solves per block per config.")
-    parser.add_argument("--chunked-solves", type=int, default=10,
-                        help="Solves per block for the chunked "
-                             "config (its solves are slow and its "
-                             "signal coarse, so fewer suffice).")
     parser.add_argument("--pairs", type=int, default=4,
                         help="A/B block pairs per backend; even "
                              "cancels linear drift, multiples of 4 "
@@ -482,8 +478,8 @@ def main():
     b_label = args.main if args.calibrate else f"{branch} (working tree)"
     print(f"A = {args.main} ({a_sha})   B = {b_label}   "
           f"backends: {', '.join(backends)}   "
-          f"({args.pairs} block pairs x {args.block_solves} "
-          f"solves/block/side, {args.chunked_solves} for chunked)\n")
+          f"({args.pairs} block pairs x {BLOCK_SOLVES} "
+          f"solves/block/side)\n")
 
     main_tree = add_main_worktree(args.main)
     base = Path(tempfile.mkdtemp(prefix="cubie_abgate_"))

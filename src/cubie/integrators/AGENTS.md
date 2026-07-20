@@ -23,7 +23,7 @@ each have their own `AGENTS.md`.
 | `SingleIntegratorRun.py` | `SingleIntegratorRun(SingleIntegratorRunCore)`: read-only properties exposing compiled loop artifacts, memory sizing, controller bounds, and output metadata to `BatchSolverKernel`. No `build()` override. |
 | `SingleIntegratorRunCore.py` | `SingleIntegratorRunCore(CUDAFactory)`: owns `_output_functions`, `_algo_step`, `_step_controller`, `_loop`; wires them and delegates compilation to `IVPLoop` in `build()`. Defines `SingleIntegratorRunCache` (holds `single_integrator_function`). |
 | `IntegratorRunSettings.py` | `IntegratorRunSettings(CUDAFactoryConfig)`: thin compile-settings holding only `algorithm` and `step_controller` names (plus inherited `precision`) — the core's own cache key. |
-| `norms.py` | `ScaledNorm(MultipleInstanceCUDAFactory)`: a general scaled error-norm utility — compiles `sum((|v_i|/tol_i)^2)/n` (mean-squared, tolerance-scaled). Currently used by the matrix-free solvers for convergence testing. Defines `ScaledNormConfig`, `ScaledNormCache`. |
+| `norms.py` | CUDA factories for scaled vector norms and DIRK/FIRK Newton correction terms. |
 | `__init__.py` | Package API re-exports (`SingleIntegratorRun`, `IVPLoop`, algorithm/solver/controller classes, `get_algorithm_step`, `get_controller`); re-exports `CUBIE_RESULT_CODES` from `cubie.result_codes`. |
 
 ## Subdirectories
@@ -40,7 +40,7 @@ each have their own `AGENTS.md`.
 The status vocabulary is the package-central `CUBIE_RESULT_CODES(IntFlag)` (defined in
 `cubie/result_codes.py`, re-exported from this package and from `cubie`). Device functions
 capture its values as closure constants and OR them into the returned status word:
-`SUCCESS=0`, `NEWTON_BACKTRACKING_NO_SUITABLE_STEP=1`, `MAX_NEWTON_ITERATIONS_EXCEEDED=2`,
+`SUCCESS=0`, `MAX_NEWTON_ITERATIONS_EXCEEDED=2`,
 `MAX_LINEAR_ITERATIONS_EXCEEDED=4`, `STEP_TOO_SMALL=8` (controllers' reject-at-min),
 `DT_EFF_EFFECTIVELY_ZERO=16` and `MAX_LOOP_ITERS_EXCEEDED=32` (reserved, unemitted),
 `STAGNATION=64` (loop no-progress). Iteration counts are returned separately via the

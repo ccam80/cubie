@@ -1,26 +1,4 @@
-"""Norm computation factories for tolerance-scaled convergence checks.
-
-Published Classes
------------------
-:class:`ScaledNormConfig`
-    Configuration container for the scaled norm factory.
-
-:class:`ScaledNorm`
-    Factory compiling a CUDA device function that computes the mean
-    squared scaled error norm.
-
-    >>> from numpy import float64
-    >>> norm = ScaledNorm(precision=float64, n=4)
-    >>> norm.n
-    4
-
-See Also
---------
-:class:`~cubie.CUDAFactory.MultipleInstanceCUDAFactory`
-    Parent factory class supporting prefixed parameter names.
-:class:`~cubie.integrators.matrix_free_solvers.base_solver.BaseSolver`
-    Consumer that owns a ScaledNorm instance for convergence testing.
-"""
+"""CUDA factories for scaled norms."""
 
 from typing import Callable
 
@@ -84,7 +62,7 @@ def resize_tolerances(instance, attribute, value):
 
 @define
 class ScaledNormConfig(MultipleInstanceCUDAFactoryConfig):
-    """Configuration for ScaledNorm factory compilation.
+    """Configure a scaled norm.
 
     Attributes
     ----------
@@ -131,32 +109,48 @@ class ScaledNormConfig(MultipleInstanceCUDAFactoryConfig):
 
 
 @define
-class ScaledNormCache(CUDADispatcherCache):
-    """Cache container for ScaledNorm outputs.
+class FIRKCorrectionNormConfig(ScaledNormConfig):
+    """Configure a coupled FIRK correction norm.
 
     Attributes
     ----------
-    scaled_norm : Callable
-        Compiled CUDA device function computing scaled norm squared.
+    state_n : int
+        Number of physical states per stage.
+    stage_coefficients : tuple
+        Row-major flattened Butcher ``a`` matrix, as produced by
+        ``tableau.a_flat``.
     """
+
+    state_n: int = field(default=1, validator=getype_validator(int, 1))
+    stage_coefficients: tuple = field(default=(1.0,))
+
+    def __attrs_post_init__(self):
+        super().__attrs_post_init__()
+        if self.n % self.state_n != 0:
+            raise ValueError("n must be a multiple of state_n")
+        stage_count = self.n // self.state_n
+        if len(self.stage_coefficients) != stage_count * stage_count:
+            raise ValueError(
+                "stage_coefficients must hold stage_count**2 values"
+            )
+
+    @property
+    def stage_count(self) -> int:
+        """Return the number of coupled stages."""
+        return self.n // self.state_n
+
+
+@define
+class ScaledNormCache(CUDADispatcherCache):
+    """Hold a scaled norm device function."""
 
     scaled_norm: Callable = field(validator=is_device_validator)
 
 
 class ScaledNorm(MultipleInstanceCUDAFactory):
-    """Factory for scaled norm device functions.
+    """Compile a mean squared scaled norm."""
 
-    Compiles a CUDA device function that computes the mean squared
-    scaled error norm, where each element's contribution is weighted
-    by a tolerance computed from absolute and relative tolerance
-    arrays.
-
-    The returned norm value is the mean of squared ratios:
-        sum((|values[i]| / tol_i)^2) / n
-    where tol_i = max(atol[i] + rtol[i] * |reference[i]|, floor).
-
-    Convergence is achieved when the norm <= 1.0.
-    """
+    config_type = ScaledNormConfig
 
     def __init__(
         self,
@@ -182,7 +176,7 @@ class ScaledNorm(MultipleInstanceCUDAFactory):
         super().__init__(instance_label=instance_label)
 
         config = build_config(
-            ScaledNormConfig,
+            self.config_type,
             required={
                 "precision": precision,
                 "n": n,
@@ -194,13 +188,7 @@ class ScaledNorm(MultipleInstanceCUDAFactory):
         self.setup_compile_settings(config)
 
     def build(self) -> ScaledNormCache:
-        """Compile scaled norm device function.
-
-        Returns
-        -------
-        ScaledNormCache
-            Container with compiled scaled_norm device function.
-        """
+        """Compile the whole-vector norm."""
         config = self.compile_settings
 
         n = config.n
@@ -220,20 +208,7 @@ class ScaledNorm(MultipleInstanceCUDAFactory):
             **self.jit_kwargs,
         )
         def scaled_norm(values, reference):
-            """Compute mean squared scaled error norm.
-
-            Parameters
-            ----------
-            values : array
-                Error or residual values to measure.
-            reference : array
-                Reference state for relative tolerance scaling.
-
-            Returns
-            -------
-            float
-                Mean squared scaled norm. Converged when <= 1.0.
-            """
+            """Return the mean squared scaled norm."""
             nrm2 = typed_zero
             for i in range(n_val):
                 value_i = values[i]
@@ -302,3 +277,115 @@ class ScaledNorm(MultipleInstanceCUDAFactory):
     def rtol(self) -> ndarray:
         """Return relative tolerance array."""
         return self.compile_settings.rtol
+
+
+class CorrectionNorm(ScaledNorm):
+    """Base factory for Newton correction norms.
+
+    Correction norms scale the Newton update against the physical
+    stage state and the step-start state, matching the reference
+    scaling ``atol + rtol * max(|stage_value|, |step_start|)``. The
+    compiled function takes ``(values, stage_increment, stage_base,
+    step_start, a_ij)`` in place of the two-argument scaled norm.
+    """
+
+
+class DIRKCorrectionNorm(CorrectionNorm):
+    """Compile a DIRK correction norm."""
+
+    def build(self) -> ScaledNormCache:
+        """Compile the correction norm function."""
+        config = self.compile_settings
+        atol = config.atol
+        rtol = config.rtol
+        inv_n = config.inv_n
+        tol_floor = config.tol_floor
+        numba_precision = config.numba_precision
+        n_val = config.n
+        typed_zero = numba_precision(0.0)
+
+        # no cover: start
+        @cuda.jit(device=True, inline=True, **self.jit_kwargs)
+        def correction_norm(
+            values,
+            stage_increment,
+            stage_base,
+            step_start,
+            a_ij,
+        ):
+            """Return the mean squared scaled correction norm."""
+            nrm2 = typed_zero
+            for i in range(n_val):
+                stage_value = (
+                    stage_base[i] + a_ij * stage_increment[i]
+                )
+                reference = max(abs(stage_value), abs(step_start[i]))
+                tolerance = atol[i] + rtol[i] * reference
+                tolerance = max(tolerance, tol_floor)
+                ratio = values[i] / tolerance
+                nrm2 += ratio * ratio
+            return nrm2 * inv_n
+
+        # no cover: end
+        return ScaledNormCache(scaled_norm=correction_norm)
+
+
+class FIRKCorrectionNorm(CorrectionNorm):
+    """Compile a coupled FIRK correction norm."""
+
+    config_type = FIRKCorrectionNormConfig
+
+    def build(self) -> ScaledNormCache:
+        """Compile the correction norm function."""
+        config = self.compile_settings
+        atol = config.atol
+        rtol = config.rtol
+        inv_n = config.inv_n
+        tol_floor = config.tol_floor
+        numba_precision = config.numba_precision
+        n_val = config.n
+        state_n = config.state_n
+        stage_count = config.stage_count
+        stage_coefficients = tuple(
+            numba_precision(value) for value in config.stage_coefficients
+        )
+        typed_zero = numba_precision(0.0)
+
+        # no cover: start
+        @cuda.jit(device=True, inline=True, **self.jit_kwargs)
+        def correction_norm(
+            values,
+            stage_increment,
+            stage_base,
+            step_start,
+            a_ij,
+        ):
+            """Return the mean squared scaled correction norm."""
+            nrm2 = typed_zero
+            for index in range(n_val):
+                stage_index = index // state_n
+                state_index = index - stage_index * state_n
+                stage_value = stage_base[state_index]
+                for contribution_index in range(stage_count):
+                    coefficient_index = (
+                        stage_index * stage_count + contribution_index
+                    )
+                    increment_index = (
+                        contribution_index * state_n + state_index
+                    )
+                    stage_value += (
+                        stage_coefficients[coefficient_index]
+                        * stage_increment[increment_index]
+                    )
+
+                reference = max(
+                    abs(stage_value), abs(step_start[state_index])
+                )
+                tolerance = atol[index] + rtol[index] * reference
+                tolerance = max(tolerance, tol_floor)
+                ratio = values[index] / tolerance
+                nrm2 += ratio * ratio
+            return nrm2 * inv_n
+
+        # no cover: end
+        return ScaledNormCache(scaled_norm=correction_norm)

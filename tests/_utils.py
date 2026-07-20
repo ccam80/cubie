@@ -7,6 +7,7 @@ from typing import Mapping, Optional, Union, Dict, Any, Callable
 import numpy as np
 import pytest
 from cubie.cuda_simsafe import cuda, numba_from_dtype as from_dtype
+from cubie.memory import default_memmgr
 from numpy.testing import assert_allclose
 
 from cubie.integrators.SingleIntegratorRun import SingleIntegratorRun
@@ -934,7 +935,8 @@ def run_device_loop(
             summary_stop,
         )
 
-    kernel[1, 1, 0, shared_bytes](
+    stream = default_memmgr.get_group_stream()
+    kernel[1, 1, stream, shared_bytes](
         d_init,
         d_params,
         d_driver_coeffs,
@@ -945,7 +947,7 @@ def run_device_loop(
         d_counters_out,
         d_status,
     )
-    cuda.synchronize()
+    stream.synchronize()
 
     state_host = d_state_out.copy_to_host()
     observables_host = d_obs_out.copy_to_host()

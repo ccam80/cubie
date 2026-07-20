@@ -2,8 +2,6 @@ import attrs
 import numpy as np
 import pytest
 from cubie.cuda_simsafe import cuda
-from numpy import float32
-
 from cubie._utils import (
     _expand_dtype,
     build_config,
@@ -374,7 +372,7 @@ class TestBuildConfig:
     def test_build_config_passes_values_directly(self):
         """Verify build_config passes all values directly to attrs.
         
-        Note: None filtering happens upstream in split_applicable_settings.
+        Note: None filtering happens when settings are merged.
         If None values reach build_config, they are passed through to attrs.
         """
         # This test verifies the pass-through behavior
@@ -767,6 +765,17 @@ def test_merge_kwargs_into_settings_no_warning_without_duplicates():
     )
     assert merged == {"dt_max": 1.0, "dt_min": 0.5}
     assert recognized == {"dt_min"}
+
+
+def test_merge_kwargs_into_settings_ignores_none_values():
+    """None values do not override component defaults."""
+    merged, recognized = merge_kwargs_into_settings(
+        {"dt_min": None, "dt_max": 1.0},
+        valid_keys={"dt_min", "dt_max"},
+        user_settings={"dt_min": 0.1, "dt_max": None},
+    )
+    assert merged == {"dt_max": 1.0, "dt_min": 0.1}
+    assert recognized == {"dt_min", "dt_max"}
 
 
 # =============================================================================
