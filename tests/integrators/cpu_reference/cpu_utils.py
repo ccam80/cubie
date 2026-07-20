@@ -572,17 +572,13 @@ def newton_solve(
                 update, iterate, atol_value, rtol_value
             )
 
-    # Warm-started contraction estimate. Only values in the valid
-    # band are trusted: converged solves store estimates at or below
-    # one, so anything else marks a fresh or uninitialised store and
-    # starts conservatively.
+    # Warm-started contraction estimate; zero marks a fresh store or
+    # a failed previous solve. Callers zero the store before the
+    # first solve.
     stored_theta = typed_zero
     if prev_theta_store is not None:
         stored_theta = scalar_type(prev_theta_store[0])
-    if typed_zero < stored_theta <= typed_one:
-        prev_theta = stored_theta
-    else:
-        prev_theta = typed_one
+    prev_theta = stored_theta if stored_theta > typed_zero else typed_one
 
     # RMS norm of the previous accepted full-step correction.
     ndz_prev = typed_zero

@@ -609,18 +609,16 @@ class InstrumentedNewtonKrylov(NewtonKrylov):
             newton_squared_norms[stage_index, log_index] = norm2_prev
             log_index += int32(1)
             
-            # Warm-started contraction estimate. Only values in the
-            # valid band are trusted: converged solves store estimates
-            # at or below one, so anything else marks a fresh or
-            # uninitialised scratch buffer and starts conservatively.
+            # Warm-started contraction estimate; zero marks a fresh
+            # scratch buffer or a failed previous solve. Callers zero
+            # the persistent scratch before the first solve.
             prev_theta_store = alloc_prev_theta(
                 shared_scratch, persistent_scratch
             )
             stored_theta = prev_theta_store[0]
-            theta_valid = (stored_theta > typed_zero) & (
-                stored_theta <= typed_one
+            prev_theta = selp(
+                stored_theta > typed_zero, stored_theta, typed_one
             )
-            prev_theta = selp(theta_valid, stored_theta, typed_one)
 
             # RMS norm of the previous accepted full-step correction.
             ndz_prev = typed_zero
