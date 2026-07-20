@@ -555,14 +555,27 @@ class TestBaseArrayManager:
 
     def test_update_host_array_shape_change(self, test_arrmgr):
         """Test update_host_array when array shape changes"""
-        current = np.array([[1, 2], [3, 4]])
-        new = np.array([1, 2, 3])
+        dtype = test_arrmgr.host.arr1.dtype
+        current = np.array([[1, 2], [3, 4]], dtype=dtype)
+        new = np.array([1, 2, 3], dtype=dtype)
         test_arrmgr._update_host_array(new, current, "arr1")
 
         assert "arr1" in test_arrmgr._needs_reallocation
         assert "arr1" in test_arrmgr._needs_overwrite
-        # Check that the array was attached to the host container
+        # The array is attached verbatim, not copied
         assert test_arrmgr.host.arr1.array is new
+
+    def test_update_host_array_dtype_mismatch_casts_once(self, test_arrmgr):
+        """A mismatched dtype is cast into a fresh buffer on attach."""
+        dtype = test_arrmgr.host.arr1.dtype
+        current = np.array([1, 2, 3], dtype=dtype)
+        new = np.array([4, 5, 6], dtype=np.int64)
+        test_arrmgr._update_host_array(new, current, "arr1")
+
+        attached = test_arrmgr.host.arr1.array
+        assert attached is not new
+        assert attached.dtype == dtype
+        np.testing.assert_array_equal(attached, [4, 5, 6])
 
     def test_update_host_array_zero_shape(self, test_arrmgr):
         """Test update_host_array when new array has zero in shape"""
@@ -577,7 +590,7 @@ class TestBaseArrayManager:
         assert "arr1" in test_arrmgr._needs_reallocation
 
     def test_update_host_array_value_change(self, test_arrmgr):
-        """New values land in the existing buffer and queue a copy."""
+        """A same-size resubmission attaches the new array verbatim."""
         test_arrmgr._needs_reallocation = []
         dtype = test_arrmgr.host.arr1.dtype
         current = np.array([1, 2, 3], dtype=dtype)
@@ -587,8 +600,9 @@ class TestBaseArrayManager:
 
         assert "arr1" not in test_arrmgr._needs_reallocation
         assert "arr1" in test_arrmgr._needs_overwrite
-        # Values are copied into the existing host buffer in place
-        np.testing.assert_array_equal(current, new)
+        # The new array is attached verbatim; nothing is copied
+        assert test_arrmgr.host.arr1.array is new
+        np.testing.assert_array_equal(current, [1, 2, 3])
 
     def test_chunk_placeholders(self, test_arrmgr):
         """Test next_chunk method (placeholder implementation)"""
@@ -2502,7 +2516,9 @@ class TestUpdateHostArrayRemainingBranches:
         reallocation and overwrite and the array is attached."""
         test_arrmgr._needs_reallocation = []
         test_arrmgr._needs_overwrite = []
-        new = np.array([7.0, 8.0, 9.0])
+        new = np.array(
+            [7.0, 8.0, 9.0], dtype=test_arrmgr.host.arr1.dtype
+        )
 
         test_arrmgr._update_host_array(new, None, "arr1")
 

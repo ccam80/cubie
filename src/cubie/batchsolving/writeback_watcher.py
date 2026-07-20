@@ -2,9 +2,6 @@
 
 Published Classes
 -----------------
-:class:`PendingBuffer`
-    Data structure pairing a pinned buffer with its writeback target.
-
 :class:`WritebackTask`
     Container associating a CUDA event with a pinned buffer, host target,
     and pool for release after completion.
@@ -32,21 +29,9 @@ from attrs.validators import (
     optional as attrsval_optional,
 )
 from numpy import ndarray
-from numpy.typing import NDArray
 
 from cubie.cuda_simsafe import CUDA_SIMULATION
 from cubie.memory.chunk_buffer_pool import PinnedBuffer, ChunkBufferPool
-
-
-@define
-class PendingBuffer:
-    """Data structure for pending writeback buffers."""
-
-    buffer: PinnedBuffer
-    target_array: NDArray
-    array_name: str
-    data_shape: tuple
-    buffer_pool: ChunkBufferPool
 
 
 @define
@@ -81,20 +66,6 @@ class WritebackTask:
     data_shape: tuple = field(
         default=None, validator=attrsval_optional(attrsval_instance_of(tuple))
     )
-
-    @classmethod
-    def from_pending_buffer(
-        cls, pending_buffer: "PendingBuffer", event
-    ) -> "WritebackTask":
-        """Create WritebackTask from PendingBuffer and event."""
-        return cls(
-            event=event,
-            buffer=pending_buffer.buffer,
-            target_array=pending_buffer.target_array,
-            buffer_pool=pending_buffer.buffer_pool,
-            array_name=pending_buffer.array_name,
-            data_shape=pending_buffer.data_shape,
-        )
 
 
 class WritebackWatcher:
@@ -156,24 +127,6 @@ class WritebackWatcher:
         self._queue.put(task)
         # Start thread if not running
         self.start()
-
-    def submit_from_pending_buffer(
-        self,
-        pending_buffer: "PendingBuffer",
-        event: object,
-    ) -> None:
-        """Submit a writeback task from a PendingBuffer.
-
-        Parameters
-        ----------
-        pending_buffer
-            PendingBuffer containing writeback info.
-        event
-            CUDA event to monitor for completion.
-        """
-        self._submit_task(
-            WritebackTask.from_pending_buffer(pending_buffer, event)
-        )
 
     def submit(
         self,

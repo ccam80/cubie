@@ -1,11 +1,13 @@
 """Solver resource cleanup tests."""
 
 import gc
+from pathlib import Path
 
 import numpy as np
 import pytest
 
 from cubie.batchsolving.solver import Solver, solve_ivp
+from cubie.batchsolving.solveresult import SolveResult
 from cubie.cuda_simsafe import cuda, CUDA_SIMULATION
 from cubie.memory.mem_manager import MemoryManager
 from tests._utils import _build_solver_instance
@@ -83,7 +85,13 @@ def _registered_bytes(manager, ids):
 def test_solver_releases_registry_on_gc(
     system, batch_input_arrays, thread_mem_manager
 ):
-    """Collection releases registry entries and buffers."""
+    """Collection defers teardown to the manager's next entry point.
+
+    GC finalizers only record the teardown — running it inside the
+    collection could mutate the registry while the manager iterates
+    it — so the entries survive gc.collect() and disappear once any
+    manager entry point drains the recorded teardowns.
+    """
     manager = thread_mem_manager
     solver = Solver(system, algorithm="euler", dt=0.01, memory_manager=manager)
     y0, params = batch_input_arrays
@@ -96,7 +104,11 @@ def test_solver_releases_registry_on_gc(
     del solver
     gc.collect()
 
+    assert len(manager._pending_teardowns) > 0
+    manager._purge_dead_instances()
+
     assert _still_registered(manager, ids) == []
+    assert manager._pending_teardowns == []
 
 
 def test_close_releases_registry_immediately(
@@ -190,6 +202,11 @@ def test_solve_ivp_releases_temporary_solver(
 ):
     """solve_ivp releases its temporary solver."""
     manager = thread_mem_manager
+    # Reclaim earlier tests' dead registrants first: the baseline
+    # must not contain entries whose deferred teardown would drain
+    # during solve_ivp's own manager calls.
+    gc.collect()
+    manager._purge_dead_instances()
     baseline = set(manager.registry)
     y0, params = batch_input_arrays
 
@@ -204,6 +221,38 @@ def test_solve_ivp_releases_temporary_solver(
     )
 
     assert set(manager.registry) == baseline
+
+
+def test_solve_ivp_spill_survives_solver_close(
+    system, batch_input_arrays, tmp_path
+):
+    """Spilled results remain readable after temporary solver cleanup."""
+    y0, params = batch_input_arrays
+    result = solve_ivp(
+        system,
+        y0,
+        params,
+        duration=0.1,
+        grid_type="verbatim",
+        dt=0.01,
+        host_spill_threshold=1,
+        spill_directory=tmp_path,
+    )
+    assert isinstance(result, SolveResult)
+    spill_paths = [
+        Path(array._cubie_spill_path)
+        for array in (result.state, result.status_codes)
+        if isinstance(array, np.memmap)
+    ]
+    try:
+        assert spill_paths
+        assert all(path.exists() for path in spill_paths)
+        assert np.isfinite(
+            np.array(result.time_domain_array, copy=True)
+        ).all()
+    finally:
+        result.close()
+    assert all(not path.exists() for path in spill_paths)
 
 
 @pytest.mark.nocudasim
@@ -288,4 +337,8 @@ def test_repeated_solvers_do_not_grow_registry(
         del solver
         gc.collect()
 
+    # Each Solver construction is a manager entry point, so every
+    # iteration reclaims its predecessor's deferred teardown; one
+    # final drain covers the last solver.
+    manager._purge_dead_instances()
     assert len(manager.registry) <= baseline
