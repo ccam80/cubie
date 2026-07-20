@@ -148,6 +148,26 @@ STEP_CASES = [
         id="dirk-l-stable-4",
         marks=pytest.mark.specific_algos,
     ),
+    pytest.param(
+        {"algorithm": "kvaerno3", "step_controller": "fixed"},
+        id="dirk-kvaerno3-fixed",
+        marks=pytest.mark.specific_algos,
+    ),
+    pytest.param(
+        {"algorithm": "kvaerno3", "step_controller": "pid"},
+        id="dirk-kvaerno3-adaptive",
+        marks=pytest.mark.specific_algos,
+    ),
+    pytest.param(
+        {"algorithm": "kvaerno5", "step_controller": "fixed"},
+        id="dirk-kvaerno5-fixed",
+        marks=pytest.mark.specific_algos,
+    ),
+    pytest.param(
+        {"algorithm": "kvaerno5", "step_controller": "pid"},
+        id="dirk-kvaerno5-adaptive",
+        marks=pytest.mark.specific_algos,
+    ),
     # Specific FIRK tableaus
     pytest.param(
         {"algorithm": "radau", "step_controller": "i"},
