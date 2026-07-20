@@ -1,0 +1,21 @@
+cubie_alias,julia_expr,order,family,exact,notes
+euler,Euler(),1,erk,true,
+heun-21,Heun(),2,erk,true,
+bogacki-shampine-32,BS3(),3,erk,true,
+classical-rk4,RK4(),4,erk,true,
+dormand-prince-54,DP5(),5,erk,true,
+cash-karp-54,ExplicitRK(tableau = construct_cash_karp_54(Float32)),5,erk,true,published tableau via OrdinaryDiffEq ExplicitRK; constructors were removed from DiffEqDevTools 3.x
+fehlberg-45,ExplicitRK(tableau = construct_fehlberg_45(Float32)),5,erk,true,published tableau via OrdinaryDiffEq ExplicitRK; constructors were removed from DiffEqDevTools 3.x
+dormand-prince-853,DP8(),8,erk,true,
+tsit5,Tsit5(),5,erk,true,
+vern7,Vern7(),7,erk,true,
+backwards_euler,ImplicitEuler(),1,implicit,true,
+crank_nicolson,Trapezoid(),2,implicit,true,
+trapezoidal_dirk,Trapezoid(),2,dirk,true,
+implicit_midpoint,ImplicitMidpoint(),2,dirk,true,
+sdirk_2_2,SDIRK22(),2,dirk,false,OrdinaryDiffEq's SDIRK22 constructor returns Trapezoid (upstream alias) — same order but not Alexander's tableau
+l_stable_sdirk_4,Hairer4(),4,dirk,true,Hairer–Wanner SDIRK4 gamma=1/4; tableau verified identical
+radau_iia_5,RadauIIA5(),5,firk,true,
+ros3p,ROS3P(),3,rosenbrock,true,
+rodas3p,Rodas3P(),3,rosenbrock,true,
+rosenbrock23_sciml,Rosenbrock23(),2,rosenbrock,true,

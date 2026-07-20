@@ -95,11 +95,11 @@ is specific to the solvers.
 
 ### Testing
 Solver behaviour is exercised through the implicit algorithm steps under
-`tests/integrators/algorithms/`. **Critical:** these device functions are mirrored
-(with added logging) in `tests/integrators/algorithms/instrumented/matrix_free_solvers.py`
-(`InstrumentedLinearSolver` / `InstrumentedNewtonKrylov`, overriding only `build()`).
-Any change to a device function's algorithm, signature, buffers, or status logic
-must be mirrored there. Run e.g.
+`tests/integrators/algorithms/`, verified against the plain CPU reference
+solvers in `tests/integrators/cpu_reference/cpu_utils.py`
+(`newton_solve`, `krylov_solve`). Any change to a device function's
+algorithm, signature, buffers, or status logic must be replicated in its
+CPU reference counterpart. Run e.g.
 `pytest tests/integrators/algorithms -k "newton or krylov or implicit"`.
 
 ## Dependencies

@@ -34,10 +34,6 @@ from cubie.integrators.algorithms.generic_rosenbrockw_tableaus import (
     RosenbrockTableau,
 )
 
-from tests.integrators.algorithms.instrumented import (
-    create_instrumentation_host_buffers,
-)
-
 from .cpu_ode_system import CPUODESystem
 from .cpu_utils import (
     Array,
@@ -49,9 +45,6 @@ from .cpu_utils import (
     _encode_solver_status,
     krylov_solve,
 )
-
-from ..algorithms.instrumented import InstrumentationHostBuffers
-LoggingBuffers = InstrumentationHostBuffers
 
 
 class CPUStep:
@@ -70,7 +63,6 @@ class CPUStep:
         linear_rtol: float = 0.0,
         linear_correction_type: str = "minimal_residual",
         preconditioner_order: int = 2,
-        instrument: bool = False,
         tableau: Optional[ButcherTableau] = None,
     ) -> None:
         self.evaluator = evaluator
@@ -101,7 +93,6 @@ class CPUStep:
         # Contraction history persisted between Newton solves.
         self._newton_prev_theta = np.zeros(1, dtype=self.precision)
         self.tableau = tableau
-        self.instrument = instrument
 
         # Cached tableau-derived values (computed once at init)
         self._stage_count: Optional[int] = None
@@ -225,75 +216,6 @@ class CPUStep:
             return None
         return self._gamma
 
-    def _create_logging_buffers(self, stage_count: int) -> LoggingBuffers:
-        """Return logging buffers sized for ``stage_count`` stages."""
-
-        return create_instrumentation_host_buffers(
-            precision=self.precision,
-            stage_count=stage_count,
-            state_size=self._state_size,
-            observable_size=self.evaluator.system.sizes.observables,
-            driver_size=self.evaluator.system.sizes.drivers,
-            newton_max_iters=self._newton_max_iters,
-            linear_max_iters=self._linear_max_iters,
-        )
-
-    def _build_newton_logging_kwargs(
-        self,
-        *,
-        stage_index: int,
-        logging: Optional[LoggingBuffers],
-    ) -> dict[str, object]:
-        """Return keyword arguments enabling Newton logging when requested."""
-
-        if logging is None:
-            return {"instrumented": False, "stage_index": stage_index}
-        return {
-            "stage_index": stage_index,
-            "instrumented": True,
-            "newton_initial_guesses": logging.newton_initial_guesses,
-            "newton_iteration_guesses": logging.newton_iteration_guesses,
-            "newton_residuals": logging.newton_residuals,
-            "newton_squared_norms": logging.newton_squared_norms,
-            "linear_initial_guesses": logging.linear_initial_guesses,
-            "linear_iteration_guesses": logging.linear_iteration_guesses,
-            "linear_residuals": logging.linear_residuals,
-            "linear_squared_norms": logging.linear_squared_norms,
-            "linear_preconditioned_vectors": (
-                logging.linear_preconditioned_vectors
-            ),
-        }
-
-    def _logging_result_kwargs(
-        self,
-        logging: Optional[LoggingBuffers],
-    ) -> dict[str, object]:
-        """Return keyword arguments for :func:`make_step_result`."""
-
-        if logging is None:
-            return {}
-        return {
-            "stage_count": logging.stage_count,
-            "residuals": logging.residuals,
-            "jacobian_updates": logging.jacobian_updates,
-            "stage_states": logging.stage_states,
-            "stage_derivatives": logging.stage_derivatives,
-            "stage_observables": logging.stage_observables,
-            "stage_drivers": logging.stage_drivers,
-            "stage_increments": logging.stage_increments,
-            "newton_initial_guesses": logging.newton_initial_guesses,
-            "newton_iteration_guesses": logging.newton_iteration_guesses,
-            "newton_residuals": logging.newton_residuals,
-            "newton_squared_norms": logging.newton_squared_norms,
-            "linear_initial_guesses": logging.linear_initial_guesses,
-            "linear_iteration_guesses": logging.linear_iteration_guesses,
-            "linear_residuals": logging.linear_residuals,
-            "linear_squared_norms": logging.linear_squared_norms,
-            "linear_preconditioned_vectors": (
-                logging.linear_preconditioned_vectors
-            ),
-        }
-
     def step(self, **_: object) -> StepResultLike:
         """Execute a single integration step."""
 
@@ -307,52 +229,15 @@ class CPUStep:
         error: Array,
         status: int,
         niters: int,
-        stage_count: Optional[int] = None,
-        residuals: Optional[Array] = None,
-        jacobian_updates: Optional[Array] = None,
-        stage_states: Optional[Array] = None,
-        stage_derivatives: Optional[Array] = None,
-        stage_observables: Optional[Array] = None,
-        stage_drivers: Optional[Array] = None,
-        stage_increments: Optional[Array] = None,
-        newton_initial_guesses: Optional[Array] = None,
-        newton_iteration_guesses: Optional[Array] = None,
-        newton_residuals: Optional[Array] = None,
-        newton_squared_norms: Optional[Array] = None,
-        linear_initial_guesses: Optional[Array] = None,
-        linear_iteration_guesses: Optional[Array] = None,
-        linear_residuals: Optional[Array] = None,
-        linear_squared_norms: Optional[Array] = None,
-        linear_preconditioned_vectors: Optional[Array] = None,
-        extra_vectors: Optional[dict[str, Array]] = None,
     ) -> StepResultLike:
-        """Return a step result honoring the instrumentation setting."""
+        """Return a step result."""
 
         return make_step_result(
-            instrument=self.instrument,
             state=state,
             observables=observables,
             error=error,
             status=status,
             niters=niters,
-            stage_count=stage_count,
-            residuals=residuals,
-            jacobian_updates=jacobian_updates,
-            stage_states=stage_states,
-            stage_derivatives=stage_derivatives,
-            stage_observables=stage_observables,
-            stage_drivers=stage_drivers,
-            stage_increments=stage_increments,
-            newton_initial_guesses=newton_initial_guesses,
-            newton_iteration_guesses=newton_iteration_guesses,
-            newton_residuals=newton_residuals,
-            newton_squared_norms=newton_squared_norms,
-            linear_initial_guesses=linear_initial_guesses,
-            linear_iteration_guesses=linear_iteration_guesses,
-            linear_residuals=linear_residuals,
-            linear_squared_norms=linear_squared_norms,
-            linear_preconditioned_vectors=linear_preconditioned_vectors,
-            extra_vectors=extra_vectors,
         )
 
     def ensure_array(
@@ -435,13 +320,6 @@ class CPUStep:
         rhs: Array,
         *,
         initial_guess: Optional[Array] = None,
-        stage_index: int = 0,
-        instrumented: bool = False,
-        logging_initial_guess: Optional[Array] = None,
-        logging_iteration_guesses: Optional[Array] = None,
-        logging_residuals: Optional[Array] = None,
-        logging_squared_norms: Optional[Array] = None,
-        logging_preconditioned_vectors: Optional[Array] = None,
     ) -> tuple[Array, bool, int]:
         coefficients = np.asarray(matrix, dtype=self.precision)
         vector = np.asarray(rhs, dtype=self.precision)
@@ -456,13 +334,6 @@ class CPUStep:
             neumann_order=self._preconditioner_order,
             correction_type=self._linear_correction_type,
             initial_guess=initial_guess,
-            instrumented=instrumented,
-            logging_initial_guess=logging_initial_guess,
-            logging_iteration_guesses=logging_iteration_guesses,
-            logging_residuals=logging_residuals,
-            logging_squared_norms=logging_squared_norms,
-            logging_preconditioned_vectors=logging_preconditioned_vectors,
-            stage_index=stage_index,
         )
         return np.asarray(solution, dtype=self.precision), converged, niters
 
@@ -560,25 +431,12 @@ class CPUExplicitEulerStep(CPUStep):
         )
         error = np.zeros_like(state_vector, dtype=self.precision)
         status = self._status(True, 0)
-        logging = None
-        if self.instrument:
-            logging = self._create_logging_buffers(stage_count=1)
-            logging.stage_states[0, :] = state_vector
-            logging.stage_derivatives[0, :] = derivative
-            logging.stage_observables[0, :] = observables_now
-            logging.stage_drivers[0, :] = drivers_now
-            logging.stage_increments[0, :] = dt_value * derivative
-        result_kwargs = self._logging_result_kwargs(logging)
-        result_kwargs["stage_derivatives"] = (
-            logging.stage_derivatives if logging else None
-        )
         return self._make_result(
             state=new_state,
             observables=observables,
             error=error,
             status=status,
             niters=0,
-            **result_kwargs,
         )
 
 
@@ -598,7 +456,6 @@ class CPUBackwardEulerStep(CPUStep):
         linear_rtol: float = 0.0,
         linear_correction_type: str = "minimal_residual",
         preconditioner_order: int = 2,
-        instrument: bool = False,
     ) -> None:
         super().__init__(
             evaluator,
@@ -611,7 +468,6 @@ class CPUBackwardEulerStep(CPUStep):
             linear_max_iters=linear_max_iters,
             linear_correction_type=linear_correction_type,
             preconditioner_order=preconditioner_order,
-            instrument=instrument,
         )
         self._be_state = np.zeros(self._state_size, dtype=self.precision)
         self._be_params = np.zeros(0, dtype=self.precision)
@@ -679,13 +535,6 @@ class CPUBackwardEulerStep(CPUStep):
         else:
             guess = self.ensure_array(initial_guess, copy=True)
 
-        logging = None
-        if self.instrument:
-            logging = self._create_logging_buffers(stage_count=1)
-        newton_kwargs = self._build_newton_logging_kwargs(
-            stage_index=0,
-            logging=logging,
-        )
         def correction_norm(update, iterate):
             stage_state = state_vector + iterate
             return correction_norm_reference(
@@ -707,7 +556,6 @@ class CPUBackwardEulerStep(CPUStep):
             newton_max_iters=self._newton_max_iters,
             correction_norm=correction_norm,
             prev_theta_store=self._newton_prev_theta,
-            **newton_kwargs,
         )
         next_state = state_vector + increment
 
@@ -720,31 +568,12 @@ class CPUBackwardEulerStep(CPUStep):
         error = np.zeros_like(next_state, dtype=self.precision)
         status = self._status(converged, niters)
         self._be_increment = increment
-        if logging:
-            residual_vector = self.residual(increment)
-            logging.residuals[0, :] = residual_vector
-            logging.stage_states[0, :] = next_state
-            logging.stage_derivatives[0, :] = self.rhs(
-                next_state,
-                params_array,
-                drivers_next,
-                observables,
-                next_time,
-            )
-            logging.stage_observables[0, :] = observables
-            logging.stage_drivers[0, :] = drivers_next
-            logging.stage_increments[0, :] = increment
-        result_kwargs = self._logging_result_kwargs(logging)
-        result_kwargs["stage_derivatives"] = (
-            logging.stage_derivatives if logging else None
-        )
         return self._make_result(
             state=next_state,
             observables=observables,
             error=error,
             status=status,
             niters=niters,
-            **result_kwargs,
         )
 
 
@@ -765,7 +594,6 @@ class CPUCrankNicolsonStep(CPUStep):
         linear_correction_type: str = "minimal_residual",
         preconditioner_order: int = 2,
         backward_step: Optional[CPUBackwardEulerStep] = None,
-        instrument: bool = False,
     ) -> None:
         super().__init__(
             evaluator,
@@ -778,7 +606,6 @@ class CPUCrankNicolsonStep(CPUStep):
             linear_max_iters=linear_max_iters,
             linear_correction_type=linear_correction_type,
             preconditioner_order=preconditioner_order,
-            instrument=instrument,
         )
         self._cn_previous_state = np.zeros(
             self._state_size, dtype=self.precision
@@ -801,7 +628,6 @@ class CPUCrankNicolsonStep(CPUStep):
                 linear_max_iters=linear_max_iters,
                 linear_correction_type=linear_correction_type,
                 preconditioner_order=preconditioner_order,
-                instrument=instrument,
             )
             # The device solver shares one contraction history across
             # the trapezoidal and backward Euler stages.
@@ -887,13 +713,6 @@ class CPUCrankNicolsonStep(CPUStep):
         self._cn_base_state = state_vector + base_increment * derivative_now
 
         guess = dt_value * derivative_now
-        logging = None
-        if self.instrument:
-            logging = self._create_logging_buffers(stage_count=1)
-        newton_kwargs = self._build_newton_logging_kwargs(
-            stage_index=0,
-            logging=logging,
-        )
 
         def correction_norm(update, iterate):
             stage_state = (
@@ -919,7 +738,6 @@ class CPUCrankNicolsonStep(CPUStep):
             newton_max_iters=self._newton_max_iters,
             correction_norm=correction_norm,
             prev_theta_store=self._newton_prev_theta,
-            **newton_kwargs,
         )
         stage_increment = self._cn_stage_coefficient * increment
         next_state = self._cn_base_state + stage_increment
@@ -940,31 +758,12 @@ class CPUCrankNicolsonStep(CPUStep):
         )
         error = next_state - backward_result.state
         status = self._status(converged, niters) | backward_result.status
-        if logging:
-            residual_vector = self.residual(increment)
-            logging.residuals[0, :] = residual_vector
-            logging.stage_states[0, :] = next_state
-            logging.stage_derivatives[0, :] = self.rhs(
-                next_state,
-                params_array,
-                drivers_next,
-                observables,
-                next_time,
-            )
-            logging.stage_observables[0, :] = observables
-            logging.stage_drivers[0, :] = drivers_next
-            logging.stage_increments[0, :] = full_increment
-        result_kwargs = self._logging_result_kwargs(logging)
-        result_kwargs["stage_derivatives"] = (
-            logging.stage_derivatives if logging else None
-        )
         return self._make_result(
             state=next_state,
             observables=observables,
             error=error,
             status=status,
             niters=niters,
-            **result_kwargs,
         )
 
 
@@ -985,7 +784,6 @@ class CPUERKStep(CPUStep):
         linear_correction_type: str = "minimal_residual",
         preconditioner_order: int = 2,
         tableau: Optional[ERKTableau] = None,
-        instrument: bool = False,
     ) -> None:
         resolved = DEFAULT_ERK_TABLEAU if tableau is None else tableau
         super().__init__(
@@ -999,7 +797,6 @@ class CPUERKStep(CPUStep):
             linear_max_iters=linear_max_iters,
             linear_correction_type=linear_correction_type,
             preconditioner_order=preconditioner_order,
-            instrument=instrument,
             tableau=resolved,
         )
 
@@ -1032,9 +829,6 @@ class CPUERKStep(CPUStep):
             (stage_count, state_dim),
             dtype=self.precision,
         )
-        logging = None
-        if self.instrument:
-            logging = self._create_logging_buffers(stage_count=stage_count)
 
         for stage_index in range(stage_count):
             # Rounding-sensitive: scale by dt once, after accumulating.
@@ -1048,9 +842,6 @@ class CPUERKStep(CPUStep):
             stage_states[stage_index, :] = stage_state
             stage_time = current_time + c_nodes[stage_index] * dt_value
             drivers_stage = self.drivers(stage_time)
-            if logging:
-                logging.stage_drivers[stage_index, :] = drivers_stage
-                logging.stage_states[stage_index, :] = stage_state
             observables_stage = self.observables(
                 stage_state,
                 params_array,
@@ -1065,9 +856,6 @@ class CPUERKStep(CPUStep):
                 stage_time,
             )
             stage_derivatives[stage_index, :] = derivative
-            if logging:
-                logging.stage_observables[stage_index, :] = observables_stage
-                logging.stage_increments[stage_index, :] = dt_value * derivative
 
         # A stage whose A row equals b (or b_hat) already holds the
         # output (or embedded) solution.
@@ -1105,16 +893,12 @@ class CPUERKStep(CPUStep):
             end_time,
         )
         status = self._status(True, 0)
-        stage_derivative_output = stage_derivatives if logging else None
-        result_kwargs = self._logging_result_kwargs(logging)
-        result_kwargs["stage_derivatives"] = stage_derivative_output
         return self._make_result(
             state=new_state,
             observables=observables,
             error=error,
             status=status,
             niters=0,
-            **result_kwargs,
         )
 
 
@@ -1135,7 +919,6 @@ class CPUDIRKStep(CPUStep):
         linear_correction_type: str = "minimal_residual",
         preconditioner_order: int = 2,
         tableau: Optional[DIRKTableau] = None,
-        instrument: bool = False,
     ) -> None:
         resolved = DEFAULT_DIRK_TABLEAU if tableau is None else tableau
         super().__init__(
@@ -1149,7 +932,6 @@ class CPUDIRKStep(CPUStep):
             linear_max_iters=linear_max_iters,
             linear_correction_type=linear_correction_type,
             preconditioner_order=preconditioner_order,
-            instrument=instrument,
             tableau=resolved,
         )
         self._dirk_reference = np.zeros(
@@ -1222,9 +1004,6 @@ class CPUDIRKStep(CPUStep):
             (stage_count, state_dim),
             dtype=self.precision,
         )
-        logging = None
-        if self.instrument:
-            logging = self._create_logging_buffers(stage_count=stage_count)
 
         all_converged = True
         total_iters = 0
@@ -1261,12 +1040,6 @@ class CPUDIRKStep(CPUStep):
                 )
                 stage_derivatives[stage_index, :] = derivative
                 stage_states[stage_index, :] = stage_state
-                if logging:
-                    logging.stage_states[stage_index, :] = stage_state
-                    logging.stage_observables[stage_index, :] = (
-                        observables_stage
-                    )
-                    logging.stage_drivers[stage_index, :] = drivers_stage
                 continue
 
             base_state = stage_state.copy()
@@ -1276,14 +1049,6 @@ class CPUDIRKStep(CPUStep):
             self._dirk_time = stage_time
             self._dirk_dt = dt_value
             self._dirk_diag_coeff = diag_coeff
-
-            if logging:
-                logging.stage_states[stage_index, :] = stage_state
-
-            newton_kwargs = self._build_newton_logging_kwargs(
-                stage_index=stage_index,
-                logging=logging,
-            )
 
             def correction_norm(update, iterate):
                 stage_value = (
@@ -1309,7 +1074,6 @@ class CPUDIRKStep(CPUStep):
                 newton_max_iters=self._newton_max_iters,
                 correction_norm=correction_norm,
                 prev_theta_store=self._newton_prev_theta,
-                **newton_kwargs,
             )
 
             solved_state = base_state + diag_coeff * increment
@@ -1330,14 +1094,6 @@ class CPUDIRKStep(CPUStep):
                 stage_time,
             )
             stage_derivatives[stage_index, :] = derivative
-            if logging:
-                logging.stage_states[stage_index, :] = solved_state
-                logging.residuals[stage_index, :] = self.residual(increment)
-                logging.stage_increments[stage_index, :] = (
-                    diag_coeff * increment
-                )
-                logging.stage_observables[stage_index, :] = observables_stage
-                logging.stage_drivers[stage_index, :] = drivers_stage
             self._dirk_increment = increment
 
         # A stage whose A row equals b (or b_hat) already holds the
@@ -1375,16 +1131,12 @@ class CPUDIRKStep(CPUStep):
             end_time,
         )
         status = self._status(all_converged, total_iters)
-        stage_derivative_output = stage_derivatives if logging else None
-        result_kwargs = self._logging_result_kwargs(logging)
-        result_kwargs["stage_derivatives"] = stage_derivative_output
         return self._make_result(
             state=new_state,
             observables=observables,
             error=error_accum,
             status=status,
             niters=total_iters,
-            **result_kwargs,
         )
 
 
@@ -1405,7 +1157,6 @@ class CPUFIRKStep(CPUStep):
         linear_correction_type: str = "minimal_residual",
         preconditioner_order: int = 2,
         tableau: Optional[FIRKTableau] = None,
-        instrument: bool = False,
     ) -> None:
         resolved = DEFAULT_FIRK_TABLEAU if tableau is None else tableau
         super().__init__(
@@ -1419,7 +1170,6 @@ class CPUFIRKStep(CPUStep):
             linear_max_iters=linear_max_iters,
             linear_correction_type=linear_correction_type,
             preconditioner_order=preconditioner_order,
-            instrument=instrument,
             tableau=resolved,
         )
         self._firk_state = np.zeros(self._state_size, dtype=self.precision)
@@ -1428,19 +1178,6 @@ class CPUFIRKStep(CPUStep):
         self._firk_time = self.precision(0.0)
         self._firk_dt = self.precision(0.0)
         self._firk_stage_increments = None
-
-    def _create_logging_buffers(self, stage_count: int):
-        """Return logging buffers sized for FIRK with flattened solver."""
-        return create_instrumentation_host_buffers(
-            precision=self.precision,
-            stage_count=stage_count,
-            state_size=self._state_size,
-            observable_size=self.evaluator.system.sizes.observables,
-            driver_size=self.evaluator.system.sizes.drivers,
-            newton_max_iters=self._newton_max_iters,
-            linear_max_iters=self._linear_max_iters,
-            flattened_solver=True,
-        )
 
     def residual(self, candidate: Array) -> Array:
         """Compute the residual for the fully implicit stage equations.
@@ -1589,15 +1326,6 @@ class CPUFIRKStep(CPUStep):
         if self._firk_stage_increments is not None:
             guess = self._firk_stage_increments.copy()
 
-        logging = None
-        if self.instrument:
-            logging = self._create_logging_buffers(stage_count=stage_count)
-
-        newton_kwargs = self._build_newton_logging_kwargs(
-            stage_index=0,
-            logging=logging,
-        )
-
         def correction_norm(update, iterate):
             stage_values = np.zeros(all_dim, dtype=self.precision)
             for stage_idx in range(stage_count):
@@ -1631,25 +1359,15 @@ class CPUFIRKStep(CPUStep):
             newton_max_iters=self._newton_max_iters,
             correction_norm=correction_norm,
             prev_theta_store=self._newton_prev_theta,
-            **newton_kwargs,
         )
 
-        # Extract individual stage increments and compute stage derivatives
-        stage_derivatives = np.zeros(
-            (stage_count, state_dim),
-            dtype=self.precision,
-        )
+        # Reconstruct the stage states from the solved increments; the
+        # A-row shortcut below reads them directly.
         stage_states = np.zeros(
             (stage_count, state_dim),
             dtype=self.precision,
         )
-
         for stage_idx in range(stage_count):
-            k_start = stage_idx * state_dim
-            k_end = (stage_idx + 1) * state_dim
-            k_i = stage_increments_flat[k_start:k_end]
-
-            # Compute the stage state
             stage_state = state_vector.copy()
             for j in range(stage_count):
                 j_start = j * state_dim
@@ -1657,30 +1375,6 @@ class CPUFIRKStep(CPUStep):
                 k_j = stage_increments_flat[j_start:j_end]
                 stage_state += a_matrix[stage_idx, j] * k_j
             stage_states[stage_idx, :] = stage_state
-
-            stage_time = current_time + c_nodes[stage_idx] * dt_value
-            drivers_stage = stage_drivers[stage_idx]
-            observables_stage = self.observables(
-                stage_state,
-                params_array,
-                drivers_stage,
-                stage_time,
-            )
-            derivative = self.rhs(
-                stage_state,
-                params_array,
-                drivers_stage,
-                observables_stage,
-                stage_time,
-            )
-            stage_derivatives[stage_idx, :] = derivative
-            
-            if logging:
-                logging.stage_states[stage_idx, :] = stage_state
-                logging.stage_observables[stage_idx, :] = observables_stage
-                logging.stage_drivers[stage_idx, :] = drivers_stage
-                logging.stage_increments[stage_idx, :] = k_i
-                logging.residuals[stage_idx, :] = self.residual(stage_increments_flat)[k_start:k_end]
 
         def kahan_weighted_increment_sum(weights):
             """Kahan-sum the weighted stage increments."""
@@ -1727,16 +1421,12 @@ class CPUFIRKStep(CPUStep):
         self._firk_stage_increments = stage_increments_flat.copy()
 
         status = self._status(converged, niters)
-        stage_derivative_output = stage_derivatives if logging else None
-        result_kwargs = self._logging_result_kwargs(logging)
-        result_kwargs["stage_derivatives"] = stage_derivative_output
         return self._make_result(
             state=new_state,
             observables=observables,
             error=error_accum,
             status=status,
             niters=niters,
-            **result_kwargs,
         )
 
 
@@ -1757,7 +1447,6 @@ class CPURosenbrockWStep(CPUStep):
         linear_correction_type: str = "minimal_residual",
         preconditioner_order: int = 2,
         tableau: Optional[RosenbrockTableau] = None,
-        instrument: bool = False,
     ) -> None:
         resolved = (
             DEFAULT_ROSENBROCK_TABLEAU if tableau is None else tableau
@@ -1773,7 +1462,6 @@ class CPURosenbrockWStep(CPUStep):
             linear_max_iters=linear_max_iters,
             linear_correction_type=linear_correction_type,
             preconditioner_order=preconditioner_order,
-            instrument=instrument,
             tableau=resolved,
         )
         self._increment_cache = np.zeros(self._state_size, dtype=self.precision)
@@ -1845,46 +1533,18 @@ class CPURosenbrockWStep(CPUStep):
             current_time,
         )
 
-        logging = None
-        if self.instrument:
-            logging = self._create_logging_buffers(stage_count=stage_count)
-
         stage_increments = np.zeros(
             (stage_count, state_dim),
             dtype=self.precision,
         )
-        stage_derivatives = np.zeros_like(stage_increments)
         state_accum = np.zeros(state_dim, dtype=self.precision)
         error_accum = np.zeros(state_dim, dtype=self.precision)
-
-        if logging:
-            logging.stage_states[0, :] = state_vector
-            logging.stage_drivers[0, :] = drivers_now
-            logging.stage_observables[0, :] = observables_now
-        stage_derivatives[0, :] = f_now
-        if logging:
-            logging.stage_derivatives[0, :] = f_now
 
         rhs_vector = (
                 f_now
                 + stage_gammas[0] * time_derivative_now
         ) * gamma * dt_value
-        if logging:
-            logging.residuals[0, :] = rhs_vector
 
-        linear_kwargs = {}
-        if logging:
-            linear_kwargs = {
-                "stage_index": 0,
-                "instrumented": True,
-                "logging_initial_guess": logging.linear_initial_guesses,
-                "logging_iteration_guesses": logging.linear_iteration_guesses,
-                "logging_residuals": logging.linear_residuals,
-                "logging_squared_norms": logging.linear_squared_norms,
-                "logging_preconditioned_vectors": (
-                    logging.linear_preconditioned_vectors
-                ),
-            }
         lhs_matrix = (
             self._identity - dt_value * gamma * jacobian_now
         )
@@ -1892,15 +1552,11 @@ class CPURosenbrockWStep(CPUStep):
             lhs_matrix,
             rhs_vector,
             initial_guess=self._increment_cache,
-            **linear_kwargs,
         )
         stage_increments[0, :] = stage_increment
         state_accum = state_accum + b_weights[0] * stage_increment
         if error_weights is not None:
             error_accum = error_accum + error_weights[0] * stage_increment
-        if logging:
-            logging.jacobian_updates[0, :] = stage_increment
-            logging.stage_increments[0, :] = stage_increment
 
         all_converged = bool(converged)
         total_iters = int(niters)
@@ -1928,7 +1584,6 @@ class CPURosenbrockWStep(CPUStep):
                 observables_stage,
                 stage_time,
             )
-            stage_derivatives[stage_index, :] = f_stage
             rhs_vector = (
                     f_stage
                     + stage_gammas[stage_index]
@@ -1943,38 +1598,15 @@ class CPURosenbrockWStep(CPUStep):
                     )
             rhs_vector = (rhs_vector + correction * idt) * gamma * dt_value
 
-            if logging:
-                logging.stage_states[stage_index, :] = stage_state
-                logging.stage_drivers[stage_index, :] = drivers_stage
-                logging.stage_observables[stage_index, :] = observables_stage
-                logging.stage_derivatives[stage_index, :] = f_stage
-                logging.residuals[stage_index, :] = rhs_vector
-
             lhs_matrix = (
                 self._identity
                 - dt_value * gamma * jacobian_now
             )
             initial_guess = stage_increments[stage_index - 1].copy()
-            linear_kwargs = {}
-            if logging:
-                linear_kwargs = {
-                    "stage_index": stage_index,
-                    "instrumented": True,
-                    "logging_initial_guess": logging.linear_initial_guesses,
-                    "logging_iteration_guesses": (
-                        logging.linear_iteration_guesses
-                    ),
-                    "logging_residuals": logging.linear_residuals,
-                    "logging_squared_norms": logging.linear_squared_norms,
-                    "logging_preconditioned_vectors": (
-                        logging.linear_preconditioned_vectors
-                    ),
-                }
             stage_increment, converged, niters = self.linear_solve(
                 lhs_matrix,
                 rhs_vector,
                 initial_guess=initial_guess,
-                **linear_kwargs,
             )
             stage_increments[stage_index, :] = stage_increment
             state_accum = state_accum + b_weights[stage_index] * stage_increment
@@ -1982,9 +1614,6 @@ class CPURosenbrockWStep(CPUStep):
                 error_accum = error_accum + (
                     error_weights[stage_index] * stage_increment
                 )
-            if logging:
-                logging.jacobian_updates[stage_index, :] = stage_increment
-                logging.stage_increments[stage_index, :] = stage_increment
             all_converged = all_converged and bool(converged)
             total_iters += int(niters)
 
@@ -2001,16 +1630,12 @@ class CPURosenbrockWStep(CPUStep):
         error_vector = (
             error_accum if error_weights is not None else np.zeros_like(state_vector)
         )
-        stage_derivative_output = stage_derivatives if logging else None
-        result_kwargs = self._logging_result_kwargs(logging)
-        result_kwargs["stage_derivatives"] = stage_derivative_output
         return self._make_result(
             state=new_state,
             observables=observables_end,
             error=error_vector,
             status=status,
             niters=total_iters,
-            **result_kwargs,
         )
 
 
@@ -2031,7 +1656,6 @@ class CPUBackwardEulerPCStep(CPUStep):
         linear_correction_type: str = "minimal_residual",
         preconditioner_order: int = 2,
         corrector: Optional[CPUBackwardEulerStep] = None,
-        instrument: bool = False,
     ) -> None:
         super().__init__(
             evaluator,
@@ -2044,7 +1668,6 @@ class CPUBackwardEulerPCStep(CPUStep):
             linear_max_iters=linear_max_iters,
             linear_correction_type=linear_correction_type,
             preconditioner_order=preconditioner_order,
-            instrument=instrument,
         )
         if corrector is None:
             corrector = CPUBackwardEulerStep(
@@ -2058,7 +1681,6 @@ class CPUBackwardEulerPCStep(CPUStep):
                 linear_max_iters=linear_max_iters,
                 linear_correction_type=linear_correction_type,
                 preconditioner_order=preconditioner_order,
-                instrument=instrument,
             )
         self._corrector = corrector
 
@@ -2186,7 +1808,6 @@ def get_ref_step_factory(
         linear_rtol: float = 0.0,
         linear_correction_type: str = "minimal_residual",
         preconditioner_order: int = 2,
-        instrument: bool = False,
     ) -> Callable:
         if tableau_value is None:
             return step_class(
@@ -2200,7 +1821,6 @@ def get_ref_step_factory(
                 linear_max_iters=linear_max_iters,
                 linear_correction_type=linear_correction_type,
                 preconditioner_order=preconditioner_order,
-                instrument=instrument,
             )
         return step_class(
             evaluator,
@@ -2213,7 +1833,6 @@ def get_ref_step_factory(
             linear_max_iters=linear_max_iters,
             linear_correction_type=linear_correction_type,
             preconditioner_order=preconditioner_order,
-            instrument=instrument,
             tableau=tableau_value,
         )
 
@@ -2234,7 +1853,6 @@ def get_ref_stepper(
     linear_correction_type: str = "minimal_residual",
     preconditioner_order: int = 2,
     tableau: Optional[Union[str, ButcherTableau]] = None,
-    instrument: bool = False,
 ) -> CPUStep:
     """Return a configured CPU reference stepper for ``algorithm``."""
 
@@ -2250,5 +1868,4 @@ def get_ref_stepper(
         linear_max_iters=linear_max_iters,
         linear_correction_type=linear_correction_type,
         preconditioner_order=preconditioner_order,
-        instrument=instrument,
     )

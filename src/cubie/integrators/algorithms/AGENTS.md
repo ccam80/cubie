@@ -15,11 +15,11 @@ See `CUDAFactory` (repo root) for the build/cache/`update`, buffer-registry, and
 attrs-config mechanics; CUDA-authoring *optimisation* patterns are in
 `../../writing_cuda_functions.md`. This file documents the algorithm specifics.
 
-> **Numerical correctness is critical, and every device function here is mirrored
-> (with logging only) under `tests/integrators/algorithms/instrumented/`** (solver code
-> too, in `instrumented/matrix_free_solvers.py`). Any change to an algorithm/solver
-> device function MUST be replicated in its instrumented copy — the copies differ only
-> by added log-array parameters and snapshot recording, never functional logic.
+> **Numerical correctness is critical.** Every device function here is
+> verified against a plain CPU reference implementation under
+> `tests/integrators/cpu_reference/algorithms.py`. Any change to an
+> algorithm/solver device function's numerical behaviour MUST be
+> replicated in its CPU reference counterpart.
 
 ## Key Files
 | File | Description |
@@ -115,10 +115,10 @@ attrs-config mechanics; CUDA-authoring *optimisation* patterns are in
   guidance: `../../writing_cuda_functions.md`.)
 
 ### Testing
-Tests under `tests/integrators/algorithms/` (+ the `instrumented/` mirror):
+Tests under `tests/integrators/algorithms/`:
 `test_step_algorithms.py`, `test_init.py`, `test_ode_explicitstep.py`,
 `test_ode_implicitstep.py`, `test_tableau_properties.py`, `test_*_tableaus.py`,
-`test_last_step_caching_integration.py`, `instrumented/test_instrumented.py`.
+`test_last_step_caching_integration.py`.
 
 ## Dependencies
 ### Internal

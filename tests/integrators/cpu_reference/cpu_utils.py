@@ -2,7 +2,7 @@
 
 import math
 import attrs
-from typing import Any, Callable, Optional, Sequence, Union
+from typing import Callable, Optional, Sequence, Union
 
 import numpy as np
 from numba import njit
@@ -180,73 +180,6 @@ def _compute_neumann_preconditioner(matrix: Array, order: int) -> Array:
     return neumann
 
 
-@njit(cache=True)
-def _log_krylov_iteration(
-    instrumented: bool,
-    stage_index: int,
-    index: int,
-    iterate: Array,
-    residual: Array,
-    squared_norm: np.floating,
-    direction: Array,
-    logging_iteration_guesses: Optional[Array],
-    logging_residuals: Optional[Array],
-    logging_squared_norms: Optional[Array],
-    logging_preconditioned_vectors: Optional[Array],
-) -> None:
-    """Record iteration diagnostics when instrumentation buffers are present."""
-
-    if not instrumented or index < 0:
-        return
-    if (
-        logging_iteration_guesses is not None
-        and index < logging_iteration_guesses.shape[1]
-    ):
-        logging_iteration_guesses[stage_index, index, :] = iterate
-    if logging_residuals is not None and index < logging_residuals.shape[1]:
-        logging_residuals[stage_index, index, :] = residual
-    if (
-        logging_squared_norms is not None
-        and index < logging_squared_norms.shape[1]
-    ):
-        logging_squared_norms[stage_index, index] = squared_norm
-    if (
-        logging_preconditioned_vectors is not None
-        and index < logging_preconditioned_vectors.shape[1]
-    ):
-        logging_preconditioned_vectors[stage_index, index, :] = direction
-
-
-@njit(cache=True)
-def _log_newton_iteration(
-    instrumented: bool,
-    stage_index: int,
-    index: int,
-    candidate: Array,
-    residual: Array,
-    squared_norm: np.floating,
-    logging_iteration_guesses: Optional[Array],
-    logging_residuals: Optional[Array],
-    logging_squared_norms: Optional[Array],
-) -> None:
-    """Record Newton diagnostics when logging buffers are available."""
-
-    if not instrumented or index < 0:
-        return
-    if (
-        logging_iteration_guesses is not None
-        and index < logging_iteration_guesses.shape[1]
-    ):
-        logging_iteration_guesses[stage_index, index, :] = candidate
-    if logging_residuals is not None and index < logging_residuals.shape[1]:
-        logging_residuals[stage_index, index, :] = residual
-    if (
-        logging_squared_norms is not None
-        and index < logging_squared_norms.shape[1]
-    ):
-        logging_squared_norms[stage_index, index] = squared_norm
-
-
 @attrs.define
 class StepResult:
     """Container describing the outcome of a single integration step."""
@@ -258,36 +191,7 @@ class StepResult:
     niters: int = 0
 
 
-@attrs.define(slots=True)
-class InstrumentedStepResult:
-    """Return container with per-stage diagnostics for a CPU step."""
-
-    state: Array
-    observables: Array
-    error: Array
-    residuals: Array
-    jacobian_updates: Array
-    stage_drivers: Array
-    stage_increments: Array
-    status: int = 0
-    niters: int = 0
-    stage_count: int = 0
-    stage_states: Union[Array, None] = None
-    stage_derivatives: Union[Array, None] = None
-    stage_observables: Union[Array, None] = None
-    newton_initial_guesses: Union[Array, None] = None
-    newton_iteration_guesses: Union[Array, None] = None
-    newton_residuals: Union[Array, None] = None
-    newton_squared_norms: Union[Array, None] = None
-    linear_initial_guesses: Union[Array, None] = None
-    linear_iteration_guesses: Union[Array, None] = None
-    linear_residuals: Union[Array, None] = None
-    linear_squared_norms: Union[Array, None] = None
-    linear_preconditioned_vectors: Union[Array, None] = None
-    extra_vectors: Optional[dict[str, Array]] = None
-
-
-StepResultLike = Union[StepResult, InstrumentedStepResult]
+StepResultLike = StepResult
 
 
 @njit(cache=True)
@@ -301,13 +205,6 @@ def _krylov_solve_dense_impl(
     has_initial_guess: bool,
     neumann_order: int,
     minimal_residual: bool,
-    instrumented: bool,
-    logging_initial_guess: Optional[Array],
-    logging_iteration_guesses: Optional[Array],
-    logging_residuals: Optional[Array],
-    logging_squared_norms: Optional[Array],
-    logging_preconditioned_vectors: Optional[Array],
-    stage_index: int,
 ) -> tuple[Array, bool, int]:
     """Return the Krylov solution for a dense operator matrix.
 
@@ -321,9 +218,6 @@ def _krylov_solve_dense_impl(
         zero = operator_matrix.dtype.type(0.0)
         for index in range(solution.shape[0]):
             solution[index] = zero
-
-    if instrumented and logging_initial_guess is not None:
-        logging_initial_guess[stage_index, :] = solution
 
     typed_one = operator_matrix.dtype.type(1.0)
     iteration_limit = max_iterations
@@ -371,20 +265,6 @@ def _krylov_solve_dense_impl(
             residual[index] = residual[index] - alpha * operator_buffer[index]
         residual_norm2 = _scaled_norm_impl(
             residual, solution, tolerance, rtol
-        )
-
-        _log_krylov_iteration(
-            instrumented=instrumented,
-            stage_index=stage_index,
-            index=iteration - 1,
-            iterate=solution,
-            residual=residual,
-            squared_norm=residual_norm2,
-            direction=direction,
-            logging_iteration_guesses=logging_iteration_guesses,
-            logging_residuals=logging_residuals,
-            logging_squared_norms=logging_squared_norms,
-            logging_preconditioned_vectors=logging_preconditioned_vectors,
         )
 
         if residual_norm2 <= typed_one:
@@ -518,17 +398,6 @@ def newton_solve(
     newton_rtol: np.floating = 0.0,
     correction_norm: Optional[Callable[[Array, Array], np.floating]] = None,
     prev_theta_store: Optional[Array] = None,
-    stage_index: int = 0,
-    instrumented: bool = False,
-    newton_initial_guesses: Optional[Array] = None,
-    newton_iteration_guesses: Optional[Array] = None,
-    newton_residuals: Optional[Array] = None,
-    newton_squared_norms: Optional[Array] = None,
-    linear_initial_guesses: Optional[Array] = None,
-    linear_iteration_guesses: Optional[Array] = None,
-    linear_residuals: Optional[Array] = None,
-    linear_squared_norms: Optional[Array] = None,
-    linear_preconditioned_vectors: Optional[Array] = None,
 ) -> tuple[Array, bool, int]:
     """Solve the nonlinear system on the CPU.
 
@@ -576,28 +445,6 @@ def newton_solve(
     # RMS norm of the previous accepted full-step correction.
     ndz_prev = typed_zero
 
-    if instrumented and newton_initial_guesses is not None:
-        newton_initial_guesses[stage_index, :] = state
-
-    log_index = 0
-    if instrumented:
-        residual = np.asarray(residual_fn(state), dtype=dtype)
-        entry_norm2 = _scaled_norm_impl(
-            residual, state, atol_value, rtol_value
-        )
-        _log_newton_iteration(
-            instrumented=True,
-            stage_index=stage_index,
-            index=log_index,
-            candidate=state,
-            residual=residual,
-            squared_norm=entry_norm2,
-            logging_iteration_guesses=newton_iteration_guesses,
-            logging_residuals=newton_residuals,
-            logging_squared_norms=newton_squared_norms,
-        )
-        log_index += 1
-
     converged = False
     failed = False
     iterations_used = 0
@@ -610,27 +457,11 @@ def newton_solve(
         jacobian = np.asarray(jacobian_fn(state), dtype=dtype)
 
         direction.fill(typed_zero)
-        linear_kwargs: dict[str, Any] = {"initial_guess": direction}
-        if instrumented:
-            slot = stage_index * max(iteration_limit, 1) + iteration
-            linear_kwargs.update(
-                {
-                    "stage_index": slot,
-                    "instrumented": True,
-                    "logging_initial_guess": linear_initial_guesses,
-                    "logging_iteration_guesses": linear_iteration_guesses,
-                    "logging_residuals": linear_residuals,
-                    "logging_squared_norms": linear_squared_norms,
-                    "logging_preconditioned_vectors": (
-                        linear_preconditioned_vectors
-                    ),
-                }
-            )
 
         direction, linear_converged, _ = linear_solver(
             jacobian,
             -residual,
-            **linear_kwargs,
+            initial_guess=direction,
         )
 
         step = np.asarray(direction, dtype=dtype)
@@ -682,23 +513,6 @@ def newton_solve(
         ndz_prev = ndz if commit else typed_zero
         if judged and history:
             prev_theta = theta
-        if instrumented and commit:
-            residual = np.asarray(residual_fn(state), dtype=dtype)
-            post_norm2 = _scaled_norm_impl(
-                residual, state, atol_value, rtol_value
-            )
-            _log_newton_iteration(
-                instrumented=True,
-                stage_index=stage_index,
-                index=log_index,
-                candidate=state,
-                residual=residual,
-                squared_norm=post_norm2,
-                logging_iteration_guesses=newton_iteration_guesses,
-                logging_residuals=newton_residuals,
-                logging_squared_norms=newton_squared_norms,
-            )
-            log_index += 1
 
     # Persist contraction history for the next solve; a failed solve
     # resets it to the conservative estimate.
@@ -709,65 +523,16 @@ def newton_solve(
 
 
 def make_step_result(
-    instrument: bool,
     state: Array,
     observables: Array,
     error: Array,
     status: int,
     niters: int,
-    stage_count: Optional[int] = None,
-    residuals: Optional[Array] = None,
-    jacobian_updates: Optional[Array] = None,
-    stage_states: Optional[Array] = None,
-    stage_derivatives: Optional[Array] = None,
-    stage_observables: Optional[Array] = None,
-    stage_drivers: Optional[Array] = None,
-    stage_increments: Optional[Array] = None,
-    newton_initial_guesses: Optional[Array] = None,
-    newton_iteration_guesses: Optional[Array] = None,
-    newton_residuals: Optional[Array] = None,
-    newton_squared_norms: Optional[Array] = None,
-    linear_initial_guesses: Optional[Array] = None,
-    linear_iteration_guesses: Optional[Array] = None,
-    linear_residuals: Optional[Array] = None,
-    linear_squared_norms: Optional[Array] = None,
-    linear_preconditioned_vectors: Optional[Array] = None,
-    extra_vectors: Optional[dict[str, Array]] = None,
 ) -> StepResultLike:
-    """Return a step result container with optional instrumentation."""
+    """Return a step result container."""
 
     iter_count = max(0, min(int(niters) + 1, STATUS_MASK))
-    if not instrument:
-        return StepResult(state, observables, error, status, iter_count)
-
-    resolved_stage_count = int(stage_count or 0)
-    extras = {} if extra_vectors is None else dict(extra_vectors)
-
-    return InstrumentedStepResult(
-        state=state,
-        observables=observables,
-        error=error,
-        residuals=residuals,
-        jacobian_updates=jacobian_updates,
-        stage_drivers=stage_drivers,
-        stage_increments=stage_increments,
-        status=status,
-        niters=iter_count,
-        stage_count=resolved_stage_count,
-        stage_states=stage_states,
-        stage_derivatives=stage_derivatives,
-        stage_observables=stage_observables,
-        newton_initial_guesses=newton_initial_guesses,
-        newton_iteration_guesses=newton_iteration_guesses,
-        newton_residuals=newton_residuals,
-        newton_squared_norms=newton_squared_norms,
-        linear_initial_guesses=linear_initial_guesses,
-        linear_iteration_guesses=linear_iteration_guesses,
-        linear_residuals=linear_residuals,
-        linear_squared_norms=linear_squared_norms,
-        linear_preconditioned_vectors=linear_preconditioned_vectors,
-        extra_vectors=extras,
-    )
+    return StepResult(state, observables, error, status, iter_count)
 
 
 def _encode_solver_status(converged: bool, niters: int) -> int:
@@ -940,13 +705,6 @@ def krylov_solve(
     neumann_order: int = 2,
     correction_type: str = "minimal_residual",
     initial_guess: Optional[Array] = None,
-    instrumented: bool = False,
-    logging_initial_guess: Optional[Array] = None,
-    logging_iteration_guesses: Optional[Array] = None,
-    logging_residuals: Optional[Array] = None,
-    logging_squared_norms: Optional[Array] = None,
-    logging_preconditioned_vectors: Optional[Array] = None,
-    stage_index: int = 0,
 ) -> tuple[Array, bool, int]:
     """Solve ``operator_matrix @ x = rhs`` using dense Krylov iterations.
 
@@ -969,30 +727,9 @@ def krylov_solve(
         Order of the truncated Neumann-series left preconditioner.
     correction_type
         Linear solve to apply. ``"steepest_descent"``,
-        ``"minimal_residual"``, or ``"bicgstab"``. The logging
-        arrays are only populated for the descent variants.
+        ``"minimal_residual"``, or ``"bicgstab"``.
     initial_guess
         Optional starting iterate for the solve. Defaults to the zero vector.
-    instrumented
-        When ``True`` the logging arrays are populated on each iteration.
-    logging_initial_guess
-        Optional array recording the starting iterate. Expected shape is
-        ``(stage_slots, n)`` where ``n`` matches ``rhs``.
-    logging_iteration_guesses
-        Optional tensor recording per-iteration iterates. Expected shape is
-        ``(stage_slots, max_iterations, n)``.
-    logging_residuals
-        Optional tensor recording per-iteration residual vectors. Expected
-        shape is ``(stage_slots, max_iterations, n)``.
-    logging_squared_norms
-        Optional matrix recording per-iteration squared residual norms with
-        shape ``(stage_slots, max_iterations)``.
-    logging_preconditioned_vectors
-        Optional tensor recording preconditioned residual directions. Expected
-        shape is ``(stage_slots, max_iterations, n)``.
-    stage_index
-        Stage slot identifying the row in the logging arrays that should be
-        updated when ``instrumented`` is ``True``.
 
     Returns
     -------
@@ -1048,13 +785,6 @@ def krylov_solve(
             initial_provided,
             order,
             minimal_residual,
-            instrumented,
-            logging_initial_guess,
-            logging_iteration_guesses,
-            logging_residuals,
-            logging_squared_norms,
-            logging_preconditioned_vectors,
-            int(stage_index),
         )
     return (
         np.asarray(solution, dtype=dtype),
