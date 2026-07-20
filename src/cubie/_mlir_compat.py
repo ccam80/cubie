@@ -81,7 +81,7 @@ fix-numpy-scalar-constants, fix-nested-tuple-dynamic-getitem,
 fix-integer-mod-floordiv-lowering, fix-dynamic-shared-memory-ub,
 fix-frozen-array-device-malloc, ssa-iterative-def-search,
 selective-fastmath, fix-float-minmax-lowering, fix-pow-zero-fold,
-ftz-standalone-flag).
+ftz-standalone-flag, perf-drop-math-uplift-to-fma).
 
 The iterative SSA def-search shim removes the RecursionError that
 large flattened kernels hit inside ``reconstruct_ssa``, and the
@@ -92,7 +92,10 @@ approximations; both groups no-op on builds that carry the fixes
 natively. The standalone-ftz shim enables the libnvvm
 denormal-flush knob for every truthy flag set — numba-cuda's
 module-knob behaviour — until the fork's ftz-standalone-flag
-branch ships in the wheel.
+branch ships in the wheel, and the fma-uplift shim strips the
+math-uplift-to-fma pass from the optimization pipeline so libnvvm
+owns floating-point contraction (the fork's
+perf-drop-math-uplift-to-fma branch).
 Remove the corresponding shim once each lands upstream. With the
 shared-memory shim in place CuBIE requests LTO-link optimization
 explicitly; set
@@ -2724,6 +2727,43 @@ def register_standalone_ftz_shim() -> None:
 
 
 register_standalone_ftz_shim()
+
+
+# ------------------------------------------------------------------ #
+# Contraction belongs to libnvvm                                      #
+# ------------------------------------------------------------------ #
+# The wheel's optimization pipeline runs math-uplift-to-fma, which
+# rewrites contract-flagged mul+add pairs into opaque __nv_fmaf
+# calls while the module still sits in alloca/load form — before
+# libnvvm has run CSE/GVN — so a product shared by several
+# additions is frozen into one FMA per use and computed that many
+# times. Leaving flagged mul/add in place lets libnvvm decide
+# contraction late with value numbering done: on the gate's Radau
+# adaptive kernel this preserves 61 shared products (PTX fma.rn
+# 298 -> 214) and cuts kernel cycles by 18%. Only contract-flagged
+# ops ever uplift, so stripping the pass is a no-op for unflagged
+# code. Mirrors the fork's perf-drop-math-uplift-to-fma branch.
+
+
+def register_fma_uplift_removal_shim() -> None:
+    """Strip math-uplift-to-fma from the optimization pipeline.
+
+    No-ops when the installed package's pipeline already omits the
+    pass.
+    """
+    from numba_cuda_mlir import mlir_optimization
+
+    stock_pipeline = mlir_optimization.get_base_pipeline
+    if "math-uplift-to-fma" not in stock_pipeline():
+        return
+
+    def pipeline_without_fma_uplift():
+        return stock_pipeline().replace("math-uplift-to-fma,", "")
+
+    mlir_optimization.get_base_pipeline = pipeline_without_fma_uplift
+
+
+register_fma_uplift_removal_shim()
 
 
 def _lower_array_slice_getitem_empty_safe(builder, target, args, kwargs):
