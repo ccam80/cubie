@@ -12,26 +12,44 @@ from tests._utils import _build_solver_instance
 
 
 if not CUDA_SIMULATION:
+    # The canary work spins until the host releases it, so the
+    # not-yet-done assertions cannot flake under GPU contention:
+    # completion is gated on the host, not on outlasting close() by
+    # wall clock. The iteration cap (roughly half a minute of atomic
+    # polling) bounds a regression in which close() synchronizes the
+    # whole device — the test then fails its canary assertion instead
+    # of deadlocking against a kernel the host can never release.
     @cuda.jit
-    def _busy_kernel(out):
-        # Sized to outlast a solver close by a wide margin on a warm
-        # GPU (~5 s) so the not-yet-done canary assertions hold.
-        value = 0.0
-        for _ in range(100_000_000):
-            value += 1.0
-        out[0] = value
+    def _spin_until_released(flag, out):
+        spins = 0.0
+        while cuda.atomic.add(flag, 0, 0) == 0 and spins < 1.0e9:
+            spins += 1.0
+        out[0] = spins
 
 
     def _start_cuda_work():
         stream = cuda.stream()
+        flag = cuda.to_device(np.zeros(1, dtype=np.int32))
         out = cuda.device_array(1, dtype=np.float32)
         done = cuda.event()
-        _busy_kernel[1, 1, stream](out)
+        _spin_until_released[1, 1, stream](flag, out)
         done.record(stream)
-        return out, stream, done
+        # Both device arrays stay referenced until the spin exits:
+        # dropping one mid-flight queues a free that blocks on the
+        # resident kernel, and the kernel's exit write would land in
+        # reallocated memory.
+        return (flag, out), stream, done
 
 
-    def _finish_cuda_work(out, stream, done):
+    def _finish_cuda_work(work, stream, done):
+        # Release by async copy: a concurrent release kernel never
+        # reaches the device while the spin kernel is resident, but a
+        # copy-engine write to the polled flag lands immediately.
+        flag, out = work
+        release_stream = cuda.stream()
+        flag.copy_to_device(
+            np.ones(1, dtype=np.int32), stream=release_stream
+        )
         stream.synchronize()
         assert done.query()
 
