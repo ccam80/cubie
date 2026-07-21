@@ -52,11 +52,6 @@ def _collect_pins():
         scale = float(np.sqrt(np.mean(golden ** 2)))
         keys = set(archive.files)
         for alias, row in ALGORITHMS.items():
-            if row["family"] == "erk" and not row["exact"]:
-                raise ValueError(
-                    "'{0}' is explicit with a non-identical tableau; "
-                    "the protocol defines no check for that "
-                    "combination".format(alias))
             fixed_pins[alias] = fixed_pin(archive, alias, golden, scale)
             if not algorithm_is_adaptive(alias):
                 continue
@@ -156,11 +151,9 @@ def test_fixed_step_matches_julia(gate_final, julia_reference,
         row["family"] != "erk")
 
     assert ok, (
-        "{0} (order {1}, {2}, {3}) deviates from Julia at dt={4:g}: "
-        "{5}".format(
-            alias, row["order"], row["julia_expr"],
-            "exact tableau" if row["exact"] else "same class", pin,
-            report))
+        "{0} (order {1}, {2}) deviates from Julia at dt={3:g}: "
+        "{4}".format(
+            alias, row["order"], row["julia_expr"], pin, report))
 
 
 @pytest.mark.parametrize(

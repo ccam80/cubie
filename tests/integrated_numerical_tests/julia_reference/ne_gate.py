@@ -62,19 +62,19 @@ FLOOR_REL = 4e-6
 ORDER_CAP_REL = 3e-2
 EQ_CAP_REL = 5e-1
 
-# Exact pairs (identical tableau): mutual rms distance must stay well
-# below the truncation error once above the roundoff floor allowance.
+# Explicit pairs (identical tableau, no inner solves): mutual rms
+# distance must stay well below the truncation error once above the
+# roundoff floor allowance.
 EQ_FRACTION = 0.25
 EQ_FLOOR_MULT = 3.0
 
-# Non-exact pairs (same method class, different tableau): errors of
-# comparable magnitude at the pinned dt.
+# Implicit families: one-sided bound on the golden-referenced error
+# ratio — cubie's error within this factor of the Julia run's.
 RATIO_LIM = 4.0
 
 # Fixed-tier pins require the Julia error to clear the roundoff floor
-# by this multiple, so the two-sided ratio check stays meaningful: a
-# cubie error pinned at the float32 floor still lands on the ratio
-# bound, never below it.
+# by this multiple, so the error ratio at the pin measures truncation
+# behaviour rather than floor noise.
 PIN_MARGIN_MULT = RATIO_LIM
 
 # Adaptive matched-controller tier: the mutual rms distance must not
@@ -87,16 +87,13 @@ def load_algorithms():
     """Return the mutual algorithm table as a list of dicts.
 
     Keys: ``cubie_alias``, ``julia_expr``, ``order`` (int), ``family``,
-    ``exact`` (bool — identical tableau on both sides, so per-trajectory
-    equivalence is expected rather than just matching order/error
-    magnitude), ``notes``.
+    ``notes``.
     """
     path = os.path.join(DATA_DIR, "algorithms.csv")
     with open(path, newline="", encoding="utf-8") as f:
         rows = list(csv.DictReader(f))
     for row in rows:
         row["order"] = int(row["order"])
-        row["exact"] = row["exact"].strip().lower() == "true"
     return rows
 
 
