@@ -133,6 +133,13 @@ jobs:
         env:
           CUBIE_KERNEL_CACHE_DIR: ${{ github.workspace }}/kernel-cache/kernels
           CUBIE_MAX_CACHE_ENTRIES: "0"
+          # Pin the backend to the lane's label. The precompile plugin
+          # and cubie resolve an unset CUBIE_CUDA_BACKEND with opposite
+          # preferences when both backends are importable (the plugin
+          # picks numba-cuda, cubie picks mlir), so an implicit
+          # resolution could cache kernels that do not match the
+          # artifact name or the GPU leg's backend.
+          CUBIE_CUDA_BACKEND: ${{ matrix.backend }}
           # -p plugins are imported before pytest's pythonpath/conftest
           # machinery runs, and the pytest console script does not put
           # the cwd on sys.path, so the tests package must be exported
@@ -304,6 +311,10 @@ jobs:
         env:
           CUBIE_KERNEL_CACHE_DIR: ${{ github.workspace }}/kernel-cache/kernels
           CUBIE_MAX_CACHE_ENTRIES: "0"
+          # Pin the backend to the lane's label so this leg always
+          # loads the cache the same-named precompile leg populated
+          # (see the precompile step for the divergence this avoids).
+          CUBIE_CUDA_BACKEND: ${{ matrix.backend }}
           # Same as the precompile leg: -p plugin imports happen before
           # any pytest sys.path setup, so the repo root must be on
           # PYTHONPATH for `tests.precompile_plugin` to import.
