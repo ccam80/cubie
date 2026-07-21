@@ -116,7 +116,14 @@ filterwarnings = [
 ]
 
 [tool.coverage.run]
-#source = ["cubie"]
+# Scope measurement to cubie for every entry point: pytest-cov's
+# --cov=cubie locally, and `coverage run` / worker process-startup in
+# GPU CI (which read this instead of the CLI flag).
+source = ["cubie"]
+# Each pytest-xdist worker (and, under `coverage run`, the main
+# process) writes its own data file to combine; required for the GPU
+# CI coverage path that starts coverage before pytest loads.
+parallel = true
 omit = [
     "*/tests/*",
     "*/__pycache__/*",

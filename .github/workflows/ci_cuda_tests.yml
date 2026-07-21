@@ -273,11 +273,32 @@ jobs:
       - name: Test with pytest
         # -n logical (CLI) overrides pyproject's desktop-safe -n8 so the
         # runner uses all its vCPUs; change the runner instance size freely
-        # and this scales automatically. Coverage/XML report come from addopts.
+        # and this scales automatically.
+        #
+        # Coverage runs under `coverage run` rather than pytest-cov here:
+        # `-p tests.precompile_plugin` imports cubie at plugin-registration
+        # time, before pytest-cov could start, so pytest-cov would miss
+        # every import-time line (package __init__s, cuda_backend
+        # resolution, algorithm tableau tables). `coverage run` traces the
+        # main process from startup; COVERAGE_PROCESS_START traces the
+        # xdist worker subprocesses. --no-cov disables pytest-cov so the
+        # two do not double-count. coverage auto-reads [tool.coverage.*]
+        # from pyproject.toml, so omit/exclude/relative_files still apply.
+        shell: bash
         env:
           CUBIE_KERNEL_CACHE_DIR: ${{ github.workspace }}/kernel-cache/kernels
           CUBIE_MAX_CACHE_ENTRIES: "0"
-        run: pytest -m "not specific_algos and not sim_only" -p tests.precompile_plugin -n logical --junitxml=pytest-results.xml
+          COVERAGE_PROCESS_START: ${{ github.workspace }}/pyproject.toml
+        run: |
+          set +e
+          python -m coverage run -m pytest \
+            -m "not specific_algos and not sim_only" \
+            -p tests.precompile_plugin -n logical --no-cov \
+            --junitxml=pytest-results.xml
+          status=$?
+          python -m coverage combine
+          python -m coverage xml -o coverage.xml
+          exit $status
 
       # The artifact service occasionally answers CreateArtifact with a
       # non-JSON error page and the action's five internal retries all
