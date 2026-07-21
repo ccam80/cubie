@@ -191,8 +191,7 @@ def ensemble_error(final_states, golden_states):
 
 def rms_difference(cubie_final, julia_final):
     """Mutual rms distance between the two final-state ensembles."""
-    with np.errstate(invalid="ignore", over="ignore"):
-        diff = np.asarray(cubie_final, dtype=np.float64) - julia_final
+    diff = np.asarray(cubie_final, dtype=np.float64) - julia_final
     return float(np.sqrt(np.mean(diff ** 2)))
 
 
@@ -249,7 +248,7 @@ def adaptive_pin(reference, alias, golden_states, scale):
 
 
 def fixed_point_verdict(cubie_final, julia_final, golden_states, scale,
-                        exact, implicit):
+                        implicit):
     """Single-point verdict for the fixed tier at the pinned dt.
 
     Returns (ok, report). Implicit-family algorithms (implicit, dirk,
@@ -259,12 +258,9 @@ def fixed_point_verdict(cubie_final, julia_final, golden_states, scale,
     tolerances, which leaves an inner-solve floor in their error
     (issue #641); cubie's derived inner tolerances are tighter, so
     beating the Julia error is expected and per-trajectory
-    equivalence is unattainable. Explicit exact pairs (identical
-    tableau, no inner solves) must agree per-trajectory: mutual rms
-    distance within EQ_FRACTION of the truncation error. Explicit
-    non-exact pairs (same method class, different tableau) must land
-    errors of comparable magnitude: the error ratio inside RATIO_LIM
-    both ways.
+    equivalence is unattainable. Explicit pairs carry identical
+    tableaus and no inner solves, so they must agree per-trajectory:
+    mutual rms distance within EQ_FRACTION of the truncation error.
     """
     floor = FLOOR_REL * scale
     err_c = ensemble_error(cubie_final, golden_states)
@@ -275,19 +271,15 @@ def fixed_point_verdict(cubie_final, julia_final, golden_states, scale,
         "(floor={3:.3e})".format(err_c, err_j, rms_diff, floor))
     if not np.isfinite(err_c):
         return False, report
-    ratio = err_c / err_j
     if implicit:
+        ratio = err_c / err_j
         return ratio < RATIO_LIM, (
             "{0}; error ratio {1:.3g}, limit {2:g} one-sided".format(
                 report, ratio, RATIO_LIM))
-    if exact:
-        bound = max(EQ_FRACTION * max(err_c, err_j),
-                    EQ_FLOOR_MULT * floor)
-        return rms_diff <= bound, "{0}; equivalence bound {1:.3e}".format(
-            report, bound)
-    return (1.0 / RATIO_LIM < ratio < RATIO_LIM), (
-        "{0}; error ratio {1:.3g}, limit {2:g} both ways".format(
-            report, ratio, RATIO_LIM))
+    bound = max(EQ_FRACTION * max(err_c, err_j),
+                EQ_FLOOR_MULT * floor)
+    return rms_diff <= bound, "{0}; equivalence bound {1:.3e}".format(
+        report, bound)
 
 
 def adaptive_point_verdict(cubie_final, julia_final, golden_states, scale):

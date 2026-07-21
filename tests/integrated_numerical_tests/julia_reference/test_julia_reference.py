@@ -52,6 +52,11 @@ def _collect_pins():
         scale = float(np.sqrt(np.mean(golden ** 2)))
         keys = set(archive.files)
         for alias, row in ALGORITHMS.items():
+            if row["family"] == "erk" and not row["exact"]:
+                raise ValueError(
+                    "'{0}' is explicit with a non-identical tableau; "
+                    "the protocol defines no check for that "
+                    "combination".format(alias))
             fixed_pins[alias] = fixed_pin(archive, alias, golden, scale)
             if not algorithm_is_adaptive(alias):
                 continue
@@ -118,26 +123,8 @@ def _adaptive_override(alias, matched):
     return override
 
 
-# radau_iia_5 deviates on both tiers (NaN-stained fixed solve at the
-# pin, adaptive error frozen at ~1.49 under matched control) — a
-# FIRK-solve-path deviation tracked on #648. Non-strict so the fix
-# surfaces as XPASS without breaking the gate.
-_KNOWN_DEVIATIONS = {
-    "radau_iia_5": pytest.mark.xfail(
-        reason="FIRK solve path deviates from the Julia reference "
-        "on both tiers (#648)",
-        strict=False,
-    ),
-}
-
-
-def _marks(alias):
-    return [_KNOWN_DEVIATIONS[alias]] if alias in _KNOWN_DEVIATIONS else []
-
-
 FIXED_PARAMS = [
-    pytest.param(_fixed_override(alias), id=alias, marks=_marks(alias))
-    for alias in ALGORITHMS
+    pytest.param(_fixed_override(alias), id=alias) for alias in ALGORITHMS
 ]
 
 ADAPTIVE_PARAMS = [
@@ -148,7 +135,6 @@ ADAPTIVE_PARAMS = [
                 _ADAPTIVE_CONSTANTS, alias, ALGORITHMS[alias]["order"]),
         ),
         id=alias,
-        marks=_marks(alias),
     )
     for alias in ADAPTIVE_PINS
 ]
@@ -166,7 +152,7 @@ def test_fixed_step_matches_julia(gate_final, julia_reference,
     julia_final = julia_fixed_finals(julia_reference, alias)[pin]
 
     ok, report = fixed_point_verdict(
-        cubie_final, julia_final, golden_states, scale, row["exact"],
+        cubie_final, julia_final, golden_states, scale,
         row["family"] != "erk")
 
     assert ok, (
