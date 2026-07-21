@@ -8,7 +8,8 @@ target). The backend is resolved once at import time. An explicit
 whichever backend is installed is used, preferring numba-cuda-mlir
 when both are installed. Under the CUDA simulator
 (``NUMBA_ENABLE_CUDASIM=1``) numba-cuda is preferred when installed,
-because numba-cuda-mlir has no simulator.
+because numba-cuda-mlir has no simulator; a warning is emitted when
+the simulator is requested but only numba-cuda-mlir is installed.
 
 Every CUDA-facing symbol (the ``cuda`` module object, scalar types,
 ``from_dtype``, driver internals, cache base classes) is re-exported
@@ -33,6 +34,7 @@ See Also
 """
 
 import os
+import warnings
 from importlib.util import find_spec
 
 from cubie._env import cuda_backend_requested
@@ -56,7 +58,8 @@ def _resolve_backend() -> str:
     must be installed. Otherwise the installed backend is used; when
     both backends are installed the MLIR backend is selected, and
     under ``NUMBA_ENABLE_CUDASIM=1`` numba-cuda is preferred (the
-    MLIR backend has no simulator).
+    MLIR backend has no simulator; a warning is emitted when the
+    simulator is requested but only the MLIR backend is installed).
 
     Returns
     -------
@@ -93,6 +96,14 @@ def _resolve_backend() -> str:
     if cudasim and numba_cuda_installed:
         return NUMBA_CUDA_BACKEND
     if mlir_installed:
+        if cudasim:
+            warnings.warn(
+                "NUMBA_ENABLE_CUDASIM=1 is set but only the "
+                "numba-cuda-mlir backend is installed, and it has no "
+                "simulator: cubie will compile for the GPU. Install "
+                "numba-cuda ('pip install cubie[cuda12]' or "
+                "'cubie[cuda13]') to use the CUDA simulator."
+            )
         return MLIR_BACKEND
     if numba_cuda_installed:
         return NUMBA_CUDA_BACKEND
