@@ -142,8 +142,8 @@ Newton (outer loop) options:
     criterion.
 
     - Default: the step controller's ``atol``/``rtol`` divided by 10
-      (so stage solves always converge tighter than the error estimate
-      they feed); ``1e-6`` when there is no adaptive controller.
+      (so stage solves always converge tighter than the error
+      estimate they feed).
     - Type: ``float`` or array, non-negative
 
 **newton_max_iters** — Newton iteration limit.
@@ -156,12 +156,31 @@ Newton (outer loop) options:
 Krylov (inner loop) options:
 
 **krylov_atol** / **krylov_rtol** — linear-solve tolerances.
+    These weight the linear solver's stopping norm: a weighted
+    residual of one sits at this envelope.
 
-    - Default: derived like ``newton_atol``/``newton_rtol`` above.
+    - Default: the step controller's ``atol``/``rtol``.
 
 **krylov_max_iters** — linear iteration limit per Newton step.
 
     - Default: ``100``
+
+**krylov_residual_reduction** — relative linear stopping term.
+    Each linear solve stops once its weighted residual falls below
+    ``floor + reduction * ||b||`` with ``||b||`` the weighted
+    right-hand side at entry, so early Newton iterations avoid
+    over-solving.
+
+    - Default: the adaptive step controller's smallest ``rtol``
+      entry; machine epsilon for non-adaptive runs.
+    - Type: ``float`` in ``[0, 1]``
+
+**krylov_residual_floor** — absolute linear stopping term.
+    The absolute part of the stopping rule, in weighted-norm units
+    (one sits at the ``krylov_atol``/``krylov_rtol`` envelope).
+
+    - Default: ``sqrt(eps)`` of the precision.
+    - Type: ``float``, non-negative
 
 **linear_correction_type** — linear solver strategy.
     ``"minimal_residual"`` (default) minimises the residual along the

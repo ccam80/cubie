@@ -55,7 +55,7 @@ from cubie.integrators.algorithms.ode_implicitstep import (
     ImplicitStepConfig,
     ODEImplicitStep,
 )
-from cubie.integrators.norms import FIRKCorrectionNorm
+from cubie.integrators.norms import FIRKCorrectionNorm, TiledScaledNorm
 from cubie.buffer_registry import buffer_registry
 
 
@@ -234,10 +234,20 @@ class FIRKStep(ODEImplicitStep):
             instance_label="newton",
             **kwargs,
         )
+        # The coupled solve stacks all stages, but callers pass the
+        # single-stage base state; the tiled norm reuses it per stage.
+        krylov_norm = TiledScaledNorm(
+            precision=precision,
+            n=config.all_stages_n,
+            state_n=n,
+            instance_label="krylov",
+            **kwargs,
+        )
         super().__init__(
             config,
             controller_defaults,
             newton_norm=newton_norm,
+            krylov_norm=krylov_norm,
             **kwargs,
         )
         self.register_buffers()
