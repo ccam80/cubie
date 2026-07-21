@@ -53,6 +53,36 @@ def test_neumann_empty_jvp_emits_pass_body(
 
 # ── n-stage Neumann preconditioner ──────────────────────────────── #
 
+def test_n_stage_preconditioners_capture_scalings_before_constants(
+    solver_scaling_collision_equations,
+    solver_scaling_collision_indexed_bases,
+):
+    """FIRK preconditioners preserve solver beta/gamma values."""
+    generators = (
+        generate_n_stage_neumann_preconditioner_code,
+        generate_n_stage_jacobi_preconditioner_code,
+    )
+    for generate in generators:
+        code = generate(
+            solver_scaling_collision_equations,
+            solver_scaling_collision_indexed_bases,
+            stage_coefficients=[[1.0]],
+            stage_nodes=[1.0],
+        )
+        beta_capture = code.index(
+            "_cubie_codegen_beta = precision(beta)"
+        )
+        gamma_capture = code.index(
+            "_cubie_codegen_gamma = precision(gamma)"
+        )
+        assert beta_capture < code.index(
+            "beta = precision(constants['beta'])"
+        )
+        assert gamma_capture < code.index(
+            "gamma = precision(constants['gamma'])"
+        )
+
+
 def test_n_stage_neumann_skips_zero_stage_coupling(
     bare_nonlinear_equations,
     bare_indexed_bases,

@@ -791,9 +791,9 @@ N_STAGE_OPERATOR_TEMPLATE = (
     '    """Auto-generated FIRK linear operator for flattened stages.\n'
     "    Handles {stage_count} stages with ``s * n`` unknowns.\n"
     '    """\n'
-    "{const_lines}"
     "    _cubie_codegen_gamma = precision(gamma)\n"
     "    _cubie_codegen_beta = precision(beta)\n"
+    "{const_lines}"
     "{metadata_lines}"
     "    @cuda.jit(\n"
     "        # (precision[::1],\n"
