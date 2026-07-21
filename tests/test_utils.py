@@ -611,10 +611,15 @@ class TestEnsureNonzeroSize:
         result = ensure_nonzero_size((3, "label", 2))
         assert result == (3, "label", 2)
 
-    def test_none_treated_as_zero(self):
-        """Test that None values in tuple cause all 1s."""
+    def test_none_wildcards_survive(self):
+        """Test that None wildcard dimensions are preserved."""
         result = ensure_nonzero_size((5, None, 3))
-        assert result == (1, 1, 1)
+        assert result == (5, None, 3)
+
+    def test_zero_collapses_none_wildcards(self):
+        """Test that a zero collapses a shape with None wildcards."""
+        result = ensure_nonzero_size((0, None))
+        assert result == (1, 1)
 
     def test_two_element_tuple_with_zero(self):
         """Test two-element tuple with zero becomes (1, 1)."""
