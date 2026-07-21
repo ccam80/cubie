@@ -70,12 +70,12 @@ EQ_FLOOR_MULT = 3.0
 
 # Implicit families: one-sided bound on the golden-referenced error
 # ratio — cubie's error within this factor of the Julia run's.
-RATIO_LIM = 4.0
+RATIO_LIM = 2.0
 
 # Fixed-tier pins require the Julia error to clear the roundoff floor
 # by this multiple, so the error ratio at the pin measures truncation
 # behaviour rather than floor noise.
-PIN_MARGIN_MULT = RATIO_LIM
+PIN_MARGIN_MULT = 4.0
 
 # Adaptive matched-controller tier: the mutual rms distance must not
 # exceed this multiple of the Julia run's own error at any in-range
