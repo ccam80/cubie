@@ -42,14 +42,16 @@ Homepage = "https://github.com/ccam80/cubie.git"
 Issues = "https://github.com/ccam80/cubie/issues"
 
 [project.optional-dependencies]
-# The CUDA backend is chosen by extra: one of the cuda*/mlir* lanes
-# installs numba-cuda or numba-cuda-mlir. A backendless install fails
-# at import with instructions (cubie.cuda_backend). CuPy is cubie's
-# single device memory allocator on a real GPU, so the toolkit lanes
-# pull in the matching cupy build alongside the toolkit wheels. The
-# bare 'cuda'/'mlir' extras install a backend without toolkit wheels,
-# for machines with a system CUDA install. The mlir lanes need
-# Python >= 3.11 (enforced by the numba-cuda-mlir wheel).
+# The CUDA backend is chosen by extra: one of the mlir*/cuda* lanes
+# installs numba-cuda-mlir (the default backend) or numba-cuda (the
+# deprecated fallback: unexpected errors, Python 3.10, or the CUDA
+# simulator). A backendless install fails at import with instructions
+# (cubie.cuda_backend). CuPy is cubie's single device memory
+# allocator on a real GPU, so the toolkit lanes pull in the matching
+# cupy build alongside the toolkit wheels. The bare 'mlir'/'cuda'
+# extras install a backend without toolkit wheels, for machines with
+# a system CUDA install. The mlir lanes need Python >= 3.11
+# (enforced by the numba-cuda-mlir wheel).
 #
 # The mlir* extras install cubie-numba-cuda-mlir: cubie's build of
 # numba-cuda-mlir carrying the native (C++) fixes pending upstream,
@@ -57,12 +59,12 @@ Issues = "https://github.com/ccam80/cubie/issues"
 # CUBIE_WHEEL.md there). Same numba_cuda_mlir import package — never
 # co-install it with the stock wheel. Python-side fixes are applied
 # at runtime by cubie._mlir_compat instead.
-cuda = ["numba-cuda"] # numba-cuda backend, system toolkit
-cuda12 = ["numba-cuda[cu12]", "cupy-cuda12x"] # CUDA 12 toolkit + CuPy
-cuda13 = ["numba-cuda[cu13]", "cupy-cuda13x"] # CUDA 13 toolkit + CuPy
 mlir = ["cubie-numba-cuda-mlir>=0.4.1.1"] # MLIR backend, system toolkit
 mlir-cuda12 = ["cubie-numba-cuda-mlir[cu12]>=0.4.1.1", "cupy-cuda12x"]
 mlir-cuda13 = ["cubie-numba-cuda-mlir[cu13]>=0.4.1.1", "cupy-cuda13x"]
+cuda = ["numba-cuda"] # deprecated numba-cuda backend, system toolkit
+cuda12 = ["numba-cuda[cu12]", "cupy-cuda12x"] # CUDA 12 toolkit + CuPy
+cuda13 = ["numba-cuda[cu13]", "cupy-cuda13x"] # CUDA 13 toolkit + CuPy
 test = [
     "pytest",
     "pytest-cov",
@@ -75,7 +77,10 @@ test = [
     "scipy",
 ]
 # dev defaults to the CUDA 12 lane; flip to dev13 once the CUDA 13
-# matrix is verified.
+# matrix is verified. The dev/dev12/dev13 lanes stay on the
+# deprecated numba-cuda backend: CUDASIM dev and the nocuda CI lane
+# need it, and it stays CI-covered while deprecated. Use dev-mlir*
+# for a default-backend dev install.
 dev12 = ["cubie[cuda12,test]"]
 dev13 = ["cubie[cuda13,test]"]
 dev-mlir12 = ["cubie[mlir-cuda12,test]"]

@@ -47,20 +47,19 @@ so installing it in it's own environment will avoid downgrading your system-wide
 python -m venv cubie_env
 ./cubie_env/Scripts/activate # Windows
 # source cubie_env/bin/activate # Linux/Mac
-pip install cubie[cuda12]  # CUDA 12 toolkit
-# pip install cubie[cuda13]  # CUDA 13 toolkit
+pip install cubie[mlir-cuda12]  # CUDA 12 toolkit
+# pip install cubie[mlir-cuda13]  # CUDA 13 toolkit
 ```
 
-The extra is required: it installs Cubie's CUDA backend (numba-cuda) alongside the matching
-toolkit wheels, and a bare `pip install cubie` has no backend to compile with (`import cubie`
-will stop with instructions). If your machine already has a system CUDA toolkit,
-`pip install cubie[cuda]` installs the backend without the toolkit wheels.
+The extra is required: it installs Cubie's CUDA backend (numba-cuda-mlir) alongside the
+matching toolkit wheels, and a bare `pip install cubie` has no backend to compile with
+(`import cubie` will stop with instructions). If your machine already has a system CUDA
+toolkit, `pip install cubie[mlir]` installs the backend without the toolkit wheels.
 
-An experimental MLIR-based backend (numba-cuda-mlir) is available via the
-`mlir-cuda12`/`mlir-cuda13` extras (or bare `mlir` for a system toolkit). It compiles
-slightly faster kernels in some cases, but is less mature than numba-cuda, has no
-CUDA-simulator support, and needs Python 3.11 or later — stick with the `cuda*` extras
-unless you want to experiment.
+The previous default backend (numba-cuda) is deprecated but still available via the
+`cuda12`/`cuda13` extras (or bare `cuda` for a system toolkit). MLIR is faster; try
+numba-cuda if you run into unexpected errors, or if you need Python 3.10 or the CUDA
+simulator (`NUMBA_ENABLE_CUDASIM=1`), which only exist on numba-cuda.
 
 Then, when you fire up your Cubie project, run
 
@@ -72,16 +71,16 @@ Or set up your IDE to use the `python.exe` in `cubie_env/Scripts/activate` (Wind
 as the project's interpreter so you don't have to worry about it.
 
 ## System Requirements:
-- Python 3.10 or later
+- Python 3.11 or later (3.10 works only with the deprecated numba-cuda backend)
 - Up-to-date NVIDIA driver
 - NVIDIA GPU with compute capability 6.0 or higher (i.e. GTX10-series or newer)
 
 ## Python Requirements
 
-* Python >= 3.10
+* Python >= 3.11 (>= 3.10 with the deprecated numba-cuda backend)
 * NumPy>=2.0
 * Numba
-* Numba-CUDA
+* numba-cuda-mlir (or the deprecated numba-cuda)
 * attrs
 * SymPy >= 1.13.0
 
