@@ -249,16 +249,12 @@ class InputArrays(BaseArrayManager):
         """
         for name, arr in device_arrays.items():
             slot = self.device.get_managed_array(name)
-            expected = getattr(self._sizes, name)
+            expected = tuple(getattr(self._sizes, name))
             shape = tuple(arr.shape)
-            shape_ok = len(shape) == len(expected) and all(
-                exp is None or dim == exp
-                for dim, exp in zip(shape, expected)
-            )
-            if not shape_ok:
+            if shape != expected:
                 raise ValueError(
                     f"Device input '{name}' has shape {shape}; "
-                    f"expected {tuple(expected)}."
+                    f"expected {expected}."
                 )
             if np_dtype(arr.dtype) != np_dtype(slot.dtype):
                 raise TypeError(
@@ -370,6 +366,7 @@ class InputArrays(BaseArrayManager):
             sysz.states,
             sysz.parameters,
             sysz.drivers,
+            solver_instance.driver_coefficients_shape,
         )
         if sig == self._size_sig:
             return

@@ -178,10 +178,19 @@ def test_batch_input_parameters(solverkernel):
 
 
 def test_batch_input_driver_coefficients(solverkernel):
-    """driver_coefficients = (None, drivers, None)."""
+    """driver_coefficients mirrors the kernel's pinned layout."""
     sizes = BatchInputSizes.from_solver(solverkernel)
-    ss = solverkernel.system_sizes
-    assert sizes.driver_coefficients == (None, ss.drivers, None)
+    assert (
+        sizes.driver_coefficients
+        == solverkernel.driver_coefficients_shape
+    )
+
+
+def test_batch_input_driver_coefficients_follow_pin(solverkernel_mutable):
+    """A repinned coefficient layout flows into the sizes."""
+    solverkernel_mutable.driver_coefficients_shape = (7, 2, 4)
+    sizes = BatchInputSizes.from_solver(solverkernel_mutable)
+    assert sizes.driver_coefficients == (7, 2, 4)
 
 
 # ── BatchOutputSizes.from_solver ─────────────────────── #

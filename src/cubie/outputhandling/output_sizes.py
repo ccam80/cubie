@@ -36,7 +36,7 @@ See Also
     Internal loop buffer sizing.
 """
 
-from typing import TYPE_CHECKING, Optional, Tuple
+from typing import TYPE_CHECKING, Tuple
 
 if TYPE_CHECKING:
     from cubie.batchsolving.BatchSolverKernel import BatchSolverKernel
@@ -239,10 +239,10 @@ class BatchInputSizes(ArraySizingClass):
         Shape of initial values array as (n_states, n_runs).
     parameters : tuple[int, int], default (1, 1)
         Shape of parameters array as (n_parameters, n_runs).
-    driver_coefficients : tuple[int or None, int, int or None],
-        default (1, 1, 1)
+    driver_coefficients : tuple[int, int, int], default (1, 1, 1)
         Shape of the driver coefficient array as
-        (num_segments, num_drivers, polynomial_degree).
+        (num_segments, num_drivers, order + 1), pinned from the
+        driver interpolator's compiled layout.
     """
 
     initial_values: Tuple[int, int] = attrs.field(
@@ -251,10 +251,8 @@ class BatchInputSizes(ArraySizingClass):
     parameters: Tuple[int, int] = attrs.field(
         default=(1, 1), validator=attrs.validators.instance_of(Tuple)
     )
-    driver_coefficients: Tuple[Optional[int], int, Optional[int]] = (
-        attrs.field(
-            default=(1, 1, 1), validator=attrs.validators.instance_of(Tuple)
-        )
+    driver_coefficients: Tuple[int, int, int] = attrs.field(
+        default=(1, 1, 1), validator=attrs.validators.instance_of(Tuple)
     )
 
     @classmethod
@@ -277,7 +275,7 @@ class BatchInputSizes(ArraySizingClass):
         num_runs = solver_instance.num_runs
         initial_values = (system_sizes.states, num_runs)
         parameters = (system_sizes.parameters, num_runs)
-        driver_coefficients = (None, system_sizes.drivers, None)
+        driver_coefficients = solver_instance.driver_coefficients_shape
         obj = cls(initial_values, parameters, driver_coefficients)
         return obj
 

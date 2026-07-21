@@ -134,7 +134,11 @@ before returning).
 never pad/cast) are wired directly into the kernel via `InputArrays._attach_device_inputs`
 with no host staging, H2D copy, or managed-buffer allocation; the host-side counterpart of
 a lone device input is paired verbatim (defaults or a single column broadcast to the device
-run count). Device inputs are likewise single-chunk only.
+run count). Device inputs are likewise single-chunk only. Every dim in `BatchInputSizes` is
+concrete: `Solver.solve` pins `kernel.driver_coefficients_shape` from
+`ArrayInterpolator.coefficients_shape` (the `(num_segments, num_drivers, order + 1)` layout
+baked into the compiled driver evaluators) before each run, so shape checks compare against
+the layout the kernel was compiled for.
 
 ### Testing
 `tests/batchsolving/` (`test_solver.py`, `test_BatchSolverKernel.py`, input-handler/result tests).

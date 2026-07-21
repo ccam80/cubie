@@ -288,6 +288,10 @@ class BatchSolverKernel(CUDAFactory):
         self._closed = False
         self._last_stream = None
         self._work_complete = True
+        # Pinned by the owning Solver from the driver interpolator's
+        # compiled layout before each run; the zero default floors to
+        # a unit placeholder for kernels never given driver metadata.
+        self._driver_coefficients_shape = (0, 0, 0)
         self._memory_manager = self._setup_memory_manager(memory_settings)
 
         system_name = system.name
@@ -1504,6 +1508,29 @@ class BatchSolverKernel(CUDAFactory):
         """Horner-ordered driver coefficients on the host."""
 
         return self.input_arrays.driver_coefficients
+
+    @property
+    def driver_coefficients_shape(self) -> tuple[int, int, int]:
+        """Expected driver-coefficient layout for input validation.
+
+        Set by the owning :class:`Solver` from
+        ``ArrayInterpolator.coefficients_shape`` — the exact
+        ``(num_segments, num_drivers, order + 1)`` layout baked into
+        the compiled driver evaluators — so supplied coefficient
+        arrays are checked against the shape the kernel was compiled
+        for.
+        """
+        return self._driver_coefficients_shape
+
+    @driver_coefficients_shape.setter
+    def driver_coefficients_shape(self, shape: tuple[int, int, int]) -> None:
+        shape = tuple(int(dim) for dim in shape)
+        if len(shape) != 3:
+            raise ValueError(
+                f"driver_coefficients_shape must have three "
+                f"dimensions, got {shape}."
+            )
+        self._driver_coefficients_shape = shape
 
     @property
     def device_driver_coefficients(self) -> Optional[NDArray[floating]]:

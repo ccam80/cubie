@@ -738,6 +738,11 @@ class Solver:
         if drivers is not None:
             self._configure_drivers(drivers)
 
+        # Pin the coefficient layout the compiled evaluators expect so
+        # input validation checks supplied arrays against it.
+        self.kernel.driver_coefficients_shape = (
+            self.driver_interpolator.coefficients_shape
+        )
         self.kernel.run(
             inits=inits,
             params=params,
