@@ -258,8 +258,6 @@ class ExplicitEulerStep(ODEExplicitStep):
         """Return ``False`` because explicit Euler is a single-stage method."""
         return False
 
-    # Class attribute so alias-level queries can read adaptivity
-    # without an instance; explicit Euler has no error estimator.
     is_adaptive = False
 
     @property

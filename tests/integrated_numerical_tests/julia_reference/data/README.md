@@ -18,7 +18,7 @@ GPUODEBenchmarks checkout by `benchmarks/vendor_julia_reference.py`.
     1e-2 .. 1e-6, run with OrdinaryDiffEq's resolved default controller.
 - `algorithms.csv` — the mutual algorithm table: cubie alias, the
   matching DifferentialEquations.jl constructor, theoretical order,
-  family, and whether the tableaus are identical (`exact`).
+  family, and notes.
 - `controller_constants.csv` — OrdinaryDiffEq's resolved
   default-controller constants per algorithm, exported by the Julia
   runner; the gate mirrors these onto cubie's controllers for the

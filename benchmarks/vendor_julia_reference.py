@@ -83,7 +83,8 @@ def main():
     }
 
     with open(algorithms_csv, newline="", encoding="utf-8") as f:
-        aliases = [row["cubie_alias"] for row in csv.DictReader(f)]
+        algorithm_rows = list(csv.DictReader(f))
+    aliases = [row["cubie_alias"] for row in algorithm_rows]
 
     for alias in aliases:
         fixed_path = os.path.join(julia_dir, "{0}.csv".format(alias))
@@ -113,7 +114,14 @@ def main():
 
     out_npz = os.path.join(DATA_DIR, "julia_reference_ne.npz")
     np.savez_compressed(out_npz, **arrays)
-    shutil.copy2(algorithms_csv, os.path.join(DATA_DIR, "algorithms.csv"))
+    with open(os.path.join(DATA_DIR, "algorithms.csv"), "w",
+              newline="", encoding="utf-8") as f:
+        fieldnames = [key for key in algorithm_rows[0] if key != "exact"]
+        writer = csv.DictWriter(f, fieldnames=fieldnames)
+        writer.writeheader()
+        writer.writerows(
+            {key: value for key, value in row.items() if key != "exact"}
+            for row in algorithm_rows)
     shutil.copy2(constants_csv,
                  os.path.join(DATA_DIR, "controller_constants.csv"))
     print("wrote {0} ({1:.1f} MiB)".format(

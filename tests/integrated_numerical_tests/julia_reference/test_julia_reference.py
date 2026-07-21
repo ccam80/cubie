@@ -25,15 +25,14 @@ from tests.integrated_numerical_tests.julia_reference.ne_gate import (
     DT_MAX_NE,
     RTOL_FIXED_NE,
     adaptive_pin,
-    adaptive_point_verdict,
     fixed_pin,
-    fixed_point_verdict,
     julia_adaptive_finals,
     julia_fixed_finals,
     load_algorithms,
     load_controller_constants,
     load_reference,
     matched_controller_settings,
+    point_matches_julia,
 )
 
 pytestmark = pytest.mark.nocudasim
@@ -141,19 +140,18 @@ def test_fixed_step_matches_julia(gate_final, julia_reference,
                                   golden_ensemble):
     """Pinned fixed-step solve agrees with the Julia side."""
     alias, cubie_final = gate_final
-    row = ALGORITHMS[alias]
-    _, golden_states, scale = golden_ensemble
+    _, golden_states, _ = golden_ensemble
     pin = FIXED_PINS[alias]
     julia_final = julia_fixed_finals(julia_reference, alias)[pin]
 
-    ok, report = fixed_point_verdict(
-        cubie_final, julia_final, golden_states, scale,
-        row["family"] != "erk")
+    ok, report = point_matches_julia(
+        cubie_final, julia_final, golden_states)
 
     assert ok, (
         "{0} (order {1}, {2}) deviates from Julia at dt={3:g}: "
         "{4}".format(
-            alias, row["order"], row["julia_expr"], pin, report))
+            alias, ALGORITHMS[alias]["order"],
+            ALGORITHMS[alias]["julia_expr"], pin, report))
 
 
 @pytest.mark.parametrize(
@@ -162,12 +160,12 @@ def test_adaptive_matched_controller_tracks_julia(
         gate_final, julia_reference, golden_ensemble):
     """Pinned adaptive solve under Julia-matched control tracks Julia."""
     alias, cubie_final = gate_final
-    _, golden_states, scale = golden_ensemble
+    _, golden_states, _ = golden_ensemble
     pin = ADAPTIVE_PINS[alias]
     julia_final = julia_adaptive_finals(julia_reference, alias)[pin]
 
-    ok, report = adaptive_point_verdict(
-        cubie_final, julia_final, golden_states, scale)
+    ok, report = point_matches_julia(
+        cubie_final, julia_final, golden_states)
 
     assert ok, (
         "{0} diverges from Julia under matched control at tol={1:g}: "

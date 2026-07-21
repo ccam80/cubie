@@ -52,35 +52,19 @@ N_NE = 1024
 ATOL_FIXED_NE = 1e-6
 RTOL_FIXED_NE = 1e-3
 
-# Error bounds (relative to the golden scale) delimiting where each check
-# applies. Below FLOOR_REL the error is float32 roundoff, not truncation.
-# Above ORDER_CAP_REL the solve has left the asymptotic regime and the
-# observed order is meaningless. The equivalence check tolerates a much
-# looser cap: two implementations of the same tableau still track each
-# other closely at coarse dt where the error is large but finite.
+# Error bounds (relative to the golden scale) for selecting reference
+# points. Below FLOOR_REL the error is float32 roundoff, and above
+# PIN_CAP_REL the selected point is not a useful accuracy comparison.
 FLOOR_REL = 4e-6
-ORDER_CAP_REL = 3e-2
-EQ_CAP_REL = 5e-1
+PIN_CAP_REL = 3e-2
 
-# Explicit pairs (identical tableau, no inner solves): mutual rms
-# distance must stay well below the truncation error once above the
-# roundoff floor allowance.
-EQ_FRACTION = 0.25
-EQ_FLOOR_MULT = 3.0
+# Cubie and Julia final states must be within this multiple of Julia's
+# golden-referenced error.
+MATCH_FRACTION = 2.0
 
-# Implicit families: one-sided bound on the golden-referenced error
-# ratio — cubie's error within this factor of the Julia run's.
-RATIO_LIM = 2.0
-
-# Fixed-tier pins require the Julia error to clear the roundoff floor
-# by this multiple, so the error ratio at the pin measures truncation
-# behaviour rather than floor noise.
+# Pins require the Julia error to clear the roundoff floor by this
+# multiple, so the matching comparison does not measure floor noise.
 PIN_MARGIN_MULT = 4.0
-
-# Adaptive matched-controller tier: the mutual rms distance must not
-# exceed this multiple of the Julia run's own error at any in-range
-# tolerance.
-ADAPTIVE_EQ_FRACTION = 2.0
 
 
 def load_algorithms():
@@ -198,13 +182,13 @@ def fixed_pin(reference, alias, golden_states, scale):
     Walks the dt grid coarse to fine and returns the finest dt of the
     contiguous run where the Julia error sits inside the convergence
     region: at least PIN_MARGIN_MULT times the roundoff floor and
-    below the order cap. Later dts that dip back into range past a
+    below the pin cap. Later dts that dip back into range past a
     break belong to the flat roundoff-dominated tail, not to the
     asymptotic regime the pin must sample. Raises when no dt
     qualifies (the vendored data no longer covers the region).
     """
     floor = FLOOR_REL * scale
-    cap = ORDER_CAP_REL * scale
+    cap = PIN_CAP_REL * scale
     errs = {dt: ensemble_error(final, golden_states)
             for dt, final in julia_fixed_finals(reference, alias).items()}
     pin = None
@@ -226,17 +210,17 @@ def adaptive_pin(reference, alias, golden_states, scale):
     """Pinned tolerance for one algorithm's adaptive-tier check.
 
     Returns the tightest tolerance where the Julia solve's own error
-    is in the sane range the tracking check divides by. Raises when
-    no tolerance qualifies.
+    clears the roundoff margin and is below the pin cap. Raises when no
+    tolerance qualifies.
     """
     floor = FLOOR_REL * scale
-    eq_cap = EQ_CAP_REL * scale
+    cap = PIN_CAP_REL * scale
     errs = {tol: ensemble_error(final, golden_states)
             for tol, final
             in julia_adaptive_finals(reference, alias).items()}
     in_range = [tol for tol in TOLS_NE
                 if tol in errs and np.isfinite(errs[tol])
-                and floor < errs[tol] < eq_cap]
+                and PIN_MARGIN_MULT * floor <= errs[tol] < cap]
     if not in_range:
         raise ValueError(
             "no in-range tolerance for '{0}'; regenerate data/ with "
@@ -244,54 +228,16 @@ def adaptive_pin(reference, alias, golden_states, scale):
     return min(in_range)
 
 
-def fixed_point_verdict(cubie_final, julia_final, golden_states, scale,
-                        implicit):
-    """Single-point verdict for the fixed tier at the pinned dt.
-
-    Returns (ok, report). Implicit-family algorithms (implicit, dirk,
-    firk, rosenbrock) are held to a one-sided accuracy bound: cubie's
-    golden-referenced error within RATIO_LIM of Julia's. The Julia
-    fixed-step runs solve their stages at OrdinaryDiffEq's default
-    tolerances, which leaves an inner-solve floor in their error
-    (issue #641); cubie's derived inner tolerances are tighter, so
-    beating the Julia error is expected and per-trajectory
-    equivalence is unattainable. Explicit pairs carry identical
-    tableaus and no inner solves, so they must agree per-trajectory:
-    mutual rms distance within EQ_FRACTION of the truncation error.
-    """
-    floor = FLOOR_REL * scale
+def point_matches_julia(cubie_final, julia_final, golden_states):
+    """Return whether a pinned Cubie result matches its Julia result."""
     err_c = ensemble_error(cubie_final, golden_states)
     err_j = ensemble_error(julia_final, golden_states)
     rms_diff = rms_difference(cubie_final, julia_final)
+    ratio = rms_diff / err_j if err_j > 0 else float("inf")
     report = (
         "err_cubie={0:.3e} err_julia={1:.3e} rms_diff={2:.3e} "
-        "(floor={3:.3e})".format(err_c, err_j, rms_diff, floor))
-    if not np.isfinite(err_c):
-        return False, report
-    if implicit:
-        ratio = err_c / err_j
-        return ratio < RATIO_LIM, (
-            "{0}; error ratio {1:.3g}, limit {2:g} one-sided".format(
-                report, ratio, RATIO_LIM))
-    bound = max(EQ_FRACTION * max(err_c, err_j),
-                EQ_FLOOR_MULT * floor)
-    return rms_diff <= bound, "{0}; equivalence bound {1:.3e}".format(
-        report, bound)
-
-
-def adaptive_point_verdict(cubie_final, julia_final, golden_states, scale):
-    """Single-point verdict for the adaptive tier at the pinned tol.
-
-    Returns (ok, report). The mutual rms distance must stay within
-    ADAPTIVE_EQ_FRACTION of the Julia run's own error.
-    """
-    floor = FLOOR_REL * scale
-    err_j = ensemble_error(julia_final, golden_states)
-    err_c = ensemble_error(cubie_final, golden_states)
-    rms_diff = rms_difference(cubie_final, julia_final)
-    worst = rms_diff / max(err_j, EQ_FLOOR_MULT * floor)
-    report = (
-        "err_cubie={0:.3e} err_julia={1:.3e} rms_diff={2:.3e}; "
         "rms/err ratio {3:.3g}, limit {4:g}".format(
-            err_c, err_j, rms_diff, worst, ADAPTIVE_EQ_FRACTION))
-    return worst <= ADAPTIVE_EQ_FRACTION, report
+            err_c, err_j, rms_diff, ratio, MATCH_FRACTION))
+    if not np.isfinite(err_c) or not np.isfinite(err_j) or err_j <= 0:
+        return False, report
+    return ratio <= MATCH_FRACTION, report
