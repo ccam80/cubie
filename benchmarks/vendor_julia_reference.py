@@ -84,6 +84,8 @@ def main():
 
     with open(algorithms_csv, newline="", encoding="utf-8") as f:
         algorithm_rows = list(csv.DictReader(f))
+    if not algorithm_rows:
+        sys.exit("algorithm table is empty: {0}".format(algorithms_csv))
     aliases = [row["cubie_alias"] for row in algorithm_rows]
 
     for alias in aliases:
