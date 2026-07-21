@@ -8,6 +8,8 @@ from cubie.integrators.algorithms.generic_dirk_tableaus import (
     DEFAULT_DIRK_TABLEAU_NAME,
     DIRK_TABLEAU_REGISTRY,
     DIRKTableau,
+    KVAERNO3_TABLEAU,
+    KVAERNO5_TABLEAU,
     L_STABLE_SDIRK4_TABLEAU,
 )
 
@@ -19,6 +21,8 @@ from cubie.integrators.algorithms.generic_dirk_tableaus import (
         "trapezoidal_dirk",
         "lobatto_iiic_3",
         "sdirk_2_2",
+        "kvaerno3",
+        "kvaerno5",
     ],
 )
 def test_dirk_tableau_registry_contains_expected_entries(expected_key):
@@ -49,3 +53,53 @@ def test_dirk_step_accepts_tableau_instance(precision):
     custom_tableau = DIRK_TABLEAU_REGISTRY[custom_name]
     step = DIRKStep(precision=precision, n=2, tableau=custom_tableau)
     assert step.compile_settings.tableau is custom_tableau
+
+
+@pytest.mark.parametrize(
+    "tableau,stage_count,b_row,b_hat_row,expected_d",
+    [
+        (
+            KVAERNO3_TABLEAU,
+            4,
+            3,
+            2,
+            (
+                -0.18175341844607201,
+                1.4169932981732141,
+                -1.671106401227145,
+                0.4358665215,
+            ),
+        ),
+        (
+            KVAERNO5_TABLEAU,
+            7,
+            6,
+            5,
+            (
+                -0.0019588905362793174,
+                0.0,
+                -0.012515715947863326,
+                -0.06565284626324187,
+                0.010502658265357234,
+                -0.1903752055179727,
+                0.26,
+            ),
+        ),
+    ],
+)
+def test_kvaerno_tableau_invariants(
+    tableau,
+    stage_count,
+    b_row,
+    b_hat_row,
+    expected_d,
+):
+    """Kvaerno pairs expose stiff-accuracy and embedded-row invariants."""
+
+    assert tableau.stage_count == stage_count
+    assert tableau.b_matches_a_row == b_row
+    assert tableau.b_hat_matches_a_row == b_hat_row
+    assert tableau.first_same_as_last
+    assert tableau.can_reuse_accepted_start
+    assert tableau.has_error_estimate
+    assert tableau.d == expected_d

@@ -113,7 +113,6 @@ def test_chunked_results_match_unchunked(
     system,
     precision,
     solver_settings,
-    driver_array,
     driver_settings,
 ):
     """Chunked solves reproduce unchunked results exactly.
@@ -145,7 +144,7 @@ def test_chunked_results_match_unchunked(
     reference_solver = _build_solver_instance(
         system=system,
         solver_settings=reference_settings,
-        driver_array=driver_array,
+        driver_settings=driver_settings,
         memory_manager=MemoryManager(),
     )
     try:

@@ -50,7 +50,6 @@ def test_host_arrays_spill_to_disk_and_results_match(
     solver_mutable,
     system,
     solver_settings,
-    driver_array,
     driver_settings,
     batch_input_arrays,
 ):
@@ -68,7 +67,7 @@ def test_host_arrays_spill_to_disk_and_results_match(
     reference_solver = _build_solver_instance(
         system=system,
         solver_settings=reference_settings,
-        driver_array=driver_array,
+        driver_settings=driver_settings,
         memory_manager=MemoryManager(),
     )
     try:
@@ -85,7 +84,6 @@ def test_host_arrays_spill_to_disk_and_results_match(
 def test_solver_spill_policies_are_independent(
     system,
     solver_settings,
-    driver_array,
     driver_settings,
     batch_input_arrays,
     tmp_path,
@@ -106,13 +104,13 @@ def test_solver_spill_policies_are_independent(
     spill_solver = _build_solver_instance(
         system=system,
         solver_settings=spill_settings,
-        driver_array=driver_array,
+        driver_settings=driver_settings,
         memory_manager=manager,
     )
     ram_solver = _build_solver_instance(
         system=system,
         solver_settings=ram_settings,
-        driver_array=driver_array,
+        driver_settings=driver_settings,
         memory_manager=manager,
     )
     try:
@@ -270,7 +268,7 @@ def test_repeat_solve_with_held_result_and_collapsed_vram(
 
 
 def test_outputs_above_pinned_ceiling_stay_pageable(
-    system, solver_settings, driver_array, driver_settings,
+    system, solver_settings, driver_settings,
     batch_input_arrays,
 ):
     """With a tiny pinned ceiling every buffer is pageable, not pinned.
@@ -284,7 +282,7 @@ def test_outputs_above_pinned_ceiling_stay_pageable(
     solver = _build_solver_instance(
         system=system,
         solver_settings=settings,
-        driver_array=driver_array,
+        driver_settings=driver_settings,
         memory_manager=manager,
     )
     try:
