@@ -169,6 +169,29 @@ if POPULATION and BACKEND == "numba-cuda":
     nb_devices.get_context = lambda *args, **kwargs: _fake_context
     backend_cuda.get_current_device = lambda: _fake_device
 
+if POPULATION and BACKEND == "mlir":
+    from numba_cuda_mlir.numba_cuda.cudadrv import (  # noqa: E402
+        devices as mlir_devices,
+    )
+
+    # cubie queries the live device outside any launch: the
+    # memory-placement heuristics call
+    # ``cuda.get_current_device().compute_capability`` during Solver
+    # construction (``resolve_thresholds``), which initialises the
+    # real CUDA driver and raises on the driverless population
+    # runner, erroring every affected fixture before its kernels
+    # reach the cache. Mirror the numba-cuda fakes above.
+    _fake_device = SimpleNamespace(
+        compute_capability=ComputeCapability(*TARGET_CC),
+        id=0,
+        name=b"cubie-precompile",
+        MAX_SHARED_MEMORY_PER_BLOCK=49152,
+        WARP_SIZE=32,
+    )
+    _fake_context = SimpleNamespace(device=_fake_device)
+    mlir_devices.get_context = lambda *args, **kwargs: _fake_context
+    backend_cuda.get_current_device = lambda: _fake_device
+
 
 def _host_copy(self, instance, from_arrays, to_arrays, stream=None):
     for source, destination in zip(from_arrays, to_arrays):
