@@ -1274,7 +1274,6 @@ NON_SOLVER_SETTINGS = {
     "warmup",
     "t0",
     "blocksize",
-    "stream",
     "system_type",
     "n_states",
     "n_parameters",

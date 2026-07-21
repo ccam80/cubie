@@ -36,7 +36,6 @@ def time_driver_solver_settings(precision):
         "summarised_observable_indices": [0],
         "output_types": ["state", "observables", "time"],
         "blocksize": 32,
-        "stream": 0,
         "lineinfo": False,
         "memory_manager": None,
         "stream_group": "time_driver",

@@ -116,23 +116,20 @@ loose keyword arguments (see "Kwarg routing" below).
    * - ``blocksize``
      - ``256``
      - CUDA threads per block for the kernel launch.
-   * - ``stream``
-     - ``None``
-     - CUDA stream to launch on; ``None`` uses the solver's default
-       stream.
    * - ``grid_type``
      - ``"verbatim"``
      - **Differs from** ``solve_ivp``'s default of
        ``"combinatorial"`` above — only relevant when dict inputs
        trigger grid construction.
-   * - ``results_type``
-     - ``"full"``
-     - Shape of the returned result (e.g. ``"full"`` for a
-       :class:`~cubie.batchsolving.solveresult.SolveResult`, ``"raw"``
-       for a plain dict). See :doc:`results`.
+   * - ``on_device``
+     - ``False``
+     - Return a
+       :class:`~cubie.batchsolving.solveresult.DeviceSolveResult` of
+       device-array handles with no device-to-host copy. See
+       :doc:`results`.
    * - ``nan_error_trajectories``
      - ``True``
-     - Same behaviour as above; ignored when ``results_type="raw"``.
+     - Same behaviour as above; ignored when ``on_device=True``.
 
 Any other keyword argument is forwarded to :meth:`~cubie.Solver.update`,
 routing through the same six settings groups described next.

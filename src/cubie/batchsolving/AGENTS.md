@@ -22,7 +22,7 @@ See `CUDAFactory` (root) for build/cache/`update`, config, and attrs conventions
 | `BatchSolverConfig.py` | `BatchSolverConfig(CUDAFactoryConfig)` — holds `precision`, `loop_fn`, `compile_flags`. `ActiveOutputs(_CubieConfigBase)` — booleans for which output arrays are produced, built via `ActiveOutputs.from_compile_flags(...)`. |
 | `BatchInputHandler.py` | `BatchInputHandler` (plain class) + module-level grid builders (`unique_cartesian_product`, `combinatorial_grid`, `verbatim_grid`, `generate_grid`, `combine_grids`, `extend_grid_to_array`). Converts user dicts/arrays into `(variable, run)` 2D arrays; anything it materialises (cast or assembly) lands in a memory-manager buffer, pinned below `pinned_max_bytes`, while a right-sized correct-precision user array passes through untouched. |
 | `SystemInterface.py` | `SystemInterface` — wraps the system's `SystemValues`; resolves labels↔indices, and `merge_variable_labels_and_idxs` merges `save_variables`/`summarise_variables` labels + index kwargs into final index arrays. |
-| `solveresult.py` | `SolveSpec` (attrs config snapshot) and `SolveResult` — owns the solve's host buffers via `OutputArrays.loan_host_arrays` (zero copy), applies NaN-on-error masking in place, and derives `time`/`time_domain_array`/`summaries_array` plus `as_numpy`/`as_numpy_per_summary`/`as_pandas` lazily. |
+| `solveresult.py` | `SolveSpec` (attrs config snapshot); `SolveResult` — owns the solve's host buffers via `OutputArrays.loan_host_arrays` (zero copy), applies NaN-on-error masking in place, carries the solve's `stream`, and derives `time`/`time_domain_array`/`summaries_array` plus `as_numpy`/`as_numpy_per_summary`/`as_pandas` lazily; `DeviceSolveResult` — device-array handles to the solve's output buffers plus the kernel's stream, returned by `Solver.solve(on_device=True)` with no D2H copy. Both are pure data containers: no stream or memory operations happen in this module. |
 | `writeback_watcher.py` | `WritebackWatcher` (daemon thread) + `WritebackTask` — polls CUDA events via `event.query()`, copies completed pinned-buffer data into host arrays (D2H writeback) or just releases H2D staging buffers. |
 | `_utils.py` | Docstring only — no exports (dead validators removed). |
 | `__init__.py` | Defines the `ArrayTypes` alias (`Optional[Union[NDArray, DeviceNDArrayBase, MappedNDArray]]`) and re-exports the public surface. |
@@ -110,6 +110,31 @@ NaN-masked **in place** on the owned buffers. Disk-backed results release their 
 `close()`, context exit, or collection. `SolveResult.status_messages` decodes the per-run
 status word into named `CUBIE_RESULT_CODES` flags via `cubie.result_codes.decode_status_codes`.
 `SolveSpec` is an attrs snapshot of the solve configuration.
+
+### One stream per kernel
+Every launch and transfer for a kernel runs on `kernel.stream` — the stream its memory
+manager issued for its stream group. There is **no caller-supplied stream**: neither
+`Solver.solve` nor `BatchSolverKernel.run` accepts one, and no code outside the memory
+manager may synchronize anything wider than that stream (no `cuda.synchronize()`; #644
+removed device-wide syncs for concurrent/multiprocess operation). `SolveResult.stream` and
+`DeviceSolveResult.stream` carry this stream as data so callers can order follow-up work.
+
+### Device-resident results and inputs
+`Solver.solve(on_device=True)` skips the per-chunk `output_arrays.finalise` D2H
+(`kernel.run(transfer_outputs=False)`), skips the end-of-solve sync/writeback wait, and
+returns a `DeviceSolveResult`: the kernel's device output buffers plus `kernel.stream`.
+Contents are valid once that stream is synchronized; work queued on it executes in order
+after the solve. The handles are views the next `solve()` overwrites (and a reallocation
+or memory-pressure eviction detaches) — no loan is taken. Single-chunk only; a chunked run
+raises `ValueError`. `solve_ivp` has no `on_device` option (it closes its temporary solver
+before returning).
+
+`initial_values`/`parameters` supplied as device arrays (validated by
+`BatchInputHandler._process_device_inputs`: 2D, exact variable count, exact dtype — raise,
+never pad/cast) are wired directly into the kernel via `InputArrays._attach_device_inputs`
+with no host staging, H2D copy, or managed-buffer allocation; the host-side counterpart of
+a lone device input is paired verbatim (defaults or a single column broadcast to the device
+run count). Device inputs are likewise single-chunk only.
 
 ### Testing
 `tests/batchsolving/` (`test_solver.py`, `test_BatchSolverKernel.py`, input-handler/result tests).

@@ -34,12 +34,12 @@ from numpy import (
 
 from numpy.typing import NDArray
 from math import prod
-from typing import Optional, TYPE_CHECKING
+from typing import Dict, Optional, TYPE_CHECKING
 
 if TYPE_CHECKING:
     from cubie.batchsolving.BatchSolverKernel import BatchSolverKernel
 
-from cubie.cuda_simsafe import cuda, CUDA_SIMULATION
+from cubie.cuda_simsafe import cuda, CUDA_SIMULATION, is_device_array
 from cubie.memory.chunk_buffer_pool import ChunkBufferPool
 from cubie.memory.mem_manager import HOST_STAGING_BYTES
 from cubie.batchsolving.writeback_watcher import WritebackWatcher
@@ -159,6 +159,7 @@ class InputArrays(BaseArrayManager):
     _transfer_watcher: WritebackWatcher = field(
         factory=WritebackWatcher, init=False
     )
+    _device_inputs: Dict[str, object] = field(factory=dict, init=False)
 
     def __attrs_post_init__(self) -> None:
         """Ensure host and device containers use explicit memory types.
@@ -192,6 +193,12 @@ class InputArrays(BaseArrayManager):
         driver_coefficients
             Horner-ordered driver interpolation coefficients.
 
+        Notes
+        -----
+        Inputs supplied as device arrays are attached directly as the
+        kernel's device inputs: no host staging or host-to-device
+        transfer occurs, and no managed device buffer is allocated for
+        them. They must already match the expected shape and dtype.
         """
         updates_dict = {
             "initial_values": initial_values,
@@ -200,18 +207,98 @@ class InputArrays(BaseArrayManager):
         if driver_coefficients is not None:
             updates_dict["driver_coefficients"] = driver_coefficients
         self.update_from_solver(solver_instance)
-        self.update_host_arrays(updates_dict)
+        device_updates = {
+            name: arr
+            for name, arr in updates_dict.items()
+            if is_device_array(arr)
+        }
+        host_updates = {
+            name: arr
+            for name, arr in updates_dict.items()
+            if name not in device_updates
+        }
+        for name in list(self._device_inputs):
+            if name in host_updates:
+                # A slot returning to host input needs a managed
+                # device buffer allocated again.
+                del self._device_inputs[name]
+                if name not in self._needs_reallocation:
+                    self._needs_reallocation.append(name)
+        if host_updates:
+            self.update_host_arrays(host_updates)
+        if device_updates:
+            self._attach_device_inputs(device_updates)
         self.allocate()  # Will queue request if in a stream group
+
+    def _attach_device_inputs(
+        self, device_arrays: Dict[str, object]
+    ) -> None:
+        """Attach caller-supplied device arrays as kernel inputs.
+
+        Parameters
+        ----------
+        device_arrays
+            Mapping of array names to device arrays.
+
+        Raises
+        ------
+        ValueError
+            If a device array's shape differs from the expected size.
+        TypeError
+            If a device array's dtype differs from the slot dtype.
+        """
+        for name, arr in device_arrays.items():
+            slot = self.device.get_managed_array(name)
+            expected = getattr(self._sizes, name)
+            shape = tuple(arr.shape)
+            shape_ok = len(shape) == len(expected) and all(
+                exp is None or dim == exp
+                for dim, exp in zip(shape, expected)
+            )
+            if not shape_ok:
+                raise ValueError(
+                    f"Device input '{name}' has shape {shape}; "
+                    f"expected {tuple(expected)}."
+                )
+            if np_dtype(arr.dtype) != np_dtype(slot.dtype):
+                raise TypeError(
+                    f"Device input '{name}' has dtype {arr.dtype}; "
+                    f"expected {np_dtype(slot.dtype).name}. Cast it "
+                    f"on the device before solving."
+                )
+            self.device.attach(name, arr)
+            self._device_inputs[name] = arr
+            if name in self._needs_reallocation:
+                self._needs_reallocation.remove(name)
+            if name in self._needs_overwrite:
+                self._needs_overwrite.remove(name)
+
+    @property
+    def has_device_inputs(self) -> bool:
+        """Whether any input was supplied as a device array."""
+        return bool(self._device_inputs)
 
     @property
     def initial_values(self) -> ArrayTypes:
-        """Host initial values array."""
-        return self.host.initial_values.array
+        """Initial values used in the last run.
+
+        Returns the caller's device array when initial values were
+        supplied on device; otherwise the host array.
+        """
+        return self._device_inputs.get(
+            "initial_values", self.host.initial_values.array
+        )
 
     @property
     def parameters(self) -> ArrayTypes:
-        """Host parameters array."""
-        return self.host.parameters.array
+        """Parameters used in the last run.
+
+        Returns the caller's device array when parameters were
+        supplied on device; otherwise the host array.
+        """
+        return self._device_inputs.get(
+            "parameters", self.host.parameters.array
+        )
 
     @property
     def driver_coefficients(self) -> ArrayTypes:
@@ -338,6 +425,12 @@ class InputArrays(BaseArrayManager):
             arrays_to_copy = [array for array in self._needs_overwrite]
             self._needs_overwrite = []
         else:
+            if self._device_inputs:
+                raise ValueError(
+                    "Device-array inputs require the batch to fit in "
+                    "a single chunk, but this run is chunked. Pass "
+                    "host arrays or reduce the batch size."
+                )
             arrays_to_copy = list(self.device.array_names())
 
         for array_name in arrays_to_copy:
@@ -409,11 +502,17 @@ class InputArrays(BaseArrayManager):
         """Wait for pending staging-buffer releases."""
         self._transfer_watcher.wait_all(timeout=timeout)
 
+    def _invalidate_hook(self) -> None:
+        """Drop device-input references alongside managed arrays."""
+        super()._invalidate_hook()
+        self._device_inputs.clear()
+
     def reset(self) -> None:
         """Clear all cached arrays and reset allocation tracking."""
         super().reset()
         self._transfer_watcher.shutdown()
         self._buffer_pool.clear()
+        self._device_inputs.clear()
 
     def _teardown_cleanups(self):
         """Return transfer cleanup calls."""

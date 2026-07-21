@@ -161,6 +161,7 @@ from numpy import (
 
 from numpy.typing import ArrayLike
 
+from cubie.cuda_simsafe import is_device_array
 from cubie.batchsolving.SystemInterface import SystemInterface
 from cubie.memory import default_memmgr
 from cubie.odesystems.baseODE import BaseODE
@@ -552,11 +553,19 @@ class BatchInputHandler:
         product of both grids. When arrays already describe paired runs,
         set ``kind`` to ``"verbatim"`` to keep them aligned.
 
-        Device arrays with ``__cuda_array_interface__`` are returned
-        immediately with no processing.
+        Device arrays are treated as prebuilt (variable, run) grids
+        and returned with no processing; they must already match the
+        system precision and variable count. A host-side counterpart
+        is paired verbatim: ``None`` or a single-column input is
+        broadcast to the device array's run count, and a multi-column
+        input must match it exactly.
         """
         # Update precision from current system state
         self.precision = self.states.precision
+
+        device_result = self._process_device_inputs(states, params)
+        if device_result is not None:
+            return device_result
 
         fast_result = self._fast_return_arrays(states, params, kind)
         if fast_result is not None:
@@ -573,6 +582,158 @@ class BatchInputHandler:
 
         # Cast to system precision
         return self._cast_to_precision(states_array, params_array)
+
+    def _validate_device_array(
+        self,
+        arr: object,
+        values_object: SystemValues,
+        label: str,
+    ) -> None:
+        """Validate a device array against system metadata.
+
+        Parameters
+        ----------
+        arr
+            Device array to validate.
+        values_object
+            System values object for the input category.
+        label
+            Human-readable input name used in error messages.
+
+        Raises
+        ------
+        ValueError
+            If the array is not 2D or its variable count differs from
+            the system's.
+        TypeError
+            If the array dtype differs from the system precision.
+        """
+        shape = arr.shape
+        if len(shape) != 2:
+            raise ValueError(
+                f"Device-array {label} must be 2D in (variable, run) "
+                f"format, got a {len(shape)}D array."
+            )
+        if shape[0] != values_object.n:
+            raise ValueError(
+                f"Device-array {label} has {shape[0]} variables, but "
+                f"the system has {values_object.n}. Device arrays "
+                f"must be fully specified; they are not padded with "
+                f"defaults."
+            )
+        if np_dtype(arr.dtype) != np_dtype(self.precision):
+            raise TypeError(
+                f"Device-array {label} has dtype {arr.dtype}, but the "
+                f"system precision is {np_dtype(self.precision).name}. "
+                f"Cast it on the device before solving."
+            )
+
+    def _process_device_inputs(
+        self,
+        states: Optional[Union[ArrayLike, Dict]],
+        params: Optional[Union[ArrayLike, Dict]],
+    ) -> Optional[Tuple[object, object]]:
+        """Pass device arrays through, pairing any host counterpart.
+
+        Parameters
+        ----------
+        states
+            Initial-state input, possibly a device array.
+        params
+            Parameter input, possibly a device array.
+
+        Returns
+        -------
+        Optional[tuple]
+            ``(states, params)`` with device arrays untouched and any
+            host counterpart expanded to a matching (variable, run)
+            array, or ``None`` when neither input is a device array.
+
+        Raises
+        ------
+        ValueError
+            If two device arrays have different run counts, or a
+            host-side counterpart cannot be broadcast to the device
+            array's run count.
+        TypeError
+            If a non-empty dict grid accompanies a device array.
+
+        Notes
+        -----
+        Device arrays are always treated as prebuilt verbatim grids;
+        combinatorial expansion of device-resident values is not
+        supported.
+        """
+        states_is_device = is_device_array(states)
+        params_is_device = is_device_array(params)
+        if not (states_is_device or params_is_device):
+            return None
+
+        if states_is_device:
+            self._validate_device_array(states, self.states, "states")
+        if params_is_device:
+            self._validate_device_array(
+                params, self.parameters, "params"
+            )
+
+        if states_is_device and params_is_device:
+            if states.shape[1] != params.shape[1]:
+                raise ValueError(
+                    f"Device-array states and params have different "
+                    f"run counts ({states.shape[1]} and "
+                    f"{params.shape[1]}). Device arrays are paired "
+                    f"verbatim and must match."
+                )
+            return states, params
+
+        if states_is_device:
+            device_arr = states
+            other = params
+            other_values = self.parameters
+            other_label = "params"
+        else:
+            device_arr = params
+            other = states
+            other_values = self.states
+            other_label = "states"
+        n_runs = device_arr.shape[1]
+
+        if isinstance(other, dict):
+            if other:
+                raise TypeError(
+                    f"Dict {other_label} cannot be combined with a "
+                    f"device array; build the host side into a "
+                    f"(variable, run) array first, e.g. with "
+                    f"Solver.build_grid."
+                )
+            other = None
+
+        if other is None:
+            host_arr = self._to_defaults_column(other_values, n_runs)
+        else:
+            if not isinstance(other, (list, tuple, ndarray)):
+                raise TypeError(
+                    f"Input {other_label} must be None, dict, or "
+                    f"array-like, got {type(other)}"
+                )
+            host_arr = self._sanitise_arraylike(other, other_values)
+            if host_arr is None:
+                host_arr = self._to_defaults_column(other_values, n_runs)
+            elif host_arr.shape[1] == 1 and n_runs > 1:
+                host_arr = np_repeat(host_arr, n_runs, axis=1)
+            elif host_arr.shape[1] != n_runs:
+                raise ValueError(
+                    f"Host-side {other_label} has "
+                    f"{host_arr.shape[1]} runs but the device array "
+                    f"has {n_runs}. Device arrays are paired "
+                    f"verbatim: pass a single column to broadcast or "
+                    f"a matching run count."
+                )
+        host_arr = self._materialise(np_asarray(host_arr))
+
+        if states_is_device:
+            return device_arr, host_arr
+        return host_arr, device_arr
 
     def _trim_or_extend(
         self, arr: ndarray, values_object: SystemValues
@@ -911,20 +1072,11 @@ class BatchInputHandler:
         params: Optional[Union[ArrayLike, Dict]],
         kind: str,
     ) -> Optional[Tuple[ndarray, ndarray]]:
-        """Attempt fast returns for device arrays or pre-sized inputs."""
-        states_is_device = hasattr(states, '__cuda_array_interface__')
-        params_is_device = hasattr(params, '__cuda_array_interface__')
-
+        """Attempt fast returns for pre-sized host array inputs."""
         states_runs = self._get_run_count(states)
         params_runs = None
         if not (self.parameters.empty and params is None):
             params_runs = self._get_run_count(params)
-
-        if states_is_device and params_is_device:
-            if states_runs is not None and params_runs is not None:
-                if states_runs == params_runs:
-                    return states, params
-            return None
 
         states_ok = self._is_right_sized_array(states, self.states)
         params_ok = self._is_right_sized_array(params, self.parameters)
@@ -971,14 +1123,7 @@ class BatchInputHandler:
         return None
 
     def _get_run_count(self, arr: Optional[Union[ArrayLike, Dict]]) -> Optional[int]:
-        """Return run count (columns) for array-like or device arrays."""
-        if isinstance(arr, ndarray):
-            if arr.ndim == 2:
-                return arr.shape[1]
-            return None
-        if hasattr(arr, '__cuda_array_interface__'):
-            iface = arr.__cuda_array_interface__
-            shape = iface.get('shape')
-            if shape and len(shape) >= 2:
-                return shape[1]
+        """Return run count (columns) for 2D host arrays."""
+        if isinstance(arr, ndarray) and arr.ndim == 2:
+            return arr.shape[1]
         return None

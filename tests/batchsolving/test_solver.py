@@ -8,9 +8,14 @@ from tests.system_fixtures import build_three_state_nonlinear_system
 
 from cubie import create_ODE_system
 from cubie.batchsolving.solver import Solver, solve_ivp
-from cubie.batchsolving.solveresult import SolveResult, SolveSpec
+from cubie.batchsolving.solveresult import (
+    DeviceSolveResult,
+    SolveResult,
+    SolveSpec,
+)
 from cubie.batchsolving.BatchInputHandler import BatchInputHandler
 from cubie.batchsolving.SystemInterface import SystemInterface
+from cubie.cuda_simsafe import cuda, is_device_array
 
 
 @pytest.fixture(scope="session")
@@ -362,6 +367,224 @@ def test_solve_result_representations(
     assert np.array_equal(
         as_numpy["time_domain_array"], result.time_domain_array
     )
+
+
+def test_full_results_carry_stream(
+    solver_mutable,
+    simple_initial_values,
+    simple_parameters,
+    driver_settings,
+):
+    """Host results expose the stream the solve ran on."""
+    solver = solver_mutable
+    full = solver.solve(
+        initial_values=simple_initial_values,
+        parameters=simple_parameters,
+        drivers=driver_settings,
+        duration=0.05,
+        save_every=0.01,
+        dt=0.01,
+        summarise_every=None,
+    )
+    assert full.stream is solver.kernel.stream
+    assert full.stream is not None
+
+
+def test_device_results_match_host(
+    solver_mutable,
+    system,
+    precision,
+    driver_settings,
+):
+    """Device results hold the same values as a host solve."""
+    solver = solver_mutable
+    n_runs = 5
+    inits = np.ones((system.sizes.states, n_runs), dtype=precision)
+    params = np.ones(
+        (system.sizes.parameters, n_runs), dtype=precision
+    )
+
+    host = solver.solve(
+        inits,
+        params,
+        drivers=driver_settings,
+        duration=0.05,
+        save_every=0.01,
+        dt=0.01,
+        summarise_every=None,
+        nan_error_trajectories=False,
+    )
+    host_state = np.array(host.state, copy=True)
+    host_status = np.array(host.status_codes, copy=True)
+
+    device = solver.solve(
+        inits,
+        params,
+        drivers=driver_settings,
+        duration=0.05,
+        on_device=True,
+    )
+    assert isinstance(device, DeviceSolveResult)
+    assert is_device_array(device.state)
+    assert is_device_array(device.status_codes)
+    assert device.stream is solver.kernel.stream
+
+    # The documented host-read pattern: synchronize the solve's
+    # stream, then copy the handles.
+    device.stream.synchronize()
+    np.testing.assert_array_equal(
+        device.state.copy_to_host(), host_state
+    )
+    np.testing.assert_array_equal(
+        device.status_codes.copy_to_host(), host_status
+    )
+
+
+def test_device_results_chunked_raises(
+    low_mem_solver,
+    system,
+    precision,
+    driver_settings,
+):
+    """Device results refuse a run that chunks along the run axis."""
+    n_runs = 5
+    inits = np.ones((system.sizes.states, n_runs), dtype=precision)
+    params = np.ones(
+        (system.sizes.parameters, n_runs), dtype=precision
+    )
+    with pytest.raises(ValueError, match="single chunk"):
+        low_mem_solver.solve(
+            inits,
+            params,
+            drivers=driver_settings,
+            duration=0.05,
+            summarise_every=None,
+            save_every=0.01,
+            dt=0.01,
+            on_device=True,
+        )
+
+
+def test_device_inputs_match_host_inputs(
+    solver_mutable,
+    system,
+    precision,
+    driver_settings,
+):
+    """Device-array inputs reproduce a host-input solve exactly."""
+    solver = solver_mutable
+    n_runs = 4
+    rng_vals = np.linspace(0.5, 1.5, system.sizes.states * n_runs)
+    inits = rng_vals.reshape(
+        (system.sizes.states, n_runs)
+    ).astype(precision)
+    params = np.ones(
+        (system.sizes.parameters, n_runs), dtype=precision
+    )
+
+    host_result = solver.solve(
+        inits,
+        params,
+        drivers=driver_settings,
+        duration=0.05,
+        save_every=0.01,
+        dt=0.01,
+        summarise_every=None,
+    )
+    host_state = host_result.time_domain_array.copy()
+
+    d_inits = cuda.to_device(inits)
+    d_params = cuda.to_device(params)
+    device_result = solver.solve(
+        d_inits,
+        d_params,
+        drivers=driver_settings,
+        duration=0.05,
+    )
+    # The caller's arrays are wired straight into the kernel.
+    input_arrays = solver.kernel.input_arrays
+    assert input_arrays.has_device_inputs
+    assert input_arrays.device_initial_values is d_inits
+    assert input_arrays.device_parameters is d_params
+    assert solver.initial_values is d_inits
+    np.testing.assert_array_equal(
+        device_result.time_domain_array, host_state
+    )
+
+    # A later host-input solve reallocates and still matches.
+    host_again = solver.solve(
+        inits,
+        params,
+        drivers=driver_settings,
+        duration=0.05,
+    )
+    assert not input_arrays.has_device_inputs
+    np.testing.assert_array_equal(
+        host_again.time_domain_array, host_state
+    )
+
+
+def test_device_inputs_device_results_roundtrip(
+    solver_mutable,
+    system,
+    precision,
+    driver_settings,
+):
+    """A fully device-resident solve returns valid device handles."""
+    solver = solver_mutable
+    n_runs = 3
+    inits = np.ones((system.sizes.states, n_runs), dtype=precision)
+    params = np.ones(
+        (system.sizes.parameters, n_runs), dtype=precision
+    )
+
+    reference = solver.solve(
+        inits,
+        params,
+        drivers=driver_settings,
+        duration=0.05,
+        save_every=0.01,
+        dt=0.01,
+        summarise_every=None,
+        nan_error_trajectories=False,
+    )
+    ref_state = np.array(reference.state, copy=True)
+
+    device = solver.solve(
+        cuda.to_device(inits),
+        cuda.to_device(params),
+        drivers=driver_settings,
+        duration=0.05,
+        on_device=True,
+    )
+    device.stream.synchronize()
+    np.testing.assert_array_equal(
+        device.state.copy_to_host(), ref_state
+    )
+
+
+def test_device_inputs_chunked_raises(
+    low_mem_solver,
+    system,
+    precision,
+    driver_settings,
+):
+    """Device-array inputs refuse a run that chunks."""
+    n_runs = 5
+    inits = np.ones((system.sizes.states, n_runs), dtype=precision)
+    params = np.ones(
+        (system.sizes.parameters, n_runs), dtype=precision
+    )
+    with pytest.raises(ValueError, match="single chunk"):
+        low_mem_solver.solve(
+            cuda.to_device(inits),
+            cuda.to_device(params),
+            drivers=driver_settings,
+            duration=0.05,
+            summarise_every=None,
+            save_every=0.01,
+            dt=0.01,
+        )
 
 
 def test_update_basic(solver_mutable, tolerance, precision):

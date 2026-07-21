@@ -13,6 +13,10 @@ Published Classes
     Owns the solve's host output buffers and derives every user-facing
     representation from them lazily.
 
+:class:`DeviceSolveResult`
+    Holds device-array handles to the solve's output buffers plus the
+    CUDA stream the solve ran on; nothing is copied to the host.
+
 Ownership
 ---------
 A :class:`SolveResult` takes ownership of the host buffers the solve
@@ -225,6 +229,10 @@ class SolveResult:
         Mapping from summary indices to labels.
     solve_settings
         Solver run configuration snapshot.
+    stream
+        The kernel's memory-manager stream the solve ran on. Work
+        queued on this stream executes in order after the solve's
+        kernel launches and transfers.
     singlevar_summary_legend
         Mapping from summary offsets to legend labels.
     active_outputs
@@ -279,6 +287,7 @@ class SolveResult:
         default=None,
         validator=attrsval_optional(attrsval_instance_of(SolveSpec)),
     )
+    stream: Optional[Any] = field(default=None, eq=False)
     _singlevar_summary_legend: Optional[dict[int, str]] = field(
         default=attrsFactory(dict),
         validator=attrsval_optional(attrsval_instance_of(dict)),
@@ -345,6 +354,7 @@ class SolveResult:
             time_domain_legend=cls.time_domain_legend_from_solver(solver),
             summaries_legend=cls.summary_legend_from_solver(solver),
             solve_settings=solver.solve_info,
+            stream=solver.kernel.stream,
             singlevar_summary_legend=solver.summary_legend_per_variable,
             active_outputs=solver.active_outputs,
             stride_order=outputs.host.state.stride_order,
@@ -904,3 +914,131 @@ class SolveResult:
                 label, unit
             )
         return time_domain_legend
+
+
+@define(eq=False)
+class DeviceSolveResult:
+    """Device-array handles to one solve's output buffers.
+
+    Returned by :meth:`Solver.solve` when ``on_device=True``. Nothing
+    is copied to the host: the fields are the solver's device output
+    buffers plus the kernel's memory-manager stream — the stream
+    every launch and transfer for that solver runs on. The solve does
+    not synchronize before returning — buffer contents are valid once
+    :attr:`stream` has been synchronized, and work queued on that
+    stream executes in order after the solve.
+
+    This class holds handles only; it performs no stream or memory
+    operations. Callers queue follow-up device work on
+    :attr:`stream`, and read on the host by synchronizing that stream
+    first (or run a normal host solve instead).
+
+    The handles are views into the solver's working buffers: the next
+    ``solve()`` on the same solver overwrites their contents, and a
+    reallocation or memory-pressure eviction detaches them from the
+    solver. Copy anything that must outlive the next solve.
+
+    Attributes
+    ----------
+    status_codes
+        Device buffer of per-run integration status codes.
+    stream
+        The kernel's memory-manager stream the solve ran on.
+    """
+
+    _state: Optional[Any] = field(default=None)
+    _observables: Optional[Any] = field(default=None)
+    _state_summaries: Optional[Any] = field(default=None)
+    _observable_summaries: Optional[Any] = field(default=None)
+    _iteration_counters: Optional[Any] = field(default=None)
+    status_codes: Optional[Any] = field(default=None)
+    stream: Optional[Any] = field(default=None)
+    _active_outputs: Optional[ActiveOutputs] = field(
+        default=attrsFactory(ActiveOutputs)
+    )
+    _stride_order: Union[tuple[str, ...], list[str]] = field(
+        default=("time", "variable", "run")
+    )
+    _save_time: bool = field(
+        default=False, validator=attrsval_instance_of(bool)
+    )
+
+    @classmethod
+    def from_solver(cls, solver: "Solver") -> "DeviceSolveResult":
+        """Create a :class:`DeviceSolveResult` from the solver's buffers.
+
+        Parameters
+        ----------
+        solver
+            Solver whose kernel ran the solve.
+
+        Returns
+        -------
+        DeviceSolveResult
+            Handles to the solver's device output buffers and the
+            stream the solve ran on.
+        """
+        kernel = solver.kernel
+        return cls(
+            state=kernel.device_state,
+            observables=kernel.device_observables,
+            state_summaries=kernel.device_state_summaries,
+            observable_summaries=kernel.device_observable_summaries,
+            iteration_counters=kernel.device_iteration_counters,
+            status_codes=kernel.device_status_codes,
+            stream=kernel.stream,
+            active_outputs=solver.active_outputs,
+            stride_order=kernel.output_arrays.host.state.stride_order,
+            save_time=bool(solver.save_time),
+        )
+
+    @property
+    def state(self) -> Optional[Any]:
+        """Device state buffer, with its time column when time is saved."""
+        if self._active_outputs.state or self._save_time:
+            return self._state
+        return None
+
+    @property
+    def observables(self) -> Optional[Any]:
+        """Device observables buffer, or ``None`` when not saved."""
+        if self._active_outputs.observables:
+            return self._observables
+        return None
+
+    @property
+    def state_summaries(self) -> Optional[Any]:
+        """Device state summary buffer, or ``None`` when not summarised."""
+        if self._active_outputs.state_summaries:
+            return self._state_summaries
+        return None
+
+    @property
+    def observable_summaries(self) -> Optional[Any]:
+        """Device observable summary buffer, or ``None`` when not
+        summarised."""
+        if self._active_outputs.observable_summaries:
+            return self._observable_summaries
+        return None
+
+    @property
+    def iteration_counters(self) -> Optional[Any]:
+        """Device iteration counters, or ``None`` when not requested."""
+        if self._active_outputs.iteration_counters:
+            return self._iteration_counters
+        return None
+
+    @property
+    def active_outputs(self) -> ActiveOutputs:
+        """Return the active output flags."""
+        return self._active_outputs
+
+    @property
+    def stride_order(self) -> Union[tuple[str, ...], list[str]]:
+        """Order of axes in the device buffers."""
+        return self._stride_order
+
+    @property
+    def save_time(self) -> bool:
+        """Whether the state buffer carries a trailing time column."""
+        return self._save_time

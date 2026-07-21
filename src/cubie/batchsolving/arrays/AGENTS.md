@@ -53,6 +53,16 @@ allocations, never copies, since the kernel overwrites them; input managers over
 conversions as no-ops). `_invalidate_hook` drops device refs and re-marks everything for
 reallocation.
 
+`InputArrays.update` detects device-array inputs (`cuda_simsafe.is_device_array`) and
+routes them to `_attach_device_inputs`: validated (exact shape vs `_sizes` with `None`
+wildcards, exact dtype — raise, never coerce) and attached directly as the kernel-facing
+device array, tracked in `_device_inputs`, removed from
+`_needs_reallocation`/`_needs_overwrite` so no buffer is allocated and no H2D runs. A slot
+that later reverts to host input is re-queued for reallocation. Device inputs are
+single-chunk only (`initialise` and `BatchSolverKernel.run` raise on chunked runs);
+`has_device_inputs` exposes the state, and the `initial_values`/`parameters` properties
+return the caller's device array while one is attached.
+
 ### Teardown
 Explicit close drains transfer watchers before clearing staging pools and
 device registrations. Failures leave resources attached so close can be
@@ -102,8 +112,9 @@ warns (doesn't raise) on an unknown label.
 ### Sizes
 `_sizes` is a `BatchInputSizes`/`BatchOutputSizes` (`ArraySizingClass`); `update_sizes` raises
 `TypeError` if the replacement isn't the same subtype. `.nonzero` (floor empty/disabled dims to
-1) is applied to `_sizes` before allocation, in `update_from_solver`. See root for the
-`ArraySizingClass`/`.nonzero` pattern.
+1; `None` wildcard dims survive unless a zero collapses the shape) is applied to `_sizes`
+before allocation, in `update_from_solver`. See root for the `ArraySizingClass`/`.nonzero`
+pattern.
 
 ### Testing
 `tests/batchsolving/arrays/`. Pinned/async-writeback paths short-circuit under `CUDA_SIMULATION`

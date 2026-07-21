@@ -256,7 +256,7 @@ def test_solve_ivp_spill_survives_solver_close(
 
 
 @pytest.mark.nocudasim
-def test_custom_stream_close_does_not_wait_for_unrelated_stream(
+def test_close_does_not_wait_for_unrelated_stream(
     solver_mutable,
     batch_input_arrays,
     driver_settings,
@@ -264,22 +264,25 @@ def test_custom_stream_close_does_not_wait_for_unrelated_stream(
     system,
     thread_mem_manager,
 ):
-    """Close waits only for the run stream."""
+    """Close waits only for the solver's own stream.
+
+    Every run launches on the kernel's memory-manager stream; close
+    must synchronize that stream alone, leaving work on unrelated
+    streams running.
+    """
     manager = thread_mem_manager
     target_solver = solver_mutable
     y0, params = batch_input_arrays
     ids = _instance_ids(target_solver)
     assert _registered_bytes(manager, ids) == 0
 
-    run_stream = cuda.stream()
     target_solver.kernel.run(
         y0,
         params,
         target_solver.driver_interpolator.coefficients,
         duration=0.1,
-        stream=run_stream,
     )
-    custom_stream_state_view = target_solver.kernel.state
+    closed_state_view = target_solver.kernel.state
     assert _registered_bytes(manager, ids) > 0
     work_output, unrelated_stream, unrelated_done = _start_cuda_work()
     try:
@@ -291,7 +294,7 @@ def test_custom_stream_close_does_not_wait_for_unrelated_stream(
             target_solver.close()
 
             assert _still_registered(manager, ids) == []
-            custom_stream_state = custom_stream_state_view.copy()
+            closed_state = closed_state_view.copy()
             assert not unrelated_done.query()
     finally:
         _finish_cuda_work(work_output, unrelated_stream, unrelated_done)
@@ -316,7 +319,7 @@ def test_custom_stream_close_does_not_wait_for_unrelated_stream(
         expected_state = reference_solver.kernel.state.copy()
     finally:
         reference_solver.close()
-    np.testing.assert_array_equal(custom_stream_state, expected_state)
+    np.testing.assert_array_equal(closed_state, expected_state)
 
 
 def test_repeated_solvers_do_not_grow_registry(

@@ -515,9 +515,9 @@ class BatchSolverKernel(CUDAFactory):
         driver_coefficients: Optional[NDArray[floating]],
         duration: float,
         blocksize: int = 256,
-        stream: Optional[Any] = None,
         warmup: float = 0.0,
         t0: float = 0.0,
+        transfer_outputs: bool = True,
     ) -> None:
         """Execute the solver kernel for batch integration.
 
@@ -527,9 +527,12 @@ class BatchSolverKernel(CUDAFactory):
         Parameters
         ----------
         inits
-            Initial conditions with shape ``(n_states, n_runs)``.
+            Initial conditions with shape ``(n_states, n_runs)``. Host
+            or device arrays are accepted; device arrays are used in
+            place with no host-to-device transfer.
         params
-            Parameter table with shape ``(n_params, n_runs)``.
+            Parameter table with shape ``(n_params, n_runs)``. Host or
+            device arrays are accepted, as for ``inits``.
         driver_coefficients
             Optional Horner-ordered driver interpolation coefficients with
             shape ``(num_segments, num_drivers, order + 1)``.
@@ -537,32 +540,39 @@ class BatchSolverKernel(CUDAFactory):
             Duration of the simulation window.
         blocksize
             CUDA block size for kernel execution.
-        stream
-            CUDA stream assigned to the batch launch.
         warmup
             Warmup time before the main simulation.
         t0
             Initial integration time.
+        transfer_outputs
+            When ``True`` (default), output arrays are copied
+            device-to-host after each chunk. ``False`` skips the copy
+            so results stay in the device output buffers; the run must
+            fit in a single chunk.
 
         Notes
         -----
         The kernel prepares array views, queues allocations, and executes the
         device loop on each chunked workload. Shared-memory demand may reduce
         the block size automatically, emitting a warning when the limit drops
-        below a warp.
+        below a warp. Every launch and transfer runs on this kernel's
+        memory-manager stream (:attr:`stream`); there is no per-run
+        stream selection.
 
         Raises
         ------
         RuntimeError
             If the kernel has been closed.
+        ValueError
+            If the batch is chunked while ``transfer_outputs`` is
+            ``False`` or while inputs were supplied as device arrays.
         """
         if self._closed:
             raise RuntimeError(
                 "This solver has been closed and its GPU resources "
                 "released; build a new Solver to run again."
             )
-        if stream is None:
-            stream = self.stream
+        stream = self.stream
         self._memory_manager.begin_work(self)
         try:
             self._execute_run(
@@ -574,6 +584,7 @@ class BatchSolverKernel(CUDAFactory):
                 stream,
                 warmup,
                 t0,
+                transfer_outputs,
             )
         finally:
             self._memory_manager.end_work(self, stream)
@@ -588,10 +599,9 @@ class BatchSolverKernel(CUDAFactory):
         stream: Optional[Any],
         warmup: float,
         t0: float,
+        transfer_outputs: bool = True,
     ) -> None:
         """Allocate, chunk, and launch the batch kernel."""
-        if stream is None:
-            stream = self.stream
         self._last_stream = stream
         self._work_complete = False
 
@@ -630,6 +640,24 @@ class BatchSolverKernel(CUDAFactory):
         # ------------ from here on dimensions are "chunked" -----------------
         # self.run_params is updated in the on_allocation callback.
         chunks = self.run_params.num_chunks
+
+        if chunks > 1:
+            # Host arrays are the stitch target for chunked runs, so
+            # device-resident results and inputs cannot span chunks.
+            if not transfer_outputs:
+                raise ValueError(
+                    "Device-resident results require the batch to fit "
+                    "in a single chunk, but this run is split into "
+                    f"{chunks} chunks. Reduce the batch size or use a "
+                    "host solve."
+                )
+            if self.input_arrays.has_device_inputs:
+                raise ValueError(
+                    "Device-array inputs require the batch to fit in "
+                    "a single chunk, but this run is split into "
+                    f"{chunks} chunks. Pass host arrays or reduce the "
+                    "batch size."
+                )
 
         # Get first chunk runs for initial block size calculation
         first_chunk_params = self.run_params[0]
@@ -720,7 +748,8 @@ class BatchSolverKernel(CUDAFactory):
             # d2h transfer timing
             d2h_event.record_start(stream)
             self.input_arrays.finalise(i, stream=stream)
-            self.output_arrays.finalise(i, stream=stream)
+            if transfer_outputs:
+                self.output_arrays.finalise(i, stream=stream)
             d2h_event.record_end(stream)
 
         # Finalize GPU workload timing
@@ -1415,14 +1444,58 @@ class BatchSolverKernel(CUDAFactory):
         return self.output_arrays.iteration_counters
 
     @property
+    def device_state(self) -> Any:
+        """Device buffer of saved state trajectories."""
+
+        return self.output_arrays.device_state
+
+    @property
+    def device_observables(self) -> Any:
+        """Device buffer of saved observable trajectories."""
+
+        return self.output_arrays.device_observables
+
+    @property
+    def device_state_summaries(self) -> Any:
+        """Device buffer of state summary reductions."""
+
+        return self.output_arrays.device_state_summaries
+
+    @property
+    def device_observable_summaries(self) -> Any:
+        """Device buffer of observable summary reductions."""
+
+        return self.output_arrays.device_observable_summaries
+
+    @property
+    def device_status_codes(self) -> Any:
+        """Device buffer of integration status codes."""
+
+        return self.output_arrays.device_status_codes
+
+    @property
+    def device_iteration_counters(self) -> Any:
+        """Device buffer of iteration counters at each save point."""
+
+        return self.output_arrays.device_iteration_counters
+
+    @property
     def initial_values(self) -> Any:
-        """Host view of initial state values."""
+        """Initial state values used in the last run.
+
+        A host view, or the caller's device array when initial values
+        were supplied on device.
+        """
 
         return self.input_arrays.initial_values
 
     @property
     def parameters(self) -> Any:
-        """Host view of parameter tables."""
+        """Parameter tables used in the last run.
+
+        A host view, or the caller's device array when parameters
+        were supplied on device.
+        """
 
         return self.input_arrays.parameters
 

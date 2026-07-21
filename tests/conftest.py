@@ -543,7 +543,6 @@ def solver_settings(solver_settings_override, system, precision):
         "summarised_observable_indices": [0, 1],
         "output_types": ["state", "time", "observables", "mean"],
         "blocksize": 32,
-        "stream": 0,
         "lineinfo": False,
         "memory_manager": default_memmgr,
         "stream_group": "test_group",
