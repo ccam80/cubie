@@ -2,20 +2,17 @@
 
 Solvers and the Lorenz system flow through the shared
 ``solver_settings`` hierarchy: each algorithm under test is one
-``solver_settings_override`` parameter set (see
-``test_julia_reference.py``). The fixtures here pin the vendored
-DifferentialEquations.jl data and run the per-algorithm dt and
-tolerance sweeps the numerical-equivalence protocol requires.
+``solver_settings_override`` parameter set carrying its pinned dt or
+tolerance (see ``test_julia_reference.py``). The fixtures here pin the
+vendored DifferentialEquations.jl data and run the single per-algorithm
+solve the numerical-equivalence protocol requires.
 """
 
 import numpy as np
 import pytest
 
 from tests.integrated_numerical_tests.julia_reference.ne_gate import (
-    DT0_NE,
-    DTS_NE,
     N_NE,
-    TOLS_NE,
     load_reference,
 )
 from tests.system_fixtures import LORENZ_JULIA_STATES
@@ -37,8 +34,19 @@ def golden_ensemble(julia_reference):
     return rho, states, scale
 
 
-def _solve_finals(solver, solver_settings, initials_array, parameter_array):
-    """One solve; returns a copied (N_NE, 3) float32 finals array."""
+@pytest.fixture(scope="function")
+def gate_final(solver, solver_settings, golden_ensemble):
+    """One cubie solve at the pinned settings; (alias, finals).
+
+    The pinned dt or tolerance arrives through the solver settings
+    override, so the session solver compiles once and solves once.
+    Returns (alias, (N_NE, 3) float32 finals).
+    """
+    golden_rho, _, _ = golden_ensemble
+    initials_array, parameter_array = solver.build_grid(
+        initial_values=dict(LORENZ_JULIA_STATES),
+        parameters={'rho': golden_rho},
+    )
     solution = solver.solve(
         initial_values=initials_array,
         parameters=parameter_array,
@@ -58,49 +66,4 @@ def _solve_finals(solver, solver_settings, initials_array, parameter_array):
     if finals.shape != (N_NE, 3):
         raise ValueError(
             "expected ({0}, 3) finals, got {1}".format(N_NE, finals.shape))
-    return finals
-
-
-def _gate_grid(solver, golden_ensemble):
-    """Julia-ensemble input arrays: default initials over the rho grid."""
-    golden_rho, _, _ = golden_ensemble
-    return solver.build_grid(
-        initial_values=dict(LORENZ_JULIA_STATES),
-        parameters={'rho': golden_rho},
-    )
-
-
-@pytest.fixture(scope="function")
-def fixed_sweep(solver_mutable, solver_settings, golden_ensemble):
-    """Cubie fixed-step finals over DTS_NE for the configured algorithm.
-
-    Returns (alias, {dt: (N_NE, 3) float32 finals}).
-    """
-    alias = solver_settings["algorithm"]
-    initials_array, parameter_array = _gate_grid(
-        solver_mutable, golden_ensemble)
-    finals_by_dt = {}
-    for dt in DTS_NE:
-        solver_mutable.update(dt=dt)
-        finals_by_dt[dt] = _solve_finals(
-            solver_mutable, solver_settings, initials_array,
-            parameter_array)
-    return alias, finals_by_dt
-
-
-@pytest.fixture(scope="function")
-def adaptive_matched_sweep(solver_mutable, solver_settings, golden_ensemble):
-    """Cubie adaptive finals over TOLS_NE under Julia-matched control.
-
-    Returns (alias, {tol: (N_NE, 3) float32 finals}).
-    """
-    alias = solver_settings["algorithm"]
-    initials_array, parameter_array = _gate_grid(
-        solver_mutable, golden_ensemble)
-    finals_by_tol = {}
-    for tol in TOLS_NE:
-        solver_mutable.update(atol=tol, rtol=tol, dt=DT0_NE)
-        finals_by_tol[tol] = _solve_finals(
-            solver_mutable, solver_settings, initials_array,
-            parameter_array)
-    return alias, finals_by_tol
+    return solver_settings["algorithm"], finals
