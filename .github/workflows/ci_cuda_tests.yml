@@ -122,6 +122,11 @@ jobs:
         env:
           CUBIE_KERNEL_CACHE_DIR: ${{ github.workspace }}/kernel-cache/kernels
           CUBIE_MAX_CACHE_ENTRIES: "0"
+          # -p plugins are imported before pytest's pythonpath/conftest
+          # machinery runs, and the pytest console script does not put
+          # the cwd on sys.path, so the tests package must be exported
+          # explicitly for `-p tests.precompile_plugin` to resolve.
+          PYTHONPATH: ${{ github.workspace }}
           # Strip plain asserts (with rewriting off) so tests that
           # would fail on headless placeholder results keep running
           # and reach every kernel launch; test verdicts are
@@ -289,6 +294,10 @@ jobs:
           CUBIE_KERNEL_CACHE_DIR: ${{ github.workspace }}/kernel-cache/kernels
           CUBIE_MAX_CACHE_ENTRIES: "0"
           COVERAGE_PROCESS_START: ${{ github.workspace }}/pyproject.toml
+          # Same as the precompile leg: -p plugin imports happen before
+          # any pytest sys.path setup, so the repo root must be on
+          # PYTHONPATH for `tests.precompile_plugin` to import.
+          PYTHONPATH: ${{ github.workspace }}
         run: |
           set +e
           python -m coverage run -m pytest \
@@ -296,9 +305,15 @@ jobs:
             -p tests.precompile_plugin -n logical --no-cov \
             --junitxml=pytest-results.xml
           status=$?
-          python -m coverage combine
-          python -m coverage xml -o coverage.xml
-          exit $status
+          coverage_status=0
+          python -m coverage combine || coverage_status=$?
+          if (( coverage_status == 0 )); then
+            python -m coverage xml -o coverage.xml || coverage_status=$?
+          fi
+          if (( status != 0 )); then
+            exit $status
+          fi
+          exit $coverage_status
 
       # The artifact service occasionally answers CreateArtifact with a
       # non-JSON error page and the action's five internal retries all

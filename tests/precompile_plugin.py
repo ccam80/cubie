@@ -1,4 +1,5 @@
 """Populate and enforce the shared CUDA test-kernel cache."""
+import contextlib
 import importlib
 import os
 from pathlib import Path
@@ -96,6 +97,12 @@ class _FakeDeviceArray(np.ndarray):
     def copy_to_device(self, ary, stream=0):
         np.copyto(self, np.asarray(ary).reshape(self.shape))
 
+    def get(self, stream=None, order="C", out=None):
+        if out is not None:
+            np.copyto(out, np.array(self))
+            return out
+        return np.array(self)
+
 
 def _fake_device_array(array):
     return array.view(_FakeDeviceArray)
@@ -172,7 +179,9 @@ def _host_copy(self, instance, from_arrays, to_arrays, stream=None):
 
 
 STATS = {"cache_hits": 0, "compilations_completed": 0}
+MISSED_KERNELS = []
 _WORKER_STATS = []
+_WORKER_MISSES = []
 _PENDING_DISPATCHERS = []
 _CACHE_STATS_INSTALLED = False
 
@@ -183,6 +192,28 @@ def _combined_stats():
         for key in combined:
             combined[key] += worker_stats.get(key, 0)
     return combined
+
+
+def _combined_misses():
+    combined = list(MISSED_KERNELS)
+    for worker_misses in _WORKER_MISSES:
+        combined.extend(worker_misses)
+    return combined
+
+
+def _describe_compilation(cache, sig):
+    """Name a compiled kernel so cache misses are diagnosable."""
+    function_key = getattr(cache, "_function_key", None)
+    if function_key is not None and len(function_key) >= 5:
+        identity = (
+            f"{function_key[0]}.{function_key[1]} "
+            f"closure={function_key[2][:10]} "
+            f"code={function_key[3][:10]} "
+            f"defaults={function_key[4][:10]}"
+        )
+    else:
+        identity = getattr(cache, "_name", repr(cache))
+    return f"{identity} sig={sig}"
 
 
 def _install_cache_stats():
@@ -203,6 +234,7 @@ def _install_cache_stats():
     def save_overload(self, sig, data):
         result = original_save(self, sig, data)
         STATS["compilations_completed"] += 1
+        MISSED_KERNELS.append(_describe_compilation(self, sig))
         return result
 
     CUBIECache.load_overload = load_overload
@@ -451,6 +483,23 @@ if POPULATION:
     _MemoryManager.get_available_memory = lambda self, group: 8 << 30
     _MemoryManager.get_memory_info = lambda self: (8 << 30, 24 << 30)
 
+    # ArrayInterpolator.get_interpolated stages its kernel arguments
+    # through cupy directly; without a CUDA driver those calls raise
+    # before the launch, so the kernel would never reach the cache.
+    import cubie.array_interpolator as _array_interpolator  # noqa: E402
+
+    @contextlib.contextmanager
+    def _fake_cupy_stream(stream):
+        yield stream
+
+    _array_interpolator.cupy = SimpleNamespace(
+        asarray=lambda a: _fake_device_array(np.array(a, copy=True)),
+        empty=lambda shape, dtype=np.float64: _fake_device_array(
+            np.empty(shape, dtype=dtype)
+        ),
+    )
+    _array_interpolator.current_cupy_stream = _fake_cupy_stream
+
 
 # CuBIE creates a few dispatchers while importing its cache module. Finish
 # that import, then replace the temporary NullCache objects they received.
@@ -466,11 +515,13 @@ def pytest_configure(config):
 def pytest_testnodedown(node, error):
     if POPULATION:
         return
-    worker_stats = getattr(node, "workeroutput", {}).get(
-        "cubie_kernel_cache_stats"
-    )
+    workeroutput = getattr(node, "workeroutput", {})
+    worker_stats = workeroutput.get("cubie_kernel_cache_stats")
     if worker_stats:
         _WORKER_STATS.append(worker_stats)
+    worker_misses = workeroutput.get("cubie_kernel_cache_misses")
+    if worker_misses:
+        _WORKER_MISSES.append(worker_misses)
 
 
 def pytest_sessionfinish(session, exitstatus):
@@ -478,6 +529,9 @@ def pytest_sessionfinish(session, exitstatus):
         return
     if hasattr(session.config, "workeroutput"):
         session.config.workeroutput["cubie_kernel_cache_stats"] = STATS.copy()
+        session.config.workeroutput["cubie_kernel_cache_misses"] = list(
+            MISSED_KERNELS
+        )
         return
     if _combined_stats()["compilations_completed"]:
         session.exitstatus = 1
@@ -492,3 +546,5 @@ def pytest_terminal_summary(terminalreporter):
         "compilations_completed="
         f"{stats['compilations_completed']}"
     )
+    for description in sorted(_combined_misses()):
+        terminalreporter.write_line(f"KERNEL_CACHE MISS {description}")
