@@ -68,7 +68,7 @@ def test_prepare_jac_without_cache_emits_pass(
 
 # ── n-stage linear operator ─────────────────────────────────────── #
 
-def test_n_stage_operator_captures_scalings_before_user_constants(
+def test_n_stage_operator_isolates_user_constants_from_scalings(
     solver_scaling_collision_equations,
     solver_scaling_collision_indexed_bases,
 ):
@@ -80,16 +80,19 @@ def test_n_stage_operator_captures_scalings_before_user_constants(
         stage_nodes=[1.0],
     )
 
-    beta_capture = code.index(
-        "_cubie_codegen_beta = precision(beta)"
+    assert "_cubie_codegen_beta = precision(beta)" in code
+    assert "_cubie_codegen_gamma = precision(gamma)" in code
+    assert (
+        "_cubie_codegen_const_beta = precision(constants['beta'])"
+        in code
     )
-    gamma_capture = code.index(
-        "_cubie_codegen_gamma = precision(gamma)"
+    assert (
+        "_cubie_codegen_const_gamma = precision(constants['gamma'])"
+        in code
     )
-    assert beta_capture < code.index("beta = precision(constants['beta'])")
-    assert gamma_capture < code.index(
-        "gamma = precision(constants['gamma'])"
-    )
+    # The user constants must never bind the bare solver names.
+    assert "\n    beta = " not in code
+    assert "\n    gamma = " not in code
 
 
 def test_n_stage_operator_skips_zero_stage_coupling(

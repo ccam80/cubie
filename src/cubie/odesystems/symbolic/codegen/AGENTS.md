@@ -79,10 +79,21 @@ also differs by variant (see Generator variants): non-cached paths substitute
 `state → base_state + a_ij*state`; cached paths read `cached_aux` and apply no substitution
 (`_build_operator_body`'s `use_cached_aux` flag gates this).
 
-### beta/gamma are renamed (#373)
-Emitted as `_cubie_codegen_beta`/`_cubie_codegen_gamma` so they can't collide with user
-state/parameter symbols named `beta`/`gamma`; factory signatures still expose plain
-`beta=1.0, gamma=1.0`.
+### The `_cubie_codegen_` reserved namespace (#373 and successors)
+Every name the generators bind — user constants (loaded as
+`_cubie_codegen_const_<name>` and printed that way by the engine printer), solver
+scalings (`_cubie_codegen_beta`/`_cubie_codegen_gamma`), the scalar device arguments
+`_cubie_codegen_h`/`_cubie_codegen_a_ij`, factory locals (`_cubie_codegen_n`,
+`_cubie_codegen_order`, `_cubie_codegen_total_n`, ...), tableau metadata
+(`_cubie_codegen_c_<i>`, `_cubie_codegen_a_<i>_<j>`), and builder-internal IR locals
+(`_cubie_codegen_dx_*`, `_cubie_codegen_aux_*`, `_cubie_codegen_j_*`,
+`_cubie_codegen_diag_*`, stage renames `_cubie_codegen_s<i>_*`) — lives in the
+`_cubie_codegen_` namespace. `IndexedBases.from_user_inputs` rejects user names with
+that prefix, so a user symbol can never alias a generated binding (in either
+direction) at IR-merge time, factory scope, or device-body scope. When adding a
+generator, bind nothing outside this namespace except the template's positional
+argument names (`t` is parse-reserved and stays bare). Factory signatures still
+expose plain `beta=1.0, gamma=1.0, order=1`.
 
 ### Mass matrix & order
 `M` defaults to identity (`sp.eye(n)`); pass an explicit matrix for DAEs (integer entries are cast

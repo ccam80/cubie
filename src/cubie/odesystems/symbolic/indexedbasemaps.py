@@ -333,6 +333,15 @@ class IndexedBases:
         IndexedBases
             Combined bundle of indexed bases for the symbolic ODE system.
         """
+        for group in (states, parameters, constants, observables,
+                      drivers):
+            for name in group:
+                if str(name).startswith("_cubie_codegen_"):
+                    raise ValueError(
+                        f"Name '{name}' is reserved: user symbols "
+                        "cannot start with '_cubie_codegen_'."
+                    )
+
         if isinstance(states, dict):
             state_names = list(states.keys())
             state_defaults = [states[name] for name in state_names]

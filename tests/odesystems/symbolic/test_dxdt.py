@@ -191,7 +191,10 @@ class TestGenerateDxdtFacCode:
         dx = indexed_bases.dxdt.symbol_map["dx"]
         equations = ParsedEquations.from_equations([(dx, c * x)], indexed_bases)
         code = generate_dxdt_fac_code(equations, indexed_bases)
-        assert "c = precision(constants['c'])" in code
+        assert (
+            "_cubie_codegen_const_c = precision(constants['c'])"
+            in code
+        )
 
 
 class TestDxdtIntegration:

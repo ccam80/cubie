@@ -178,7 +178,7 @@ def generate_observables_lines(
     # dx/dt outputs are not written by the observables kernel; route
     # them to throwaway locals instead of the out array.
     out_subs = {
-        dx_sym: ir.sym(f"dxout_{position + 1}")
+        dx_sym: ir.sym(f"_cubie_codegen_dxout_{position + 1}")
         for position, dx_sym in enumerate(sysir.dxdt_symbols)
     }
     memo: dict = {}

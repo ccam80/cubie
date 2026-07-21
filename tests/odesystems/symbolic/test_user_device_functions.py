@@ -120,10 +120,10 @@ def test_check_neumann_convergence_evaluates_device_function(
 ):
     """The diagnostic evaluates the compiled ``dxdt`` on the device.
 
-    For ``dx = -cubed(x)`` at ``x = 2`` the Jacobian is ``-12``; a
-    single-state system is diagonally dominant, so the check returns
-    a genuine verdict even though the user function is a device-only
-    callable.
+    For ``dx = -cubed(x)`` at ``x = 2`` the Jacobian is ``-12``, so a
+    supplied step well inside the critical ``1/12`` magnitude returns
+    a convergent verdict even though the user function is a
+    device-only callable.
     """
     system = create_ODE_system(
         "dx = -cubed(x)",
@@ -136,8 +136,10 @@ def test_check_neumann_convergence_evaluates_device_function(
     result = check_neumann_convergence(
         system.indices,
         system._get_neumann_evaluator(),
+        step_size=1e-3,
+        stage_coefficient=1.0,
     )
-    assert result["converges"] is True
+    assert result["series_converges"] is True
     np.testing.assert_allclose(
         result["J_numeric"], [[-12.0]], rtol=5e-2
     )
