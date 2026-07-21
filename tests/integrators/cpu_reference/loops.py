@@ -121,6 +121,7 @@ def run_reference_loop(
         residual_reduction=residual_reduction,
         residual_floor=solver_settings.get("krylov_residual_floor"),
         tableau=tableau,
+        dense_prediction=(solver_settings["step_controller"] == "fixed"),
     )
 
     saved_state_indices = _ensure_array(

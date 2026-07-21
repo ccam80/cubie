@@ -501,10 +501,15 @@ class SingleIntegratorRunCore(CUDAFactory):
                 warn_on_unused=False,
             )
             
-        # Set the is_controller_fixed attribute on the algorithm
-        self._algo_step.is_controller_fixed = (
-            not self._step_controller.is_adaptive
-        )
+        # Controller-dependent algorithm code must rebuild when a hot-swap
+        # crosses the fixed/adaptive boundary.
+        is_controller_fixed = not self._step_controller.is_adaptive
+        if (
+            getattr(self._algo_step, "is_controller_fixed", None)
+            != is_controller_fixed
+        ):
+            self._algo_step.is_controller_fixed = is_controller_fixed
+            self._algo_step._invalidate_cache()
 
     def instantiate_loop(
         self,

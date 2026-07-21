@@ -58,7 +58,8 @@ Order matters — each component seeds the next:
 4. `check_compatibility()` — if the algorithm is errorless but the controller is
    adaptive, the controller is **silently replaced with `FixedStepController`** and a
    `UserWarning` is issued (an errorless algorithm gives no error signal to adapt on).
-   Happens before the loop is created.
+   It also records the fixed/adaptive boundary on the algorithm and invalidates its
+   device cache when that boundary changes. Happens before the loop is created.
 5. `instantiate_loop()` — creates `IVPLoop` from the finalised sizes/flags/timing.
 6. `get_child_allocators(self._loop, self._algo_step, name='algorithm')` (and the
    controller equivalent) — registers algo/controller buffers as children of the loop's

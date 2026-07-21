@@ -38,7 +38,12 @@ See Also
 from typing import Callable, Optional
 
 from attrs import define, field, validators
-from cubie.cuda_simsafe import cuda, int32
+from cubie.cuda_simsafe import cuda, int32, selp
+from numpy import (
+    asarray as np_asarray,
+    linalg as np_linalg,
+    ndarray as np_ndarray,
+)
 
 from cubie.result_codes import CUBIE_RESULT_CODES
 
@@ -102,6 +107,117 @@ Fixed-step controllers maintain a constant step size throughout the
 integration. This is the only valid choice for errorless tableaus since
 adaptive stepping requires an error estimate to adjust the step size.
 """
+
+
+def _dense_predictor_matrix(tableau: FIRKTableau) -> np_ndarray:
+    """Return the one-step dense extrapolation matrix for *tableau*.
+
+    The FIRK unknown contains derivative increments ``U`` while the
+    collocation polynomial is defined by state increments ``A U``.  The
+    returned matrix maps the previous step's ``U`` to the next equal-size
+    step's stage guess.
+
+    Parameters
+    ----------
+    tableau
+        Fully implicit Runge--Kutta tableau.
+
+    Returns
+    -------
+    numpy.ndarray
+        Dense predictor matrix in host coefficient precision.
+    """
+
+    stage_count = tableau.stage_count
+    nodes = np_asarray((0.0,) + tuple(tableau.c), dtype=float)
+    stage_nodes = np_asarray(tableau.c, dtype=float)
+
+    endpoint_weights = []
+    for basis_index in range(1, stage_count + 1):
+        weight = 1.0
+        basis_node = nodes[basis_index]
+        for other_index, other_node in enumerate(nodes):
+            if other_index != basis_index:
+                weight *= (1.0 - other_node) / (basis_node - other_node)
+        endpoint_weights.append(weight)
+
+    extrapolation = []
+    for target_node in 1.0 + stage_nodes:
+        target_weights = []
+        for basis_index in range(1, stage_count + 1):
+            weight = 1.0
+            basis_node = nodes[basis_index]
+            for other_index, other_node in enumerate(nodes):
+                if other_index != basis_index:
+                    weight *= (target_node - other_node) / (
+                        basis_node - other_node
+                    )
+            target_weights.append(weight)
+        extrapolation.append(
+            [
+                target_weights[index] - endpoint_weights[index]
+                for index in range(stage_count)
+            ]
+        )
+
+    stage_matrix = np_asarray(tableau.a, dtype=float)
+    return np_linalg.solve(
+        stage_matrix,
+        np_asarray(extrapolation) @ stage_matrix,
+    )
+
+
+def _lu_factor(
+    matrix: np_ndarray,
+) -> tuple[np_ndarray, np_ndarray, tuple[tuple[int, int], ...]]:
+    """Factor *matrix* for a buffer-free in-place device transform.
+
+    Parameters
+    ----------
+    matrix
+        Square dense matrix.
+
+    Returns
+    -------
+    tuple
+        Unit-lower and upper factors plus inverse-permutation swaps.
+    """
+
+    upper = np_asarray(matrix).copy()
+    stage_count = upper.shape[0]
+    lower = np_asarray(
+        [
+            [1.0 if row == column else 0.0 for column in range(stage_count)]
+            for row in range(stage_count)
+        ],
+        dtype=upper.dtype,
+    )
+    pivot_swaps = []
+
+    for column in range(stage_count):
+        pivot_row = column
+        pivot_magnitude = abs(upper[column, column])
+        for candidate_row in range(column + 1, stage_count):
+            candidate_magnitude = abs(upper[candidate_row, column])
+            if candidate_magnitude > pivot_magnitude:
+                pivot_row = candidate_row
+                pivot_magnitude = candidate_magnitude
+        if pivot_magnitude == 0.0:
+            raise ValueError("Dense FIRK predictor matrix is singular")
+        if pivot_row != column:
+            upper[[column, pivot_row], :] = upper[[pivot_row, column], :]
+            if column:
+                lower[[column, pivot_row], :column] = lower[
+                    [pivot_row, column], :column
+                ]
+            pivot_swaps.append((column, pivot_row))
+
+        for row in range(column + 1, stage_count):
+            multiplier = upper[row, column] / upper[column, column]
+            lower[row, column] = multiplier
+            upper[row, column:] -= multiplier * upper[column, column:]
+
+    return lower, upper, tuple(reversed(pivot_swaps))
 
 
 @define
@@ -359,6 +475,17 @@ class FIRKStep(ODEImplicitStep):
 
         config = self.compile_settings
         tableau = config.tableau
+        enable_dense_prediction = bool(
+            getattr(self, "is_controller_fixed", False)
+        )
+        buffer_registry.register(
+            "previous_step_size",
+            self,
+            int(enable_dense_prediction),
+            config.stage_increment_location,
+            persistent=True,
+            precision=config.precision,
+        )
 
         nonlinear_solver = solver_function
 
@@ -378,6 +505,32 @@ class FIRKStep(ODEImplicitStep):
             error_weights = tuple(typed_zero for _ in range(stage_count))
         stage_time_fractions = tableau.typed_vector(tableau.c, numba_precision)
 
+        dense_predictor = np_asarray(
+            _dense_predictor_matrix(tableau),
+            dtype=config.precision,
+        )
+        dense_lower, dense_upper, dense_swaps = _lu_factor(dense_predictor)
+        dense_coefficients_unpadded = tuple(
+            numba_precision(value) for value in dense_predictor.flat
+        )
+        dense_coefficients = dense_coefficients_unpadded + tuple(
+            typed_zero
+            for _ in range(max(0, 9 - len(dense_coefficients_unpadded)))
+        )
+        dense_lower_coefficients = tuple(
+            numba_precision(value) for value in dense_lower.flat
+        )
+        dense_upper_coefficients = tuple(
+            numba_precision(value) for value in dense_upper.flat
+        )
+        dense_swap_rows_unpadded = tuple(
+            int32(row) for swap in dense_swaps for row in swap
+        )
+        dense_swap_rows = dense_swap_rows_unpadded or (
+            int32(0),
+            int32(0),
+        )
+        dense_swap_count = int32(len(dense_swaps))
         # Replace streaming accumulation with direct assignment when
         # stage matches b or b_hat row in coupling matrix.
         accumulates_output = tableau.accumulates_output
@@ -396,6 +549,7 @@ class FIRKStep(ODEImplicitStep):
         alloc_stage_increment = getalloc("stage_increment", self)
         alloc_stage_driver_stack = getalloc("stage_driver_stack", self)
         alloc_stage_state = getalloc("stage_state", self)
+        alloc_previous_step_size = getalloc("previous_step_size", self)
 
         # Re-register the solver child under the same name as
         # register_buffers so the size snapshot reflects the solver's
@@ -458,6 +612,9 @@ class FIRKStep(ODEImplicitStep):
                 shared, persistent_local
             )
             stage_increment = alloc_stage_increment(shared, persistent_local)
+            previous_step_size = alloc_previous_step_size(
+                shared, persistent_local
+            )
             stage_driver_stack = alloc_stage_driver_stack(
                 shared, persistent_local
             )
@@ -467,6 +624,162 @@ class FIRKStep(ODEImplicitStep):
             current_time = time_scalar
             end_time = current_time + dt_scalar
             status_code = success
+
+            if enable_dense_prediction:
+                previous_dt = previous_step_size[0]
+                apply_dense_prediction = (
+                    not first_step_flag
+                    and accepted_flag != int32(0)
+                    and dt_scalar == previous_dt
+                )
+                previous_step_size[0] = dt_scalar
+
+                if stage_count == int32(2):
+                    for state_idx in range(n):
+                        old_stage_0 = stage_increment[state_idx]
+                        old_stage_1 = stage_increment[n + state_idx]
+                        predicted_stage_0 = (
+                            dense_coefficients[0] * old_stage_0
+                            + dense_coefficients[1] * old_stage_1
+                        )
+                        predicted_stage_1 = (
+                            dense_coefficients[2] * old_stage_0
+                            + dense_coefficients[3] * old_stage_1
+                        )
+                        stage_increment[state_idx] = selp(
+                            first_step_flag,
+                            typed_zero,
+                            selp(
+                                apply_dense_prediction,
+                                predicted_stage_0,
+                                old_stage_0,
+                            ),
+                        )
+                        stage_increment[n + state_idx] = selp(
+                            first_step_flag,
+                            typed_zero,
+                            selp(
+                                apply_dense_prediction,
+                                predicted_stage_1,
+                                old_stage_1,
+                            ),
+                        )
+                elif stage_count == int32(3):
+                    for state_idx in range(n):
+                        old_stage_0 = stage_increment[state_idx]
+                        old_stage_1 = stage_increment[n + state_idx]
+                        old_stage_2 = stage_increment[2 * n + state_idx]
+                        predicted_stage_0 = (
+                            dense_coefficients[0] * old_stage_0
+                            + dense_coefficients[1] * old_stage_1
+                            + dense_coefficients[2] * old_stage_2
+                        )
+                        predicted_stage_1 = (
+                            dense_coefficients[3] * old_stage_0
+                            + dense_coefficients[4] * old_stage_1
+                            + dense_coefficients[5] * old_stage_2
+                        )
+                        predicted_stage_2 = (
+                            dense_coefficients[6] * old_stage_0
+                            + dense_coefficients[7] * old_stage_1
+                            + dense_coefficients[8] * old_stage_2
+                        )
+                        stage_increment[state_idx] = selp(
+                            first_step_flag,
+                            typed_zero,
+                            selp(
+                                apply_dense_prediction,
+                                predicted_stage_0,
+                                old_stage_0,
+                            ),
+                        )
+                        stage_increment[n + state_idx] = selp(
+                            first_step_flag,
+                            typed_zero,
+                            selp(
+                                apply_dense_prediction,
+                                predicted_stage_1,
+                                old_stage_1,
+                            ),
+                        )
+                        stage_increment[2 * n + state_idx] = selp(
+                            first_step_flag,
+                            typed_zero,
+                            selp(
+                                apply_dense_prediction,
+                                predicted_stage_2,
+                                old_stage_2,
+                            ),
+                        )
+                else:
+                    for state_idx in range(n):
+                        for stage_idx in range(stage_count):
+                            predicted = typed_zero
+                            coefficient_base = stage_idx * stage_count
+                            for source_idx in range(stage_idx, stage_count):
+                                predicted += (
+                                    dense_upper_coefficients[
+                                        coefficient_base + source_idx
+                                    ]
+                                    * stage_increment[
+                                        source_idx * n + state_idx
+                                    ]
+                                )
+                            target_index = stage_idx * n + state_idx
+                            stage_increment[target_index] = selp(
+                                apply_dense_prediction,
+                                predicted,
+                                stage_increment[target_index],
+                            )
+
+                        for reverse_idx in range(stage_count):
+                            stage_idx = stage_count - int32(1) - reverse_idx
+                            target_index = stage_idx * n + state_idx
+                            predicted = stage_increment[target_index]
+                            coefficient_base = stage_idx * stage_count
+                            for source_idx in range(stage_idx):
+                                predicted += (
+                                    dense_lower_coefficients[
+                                        coefficient_base + source_idx
+                                    ]
+                                    * stage_increment[
+                                        source_idx * n + state_idx
+                                    ]
+                                )
+                            stage_increment[target_index] = selp(
+                                apply_dense_prediction,
+                                predicted,
+                                stage_increment[target_index],
+                            )
+
+                        for swap_idx in range(dense_swap_count):
+                            swap_base = int32(2) * swap_idx
+                            left_stage = dense_swap_rows[swap_base]
+                            right_stage = dense_swap_rows[
+                                swap_base + int32(1)
+                            ]
+                            left_index = left_stage * n + state_idx
+                            right_index = right_stage * n + state_idx
+                            left_value = stage_increment[left_index]
+                            right_value = stage_increment[right_index]
+                            stage_increment[left_index] = selp(
+                                apply_dense_prediction,
+                                right_value,
+                                left_value,
+                            )
+                            stage_increment[right_index] = selp(
+                                apply_dense_prediction,
+                                left_value,
+                                right_value,
+                            )
+
+                        for stage_idx in range(stage_count):
+                            target_index = stage_idx * n + state_idx
+                            stage_increment[target_index] = selp(
+                                first_step_flag,
+                                typed_zero,
+                                stage_increment[target_index],
+                            )
 
             for idx in range(n):
                 if accumulates_output:

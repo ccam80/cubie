@@ -9,11 +9,26 @@ from __future__ import annotations
 import numpy as np
 import pytest
 
+from cubie.integrators.algorithms.generic_firk_tableaus import FIRKTableau
+
 from tests._utils import (
     assert_integration_outputs,
     MID_RUN_PARAMS,
     merge_dicts,
     ALGORITHM_PARAM_SETS,
+)
+
+
+FOUR_STAGE_FIRK_TABLEAU = FIRKTableau(
+    a=(
+        (0.1, 0.0, 0.0, 0.0),
+        (0.0, 0.2, 0.0, 0.0),
+        (0.0, 0.0, 0.3, 0.0),
+        (0.0, 0.0, 0.0, 0.4),
+    ),
+    b=(0.25, 0.25, 0.25, 0.25),
+    c=(0.1, 0.3, 0.6, 1.0),
+    order=1,
 )
 
 
@@ -521,6 +536,39 @@ def test_firk_with_shared_solver_buffer_matches_reference(
     produces a correctly sized pool and that the integration result
     matches the CPU reference within loose tolerances (issue #520).
     """
+    assert_integration_outputs(
+        cpu_loop_outputs,
+        device_loop_outputs,
+        output_functions,
+        rtol=tolerance.rel_loose,
+        atol=tolerance.abs_loose,
+    )
+    assert device_loop_outputs.status == 0
+
+
+@pytest.mark.parametrize(
+    "solver_settings_override",
+    [
+        merge_dicts(
+            MID_RUN_PARAMS,
+            {
+                "algorithm": "firk",
+                "tableau": FOUR_STAGE_FIRK_TABLEAU,
+                "step_controller": "fixed",
+            },
+        )
+    ],
+    ids=["firk-four-stage-dense-predictor"],
+    indirect=True,
+)
+def test_four_stage_firk_dense_predictor_matches_reference(
+    device_loop_outputs,
+    cpu_loop_outputs,
+    output_functions,
+    tolerance,
+):
+    """Generic in-place predictor updates every state component."""
+
     assert_integration_outputs(
         cpu_loop_outputs,
         device_loop_outputs,

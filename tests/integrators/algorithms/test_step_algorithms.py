@@ -22,10 +22,15 @@ from cubie.integrators.algorithms.generic_erk_tableaus import (
     DEFAULT_ERK_TABLEAU,
     ERK_TABLEAU_REGISTRY,
 )
-from cubie.integrators.algorithms.generic_firk import FIRKStep
+from cubie.integrators.algorithms.generic_firk import (
+    FIRKStep,
+    _dense_predictor_matrix,
+    _lu_factor,
+)
 from cubie.integrators.algorithms.generic_firk_tableaus import (
     DEFAULT_FIRK_TABLEAU,
     FIRK_TABLEAU_REGISTRY,
+    RADAU_IIA_5_TABLEAU,
 )
 from cubie.integrators.norms import DIRKCorrectionNorm, FIRKCorrectionNorm
 from cubie.integrators.algorithms.generic_rosenbrock_w import (
@@ -114,6 +119,68 @@ def _expected_memory_requirements(
         "Memory expectation missing for "
         f"{type(step_object).__name__}."
     )
+
+
+@pytest.mark.parametrize(
+    "tableau",
+    [DEFAULT_FIRK_TABLEAU, RADAU_IIA_5_TABLEAU],
+)
+def test_firk_dense_predictor_extrapolates_collocation_polynomial(tableau):
+    stage_matrix = np.asarray(tableau.a)
+    stage_nodes = np.asarray(tableau.c)
+    increments = np.arange(1, tableau.stage_count + 1, dtype=float)
+    old_stage_values = stage_matrix @ increments
+
+    polynomial = np.polynomial.polynomial.polyfit(
+        np.concatenate(([0.0], stage_nodes)),
+        np.concatenate(([0.0], old_stage_values)),
+        tableau.stage_count,
+    )
+    shifted_stage_values = (
+        np.polynomial.polynomial.polyval(1.0 + stage_nodes, polynomial)
+        - np.polynomial.polynomial.polyval(1.0, polynomial)
+    )
+    expected = np.linalg.solve(stage_matrix, shifted_stage_values)
+
+    predictor = _dense_predictor_matrix(tableau)
+    np.testing.assert_allclose(predictor @ increments, expected)
+
+
+@pytest.mark.parametrize(
+    "tableau",
+    [DEFAULT_FIRK_TABLEAU, RADAU_IIA_5_TABLEAU],
+)
+def test_firk_dense_predictor_lu_reconstructs_matrix(tableau):
+    predictor = np.asarray(
+        _dense_predictor_matrix(tableau),
+        dtype=np.float32,
+    )
+    lower, upper, inverse_swaps = _lu_factor(predictor)
+
+    reconstructed = lower @ upper
+    for left_row, right_row in inverse_swaps:
+        reconstructed[[left_row, right_row], :] = reconstructed[
+            [right_row, left_row], :
+        ]
+
+    np.testing.assert_allclose(reconstructed, predictor, rtol=2e-6)
+
+
+def test_radau_dense_predictor_coefficients_are_pinned():
+    expected = np.asarray(
+        [
+            [0.19107136, -0.89141154, 1.7003402],
+            [1.5580782, -5.5244045, 4.9663267],
+            [3.2735543, -10.606888, 8.333333],
+        ],
+        dtype=np.float32,
+    )
+
+    actual = np.asarray(
+        _dense_predictor_matrix(RADAU_IIA_5_TABLEAU),
+        dtype=np.float32,
+    )
+    np.testing.assert_array_equal(actual, expected)
 
 
 ALIAS_CASES = [
