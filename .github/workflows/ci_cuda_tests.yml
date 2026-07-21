@@ -152,6 +152,12 @@ jobs:
           PYTHONOPTIMIZE: "1"
         run: |
           set -u
+          # Exit 1 is tolerated: test verdicts are meaningless on
+          # headless placeholder results, only compile coverage
+          # matters. But a crash before the test session (e.g. an
+          # import error in cubie or the plugin) also exits 1, so
+          # each pass must prove a session ran by writing its junit
+          # report, and the lane must end with kernels in the cache.
           for cc in 7.5 8.6 8.9; do
             echo "::group::precompile cc=$cc"
             set +e
@@ -159,14 +165,23 @@ jobs:
               -m "not specific_algos and not sim_only" \
               -p tests.precompile_plugin -n logical \
               --assert=plain \
+              --junitxml="precompile-junit-$cc.xml" \
               --no-cov -q -p no:cacheprovider
             status=$?
             set -e
             if [ "$status" -gt 1 ]; then
               exit "$status"
             fi
+            if [ ! -s "precompile-junit-$cc.xml" ]; then
+              echo "pytest exited $status without running a test session for cc=$cc" >&2
+              exit 1
+            fi
             echo "::endgroup::"
           done
+          if [ -z "$(find kernel-cache/kernels -type f -print -quit 2>/dev/null)" ]; then
+            echo "precompile produced no cached kernels in kernel-cache/kernels" >&2
+            exit 1
+          fi
 
       - name: Upload kernel cache
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
