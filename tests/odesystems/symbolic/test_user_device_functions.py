@@ -133,13 +133,14 @@ def test_check_neumann_convergence_evaluates_device_function(
         precision=precision,
         name="userfunc_neumann_device",
     )
+    evaluator = system._get_neumann_evaluator()
     result = check_neumann_convergence(
         system.indices,
-        system._get_neumann_evaluator(),
+        evaluator,
         step_size=1e-3,
-        stage_coefficient=1.0,
+        stage_coefficients=1.0,
     )
     assert result["series_converges"] is True
     np.testing.assert_allclose(
-        result["J_numeric"], [[-12.0]], rtol=5e-2
+        evaluator.jacobian(system.indices), [[-12.0]], rtol=5e-2
     )

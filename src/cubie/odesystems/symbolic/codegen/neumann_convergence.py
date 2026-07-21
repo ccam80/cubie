@@ -284,9 +284,8 @@ def neumann_spectral_radius(
     beta: float = 1.0,
     gamma: float = 1.0,
     stage_coefficients: Optional[
-        Sequence[Sequence[Union[float, sp.Expr]]]
+        Union[float, Sequence[Sequence[Union[float, sp.Expr]]]]
     ] = None,
-    stage_coefficient: Optional[float] = None,
     step_factor_value: Optional[float] = None,
 ) -> Dict[str, object]:
     """Return the Neumann-series spectral radius and step limit.
@@ -302,12 +301,10 @@ def neumann_spectral_radius(
     beta, gamma
         Transformation parameters from the FIRK formulation.
     stage_coefficients
-        Butcher-tableau ``A`` matrix. When omitted, the single-stage
-        helper is analysed.
-    stage_coefficient
-        Single-stage ``a_ij`` coefficient. When omitted alongside
-        ``stage_coefficients``, the reported step factor is
-        ``a_ij * h`` rather than ``h``.
+        Butcher-tableau ``A`` matrix, or the single known ``a_ij``
+        value as a float. When omitted, the runtime coefficient is
+        unknown and the reported step factor is ``a_ij * h`` rather
+        than ``h``.
     step_factor_value
         Value of the reported step factor at which to evaluate the
         infinite series. When omitted, no convergence verdict is made.
@@ -315,43 +312,36 @@ def neumann_spectral_radius(
     Returns
     -------
     dict
-        ``rho_per_unit_step_factor`` -- radius per unit step factor.
+        ``rho_per_unit_step_factor`` -- radius per unit step factor;
+        ``nan`` when the Jacobian has non-finite entries.
         ``critical_step_factor`` -- largest factor magnitude.
         ``step_factor`` -- ``"h"`` or ``"a_ij * h"``.
         ``rho_series`` -- radius at ``step_factor_value``, or ``None``.
-        ``series_converges`` -- exact infinite-series verdict, or
-        ``None`` without a factor value.
-        ``n_states`` / ``n_stages`` -- flattened-system dimensions.
+        ``series_converges`` -- exact infinite-series verdict; ``None``
+        without a factor value or a finite radius.
     """
     jacobian = np.asarray(jacobian, dtype=np.float64)
-    n = jacobian.shape[0]
-    if beta == 0.0:
-        raise ValueError("beta must be nonzero for a Neumann inverse")
-
-    if stage_coefficients is not None:
-        if stage_coefficient is not None:
-            raise ValueError(
-                "stage_coefficient and stage_coefficients are exclusive"
-            )
-        coefficients = np.array(
-            [[float(c) for c in row] for row in stage_coefficients],
-            dtype=np.float64,
-        )
-        s = coefficients.shape[0]
-        coupling = np.kron(coefficients, jacobian)
+    if stage_coefficients is None:
+        coupling = jacobian
+        step_factor = "a_ij * h"
+    elif isinstance(stage_coefficients, float):
+        coupling = stage_coefficients * jacobian
         step_factor = "h"
     else:
-        s = 1
-        if stage_coefficient is None:
-            coupling = jacobian
-            step_factor = "a_ij * h"
-        else:
-            coupling = float(stage_coefficient) * jacobian
-            step_factor = "h"
+        coefficients = np.asarray(
+            stage_coefficients, dtype=np.float64
+        )
+        coupling = np.kron(coefficients, jacobian)
+        step_factor = "h"
 
-    series_per_unit_step = (gamma / beta) * coupling
-    eigenvalues = np.linalg.eigvals(series_per_unit_step)
-    rho_per_unit_step_factor = float(np.max(np.abs(eigenvalues)))
+    if np.isfinite(coupling).all():
+        eigenvalues = np.linalg.eigvals((gamma / beta) * coupling)
+        rho_per_unit_step_factor = float(np.max(np.abs(eigenvalues)))
+    else:
+        rho_per_unit_step_factor = float("nan")
+
+    # A zero Jacobian (constant right-hand side) has radius zero, so
+    # every step factor converges.
     critical_step_factor = (
         float("inf")
         if rho_per_unit_step_factor == 0.0
@@ -360,19 +350,18 @@ def neumann_spectral_radius(
     rho_series = (
         None
         if step_factor_value is None
-        else abs(float(step_factor_value)) * rho_per_unit_step_factor
+        else abs(step_factor_value) * rho_per_unit_step_factor
     )
+    series_converges = None
+    if rho_series is not None and np.isfinite(rho_series):
+        series_converges = rho_series < 1.0
 
     return {
         "rho_per_unit_step_factor": rho_per_unit_step_factor,
         "critical_step_factor": critical_step_factor,
         "step_factor": step_factor,
         "rho_series": rho_series,
-        "series_converges": (
-            None if rho_series is None else rho_series < 1.0
-        ),
-        "n_states": n,
-        "n_stages": s,
+        "series_converges": series_converges,
     }
 
 
@@ -380,14 +369,12 @@ def check_neumann_convergence(
     index_map: IndexedBases,
     evaluator: NeumannRHSEvaluator,
     stage_coefficients: Optional[
-        Sequence[Sequence[Union[float, sp.Expr]]]
+        Union[float, Sequence[Sequence[Union[float, sp.Expr]]]]
     ] = None,
-    stage_nodes: Optional[Sequence[Union[float, sp.Expr]]] = None,
     beta: float = 1.0,
     gamma: float = 1.0,
     t0: float = 0.0,
     step_size: Optional[float] = None,
-    stage_coefficient: Optional[float] = None,
 ) -> Dict[str, object]:
     """Characterise Neumann convergence at the initial state.
 
@@ -403,30 +390,29 @@ def check_neumann_convergence(
         Finite-difference Jacobian evaluator wrapping the system's
         compiled ``dxdt`` device function.
     stage_coefficients
-        Butcher-tableau ``A`` matrix for the FIRK method.
-    stage_nodes
-        Butcher-tableau ``c`` nodes. These influence the Jacobian only
-        through the ``O(h)`` per-stage time/state offset, which this
-        h-independent diagnostic neglects, so they are not used.
+        Butcher-tableau ``A`` matrix for the FIRK method, or the
+        runtime single-stage ``a_ij`` value as a float.
     beta, gamma
         Transformation parameters from the FIRK formulation.
     t0
         Time at which to evaluate the Jacobian.
     step_size
         Optional step size for an exact local convergence verdict.
-    stage_coefficient
-        Runtime single-stage ``a_ij`` value. Required with
-        ``step_size`` for a single-stage exact verdict.
 
     Returns
     -------
     dict
-        The :func:`neumann_spectral_radius` result extended with
-        ``J_numeric``. ``series_converges`` is ``None`` when the full
-        step factor is unavailable or the Jacobian cannot be evaluated.
+        The :func:`neumann_spectral_radius` result.
+        ``series_converges`` is ``None`` when the full step factor is
+        unavailable or the Jacobian cannot be evaluated.
+
+    Notes
+    -----
+    The tableau ``c`` nodes influence the Jacobian only through the
+    ``O(h)`` per-stage time/state offset, which this h-independent
+    diagnostic neglects.
     """
     jacobian = evaluator.jacobian(index_map, t0=t0)
-
     if not np.isfinite(jacobian).all():
         n_bad = int(np.count_nonzero(~np.isfinite(jacobian)))
         logger.warning(
@@ -435,39 +421,19 @@ def check_neumann_convergence(
             "(likely a genuine singularity at t0).",
             n_bad,
         )
-        n_stages = (
-            len(stage_coefficients)
-            if stage_coefficients is not None
-            else 1
-        )
-        return {
-            "rho_per_unit_step_factor": float("nan"),
-            "critical_step_factor": float("nan"),
-            "step_factor": (
-                "h"
-                if stage_coefficients is not None
-                or stage_coefficient is not None
-                else "a_ij * h"
-            ),
-            "rho_series": None,
-            "series_converges": None,
-            "n_states": jacobian.shape[0],
-            "n_stages": n_stages,
-            "J_numeric": jacobian,
-        }
 
-    step_factor_value = None
-    if step_size is not None:
-        if stage_coefficients is not None or stage_coefficient is not None:
-            step_factor_value = step_size
+    # A bare step size is the full series factor only when the stage
+    # coefficient(s) are known; without them the factor is a_ij * h
+    # and no exact verdict is possible.
+    step_factor_value = (
+        step_size if stage_coefficients is not None else None
+    )
 
     result = neumann_spectral_radius(
         jacobian, beta=beta, gamma=gamma,
         stage_coefficients=stage_coefficients,
-        stage_coefficient=stage_coefficient,
         step_factor_value=step_factor_value,
     )
-    result["J_numeric"] = jacobian
 
     if (
         result["series_converges"] is None
@@ -494,7 +460,7 @@ def check_neumann_convergence(
         message = (
             "The infinite Neumann series does not converge at the "
             f"initial-state Jacobian for abs({step_factor}) = "
-            f"{abs(float(step_factor_value)):.3g}: rho(T) = "
+            f"{abs(step_factor_value):.3g}: rho(T) = "
             f"{rho_series:.3g} >= 1. Convergence requires "
             f"abs({step_factor}) < {critical_step:.3g}."
         )

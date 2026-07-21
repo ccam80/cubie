@@ -90,8 +90,6 @@ NEUMANN_TEMPLATE = (
     "    where `jvp` is a caller-provided scratch buffer for J*v.\n"
     '    """\n'
     "    _cubie_codegen_n = int32({n_out})\n"
-    "    # Use _cubie_codegen_ prefix to avoid conflicts with user-defined\n"
-    "    # variables named beta or gamma (issue #373)\n"
     "    _cubie_codegen_gamma = precision(gamma)\n"
     "    _cubie_codegen_beta = precision(beta)\n"
     "    _cubie_codegen_order = int32(order)\n"
@@ -151,8 +149,6 @@ NEUMANN_CACHED_TEMPLATE = (
     '    """\n'
     "    _cubie_codegen_n = int32({n_out})\n"
     "    _cubie_codegen_order = int32(order)\n"
-    "    # Use _cubie_codegen_ prefix to avoid conflicts with user-defined\n"
-    "    # variables named beta or gamma (issue #373)\n"
     "    _cubie_codegen_gamma = precision(gamma)\n"
     "    _cubie_codegen_beta = precision(beta)\n"
     "    _cubie_codegen_beta_inv = precision(\n"

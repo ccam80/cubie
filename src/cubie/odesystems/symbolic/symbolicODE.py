@@ -1232,7 +1232,6 @@ class SymbolicODE(BaseODE):
                 self.indices,
                 evaluator=self._get_neumann_evaluator(),
                 stage_coefficients=stage_coefficients,
-                stage_nodes=stage_nodes,
                 beta=beta,
                 gamma=gamma,
             )

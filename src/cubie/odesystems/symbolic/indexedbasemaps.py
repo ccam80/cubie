@@ -33,6 +33,8 @@ from typing import Any, Dict, Iterable, Optional, Union
 
 import sympy as sp
 
+from cubie.odesystems.symbolic.sym_utils import RESERVED_CODEGEN_PREFIX
+
 
 class IndexedBaseMap:
     """Map named scalar symbols onto a fixed-size SymPy indexed base."""
@@ -336,10 +338,11 @@ class IndexedBases:
         for group in (states, parameters, constants, observables,
                       drivers):
             for name in group:
-                if str(name).startswith("_cubie_codegen_"):
+                if str(name).startswith(RESERVED_CODEGEN_PREFIX):
                     raise ValueError(
                         f"Name '{name}' is reserved: user symbols "
-                        "cannot start with '_cubie_codegen_'."
+                        "cannot start with "
+                        f"'{RESERVED_CODEGEN_PREFIX}'."
                     )
 
         if isinstance(states, dict):

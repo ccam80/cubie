@@ -44,9 +44,6 @@ _RESULT_KEYS = {
     "step_factor",
     "rho_series",
     "series_converges",
-    "n_states",
-    "n_stages",
-    "J_numeric",
 }
 
 
@@ -59,7 +56,7 @@ def test_small_step_converges_for_diagonally_dominant_system(system):
         system.indices,
         system._get_neumann_evaluator(),
         step_size=1e-4,
-        stage_coefficient=1.0,
+        stage_coefficients=1.0,
     )
     assert result["series_converges"] is True
     assert result["rho_series"] < 1.0
@@ -76,7 +73,7 @@ def test_large_step_diverges_for_off_diagonal_heavy_system(system):
             system.indices,
             system._get_neumann_evaluator(),
             step_size=1.0,
-            stage_coefficient=1.0,
+            stage_coefficients=1.0,
         )
     assert result["series_converges"] is False
     assert result["rho_series"] >= 1.0
@@ -94,7 +91,7 @@ def test_gating_singularity_converges_without_false_divergence(system):
             system.indices,
             system._get_neumann_evaluator(),
             step_size=1e-4,
-            stage_coefficient=1.0,
+            stage_coefficients=1.0,
         )
     assert result["series_converges"] is True
     assert result["rho_series"] < 1.0
@@ -104,13 +101,13 @@ def test_gating_singularity_converges_without_false_divergence(system):
     "solver_settings_override", [_SINGULAR_INITIAL_STATE], indirect=True
 )
 def test_non_finite_jacobian_reports_not_verified(system):
-    """A non-finite Jacobian returns the full signature with no verdict."""
+    """A non-finite Jacobian yields a nan radius and no verdict."""
     result = check_neumann_convergence(
         system.indices,
         system._get_neumann_evaluator(),
     )
     assert result["series_converges"] is None
-    # The early-return path must expose the same keys as the normal path.
+    assert np.isnan(result["rho_per_unit_step_factor"])
     assert set(result) == _RESULT_KEYS
 
 
@@ -213,14 +210,14 @@ def test_spectral_radius_tracks_beta():
         jacobian,
         beta=1.0,
         gamma=1.0,
-        stage_coefficient=1.0,
+        stage_coefficients=1.0,
         step_factor_value=1.0,
     )
     converging = neumann_spectral_radius(
         jacobian,
         beta=1000.0,
         gamma=1.0,
-        stage_coefficient=1.0,
+        stage_coefficients=1.0,
         step_factor_value=1.0,
     )
     assert diverging["series_converges"] is False
@@ -233,7 +230,7 @@ def test_spectral_radius_reports_exact_critical_step():
     """The static limit is the reciprocal unit-step radius."""
     jacobian = np.array([[0.0, 2.0], [-3.0, 0.0]])
     static = neumann_spectral_radius(
-        jacobian, beta=2.0, gamma=3.0, stage_coefficient=0.25
+        jacobian, beta=2.0, gamma=3.0, stage_coefficients=0.25
     )
     critical = static["critical_step_factor"]
 
@@ -241,14 +238,14 @@ def test_spectral_radius_reports_exact_critical_step():
         jacobian,
         beta=2.0,
         gamma=3.0,
-        stage_coefficient=0.25,
+        stage_coefficients=0.25,
         step_factor_value=0.5 * critical,
     )
     above = neumann_spectral_radius(
         jacobian,
         beta=2.0,
         gamma=3.0,
-        stage_coefficient=0.25,
+        stage_coefficients=0.25,
         step_factor_value=2.0 * critical,
     )
 
@@ -273,6 +270,16 @@ def test_single_stage_without_coefficient_reports_effective_step():
     assert np.isclose(result["critical_step_factor"], 0.25)
 
 
+def test_zero_jacobian_reports_unbounded_critical_step():
+    """A zero Jacobian (constant RHS) converges for every factor."""
+    result = neumann_spectral_radius(
+        np.zeros((2, 2)), step_factor_value=1e6
+    )
+    assert result["rho_per_unit_step_factor"] == 0.0
+    assert result["critical_step_factor"] == float("inf")
+    assert result["series_converges"] is True
+
+
 def test_nontrivial_firk_tableau_uses_kronecker_coupling():
     """FIRK radius matches the full A-tensor-J spectrum."""
     jacobian = np.array([[2.0, 1.0], [-1.0, 3.0]])
@@ -293,7 +300,6 @@ def test_spectral_radius_single_stage_matches_unit_tableau():
     staged = neumann_spectral_radius(
         jacobian, beta=1.0, gamma=1.0, stage_coefficients=[[1.0]]
     )
-    assert staged["n_stages"] == 1
     assert np.isclose(
         single["rho_per_unit_step_factor"],
         staged["rho_per_unit_step_factor"],

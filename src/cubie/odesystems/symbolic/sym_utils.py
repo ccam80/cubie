@@ -68,22 +68,17 @@ import sympy as sp
 if TYPE_CHECKING:
     from cubie.odesystems.symbolic.parsing import ParsedEquations
 
-# Prefix for the per-constant integer-exponent aliases emitted by
-# render_constant_assignments and referenced by the CUDA printer when a
-# constant appears as a power exponent. Underscored and namespaced so it
-# cannot collide with user-defined symbols (same scheme as the
-# _cubie_codegen_beta/_cubie_codegen_gamma renames).
-EXPONENT_ALIAS_PREFIX = "_cubie_codegen_iexp_"
+# Namespace reserved for generated bindings;
+# IndexedBases.from_user_inputs rejects user names carrying it.
+RESERVED_CODEGEN_PREFIX = "_cubie_codegen_"
 
-# Prefix applied to every user constant when it is loaded into the
-# generated factory scope and wherever the printer references it. User
-# constants otherwise appear as bare identifiers, and a constant named
-# after any factory-scope binding (``beta``, ``gamma``, ``order``,
-# ``precision``, tableau metadata such as ``a_0_1``, generated locals
-# such as ``dx_0``, ...) would silently alias it in one direction or
-# the other. Prefixing the constant at its single emission point
-# removes the entire collision class.
-CONSTANT_ALIAS_PREFIX = "_cubie_codegen_const_"
+# Integer-exponent alias for a constant appearing as a power exponent,
+# emitted by render_constant_assignments and referenced by the printer.
+EXPONENT_ALIAS_PREFIX = f"{RESERVED_CODEGEN_PREFIX}iexp_"
+
+# Factory-scope load of a user constant, emitted by
+# render_constant_assignments and printed at every constant reference.
+CONSTANT_ALIAS_PREFIX = f"{RESERVED_CODEGEN_PREFIX}const_"
 
 
 def topological_sort(

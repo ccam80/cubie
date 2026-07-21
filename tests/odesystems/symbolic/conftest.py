@@ -217,7 +217,7 @@ def bare_indexed_bases():
     )
 
 
-@pytest.fixture
+@pytest.fixture(scope="session")
 def solver_scaling_collision_indexed_bases():
     """IndexedBases with constants named like solver scalings."""
     return IndexedBases.from_user_inputs(
@@ -229,7 +229,7 @@ def solver_scaling_collision_indexed_bases():
     )
 
 
-@pytest.fixture
+@pytest.fixture(scope="session")
 def solver_scaling_collision_equations(
     solver_scaling_collision_indexed_bases,
 ):
