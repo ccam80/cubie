@@ -13,8 +13,9 @@ optimisation conventions live in `src/cubie/writing_cuda_functions.md`.
 
 ## Setup
 - `pip install -e .[dev]` from the repo root (use a venv; some deps are version-pinned).
-- **Python 3.10-3.14**, **CUDA 12 or 13** (via the `cuda12`/`cuda13` extras, or a system
-  toolkit), **NVIDIA GPU (compute capability ≥6.0)**.
+- **Python 3.11-3.14** (3.10 only on the deprecated numba-cuda backend), **CUDA 12 or 13**
+  (via the `mlir-cuda12`/`mlir-cuda13` extras, or a system toolkit), **NVIDIA GPU (compute
+  capability ≥6.0)**.
 - CPU-only dev/test without a GPU: set `NUMBA_ENABLE_CUDASIM=1` (Numba's CUDA simulator).
   **CUDASIM is not production.** Behaviour under the simulator must never be considered when
   evaluating code: designs, fixes, and diagnostics are judged solely on their real-GPU
@@ -98,17 +99,18 @@ change — the full suite is slow (run it as a pre-commit check only, and only w
 ## Dependencies
 - **Core:** numpy>=2.0, numba, attrs, sympy>=1.13.0. cellmlmanip is vendored under
   `src/cubie/vendored/cellmlmanip` (its `lxml`/`networkx`/`Pint>=0.24`/`rdflib` runtime deps are core).
-- **CUDA backend (installed by extra, so installs stay clean):** `numba-cuda`
-  (`cuda`/`cuda12`/`cuda13` extras) or numba-cuda-mlir (Python >= 3.11;
-  `mlir`/`mlir-cuda12`/`mlir-cuda13` extras — these install `cubie-numba-cuda-mlir`,
-  cubie's own build carrying the native-code fixes pending upstream, with the same
-  `numba_cuda_mlir` import package; never co-install it with the stock wheel, and treat
-  the installed wheel, not upstream numba-cuda-mlir source, as ground truth when
-  debugging how device code compiles). A backendless install fails at `import cubie` with
-  instructions. `cubie.cuda_backend` resolves the active backend at import: `CUBIE_CUDA_BACKEND`
-  overrides; otherwise the installed backend is used, preferring numba-cuda under CUDASIM and
-  (with a warning) when an environment ends up with both. The CUDA simulator exists only on
-  numba-cuda.
+- **CUDA backend (installed by extra, so installs stay clean):** numba-cuda-mlir is the
+  default (Python >= 3.11; `mlir`/`mlir-cuda12`/`mlir-cuda13` extras — these install
+  `cubie-numba-cuda-mlir`, cubie's own build carrying the native-code fixes pending
+  upstream, with the same `numba_cuda_mlir` import package; never co-install it with the
+  stock wheel, and treat the installed wheel, not upstream numba-cuda-mlir source, as
+  ground truth when debugging how device code compiles). `numba-cuda`
+  (`cuda`/`cuda12`/`cuda13` extras) is deprecated but kept as a fallback for unexpected
+  errors, Python 3.10, and the CUDA simulator. A backendless install fails at
+  `import cubie` with instructions. `cubie.cuda_backend` resolves the active backend at
+  import: `CUBIE_CUDA_BACKEND` overrides; otherwise the installed backend is used,
+  preferring mlir when an environment ends up with both and numba-cuda under CUDASIM.
+  The CUDA simulator exists only on numba-cuda.
 - **CUDA toolkit:** supplied by the `cuda12`/`cuda13`/`mlir-cuda12`/`mlir-cuda13` extras or an
   existing system install (the bare `cuda`/`mlir` extras use whatever toolkit the backend finds).
 - **CuPy is required for real-GPU execution** — it is cubie's single device memory allocator.

@@ -15,8 +15,9 @@ each time. Each call to
 device arrays, runs the kernel, copies results back, then frees the
 memory (returning it to the pool for reuse).
 
-CuPy is required to run on a real GPU (install it via the ``cuda12``/
-``cuda13`` extras, e.g. ``pip install cubie[cuda12]``, or directly with
+CuPy is required to run on a real GPU (install it via the
+``mlir-cuda12``/``mlir-cuda13`` extras, e.g.
+``pip install cubie[mlir-cuda12]``, or directly with
 ``pip install cupy-cuda12x``). It is not required to run under the CUDA
 simulator (``NUMBA_ENABLE_CUDASIM=1``), which never touches CuPy.
 
