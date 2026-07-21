@@ -44,10 +44,12 @@ def _solve_finals(solver, solver_settings, initials_array, parameter_array):
         parameters=parameter_array,
         blocksize=solver_settings["blocksize"],
         duration=solver_settings["duration"],
-        nan_error_trajectories=False,
     )
     # Copy: time_domain_array views cubie's output buffer (state only,
-    # no time column), which the next solve overwrites in place.
+    # no time column), which the next solve overwrites in place. The
+    # solve default leaves errored runs (nonzero status) as NaN, so a
+    # trajectory cubie could not solve reads as a failure here rather
+    # than as a raw diverged final.
     finals = np.array(
         solution.time_domain_array[-1, :, :].T, copy=True)
     if finals.dtype != np.float32:
