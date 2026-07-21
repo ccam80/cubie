@@ -236,8 +236,9 @@ def point_matches_julia(cubie_final, julia_final, golden_states):
     if (not np.isfinite(err_c) or not np.isfinite(err_j)
             or not np.isfinite(rms_diff) or err_j <= 0):
         return False, (
-            "err_cubie={0:.3e} err_julia={1:.3e} rms_diff={2:.3e}".format(
-                err_c, err_j, rms_diff))
+            "invalid comparison values (Julia error must be finite and "
+            "positive): err_cubie={0:.3e} err_julia={1:.3e} "
+            "rms_diff={2:.3e}".format(err_c, err_j, rms_diff))
     ratio = rms_diff / err_j
     report = (
         "err_cubie={0:.3e} err_julia={1:.3e} rms_diff={2:.3e} "
