@@ -25,6 +25,7 @@ from typing import TYPE_CHECKING, Any, Callable, Dict, Optional
 from warnings import warn
 
 from attrs import define, field
+from numpy import finfo as np_finfo
 
 from cubie.CUDAFactory import CUDAFactory, CUDADispatcherCache
 from cubie._utils import PrecisionDType, unpack_dict_values
@@ -95,6 +96,7 @@ class SingleIntegratorRunCore(CUDAFactory):
     _INNER_TOLERANCE_KEYS = (
         "krylov_atol",
         "krylov_rtol",
+        "krylov_residual_reduction",
         "newton_atol",
         "newton_rtol",
     )
@@ -341,16 +343,26 @@ class SingleIntegratorRunCore(CUDAFactory):
     def _apply_inner_tolerance_defaults(self) -> set:
         """Derive unset inner-solver tolerances from the controller.
 
-        Unset ``krylov_atol``/``krylov_rtol``/``newton_atol``/
-        ``newton_rtol`` default to the controller's ``atol``/``rtol``
-        divided by ten, so every stage solve converges tighter than the
-        step error it feeds.  Every controller carries ``atol``/``rtol``
-        — fixed-step included — so the derivation applies whenever the
-        algorithm is implicit (it then owns inner solvers).  Values the
-        user set explicitly (tracked in ``_user_given_inner_tols``) are
-        preserved.  The solver norms' tolerance converter broadcasts
-        uniform arrays to their own vector length; a non-uniform
-        per-state vector must match the solver vector exactly.
+        Unset ``newton_atol``/``newton_rtol`` default to the
+        controller's ``atol``/``rtol`` divided by ten, so every stage
+        solve converges tighter than the error estimate it feeds.
+        Unset ``krylov_atol``/``krylov_rtol`` default to the
+        controller's ``atol``/``rtol`` directly: they weight the
+        linear stopping norm, placing its absolute floor at the step
+        tolerance envelope.  Unset ``krylov_residual_reduction``
+        defaults to the adaptive controller's ``rtol`` (its tightest
+        entry), so each linear solve reduces its residual by the same
+        relative tolerance the controller enforces on steps; for
+        non-adaptive runs it defaults to machine epsilon, leaving the
+        floor governing.  Values the user set explicitly (tracked in
+        ``_user_given_inner_tols``) are preserved.  The solver norms'
+        tolerance converter broadcasts uniform arrays to their own
+        vector length; a non-uniform per-state vector must match the
+        solver vector exactly.
+
+        Every controller carries ``atol``/``rtol`` — fixed-step
+        included — so the defaults apply whenever the algorithm is
+        implicit (it then owns inner solvers).
 
         Returns
         -------
@@ -361,14 +373,26 @@ class SingleIntegratorRunCore(CUDAFactory):
         if not self._algo_step.is_implicit:
             return set()
 
-        atol = self._step_controller.atol / 10.0
-        rtol = self._step_controller.rtol / 10.0
+        controller_atol = self._step_controller.atol
+        controller_rtol = self._step_controller.rtol
         derived_source = {
-            "krylov_atol": atol,
-            "newton_atol": atol,
-            "krylov_rtol": rtol,
-            "newton_rtol": rtol,
+            "krylov_atol": controller_atol.copy(),
+            "krylov_rtol": controller_rtol.copy(),
+            "newton_atol": controller_atol / 10.0,
+            "newton_rtol": controller_rtol / 10.0,
         }
+        # Non-adaptive runs and pure-absolute controllers (rtol of
+        # zero) offer no relative target; an epsilon reduction leaves
+        # the floor governing.
+        controller_rtol_floor = float(controller_rtol.min())
+        if self._step_controller.is_adaptive and controller_rtol_floor > 0.0:
+            derived_source["krylov_residual_reduction"] = (
+                controller_rtol_floor
+            )
+        else:
+            derived_source["krylov_residual_reduction"] = float(
+                np_finfo(self._algo_step.precision).eps
+            )
         derived = {
             key: value
             for key, value in derived_source.items()
@@ -644,7 +668,7 @@ class SingleIntegratorRunCore(CUDAFactory):
 
         # Re-derive unset inner-solver tolerances when the controller
         # tolerances change or the algorithm is swapped, so they keep
-        # tracking the controller atol/rtol divided by ten.
+        # tracking the controller atol/rtol.
         rederive = bool(
             ctrl_rcgnzd & {"atol", "rtol", "step_controller"}
             or "algorithm" in step_recognized

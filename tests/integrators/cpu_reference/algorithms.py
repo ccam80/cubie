@@ -63,6 +63,8 @@ class CPUStep:
         linear_rtol: float = 0.0,
         linear_correction_type: str = "minimal_residual",
         preconditioner_order: int = 2,
+        residual_reduction: Optional[float] = None,
+        residual_floor: Optional[float] = None,
         tableau: Optional[ButcherTableau] = None,
     ) -> None:
         self.evaluator = evaluator
@@ -76,6 +78,25 @@ class CPUStep:
         self._linear_tol = self.precision(linear_tol)
         self._linear_rtol = self.precision(linear_rtol)
         self._linear_max_iters = int(linear_max_iters)
+        # Derive-unless-overridden, mirroring LinearSolverBaseConfig.
+        if residual_reduction is None:
+            self._residual_reduction = self.precision(
+                np.finfo(self.precision).eps
+            )
+        else:
+            self._residual_reduction = self.precision(residual_reduction)
+        if residual_floor is None:
+            self._residual_floor = self.precision(
+                float(np.finfo(self.precision).eps) ** 0.5
+            )
+        else:
+            self._residual_floor = self.precision(residual_floor)
+        # Weighted-norm reference for linear solves; steps stash the
+        # stage base state (or the model state for direct solves)
+        # here before each solve.
+        self._linear_norm_reference = np.zeros(
+            self._state_size, dtype=self.precision
+        )
         correction = str(linear_correction_type)
         if correction not in {
             "steepest_descent",
@@ -334,6 +355,9 @@ class CPUStep:
             neumann_order=self._preconditioner_order,
             correction_type=self._linear_correction_type,
             initial_guess=initial_guess,
+            norm_reference=self._linear_norm_reference,
+            residual_reduction=self._residual_reduction,
+            residual_floor=self._residual_floor,
         )
         return np.asarray(solution, dtype=self.precision), converged, niters
 
@@ -456,6 +480,8 @@ class CPUBackwardEulerStep(CPUStep):
         linear_rtol: float = 0.0,
         linear_correction_type: str = "minimal_residual",
         preconditioner_order: int = 2,
+        residual_reduction: Optional[float] = None,
+        residual_floor: Optional[float] = None,
     ) -> None:
         super().__init__(
             evaluator,
@@ -468,6 +494,8 @@ class CPUBackwardEulerStep(CPUStep):
             linear_max_iters=linear_max_iters,
             linear_correction_type=linear_correction_type,
             preconditioner_order=preconditioner_order,
+            residual_reduction=residual_reduction,
+            residual_floor=residual_floor,
         )
         self._be_state = np.zeros(self._state_size, dtype=self.precision)
         self._be_params = np.zeros(0, dtype=self.precision)
@@ -529,6 +557,7 @@ class CPUBackwardEulerStep(CPUStep):
         self._be_drivers = drivers_next
         self._be_time = next_time
         self._be_dt = dt_value
+        self._linear_norm_reference = state_vector
 
         if initial_guess is None:
             guess = self._be_increment
@@ -593,6 +622,8 @@ class CPUCrankNicolsonStep(CPUStep):
         linear_rtol: float = 0.0,
         linear_correction_type: str = "minimal_residual",
         preconditioner_order: int = 2,
+        residual_reduction: Optional[float] = None,
+        residual_floor: Optional[float] = None,
         backward_step: Optional[CPUBackwardEulerStep] = None,
     ) -> None:
         super().__init__(
@@ -606,6 +637,8 @@ class CPUCrankNicolsonStep(CPUStep):
             linear_max_iters=linear_max_iters,
             linear_correction_type=linear_correction_type,
             preconditioner_order=preconditioner_order,
+            residual_reduction=residual_reduction,
+            residual_floor=residual_floor,
         )
         self._cn_previous_state = np.zeros(
             self._state_size, dtype=self.precision
@@ -628,6 +661,8 @@ class CPUCrankNicolsonStep(CPUStep):
                 linear_max_iters=linear_max_iters,
                 linear_correction_type=linear_correction_type,
                 preconditioner_order=preconditioner_order,
+                residual_reduction=residual_reduction,
+                residual_floor=residual_floor,
             )
             # The device solver shares one contraction history across
             # the trapezoidal and backward Euler stages.
@@ -711,6 +746,7 @@ class CPUCrankNicolsonStep(CPUStep):
         self._cn_stage_coefficient = self.precision(0.5)
         base_increment = self._cn_dt * self._cn_stage_coefficient
         self._cn_base_state = state_vector + base_increment * derivative_now
+        self._linear_norm_reference = self._cn_base_state
 
         guess = dt_value * derivative_now
 
@@ -783,6 +819,8 @@ class CPUERKStep(CPUStep):
         linear_rtol: float = 0.0,
         linear_correction_type: str = "minimal_residual",
         preconditioner_order: int = 2,
+        residual_reduction: Optional[float] = None,
+        residual_floor: Optional[float] = None,
         tableau: Optional[ERKTableau] = None,
     ) -> None:
         resolved = DEFAULT_ERK_TABLEAU if tableau is None else tableau
@@ -797,6 +835,8 @@ class CPUERKStep(CPUStep):
             linear_max_iters=linear_max_iters,
             linear_correction_type=linear_correction_type,
             preconditioner_order=preconditioner_order,
+            residual_reduction=residual_reduction,
+            residual_floor=residual_floor,
             tableau=resolved,
         )
 
@@ -918,6 +958,8 @@ class CPUDIRKStep(CPUStep):
         linear_rtol: float = 0.0,
         linear_correction_type: str = "minimal_residual",
         preconditioner_order: int = 2,
+        residual_reduction: Optional[float] = None,
+        residual_floor: Optional[float] = None,
         tableau: Optional[DIRKTableau] = None,
     ) -> None:
         resolved = DEFAULT_DIRK_TABLEAU if tableau is None else tableau
@@ -932,6 +974,8 @@ class CPUDIRKStep(CPUStep):
             linear_max_iters=linear_max_iters,
             linear_correction_type=linear_correction_type,
             preconditioner_order=preconditioner_order,
+            residual_reduction=residual_reduction,
+            residual_floor=residual_floor,
             tableau=resolved,
         )
         self._dirk_reference = np.zeros(
@@ -1049,6 +1093,7 @@ class CPUDIRKStep(CPUStep):
             self._dirk_time = stage_time
             self._dirk_dt = dt_value
             self._dirk_diag_coeff = diag_coeff
+            self._linear_norm_reference = base_state
 
             def correction_norm(update, iterate):
                 stage_value = (
@@ -1156,6 +1201,8 @@ class CPUFIRKStep(CPUStep):
         linear_rtol: float = 0.0,
         linear_correction_type: str = "minimal_residual",
         preconditioner_order: int = 2,
+        residual_reduction: Optional[float] = None,
+        residual_floor: Optional[float] = None,
         tableau: Optional[FIRKTableau] = None,
     ) -> None:
         resolved = DEFAULT_FIRK_TABLEAU if tableau is None else tableau
@@ -1170,6 +1217,8 @@ class CPUFIRKStep(CPUStep):
             linear_max_iters=linear_max_iters,
             linear_correction_type=linear_correction_type,
             preconditioner_order=preconditioner_order,
+            residual_reduction=residual_reduction,
+            residual_floor=residual_floor,
             tableau=resolved,
         )
         self._firk_state = np.zeros(self._state_size, dtype=self.precision)
@@ -1320,6 +1369,9 @@ class CPUFIRKStep(CPUStep):
         self._firk_drivers = stage_drivers
         self._firk_time = current_time
         self._firk_dt = dt_value
+        # Mirrors the device TiledScaledNorm: the single-stage base
+        # state weights every stage block of the coupled residual.
+        self._linear_norm_reference = np.tile(state_vector, stage_count)
 
         # Initial guess: zero increments (or could use previous step's increments)
         guess = np.zeros(all_dim, dtype=self.precision)
@@ -1446,6 +1498,8 @@ class CPURosenbrockWStep(CPUStep):
         linear_rtol: float = 0.0,
         linear_correction_type: str = "minimal_residual",
         preconditioner_order: int = 2,
+        residual_reduction: Optional[float] = None,
+        residual_floor: Optional[float] = None,
         tableau: Optional[RosenbrockTableau] = None,
     ) -> None:
         resolved = (
@@ -1462,6 +1516,8 @@ class CPURosenbrockWStep(CPUStep):
             linear_max_iters=linear_max_iters,
             linear_correction_type=linear_correction_type,
             preconditioner_order=preconditioner_order,
+            residual_reduction=residual_reduction,
+            residual_floor=residual_floor,
             tableau=resolved,
         )
         self._increment_cache = np.zeros(self._state_size, dtype=self.precision)
@@ -1532,6 +1588,9 @@ class CPURosenbrockWStep(CPUStep):
             observables_now,
             current_time,
         )
+
+        # Direct solves weight the linear norm by the model state.
+        self._linear_norm_reference = state_vector
 
         stage_increments = np.zeros(
             (stage_count, state_dim),
@@ -1655,6 +1714,8 @@ class CPUBackwardEulerPCStep(CPUStep):
         linear_rtol: float = 0.0,
         linear_correction_type: str = "minimal_residual",
         preconditioner_order: int = 2,
+        residual_reduction: Optional[float] = None,
+        residual_floor: Optional[float] = None,
         corrector: Optional[CPUBackwardEulerStep] = None,
     ) -> None:
         super().__init__(
@@ -1668,6 +1729,8 @@ class CPUBackwardEulerPCStep(CPUStep):
             linear_max_iters=linear_max_iters,
             linear_correction_type=linear_correction_type,
             preconditioner_order=preconditioner_order,
+            residual_reduction=residual_reduction,
+            residual_floor=residual_floor,
         )
         if corrector is None:
             corrector = CPUBackwardEulerStep(
@@ -1681,6 +1744,8 @@ class CPUBackwardEulerPCStep(CPUStep):
                 linear_max_iters=linear_max_iters,
                 linear_correction_type=linear_correction_type,
                 preconditioner_order=preconditioner_order,
+                residual_reduction=residual_reduction,
+                residual_floor=residual_floor,
             )
         self._corrector = corrector
 
@@ -1808,6 +1873,8 @@ def get_ref_step_factory(
         linear_rtol: float = 0.0,
         linear_correction_type: str = "minimal_residual",
         preconditioner_order: int = 2,
+        residual_reduction: Optional[float] = None,
+        residual_floor: Optional[float] = None,
     ) -> Callable:
         if tableau_value is None:
             return step_class(
@@ -1821,6 +1888,8 @@ def get_ref_step_factory(
                 linear_max_iters=linear_max_iters,
                 linear_correction_type=linear_correction_type,
                 preconditioner_order=preconditioner_order,
+                residual_reduction=residual_reduction,
+                residual_floor=residual_floor,
             )
         return step_class(
             evaluator,
@@ -1833,6 +1902,8 @@ def get_ref_step_factory(
             linear_max_iters=linear_max_iters,
             linear_correction_type=linear_correction_type,
             preconditioner_order=preconditioner_order,
+            residual_reduction=residual_reduction,
+            residual_floor=residual_floor,
             tableau=tableau_value,
         )
 
@@ -1852,6 +1923,8 @@ def get_ref_stepper(
     linear_rtol: float = 0.0,
     linear_correction_type: str = "minimal_residual",
     preconditioner_order: int = 2,
+    residual_reduction: Optional[float] = None,
+    residual_floor: Optional[float] = None,
     tableau: Optional[Union[str, ButcherTableau]] = None,
 ) -> CPUStep:
     """Return a configured CPU reference stepper for ``algorithm``."""
@@ -1868,4 +1941,6 @@ def get_ref_stepper(
         linear_max_iters=linear_max_iters,
         linear_correction_type=linear_correction_type,
         preconditioner_order=preconditioner_order,
+        residual_reduction=residual_reduction,
+        residual_floor=residual_floor,
     )

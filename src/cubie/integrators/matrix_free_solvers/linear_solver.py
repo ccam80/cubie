@@ -25,11 +25,11 @@ See Also
     Implicit step base class that creates linear solver instances.
 """
 
+from math import sqrt as math_sqrt
 from typing import Dict, Any
 
 from attrs import define, field, validators
-from cubie.cuda_simsafe import cuda, int32, numba_from_dtype as from_dtype
-from numpy import dtype as np_dtype
+from cubie.cuda_simsafe import cuda, int32
 
 from cubie._utils import PrecisionDType
 from cubie.integrators.matrix_free_solvers.linear_solver_base import (
@@ -173,7 +173,6 @@ class MRLinearSolver(LinearSolverBase):
         n = config.n
         linear_correction_type = config.linear_correction_type
         max_iters = config.max_iters
-        precision = config.precision
         use_cached_auxiliaries = config.use_cached_auxiliaries
         jit_kwargs = self.jit_kwargs
 
@@ -182,13 +181,15 @@ class MRLinearSolver(LinearSolverBase):
         mr_flag = linear_correction_type == "minimal_residual"
         preconditioned = preconditioner is not None
         chained_precond = config.preconditioner_is_chained
+        reference_is_state = config.norm_reference == "state"
 
         # Convert types for device function
         n_val = int32(n)
         max_iters_val = int32(max_iters)
-        precision_numba = from_dtype(np_dtype(precision))
+        precision_numba = config.numba_precision
         typed_zero = precision_numba(0.0)
-        typed_one = precision_numba(1.0)
+        typed_reduction = config.residual_reduction
+        typed_floor = config.residual_floor
         success = int32(CUBIE_RESULT_CODES.SUCCESS)
         max_linear_iters_exceeded = int32(
             CUBIE_RESULT_CODES.MAX_LINEAR_ITERATIONS_EXCEEDED
@@ -200,6 +201,18 @@ class MRLinearSolver(LinearSolverBase):
         alloc_temp = get_alloc("temp", self)
         alloc_precond_scratch = get_alloc("mr_precond_scratch", self)
         alloc_chain_scratch = get_alloc("mr_chain_scratch", self)
+
+        # no cover: start
+        # Bind the norm's scaling reference at compile time.
+        if reference_is_state:
+            @cuda.jit(device=True, inline=True, **jit_kwargs)
+            def weighted_norm(values, state, base_state):
+                return scaled_norm_fn(values, state)
+        else:
+            @cuda.jit(device=True, inline=True, **jit_kwargs)
+            def weighted_norm(values, state, base_state):
+                return scaled_norm_fn(values, base_state)
+        # no cover: end
 
         # Build device function based on cached auxiliaries flag
         if use_cached_auxiliaries:
@@ -275,6 +288,15 @@ class MRLinearSolver(LinearSolverBase):
                 else:
                     chain_scratch = precond_scratch
 
+                # The stopping target is fixed against the untouched
+                # right-hand side before it becomes the residual:
+                # ||r|| <= floor + reduction * ||b||.
+                rhs_norm2 = weighted_norm(rhs, state, base_state)
+                tol = typed_floor + typed_reduction * precision_numba(
+                    math_sqrt(rhs_norm2)
+                )
+                tol2 = tol * tol
+
                 operator_apply(
                     state,
                     parameters,
@@ -290,9 +312,9 @@ class MRLinearSolver(LinearSolverBase):
                 # Compute initial residual rhs = rhs - temp
                 for i in range(n_val):
                     rhs[i] = rhs[i] - temp[i]
-                acc = scaled_norm_fn(rhs, x)
+                acc = weighted_norm(rhs, state, base_state)
                 mask = activemask()
-                converged = acc <= typed_one
+                converged = acc <= tol2
 
                 iter_count = int32(0)
                 for _ in range(max_iters_val):
@@ -370,9 +392,9 @@ class MRLinearSolver(LinearSolverBase):
                         for i in range(n_val):
                             x[i] += alpha * preconditioned_vec[i]
                             rhs[i] -= alpha * temp[i]
-                    acc = scaled_norm_fn(rhs, x)
+                    acc = weighted_norm(rhs, state, base_state)
 
-                    converged = converged or (acc <= typed_one)
+                    converged = converged or (acc <= tol2)
 
                 # Log "exceeded linear iters" status if still not converged
                 final_status = selp(
@@ -465,15 +487,24 @@ class MRLinearSolver(LinearSolverBase):
                 else:
                     chain_scratch = precond_scratch
 
+                # The stopping target is fixed against the untouched
+                # right-hand side before it becomes the residual:
+                # ||r|| <= floor + reduction * ||b||.
+                rhs_norm2 = weighted_norm(rhs, state, base_state)
+                tol = typed_floor + typed_reduction * precision_numba(
+                    math_sqrt(rhs_norm2)
+                )
+                tol2 = tol * tol
+
                 operator_apply(
                     state, parameters, drivers, base_state, t, h, a_ij, x, temp
                 )
                 # Compute initial residual rhs = rhs - temp
                 for i in range(n_val):
                     rhs[i] = rhs[i] - temp[i]
-                acc = scaled_norm_fn(rhs, x)
+                acc = weighted_norm(rhs, state, base_state)
                 mask = activemask()
-                converged = acc <= typed_one
+                converged = acc <= tol2
 
                 iter_count = int32(0)
                 for _ in range(max_iters_val):
@@ -548,9 +579,9 @@ class MRLinearSolver(LinearSolverBase):
                         for i in range(n_val):
                             x[i] += alpha * preconditioned_vec[i]
                             rhs[i] -= alpha * temp[i]
-                    acc = scaled_norm_fn(rhs, x)
+                    acc = weighted_norm(rhs, state, base_state)
 
-                    converged = converged or (acc <= typed_one)
+                    converged = converged or (acc <= tol2)
 
                 # Log "exceeded linear iters" status if still not converged
                 final_status = selp(

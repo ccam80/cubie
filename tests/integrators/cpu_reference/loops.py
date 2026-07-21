@@ -94,6 +94,18 @@ def run_reference_loop(
         )
     )
 
+    # Mirrors SingleIntegratorRunCore's derivation: an unset
+    # reduction follows the adaptive controller's rtol; a
+    # pure-absolute controller leaves the floor governing.
+    residual_reduction = solver_settings.get("krylov_residual_reduction")
+    if (
+        residual_reduction is None
+        and solver_settings["step_controller"] != "fixed"
+    ):
+        controller_rtol_floor = float(np.min(solver_settings["rtol"]))
+        if controller_rtol_floor > 0.0:
+            residual_reduction = controller_rtol_floor
+
     stepper = get_ref_stepper(
         evaluator,
         driver_evaluator,
@@ -106,6 +118,8 @@ def run_reference_loop(
         linear_max_iters=solver_settings["krylov_max_iters"],
         linear_correction_type=solver_settings["linear_correction_type"],
         preconditioner_order=solver_settings["preconditioner_order"],
+        residual_reduction=residual_reduction,
+        residual_floor=solver_settings.get("krylov_residual_floor"),
         tableau=tableau,
     )
 

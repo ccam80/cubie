@@ -370,13 +370,13 @@ def low_memory(forced_free_mem):
 def low_mem_solver(
     system,
     solver_settings,
-    driver_array,
+    driver_settings,
     low_memory,
 ):
     return _build_solver_instance(
         system=system,
         solver_settings=solver_settings,
-        driver_array=driver_array,
+        driver_settings=driver_settings,
         memory_manager=low_memory,
     )
 
@@ -385,14 +385,14 @@ def low_mem_solver(
 def second_low_mem_solver(
     system,
     solver_settings,
-    driver_array,
+    driver_settings,
     low_memory,
 ):
     """Second solver sharing ``low_memory`` for cross-solver tests."""
     return _build_solver_instance(
         system=system,
         solver_settings=solver_settings,
-        driver_array=driver_array,
+        driver_settings=driver_settings,
         memory_manager=low_memory,
     )
 
@@ -446,12 +446,12 @@ def start_cuda_busy_work():
 def unchunking_solver(
     system,
     solver_settings,
-    driver_array,
+    driver_settings,
 ):
     return _build_solver_instance(
         system=system,
         solver_settings=solver_settings,
-        driver_array=driver_array,
+        driver_settings=driver_settings,
     )
 
 
@@ -560,6 +560,8 @@ def solver_settings(solver_settings_override, system, precision):
         "driverspline_boundary_condition": "clamped",
         "krylov_atol": precision(1e-7),
         "krylov_rtol": precision(1e-7),
+        "krylov_residual_reduction": None,
+        "krylov_residual_floor": None,
         "linear_correction_type": "minimal_residual",
         "newton_atol": precision(1e-7),
         "newton_rtol": precision(1e-7),
@@ -593,6 +595,8 @@ def solver_settings(solver_settings_override, system, precision):
         "rtol",
         "krylov_atol",
         "krylov_rtol",
+        "krylov_residual_reduction",
+        "krylov_residual_floor",
         "newton_atol",
         "newton_rtol",
         "kp",
@@ -900,11 +904,11 @@ def solverkernel_mutable(
 
 
 @pytest.fixture(scope="session")
-def solver(system, solver_settings, driver_array, thread_mem_manager):
+def solver(system, solver_settings, driver_settings, thread_mem_manager):
     return _build_solver_instance(
         system=system,
         solver_settings=solver_settings,
-        driver_array=driver_array,
+        driver_settings=driver_settings,
         memory_manager=thread_mem_manager,
     )
 
@@ -913,13 +917,13 @@ def solver(system, solver_settings, driver_array, thread_mem_manager):
 def solver_mutable(
     system,
     solver_settings,
-    driver_array,
+    driver_settings,
     thread_mem_manager,
 ):
     return _build_solver_instance(
         system=system,
         solver_settings=solver_settings,
-        driver_array=driver_array,
+        driver_settings=driver_settings,
         memory_manager=thread_mem_manager,
     )
 

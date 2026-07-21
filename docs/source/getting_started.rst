@@ -12,19 +12,20 @@ Install cubie using pip, selecting the toolkit that matches your setup:
 
 .. code-block:: bash
 
-   pip install cubie[cuda12]  # CUDA 12 toolkit
-   # pip install cubie[cuda13]  # CUDA 13 toolkit
+   pip install cubie[mlir-cuda12]  # CUDA 12 toolkit
+   # pip install cubie[mlir-cuda13]  # CUDA 13 toolkit
 
-The extra is required: it installs cubie's CUDA backend (numba-cuda)
-alongside the matching toolkit wheels, and a bare ``pip install cubie``
-has no backend to compile with. If your machine already has a system
-CUDA toolkit, ``pip install cubie[cuda]`` installs the backend alone.
+The extra is required: it installs cubie's CUDA backend
+(numba-cuda-mlir) alongside the matching toolkit wheels, and a bare
+``pip install cubie`` has no backend to compile with. If your machine
+already has a system CUDA toolkit, ``pip install cubie[mlir]``
+installs the backend alone.
 
-An experimental MLIR-based backend (numba-cuda-mlir) is available
-through the ``mlir-cuda12``/``mlir-cuda13`` extras. It compiles
-slightly faster kernels in some cases, but is less mature than
-numba-cuda, has no CUDA-simulator support, and needs Python 3.11 or
-later — stick with the ``cuda*`` extras unless you want to experiment.
+The previous default backend (numba-cuda) is deprecated but still
+available through the ``cuda12``/``cuda13`` extras (bare ``cuda`` for
+a system toolkit). MLIR is faster; try numba-cuda if you run into
+unexpected errors, or if you need Python 3.10 or the CUDA simulator,
+which only exist on numba-cuda.
 
 Basic Usage
 -----------
@@ -117,10 +118,10 @@ Features
 Requirements
 ------------
 
-* Python >= 3.10
+* Python >= 3.11 (>= 3.10 with the deprecated numba-cuda backend)
 * NumPy>=2.0
 * Numba
-* Numba-CUDA
+* numba-cuda-mlir (or the deprecated numba-cuda)
 * attrs
 * SymPy>= 1.13.0
 

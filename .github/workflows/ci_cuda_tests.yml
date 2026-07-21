@@ -122,6 +122,11 @@ jobs:
         env:
           CUBIE_KERNEL_CACHE_DIR: ${{ github.workspace }}/kernel-cache/kernels
           CUBIE_MAX_CACHE_ENTRIES: "0"
+          # -p plugins are imported before pytest's pythonpath/conftest
+          # machinery runs, and the pytest console script does not put
+          # the cwd on sys.path, so the tests package must be exported
+          # explicitly for `-p tests.precompile_plugin` to resolve.
+          PYTHONPATH: ${{ github.workspace }}
           # Strip plain asserts (with rewriting off) so tests that
           # would fail on headless placeholder results keep running
           # and reach every kernel launch; test verdicts are
@@ -273,11 +278,42 @@ jobs:
       - name: Test with pytest
         # -n logical (CLI) overrides pyproject's desktop-safe -n8 so the
         # runner uses all its vCPUs; change the runner instance size freely
-        # and this scales automatically. Coverage/XML report come from addopts.
+        # and this scales automatically.
+        #
+        # Coverage runs under `coverage run` rather than pytest-cov here:
+        # `-p tests.precompile_plugin` imports cubie at plugin-registration
+        # time, before pytest-cov could start, so pytest-cov would miss
+        # every import-time line (package __init__s, cuda_backend
+        # resolution, algorithm tableau tables). `coverage run` traces the
+        # main process from startup; COVERAGE_PROCESS_START traces the
+        # xdist worker subprocesses. --no-cov disables pytest-cov so the
+        # two do not double-count. coverage auto-reads [tool.coverage.*]
+        # from pyproject.toml, so omit/exclude/relative_files still apply.
+        shell: bash
         env:
           CUBIE_KERNEL_CACHE_DIR: ${{ github.workspace }}/kernel-cache/kernels
           CUBIE_MAX_CACHE_ENTRIES: "0"
-        run: pytest -m "not specific_algos and not sim_only" -p tests.precompile_plugin -n logical --junitxml=pytest-results.xml
+          COVERAGE_PROCESS_START: ${{ github.workspace }}/pyproject.toml
+          # Same as the precompile leg: -p plugin imports happen before
+          # any pytest sys.path setup, so the repo root must be on
+          # PYTHONPATH for `tests.precompile_plugin` to import.
+          PYTHONPATH: ${{ github.workspace }}
+        run: |
+          set +e
+          python -m coverage run -m pytest \
+            -m "not specific_algos and not sim_only" \
+            -p tests.precompile_plugin -n logical --no-cov \
+            --junitxml=pytest-results.xml
+          status=$?
+          coverage_status=0
+          python -m coverage combine || coverage_status=$?
+          if (( coverage_status == 0 )); then
+            python -m coverage xml -o coverage.xml || coverage_status=$?
+          fi
+          if (( status != 0 )); then
+            exit $status
+          fi
+          exit $coverage_status
 
       # The artifact service occasionally answers CreateArtifact with a
       # non-JSON error page and the action's five internal retries all
