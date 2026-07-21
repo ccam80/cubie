@@ -233,11 +233,13 @@ def point_matches_julia(cubie_final, julia_final, golden_states):
     err_c = ensemble_error(cubie_final, golden_states)
     err_j = ensemble_error(julia_final, golden_states)
     rms_diff = rms_difference(cubie_final, julia_final)
-    ratio = rms_diff / err_j if err_j > 0 else float("inf")
+    if not np.isfinite(err_c) or not np.isfinite(err_j) or err_j <= 0:
+        return False, (
+            "err_cubie={0:.3e} err_julia={1:.3e} rms_diff={2:.3e}".format(
+                err_c, err_j, rms_diff))
+    ratio = rms_diff / err_j
     report = (
         "err_cubie={0:.3e} err_julia={1:.3e} rms_diff={2:.3e} "
         "rms/err ratio {3:.3g}, limit {4:g}".format(
             err_c, err_j, rms_diff, ratio, MATCH_FRACTION))
-    if not np.isfinite(err_c) or not np.isfinite(err_j) or err_j <= 0:
-        return False, report
     return ratio <= MATCH_FRACTION, report
