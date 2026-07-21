@@ -99,16 +99,12 @@ SOLVER_GROUPS = {
     "dirk": [
         "delta_location",
         "residual_location",
-        "residual_temp_location",
-        "stage_base_bt_location",
         "preconditioned_vec_location",
         "temp_location",
     ],
     "firk": [
         "delta_location",
         "residual_location",
-        "residual_temp_location",
-        "stage_base_bt_location",
         "preconditioned_vec_location",
         "temp_location",
     ],
@@ -116,16 +112,12 @@ SOLVER_GROUPS = {
     "backwards_euler": [
         "delta_location",
         "residual_location",
-        "residual_temp_location",
-        "stage_base_bt_location",
         "preconditioned_vec_location",
         "temp_location",
     ],
     "crank_nicolson": [
         "delta_location",
         "residual_location",
-        "residual_temp_location",
-        "stage_base_bt_location",
         "preconditioned_vec_location",
         "temp_location",
     ],

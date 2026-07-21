@@ -160,8 +160,8 @@ below may be passed directly to :func:`~cubie.solve_ivp`,
      - :doc:`optional_arguments`
    * - Algorithm
      - ``newton_atol``, ``newton_rtol``, ``newton_max_iters``,
-       ``newton_damping``, ``newton_max_backtracks``,
        ``krylov_atol``, ``krylov_rtol``, ``krylov_max_iters``,
+       ``krylov_residual_reduction``, ``krylov_residual_floor``,
        ``linear_correction_type``, ``preconditioner_type``,
        ``preconditioner_order``
      - :doc:`optional_arguments`, :doc:`choosing_algorithms`

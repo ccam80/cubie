@@ -736,7 +736,12 @@ class MultipleInstanceCUDAFactoryConfig(CUDAFactoryConfig):
     def __attrs_post_init__(self):
         super().__attrs_post_init__()
         if self.instance_label != "":
-            prefixed_attributes = type(self).get_prefixed_attributes()
+            # Aliases keep prefixed keys well-formed for fields with
+            # underscored names (e.g. ``_residual_floor`` maps to
+            # ``krylov_residual_floor``, not ``krylov__residual_floor``).
+            prefixed_attributes = type(self).get_prefixed_attributes(
+                aliases=True
+            )
             self.prefixed_attributes = prefixed_attributes
 
     def update(

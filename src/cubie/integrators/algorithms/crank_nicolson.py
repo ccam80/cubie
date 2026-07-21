@@ -296,6 +296,7 @@ class CrankNicolsonStep(ODEImplicitStep):
             # Form the Crank-Nicolson stage base
             for i in range(n):
                 base_state[i] = state[i] + half_dt * dxdt[i]
+                proposed_state[i] = dt_scalar * dxdt[i]
 
             # Solve Crank-Nicolson step (main solution)
             if has_evaluate_driver_at_t:
@@ -313,6 +314,7 @@ class CrankNicolsonStep(ODEImplicitStep):
                 dt_scalar,
                 stage_coefficient,
                 base_state,
+                state,
                 solver_shared,
                 solver_persistent,
                 counters,
@@ -330,6 +332,7 @@ class CrankNicolsonStep(ODEImplicitStep):
                 end_time,
                 dt_scalar,
                 be_coefficient,
+                state,
                 state,
                 solver_shared,
                 solver_persistent,

@@ -42,8 +42,10 @@ class StreamGroups:
         group.
     streams
         Dictionary mapping group names to CUDA streams. When omitted, each
-        group receives a new stream from :func:`numba.cuda.stream` and the
-        "default" group is backed by :func:`numba.cuda.default_stream`.
+        group, including "default", receives a dedicated stream from
+        :func:`numba.cuda.stream` on first use. No group is ever backed
+        by the device-wide default stream, so work in one process never
+        orders against the CUDA null stream.
 
     Attributes
     ----------
@@ -101,9 +103,7 @@ class StreamGroups:
             raise ValueError(
                 "Instance already in a stream group. Call change_group instead"
             )
-        if group not in self.groups:
-            self.groups[group] = []
-            self.streams[group] = cuda.stream()
+        self.get_group_stream(group)
         self.groups[group].append(instance_id)
 
     def get_group(self, instance: Any) -> str:
@@ -137,6 +137,29 @@ class StreamGroups:
             ][0]
         except IndexError:
             raise ValueError("Instance not in any stream groups")
+
+    def get_group_stream(self, group: str = "default") -> Union[Stream, int]:
+        """
+        Get the dedicated stream for a named group, creating it if needed.
+
+        Parameters
+        ----------
+        group
+            Name of the stream group.
+
+        Returns
+        -------
+        Stream
+            The group's dedicated CUDA stream. A missing group (or a
+            group created without a stream) receives a fresh stream
+            from :func:`numba.cuda.stream`, never the device-wide
+            default stream.
+        """
+        if group not in self.groups:
+            self.groups[group] = []
+        if group not in self.streams:
+            self.streams[group] = cuda.stream()
+        return self.streams[group]
 
     def get_stream(self, instance: Any) -> Union[Stream, int]:
         """
@@ -221,9 +244,7 @@ class StreamGroups:
         self.groups[current_group].remove(instance_id)
 
         # Add to new group
-        if new_group not in self.groups:
-            self.groups[new_group] = []
-            self.streams[new_group] = cuda.stream()
+        self.get_group_stream(new_group)
         self.groups[new_group].append(instance_id)
 
     def reinit_streams(self) -> None:

@@ -123,8 +123,6 @@ def build_solver_settings(precision: type[np.floating[Any]]) -> Dict[str, Any]:
         "preconditioner_order": 2,
         "krylov_max_iters": 500,
         "newton_max_iters": 500,
-        "newton_damping": precision(0.85),
-        "newton_max_backtracks": 25,
         "min_gain": precision(0.2),
         "max_gain": precision(2.0),
         "kp": precision(0.7),
@@ -163,8 +161,6 @@ def build_implicit_step_settings(
         "preconditioner_order": solver_settings["preconditioner_order"],
         "krylov_max_iters": solver_settings["krylov_max_iters"],
         "newton_max_iters": solver_settings["newton_max_iters"],
-        "newton_damping": solver_settings["newton_damping"],
-        "newton_max_backtracks": solver_settings["newton_max_backtracks"],
         "tableau": solver_settings.get("tableau", "sdirk_2_2"),
     }
 
@@ -560,10 +556,6 @@ def run_reference_loop_with_history(
         ],
         preconditioner_order=implicit_step_settings["preconditioner_order"],
         tableau=tableau,
-        newton_damping=implicit_step_settings.get("newton_damping"),
-        newton_max_backtracks=implicit_step_settings.get(
-            "newton_max_backtracks"
-        ),
     )
 
     saved_state_indices = np.asarray(

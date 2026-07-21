@@ -62,7 +62,7 @@ from cubie.time_logger import CUDAEvent
 from numpy.typing import NDArray
 
 from cubie.memory import default_memmgr
-from cubie.memory.mem_manager import run_instance_teardown
+from cubie.memory.mem_manager import defer_instance_teardown
 from cubie.buffer_registry import buffer_registry
 from cubie.CUDAFactory import CUDAFactory, CUDADispatcherCache
 from cubie.batchsolving.arrays.BatchInputArrays import InputArrays
@@ -74,7 +74,7 @@ from cubie.batchsolving.BatchSolverConfig import BatchSolverConfig
 from cubie.odesystems.baseODE import BaseODE
 from cubie.outputhandling.output_config import OutputCompileFlags
 from cubie.integrators.SingleIntegratorRun import SingleIntegratorRun
-from cubie._utils import unpack_dict_values, getype_validator
+from cubie._utils import build_config, unpack_dict_values, getype_validator
 
 if TYPE_CHECKING:
     from cubie.memory import MemoryManager
@@ -85,6 +85,8 @@ DEFAULT_MEMORY_SETTINGS = {
     "memory_manager": default_memmgr,
     "stream_group": "solver",
     "mem_proportion": None,
+    "host_spill_threshold": None,
+    "spill_directory": None,
 }
 
 
@@ -229,7 +231,7 @@ class BatchSolverKernel(CUDAFactory):
         typically via :mod:`cubie.memory`.
     cache_settings
         Mapping of cache configuration forwarded to
-        :class:`cubie.cubie_cache.CubieCacheHandler`.
+        :class:`cubie.cubie_cache.CacheConfig`.
     cache
         Cache mode control. ``True`` enables default caching, ``False``
         disables caching, or a string/``Path`` sets a custom cache
@@ -288,6 +290,33 @@ class BatchSolverKernel(CUDAFactory):
         self._work_complete = True
         self._memory_manager = self._setup_memory_manager(memory_settings)
 
+        system_name = system.name
+        system_hash = system.fn_hash
+        if system_name == system_hash:
+            system_name = f"unnamed_{system_hash[:8]}"
+        if cache_settings is None:
+            cache_settings = {}
+        cache_params = CacheConfig.params_from_user_kwarg(cache)
+        cache_params.update(cache_settings)
+        cache_config = build_config(
+            CacheConfig,
+            {"system_name": system_name, "system_hash": system_hash},
+            **cache_params,
+        )
+        self.cache_handler = CubieCacheHandler(cache_config)
+        # The solver's cache settings flow to the system so factories
+        # it owns (the Neumann convergence evaluator) apply the same
+        # policy to the kernels they compile.
+        system.update(
+            {
+                "cache_enabled": cache_config.cache_enabled,
+                "cache_mode": cache_config.cache_mode,
+                "max_cache_entries": cache_config.max_cache_entries,
+                "cache_dir": cache_config.cache_dir,
+            },
+            silent=True,
+        )
+
         # Build the single integrator to derive compile-critical metadata
         self.single_integrator = SingleIntegratorRun(
             system,
@@ -305,29 +334,11 @@ class BatchSolverKernel(CUDAFactory):
                 {"lineinfo": lineinfo}, silent=True
             )
 
-        # Extract system identification for cache
-        system_name = system.name
-        system_hash = system.fn_hash
-        if system_name == system_hash:
-            system_name = f"unnamed_{system_hash[:8]}"
-
-        # Build cache settings dict from cache_settings
-        if cache_settings is None:
-            cache_settings = {}
-
-        # Initialize cache_handler BEFORE setup_compile_settings since
-        # _invalidate_cache is called during setup and requires cache_handler
-        self.cache_handler = CubieCacheHandler(
-            cache_arg=cache,
-            system_name=system_name,
-            system_hash=system_hash,
-            **cache_settings,
-        )
-
         initial_config = BatchSolverConfig(
             precision=precision,
             loop_fn=None,
             compile_flags=self.single_integrator.output_compile_flags,
+            cache_config=cache_config,
             **(kernel_settings or {}),
         )
         self.setup_compile_settings(initial_config)
@@ -368,11 +379,14 @@ class BatchSolverKernel(CUDAFactory):
             stream_group=stream_group,
             proportion=mem_proportion,
             allocation_ready_hook=self._on_allocation,
+            owner=self,
+            host_spill_threshold=merged_settings["host_spill_threshold"],
+            spill_directory=merged_settings["spill_directory"],
         )
-        settings = memory_manager.registry[id(self)]
+        settings = memory_manager.get_registration(self)
         self._finalizer = finalize(
             self,
-            run_instance_teardown,
+            defer_instance_teardown,
             memory_manager,
             id(self),
             settings,
@@ -547,6 +561,35 @@ class BatchSolverKernel(CUDAFactory):
                 "This solver has been closed and its GPU resources "
                 "released; build a new Solver to run again."
             )
+        if stream is None:
+            stream = self.stream
+        self._memory_manager.begin_work(self)
+        try:
+            self._execute_run(
+                inits,
+                params,
+                driver_coefficients,
+                duration,
+                blocksize,
+                stream,
+                warmup,
+                t0,
+            )
+        finally:
+            self._memory_manager.end_work(self, stream)
+
+    def _execute_run(
+        self,
+        inits: NDArray[floating],
+        params: NDArray[floating],
+        driver_coefficients: Optional[NDArray[floating]],
+        duration: float,
+        blocksize: int,
+        stream: Optional[Any],
+        warmup: float,
+        t0: float,
+    ) -> None:
+        """Allocate, chunk, and launch the batch kernel."""
         if stream is None:
             stream = self.stream
         self._last_stream = stream
@@ -772,6 +815,7 @@ class BatchSolverKernel(CUDAFactory):
         save_observables = output_flags.observables
         save_state_summaries = output_flags.state_summaries
         save_observable_summaries = output_flags.observable_summaries
+        save_iteration_counters = output_flags.iteration_counters
         needs_padding = self.shared_memory_needs_padding
 
         shared_elems_per_run = self.shared_memory_elements
@@ -883,7 +927,9 @@ class BatchSolverKernel(CUDAFactory):
             rx_observables_summaries = observables_summaries_output[
                 :, :, run_index * save_observable_summaries
             ]
-            rx_iteration_counters = iteration_counters_output[:, :, run_index]
+            rx_iteration_counters = iteration_counters_output[
+                :, :, run_index * save_iteration_counters
+            ]
             status = loopfunction(
                 rx_inits,
                 rx_params,
@@ -985,10 +1031,6 @@ class BatchSolverKernel(CUDAFactory):
             updates_dict, silent=True
         )
 
-        all_unrecognized -= self.cache_handler.update(
-            updates_dict, silent=True
-        )
-
         recognised = set(updates_dict.keys()) - all_unrecognized
 
         if all_unrecognized:
@@ -1069,7 +1111,7 @@ class BatchSolverKernel(CUDAFactory):
         path
             New cache directory path. Can be absolute or relative.
         """
-        self.cache_handler.update(cache_dir=Path(path))
+        self.update(cache_dir=Path(path))
 
     @property
     def shared_memory_needs_padding(self) -> bool:
@@ -1397,10 +1439,16 @@ class BatchSolverKernel(CUDAFactory):
         return self.input_arrays.device_driver_coefficients
 
     @property
-    def save_time(self) -> float:
-        """Elapsed time spent saving outputs during integration."""
+    def save_time(self) -> bool:
+        """Whether time samples are saved alongside states."""
 
         return self.single_integrator.save_time
+
+    @property
+    def save_counters(self) -> bool:
+        """Whether iteration counters are saved at each save point."""
+
+        return self.single_integrator.save_counters
 
     @property
     def output_types(self) -> Any:

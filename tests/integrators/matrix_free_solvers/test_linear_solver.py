@@ -1,8 +1,12 @@
 import numpy as np
 import pytest
 from cubie.cuda_simsafe import cuda
+from cubie.memory import default_memmgr
 from numpy.testing import assert_allclose
 
+from cubie.integrators.matrix_free_solvers.bicgstab_solver import (
+    BiCGSTABSolver,
+)
 from cubie.integrators.matrix_free_solvers.linear_solver import (
     MRLinearSolver,
 )
@@ -56,8 +60,9 @@ def test_neumann_preconditioner(
     state = system_setup["state_init"]
     empty_base = cuda.to_device(np.empty(0, dtype=precision))
 
-    kernel[1, 1](state, residual, empty_base, out)
-    cuda.synchronize()
+    stream = default_memmgr.get_group_stream()
+    kernel[1, 1, stream](state, residual, empty_base, out)
+    stream.synchronize()
 
     expected_scalar = sum((h * precision(0.5)) ** k for k in range(order + 1))
     expected = np.full(n, expected_scalar, dtype=precision)
@@ -127,8 +132,9 @@ def test_linear_solver_placeholder(
     x_dev = cuda.to_device(np.zeros(3, dtype=precision))
     flag = cuda.to_device(np.array([0], dtype=np.int32))
     empty_base = cuda.to_device(np.empty(0, dtype=precision))
-    kernel[1, 1](state, rhs_dev, empty_base, x_dev, flag)
-    cuda.synchronize()
+    stream = default_memmgr.get_group_stream()
+    kernel[1, 1, stream](state, rhs_dev, empty_base, x_dev, flag)
+    stream.synchronize()
     code = flag.copy_to_host()[0] & 0xFF
     assert code == CUBIE_RESULT_CODES.SUCCESS
     assert np.allclose(
@@ -155,8 +161,9 @@ def _run_symbolic_linear_solve(
     x_dev = cuda.to_device(np.zeros(n, dtype=precision))
     flag = cuda.to_device(np.array([0], dtype=np.int32))
     empty_base = cuda.to_device(np.empty(0, dtype=precision))
-    kernel[1, 1](state, rhs_dev, empty_base, x_dev, flag)
-    cuda.synchronize()
+    stream = default_memmgr.get_group_stream()
+    kernel[1, 1, stream](state, rhs_dev, empty_base, x_dev, flag)
+    stream.synchronize()
     code = flag.copy_to_host()[0] & 0xFF
     assert code == CUBIE_RESULT_CODES.SUCCESS
     assert np.allclose(
@@ -280,8 +287,9 @@ def test_linear_solver_max_iters_exceeded(solver_kernel, precision):
     x_dev = cuda.to_device(np.zeros(n, dtype=precision))
     flag = cuda.to_device(np.array([0], dtype=np.int32))
     empty_base = cuda.to_device(np.empty(0, dtype=precision))
-    kernel[1, 1](state, rhs_dev, empty_base, x_dev, flag)
-    cuda.synchronize()
+    stream = default_memmgr.get_group_stream()
+    kernel[1, 1, stream](state, rhs_dev, empty_base, x_dev, flag)
+    stream.synchronize()
     code = flag.copy_to_host()[0] & 0xFF
     assert code == CUBIE_RESULT_CODES.MAX_LINEAR_ITERATIONS_EXCEEDED
 
@@ -358,8 +366,9 @@ def test_linear_solver_scaled_tolerance_converges(
     x_dev = cuda.to_device(np.zeros(3, dtype=precision))
     flag = cuda.to_device(np.array([0], dtype=np.int32))
     empty_base = cuda.to_device(np.empty(0, dtype=precision))
-    kernel[1, 1](state, rhs_dev, empty_base, x_dev, flag)
-    cuda.synchronize()
+    stream = default_memmgr.get_group_stream()
+    kernel[1, 1, stream](state, rhs_dev, empty_base, x_dev, flag)
+    stream.synchronize()
     code = flag.copy_to_host()[0] & 0xFF
     assert code == CUBIE_RESULT_CODES.SUCCESS
     assert np.allclose(
@@ -602,3 +611,130 @@ def test_linear_solver_forwards_kwargs_to_norm(precision):
 
     # Verify norm has correct instance_label from solver_type
     assert solver.norm.instance_label == "krylov"
+
+
+@pytest.fixture(scope="function")
+def identity_operator(precision):
+    """Device operator applying the identity matrix."""
+
+    @cuda.jit(device=True)
+    def operator(state, parameters, drivers, base_state, t, h, a_ij, vec, out):
+        for index in range(out.shape[0]):
+            out[index] = vec[index]
+
+    return operator
+
+
+@pytest.mark.parametrize(
+    "correction_type",
+    ["minimal_residual", "steepest_descent", "bicgstab"],
+)
+@pytest.mark.parametrize("warm_start", [True, False], ids=["warm", "cold"])
+def test_residual_reduction_measures_entry_rhs(
+    correction_type,
+    warm_start,
+    identity_operator,
+    solver_kernel,
+    precision,
+    tolerance,
+):
+    """The relative stopping target is fixed from the untouched RHS.
+
+    With the identity operator a warm start at ``0.95 * rhs`` leaves a
+    residual of five percent of the right-hand side, inside a ten
+    percent reduction target, so the solve accepts without moving the
+    iterate. A cold start must iterate to the solution.
+    """
+    common = {
+        "precision": precision,
+        "n": 3,
+        "krylov_atol": 1.0,
+        "krylov_rtol": 0.0,
+        "krylov_max_iters": 8,
+        "krylov_residual_reduction": 0.1,
+        "krylov_residual_floor": 0.0,
+    }
+    if correction_type == "bicgstab":
+        solver = BiCGSTABSolver(**common)
+    else:
+        solver = MRLinearSolver(
+            linear_correction_type=correction_type, **common
+        )
+    solver.update(operator_apply=identity_operator)
+
+    rhs = np.array([10.0, -20.0, 30.0], dtype=precision)
+    if warm_start:
+        guess = (precision(0.95) * rhs).astype(precision)
+    else:
+        guess = np.zeros(3, dtype=precision)
+
+    kernel = solver_kernel(
+        solver.device_function, 3, precision(0.01), precision
+    )
+    state = cuda.to_device(np.array([2.0, -4.0, 6.0], dtype=precision))
+    rhs_dev = cuda.to_device(rhs.copy())
+    x_dev = cuda.to_device(guess.copy())
+    flag = cuda.to_device(np.array([0], dtype=np.int32))
+    empty_base = cuda.to_device(np.empty(0, dtype=precision))
+
+    kernel[1, 1](state, rhs_dev, empty_base, x_dev, flag)
+    cuda.synchronize()
+
+    assert flag.copy_to_host()[0] & 0xFF == CUBIE_RESULT_CODES.SUCCESS
+    if warm_start:
+        assert np.array_equal(x_dev.copy_to_host(), guess)
+    else:
+        assert np.allclose(
+            x_dev.copy_to_host(),
+            rhs,
+            rtol=tolerance.rel_loose,
+            atol=tolerance.abs_loose,
+        )
+
+
+def test_residual_settings_derive_and_override(precision):
+    """Unset stopping settings derive; explicit values stick and update."""
+    solver = MRLinearSolver(precision=precision, n=3)
+    derived_floor = precision(float(np.finfo(precision).eps) ** 0.5)
+    assert solver.krylov_residual_reduction == precision(
+        np.finfo(precision).eps
+    )
+    assert solver.krylov_residual_floor == derived_floor
+    assert solver.settings_dict["krylov_residual_reduction"] == precision(
+        np.finfo(precision).eps
+    )
+    assert solver.settings_dict["krylov_residual_floor"] == derived_floor
+
+    solver = MRLinearSolver(
+        precision=precision,
+        n=3,
+        krylov_residual_reduction=1e-3,
+        krylov_residual_floor=0.25,
+    )
+    assert solver.krylov_residual_reduction == precision(1e-3)
+    assert solver.krylov_residual_floor == precision(0.25)
+
+    recognized = solver.update(
+        krylov_residual_reduction=5e-3, krylov_residual_floor=0.5
+    )
+    assert {
+        "krylov_residual_reduction",
+        "krylov_residual_floor",
+    } <= recognized
+    assert solver.krylov_residual_reduction == precision(5e-3)
+    assert solver.krylov_residual_floor == precision(0.5)
+
+
+@pytest.mark.parametrize(
+    "settings",
+    [
+        {"krylov_residual_reduction": -0.1},
+        {"krylov_residual_reduction": 1.5},
+        {"krylov_residual_floor": -0.5},
+    ],
+    ids=["reduction-negative", "reduction-above-one", "floor-negative"],
+)
+def test_residual_settings_reject_out_of_range(precision, settings):
+    """The reduction stays inside [0, 1] and the floor non-negative."""
+    with pytest.raises((ValueError, TypeError)):
+        MRLinearSolver(precision=precision, n=3, **settings)

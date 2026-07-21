@@ -27,6 +27,7 @@ from cubie.integrators.algorithms.generic_firk_tableaus import (
     DEFAULT_FIRK_TABLEAU,
     FIRK_TABLEAU_REGISTRY,
 )
+from cubie.integrators.norms import DIRKCorrectionNorm, FIRKCorrectionNorm
 from cubie.integrators.algorithms.generic_rosenbrock_w import (
     GenericRosenbrockWStep,
 )
@@ -37,7 +38,6 @@ from cubie.integrators.algorithms.generic_rosenbrockw_tableaus import (
 from tests.integrators.cpu_reference import (
     CPUODESystem,
     get_ref_step_factory,
-    get_ref_stepper,
 )
 from tests.integrators.cpu_reference.algorithms import (
     CPUDIRKStep,
@@ -256,6 +256,22 @@ ALIAS_CASES = [
         CPUDIRKStep,
         marks=pytest.mark.specific_algos,
         id="dirk-l-stable-4",
+    ),
+    pytest.param(
+        "kvaerno3",
+        DIRKStep,
+        DIRK_TABLEAU_REGISTRY["kvaerno3"],
+        CPUDIRKStep,
+        marks=pytest.mark.specific_algos,
+        id="dirk-kvaerno3",
+    ),
+    pytest.param(
+        "kvaerno5",
+        DIRKStep,
+        DIRK_TABLEAU_REGISTRY["kvaerno5"],
+        CPUDIRKStep,
+        marks=pytest.mark.specific_algos,
+        id="dirk-kvaerno5",
     ),
     pytest.param(
         "ros3p",
@@ -602,9 +618,6 @@ def test_algorithm(
             assert step_object.newton_max_iters == solver_settings[
                 "newton_max_iters"
             ], "newton_max_iters set"
-            assert step_object.newton_max_backtracks == solver_settings[
-                "newton_max_backtracks"
-            ], "newton_max_backtracks set"
             assert step_object.krylov_atol == pytest.approx(
                 solver_settings["krylov_atol"],
                 rel=tolerance.rel_tight,
@@ -625,11 +638,6 @@ def test_algorithm(
                 rel=tolerance.rel_tight,
                 abs=tolerance.abs_tight,
             ), "newton_rtol set"
-            assert step_object.newton_damping == pytest.approx(
-                solver_settings["newton_damping"],
-                rel=tolerance.rel_tight,
-                abs=tolerance.abs_tight,
-            ), "newton_damping set"
         assert callable(system.get_solver_helper)
 
     if step_object.is_implicit:
@@ -672,8 +680,6 @@ def test_algorithm(
                 solver_settings["newton_atol"] * 0.5,
                 "newton_rtol":
                 solver_settings["newton_rtol"] * 0.5,
-                "newton_damping":
-                solver_settings["newton_damping"] * 0.9,
                 "preconditioner_order":
                 solver_settings["preconditioner_order"] + 1,
             }
@@ -705,11 +711,6 @@ def test_algorithm(
                 rel=tolerance.rel_tight,
                 abs=tolerance.abs_tight,
             ), "newton_rtol update"
-            assert step_object.newton_damping == pytest.approx(
-                updates["newton_damping"],
-                rel=tolerance.rel_tight,
-                abs=tolerance.abs_tight,
-            ), "newton_damping update"
 
 
 def test_firk_step_is_multistage_matches_tableau():
@@ -718,6 +719,27 @@ def test_firk_step_is_multistage_matches_tableau():
         precision=np.float32, n=3, tableau=DEFAULT_FIRK_TABLEAU,
     )
     assert step.is_multistage == (DEFAULT_FIRK_TABLEAU.stage_count > 1)
+
+
+@pytest.mark.parametrize(
+    "step_class,tableau,norm_type",
+    [
+        (BackwardsEulerStep, None, DIRKCorrectionNorm),
+        (CrankNicolsonStep, None, DIRKCorrectionNorm),
+        (DIRKStep, DEFAULT_DIRK_TABLEAU, DIRKCorrectionNorm),
+        (FIRKStep, DEFAULT_FIRK_TABLEAU, FIRKCorrectionNorm),
+    ],
+)
+def test_implicit_algorithm_selects_correction_norm(
+    step_class, tableau, norm_type
+):
+    """Each implicit family selects its correction norm."""
+    kwargs = {"precision": np.float32, "n": 3}
+    if tableau is not None:
+        kwargs["tableau"] = tableau
+    step = step_class(**kwargs)
+
+    assert isinstance(step.solver.norm, norm_type)
 
 
 # Test controller defaults selection based on tableau error estimation

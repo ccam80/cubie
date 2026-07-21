@@ -212,8 +212,11 @@ def test_batch_output_status_codes(solverkernel):
 
 
 def test_batch_output_iteration_counters(solverkernel):
-    """iteration_counters = (n_saves, 4, num_runs)."""
+    """Counters are (n_saves, 4, num_runs) only when requested."""
     single = SingleRunOutputSizes.from_solver(solverkernel)
     batch = BatchOutputSizes.from_solver(solverkernel)
     nr = solverkernel.num_runs
-    assert batch.iteration_counters == (single.state[0], 4, nr)
+    if solverkernel.save_counters:
+        assert batch.iteration_counters == (single.state[0], 4, nr)
+    else:
+        assert batch.iteration_counters == (0, 0, 0)

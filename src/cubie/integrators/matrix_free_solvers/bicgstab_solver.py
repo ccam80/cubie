@@ -21,10 +21,11 @@ See Also
     Newton--Krylov solver that wraps a linear solver.
 """
 
+from math import sqrt as math_sqrt
 from typing import Dict, Any, Optional
 
 from attrs import define, field, validators
-from cubie.cuda_simsafe import cuda, int32, numba_from_dtype as from_dtype
+from cubie.cuda_simsafe import cuda, int32
 from numpy import (
     dtype as np_dtype,
     float32 as np_float32,
@@ -237,14 +238,16 @@ class BiCGSTABSolver(LinearSolverBase):
         preconditioned = preconditioner is not None
         cached = config.use_cached_auxiliaries
         chained_precond = config.preconditioner_is_chained
+        reference_is_state = config.norm_reference == "state"
         jit_kwargs = self.jit_kwargs
 
         # Convert types for device function
         n_val = int32(n)
         max_iters_val = int32(max_iters)
-        precision_numba = from_dtype(np_dtype(precision))
+        precision_numba = config.numba_precision
         typed_zero = precision_numba(0.0)
-        typed_one = precision_numba(1.0)
+        typed_reduction = config.residual_reduction
+        typed_floor = config.residual_floor
         success = int32(CUBIE_RESULT_CODES.SUCCESS)
         max_linear_iters_exceeded = int32(
             CUBIE_RESULT_CODES.MAX_LINEAR_ITERATIONS_EXCEEDED
@@ -312,42 +315,15 @@ class BiCGSTABSolver(LinearSolverBase):
                     t, h, a_ij, vin, vout,
                 )
 
-        if preconditioned:
-            if cached:
-                @cuda.jit(device=True, inline=True, **jit_kwargs)
-                def precond(
-                    state, parameters, drivers, cached_aux, base_state,
-                    t, h, a_ij, rhs, out, temp, scratch, chain_scratch,
-                ):
-                    if chained_precond:
-                        preconditioner(
-                            state, parameters, drivers, cached_aux,
-                            base_state, t, h, a_ij, rhs, out, temp,
-                            scratch, chain_scratch,
-                        )
-                    else:
-                        preconditioner(
-                            state, parameters, drivers, cached_aux,
-                            base_state, t, h, a_ij, rhs, out, temp,
-                            scratch,
-                        )
-            else:
-                @cuda.jit(device=True, inline=True, **jit_kwargs)
-                def precond(
-                    state, parameters, drivers, cached_aux, base_state,
-                    t, h, a_ij, rhs, out, temp, scratch, chain_scratch,
-                ):
-                    if chained_precond:
-                        preconditioner(
-                            state, parameters, drivers, base_state,
-                            t, h, a_ij, rhs, out, temp,
-                            scratch, chain_scratch,
-                        )
-                    else:
-                        preconditioner(
-                            state, parameters, drivers, base_state,
-                            t, h, a_ij, rhs, out, temp, scratch,
-                        )
+        # Bind the norm's scaling reference at compile time.
+        if reference_is_state:
+            @cuda.jit(device=True, inline=True, **jit_kwargs)
+            def weighted_norm(values, state, base_state):
+                return scaled_norm_fn(values, state)
+        else:
+            @cuda.jit(device=True, inline=True, **jit_kwargs)
+            def weighted_norm(values, state, base_state):
+                return scaled_norm_fn(values, base_state)
 
         @cuda.jit(
             device=True,
@@ -422,6 +398,15 @@ class BiCGSTABSolver(LinearSolverBase):
                 chain_scratch = precond_scratch
 
             # ── INIT ────────────────────────────────────
+            # The stopping target is fixed against the untouched
+            # right-hand side before it becomes the residual:
+            # ||r|| <= floor + reduction * ||b||.
+            rhs_norm2 = weighted_norm(rhs, state, base_state)
+            tol = typed_floor + typed_reduction * precision_numba(
+                math_sqrt(rhs_norm2)
+            )
+            tol2 = tol * tol
+
             # I1-I5 fused: r = rhs - clamp(A(x)); freeze witness,
             # seed search direction, accumulate rho_prev = <r0, r0>
             # in the same pass over the vectors.
@@ -447,9 +432,9 @@ class BiCGSTABSolver(LinearSolverBase):
                 rho_prev += sq
 
             # I6: initial convergence check
-            acc = scaled_norm_fn(rhs, x)
+            acc = weighted_norm(rhs, state, base_state)
             mask = activemask()
-            converged = acc <= typed_one
+            converged = acc <= tol2
             broken = False
             finished = converged
 
@@ -469,11 +454,30 @@ class BiCGSTABSolver(LinearSolverBase):
                 # p is maintained within the clamp budget, so the
                 # unpreconditioned copy needs no re-clamp.
                 if preconditioned:
-                    precond(
-                        state, parameters, drivers, cached_aux,
-                        base_state, t, h, a_ij, p, tmp, v,
-                        precond_scratch, chain_scratch,
-                    )
+                    if cached:
+                        if chained_precond:
+                            preconditioner(
+                                state, parameters, drivers, cached_aux,
+                                base_state, t, h, a_ij, p, tmp, v,
+                                precond_scratch, chain_scratch,
+                            )
+                        else:
+                            preconditioner(
+                                state, parameters, drivers, cached_aux,
+                                base_state, t, h, a_ij, p, tmp, v,
+                                precond_scratch,
+                            )
+                    elif chained_precond:
+                        preconditioner(
+                            state, parameters, drivers, base_state,
+                            t, h, a_ij, p, tmp, v,
+                            precond_scratch, chain_scratch,
+                        )
+                    else:
+                        preconditioner(
+                            state, parameters, drivers, base_state,
+                            t, h, a_ij, p, tmp, v, precond_scratch,
+                        )
                     for i in range(n_val):
                         tmp[i] = selp(
                             tmp[i] > dot_clamp, dot_clamp, tmp[i]
@@ -525,17 +529,37 @@ class BiCGSTABSolver(LinearSolverBase):
                     rhs[i] = rhs[i] - alpha_eff * v[i]
 
                 # ── Step 6: half-step convergence check ─
-                acc = scaled_norm_fn(rhs, x)
-                converged = converged or (acc <= typed_one)
+                acc = weighted_norm(rhs, state, base_state)
+                converged = converged or (acc <= tol2)
                 finished = converged or broken
 
                 # ── Step 7: s_hat = clamp(P(s)), scratch = tmp
                 if preconditioned:
-                    precond(
-                        state, parameters, drivers, cached_aux,
-                        base_state, t, h, a_ij, rhs, s_hat, tmp,
-                        precond_scratch, chain_scratch,
-                    )
+                    if cached:
+                        if chained_precond:
+                            preconditioner(
+                                state, parameters, drivers, cached_aux,
+                                base_state, t, h, a_ij, rhs, s_hat, tmp,
+                                precond_scratch, chain_scratch,
+                            )
+                        else:
+                            preconditioner(
+                                state, parameters, drivers, cached_aux,
+                                base_state, t, h, a_ij, rhs, s_hat, tmp,
+                                precond_scratch,
+                            )
+                    elif chained_precond:
+                        preconditioner(
+                            state, parameters, drivers, base_state,
+                            t, h, a_ij, rhs, s_hat, tmp,
+                            precond_scratch, chain_scratch,
+                        )
+                    else:
+                        preconditioner(
+                            state, parameters, drivers, base_state,
+                            t, h, a_ij, rhs, s_hat, tmp,
+                            precond_scratch,
+                        )
                     for i in range(n_val):
                         s_hat[i] = selp(
                             s_hat[i] > dot_clamp, dot_clamp, s_hat[i]
@@ -587,8 +611,8 @@ class BiCGSTABSolver(LinearSolverBase):
                     rhs[i] = rhs[i] - omega_eff * tmp[i]
 
                 # ── Step 12: full-step convergence check ─
-                acc = scaled_norm_fn(rhs, x)
-                converged = converged or (acc <= typed_one)
+                acc = weighted_norm(rhs, state, base_state)
+                converged = converged or (acc <= tol2)
 
                 # ── Step 13: rho_new = <r0_hat, r> ──────
                 rho_new = typed_zero

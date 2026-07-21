@@ -32,6 +32,7 @@ See Also
 """
 
 from pathlib import Path
+from functools import partial
 from weakref import finalize
 from typing import (
     Any,
@@ -83,12 +84,25 @@ default_timelogger.register_event(
 )
 
 
-def _finalize_solver(kernel: BatchSolverKernel) -> None:
-    """Best-effort cleanup for a collected solver."""
+def _close_abandoned_kernel(kernel: BatchSolverKernel) -> None:
+    """Best-effort close for a collected solver's kernel."""
     try:
         kernel.close()
-    except Exception:  # pragma: no cover - interpreter shutdown
+    except Exception:  # pragma: no cover - context already gone
         pass
+
+
+def _finalize_solver(kernel: BatchSolverKernel) -> None:
+    """Record an abandoned solver's teardown; the GC finalizer target.
+
+    GC can fire inside any allocation — including while the memory
+    manager iterates its registry — so the kernel is closed at the
+    manager's next entry point, not here. See
+    :meth:`MemoryManager.defer_teardown`.
+    """
+    kernel.memory_manager.defer_teardown(
+        partial(_close_abandoned_kernel, kernel)
+    )
 
 
 default_timelogger.register_event(
@@ -264,14 +278,17 @@ def solve_ivp(
         When ``True`` (default), trajectories with nonzero solver status
         codes are automatically set to NaN, protecting users from analyzing
         invalid data. When ``False``, all trajectories are returned with
-        original values. Ignored when using ``results_type="raw"``.
+        original values.
     **kwargs
         Additional keyword arguments passed to :class:`Solver`.
 
     Returns
     -------
     SolveResult
-        Results returned from :meth:`Solver.solve`.
+        Result owning the solve's host output buffers. ``as_numpy``,
+        ``as_numpy_per_summary``, and ``as_pandas`` build RAM
+        representations on demand; disk-backed results release their
+        spill files on ``close()`` or context exit.
     """
     if not isinstance(system, BaseODE):
         system = _system_from_equations(
@@ -291,7 +308,7 @@ def solve_ivp(
         kwargs.setdefault("summarise_variables", summarise_variables)
 
     # Solve-time options go to solve(); the rest configure the Solver.
-    solve_option_keys = ("blocksize", "stream", "results_type")
+    solve_option_keys = ("blocksize", "stream")
     solve_options = {
         key: kwargs.pop(key) for key in solve_option_keys if key in kwargs
     }
@@ -349,9 +366,18 @@ class Solver:
         selectors such as ``save_variables`` or index-based parameters may also
         be supplied as keyword arguments.
     memory_settings
-        Explicit memory configuration overriding solver defaults. Keys like
-        ``memory_manager`` or ``mem_proportion`` may likewise be provided as
-        keyword arguments.
+        Memory configuration; each key may also be a keyword argument.
+        ``host_spill_threshold`` is the size in bytes above which host
+        result arrays are disk-backed instead of held in RAM; by
+        default only arrays larger than 80% of total system RAM spill
+        — everything smaller is pageable RAM the operating system
+        manages. Lower it to keep RAM free for other work, or raise it
+        to keep even larger results in RAM. ``spill_directory`` is an
+        existing directory for spill files (default: the system temp
+        directory); point it at a fast disk for large spilled runs.
+        An idle solver's completed device buffers are freed when
+        another solver faces a genuine VRAM shortage; the evicted
+        solver reallocates on its next solve.
     loop_settings
         Explicit loop configuration overriding solver defaults. Keys such as
         ``save_every`` and ``summarise_every`` may also be supplied as loose
@@ -431,8 +457,6 @@ class Solver:
             },
         )
 
-        self.input_handler = BatchInputHandler(interface)
-
         recognized_kwargs: set[str] = set()
 
         output_settings, output_recognized = merge_kwargs_into_settings(
@@ -505,6 +529,12 @@ class Solver:
             kernel_settings=kernel_settings,
         )
         self._finalizer = finalize(self, _finalize_solver, self.kernel)
+        # The handler materialises assembled grids into pinned buffers
+        # below the manager's ceiling, so inputs attach ready for
+        # direct asynchronous transfer.
+        self.input_handler = BatchInputHandler(
+            interface, memory_manager=self.kernel.memory_manager
+        )
 
         if set(kwargs) - recognized_kwargs:
             raise KeyError(
@@ -575,6 +605,29 @@ class Solver:
         """
         self.system_interface.merge_variable_labels_and_idxs(output_settings)
 
+    def _configure_drivers(self, drivers: Dict[str, Any]) -> None:
+        """Update owned driver data and evaluators as one unit.
+
+        Parameters
+        ----------
+        drivers
+            Driver samples plus interpolation settings, as accepted by
+            :meth:`ArrayInterpolator.update_from_dict`.
+        """
+        drivers = ArrayInterpolator.check_against_system_drivers(
+            drivers, self.system
+        )
+        fn_changed = self.driver_interpolator.update_from_dict(drivers)
+        if fn_changed:
+            self.kernel.update(
+                {
+                    "evaluate_driver_at_t": (
+                        self.driver_interpolator.evaluation_function
+                    ),
+                    "driver_del_t": self.driver_interpolator.driver_del_t,
+                }
+            )
+
     def solve(
         self,
         initial_values: Union[ndarray, Dict[str, Union[float, ndarray]]],
@@ -586,7 +639,6 @@ class Solver:
         blocksize: int = 256,
         stream: Any = None,
         grid_type: str = "verbatim",
-        results_type: str = "full",
         nan_error_trajectories: bool = True,
         **kwargs: Any,
     ) -> SolveResult:
@@ -620,13 +672,11 @@ class Solver:
         grid_type
             Strategy for constructing the integration grid from inputs.
             Only used when dict inputs trigger grid construction.
-        results_type
-            Format of returned results, for example ``"full"`` or ``"numpy"``.
         nan_error_trajectories
             When ``True`` (default), trajectories with nonzero status codes
             are automatically set to NaN, making failed runs easy to identify
             and exclude from analysis. When ``False``, all trajectories are
-            returned unchanged. Ignored when ``results_type`` is ``"raw"``.
+            returned unchanged.
         **kwargs
             Additional options forwarded to :meth:`update`. See "Optional
             Arguments" in the docs for possibilities.
@@ -634,7 +684,13 @@ class Solver:
         Returns
         -------
         SolveResult
-            Collected results from the integration run.
+            Result owning the solve's host output buffers — nothing is
+            copied. Keep it alive while its data is needed: once it is
+            garbage collected the solver reuses the buffers on its
+            next run. ``as_numpy``, ``as_numpy_per_summary``, and
+            ``as_pandas`` build RAM representations on demand;
+            disk-backed results release their spill files on
+            ``close()`` or context exit.
 
         Notes
         -----
@@ -660,19 +716,8 @@ class Solver:
             states=initial_values, params=parameters, kind=grid_type
         )
 
-        fn_changed = False
         if drivers is not None:
-            drivers = ArrayInterpolator.check_against_system_drivers(
-                drivers, self.system
-            )
-            fn_changed = self.driver_interpolator.update_from_dict(drivers)
-        if fn_changed:
-            self.update(
-                {
-                    "evaluate_driver_at_t": self.driver_interpolator.evaluation_function,
-                    "driver_del_t": self.driver_interpolator.driver_del_t,
-                }
-            )
+            self._configure_drivers(drivers)
 
         self.kernel.run(
             inits=inits,
@@ -695,7 +740,6 @@ class Solver:
 
         return SolveResult.from_solver(
             self,
-            results_type=results_type,
             nan_error_trajectories=nan_error_trajectories,
         )
 
@@ -1061,6 +1105,11 @@ class Solver:
     def save_time(self) -> bool:
         """Return whether time points are saved."""
         return self.kernel.save_time
+
+    @property
+    def save_counters(self) -> bool:
+        """Return whether iteration counters are saved."""
+        return self.kernel.save_counters
 
     @property
     def output_types(self) -> List[str]:

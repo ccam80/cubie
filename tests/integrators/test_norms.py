@@ -8,10 +8,10 @@ from cubie.cuda_simsafe import cuda
 from numpy.testing import assert_allclose
 
 from cubie.integrators.norms import (
+    DIRKCorrectionNorm,
+    FIRKCorrectionNorm,
     ScaledNorm,
-    ScaledNormCache,
     ScaledNormConfig,
-    resize_tolerances,
 )
 
 
@@ -291,6 +291,98 @@ def test_build_mean_squared_norm():
     # tol1 = 1e-4, ratio1 = 1e-4/1e-4 = 1.0
     # nrm2 = (1^2 + 1^2) / 2 = 1.0
     assert_allclose(result, 1.0, rtol=1e-10)
+
+
+# The scaling reference is the physical stage state, not the iterate;
+# commit 7d381c2 fixed the increment-referenced scaling these cases pin.
+_CORRECTION_NORM_CASES = {
+    "dirk": dict(
+        factory=DIRKCorrectionNorm,
+        factory_kwargs=dict(n=2),
+        a_ij=0.5,
+        delta=(0.21, 0.3),
+        increment=(2.0, -1.0),
+        stage_base=(10.0, -4.0),
+        step_start=(8.0, -5.0),
+        expected=0.025,
+    ),
+    "firk": dict(
+        factory=FIRKCorrectionNorm,
+        factory_kwargs=dict(
+            n=4,
+            state_n=2,
+            stage_coefficients=(0.5, 0.0, 0.5, 0.5),
+        ),
+        a_ij=0.0,
+        delta=(0.21, 0.3, 0.46, 0.15),
+        increment=(2.0, -1.0, 4.0, 3.0),
+        stage_base=(10.0, -4.0),
+        step_start=(8.0, -5.0),
+        expected=0.025,
+    ),
+}
+
+
+@pytest.fixture(scope="session")
+def correction_norm_case(request):
+    """Return one named correction-norm scaling case."""
+    return _CORRECTION_NORM_CASES[request.param]
+
+
+@pytest.fixture(scope="session")
+def correction_norm_kernel(correction_norm_case, precision):
+    """Compile the correction-norm kernel once per parameter set."""
+    factory = correction_norm_case["factory"](
+        precision=precision,
+        atol=1.0,
+        rtol=0.1,
+        **correction_norm_case["factory_kwargs"],
+    )
+    correction_norm = factory.device_function
+
+    @cuda.jit
+    def kernel(delta, increment, stage_base, step_start, a_ij, result):
+        result[0] = correction_norm(
+            delta,
+            increment,
+            stage_base,
+            step_start,
+            a_ij,
+        )
+
+    return kernel
+
+
+@pytest.mark.parametrize(
+    "correction_norm_case", ["dirk", "firk"], indirect=True
+)
+def test_correction_norm_scales_by_physical_stage_state(
+    correction_norm_case, correction_norm_kernel, precision
+):
+    """Correction norms scale by the stage state the update produces."""
+    case = correction_norm_case
+    delta = cuda.to_device(np.array(case["delta"], dtype=precision))
+    increment = cuda.to_device(
+        np.array(case["increment"], dtype=precision)
+    )
+    stage_base = cuda.to_device(
+        np.array(case["stage_base"], dtype=precision)
+    )
+    step_start = cuda.to_device(
+        np.array(case["step_start"], dtype=precision)
+    )
+    result = cuda.to_device(np.zeros(1, dtype=precision))
+
+    correction_norm_kernel[1, 1](
+        delta,
+        increment,
+        stage_base,
+        step_start,
+        precision(case["a_ij"]),
+        result,
+    )
+
+    assert_allclose(result.copy_to_host()[0], case["expected"], rtol=1e-5)
 
 
 # ── ScaledNorm.update ────────────────────────────────────── #

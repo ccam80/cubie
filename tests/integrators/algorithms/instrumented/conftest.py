@@ -4,6 +4,7 @@ from typing import Dict, List, Optional, Union, Tuple, Any
 import numpy as np
 import pytest
 from cubie.cuda_simsafe import cuda, int32
+from cubie.memory import default_memmgr
 from cubie.cuda_simsafe import numba_from_dtype as from_dtype
 
 from tests._utils import _build_enhanced_algorithm_settings
@@ -153,7 +154,6 @@ INSTRUMENTATION_DEVICE_FIELDS = (
     "newton_iteration_guesses",
     "newton_residuals",
     "newton_squared_norms",
-    "newton_iteration_scale",
     "linear_initial_guesses",
     "linear_iteration_guesses",
     "linear_residuals",
@@ -199,7 +199,6 @@ class DeviceInstrumentedResult:
     newton_iteration_guesses: Optional[np.ndarray] = None
     newton_residuals: Optional[np.ndarray] = None
     newton_squared_norms: Optional[np.ndarray] = None
-    newton_iteration_scale: Optional[np.ndarray] = None
     linear_initial_guesses: Optional[np.ndarray] = None
     linear_iteration_guesses: Optional[np.ndarray] = None
     linear_residuals: Optional[np.ndarray] = None
@@ -265,7 +264,6 @@ def instrumented_step_results(
         stage_count_attr = getattr(instrumented_step_object, "stage_count", 0)
     stage_count = int32(stage_count_attr or 1)
     newton_max_iters = int32(solver_settings["newton_max_iters"])
-    max_newton_backtracks = int32(solver_settings["newton_max_backtracks"])
     linear_max_iters = int32(solver_settings["krylov_max_iters"])
 
     params = np.asarray(step_inputs["parameters"], dtype=precision)
@@ -301,7 +299,6 @@ def instrumented_step_results(
         newton_iteration_guesses_tensor,
         newton_residuals_tensor,
         newton_squared_norms_tensor,
-        newton_iteration_scale_tensor,
         linear_initial_guesses_tensor,
         linear_iteration_guesses_tensor,
         linear_residuals_tensor,
@@ -361,7 +358,6 @@ def instrumented_step_results(
                 newton_iteration_guesses_tensor[step_idx],
                 newton_residuals_tensor[step_idx],
                 newton_squared_norms_tensor[step_idx],
-                newton_iteration_scale_tensor[step_idx],
                 linear_initial_guesses_tensor[step_idx],
                 linear_iteration_guesses_tensor[step_idx],
                 linear_residuals_tensor[step_idx],
@@ -406,7 +402,6 @@ def instrumented_step_results(
         observable_size=n_observables,
         driver_size=drivers.shape[0],
         newton_max_iters=newton_max_iters,
-        newton_max_backtracks=max_newton_backtracks,
         linear_max_iters=linear_max_iters,
         num_steps=num_steps,
         flattened_solver=is_firk,
@@ -446,15 +441,15 @@ def instrumented_step_results(
     d_newton_iteration_guesses = device_buffers["newton_iteration_guesses"]
     d_newton_residuals = device_buffers["newton_residuals"]
     d_newton_squared_norms = device_buffers["newton_squared_norms"]
-    d_newton_iteration_scale = device_buffers["newton_iteration_scale"]
     d_linear_initial_guesses = device_buffers["linear_initial_guesses"]
     d_linear_iteration_guesses = device_buffers["linear_iteration_guesses"]
     d_linear_residuals = device_buffers["linear_residuals"]
     d_linear_squared_norms = device_buffers["linear_squared_norms"]
     d_linear_preconditioned_vectors = device_buffers["linear_preconditioned_vectors"]
 
-    # Launch kernel (single block/grid as before) and synchronize
-    kernel[1, 1, 0, shared_bytes](
+    # Launch on the process's own stream and synchronize only it
+    stream = default_memmgr.get_group_stream()
+    kernel[1, 1, stream, shared_bytes](
         d_state,
         d_proposed,
         d_params,
@@ -475,7 +470,6 @@ def instrumented_step_results(
         d_newton_iteration_guesses,
         d_newton_residuals,
         d_newton_squared_norms,
-        d_newton_iteration_scale,
         d_linear_initial_guesses,
         d_linear_iteration_guesses,
         d_linear_residuals,
@@ -485,7 +479,7 @@ def instrumented_step_results(
         d_dts,
         numba_precision(0.0),
     )
-    cuda.synchronize()
+    stream.synchronize()
 
     results = _copy_device_instrumentation(
         d_proposed,
@@ -558,9 +552,6 @@ def _copy_device_instrumentation(
             newton_squared_norms=np.asarray(
                 host_results["newton_squared_norms"][step_idx]
             ).copy(),
-            newton_iteration_scale=np.asarray(
-                host_results["newton_iteration_scale"][step_idx]
-            ).copy(),
             linear_initial_guesses=np.asarray(
                 host_results["linear_initial_guesses"][step_idx]
             ).copy(),
@@ -630,7 +621,6 @@ def instrumented_cpu_step_results(
             ),
             newton_residuals=_copy_array(result.newton_residuals),
             newton_squared_norms=_copy_array(result.newton_squared_norms),
-            newton_iteration_scale=_copy_array(result.newton_iteration_scale),
             linear_initial_guesses=_copy_array(result.linear_initial_guesses),
             linear_iteration_guesses=_copy_array(
                 result.linear_iteration_guesses
@@ -673,8 +663,6 @@ def instrumented_cpu_step_results(
         preconditioner_order=solver_settings["preconditioner_order"],
         tableau=tableau,
         instrument=True,
-        newton_damping=solver_settings["newton_damping"],
-        newton_max_backtracks=solver_settings["newton_max_backtracks"],
     )
 
 
@@ -969,11 +957,6 @@ def print_comparison(cpu_result, gpu_result, device_result) -> None:
                 "newton_squared_norms",
                 cpu_step.newton_squared_norms,
                 gpu_step.newton_squared_norms,
-            ),
-            (
-                "newton_iteration_scale",
-                cpu_step.newton_iteration_scale,
-                gpu_step.newton_iteration_scale,
             ),
             (
                 "linear_initial_guesses",

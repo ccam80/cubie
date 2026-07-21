@@ -138,3 +138,58 @@ def test_implicit_step_settings_dict_merges_solver_settings(precision):
     solver_settings = step.solver.settings_dict
     for key, value in solver_settings.items():
         assert key in settings
+
+
+_RESIDUAL_SETTINGS = {
+    "krylov_residual_reduction": 0.2,
+    "krylov_residual_floor": 0.03,
+}
+
+_RESIDUAL_ARRANGEMENTS = [
+    {**_RESIDUAL_SETTINGS, "algorithm": "backwards_euler"},
+    {
+        **_RESIDUAL_SETTINGS,
+        "algorithm": "backwards_euler",
+        "linear_correction_type": "bicgstab",
+    },
+    {**_RESIDUAL_SETTINGS, "algorithm": "ros3p"},
+]
+_RESIDUAL_IDS = ["newton-mr", "newton-bicgstab", "direct-linear"]
+
+
+@pytest.mark.parametrize(
+    "solver_settings_override",
+    _RESIDUAL_ARRANGEMENTS,
+    ids=_RESIDUAL_IDS,
+    indirect=True,
+)
+def test_implicit_step_routes_residual_settings(step_object, precision):
+    """Every solver arrangement routes the linear stopping settings."""
+    step = step_object
+    assert step.krylov_residual_reduction == precision(0.2)
+    assert step.krylov_residual_floor == precision(0.03)
+    assert step.settings_dict["krylov_residual_reduction"] == precision(0.2)
+    assert step.settings_dict["krylov_residual_floor"] == precision(0.03)
+
+
+@pytest.mark.parametrize(
+    "solver_settings_override",
+    _RESIDUAL_ARRANGEMENTS,
+    ids=_RESIDUAL_IDS,
+    indirect=True,
+)
+def test_implicit_step_updates_residual_settings(
+    step_object_mutable, precision
+):
+    """update() reroutes the linear stopping settings to the solver."""
+    step = step_object_mutable
+    recognized = step.update(
+        krylov_residual_reduction=0.25,
+        krylov_residual_floor=0.04,
+    )
+    assert {
+        "krylov_residual_reduction",
+        "krylov_residual_floor",
+    } <= recognized
+    assert step.krylov_residual_reduction == precision(0.25)
+    assert step.krylov_residual_floor == precision(0.04)

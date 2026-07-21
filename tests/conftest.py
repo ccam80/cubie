@@ -57,7 +57,11 @@ from tests._utils import (
 )
 from tests.system_fixtures import (
     build_colliding_constants_system,
+    build_diagonally_dominant_system,
+    build_gating_singularity_system,
     build_large_nonlinear_system,
+    build_off_diagonal_heavy_system,
+    build_singular_initial_state_system,
     build_three_chamber_system,
     build_three_state_constant_deriv_system,
     build_three_state_linear_system,
@@ -214,15 +218,12 @@ def codegen_dir():
 
 
 @pytest.fixture(scope="function")
-def isolated_cache_root(tmp_path):
-    """Point every disk cache layer at a fresh per-test directory.
-
-    Cache-behaviour tests need a root no other test has written to;
-    the session-wide redirect is shared, so cold-cache assertions
-    would otherwise depend on execution order.
-    """
+def isolated_cache_root(tmp_path, monkeypatch):
+    """Give cache tests a fresh root and no environment overrides."""
     from cubie import cache_root
 
+    monkeypatch.delenv("CUBIE_KERNEL_CACHE_DIR", raising=False)
+    monkeypatch.delenv("CUBIE_MAX_CACHE_ENTRIES", raising=False)
     previous = cache_root.get_cache_root_override()
     root = tmp_path / "generated"
     cache_root.set_cache_root(root)
@@ -313,6 +314,14 @@ def system(request, solver_settings_override, precision):
         return build_three_state_constant_deriv_system(precision)
     if model_type == "colliding_constants":
         return build_colliding_constants_system(precision)
+    if model_type == "diagonally_dominant":
+        return build_diagonally_dominant_system(precision)
+    if model_type == "off_diagonal_heavy":
+        return build_off_diagonal_heavy_system(precision)
+    if model_type == "gating_singularity":
+        return build_gating_singularity_system(precision)
+    if model_type == "singular_initial_state":
+        return build_singular_initial_state_system(precision)
     if isinstance(model_type, object):
         return model_type
 
@@ -334,8 +343,9 @@ class MockMemoryManager(MemoryManager):
     """Memory manager with controlled memory info for chunking tests."""
 
     def __init__(self, **kwargs):
-        super().__init__()
+        # Set the limit first: attrs __init__ probes get_memory_info.
         self._custom_limit = kwargs.get("forced_free_mem", 950)
+        super().__init__()
 
     def get_memory_info(self):
         return int(self._custom_limit), int(8192)
@@ -357,27 +367,88 @@ def low_memory(forced_free_mem):
 def low_mem_solver(
     system,
     solver_settings,
-    driver_array,
+    driver_settings,
     low_memory,
 ):
     return _build_solver_instance(
         system=system,
         solver_settings=solver_settings,
-        driver_array=driver_array,
+        driver_settings=driver_settings,
         memory_manager=low_memory,
     )
+
+
+@pytest.fixture(scope="function")
+def second_low_mem_solver(
+    system,
+    solver_settings,
+    driver_settings,
+    low_memory,
+):
+    """Second solver sharing ``low_memory`` for cross-solver tests."""
+    return _build_solver_instance(
+        system=system,
+        solver_settings=solver_settings,
+        driver_settings=driver_settings,
+        memory_manager=low_memory,
+    )
+
+
+@pytest.fixture(scope="session")
+def start_cuda_busy_work():
+    """Return a launcher for a long busy kernel on its own stream.
+
+    The launcher returns ``(out, stream, done)``; ``done`` is an event
+    recorded after the kernel, so ``done.query()`` reports whether the
+    unrelated work has finished. The kernel runs on a non-blocking
+    stream: ambient legacy-default-stream traffic (allocator frees and
+    pool growth land there) serializes every *blocking* stream against
+    it, which would entangle the canary with the code under test
+    through no fault of that code. A non-blocking stream is immune to
+    legacy-stream ordering while still being awaited by any genuine
+    device-wide synchronization. The default iteration count runs for
+    a few seconds, comfortably longer than any bracketed operation
+    under test.
+    """
+    from cubie.cuda_simsafe import CUDA_SIMULATION, cuda, cupy
+
+    if CUDA_SIMULATION:
+        pytest.skip("busy-kernel canary requires real CUDA")
+
+    @cuda.jit
+    def _busy_kernel(out, iterations):
+        value = 0.0
+        for _ in range(iterations[0]):
+            value += 1.0
+        out[0] = value
+
+    def _start(iterations=100_000_000):
+        cupy_stream = cupy.cuda.Stream(non_blocking=True)
+        stream = cuda.external_stream(cupy_stream.ptr)
+        # Keep the owning cupy stream alive alongside the wrapper.
+        stream._cubie_owner = cupy_stream
+        out = cuda.device_array(1, dtype=np.float32)
+        iteration_count = cuda.to_device(
+            np.array([iterations], dtype=np.int64), stream=stream
+        )
+        done = cuda.event()
+        _busy_kernel[1, 1, stream](out, iteration_count)
+        done.record(stream)
+        return out, stream, done
+
+    return _start
 
 
 @pytest.fixture(scope="session")
 def unchunking_solver(
     system,
     solver_settings,
-    driver_array,
+    driver_settings,
 ):
     return _build_solver_instance(
         system=system,
         solver_settings=solver_settings,
-        driver_array=driver_array,
+        driver_settings=driver_settings,
     )
 
 
@@ -394,18 +465,13 @@ def chunked_solved_solver(
     inits = np.ones((n_states, n_runs), dtype=precision)
     params = np.ones((n_params, n_runs), dtype=precision)
 
-    # This run has a combined request size of 1668b, with 1080 chunkable/588
-    # unchunkable along the run axis.
-    # For one run per chunk:
-    #  - run axis: free > 588 + 1080/5 -> 850
-    # Two runs per (2-2-1):
-    #  - run axis: free > 588 + 1080/(5/2) -> 1024b
-    # Three runs per (3-2):
-    # - run axis: free > 588 + 1080/(5/3) -> 1240
-    # Four runs per (4-1):
-    # - run axis: free > 588 + 1080/(5/4) 0> 1460
-    # Unchunked (5-0):
-    # - 2048
+    # With iteration counters inactive their device array is a
+    # placeholder, so the request is smaller than it once was.
+    # Measured chunk counts against forced free memory:
+    #   <= 680        -> 5 chunks (one run per chunk)
+    #   700  .. 830   -> 3 chunks (2-2-1)
+    #   890  .. 1130  -> 2 chunks (3-2, then 4-1 near the top)
+    #   >= 1190       -> unchunked
     result = solver.solve(
         inits,
         params,
@@ -482,6 +548,8 @@ def solver_settings(solver_settings_override, system, precision):
         "memory_manager": default_memmgr,
         "stream_group": "test_group",
         "mem_proportion": None,
+        "host_spill_threshold": None,
+        "spill_directory": None,
         "step_controller": "fixed",
         "precision": precision,
         "driverspline_order": 3,
@@ -489,14 +557,14 @@ def solver_settings(solver_settings_override, system, precision):
         "driverspline_boundary_condition": "clamped",
         "krylov_atol": precision(1e-7),
         "krylov_rtol": precision(1e-7),
+        "krylov_residual_reduction": None,
+        "krylov_residual_floor": None,
         "linear_correction_type": "minimal_residual",
         "newton_atol": precision(1e-7),
         "newton_rtol": precision(1e-7),
         "preconditioner_order": 2,
         "krylov_max_iters": 50,
         "newton_max_iters": 50,
-        "newton_damping": precision(0.85),
-        "newton_max_backtracks": 25,
         "min_gain": precision(0.1),
         "max_gain": precision(5.0),
         "safety": precision(0.9),
@@ -524,9 +592,10 @@ def solver_settings(solver_settings_override, system, precision):
         "rtol",
         "krylov_atol",
         "krylov_rtol",
+        "krylov_residual_reduction",
+        "krylov_residual_floor",
         "newton_atol",
         "newton_rtol",
-        "newton_damping",
         "kp",
         "ki",
         "kd",
@@ -832,11 +901,11 @@ def solverkernel_mutable(
 
 
 @pytest.fixture(scope="session")
-def solver(system, solver_settings, driver_array, thread_mem_manager):
+def solver(system, solver_settings, driver_settings, thread_mem_manager):
     return _build_solver_instance(
         system=system,
         solver_settings=solver_settings,
-        driver_array=driver_array,
+        driver_settings=driver_settings,
         memory_manager=thread_mem_manager,
     )
 
@@ -845,13 +914,13 @@ def solver(system, solver_settings, driver_array, thread_mem_manager):
 def solver_mutable(
     system,
     solver_settings,
-    driver_array,
+    driver_settings,
     thread_mem_manager,
 ):
     return _build_solver_instance(
         system=system,
         solver_settings=solver_settings,
-        driver_array=driver_array,
+        driver_settings=driver_settings,
         memory_manager=thread_mem_manager,
     )
 

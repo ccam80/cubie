@@ -7,6 +7,7 @@ from typing import Mapping, Optional, Union, Dict, Any, Callable
 import numpy as np
 import pytest
 from cubie.cuda_simsafe import cuda, numba_from_dtype as from_dtype
+from cubie.memory import default_memmgr
 from numpy.testing import assert_allclose
 
 from cubie.integrators.SingleIntegratorRun import SingleIntegratorRun
@@ -145,6 +146,26 @@ STEP_CASES = [
     pytest.param(
         {"algorithm": "l_stable_sdirk_4", "step_controller": "pid"},
         id="dirk-l-stable-4",
+        marks=pytest.mark.specific_algos,
+    ),
+    pytest.param(
+        {"algorithm": "kvaerno3", "step_controller": "fixed"},
+        id="dirk-kvaerno3-fixed",
+        marks=pytest.mark.specific_algos,
+    ),
+    pytest.param(
+        {"algorithm": "kvaerno3", "step_controller": "pid"},
+        id="dirk-kvaerno3-adaptive",
+        marks=pytest.mark.specific_algos,
+    ),
+    pytest.param(
+        {"algorithm": "kvaerno5", "step_controller": "fixed"},
+        id="dirk-kvaerno5-fixed",
+        marks=pytest.mark.specific_algos,
+    ),
+    pytest.param(
+        {"algorithm": "kvaerno5", "step_controller": "pid"},
+        id="dirk-kvaerno5-adaptive",
         marks=pytest.mark.specific_algos,
     ),
     # Specific FIRK tableaus
@@ -934,7 +955,8 @@ def run_device_loop(
             summary_stop,
         )
 
-    kernel[1, 1, 0, shared_bytes](
+    stream = default_memmgr.get_group_stream()
+    kernel[1, 1, stream, shared_bytes](
         d_init,
         d_params,
         d_driver_coeffs,
@@ -945,7 +967,7 @@ def run_device_loop(
         d_counters_out,
         d_status,
     )
-    cuda.synchronize()
+    stream.synchronize()
 
     state_host = d_state_out.copy_to_host()
     observables_host = d_obs_out.copy_to_host()
@@ -1268,7 +1290,7 @@ NON_SOLVER_SETTINGS = {
 def _build_solver_instance(
     system: SymbolicODE,
     solver_settings: Dict[str, Any],
-    driver_array: Optional[ArrayInterpolator],
+    driver_settings: Optional[Dict[str, Any]],
     memory_manager: Optional[Any] = None,
 ) -> Solver:
     """Instantiate :class:`Solver` configured with ``solver_settings``."""
@@ -1280,8 +1302,8 @@ def _build_solver_instance(
     if memory_manager:
         settings.update(memory_manager=memory_manager)
     solver = Solver(system, **settings)
-    evaluate_driver_at_t = _get_evaluate_driver_at_t(driver_array)
-    solver.update({"evaluate_driver_at_t": evaluate_driver_at_t})
+    if driver_settings is not None:
+        solver._configure_drivers(driver_settings)
     return solver
 
 

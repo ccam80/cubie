@@ -55,6 +55,7 @@ from cubie.integrators.algorithms.ode_implicitstep import (
     ImplicitStepConfig,
     ODEImplicitStep,
 )
+from cubie.integrators.norms import FIRKCorrectionNorm, TiledScaledNorm
 from cubie.buffer_registry import buffer_registry
 
 
@@ -131,6 +132,12 @@ class FIRKStepConfig(ImplicitStepConfig):
         """Return the flattened dimension covering all stage increments."""
 
         return self.stage_count * self.n
+
+    @property
+    def solver_n(self) -> int:
+        """Return the coupled solver dimension across all stages."""
+
+        return self.all_stages_n
 
 
 class FIRKStep(ODEImplicitStep):
@@ -219,9 +226,30 @@ class FIRKStep(ODEImplicitStep):
         else:
             controller_defaults = FIRK_FIXED_DEFAULTS
 
-        super().__init__(config, controller_defaults, **kwargs)
-
-        self.solver.update(n=config.all_stages_n)
+        newton_norm = FIRKCorrectionNorm(
+            precision=precision,
+            n=config.all_stages_n,
+            state_n=n,
+            stage_coefficients=tableau.a_flat(float),
+            instance_label="newton",
+            **kwargs,
+        )
+        # The coupled solve stacks all stages, but callers pass the
+        # single-stage base state; the tiled norm reuses it per stage.
+        krylov_norm = TiledScaledNorm(
+            precision=precision,
+            n=config.all_stages_n,
+            state_n=n,
+            instance_label="krylov",
+            **kwargs,
+        )
+        super().__init__(
+            config,
+            controller_defaults,
+            newton_norm=newton_norm,
+            krylov_norm=krylov_norm,
+            **kwargs,
+        )
         self.register_buffers()
 
     def register_buffers(self) -> None:
@@ -469,6 +497,7 @@ class FIRKStep(ODEImplicitStep):
                 current_time,
                 dt_scalar,
                 typed_zero,
+                state,
                 state,
                 solver_shared,
                 solver_persistent,

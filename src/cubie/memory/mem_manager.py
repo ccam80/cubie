@@ -48,27 +48,35 @@ See Also
     Manages CUDA stream groups used by the memory manager.
 """
 
+from tempfile import gettempdir, mkstemp
 from types import TracebackType
-from typing import Any, Optional, Callable, Dict, Tuple
+from functools import partial
+from typing import Any, Optional, Callable, Dict, Tuple, Union
 from warnings import warn
 from copy import deepcopy
 from inspect import ismethod
-from weakref import WeakMethod, ref as weakref_ref
+from weakref import WeakMethod, finalize, ref as weakref_ref
 import ctypes
+import os
+import sys
 
 from cubie.cuda_simsafe import cuda
 from attrs import define, Factory as attrsFactory, field
 from attrs.validators import (
+    ge as attrsval_ge,
     in_ as attrsval_in,
     instance_of as attrsval_instance_of,
     optional as attrsval_optional,
 )
 from numpy import (
     ceil as np_ceil,
+    memmap as np_memmap,
     ndarray,
     empty as np_empty,
     floor as np_floor,
+    zeros as np_zeros,
 )
+from numpy.typing import DTypeLike
 from math import prod
 
 from cubie.cuda_simsafe import (
@@ -89,29 +97,131 @@ ALL_MEMORY_MANAGER_PARAMETERS = {
     "memory_manager",
     "stream_group",
     "mem_proportion",
+    "host_spill_threshold",
+    "spill_directory",
 }
-"""All keyword arguments accepted by :class:`MemoryManager` registration
-and solver-level memory configuration.
-
-.. list-table:: Parameter Summary
-   :header-rows: 1
-
-   * - Parameter
-     - Accepted By
-     - Description
-   * - ``memory_manager``
-     - :class:`MemoryManager`
-     - Memory manager instance to use.
-   * - ``stream_group``
-     - :meth:`MemoryManager.register`
-     - Name of the CUDA stream group.
-   * - ``mem_proportion``
-     - :meth:`MemoryManager.register`
-     - Proportion of VRAM to assign (0.0--1.0).
-"""
+"""Solver memory keyword names."""
 
 
 MIN_AUTOPOOL_SIZE = 0.05
+
+HOST_SPILL_FRACTION = 0.8
+"""Default host spill threshold as a fraction of total system RAM.
+
+A host array is disk-backed only when it could not reasonably stay
+resident: anything smaller lives in pageable RAM, where the operating
+system moves pages to the page file only under real pressure. Total
+RAM is a stable anchor, so whether a given solve spills does not
+depend on what else the machine happened to be running when its
+arrays were created.
+"""
+
+HOST_PINNED_MAX_BYTES = 2**30
+"""Default ceiling on a single pinned host allocation.
+
+Pinned memory transfers fastest but is non-pageable and, under WDDM,
+counts against system commit; large ``cudaHostAlloc`` calls are slow
+and can fail outright. Above this size host arrays are pageable and
+transfers stage through bounded pinned buffers instead.
+"""
+
+HOST_STAGING_BYTES = 64 * 1024**2
+"""Maximum pinned staging bytes used by one host transfer.
+
+64 MiB is large enough to reach full PCIe transfer bandwidth while
+bounding the pinned footprint of a chunked or spilled solve.
+"""
+
+
+if sys.platform == "win32":
+    class _MemoryStatusEx(ctypes.Structure):
+        """Layout of the Win32 ``MEMORYSTATUSEX`` structure."""
+
+        _fields_ = [
+            ("dwLength", ctypes.c_ulong),
+            ("dwMemoryLoad", ctypes.c_ulong),
+            ("ullTotalPhys", ctypes.c_ulonglong),
+            ("ullAvailPhys", ctypes.c_ulonglong),
+            ("ullTotalPageFile", ctypes.c_ulonglong),
+            ("ullAvailPageFile", ctypes.c_ulonglong),
+            ("ullTotalVirtual", ctypes.c_ulonglong),
+            ("ullAvailVirtual", ctypes.c_ulonglong),
+            ("ullAvailExtendedVirtual", ctypes.c_ulonglong),
+        ]
+
+
+def total_system_ram() -> Optional[int]:
+    """Return total physical RAM in bytes, or ``None`` when unknown.
+
+    Linux exposes the probe through ``os.sysconf``; Windows through
+    ``GlobalMemoryStatusEx``. macOS defines neither ``SC_PHYS_PAGES``
+    nor the Win32 call, so the probe returns ``None`` there and
+    spill-threshold resolution falls back to never spilling by size.
+    """
+    names = getattr(os, "sysconf_names", {})
+    if "SC_PHYS_PAGES" in names and "SC_PAGE_SIZE" in names:
+        return os.sysconf("SC_PHYS_PAGES") * os.sysconf("SC_PAGE_SIZE")
+    if sys.platform == "win32":  # pragma: no cover - Windows-only path
+        status = _MemoryStatusEx()
+        status.dwLength = ctypes.sizeof(_MemoryStatusEx)
+        if ctypes.windll.kernel32.GlobalMemoryStatusEx(
+            ctypes.byref(status)
+        ):
+            return int(status.ullTotalPhys)
+    return None
+
+
+def available_system_ram() -> Optional[int]:
+    """Return currently available physical RAM in bytes, or ``None``.
+
+    Used to bound transient pinned staging growth: staging pools stop
+    growing once an extra buffer would push available RAM below
+    ``(1 - HOST_SPILL_FRACTION)`` of total. Spill decisions use
+    :func:`total_system_ram` instead, so they stay stable across a
+    solve regardless of ambient memory traffic.
+    """
+    names = getattr(os, "sysconf_names", {})
+    if "SC_AVPHYS_PAGES" in names and "SC_PAGE_SIZE" in names:
+        return os.sysconf("SC_AVPHYS_PAGES") * os.sysconf("SC_PAGE_SIZE")
+    if sys.platform == "win32":  # pragma: no cover - Windows-only path
+        status = _MemoryStatusEx()
+        status.dwLength = ctypes.sizeof(_MemoryStatusEx)
+        if ctypes.windll.kernel32.GlobalMemoryStatusEx(
+            ctypes.byref(status)
+        ):
+            return int(status.ullAvailPhys)
+    return None
+
+
+def _remove_spill_file(mapping: Any, path: str) -> None:
+    """Close and delete one spill file.
+
+    Runs as a garbage-collection finalizer, where raising is not
+    possible, so a filesystem failure is reported as a warning.
+    """
+    try:
+        mapping.close()
+        os.remove(path)
+    except OSError as error:  # pragma: no cover - filesystem failure
+        warn(f"Could not remove spill file '{path}': {error}", ResourceWarning)
+
+
+def _spill_directory_converter(
+    value: Optional[os.PathLike | str],
+) -> Optional[str]:
+    """Normalise a spill directory setting to a string path."""
+    if value is None:
+        return None
+    return os.fspath(value)
+
+
+def _existing_directory_validator(instance, attribute, value) -> None:
+    """Reject spill directories that do not exist."""
+    if not os.path.isdir(value):
+        raise ValueError(
+            f"{attribute.name} must be an existing directory, "
+            f"got '{value}'"
+        )
 
 
 def placeholder_invalidate() -> None:
@@ -448,6 +558,29 @@ class InstanceMemorySettings:
         validator=attrsval_optional(attrsval_instance_of(weakref_ref)),
     )
     last_stream: Optional[Any] = field(default=None)
+    submitting: bool = field(
+        default=False, validator=attrsval_instance_of(bool)
+    )
+    completion_event: Optional[Any] = field(default=None)
+    # register() always assigns an owner id; registrations sharing one
+    # owner id are evicted together or not at all.
+    owner_id: Optional[int] = field(default=None)
+    last_used: int = field(default=0, validator=attrsval_instance_of(int))
+    # Bytes above which this instance's host arrays spill to disk;
+    # None defers to the manager-wide policy.
+    host_spill_threshold: Optional[int] = field(
+        default=None,
+        validator=attrsval_optional(
+            [attrsval_instance_of(int), attrsval_ge(0)]
+        ),
+    )
+    # Directory for this instance's spill files; None defers to the
+    # manager-wide setting.
+    spill_directory: Optional[str] = field(
+        default=None,
+        converter=_spill_directory_converter,
+        validator=attrsval_optional(_existing_directory_validator),
+    )
 
     def add_allocation(self, key: str, arr: Any) -> None:
         """Add an allocation to the instance's allocations list.
@@ -506,6 +639,15 @@ class InstanceMemorySettings:
             total += arr.nbytes
         return total
 
+    @property
+    def work_complete(self) -> bool:
+        """Return whether the owner's submitted CUDA work is complete."""
+        if self.submitting:
+            return False
+        if self.completion_event is None or CUDA_SIMULATION:
+            return True
+        return bool(self.completion_event.query())
+
 
 @define
 class MemoryManager:
@@ -561,8 +703,36 @@ class MemoryManager:
     _queued_allocations: Dict[str, Dict] = field(
         default=attrsFactory(dict), validator=attrsval_instance_of(dict)
     )
-    _group_chunk_parameters: Dict[str, Tuple[int, int]] = field(
+    # Chunk parameters per (stream group, owner id): the partition a
+    # solver's live device arrays are laid out for.
+    _group_chunk_parameters: Dict[Tuple[str, int], Tuple[int, int]] = field(
         default=attrsFactory(dict), validator=attrsval_instance_of(dict)
+    )
+    _usage_clock: int = field(default=0, init=False)
+    # Teardowns recorded by garbage-collection finalizers, run at the
+    # manager's next entry point. GC can fire inside any allocation —
+    # including mid-iteration over the registry, or on the transfer
+    # watcher's own thread — so finalizers must not deregister (or
+    # join threads) directly; they append here instead.
+    _pending_teardowns: list = field(factory=list, init=False)
+    # Bytes above which a host array is backed by a disk spill file;
+    # None derives the threshold from available RAM at creation time.
+    host_spill_threshold: Optional[int] = field(
+        default=None,
+        validator=attrsval_optional(
+            [attrsval_instance_of(int), attrsval_ge(0)]
+        ),
+    )
+    # Directory for spill files; None uses the system temp directory.
+    spill_directory: Optional[str] = field(
+        default=None,
+        converter=_spill_directory_converter,
+        validator=attrsval_optional(_existing_directory_validator),
+    )
+    # Largest single pinned host allocation this manager will make.
+    pinned_max_bytes: int = field(
+        default=HOST_PINNED_MAX_BYTES,
+        validator=[attrsval_instance_of(int), attrsval_ge(0)],
     )
 
     def __attrs_post_init__(self) -> None:
@@ -593,6 +763,9 @@ class MemoryManager:
         invalidate_cache_hook: Callable = placeholder_invalidate,
         allocation_ready_hook: Callable = placeholder_dataready,
         stream_group: str = "default",
+        owner: Optional[object] = None,
+        host_spill_threshold: Optional[int] = None,
+        spill_directory: Optional[os.PathLike | str] = None,
     ) -> None:
         """
         Register an instance and configure its memory allocation settings.
@@ -610,6 +783,20 @@ class MemoryManager:
             Function to call when allocations are ready.
         stream_group
             Name of the stream group to assign the instance to.
+        owner
+            Eviction and settings unit for this registration. A solver
+            kernel passes itself when registering its input and output
+            array managers, so pressure evicts the whole solver or
+            nothing and the managers resolve spill settings from the
+            kernel's registration. Defaults to the instance itself.
+        host_spill_threshold
+            Bytes above which this instance's host arrays spill to
+            disk. ``None`` defers to the owner's registration, then
+            the manager-wide policy.
+        spill_directory
+            Directory for this instance's spill files. ``None`` defers
+            to the owner's registration, then the manager-wide
+            setting.
 
         Raises
         ------
@@ -623,21 +810,22 @@ class MemoryManager:
         if instance_id in self.registry:
             raise ValueError("Instance already registered")
 
-        self.stream_groups.add_instance(instance, stream_group)
-
         try:
             instance_ref = weakref_ref(instance)
         except TypeError:
-            # Instances without weak-reference support keep the
-            # pre-existing lifetime contract: registered until the
-            # process ends, never purged.
             instance_ref = None
+        owner_id = instance_id if owner is None else id(owner)
+        # Constructing the settings validates the spill options, so it
+        # runs before the instance joins a stream group.
         settings = InstanceMemorySettings(
             invalidate_hook=invalidate_cache_hook,
             allocation_ready_hook=allocation_ready_hook,
             instance_ref=instance_ref,
+            owner_id=owner_id,
+            host_spill_threshold=host_spill_threshold,
+            spill_directory=spill_directory,
         )
-
+        self.stream_groups.add_instance(instance, stream_group)
         self.registry[instance_id] = settings
 
         if proportion:
@@ -646,6 +834,21 @@ class MemoryManager:
             self._add_manual_proportion(instance, proportion)
         else:
             self._add_auto_proportion(instance)
+
+    def get_registration(self, instance: object) -> InstanceMemorySettings:
+        """Return the registry entry for a registered instance.
+
+        Parameters
+        ----------
+        instance
+            Registered instance to look up.
+
+        Raises
+        ------
+        KeyError
+            If the instance is not registered.
+        """
+        return self.registry[id(instance)]
 
     def set_limit_mode(self, mode: str) -> None:
         """
@@ -681,6 +884,25 @@ class MemoryManager:
             CUDA stream associated with the instance.
         """
         return self.stream_groups.get_stream(instance)
+
+    def get_group_stream(self, group: str = "default") -> Union[Stream, int]:
+        """
+        Get the dedicated stream for a named group, creating it if needed.
+
+        Parameters
+        ----------
+        group
+            Name of the stream group.
+
+        Returns
+        -------
+        Stream
+            The group's dedicated CUDA stream. Because each process
+            owns its own manager, this stream is private to the
+            process; synchronizing it never orders against the
+            device-wide default stream.
+        """
+        return self.stream_groups.get_group_stream(group)
 
     def change_stream_group(self, instance: object, new_group: str) -> None:
         """
@@ -940,6 +1162,18 @@ class MemoryManager:
         self._rebalance_auto_pool()
         return self.registry[instance_id].proportion
 
+    def defer_teardown(self, teardown: Callable[[], None]) -> None:
+        """Record a teardown to run at the manager's next entry point.
+
+        Garbage-collection finalizers call this instead of
+        deregistering directly: GC runs inside whatever allocation
+        triggered it — possibly while this manager iterates its
+        registry, possibly on the transfer watcher's own thread — so
+        the callback only appends. ``_purge_dead_instances`` runs the
+        recorded teardowns in normal call context.
+        """
+        self._pending_teardowns.append(teardown)
+
     def _purge_dead_instances(self) -> None:
         """
         Drop registry entries whose instance has been collected.
@@ -947,9 +1181,13 @@ class MemoryManager:
         Registered instances are held weakly. Once an instance is
         garbage collected, its manual or auto reservation is
         released, its stream-group membership is removed, and any
-        allocations it still had queued are discarded.
+        allocations it still had queued are discarded. Teardowns
+        recorded by GC finalizers run first, here, in normal call
+        context.
 
         """
+        while self._pending_teardowns:
+            self._pending_teardowns.pop()()
         dead_ids = [
             instance_id
             for instance_id, settings in self.registry.items()
@@ -986,6 +1224,75 @@ class MemoryManager:
             return
         self._drop_instance(instance_id)
         self._rebalance_auto_pool()
+
+    def _owner_settings(self, owner_id: int) -> list[InstanceMemorySettings]:
+        """Return registry entries owned by one client."""
+        return [
+            settings
+            for settings in self.registry.values()
+            if settings.owner_id == owner_id
+        ]
+
+    def begin_work(self, owner: object) -> None:
+        """Mark an owner as submitting CUDA work."""
+        self._usage_clock += 1
+        for settings in self._owner_settings(id(owner)):
+            settings.submitting = True
+            settings.last_used = self._usage_clock
+
+    def end_work(self, owner: object, stream: Stream) -> None:
+        """Record completion of an owner's submitted CUDA work."""
+        owned = self._owner_settings(id(owner))
+        event = None
+        if not CUDA_SIMULATION:
+            event = cuda.event()
+            event.record(stream)
+        for settings in owned:
+            settings.last_stream = stream
+            settings.completion_event = event
+            settings.submitting = False
+
+    def _evict_idle_owners(
+        self, exclude_ids: set[int], required_bytes: int
+    ) -> int:
+        """Free the least-recently-used idle owners.
+
+        Whole owners are evicted, oldest first, until ``required_bytes``
+        are released. Returns the number of bytes actually released.
+        """
+        excluded_owners = {
+            self.registry[instance_id].owner_id
+            for instance_id in exclude_ids
+            if instance_id in self.registry
+        }
+        # Group registrations into eviction units by owner id.
+        owners: Dict[int, list] = {}
+        for settings in self.registry.values():
+            owners.setdefault(settings.owner_id, []).append(settings)
+
+        candidates = []
+        for owner_id, owned in owners.items():
+            # Never evict the requester's own registrations.
+            if owner_id in excluded_owners:
+                continue
+            # Skip owners with submitted CUDA work still running.
+            if not all(settings.work_complete for settings in owned):
+                continue
+            allocated = sum(settings.allocated_bytes for settings in owned)
+            if allocated == 0:
+                continue
+            oldest_use = min(settings.last_used for settings in owned)
+            candidates.append((oldest_use, owned))
+
+        released = 0
+        for _, owned in sorted(candidates, key=lambda item: item[0]):
+            if released >= required_bytes:
+                break
+            for settings in owned:
+                released += settings.allocated_bytes
+                settings.free_all()
+                settings.invalidate_hook()
+        return released
 
     def _rebalance_auto_pool(self) -> None:
         """
@@ -1057,9 +1364,10 @@ class MemoryManager:
     def create_host_array(
         self,
         shape: tuple[int, ...],
-        dtype: type,
+        dtype: DTypeLike,
         memory_type: str = "pinned",
         like: Optional[ndarray] = None,
+        instance: Optional[object] = None,
     ) -> ndarray:
         """
         Create a C-contiguous host array.
@@ -1071,37 +1379,148 @@ class MemoryManager:
         dtype
             Data type for the array elements.
         memory_type
-            Memory type for the host array. Must be ``"pinned"`` or
-            ``"host"``. Defaults to ``"pinned"``.
+            ``"pinned"``, ``"host"``, or ``"memmap"``.
         like
-            A source array to copy data from. If provided, the new array has
-            the same data as like; if not, it is filled with zeros
+            Optional source data.
+        instance
+            Registered instance whose spill policy applies. Required
+            for ``"memmap"`` arrays, which resolve their directory
+            through the instance's registration; unused otherwise.
 
         Returns
         -------
         numpy.ndarray
-            C-contiguous host array.
+            C-contiguous host array. A :class:`numpy.memmap` when the
+            array spilled to disk.
 
         Raises
         ------
         ValueError
-            If ``memory_type`` is not ``"pinned"`` or ``"host"``.
+            If ``memory_type`` is not ``"pinned"``, ``"host"``, or
+            ``"memmap"``.
         """
         _ensure_cuda_context()
-        if memory_type not in ("pinned", "host"):
+        if memory_type not in ("pinned", "host", "memmap"):
             raise ValueError(
-                f"memory_type must be 'pinned' or 'host', got '{memory_type}'"
+                f"memory_type must be 'pinned', 'host', or 'memmap', "
+                f"got '{memory_type}'"
             )
-        use_pinned = memory_type == "pinned"
-        if use_pinned:
+        if memory_type == "memmap":
+            arr = self._create_spill_array(shape, dtype, instance)
+        elif memory_type == "pinned":
             arr = _pinned_host_array(shape, dtype)
+            if like is None:
+                arr.fill(0.0)
         else:
-            arr = np_empty(shape, dtype=dtype)
+            # zeros() maps untouched pages lazily, so a large pageable
+            # array costs nothing until the transfer writes it.
+            arr = np_zeros(shape, dtype=dtype)
         if like is not None:
             arr[:] = like
-        else:
-            arr.fill(0.0)
         return arr
+
+    def choose_host_memory_type(
+        self,
+        nbytes: int,
+        instance: object,
+        allow_pinned: bool = True,
+    ) -> str:
+        """Pick the backing for a host array of ``nbytes`` bytes.
+
+        Arrays above the spill threshold are disk-backed. Below it
+        they live in pageable RAM, except arrays small enough that a
+        pinned allocation is cheap and its direct asynchronous
+        transfer pays for itself.
+
+        Parameters
+        ----------
+        nbytes
+            Size of the array in bytes.
+        instance
+            Registered instance whose spill policy applies, resolved
+            through its owner's registration when unset there.
+        allow_pinned
+            Permit the ``"pinned"`` choice. Callers that cannot use a
+            direct transfer (for example chunked staging) pass
+            ``False``.
+
+        Returns
+        -------
+        str
+            ``"pinned"``, ``"host"``, or ``"memmap"``.
+        """
+        threshold = self._resolved_spill_threshold(instance)
+        if threshold is not None and nbytes > threshold:
+            return "memmap"
+        if allow_pinned and nbytes <= self.pinned_max_bytes:
+            return "pinned"
+        return "host"
+
+    def _resolved_spill_threshold(self, instance: object) -> Optional[int]:
+        """Return the applicable spill threshold in bytes.
+
+        Precedence: the instance's registered threshold, then its
+        owner's, then the manager-wide threshold, then
+        ``HOST_SPILL_FRACTION`` of total system RAM. ``None`` is
+        returned when total RAM cannot be probed, and the array then
+        never spills by size.
+        """
+        settings = self.registry[id(instance)]
+        if settings.host_spill_threshold is not None:
+            return settings.host_spill_threshold
+        owner = self.registry.get(settings.owner_id)
+        if owner is not None and owner.host_spill_threshold is not None:
+            return owner.host_spill_threshold
+        if self.host_spill_threshold is not None:
+            return self.host_spill_threshold
+        ram_total = total_system_ram()
+        if ram_total is None:
+            return None
+        return int(ram_total * HOST_SPILL_FRACTION)
+
+    def _create_spill_array(
+        self,
+        shape: tuple[int, ...],
+        dtype: DTypeLike,
+        instance: object,
+    ) -> np_memmap:
+        """Create a temporary disk-backed array.
+
+        Directory precedence mirrors ``_resolved_spill_threshold``:
+        instance setting, then owner setting, then manager setting,
+        then the system temp directory.
+        """
+        settings = self.registry[id(instance)]
+        directory = settings.spill_directory
+        if directory is None:
+            owner = self.registry.get(settings.owner_id)
+            if owner is not None:
+                directory = owner.spill_directory
+        if directory is None:
+            directory = self.spill_directory
+        directory = directory or gettempdir()
+        handle, path = mkstemp(
+            prefix="cubie-spill-", suffix=".dat", dir=directory
+        )
+        os.close(handle)
+        arr = np_memmap(path, dtype=dtype, mode="w+", shape=shape)
+        cleanup = finalize(arr, _remove_spill_file, arr._mmap, path)
+        arr._cubie_spill_path = path
+        arr._cubie_spill_cleanup = cleanup
+        return arr
+
+    def release_host_array(self, array: ndarray) -> None:
+        """Release a spill-backed host array."""
+        cleanup = getattr(array, "_cubie_spill_cleanup", None)
+        if cleanup is None or not cleanup.alive:
+            return
+        path = array._cubie_spill_path
+        try:
+            array._mmap.close()
+            os.remove(path)
+        except OSError as error:
+            raise OSError(f"Could not remove spill file '{path}'") from error
+        cleanup.detach()
 
     def get_available_memory(self, group: str) -> int:
         """
@@ -1195,6 +1614,7 @@ class MemoryManager:
         requests: dict[str, ArrayRequest],
         instance_id: int,
         stream: "cuda.cudadrv.driver.Stream",
+        settings: Optional[InstanceMemorySettings] = None,
     ) -> dict[str, object]:
         """
         Allocate multiple arrays based on a dictionary of requests.
@@ -1207,6 +1627,10 @@ class MemoryManager:
             ID of the requesting instance.
         stream
             CUDA stream for the allocations.
+        settings
+            Registration to record the allocations in. Passing it
+            avoids a registry lookup that can fail when the client is
+            garbage collected between queueing and allocation.
 
         Returns
         -------
@@ -1214,7 +1638,9 @@ class MemoryManager:
             Dictionary mapping labels to allocated arrays.
         """
         responses = {}
-        instance_settings = self.registry[instance_id]
+        instance_settings = (
+            settings if settings is not None else self.registry[instance_id]
+        )
         instance_settings.last_stream = stream
         for key, request in requests.items():
             arr = self.allocate(
@@ -1288,18 +1714,35 @@ class MemoryManager:
         requests
             Dictionary mapping labels to array requests.
 
+        Raises
+        ------
+        ValueError
+            If the instance registered without a live invalidate hook.
+            Allocation holders are eviction candidates, so they must
+            be able to drop handles when their buffers are freed.
+
         Notes
         -----
         Requests are queued per stream group, allowing multiple components
         to contribute to a single coordinated allocation that can be
         optimally chunked together.
-
         """
         self._check_requests(requests)
+        instance_id = id(instance)
+        settings = self.registry[instance_id]
+        if settings.invalidate_hook.target() in (
+            None,
+            placeholder_invalidate,
+        ):
+            raise ValueError(
+                "Instances that request allocations must register a "
+                "live invalidate_cache_hook: allocated buffers are "
+                "evicted under VRAM pressure, and the hook is how the "
+                "instance drops its handles."
+            )
         stream_group = self.get_stream_group(instance)
         if self._queued_allocations.get(stream_group) is None:
             self._queued_allocations[stream_group] = {}
-        instance_id = id(instance)
         self._queued_allocations[stream_group].update({instance_id: requests})
 
     def to_device(
@@ -1436,13 +1879,26 @@ class MemoryManager:
         queued_requests = self._queued_allocations.pop(stream_group, {})
         peers = self.stream_groups.get_instances_in_group(stream_group)
 
+        # The run partition belongs to the launch's owner (the solver
+        # whose registrations participate), not to the whole group:
+        # solvers sharing a group must not inherit each other's
+        # chunking.
+        owner_id = self.registry[id(triggering_instance)].owner_id
+        cache_key = (stream_group, owner_id)
+
         if not queued_requests:
-            cached_parameters = self._group_chunk_parameters.get(stream_group)
+            cached_parameters = self._group_chunk_parameters.get(cache_key)
             if cached_parameters is None:
                 return None
             chunk_length, num_chunks = cached_parameters
             for peer in peers:
-                self.registry[peer].allocation_ready_hook(
+                peer_settings = self.registry.get(peer)
+                if (
+                    peer_settings is None
+                    or peer_settings.owner_id != owner_id
+                ):
+                    continue
+                peer_settings.allocation_ready_hook(
                     ArrayResponse(
                         arr={},
                         chunks=num_chunks,
@@ -1468,17 +1924,45 @@ class MemoryManager:
             if num_runs > 1:
                 break
 
-        chunk_length, num_chunks = self.get_chunk_parameters(
-            queued_requests, num_runs, stream_group
-        )
-        self._group_chunk_parameters[stream_group] = (
+        notaries = set(peers) - set(queued_requests.keys())
+        # An owner's peer that is not reallocating keeps device arrays
+        # laid out for the owner's current run partition, so the
+        # partition must not move under it: reuse the stored chunk
+        # parameters. Only a full reallocation of the owner's
+        # registrations may pick a new partition.
+        bound_to_cached = False
+        for peer in notaries:
+            peer_settings = self.registry.get(peer)
+            if (
+                peer_settings is not None
+                and peer_settings.owner_id == owner_id
+                and peer_settings.allocations
+            ):
+                bound_to_cached = True
+                break
+        cached_parameters = self._group_chunk_parameters.get(cache_key)
+        if (
+            bound_to_cached
+            and cached_parameters is not None
+            and cached_parameters[0] <= num_runs
+        ):
+            chunk_length, num_chunks = cached_parameters
+        else:
+            chunk_length, num_chunks = self.get_chunk_parameters(
+                queued_requests, num_runs, stream_group
+            )
+        self._group_chunk_parameters[cache_key] = (
             chunk_length,
             num_chunks,
         )
-        notaries = set(peers) - set(queued_requests.keys())
         for instance_id, requests_dict in queued_requests.items():
-            if instance_id not in self.registry:
-                # The client was released while the group was prepared.
+            # Resolve the registration once: a client can be garbage
+            # collected at any allocation, and its finalizer drops the
+            # registry entry mid-loop. The held settings object stays
+            # valid; a dead client's hook is a weak no-op and its
+            # arrays are released with the settings object.
+            settings = self.registry.get(instance_id)
+            if settings is None:
                 continue
             chunked_shapes = self.compute_chunked_shapes(
                 requests_dict,
@@ -1490,7 +1974,10 @@ class MemoryManager:
                 request.shape = chunked_shapes[key]
 
             arrays = self.allocate_all(
-                chunked_requests, instance_id, stream=stream
+                chunked_requests,
+                instance_id,
+                stream=stream,
+                settings=settings,
             )
             response = ArrayResponse(
                 arr=arrays,
@@ -1500,10 +1987,10 @@ class MemoryManager:
             )
 
             if CUDA_SIMULATION:
-                self.registry[instance_id].allocation_ready_hook(response)
+                settings.allocation_ready_hook(response)
             else:
                 with current_cupy_stream(stream):
-                    self.registry[instance_id].allocation_ready_hook(response)
+                    settings.allocation_ready_hook(response)
 
         for peer in notaries:
             peer_settings = self.registry.get(peer)
@@ -1553,16 +2040,57 @@ class MemoryManager:
         """
         free, _ = self.get_memory_info()
         available_memory = self.get_available_memory(stream_group)
+        cap_headroom = None
+        if self._mode == "active":
+            members = self.stream_groups.get_instances_in_group(stream_group)
+            cap_headroom = sum(
+                self.registry[member].cap
+                - self.registry[member].allocated_bytes
+                for member in members
+            )
         chunkable_size, unchunkable_size = get_portioned_request_size(
             requests,
         )
 
         request_size = chunkable_size + unchunkable_size
 
+        # A requester's current device buffers are replaced by this
+        # allocation, so their bytes are usable for it: without this
+        # credit a same-size reallocation reads as a shortage of its
+        # own footprint.
+        own_reclaimable = sum(
+            self.registry[instance_id].allocated_bytes
+            for instance_id in requests
+            if instance_id in self.registry
+        )
+        free_effective = free + own_reclaimable
+
+        # Evict only for a genuine physical VRAM shortage that eviction
+        # can fix. A configured cap (active mode) is a policy limit:
+        # when the request exceeds cap headroom the run chunks anyway,
+        # and evicting peers cannot raise the cap.
+        physical_shortage = request_size >= free_effective
+        cap_allows_request = (
+            cap_headroom is None or request_size < cap_headroom
+        )
+        if physical_shortage and cap_allows_request:
+            released = self._evict_idle_owners(
+                set(requests.keys()), request_size - free_effective + 1
+            )
+            free_effective += released
+        physical_headroom = (
+            free_effective
+            if cap_headroom is None
+            else min(free_effective, cap_headroom)
+        )
+        # Group accounting and the physical probe are both estimates;
+        # trust whichever allows more, since pool-held blocks satisfy
+        # allocations without showing up as free device memory.
+        available_memory = max(available_memory, physical_headroom)
         if request_size < available_memory:
             return axis_length, 1  # No chunking needed
 
-        if request_size / free > 20:
+        if free > 0 and request_size / free > 20:
             warn(
                 "This request exceeds available VRAM by more than 20x. "
                 f"Available VRAM = {free}, request size = {request_size}.",
@@ -1641,6 +2169,28 @@ class MemoryManager:
                 chunked_shapes[key] = request.shape
 
         return chunked_shapes
+
+
+def defer_instance_teardown(
+    memory_manager: MemoryManager,
+    instance_id: int,
+    settings: InstanceMemorySettings,
+    cleanups: Tuple[Callable[[], None], ...],
+) -> None:
+    """Record a collected client's teardown; the GC finalizer target.
+
+    See :meth:`MemoryManager.defer_teardown` for why the callback
+    must not run the teardown itself.
+    """
+    memory_manager.defer_teardown(
+        partial(
+            run_instance_teardown,
+            memory_manager,
+            instance_id,
+            settings,
+            cleanups,
+        )
+    )
 
 
 def run_instance_teardown(

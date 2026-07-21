@@ -19,6 +19,11 @@ Published Functions
     Default for the ``lineinfo`` compile setting (``CUBIE_LINEINFO``).
 :func:`cache_dir_default`
     Default for the on-disk cache root (``CUBIE_CACHE_DIR``).
+:func:`kernel_cache_dir_default`
+    Default directory for compiled-kernel caches
+    (``CUBIE_KERNEL_CACHE_DIR``).
+:func:`max_cache_entries_default`
+    Default kernel-cache LRU limit (``CUBIE_MAX_CACHE_ENTRIES``).
 :func:`cuda_backend_requested`
     Explicitly requested CUDA backend (``CUBIE_CUDA_BACKEND``).
 
@@ -34,6 +39,15 @@ Recognised Variables
     parse results, compiled kernels). Overridden by an explicit
     :func:`cubie.cache_root.set_cache_root` call; defaults to
     ``<current working directory>/generated`` when unset.
+``CUBIE_KERNEL_CACHE_DIR``
+    Directory for compiled-kernel caches only, leaving generated source
+    and parse caches at the shared root. Overridden by an explicit
+    ``cache_dir`` argument. CI sets this to relocate kernel caches into
+    a portable artifact.
+``CUBIE_MAX_CACHE_ENTRIES``
+    Per-system LRU limit for compiled-kernel cache entries; zero
+    disables eviction. Overridden by an explicit ``max_cache_entries``
+    argument. Default 10.
 ``CUBIE_CUDA_BACKEND``
     Explicit CUDA backend selection, ``numba-cuda`` or ``mlir``.
     Read by :mod:`cubie.cuda_backend` at import. When unset, the
@@ -108,6 +122,32 @@ def cache_dir_default() -> Optional[str]:
     if raw is None or not raw.strip():
         return None
     return raw
+
+
+def kernel_cache_dir_default() -> Optional[str]:
+    """Return ``CUBIE_KERNEL_CACHE_DIR``, or ``None`` when unset."""
+    raw = os.environ.get("CUBIE_KERNEL_CACHE_DIR")
+    if raw is None or not raw.strip():
+        return None
+    return raw
+
+
+def max_cache_entries_default() -> int:
+    """Return the non-negative kernel-cache limit; zero disables eviction."""
+    raw = os.environ.get("CUBIE_MAX_CACHE_ENTRIES")
+    if raw is None or not raw.strip():
+        return 10
+    try:
+        value = int(raw.strip())
+    except ValueError:
+        raise ValueError(
+            f"CUBIE_MAX_CACHE_ENTRIES={raw!r} must be a non-negative integer."
+        ) from None
+    if value < 0:
+        raise ValueError(
+            f"CUBIE_MAX_CACHE_ENTRIES={raw!r} must be non-negative."
+        )
+    return value
 
 
 def cuda_backend_requested() -> Optional[str]:

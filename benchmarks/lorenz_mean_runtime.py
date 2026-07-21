@@ -15,9 +15,11 @@ Four configs run, each printing compile metrics and two statistics:
     classical-rk4 at ``2**22`` trajectories (or the positional
     ``n_runs``).
 ``adaptive``
-    tsit5 at ``2**24`` trajectories (or the positional ``n_runs``;
-    the adaptive kernel is fast enough at ``2**22`` that launch
-    effects blur small deltas).
+    radau at ``2**18`` trajectories (or the positional ``n_runs``).
+    The implicit solves cost tens to hundreds of milliseconds each
+    at this size — far above the launch-effect blur that pushes the
+    explicit configs to millions of trajectories, and small enough
+    that the gate's adaptive blocks stay within its runtime budget.
 ``chunked``
     The fixed config at ``--chunked-runs`` trajectories (or the
     positional ``n_runs``), forced to split into a few run-axis
@@ -97,6 +99,7 @@ sizes.
 import argparse
 import contextlib
 import hashlib
+import inspect
 import io
 import os
 import re
@@ -201,7 +204,7 @@ def resolve_n_runs(n_runs):
     """Return (fixed, adaptive) trajectory counts."""
     if n_runs is not None:
         return n_runs, n_runs
-    return 2**22, 2**24
+    return 2**22, 2**18
 
 
 def resolve_chunk_settings(n_runs, chunked_runs, proportion,
@@ -253,11 +256,16 @@ def build_solvers(n_fixed, n_adaptive, n_chunked, chunked_proportion):
 
     fixed_solver = build_fixed_style_solver(lorenz_system)
 
+    # An implicit adaptive config so the gate exercises the Newton
+    # and Krylov solvers, not just explicit tableaus. The truncated
+    # Neumann preconditioner diverges on the coupled Radau stages of
+    # this system, so the diagonal Jacobi preconditioner is used.
     adaptive_solver = qb.Solver(
         lorenz_system,
-        algorithm="tsit5",
-        atol=1e-08,
-        rtol=1e-08,
+        algorithm="radau",
+        preconditioner_type="jacobi",
+        atol=1e-06,
+        rtol=1e-06,
         save_every=1.0,
         dt_min=1e-12,
         dt_max=1e3,
@@ -297,7 +305,7 @@ def build_solvers(n_fixed, n_adaptive, n_chunked, chunked_proportion):
     return {
         "fixed": ("fixed (classical-rk4)", fixed_solver, n_fixed, 1.0),
         "adaptive": (
-            "adaptive (tsit5)",
+            "adaptive (radau)",
             adaptive_solver,
             n_adaptive,
             1.0,
@@ -347,6 +355,16 @@ def load_grid(solver, n_runs, grid_cache):
     return inits, params
 
 
+# Both gate workers run this driver, so it must measure the lean
+# result path on either API generation: trees with results_type get
+# "raw"; trees without it return the zero-copy SolveResult by default.
+_solve_extra_kwargs = (
+    {"results_type": "raw"}
+    if "results_type" in inspect.signature(qb.Solver.solve).parameters
+    else {}
+)
+
+
 def solve_once(solver, inits, params, kernel_ms, wall_ms, duration):
     """Run one solve; record its kernel and wall times (ms)."""
     start = perf_counter()
@@ -355,8 +373,8 @@ def solve_once(solver, inits, params, kernel_ms, wall_ms, duration):
             initial_values=inits,
             parameters=params,
             blocksize=blocksize,
-            results_type="raw",
             duration=duration,
+            **_solve_extra_kwargs,
         )
     wall_ms.append(1000.0 * (perf_counter() - start))
     collect_kernel_time(solver, kernel_ms)

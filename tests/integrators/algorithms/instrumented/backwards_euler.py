@@ -31,8 +31,6 @@ class InstrumentedBackwardsEulerStep(InstrumentedODEImplicitStep):
         newton_atol: Optional[float] = None,
         newton_rtol: Optional[float] = None,
         newton_max_iters: Optional[int] = None,
-        newton_damping: Optional[float] = None,
-        newton_max_backtracks: Optional[int] = None,
         increment_cache_location: Optional[str] = None,
         **kwargs,
     ) -> None:
@@ -76,12 +74,6 @@ class InstrumentedBackwardsEulerStep(InstrumentedODEImplicitStep):
         newton_max_iters
             Maximum iterations permitted for the Newton solver. If None, uses
             default from NewtonKrylovConfig.
-        newton_damping
-            Damping factor applied within Newton updates. If None, uses
-            default from NewtonKrylovConfig.
-        newton_max_backtracks
-            Maximum number of backtracking steps within the Newton solver. If
-            None, uses default from NewtonKrylovConfig.
         increment_cache_location
             Memory location for increment cache buffer: 'local' or 'shared'.
             If None, defaults to 'local'.
@@ -122,12 +114,12 @@ class InstrumentedBackwardsEulerStep(InstrumentedODEImplicitStep):
             solver_kwargs["newton_rtol"] = newton_rtol
         if newton_max_iters is not None:
             solver_kwargs["newton_max_iters"] = newton_max_iters
-        if newton_damping is not None:
-            solver_kwargs["newton_damping"] = newton_damping
-        if newton_max_backtracks is not None:
-            solver_kwargs["newton_max_backtracks"] = newton_max_backtracks
 
-        super().__init__(config, BE_DEFAULTS.copy(), **solver_kwargs)
+        super().__init__(
+            config,
+            BE_DEFAULTS.copy(),
+            **solver_kwargs,
+        )
         self.register_buffers()
 
     def register_buffers(self) -> None:
@@ -261,7 +253,6 @@ class InstrumentedBackwardsEulerStep(InstrumentedODEImplicitStep):
             newton_iteration_guesses,
             newton_residuals,
             newton_squared_norms,
-            newton_iteration_scale,
             linear_initial_guesses,
             linear_iteration_guesses,
             linear_residuals,
@@ -356,6 +347,7 @@ class InstrumentedBackwardsEulerStep(InstrumentedODEImplicitStep):
                 dt_scalar,
                 a_ij,
                 state,
+                state,
                 solver_shared,
                 solver_persistent,
                 counters,
@@ -364,7 +356,6 @@ class InstrumentedBackwardsEulerStep(InstrumentedODEImplicitStep):
                 newton_iteration_guesses,
                 newton_residuals,
                 newton_squared_norms,
-                newton_iteration_scale,
                 linear_initial_guesses,
                 linear_iteration_guesses,
                 linear_residuals,
