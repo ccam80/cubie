@@ -1,5 +1,6 @@
 """Tests for chunking logic."""
 
+from pathlib import Path
 from time import sleep
 
 import numpy as np
@@ -18,7 +19,9 @@ from cubie.batchsolving.writeback_watcher import (
     WritebackTask,
     WritebackWatcher,
 )
+from cubie.memory import MemoryManager
 from cubie.memory.chunk_buffer_pool import ChunkBufferPool
+from tests._utils import _build_solver_instance
 
 
 def _make_test_array_container():
@@ -105,12 +108,67 @@ def test_repeat_chunked_solve_matches_first(
     )
 
 
+def test_chunked_results_match_unchunked(
+    chunked_solved_solver,
+    system,
+    precision,
+    solver_settings,
+    driver_settings,
+):
+    """Chunked solves reproduce unchunked results exactly.
+
+    Inputs vary along the run axis so a writeback that lands in the
+    wrong run (or not at all) changes the result.
+    """
+    chunked_solver, _ = chunked_solved_solver
+    n_runs = 5
+    rng = np.random.default_rng(1234)
+    inits = rng.uniform(
+        0.5, 1.5, (system.sizes.states, n_runs)
+    ).astype(precision)
+    params = rng.uniform(
+        0.5, 1.5, (system.sizes.parameters, n_runs)
+    ).astype(precision)
+    solve_kwargs = dict(
+        drivers=driver_settings,
+        duration=0.05,
+        summarise_every=None,
+        save_every=0.01,
+        dt=0.01,
+    )
+    chunked = chunked_solver.solve(inits, params, **solve_kwargs)
+    assert chunked_solver.chunks > 1
+
+    reference_settings = solver_settings.copy()
+    reference_settings["stream_group"] = "chunk_match_reference"
+    reference_solver = _build_solver_instance(
+        system=system,
+        solver_settings=reference_settings,
+        driver_settings=driver_settings,
+        memory_manager=MemoryManager(),
+    )
+    try:
+        reference = reference_solver.solve(inits, params, **solve_kwargs)
+        assert reference_solver.chunks == 1
+        np.testing.assert_array_equal(
+            chunked.time_domain_array, reference.time_domain_array
+        )
+        np.testing.assert_array_equal(
+            chunked.status_codes, reference.status_codes
+        )
+    finally:
+        reference_solver.close()
+
+
 def test_input_buffers_released_after_kernel(chunked_solved_solver):
     chunked_solver, result_chunked = chunked_solved_solver
 
-    # After solve completes, input_arrays should have empty active buffers
+    # After solve completes and pending releases drain, every staging
+    # buffer is back in the pool
     input_arrays = chunked_solver.kernel.input_arrays
-    assert len(input_arrays._active_buffers) == 0
+    input_arrays.wait_pending()
+    for buffers in input_arrays._buffer_pool._buffers.values():
+        assert all(not buffer.in_use for buffer in buffers)
 
 
 def test_non_chunked_uses_pinned_host(unchunked_solved_solver):
@@ -135,6 +193,84 @@ def test_chunked_uses_numpy_host(chunked_solved_solver):
             assert slot.memory_type == "host"
             found_one = True
     assert found_one, "No chunked-transfer arrays found"
+
+
+def test_chunked_solver_changes_to_unchunked_backing(
+    chunked_solved_solver,
+    batch_input_arrays,
+    driver_settings,
+):
+    """A shape change commits unchunked backing and metadata together."""
+    solver, first_result = chunked_solved_solver
+    y0, params = batch_input_arrays
+    solver.memory_manager._custom_limit = 8192
+
+    second_result = solver.solve(
+        y0[:, :3],
+        params[:, :3],
+        drivers=driver_settings,
+        duration=0.05,
+        summarise_every=None,
+        save_every=0.01,
+        dt=0.01,
+    )
+    try:
+        assert solver.chunks == 1
+        for _, slot in (
+            solver.kernel.output_arrays.host.iter_managed_arrays()
+        ):
+            if isinstance(slot.array, np.memmap):
+                assert slot.memory_type == "memmap"
+            else:
+                assert slot.memory_type == "pinned"
+        # Input slots hold the handler's arrays verbatim; the slot
+        # type records each array's actual backing
+        input_manager = solver.kernel.input_arrays
+        for _, slot in input_manager.host.iter_managed_arrays():
+            if slot.array is not None:
+                assert slot.memory_type == (
+                    input_manager._host_memory_type(slot.array)
+                )
+    finally:
+        first_result.close()
+        second_result.close()
+        solver.close()
+
+
+def test_output_allocation_tracks_policy_spill(tmp_path):
+    """Above-threshold output buffers are disk-backed at creation.
+
+    The spill policy applies when the buffer is created; conversion
+    after the chunk decision only repins small pageable slots and
+    never moves a buffer between backings.
+    """
+    manager = _make_test_array_manager()
+    settings = manager._memory_manager.get_registration(manager)
+    settings.host_spill_threshold = 1
+    settings.spill_directory = str(tmp_path)
+
+    memory_type = manager._memory_manager.choose_host_memory_type(
+        10 * 3 * 100 * 4, manager, allow_pinned=False
+    )
+    assert memory_type == "memmap"
+    array = manager._memory_manager.create_host_array(
+        (10, 3, 100), np.float32, memory_type, instance=manager
+    )
+    slot = manager.host.get_managed_array("state")
+    slot.array = array
+    slot.memory_type = "memmap"
+
+    manager._convert_host_to_pinned()
+
+    slot = manager.host.get_managed_array("state")
+    assert slot.array is array
+    assert slot.memory_type == "memmap"
+    assert manager._requires_staging(slot.array, slot.memory_type)
+    path = Path(slot.array._cubie_spill_path)
+    assert path.exists()
+    manager._memory_manager.release_host_array(slot.array)
+    slot.array = None
+    assert not path.exists()
 
 
 def test_pinned_buffers_created(chunked_solved_solver):
@@ -474,19 +610,18 @@ def test_reset_clears_buffer_pool_and_watcher(chunked_solved_solver):
     output_arrays_manager.reset()
 
     assert len(output_arrays_manager._buffer_pool._buffers) == 0
-    assert len(output_arrays_manager._pending_buffers) == 0
     assert output_arrays_manager._watcher._pending_count == 0
     assert output_arrays_manager._watcher._thread is None
 
 
-def test_convert_host_to_numpy_uses_needs_chunked_transfer(
+def test_input_slots_record_actual_backing(
     chunked_solved_solver, unchunked_solved_solver
 ):
-    """Verify _convert_host_to_numpy uses needs_chunked_transfer.
+    """Input slots hold attached arrays verbatim with accurate types.
 
-    The method should convert pinned arrays to regular numpy only
-    when the device array's needs_chunked_transfer property is True.
-    This is determined by comparing shape vs chunked_shape.
+    ``needs_chunked_transfer`` (shape vs chunked_shape) routes chunk
+    slices through staging; the slot's ``memory_type`` records the
+    attached array's real backing, which staging decisions key off.
     """
 
     chunked_solver, chunked_results = chunked_solved_solver
@@ -498,20 +633,17 @@ def test_convert_host_to_numpy_uses_needs_chunked_transfer(
     chunked_drivers = chunked_input_manager.host.driver_coefficients
     unchunked_inits = unchunked_input_manager.host.initial_values
 
-    # Verify input array had needs_chunked_transfer = True (shapes differ)
-    chunked_input_manager = chunked_solver.kernel.input_arrays
-    unchunked_input_manager = unchunked_solver.kernel.input_arrays
-    chunked_inits = chunked_input_manager.host.initial_values
-    chunked_drivers = chunked_input_manager.host.driver_coefficients
-    unchunked_inits = unchunked_input_manager.host.initial_values
-
     # Check needs_chunked_transfer values are set appropriately
     assert chunked_inits.needs_chunked_transfer is True
     assert unchunked_inits.needs_chunked_transfer is False
     assert chunked_drivers.needs_chunked_transfer is False
 
-    assert chunked_inits.memory_type == "host"
-    assert unchunked_inits.memory_type == "pinned"
+    for manager in (chunked_input_manager, unchunked_input_manager):
+        for _, slot in manager.host.iter_managed_arrays():
+            if slot.array is not None:
+                assert slot.memory_type == (
+                    manager._host_memory_type(slot.array)
+                )
 
 
 def test_chunked_shape_differs_from_shape_when_chunking(
@@ -536,11 +668,10 @@ def test_chunked_shape_differs_from_shape_when_chunking(
     # state array should be chunked (needs_chunked_transfer = True)
     assert state_host.needs_chunked_transfer is True
 
-    # chunked_shape should differ from shape along run axis
-    assert state_host.chunked_shape != state_host.shape
-
-    # Specifically, run axis (axis 2) should be smaller in chunked_shape
-    assert state_host.chunked_shape[2] < state_host.shape[2]
+    # The full buffer belongs to the result; the slot records the
+    # per-chunk shape, smaller along the run axis (axis 2).
+    assert state_host.chunked_shape != result.state.shape
+    assert state_host.chunked_shape[2] < result.state.shape[2]
 
 
 def test_chunked_shape_equals_shape_when_not_chunking(

@@ -155,8 +155,12 @@ def test_torn_dae_solution_matches_reference():
         save_every=0.1,
         newton_atol=1e-10,
         newton_rtol=1e-10,
-        krylov_atol=1e-12,
-        krylov_rtol=1e-12,
+        # The torn system's algebraic row leaves the operator
+        # ill-scaled, so its attainable weighted residual sits above
+        # the derived sqrt(eps) floor in float64. A floor of 1e-6
+        # weighted (1e-12 absolute at the default weights) keeps the
+        # linear error two decades below the Newton target.
+        krylov_residual_floor=1e-6,
     )
     legend = {
         label: idx

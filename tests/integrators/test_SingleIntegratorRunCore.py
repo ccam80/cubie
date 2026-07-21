@@ -1016,12 +1016,28 @@ def test_explicit_inner_tolerance_survives_derivation(
     assert algo.is_implicit
 
     assert np.allclose(algo.krylov_atol, 3e-5)
-    # Unset tolerances leave the solver defaults and end up at least
-    # as tight as the controller's error tolerance.
+    # The unset linear weight derives the controller's tolerance
+    # directly, placing the weighted floor at the step tolerance
+    # envelope.
+    assert np.allclose(
+        np.asarray(algo.krylov_rtol), np.asarray(controller.rtol)
+    )
+    # Unset Newton tolerances leave the solver defaults and end up at
+    # least as tight as the controller's error tolerance.
     assert not np.allclose(algo.newton_atol, 1e-6)
     assert np.all(
         np.asarray(algo.newton_atol) <= np.asarray(controller.atol)
     )
     assert np.all(
         np.asarray(algo.newton_rtol) <= np.asarray(controller.rtol)
+    )
+    # The unset linear stopping terms derive the controller's rtol
+    # and sqrt(eps) of the precision.
+    assert np.isclose(
+        float(algo.krylov_residual_reduction),
+        float(np.min(np.asarray(controller.rtol))),
+    )
+    assert np.isclose(
+        float(algo.krylov_residual_floor),
+        float(np.finfo(run.precision).eps) ** 0.5,
     )

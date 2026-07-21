@@ -329,6 +329,11 @@ class OutputFunctions(CUDAFactory):
         return self.compile_settings.save_time
 
     @property
+    def save_counters(self) -> bool:
+        """Whether iteration counters are saved at each save point."""
+        return self.compile_settings.save_counters
+
+    @property
     def has_time_domain_outputs(self) -> bool:
         """Whether any time-domain output is enabled."""
         config = self.compile_settings

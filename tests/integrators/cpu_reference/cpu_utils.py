@@ -301,6 +301,9 @@ def _krylov_solve_dense_impl(
     has_initial_guess: bool,
     neumann_order: int,
     minimal_residual: bool,
+    norm_reference: Array,
+    residual_reduction: np.floating,
+    residual_floor: np.floating,
     instrumented: bool,
     logging_initial_guess: Optional[Array],
     logging_iteration_guesses: Optional[Array],
@@ -311,7 +314,9 @@ def _krylov_solve_dense_impl(
 ) -> tuple[Array, bool, int]:
     """Return the Krylov solution for a dense operator matrix.
 
-    Converged when the scaled residual norm is <= 1.
+    Converged when the weighted residual norm falls below
+    ``residual_floor + residual_reduction * ||rhs||``, with the
+    target fixed from the untouched right-hand side.
     """
 
     solution = np.empty_like(rhs)
@@ -325,16 +330,21 @@ def _krylov_solve_dense_impl(
     if instrumented and logging_initial_guess is not None:
         logging_initial_guess[stage_index, :] = solution
 
-    typed_one = operator_matrix.dtype.type(1.0)
     iteration_limit = max_iterations
+
+    rhs_norm2 = _scaled_norm_impl(rhs, norm_reference, tolerance, rtol)
+    tol = residual_floor + residual_reduction * np.sqrt(rhs_norm2)
+    tol2 = tol * tol
 
     operator_buffer = np.empty_like(rhs)
     residual = np.empty_like(rhs)
     _matrix_vector_product(operator_matrix, solution, operator_buffer)
     for index in range(residual.shape[0]):
         residual[index] = rhs[index] - operator_buffer[index]
-    residual_norm2 = _scaled_norm_impl(residual, solution, tolerance, rtol)
-    if residual_norm2 <= typed_one:
+    residual_norm2 = _scaled_norm_impl(
+        residual, norm_reference, tolerance, rtol
+    )
+    if residual_norm2 <= tol2:
         return solution, True, 0
 
     preconditioner_matrix = _compute_neumann_preconditioner(
@@ -370,7 +380,7 @@ def _krylov_solve_dense_impl(
             solution[index] = solution[index] + alpha * direction[index]
             residual[index] = residual[index] - alpha * operator_buffer[index]
         residual_norm2 = _scaled_norm_impl(
-            residual, solution, tolerance, rtol
+            residual, norm_reference, tolerance, rtol
         )
 
         _log_krylov_iteration(
@@ -387,7 +397,7 @@ def _krylov_solve_dense_impl(
             logging_preconditioned_vectors=logging_preconditioned_vectors,
         )
 
-        if residual_norm2 <= typed_one:
+        if residual_norm2 <= tol2:
             converged = True
             break
 
@@ -404,6 +414,9 @@ def _bicgstab_solve_dense_impl(
     initial_guess: Array,
     has_initial_guess: bool,
     neumann_order: int,
+    norm_reference: Array,
+    residual_reduction: np.floating,
+    residual_floor: np.floating,
 ) -> tuple[Array, bool, int]:
     """Return the BiCGSTAB solution for a dense operator matrix.
 
@@ -411,6 +424,8 @@ def _bicgstab_solve_dense_impl(
     search direction and intermediate residual are preconditioned
     before each operator application, and a vanished recurrence
     scalar (pivot, omega, or rho) exits unconverged as breakdown.
+    Converged when the weighted residual norm falls below
+    ``residual_floor + residual_reduction * ||rhs||``.
     """
 
     dtype = operator_matrix.dtype
@@ -422,15 +437,19 @@ def _bicgstab_solve_dense_impl(
         for index in range(solution.shape[0]):
             solution[index] = zero
 
-    typed_one = operator_matrix.dtype.type(1.0)
+    rhs_norm2 = _scaled_norm_impl(rhs, norm_reference, tolerance, rtol)
+    tol = residual_floor + residual_reduction * np.sqrt(rhs_norm2)
+    tol2 = tol * tol
 
     operator_buffer = np.empty_like(rhs)
     residual = np.empty_like(rhs)
     _matrix_vector_product(operator_matrix, solution, operator_buffer)
     for index in range(residual.shape[0]):
         residual[index] = rhs[index] - operator_buffer[index]
-    residual_norm2 = _scaled_norm_impl(residual, solution, tolerance, rtol)
-    if residual_norm2 <= typed_one:
+    residual_norm2 = _scaled_norm_impl(
+        residual, norm_reference, tolerance, rtol
+    )
+    if residual_norm2 <= tol2:
         return solution, True, 0
 
     preconditioner_matrix = _compute_neumann_preconditioner(
@@ -469,9 +488,9 @@ def _bicgstab_solve_dense_impl(
             )
             residual[index] = residual[index] - alpha * v_vector[index]
         residual_norm2 = _scaled_norm_impl(
-            residual, solution, tolerance, rtol
+            residual, norm_reference, tolerance, rtol
         )
-        if residual_norm2 <= typed_one:
+        if residual_norm2 <= tol2:
             converged = True
             break
 
@@ -488,9 +507,9 @@ def _bicgstab_solve_dense_impl(
             solution[index] = solution[index] + omega * s_hat[index]
             residual[index] = residual[index] - omega * t_vector[index]
         residual_norm2 = _scaled_norm_impl(
-            residual, solution, tolerance, rtol
+            residual, norm_reference, tolerance, rtol
         )
-        if residual_norm2 <= typed_one:
+        if residual_norm2 <= tol2:
             converged = True
             break
 
@@ -940,6 +959,9 @@ def krylov_solve(
     neumann_order: int = 2,
     correction_type: str = "minimal_residual",
     initial_guess: Optional[Array] = None,
+    norm_reference: Optional[Array] = None,
+    residual_reduction: Optional[float] = None,
+    residual_floor: Optional[float] = None,
     instrumented: bool = False,
     logging_initial_guess: Optional[Array] = None,
     logging_iteration_guesses: Optional[Array] = None,
@@ -964,7 +986,7 @@ def krylov_solve(
         Floating-point precision to use for the iteration.
     rtol
         Relative tolerance of the scaled convergence norm, scaled by
-        the solution iterate.
+        ``norm_reference``.
     neumann_order
         Order of the truncated Neumann-series left preconditioner.
     correction_type
@@ -973,6 +995,16 @@ def krylov_solve(
         arrays are only populated for the descent variants.
     initial_guess
         Optional starting iterate for the solve. Defaults to the zero vector.
+    norm_reference
+        Vector the weighted norm scales against. Defaults to the zero
+        vector, which reduces the weights to the absolute tolerance.
+    residual_reduction
+        Relative factor the weighted residual must fall below, against
+        the weighted right-hand side. ``None`` derives machine epsilon
+        so the floor criterion governs.
+    residual_floor
+        Absolute term of the stopping rule, in weighted-norm units.
+        ``None`` derives ``sqrt(eps)`` of the precision.
     instrumented
         When ``True`` the logging arrays are populated on each iteration.
     logging_initial_guess
@@ -1025,6 +1057,19 @@ def krylov_solve(
     else:
         guess = np.asarray(initial_guess, dtype=dtype)
 
+    if norm_reference is None:
+        reference = np.zeros_like(vector)
+    else:
+        reference = np.asarray(norm_reference, dtype=dtype)
+    if residual_reduction is None:
+        reduction_value = scalar_type(np.finfo(dtype).eps)
+    else:
+        reduction_value = scalar_type(residual_reduction)
+    if residual_floor is None:
+        floor_value = scalar_type(float(np.finfo(dtype).eps) ** 0.5)
+    else:
+        floor_value = scalar_type(residual_floor)
+
     initial_provided = initial_guess is not None
     if correction_type == "bicgstab":
         solution, converged, iteration = _bicgstab_solve_dense_impl(
@@ -1036,6 +1081,9 @@ def krylov_solve(
             guess,
             initial_provided,
             order,
+            reference,
+            reduction_value,
+            floor_value,
         )
     else:
         solution, converged, iteration = _krylov_solve_dense_impl(
@@ -1048,6 +1096,9 @@ def krylov_solve(
             initial_provided,
             order,
             minimal_residual,
+            reference,
+            reduction_value,
+            floor_value,
             instrumented,
             logging_initial_guess,
             logging_iteration_guesses,

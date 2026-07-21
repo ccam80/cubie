@@ -24,16 +24,14 @@ See Also
 from abc import abstractmethod
 from typing import Callable, Optional
 
-from numpy import asarray, ndarray, sqrt
-from attrs import Converter, define, field
+from numpy import ndarray, sqrt
+from attrs import define, field
 
 from cubie._utils import (
     PrecisionDType,
     clamp_factory,
     getype_validator,
-    nonnegative_float_array_validator,
     inrangetype_validator,
-    tol_converter,
 )
 from cubie.integrators.step_control.base_step_controller import (
     BaseStepController,
@@ -55,16 +53,6 @@ class AdaptiveStepControlConfig(BaseStepControllerConfig):
     _dt_min: float = field(default=1e-6, validator=getype_validator(float, 0))
     _dt_max: Optional[float] = field(
         default=1.0, validator=getype_validator(float, 0)
-    )
-    atol: ndarray = field(
-        default=asarray([1e-6]),
-        validator=nonnegative_float_array_validator,
-        converter=Converter(tol_converter, takes_self=True),
-    )
-    rtol: ndarray = field(
-        default=asarray([1e-6]),
-        validator=nonnegative_float_array_validator,
-        converter=Converter(tol_converter, takes_self=True),
     )
     algorithm_order: int = field(default=1, validator=getype_validator(int, 1))
     _min_gain: float = field(
@@ -149,8 +137,6 @@ class AdaptiveStepControlConfig(BaseStepControllerConfig):
             {
                 "dt_min": self.dt_min,
                 "dt_max": self.dt_max,
-                "atol": self.atol,
-                "rtol": self.rtol,
                 "algorithm_order": self.algorithm_order,
                 "min_gain": self.min_gain,
                 "max_gain": self.max_gain,
@@ -356,14 +342,4 @@ class BaseAdaptiveStepController(BaseStepController):
         """Return the integration algorithm order assumed by the controller."""
 
         return int(self.compile_settings.algorithm_order)
-
-    @property
-    def atol(self) -> ndarray:
-        """Return absolute tolerance."""
-        return self.compile_settings.atol
-
-    @property
-    def rtol(self) -> ndarray:
-        """Return relative tolerance."""
-        return self.compile_settings.rtol
 

@@ -258,6 +258,22 @@ ALIAS_CASES = [
         id="dirk-l-stable-4",
     ),
     pytest.param(
+        "kvaerno3",
+        DIRKStep,
+        DIRK_TABLEAU_REGISTRY["kvaerno3"],
+        CPUDIRKStep,
+        marks=pytest.mark.specific_algos,
+        id="dirk-kvaerno3",
+    ),
+    pytest.param(
+        "kvaerno5",
+        DIRKStep,
+        DIRK_TABLEAU_REGISTRY["kvaerno5"],
+        CPUDIRKStep,
+        marks=pytest.mark.specific_algos,
+        id="dirk-kvaerno5",
+    ),
+    pytest.param(
         "ros3p",
         GenericRosenbrockWStep,
         ROSENBROCK_TABLEAUS["ros3p"],

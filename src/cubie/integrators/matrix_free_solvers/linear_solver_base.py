@@ -30,12 +30,15 @@ from abc import abstractmethod
 from typing import Callable, Dict, Any, Optional, Set
 
 from attrs import define, field, validators
+from numpy import finfo as np_finfo
 from numpy import ndarray
 
 from cubie._utils import (
     PrecisionDType,
     build_config,
+    inrangetype_validator,
     is_device_validator,
+    opt_getype_validator,
 )
 from cubie.integrators.matrix_free_solvers.base_solver import (
     MatrixFreeSolverConfig,
@@ -43,6 +46,7 @@ from cubie.integrators.matrix_free_solvers.base_solver import (
 )
 from cubie.buffer_registry import buffer_registry
 from cubie.CUDAFactory import CUDADispatcherCache
+from cubie.integrators.norms import ScaledNorm
 
 
 @define
@@ -60,6 +64,23 @@ class LinearSolverBaseConfig(MatrixFreeSolverConfig):
     preconditioner_is_chained : bool
         Whether ``preconditioner`` is a chained composite, which takes
         a trailing ``chain_scratch`` buffer (determines signature).
+    norm_reference : str
+        Which device-function argument the weighted norm scales
+        against: ``"state"`` (direct solves, where the first argument
+        holds the model state) or ``"base_state"`` (Newton-owned
+        solves, where the first argument holds the stage increment).
+    _residual_reduction : Optional[float]
+        Factor the weighted residual must fall below, relative to the
+        weighted right-hand side, for the solve to stop. ``None``
+        resolves to machine epsilon at construction so the floor
+        criterion governs;
+        :class:`~cubie.integrators.SingleIntegratorRunCore.SingleIntegratorRunCore`
+        derives the step controller's ``rtol`` for adaptive runs.
+    _residual_floor : Optional[float]
+        Absolute term of the stopping rule, in weighted-norm units
+        (one sits at the ``krylov_atol``/``krylov_rtol`` envelope).
+        ``None`` resolves to ``sqrt(eps)`` of the configured
+        precision at construction.
     """
 
     operator_apply: Optional[Callable] = field(
@@ -74,6 +95,41 @@ class LinearSolverBaseConfig(MatrixFreeSolverConfig):
     )
     use_cached_auxiliaries: bool = field(default=False)
     preconditioner_is_chained: bool = field(default=False)
+    norm_reference: str = field(
+        default="state",
+        validator=validators.in_(["state", "base_state"]),
+    )
+    _residual_reduction: Optional[float] = field(
+        default=None,
+        validator=validators.optional(
+            inrangetype_validator(float, 0.0, 1.0)
+        ),
+        metadata={"prefixed": True},
+    )
+    _residual_floor: Optional[float] = field(
+        default=None,
+        validator=opt_getype_validator(float, 0.0),
+        metadata={"prefixed": True},
+    )
+
+    def __attrs_post_init__(self):
+        if self._residual_reduction is None:
+            self._residual_reduction = float(np_finfo(self.precision).eps)
+        if self._residual_floor is None:
+            self._residual_floor = (
+                float(np_finfo(self.precision).eps) ** 0.5
+            )
+        super().__attrs_post_init__()
+
+    @property
+    def residual_reduction(self) -> float:
+        """Return the relative stopping factor in configured precision."""
+        return self.precision(self._residual_reduction)
+
+    @property
+    def residual_floor(self) -> float:
+        """Return the absolute stopping term in configured precision."""
+        return self.precision(self._residual_floor)
 
 
 @define
@@ -106,6 +162,8 @@ class LinearSolverBase(MatrixFreeSolver):
         Length of residual and search-direction vectors.
     instance_label : str
         Prefix for tolerance parameters.
+    norm : ScaledNorm, optional
+        Weighted norm used for convergence checks.
     **kwargs
         Forwarded to config class and the norm factory.
 
@@ -125,6 +183,7 @@ class LinearSolverBase(MatrixFreeSolver):
         precision: PrecisionDType,
         n: int,
         instance_label: str = "krylov",
+        norm: Optional[ScaledNorm] = None,
         **kwargs,
     ) -> None:
         config = build_config(
@@ -141,6 +200,7 @@ class LinearSolverBase(MatrixFreeSolver):
             precision=precision,
             solver_type="krylov",
             n=n,
+            norm=norm,
             **kwargs,
         )
 
@@ -229,6 +289,16 @@ class LinearSolverBase(MatrixFreeSolver):
         return self.max_iters
 
     @property
+    def krylov_residual_reduction(self) -> float:
+        """Return the relative residual stopping factor."""
+        return self.compile_settings.residual_reduction
+
+    @property
+    def krylov_residual_floor(self) -> float:
+        """Return the weighted-residual floor."""
+        return self.compile_settings.residual_floor
+
+    @property
     def use_cached_auxiliaries(self) -> bool:
         """Return whether cached auxiliaries are used."""
         return self.compile_settings.use_cached_auxiliaries
@@ -248,4 +318,6 @@ class LinearSolverBase(MatrixFreeSolver):
         result = dict(self.compile_settings.settings_dict)
         result["krylov_atol"] = self.krylov_atol
         result["krylov_rtol"] = self.krylov_rtol
+        result["krylov_residual_reduction"] = self.krylov_residual_reduction
+        result["krylov_residual_floor"] = self.krylov_residual_floor
         return result

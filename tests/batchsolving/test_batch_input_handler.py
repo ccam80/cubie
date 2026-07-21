@@ -17,6 +17,7 @@ from cubie.batchsolving.BatchInputHandler import (
     verbatim_grid,
 )
 from cubie.batchsolving.SystemInterface import SystemInterface
+from cubie.cuda_simsafe import is_pinned_array
 
 
 # ── unique_cartesian_product ────────────────────────────── #
@@ -979,3 +980,39 @@ def test_fast_return_params_ok_states_provided_1d_broadcasts(
     assert result is not None
     assert result[0].shape[1] == 3
     assert result[1].shape[1] == 3
+
+
+# ── _materialise: verbatim pass-through and pinned landing ─ #
+
+
+def test_materialise_passes_matching_arrays_through(input_handler):
+    """A C-contiguous correct-precision array is returned verbatim."""
+    arr = np.ones((3, 4), dtype=input_handler.precision)
+    assert input_handler._materialise(arr) is arr
+
+
+def test_materialise_casts_into_precision_buffer(input_handler):
+    """A mismatched dtype lands once in a contiguous precision buffer."""
+    src = np.arange(12, dtype=np.int64).reshape(3, 4)
+    out = input_handler._materialise(src)
+    assert out is not src
+    assert out.dtype == input_handler.precision
+    assert out.flags["C_CONTIGUOUS"]
+    assert_array_equal(out, src)
+
+
+def test_materialise_fixes_contiguity(input_handler):
+    """A strided view lands once in a contiguous buffer."""
+    src = np.ones((3, 8), dtype=input_handler.precision)[:, ::2]
+    out = input_handler._materialise(src)
+    assert out is not src
+    assert out.flags["C_CONTIGUOUS"]
+    assert out.shape == src.shape
+
+
+@pytest.mark.nocudasim
+def test_materialise_lands_pinned_below_ceiling(input_handler):
+    """Materialised inputs below the ceiling are page-locked."""
+    src = np.ones((3, 8), dtype=input_handler.precision)[:, ::2]
+    out = input_handler._materialise(src)
+    assert is_pinned_array(out)

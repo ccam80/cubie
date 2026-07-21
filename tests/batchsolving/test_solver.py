@@ -47,7 +47,6 @@ def solved_solver_simple(
         settling_time=0.0,
         blocksize=32,
         grid_type="combinatorial",
-        results_type="full",
     )
 
     return solver, result
@@ -227,7 +226,6 @@ def test_solve_basic(
         settling_time=0.0,
         blocksize=32,
         grid_type="combinatorial",
-        results_type="full",
     )
 
     assert isinstance(result, SolveResult)
@@ -259,7 +257,6 @@ def test_solve_firk_with_driver_arrays(
         settling_time=0.0,
         blocksize=32,
         grid_type="combinatorial",
-        results_type="full",
     )
     assert not np.any(result.status_codes)
     assert np.all(np.isfinite(result.time_domain_array))
@@ -286,7 +283,6 @@ def test_algorithm_hot_swap_after_solve(
         settling_time=0.0,
         blocksize=32,
         grid_type="combinatorial",
-        results_type="full",
     )
     first = solver_mutable.solve(**solve_kwargs)
     assert not np.any(first.status_codes)
@@ -343,28 +339,29 @@ def test_solve_with_different_grid_types(
     assert isinstance(result_verb, SolveResult)
 
 
-def test_solve_with_different_result_types(
+def test_solve_result_representations(
     solver_mutable,
     simple_initial_values,
     simple_parameters,
     driver_settings,
 ):
-    """Test solve with different result types."""
-    result_types = ["full", "numpy"]
+    """The result derives its RAM representations on demand."""
+    result = solver_mutable.solve(
+        initial_values=simple_initial_values,
+        parameters=simple_parameters,
+        drivers=driver_settings,
+        duration=0.05,
+        save_every=0.02,
+        dt=0.01,
+        summarise_every=0.04,
+    )
 
-    for result_type in result_types:
-        result = solver_mutable.solve(
-            initial_values=simple_initial_values,
-            parameters=simple_parameters,
-            drivers=driver_settings,
-            duration=0.05,
-            save_every=0.02,
-            dt=0.01,
-            summarise_every=0.04,
-            results_type=result_type,
-        )
-
-        assert result is not None
+    assert isinstance(result, SolveResult)
+    as_numpy = result.as_numpy
+    assert isinstance(as_numpy["time_domain_array"], np.ndarray)
+    assert np.array_equal(
+        as_numpy["time_domain_array"], result.time_domain_array
+    )
 
 
 def test_update_basic(solver_mutable, tolerance, precision):
@@ -729,10 +726,14 @@ def test_solver_save_time_property(solver):
 
 
 def test_solver_state_and_observable_summaries(solver):
-    """Test state and observable summaries properties."""
-    # These properties should be accessible even before solving
-    assert solver.state_summaries is not None
-    assert solver.observable_summaries is not None
+    """Summary buffer properties are readable at any lifecycle stage.
+
+    Before the first solve the slots are unallocated; after a solve
+    the buffers belong to the returned result, so the slots may again
+    read as None.
+    """
+    for value in (solver.state_summaries, solver.observable_summaries):
+        assert value is None or isinstance(value, np.ndarray)
 
 
 def test_solver_num_runs_property(solver):
@@ -1626,7 +1627,6 @@ def test_shared_loop_buffers_leave_results_unchanged(
     solver,
     solver_settings,
     system,
-    driver_array,
     driver_settings,
     thread_mem_manager,
     simple_initial_values,
@@ -1667,10 +1667,54 @@ def test_shared_loop_buffers_leave_results_unchanged(
     shared_solver = _build_solver_instance(
         system=system,
         solver_settings=shared_settings,
-        driver_array=driver_array,
+        driver_settings=driver_settings,
         memory_manager=thread_mem_manager,
     )
     shared_output = run_solve(shared_solver)
 
     assert np.all(np.isfinite(local_output))
     np.testing.assert_array_equal(shared_output, local_output)
+
+
+def test_driver_setting_update_syncs_evaluator_and_coefficients(
+    solver_mutable,
+    system,
+    solver_settings,
+    driver_settings,
+    thread_mem_manager,
+    simple_initial_values,
+    simple_parameters,
+):
+    """Settings-only driver updates flow through ``Solver.update``.
+
+    Switching ``boundary_condition`` from "clamped" to "natural"
+    changes the coefficient tensor's segment count, so the updated
+    solver only reproduces a natural-from-scratch solver when the
+    evaluator and coefficients are refreshed together.
+    """
+
+    def run_solve(active_solver, drivers):
+        result = active_solver.solve(
+            initial_values=simple_initial_values,
+            parameters=simple_parameters,
+            drivers=drivers,
+            duration=solver_settings["duration"],
+        )
+        return np.asarray(result.time_domain_array)
+
+    run_solve(solver_mutable, driver_settings)
+    solver_mutable.update({"boundary_condition": "natural"})
+    updated_output = run_solve(solver_mutable, None)
+
+    natural_settings = dict(driver_settings)
+    natural_settings["boundary_condition"] = "natural"
+    reference_solver = _build_solver_instance(
+        system=system,
+        solver_settings=solver_settings,
+        driver_settings=natural_settings,
+        memory_manager=thread_mem_manager,
+    )
+    reference_output = run_solve(reference_solver, None)
+
+    assert np.all(np.isfinite(updated_output))
+    np.testing.assert_array_equal(updated_output, reference_output)
