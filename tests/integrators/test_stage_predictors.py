@@ -38,11 +38,14 @@ ZERO_NODE_SINGULAR_TABLEAU = ButcherTableau(
 )
 
 
-def test_repeated_node_tableau_is_rejected():
-    """Coincident stage times pin the curve twice; no curve exists."""
-    assert not tableau_supports_dense_prediction(REPEATED_NODE_TABLEAU)
-    with pytest.raises(ValueError, match="distinct"):
-        dense_predictor_matrix(REPEATED_NODE_TABLEAU)
+def test_repeated_node_tableau_reads_through_last_sample():
+    """A single distinct node yields a ratio-scaled carry of the
+    last stage's sample, shared by both stages."""
+    assert tableau_supports_dense_prediction(REPEATED_NODE_TABLEAU)
+    predictor = dense_predictor_matrix(REPEATED_NODE_TABLEAU, 0.5)
+    np.testing.assert_allclose(
+        predictor, [[0.0, 0.5], [0.0, 0.5]]
+    )
 
 
 def test_zero_node_singular_tableau_is_supported():
@@ -89,8 +92,8 @@ def test_registry_tableaus_support_expectations():
         "implicit_midpoint": True,
         "trapezoidal_dirk": True,
         "ode23t": True,
-        "kvaerno3": False,
-        "kvaerno5": False,
+        "kvaerno3": True,
+        "kvaerno5": True,
         "lobatto_iiic_3": True,
         "sdirk_2_2": True,
         "l_stable_dirk_3": True,
@@ -121,6 +124,45 @@ def test_dense_predictor_reads_derivative_samples_ahead(
     )
     predictor = dense_predictor_matrix(tableau, step_ratio)
     np.testing.assert_allclose(predictor @ increments, expected)
+
+
+@pytest.mark.parametrize(
+    "tableau",
+    [
+        DIRK_TABLEAU_REGISTRY["kvaerno3"],
+        DIRK_TABLEAU_REGISTRY["kvaerno5"],
+    ],
+)
+@pytest.mark.parametrize("step_ratio", [0.5, 1.0, 1.7])
+def test_repeated_nodes_fit_through_distinct_subset(
+    tableau, step_ratio
+):
+    """Repeated nodes drop to the last stage's sample; every stage
+    reads the fit through the distinct subset."""
+    stage_nodes = np.asarray(tableau.c)
+    increments = np.arange(1, tableau.stage_count + 1, dtype=float)
+    kept_samples = {
+        node: index for index, node in enumerate(stage_nodes.tolist())
+    }
+    distinct_nodes = np.asarray(list(kept_samples.keys()))
+    polynomial = np.polynomial.polynomial.polyfit(
+        distinct_nodes,
+        increments[list(kept_samples.values())],
+        len(distinct_nodes) - 1,
+    )
+    expected = step_ratio * np.polynomial.polynomial.polyval(
+        1.0 + step_ratio * stage_nodes, polynomial
+    )
+    predictor = dense_predictor_matrix(tableau, step_ratio)
+    np.testing.assert_allclose(
+        predictor @ increments, expected, rtol=1e-9
+    )
+    dropped = [
+        index
+        for index in range(tableau.stage_count)
+        if index not in kept_samples.values()
+    ]
+    assert np.all(predictor[:, dropped] == 0.0)
 
 
 @pytest.mark.parametrize(
@@ -157,6 +199,7 @@ def test_dense_predictor_extrapolates_stage_curve(tableau, step_ratio):
         RADAU_IIA_5_TABLEAU,
         DIRK_TABLEAU_REGISTRY["l_stable_dirk_3"],
         DIRK_TABLEAU_REGISTRY["lobatto_iiic_3"],
+        DIRK_TABLEAU_REGISTRY["kvaerno3"],
     ],
 )
 @pytest.mark.parametrize("step_ratio", [0.65, 1.3])
@@ -164,7 +207,7 @@ def test_ratio_coefficients_reconstruct_matrix(tableau, step_ratio):
     """Summing the power stack reproduces the matrix at any ratio."""
     coefficients = dense_predictor_ratio_coefficients(tableau)
     reconstructed = np.zeros_like(coefficients[0])
-    for power_index in range(tableau.stage_count):
+    for power_index in range(coefficients.shape[0]):
         reconstructed += (
             coefficients[power_index] * step_ratio ** (power_index + 1)
         )
@@ -216,6 +259,26 @@ ITERATION_CASES = [
         id="dirk-fixed",
     ),
     pytest.param(
+        "trapezoidal_dirk",
+        {"step_controller": "fixed", "dt": 0.005},
+        id="dirk-explicit-first-stage",
+    ),
+    # At float32-reachable tolerances every seed converges in one
+    # iteration; float64 + tight tolerances let the guard discriminate.
+    pytest.param(
+        "kvaerno3",
+        {
+            "step_controller": "fixed",
+            "dt": 0.005,
+            "precision": np.float64,
+            "newton_atol": 1e-10,
+            "newton_rtol": 1e-10,
+            "krylov_atol": 1e-10,
+            "krylov_rtol": 1e-10,
+        },
+        id="dirk-repeated-nodes",
+    ),
+    pytest.param(
         "radau",
         {
             "step_controller": "gustafsson",
@@ -240,6 +303,8 @@ def test_dense_prediction_reduces_newton_iterations(
     layout): converged results cannot distinguish a dead predictor,
     but the Newton iteration count can.
     """
+    controller_settings = dict(controller_settings)
+    case_precision = controller_settings.pop("precision", precision)
     system = create_ODE_system(
         "\n".join(
             (
@@ -251,7 +316,7 @@ def test_dense_prediction_reduces_newton_iterations(
         states={"x": 1.05, "y": 0.97, "z": 1.02},
         parameters={"sigma": 10.0, "rho": 28.0},
         constants={"b_const": 8.0 / 3.0},
-        precision=precision,
+        precision=case_precision,
         name="dense_prediction_iteration_probe",
     )
     common = {

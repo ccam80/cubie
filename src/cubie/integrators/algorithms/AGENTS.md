@@ -113,13 +113,15 @@ attrs-config mechanics; CUDA-authoring *optimisation* patterns are in
 `FIRKStep` and `DIRKStep` each own a `DenseStagePredictor`
 (`../stage_predictors.py`), registered as a buffer-registry child only when
 `ODEImplicitStep.dense_prediction` is true (`attempt_dense_prediction`
-requested and the tableau's stage nodes are pairwise distinct). The compiled
-step reads the previous step's stage-derivative curve ahead over the next
-step as the Newton warm start (for collocation tableaus this equals
-extrapolating the collocation polynomial, RADAU5-style); the transform
-matrix's entries are polynomials in the runtime step-size ratio, so fixed and
-adaptive controllers both benefit. The step judges applicability (not the
-predictor): no prediction on the first step or after a rejected proposal.
+requested and the tableau passes the node-amplification gate; repeated
+stage nodes fit through the distinct-node subset, last sample per node).
+The compiled step reads the previous step's stage-derivative curve ahead
+over the next step as the Newton warm start; the transform's entries are
+polynomials in the runtime step-size ratio. The step judges applicability
+(not the predictor): no prediction on the first step or after a rejected
+proposal. DIRK skips predicting a never-solved explicit first stage
+(`predict_first_stage`; its free ``dt*f`` sample still enters the history)
+and seeds node-repeating stages from the prior stage's converged increment.
 FIRK transforms its persistent coupled stage vector in place; DIRK keeps a
 persistent `stage_increment_history` (`stage_count * n`) that the transform
 updates and each stage solve reads from and writes back to. The predictor's

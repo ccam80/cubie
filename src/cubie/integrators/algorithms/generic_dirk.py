@@ -264,10 +264,16 @@ class DIRKStep(ODEImplicitStep):
             for key, value in kwargs.items()
             if key == "previous_step_size_location" and value is not None
         }
+        # An explicit first stage is never solved, so its
+        # prediction row is skipped.
+        predict_first_stage = (
+            tableau.a[0][0] != 0.0 or tableau.stage_count == 1
+        )
         self.dense_predictor = DenseStagePredictor(
             precision=self.compile_settings.precision,
             n=n,
             tableau=tableau,
+            predict_first_stage=predict_first_stage,
             **predictor_kwargs,
         )
         self.register_buffers()
@@ -450,6 +456,17 @@ class DIRKStep(ODEImplicitStep):
 
         stage_implicit = tuple(coeff != numba_precision(0.0)
                           for coeff in diagonal_coeffs)
+        # Explicit stages still feed their free derivative samples
+        # into the prediction history.
+        first_stage_implicit = bool(stage_implicit[0])
+        has_later_explicit_stage = not all(stage_implicit[1:])
+        # A stage repeating an earlier node seeds from that stage's
+        # just-converged increment, not the prediction.
+        stage_nodes = tableau.c
+        seeds_from_prediction = tuple(
+            stage_nodes[stage] not in stage_nodes[:stage]
+            for stage in range(tableau.stage_count)
+        )
         accumulator_length = int32(max(stage_count - 1, 0) * n)
 
         # Get child allocators for Newton solver
@@ -658,6 +675,14 @@ class DIRKStep(ODEImplicitStep):
                     stage_time,
                 )
 
+            if use_dense_prediction and not first_stage_implicit:
+                # Store the first stage's free derivative sample;
+                # valid on both the recomputed and cached RHS paths.
+                for idx in range(n):
+                    stage_increment_history[idx] = (
+                        dt_scalar * stage_rhs[idx]
+                    )
+
             solution_weight = solution_weights[0]
             error_weight = error_weights[0]
             for idx in range(n):
@@ -719,7 +744,9 @@ class DIRKStep(ODEImplicitStep):
                 if stage_implicit[stage_idx]:
                     if use_dense_prediction:
                         history_offset = stage_idx * n
-                        if apply_prediction:
+                        if apply_prediction and (
+                            seeds_from_prediction[stage_idx]
+                        ):
                             for idx in range(n):
                                 stage_increment[idx] = (
                                     stage_increment_history[
@@ -767,6 +794,15 @@ class DIRKStep(ODEImplicitStep):
                     stage_rhs,
                     stage_time,
                 )
+
+                if use_dense_prediction and has_later_explicit_stage:
+                    if not stage_implicit[stage_idx]:
+                        # Store the explicit stage's free sample.
+                        history_offset = stage_idx * n
+                        for idx in range(n):
+                            stage_increment_history[
+                                history_offset + idx
+                            ] = dt_scalar * stage_rhs[idx]
 
                 solution_weight = solution_weights[stage_idx]
                 error_weight = error_weights[stage_idx]

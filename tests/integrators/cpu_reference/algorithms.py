@@ -1097,7 +1097,12 @@ class CPUDIRKStep(CPUStep):
             )
 
         for stage_index in range(stage_count):
-            if predicted_increments is not None:
+            # A stage repeating an earlier node seeds from the
+            # carried increment, mirroring the device step.
+            node_seen_earlier = bool(
+                np.any(c_nodes[:stage_index] == c_nodes[stage_index])
+            )
+            if predicted_increments is not None and not node_seen_earlier:
                 guess = predicted_increments[stage_index]
             else:
                 guess = self._dirk_increment
@@ -1131,6 +1136,10 @@ class CPUDIRKStep(CPUStep):
                 )
                 stage_derivatives[stage_index, :] = derivative
                 stage_states[stage_index, :] = stage_state
+                if self._dirk_dense_prediction:
+                    # The explicit stage's free sample joins the
+                    # history, mirroring the device step.
+                    new_history[stage_index] = dt_value * derivative
                 continue
 
             base_state = stage_state.copy()
