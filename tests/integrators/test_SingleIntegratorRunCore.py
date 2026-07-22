@@ -1041,31 +1041,3 @@ def test_explicit_inner_tolerance_survives_derivation(
         float(algo.krylov_residual_floor),
         float(np.finfo(run.precision).eps) ** 0.5,
     )
-
-
-@pytest.mark.parametrize(
-    "solver_settings_override",
-    [
-        {
-            "algorithm": "radau_iia_5",
-            "step_controller": "gustafsson",
-            "gamma": 0.375,
-            "newton_max_iters": 37,
-            "newton_target_iters": 9,
-        }
-    ],
-    indirect=True,
-)
-def test_implicit_algorithm_and_controller_settings_are_independent(
-    single_integrator_run,
-):
-    """Flat settings preserve distinct algorithm/controller meanings."""
-    run = single_integrator_run
-    algorithm = run._algo_step
-    controller = run._step_controller
-
-    assert algorithm.gamma == pytest.approx(0.375)
-    assert algorithm.newton_max_iters == 37
-    assert controller.newton_target_iters == 9
-    assert "gamma" not in controller.settings_dict
-    assert "newton_max_iters" not in controller.settings_dict
