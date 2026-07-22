@@ -158,8 +158,9 @@ class ODEData(CUDAFactoryConfig):
     _solver_beta: float = field(default=1.0, converter=float)
     _solver_gamma: float = field(default=1.0, converter=float)
     preconditioner_order: int = field(default=2, converter=int)
+    # Set during builds; hashing it makes cache keys order-dependent.
     tableau_digest: str = field(
-        default="", validator=attrsval_instance_of(str)
+        default="", validator=attrsval_instance_of(str), eq=False
     )
 
     def __attrs_post_init__(self):
