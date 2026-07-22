@@ -309,8 +309,8 @@ def generate_analytical_jvp(
         Mapping from each output symbol to its position in the output
         vector.
     observables
-        Symbols renamed to ``aux_<n>`` auxiliaries before
-        differentiation.
+        Symbols renamed to ``_cubie_codegen_aux_<n>`` auxiliaries
+        before differentiation.
     cse
         Apply common-subexpression elimination before producing
         assignments.
@@ -333,7 +333,9 @@ def generate_analytical_jvp(
                 if isinstance(obs, ir.Sym)
                 else ir.sym(str(obs))
             )
-            obs_subs[obs_sym] = ir.sym(f"aux_{position + 1}")
+            obs_subs[obs_sym] = ir.sym(
+                f"_cubie_codegen_aux_{position + 1}"
+            )
 
     if obs_subs:
         memo: Dict = {}
@@ -372,7 +374,7 @@ def generate_analytical_jvp(
             if entry is ir.ZERO:
                 continue
             # Separators keep multi-digit indices unambiguous.
-            j_sym = ir.sym(f"j_{i}_{j}")
+            j_sym = ir.sym(f"_cubie_codegen_j_{i}_{j}")
             prod_exprs.append((j_sym, entry))
             j_symbols[(i, j)] = j_sym
 

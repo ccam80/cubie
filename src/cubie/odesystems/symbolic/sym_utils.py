@@ -33,8 +33,8 @@ Published Functions
     docstring).
 
     >>> print(render_constant_assignments(["g"]), end="")
-        g = precision(constants['g'])
-        _cubie_codegen_iexp_g = int(g) if float(g).is_integer() and abs(float(g)) < 9.2e18 else g
+        _cubie_codegen_const_g = precision(constants['g'])
+        _cubie_codegen_iexp_g = int(_cubie_codegen_const_g) if float(_cubie_codegen_const_g).is_integer() and abs(float(_cubie_codegen_const_g)) < 9.2e18 else _cubie_codegen_const_g
 
 :func:`prune_unused_assignments`
     Remove assignments that do not contribute to output symbols.
@@ -68,12 +68,17 @@ import sympy as sp
 if TYPE_CHECKING:
     from cubie.odesystems.symbolic.parsing import ParsedEquations
 
-# Prefix for the per-constant integer-exponent aliases emitted by
-# render_constant_assignments and referenced by the CUDA printer when a
-# constant appears as a power exponent. Underscored and namespaced so it
-# cannot collide with user-defined symbols (same scheme as the
-# _cubie_codegen_beta/_cubie_codegen_gamma renames).
-EXPONENT_ALIAS_PREFIX = "_cubie_codegen_iexp_"
+# Namespace reserved for generated bindings;
+# IndexedBases.from_user_inputs rejects user names carrying it.
+RESERVED_CODEGEN_PREFIX = "_cubie_codegen_"
+
+# Integer-exponent alias for a constant appearing as a power exponent,
+# emitted by render_constant_assignments and referenced by the printer.
+EXPONENT_ALIAS_PREFIX = f"{RESERVED_CODEGEN_PREFIX}iexp_"
+
+# Factory-scope load of a user constant, emitted by
+# render_constant_assignments and printed at every constant reference.
+CONSTANT_ALIAS_PREFIX = f"{RESERVED_CODEGEN_PREFIX}const_"
 
 
 def topological_sort(
@@ -349,11 +354,14 @@ def render_constant_assignments(
     prefix = " " * indent
     lines = []
     for name in constant_names:
-        lines.append(f"{prefix}{name} = precision(constants['{name}'])")
+        local = f"{CONSTANT_ALIAS_PREFIX}{name}"
         lines.append(
-            f"{prefix}{EXPONENT_ALIAS_PREFIX}{name} = int({name}) if "
-            f"float({name}).is_integer() and abs(float({name})) < 9.2e18 "
-            f"else {name}"
+            f"{prefix}{local} = precision(constants['{name}'])"
+        )
+        lines.append(
+            f"{prefix}{EXPONENT_ALIAS_PREFIX}{name} = int({local}) if "
+            f"float({local}).is_integer() and abs(float({local})) < "
+            f"9.2e18 else {local}"
         )
     return "\n".join(lines) + ("\n" if lines else "")
 

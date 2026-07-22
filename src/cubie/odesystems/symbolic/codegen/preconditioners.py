@@ -86,17 +86,19 @@ NEUMANN_TEMPLATE = (
     '    """Auto-generated Neumann preconditioner.\n'
     "    Approximates (beta*I - gamma*a_ij*h*J)^[-1] via a truncated\n"
     "    Neumann series. Returns device function:\n"
-    "      preconditioner(state, parameters, drivers, base_state, t, h, a_ij, v, out, jvp, scratch)\n"
+    "      preconditioner(state, parameters, drivers, base_state, t, _cubie_codegen_h, _cubie_codegen_a_ij, v, out, jvp, scratch)\n"
     "    where `jvp` is a caller-provided scratch buffer for J*v.\n"
     '    """\n'
-    "    n = int32({n_out})\n"
-    "    # Use _cubie_codegen_ prefix to avoid conflicts with user-defined\n"
-    "    # variables named beta or gamma (issue #373)\n"
+    "    _cubie_codegen_n = int32({n_out})\n"
     "    _cubie_codegen_gamma = precision(gamma)\n"
     "    _cubie_codegen_beta = precision(beta)\n"
-    "    order = int32(order)\n"
-    "    beta_inv = precision(1.0 / _cubie_codegen_beta)\n"
-    "    h_eff_factor = precision(_cubie_codegen_gamma * beta_inv)\n"
+    "    _cubie_codegen_order = int32(order)\n"
+    "    _cubie_codegen_beta_inv = precision(\n"
+    "        1.0 / _cubie_codegen_beta\n"
+    "    )\n"
+    "    _cubie_codegen_h_eff_factor = precision(\n"
+    "        _cubie_codegen_gamma * _cubie_codegen_beta_inv\n"
+    "    )\n"
     "{const_lines}"
     "    @cuda.jit(\n"
     "        # (precision[::1],\n"
@@ -113,19 +115,23 @@ NEUMANN_TEMPLATE = (
     "        inline=True,\n"
     "        **get_jit_kwargs(lineinfo))\n"
     "    def preconditioner(\n"
-    "        state, parameters, drivers, base_state, t, h, a_ij, v, out, jvp, scratch\n"
+    "        state, parameters, drivers, base_state, t, _cubie_codegen_h, _cubie_codegen_a_ij, v, out, jvp, scratch\n"
     "    ):\n"
     "        # Horner form: S[m] = v + T S[m-1], T = ((gamma*a_ij)/beta) * h * J\n"
     "        # Accumulator lives in `out`. Uses caller-provided `jvp` for JVP.\n"
-    "        for i in range(n):\n"
+    "        for i in range(_cubie_codegen_n):\n"
     "            out[i] = v[i]\n"
-    "        h_eff = h * h_eff_factor * a_ij\n"
-    "        for _ in range(order):\n"
+    "        _cubie_codegen_h_eff = (\n"
+    "            _cubie_codegen_h\n"
+    "            * _cubie_codegen_h_eff_factor\n"
+    "            * _cubie_codegen_a_ij\n"
+    "        )\n"
+    "        for _ in range(_cubie_codegen_order):\n"
     "{jv_body}\n"
-    "            for i in range(n):\n"
-    "                out[i] = v[i] + h_eff * jvp[i]\n"
-    "        for i in range(n):\n"
-    "            out[i] = beta_inv * out[i]\n"
+    "            for i in range(_cubie_codegen_n):\n"
+    "                out[i] = v[i] + _cubie_codegen_h_eff * jvp[i]\n"
+    "        for i in range(_cubie_codegen_n):\n"
+    "            out[i] = _cubie_codegen_beta_inv * out[i]\n"
     "    return preconditioner\n"
 )
 
@@ -138,17 +144,19 @@ NEUMANN_CACHED_TEMPLATE = (
     "    Approximates (beta*I - gamma*a_ij*h*J)^[-1] via a truncated\n"
     "    Neumann series with cached auxiliaries. Returns device function:\n"
     "      preconditioner(\n"
-    "          state, parameters, drivers, cached_aux, base_state, t, h, a_ij, v, out, jvp, scratch\n"
+    "          state, parameters, drivers, cached_aux, base_state, t, _cubie_codegen_h, _cubie_codegen_a_ij, v, out, jvp, scratch\n"
     "      )\n"
     '    """\n'
-    "    n = int32({n_out})\n"
-    "    order = int32(order)\n"
-    "    # Use _cubie_codegen_ prefix to avoid conflicts with user-defined\n"
-    "    # variables named beta or gamma (issue #373)\n"
+    "    _cubie_codegen_n = int32({n_out})\n"
+    "    _cubie_codegen_order = int32(order)\n"
     "    _cubie_codegen_gamma = precision(gamma)\n"
     "    _cubie_codegen_beta = precision(beta)\n"
-    "    beta_inv = precision(1.0 / _cubie_codegen_beta)\n"
-    "    h_eff_factor = precision(_cubie_codegen_gamma * beta_inv)\n"
+    "    _cubie_codegen_beta_inv = precision(\n"
+    "        1.0 / _cubie_codegen_beta\n"
+    "    )\n"
+    "    _cubie_codegen_h_eff_factor = precision(\n"
+    "        _cubie_codegen_gamma * _cubie_codegen_beta_inv\n"
+    "    )\n"
     "{const_lines}"
     "    @cuda.jit(\n"
     "        # (precision[::1],\n"
@@ -166,17 +174,21 @@ NEUMANN_CACHED_TEMPLATE = (
     "        inline=True,\n"
     "        **get_jit_kwargs(lineinfo))\n"
     "    def preconditioner(\n"
-    "        state, parameters, drivers, cached_aux, base_state, t, h, a_ij, v, out, jvp, scratch\n"
+    "        state, parameters, drivers, cached_aux, base_state, t, _cubie_codegen_h, _cubie_codegen_a_ij, v, out, jvp, scratch\n"
     "    ):\n"
-    "        for i in range(n):\n"
+    "        for i in range(_cubie_codegen_n):\n"
     "            out[i] = v[i]\n"
-    "        h_eff = h * h_eff_factor * a_ij\n"
-    "        for _ in range(order):\n"
+    "        _cubie_codegen_h_eff = (\n"
+    "            _cubie_codegen_h\n"
+    "            * _cubie_codegen_h_eff_factor\n"
+    "            * _cubie_codegen_a_ij\n"
+    "        )\n"
+    "        for _ in range(_cubie_codegen_order):\n"
     "{jv_body}\n"
-    "            for i in range(n):\n"
-    "                out[i] = v[i] + h_eff * jvp[i]\n"
-    "        for i in range(n):\n"
-    "            out[i] = beta_inv * out[i]\n"
+    "            for i in range(_cubie_codegen_n):\n"
+    "                out[i] = v[i] + _cubie_codegen_h_eff * jvp[i]\n"
+    "        for i in range(_cubie_codegen_n):\n"
+    "            out[i] = _cubie_codegen_beta_inv * out[i]\n"
     "    return preconditioner\n"
 )
 
@@ -190,17 +202,21 @@ N_STAGE_NEUMANN_TEMPLATE = (
     "    Approximates the inverse of ``beta * I - gamma * h * (A ⊗ J)`` using\n"
     "    a truncated Neumann series applied to flattened stages.\n"
     "    Returns device function:\n"
-    "      preconditioner(state, parameters, drivers, base_state, t, h, a_ij, v, out, jvp, scratch)\n"
+    "      preconditioner(state, parameters, drivers, base_state, t, _cubie_codegen_h, _cubie_codegen_a_ij, v, out, jvp, scratch)\n"
     '    """\n'
-    "{const_lines}"
-    "{metadata_lines}"
-    "    total_n = int32({total_states})\n"
     "    _cubie_codegen_gamma = precision(gamma)\n"
     "    _cubie_codegen_beta = precision(beta)\n"
-    "    order = int32(order)\n"
-    "    beta_inv = precision(1.0 / _cubie_codegen_beta)\n"
-    "    h_eff_factor = precision(_cubie_codegen_gamma * beta_inv)\n"
-    "    stage_width = int32({state_count})\n"
+    "{const_lines}"
+    "{metadata_lines}"
+    "    _cubie_codegen_total_n = int32({total_states})\n"
+    "    _cubie_codegen_order = int32(order)\n"
+    "    _cubie_codegen_beta_inv = precision(\n"
+    "        1.0 / _cubie_codegen_beta\n"
+    "    )\n"
+    "    _cubie_codegen_h_eff_factor = precision(\n"
+    "        _cubie_codegen_gamma * _cubie_codegen_beta_inv\n"
+    "    )\n"
+    "    _cubie_codegen_stage_width = int32({state_count})\n"
     "    @cuda.jit(\n"
     "        # (precision[::1],\n"
     "        #  precision[::1],\n"
@@ -215,16 +231,18 @@ N_STAGE_NEUMANN_TEMPLATE = (
     "        device=True,\n"
     "        inline=True,\n"
     "        **get_jit_kwargs(lineinfo))\n"
-    "    def preconditioner(state, parameters, drivers, base_state, t, h, a_ij, v, out, jvp, scratch):\n"
-    "        for i in range(total_n):\n"
+    "    def preconditioner(state, parameters, drivers, base_state, t, _cubie_codegen_h, _cubie_codegen_a_ij, v, out, jvp, scratch):\n"
+    "        for i in range(_cubie_codegen_total_n):\n"
     "            out[i] = v[i]\n"
-    "        h_eff = h * h_eff_factor\n"
-    "        for _ in range(order):\n"
+    "        _cubie_codegen_h_eff = (\n"
+    "            _cubie_codegen_h * _cubie_codegen_h_eff_factor\n"
+    "        )\n"
+    "        for _ in range(_cubie_codegen_order):\n"
     "{jv_body}\n"
-    "            for i in range(total_n):\n"
-    "                out[i] = v[i] + h_eff * jvp[i]\n"
-    "        for i in range(total_n):\n"
-    "            out[i] = beta_inv * out[i]\n"
+    "            for i in range(_cubie_codegen_total_n):\n"
+    "                out[i] = v[i] + _cubie_codegen_h_eff * jvp[i]\n"
+    "        for i in range(_cubie_codegen_total_n):\n"
+    "            out[i] = _cubie_codegen_beta_inv * out[i]\n"
     "    return preconditioner\n"
 )
 
@@ -479,9 +497,9 @@ JACOBI_TEMPLATE = (
     "    applies pointwise inversion: ``out[i] = v[i] / d[i]``.\n"
     "    Returns device function:\n"
     "      preconditioner(state, parameters, drivers, base_state,"
-    " t, h, a_ij, v, out, jvp, scratch)\n"
+    " t, _cubie_codegen_h, _cubie_codegen_a_ij, v, out, jvp, scratch)\n"
     '    """\n'
-    "    n = int32({n_out})\n"
+    "    _cubie_codegen_n = int32({n_out})\n"
     "    _cubie_codegen_gamma = precision(gamma)\n"
     "    _cubie_codegen_beta = precision(beta)\n"
     "{const_lines}"
@@ -490,7 +508,7 @@ JACOBI_TEMPLATE = (
     "        inline=True,\n"
     "        **get_jit_kwargs(lineinfo))\n"
     "    def preconditioner("
-    "state, parameters, drivers, base_state, t, h, a_ij, v, out, jvp, scratch):\n"
+    "state, parameters, drivers, base_state, t, _cubie_codegen_h, _cubie_codegen_a_ij, v, out, jvp, scratch):\n"
     "{diag_body}\n"
     "    return preconditioner\n"
 )
@@ -506,10 +524,10 @@ JACOBI_CACHED_TEMPLATE = (
     "    Returns device function:\n"
     "      preconditioner(\n"
     "          state, parameters, drivers, cached_aux, base_state,"
-    " t, h, a_ij, v, out, jvp, scratch\n"
+    " t, _cubie_codegen_h, _cubie_codegen_a_ij, v, out, jvp, scratch\n"
     "      )\n"
     '    """\n'
-    "    n = int32({n_out})\n"
+    "    _cubie_codegen_n = int32({n_out})\n"
     "    _cubie_codegen_gamma = precision(gamma)\n"
     "    _cubie_codegen_beta = precision(beta)\n"
     "{const_lines}"
@@ -519,7 +537,7 @@ JACOBI_CACHED_TEMPLATE = (
     "        **get_jit_kwargs(lineinfo))\n"
     "    def preconditioner("
     "state, parameters, drivers, cached_aux, base_state,"
-    " t, h, a_ij, v, out, jvp, scratch):\n"
+    " t, _cubie_codegen_h, _cubie_codegen_a_ij, v, out, jvp, scratch):\n"
     "{diag_body}\n"
     "    return preconditioner\n"
 )
@@ -558,7 +576,7 @@ def _guarded_diag_division(diag_sym, comp_idx, stage_idx=None):
         suffix = f"{stage_idx}_{comp_idx}"
     else:
         suffix = f"{comp_idx}"
-    safe_sym = ir.sym(f"safe_diag_{suffix}")
+    safe_sym = ir.sym(f"_cubie_codegen_safe_diag_{suffix}")
     floor = ir.num(DIAG_DIVISION_FLOOR)
     guarded = ir.piecewise(
         (diag_sym, ir.rel(">=", ir.call("Abs", diag_sym), floor)),
@@ -601,8 +619,8 @@ def _build_jacobi_body_with_state_subs(
         output_order=index_map.dxdt.index_map,
     )
 
-    h_sym = ir.sym("h")
-    a_ij_sym = ir.sym("a_ij")
+    h_sym = ir.sym("_cubie_codegen_h")
+    a_ij_sym = ir.sym("_cubie_codegen_a_ij")
     beta_sym = ir.sym("_cubie_codegen_beta")
     gamma_sym = ir.sym("_cubie_codegen_gamma")
 
@@ -610,9 +628,9 @@ def _build_jacobi_body_with_state_subs(
     # base_state + a_ij * state.
     subs_map = {}
     for idx, dx_sym in enumerate(sysir.dxdt_symbols):
-        subs_map[dx_sym] = ir.sym(f"dx_{idx}")
+        subs_map[dx_sym] = ir.sym(f"_cubie_codegen_dx_{idx}")
     for idx, obs_sym in enumerate(sysir.observable_symbols):
-        subs_map[obs_sym] = ir.sym(f"aux_{idx + 1}")
+        subs_map[obs_sym] = ir.sym(f"_cubie_codegen_aux_{idx + 1}")
     subs_map.update(_state_increment_subs(sysir))
 
     memo: dict = {}
@@ -627,7 +645,7 @@ def _build_jacobi_body_with_state_subs(
     mass = mass_matrix_ir(M, state_count)
     for comp_idx in range(state_count):
         j_ii = ir.xreplace(jac[comp_idx][comp_idx], subs_map, memo)
-        diag_sym = ir.sym(f"diag_{comp_idx}")
+        diag_sym = ir.sym(f"_cubie_codegen_diag_{comp_idx}")
         diag_val = ir.sub(
             _mass_diag_term(mass, comp_idx, beta_sym),
             ir.mul(gamma_sym, h_sym, a_ij_sym, j_ii),
@@ -639,7 +657,7 @@ def _build_jacobi_body_with_state_subs(
                 ir.arr("out", comp_idx),
                 ir.div(
                     ir.arr("v", comp_idx),
-                    ir.sym(f"safe_diag_{comp_idx}"),
+                    ir.sym(f"_cubie_codegen_safe_diag_{comp_idx}"),
                 ),
             )
         )
@@ -691,8 +709,8 @@ def _build_cached_jacobi_body(
     )
     cached_aux, runtime_aux, _ = jvp_equations.cached_partition()
 
-    h_sym = ir.sym("h")
-    a_ij_sym = ir.sym("a_ij")
+    h_sym = ir.sym("_cubie_codegen_h")
+    a_ij_sym = ir.sym("_cubie_codegen_a_ij")
     beta_sym = ir.sym("_cubie_codegen_beta")
     gamma_sym = ir.sym("_cubie_codegen_gamma")
 
@@ -716,7 +734,7 @@ def _build_cached_jacobi_body(
     # names, while the JVP pipeline renamed them to aux_<n>; map the
     # originals to the same numbered locals so both agree.
     obs_renames = {
-        obs_sym: ir.sym(f"aux_{idx + 1}")
+        obs_sym: ir.sym(f"_cubie_codegen_aux_{idx + 1}")
         for idx, obs_sym in enumerate(sysir.observable_symbols)
     }
 
@@ -727,7 +745,7 @@ def _build_cached_jacobi_body(
             jac[comp_idx][comp_idx], obs_renames, memo
         )
         j_ii = ir.xreplace(j_ii, aux_subs)
-        diag_sym = ir.sym(f"diag_{comp_idx}")
+        diag_sym = ir.sym(f"_cubie_codegen_diag_{comp_idx}")
         diag_val = ir.sub(
             _mass_diag_term(mass, comp_idx, beta_sym),
             ir.mul(gamma_sym, h_sym, a_ij_sym, j_ii),
@@ -739,7 +757,7 @@ def _build_cached_jacobi_body(
                 ir.arr("out", comp_idx),
                 ir.div(
                     ir.arr("v", comp_idx),
-                    ir.sym(f"safe_diag_{comp_idx}"),
+                    ir.sym(f"_cubie_codegen_safe_diag_{comp_idx}"),
                 ),
             )
         )
@@ -877,20 +895,20 @@ N_STAGE_JACOBI_TEMPLATE = (
     "    applies pointwise inversion: ``out[k] = v[k] / d[k]``.\n"
     "    Returns device function:\n"
     "      preconditioner(state, parameters, drivers, base_state,"
-    " t, h, a_ij, v, out, jvp, scratch)\n"
+    " t, _cubie_codegen_h, _cubie_codegen_a_ij, v, out, jvp, scratch)\n"
     '    """\n'
-    "{const_lines}"
-    "{metadata_lines}"
-    "    total_n = int32({total_states})\n"
     "    _cubie_codegen_gamma = precision(gamma)\n"
     "    _cubie_codegen_beta = precision(beta)\n"
-    "    stage_width = int32({state_count})\n"
+    "{const_lines}"
+    "{metadata_lines}"
+    "    _cubie_codegen_total_n = int32({total_states})\n"
+    "    _cubie_codegen_stage_width = int32({state_count})\n"
     "    @cuda.jit(\n"
     "        device=True,\n"
     "        inline=True,\n"
     "        **get_jit_kwargs(lineinfo))\n"
     "    def preconditioner("
-    "state, parameters, drivers, base_state, t, h, a_ij, v, out, jvp, scratch):\n"
+    "state, parameters, drivers, base_state, t, _cubie_codegen_h, _cubie_codegen_a_ij, v, out, jvp, scratch):\n"
     "        # Evaluate diagonal J_ii at each stage evaluation point,\n"
     "        # form d[s*n+i] = beta - gamma*h*a_ss*J_ii,\n"
     "        # apply out[k] = v[k] / d[k].\n"
@@ -926,7 +944,7 @@ def _build_n_stage_jacobi_lines(
         output_order=index_map.dxdt.index_map,
     )
 
-    h_sym = ir.sym("h")
+    h_sym = ir.sym("_cubie_codegen_h")
     beta_sym = ir.sym("_cubie_codegen_beta")
     gamma_sym = ir.sym("_cubie_codegen_gamma")
 
@@ -960,7 +978,9 @@ def _build_n_stage_jacobi_lines(
             j_ii = ir.xreplace(
                 jac[comp_idx][comp_idx], subs_map, memo
             )
-            diag_sym = ir.sym(f"diag_{stage_idx}_{comp_idx}")
+            diag_sym = ir.sym(
+                f"_cubie_codegen_diag_{stage_idx}_{comp_idx}"
+            )
             diag_val = ir.sub(
                 _mass_diag_term(mass, comp_idx, beta_sym),
                 ir.mul(gamma_sym, h_sym, diag_coeff, j_ii),
@@ -977,7 +997,8 @@ def _build_n_stage_jacobi_lines(
                     ir.div(
                         ir.arr("v", stage_offset + comp_idx),
                         ir.sym(
-                            f"safe_diag_{stage_idx}_{comp_idx}"
+                            "_cubie_codegen_safe_diag_"
+                            f"{stage_idx}_{comp_idx}"
                         ),
                     ),
                 )

@@ -621,8 +621,16 @@ class TestRenderConstantAssignments:
     def test_renders_load_and_alias_lines(self):
         block = render_constant_assignments(["g"])
         lines = block.splitlines()
-        assert lines[0] == "    g = precision(constants['g'])"
+        assert lines[0] == (
+            "    _cubie_codegen_const_g = precision(constants['g'])"
+        )
         assert lines[1].startswith("    _cubie_codegen_iexp_g = ")
+
+    def test_load_never_binds_the_bare_user_name(self):
+        block = render_constant_assignments(["g"])
+        namespace = self._exec_block(block, {"g": 4.0})
+        assert "g" not in namespace
+        assert namespace["_cubie_codegen_const_g"] == 4.0
 
     def test_alias_is_int_for_integral_value(self):
         block = render_constant_assignments(["g"])

@@ -18,7 +18,10 @@ from cubie.odesystems.symbolic.engine.expr import (
     Rel,
     Sym,
 )
-from cubie.odesystems.symbolic.sym_utils import EXPONENT_ALIAS_PREFIX
+from cubie.odesystems.symbolic.sym_utils import (
+    CONSTANT_ALIAS_PREFIX,
+    EXPONENT_ALIAS_PREFIX,
+)
 
 __all__ = ["CUDA_FUNCTIONS", "IRPrinter", "print_cuda",
            "print_cuda_multiple"]
@@ -98,8 +101,10 @@ class IRPrinter:
         Mapping from symbol *name* to replacement expression (an
         :class:`Arr` or :class:`Sym`) for scalar-to-array remapping.
     constant_names
-        Names of factory-scope constants; a constant appearing as a
-        power exponent prints as its integer-exponent alias.
+        Names of factory-scope constants. A constant prints as its
+        ``CONSTANT_ALIAS_PREFIX``-prefixed factory local so user
+        names can never alias generated bindings; one appearing as a
+        power exponent prints as its integer-exponent alias instead.
     function_aliases
         Mapping from renamed user-function name to its original
         (printable) name.
@@ -134,6 +139,8 @@ class IRPrinter:
             mapped = self.symbol_map.get(lhs.name)
             if mapped is not None:
                 return self._print(mapped, _PREC_ATOM)
+            if lhs.name in self.constant_names:
+                return f"{CONSTANT_ALIAS_PREFIX}{lhs.name}"
             return lhs.name
         if isinstance(lhs, Arr):
             return f"{lhs.name}[{lhs.index}]"
@@ -158,6 +165,11 @@ class IRPrinter:
             mapped = self.symbol_map.get(node.name)
             if mapped is not None and mapped is not node:
                 return self._render(mapped)
+            if node.name in self.constant_names:
+                return (
+                    f"{CONSTANT_ALIAS_PREFIX}{node.name}",
+                    _PREC_ATOM,
+                )
             return node.name, _PREC_ATOM
         if isinstance(node, Arr):
             return f"{node.name}[{node.index}]", _PREC_ATOM

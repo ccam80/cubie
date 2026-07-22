@@ -640,7 +640,7 @@ class TestConstantParameterConversion:
         source = ode.gen_file.file_path.read_text()
 
         assert "parameters[1]" in source
-        assert "c = precision(constants['c'])" not in source
+        assert "precision(constants['c'])" not in source
 
     def test_make_constant_regenerates_source(self, precision):
         """Generated source follows a parameter-to-constant move."""
@@ -657,7 +657,10 @@ class TestConstantParameterConversion:
         _ = ode.evaluate_f
         source = ode.gen_file.file_path.read_text()
 
-        assert "c = precision(constants['c'])" in source
+        assert (
+            "_cubie_codegen_const_c = precision(constants['c'])"
+            in source
+        )
         assert "parameters[1]" not in source
 
 

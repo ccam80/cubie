@@ -107,7 +107,8 @@ CACHED_OPERATOR_APPLY_TEMPLATE = (
     "        inline=True,\n"
     "        **get_jit_kwargs(lineinfo))\n"
     "    def operator_apply(\n"
-    "        state, parameters, drivers, cached_aux, base_state, t, h, a_ij, v, out\n"
+    "        state, parameters, drivers, cached_aux, base_state, t,\n"
+    "        _cubie_codegen_h, _cubie_codegen_a_ij, v, out\n"
     "    ):\n"
     "{body}\n"
     "    return operator_apply\n"
@@ -139,7 +140,10 @@ OPERATOR_APPLY_TEMPLATE = (
     "        device=True,\n"
     "        inline=True,\n"
     "        **get_jit_kwargs(lineinfo))\n"
-    "    def operator_apply(state, parameters, drivers, base_state, t, h, a_ij, v, out):\n"
+    "    def operator_apply(\n"
+    "        state, parameters, drivers, base_state, t,\n"
+    "        _cubie_codegen_h, _cubie_codegen_a_ij, v, out,\n"
+    "    ):\n"
     "{body}\n"
     "    return operator_apply\n"
 )
@@ -239,7 +243,7 @@ def _state_increment_subs(sysir: SystemIR) -> Dict[ir.Expr, ir.Expr]:
     Used by the non-cached (Newton--Krylov) paths, where the ``state``
     argument is the stage increment.
     """
-    a_ij_sym = ir.sym("a_ij")
+    a_ij_sym = ir.sym("_cubie_codegen_a_ij")
     subs = {}
     for i, state_sym in enumerate(sysir.state_symbols):
         subs[state_sym] = ir.add(
@@ -264,8 +268,8 @@ def _build_operator_body(
     n_in = len(sysir.state_symbols)
     beta_sym = ir.sym("_cubie_codegen_beta")
     gamma_sym = ir.sym("_cubie_codegen_gamma")
-    a_ij_sym = ir.sym("a_ij")
-    h_sym = ir.sym("h")
+    a_ij_sym = ir.sym("_cubie_codegen_a_ij")
+    h_sym = ir.sym("_cubie_codegen_h")
 
     # For Newton-Krylov (use_cached_aux=False): state param is the
     # stage increment; evaluate at base_state + a_ij * stage_increment.
@@ -282,7 +286,7 @@ def _build_operator_body(
             entry = M[i][j]
             if ir.is_zero(entry):
                 continue
-            m_sym = ir.sym(f"m_{i}_{j}")
+            m_sym = ir.sym(f"_cubie_codegen_m_{i}_{j}")
             mass_assigns.append((m_sym, entry))
             mv_terms.append(ir.mul(m_sym, ir.arr("v", j)))
         mv = ir.add(*mv_terms) if mv_terms else ir.ZERO
@@ -650,7 +654,9 @@ def build_stage_jvp_assignments(
     # Stage-rename every JVP auxiliary; dependencies are topologically
     # ordered, so one simultaneous rename map is exact.
     for lhs in jvp_equations.non_jvp_order:
-        subs_map[lhs] = ir.sym(f"{lhs.name}_{stage_idx}")
+        subs_map[lhs] = ir.sym(
+            f"_cubie_codegen_s{stage_idx}_{lhs.name}"
+        )
 
     memo: dict = {}
     assignments: List[Tuple[ir.Expr, ir.Expr]] = []
@@ -662,7 +668,9 @@ def build_stage_jvp_assignments(
 
     stage_jvp_symbols: Dict[int, ir.Sym] = {}
     for idx, term in jvp_equations.jvp_terms.items():
-        stage_symbol = ir.sym(f"jvp_{stage_idx}_{idx}")
+        stage_symbol = ir.sym(
+            f"_cubie_codegen_jvp_{stage_idx}_{idx}"
+        )
         stage_jvp_symbols[idx] = stage_symbol
         assignments.append(
             (stage_symbol, ir.xreplace(term, subs_map, memo))
@@ -688,7 +696,7 @@ def _build_n_stage_operator_lines(
 
     beta_sym = ir.sym("_cubie_codegen_beta")
     gamma_sym = ir.sym("_cubie_codegen_gamma")
-    h_sym = ir.sym("h")
+    h_sym = ir.sym("_cubie_codegen_h")
 
     eval_exprs: List[Tuple[ir.Expr, ir.Expr]] = list(metadata_exprs)
 
@@ -791,9 +799,9 @@ N_STAGE_OPERATOR_TEMPLATE = (
     '    """Auto-generated FIRK linear operator for flattened stages.\n'
     "    Handles {stage_count} stages with ``s * n`` unknowns.\n"
     '    """\n'
-    "{const_lines}"
     "    _cubie_codegen_gamma = precision(gamma)\n"
     "    _cubie_codegen_beta = precision(beta)\n"
+    "{const_lines}"
     "{metadata_lines}"
     "    @cuda.jit(\n"
     "        # (precision[::1],\n"
@@ -808,7 +816,10 @@ N_STAGE_OPERATOR_TEMPLATE = (
     "        device=True,\n"
     "        inline=True,\n"
     "        **get_jit_kwargs(lineinfo))\n"
-    "    def operator_apply(state, parameters, drivers, base_state, t, h, a_ij, v, out):\n"
+    "    def operator_apply(\n"
+    "        state, parameters, drivers, base_state, t,\n"
+    "        _cubie_codegen_h, _cubie_codegen_a_ij, v, out,\n"
+    "    ):\n"
     "{body}\n"
     "    return operator_apply\n"
 )

@@ -145,7 +145,7 @@ def _build_time_derivative_assignments(
             chain_terms.append(ir.mul(partial, derivative))
 
         total = ir.add(direct_time, *driver_terms, *chain_terms)
-        deriv_symbol = ir.sym(f"time_{lhs.name}")
+        deriv_symbol = ir.sym(f"_cubie_codegen_time_{lhs.name}")
         symbol_derivatives[lhs] = total
         derivative_symbols[lhs] = deriv_symbol
         derivative_assignments.append((deriv_symbol, total))

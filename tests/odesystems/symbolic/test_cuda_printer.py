@@ -28,7 +28,10 @@ from cubie.odesystems.symbolic.engine import (
     rel,
     sym,
 )
-from cubie.odesystems.symbolic.sym_utils import EXPONENT_ALIAS_PREFIX
+from cubie.odesystems.symbolic.sym_utils import (
+    CONSTANT_ALIAS_PREFIX,
+    EXPONENT_ALIAS_PREFIX,
+)
 
 
 class TestPrecisionWrapping:
@@ -152,11 +155,23 @@ class TestConstantExponentAlias:
         )
         assert result == "x**parameters[0]"
 
-    def test_constant_base_not_aliased(self):
+    def test_constant_base_prints_prefixed_local(self):
         result = print_cuda(
             pow_(sym("n"), sym("x")), constant_names={"n"}
         )
-        assert result == "n**x"
+        assert result == f"{CONSTANT_ALIAS_PREFIX}n**x"
+
+    def test_constant_read_prints_prefixed_local(self):
+        result = print_cuda(sym("n"), constant_names={"n"})
+        assert result == f"{CONSTANT_ALIAS_PREFIX}n"
+
+    def test_mapped_constant_prints_array_reference(self):
+        result = print_cuda(
+            sym("n"),
+            symbol_map={"n": arr("parameters", 0)},
+            constant_names={"n"},
+        )
+        assert result == "parameters[0]"
 
     def test_alias_used_via_print_cuda_multiple(self):
         lines = print_cuda_multiple(

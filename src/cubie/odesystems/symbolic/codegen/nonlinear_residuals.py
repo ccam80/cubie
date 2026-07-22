@@ -78,7 +78,10 @@ RESIDUAL_TEMPLATE = (
     "        device=True,\n"
     "        inline=True,\n"
     "        **get_jit_kwargs(lineinfo))\n"
-    "    def residual(u, parameters, drivers, t, h, a_ij, base_state, out):\n"
+    "    def residual(\n"
+    "        u, parameters, drivers, t,\n"
+    "        _cubie_codegen_h, _cubie_codegen_a_ij, base_state, out,\n"
+    "    ):\n"
     "{res_lines}\n"
     "    return residual\n"
 )
@@ -107,7 +110,10 @@ N_STAGE_RESIDUAL_TEMPLATE = (
     "        device=True,\n"
     "        inline=True,\n"
     "        **get_jit_kwargs(lineinfo))\n"
-    "    def residual(u, parameters, drivers, t, h, a_ij, base_state, out):\n"
+    "    def residual(\n"
+    "        u, parameters, drivers, t,\n"
+    "        _cubie_codegen_h, _cubie_codegen_a_ij, base_state, out,\n"
+    "    ):\n"
     "{body}\n"
     "    return residual\n"
 )
@@ -123,17 +129,21 @@ def _build_residual_lines(
     n = len(sysir.state_symbols)
     beta_sym = ir.sym("_cubie_codegen_beta")
     gamma_sym = ir.sym("_cubie_codegen_gamma")
-    h_sym = ir.sym("h")
-    aij_sym = ir.sym("a_ij")
+    h_sym = ir.sym("_cubie_codegen_h")
+    aij_sym = ir.sym("_cubie_codegen_a_ij")
 
     # dx/observable outputs become stage locals; states evaluate at
     # base_state + a_ij * u. Domains and images are disjoint, so one
-    # simultaneous substitution covers all of it.
+    # simultaneous substitution covers all of it. Internal locals use
+    # the reserved _cubie_codegen_ namespace so they can never merge
+    # with a same-named user symbol in the hash-consed IR.
     subs_map = {}
     for i, dx_sym in enumerate(sysir.dxdt_symbols):
-        subs_map[dx_sym] = ir.sym(f"dx_{i}")
+        subs_map[dx_sym] = ir.sym(f"_cubie_codegen_dx_{i}")
     for position, obs_sym in enumerate(sysir.observable_symbols):
-        subs_map[obs_sym] = ir.sym(f"aux_{position + 1}")
+        subs_map[obs_sym] = ir.sym(
+            f"_cubie_codegen_aux_{position + 1}"
+        )
     for i, state_sym in enumerate(sysir.state_symbols):
         subs_map[state_sym] = ir.add(
             ir.arr("base_state", i),
@@ -157,7 +167,7 @@ def _build_residual_lines(
                 continue
             mv_terms.append(ir.mul(entry, ir.arr("u", j)))
         mv = ir.add(*mv_terms) if mv_terms else ir.ZERO
-        dx_sym = ir.sym(f"dx_{i}")
+        dx_sym = ir.sym(f"_cubie_codegen_dx_{i}")
         residual_expr = ir.sub(
             ir.mul(beta_sym, mv),
             ir.mul(gamma_sym, h_sym, dx_sym),
@@ -217,14 +227,18 @@ def build_stage_substitutions(
     """
     state_count = len(sysir.state_symbols)
     stage_count = len(stage_coefficients)
-    h_sym = ir.sym("h")
+    h_sym = ir.sym("_cubie_codegen_h")
     time_arg = ir.sym("t")
 
     subs_map = {}
     for idx, dx_sym in enumerate(sysir.dxdt_symbols):
-        subs_map[dx_sym] = ir.sym(f"dx_{stage_idx}_{idx}")
+        subs_map[dx_sym] = ir.sym(
+            f"_cubie_codegen_dx_{stage_idx}_{idx}"
+        )
     for idx, obs_sym in enumerate(sysir.observable_symbols):
-        subs_map[obs_sym] = ir.sym(f"aux_{stage_idx}_{idx + 1}")
+        subs_map[obs_sym] = ir.sym(
+            f"_cubie_codegen_aux_{stage_idx}_{idx + 1}"
+        )
     # Anonymous auxiliaries must be stage-renamed too: repeated
     # left-hand sides across stages would otherwise collapse to a
     # single assignment during topological sorting, leaving early
@@ -232,7 +246,9 @@ def build_stage_substitutions(
     named = set(subs_map)
     for lhs, _ in sysir.equations:
         if isinstance(lhs, ir.Sym) and lhs not in named:
-            subs_map[lhs] = ir.sym(f"{lhs.name}_{stage_idx}")
+            subs_map[lhs] = ir.sym(
+                f"_cubie_codegen_s{stage_idx}_{lhs.name}"
+            )
     subs_map[sysir.time_symbol] = ir.add(
         time_arg, ir.mul(h_sym, node_symbols[stage_idx])
     )
@@ -283,7 +299,7 @@ def _build_n_stage_residual_lines(
 
     beta_sym = ir.sym("_cubie_codegen_beta")
     gamma_sym = ir.sym("_cubie_codegen_gamma")
-    h_sym = ir.sym("h")
+    h_sym = ir.sym("_cubie_codegen_h")
 
     eval_exprs: List[Tuple[ir.Expr, ir.Expr]] = list(metadata_exprs)
 
@@ -317,7 +333,9 @@ def _build_n_stage_residual_lines(
                     ir.mul(entry, ir.arr("u", stage_offset + col_idx))
                 )
             mv = ir.add(*mv_terms) if mv_terms else ir.ZERO
-            dx_symbol = ir.sym(f"dx_{stage_idx}_{comp_idx}")
+            dx_symbol = ir.sym(
+                f"_cubie_codegen_dx_{stage_idx}_{comp_idx}"
+            )
             update_expr = ir.sub(
                 ir.mul(beta_sym, mv),
                 ir.mul(gamma_sym, h_sym, dx_symbol),

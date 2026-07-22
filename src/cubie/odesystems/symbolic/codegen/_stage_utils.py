@@ -89,12 +89,14 @@ def build_stage_metadata(
     node_symbols: List[ir.Sym] = []
     metadata_exprs: List[Tuple[ir.Sym, ir.Expr]] = []
     for stage_idx in range(stage_count):
-        node_symbol = ir.sym(f"c_{stage_idx}")
+        node_symbol = ir.sym(f"_cubie_codegen_c_{stage_idx}")
         node_symbols.append(node_symbol)
         metadata_exprs.append((node_symbol, stage_nodes[stage_idx]))
         stage_row: List[ir.Sym] = []
         for col_idx in range(stage_count):
-            coeff_symbol = ir.sym(f"a_{stage_idx}_{col_idx}")
+            coeff_symbol = ir.sym(
+                f"_cubie_codegen_a_{stage_idx}_{col_idx}"
+            )
             stage_row.append(coeff_symbol)
             metadata_exprs.append(
                 (
