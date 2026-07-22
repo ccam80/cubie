@@ -93,8 +93,8 @@ a previous parameter set's session. For these modules:
 
 #### Exception: sub-numerical unit fixtures
 
-Two further module-level conftests are sanctioned because they test layers
-below the numerical chain rather than duplicating it:
+Three further module-level conftests are sanctioned because they pin
+protocols the shared hierarchy cannot express:
 
 - `tests/odesystems/symbolic/conftest.py` — SymPy symbols, `IndexedBases`,
   and `ParsedEquations` fixtures for parser/codegen unit tests. These run
@@ -107,6 +107,13 @@ below the numerical chain rather than duplicating it:
   Its `linear_solver_instance` / `newton_solver_instance` fixtures draw
   their configuration from the central `solver_settings`, so solver
   parametrization still flows through `solver_settings_override`.
+- `tests/integrated_numerical_tests/julia_reference/conftest.py` — the
+  golden-reference gate against vendored DifferentialEquations.jl
+  sweeps. Solvers and the Lorenz system flow through the shared
+  `solver_settings` hierarchy (one `solver_settings_override` param
+  set per algorithm); this conftest only loads the vendored data and
+  runs the per-algorithm dt/tolerance sweeps required by the
+  numerical-equivalence protocol shared with GPUODEBenchmarks.
 
 ### Fixture hierarchy
 

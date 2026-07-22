@@ -9,8 +9,8 @@ Published Classes
 
     >>> from numpy import float64
     >>> config = GustafssonStepControlConfig(precision=float64)
-    >>> config.gamma
-    0.9
+    >>> config.newton_target_iters
+    20
 
 :class:`GustafssonController`
     Adaptive controller using Gustafsson acceleration for implicit
@@ -44,7 +44,6 @@ from cubie.integrators.step_control.adaptive_step_controller import (
 from cubie._utils import (
     PrecisionDType,
     getype_validator,
-    inrangetype_validator,
 )
 from cubie.cuda_simsafe import selp
 from cubie.result_codes import CUBIE_RESULT_CODES
@@ -57,15 +56,11 @@ class GustafssonStepControlConfig(AdaptiveStepControlConfig):
 
     Notes
     -----
-    Includes damping and Newton iteration limits used by Gustafsson's
-    predictor for implicit integrators.
+    Includes the reference Newton iteration count used by Gustafsson's
+    work-sensitive damping for implicit integrators.
     """
 
-    _gamma: float = field(
-        default=0.9,
-        validator=inrangetype_validator(float, 0, 1),
-    )
-    _newton_max_iters: int = field(
+    _newton_target_iters: int = field(
         default=20,
         validator=getype_validator(int, 0),
     )
@@ -74,23 +69,15 @@ class GustafssonStepControlConfig(AdaptiveStepControlConfig):
         super().__attrs_post_init__()
 
     @property
-    def gamma(self) -> float:
-        """Return the damping factor applied to the gain."""
-
-        return self.precision(self._gamma)
-
-    @property
-    def newton_max_iters(self) -> int:
-        """Return the maximum number of Newton iterations considered."""
-        return int(self._newton_max_iters)
+    def newton_target_iters(self) -> int:
+        """Return the Newton-work reference used for gain damping."""
+        return int(self._newton_target_iters)
 
     @property
     def settings_dict(self) -> dict[str, object]:
         """Return the configuration as a dictionary."""
         settings_dict = super().settings_dict
-        settings_dict.update(
-            {"gamma": self.gamma, "newton_max_iters": self.newton_max_iters}
-        )
+        settings_dict.update({"newton_target_iters": self.newton_target_iters})
         return settings_dict
 
 
@@ -100,16 +87,10 @@ class GustafssonController(BaseAdaptiveStepController):
     _config_class = GustafssonStepControlConfig
 
     @property
-    def gamma(self) -> float:
-        """Return the damping factor applied to the gain."""
+    def newton_target_iters(self) -> int:
+        """Return the Newton-work reference used for gain damping."""
 
-        return self.compile_settings.gamma
-
-    @property
-    def newton_max_iters(self) -> int:
-        """Return the maximum number of Newton iterations considered."""
-
-        return self.compile_settings.newton_max_iters
+        return self.compile_settings.newton_target_iters
 
     _timestep_buffer_elements = 2  # previous dt and error norm
 
@@ -164,9 +145,9 @@ class GustafssonController(BaseAdaptiveStepController):
         )
 
         expo = precision(1.0 / (2 * (algorithm_order + 1)))
-        gamma = precision(self.gamma)
-        newton_max_iters = int(self.newton_max_iters)
-        gain_numerator = precision((1 + 2 * newton_max_iters)) * gamma
+        safety = precision(safety)
+        newton_target_iters = int(self.newton_target_iters)
+        gain_numerator = precision((1 + 2 * newton_target_iters)) * safety
         typed_one = precision(1.0)
         typed_zero = precision(0.0)
         deadband_min = precision(self.deadband_min)
@@ -176,7 +157,6 @@ class GustafssonController(BaseAdaptiveStepController):
         deadband_disabled = (deadband_min == typed_one) and (
             deadband_max == typed_one
         )
-        numba_precision = self.compile_settings.numba_precision
         n = int32(n)
         inv_n = precision(1.0 / n)
         typed_large = precision(1e16)
@@ -253,14 +233,14 @@ class GustafssonController(BaseAdaptiveStepController):
             accept = nrm2 <= typed_one
             accept_out[0] = int32(1) if accept else int32(0)
 
-            denom = precision(niters + 2 * newton_max_iters)
+            denom = precision(niters + 2 * newton_target_iters)
             tmp = gain_numerator / denom
-            fac = gamma if gamma < tmp else tmp
+            fac = safety if safety < tmp else tmp
             gain_basic = precision(fac * (nrm2 ** (-expo)))
 
             ratio = nrm2 * nrm2 / err_prev
             gain_gus = precision(
-                safety * (dt[0] / dt_prev) * (ratio**-expo) * gamma
+                safety * (dt[0] / dt_prev) * (ratio**-expo)
             )
             gain = gain_gus if gain_gus < gain_basic else gain_basic
             gain = (

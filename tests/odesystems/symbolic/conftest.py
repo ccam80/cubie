@@ -217,6 +217,34 @@ def bare_indexed_bases():
     )
 
 
+@pytest.fixture(scope="session")
+def solver_scaling_collision_indexed_bases():
+    """IndexedBases with constants named like solver scalings."""
+    return IndexedBases.from_user_inputs(
+        states={"x": 1.0},
+        parameters={},
+        constants={"beta": 2.0, "gamma": 3.0},
+        observables=[],
+        drivers=[],
+    )
+
+
+@pytest.fixture(scope="session")
+def solver_scaling_collision_equations(
+    solver_scaling_collision_indexed_bases,
+):
+    """One-state equation using colliding beta/gamma constants."""
+    ib = solver_scaling_collision_indexed_bases
+    x = ib.states.symbol_map["x"]
+    beta = ib.constants.symbol_map["beta"]
+    gamma = ib.constants.symbol_map["gamma"]
+    dx = ib.dxdt.symbol_map["dx"]
+    return ParsedEquations.from_equations(
+        [(dx, beta * x + gamma)],
+        ib,
+    )
+
+
 @pytest.fixture
 def bare_nonlinear_equations(bare_indexed_bases):
     """Two-state nonlinear equations with no cacheable auxiliaries."""

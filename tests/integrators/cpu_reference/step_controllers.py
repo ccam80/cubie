@@ -24,11 +24,10 @@ class CPUAdaptiveController:
         kp: float = 0.7,
         ki: float = -0.4,
         kd: float = 0.0,
-        gamma: float = 0.9,
         safety: float = 0.9,
         min_gain: float = 0.5,
         max_gain: float = 2.0,
-        newton_max_iters: int = 0,
+        newton_target_iters: int = 20,
         deadband_min: float = 1.0,
         deadband_max: float = 1.2,
     ) -> None:
@@ -52,8 +51,7 @@ class CPUAdaptiveController:
         self.kp = precision(kp)
         self.ki = precision(ki)
         self.kd = precision(kd)
-        self.gamma = precision(gamma)
-        self.newton_max_iters = int(newton_max_iters)
+        self.newton_target_iters = int(newton_target_iters)
         self.deadband_min = precision(deadband_min)
         self.deadband_max = precision(deadband_max)
         self.unity_gain = precision(1.0)
@@ -183,12 +181,13 @@ class CPUAdaptiveController:
             one = precision(1.0)
             two = precision(2.0)
             niters_eff = precision(max(niters, 1))
-            M = self.newton_max_iters
+            target_iters = self.newton_target_iters
             dt_prev = max(precision(1e-16), self._prev_dt)
             nrm2_prev = max(precision(1e-16), self._prev_nrm2)
             fac = min(
-                self.gamma,
-                ((one + two * M) * self.gamma) / (niters_eff + two * M),
+                self.safety,
+                ((one + two * target_iters) * self.safety)
+                / (niters_eff + two * target_iters),
             )
             gain_basic = precision(fac * (errornorm**-expo_fraction))
 
@@ -198,7 +197,6 @@ class CPUAdaptiveController:
                 self.safety
                 * (current_dt / dt_prev)
                 * precision(ratio**-expo_fraction)
-                * self.gamma
             )
             gain = gain_gus if gain_gus < gain_basic else gain_basic
             # Fallback to gain_basic if step not accepted or no previous dt

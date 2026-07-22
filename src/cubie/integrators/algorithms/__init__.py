@@ -29,6 +29,7 @@ from .generic_rosenbrockw_tableaus import ROSENBROCK_TABLEAUS, RosenbrockTableau
 
 
 __all__ = [
+    "algorithm_is_adaptive",
     "get_algorithm_step",
     "ExplicitStepConfig",
     "ImplicitStepConfig",
@@ -90,6 +91,41 @@ def resolve_alias(alias: str) -> Tuple[Type[BaseAlgorithmStep], Optional[Butcher
     if key not in _TABLEAU_REGISTRY_BY_ALGORITHM:
         raise KeyError(alias)
     return _TABLEAU_REGISTRY_BY_ALGORITHM[key]
+
+
+def algorithm_is_adaptive(alias: str) -> bool:
+    """Return whether ``alias`` carries an embedded error estimate.
+
+    Parameters
+    ----------
+    alias
+        Algorithm alias registered in the tableau registry.
+
+    Returns
+    -------
+    bool
+        ``True`` when the algorithm produces an error estimate that an
+        adaptive controller can act on.
+
+    Raises
+    ------
+    KeyError
+        If ``alias`` is not a registered algorithm alias.
+    ValueError
+        If ``alias`` names a bare algorithm family whose adaptivity
+        depends on the tableau supplied at construction.
+    """
+
+    algorithm_type, tableau = resolve_alias(alias)
+    if tableau is not None:
+        return tableau.has_error_estimate
+    is_adaptive = algorithm_type.is_adaptive
+    if not isinstance(is_adaptive, bool):
+        raise ValueError(
+            f"'{alias}' names an algorithm family; its adaptivity is "
+            "determined by the tableau supplied at construction."
+        )
+    return is_adaptive
 
 
 def resolve_supplied_tableau(

@@ -153,7 +153,7 @@ below may be passed directly to :func:`~cubie.solve_ivp`,
      - ``step_controller``, ``dt``, ``dt_min``, ``dt_max``,
        ``atol``, ``rtol``, ``safety``, ``min_gain``, ``max_gain``,
        ``kp``, ``ki``, ``kd``, ``deadband_min``, ``deadband_max``,
-       ``gamma``
+       ``newton_target_iters``
      - :doc:`optional_arguments`
    * - Algorithm
      - ``newton_atol``, ``newton_rtol``, ``newton_max_iters``,

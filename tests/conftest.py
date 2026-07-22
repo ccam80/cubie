@@ -59,8 +59,11 @@ from tests.system_fixtures import (
     build_colliding_constants_system,
     build_diagonally_dominant_system,
     build_gating_singularity_system,
+    build_hostile_names_system,
     build_large_nonlinear_system,
+    build_lorenz_julia_system,
     build_off_diagonal_heavy_system,
+    build_safe_names_system,
     build_singular_initial_state_system,
     build_three_chamber_system,
     build_three_state_constant_deriv_system,
@@ -322,10 +325,24 @@ def system(request, solver_settings_override, precision):
         return build_gating_singularity_system(precision)
     if model_type == "singular_initial_state":
         return build_singular_initial_state_system(precision)
+    if model_type == "hostile_names":
+        return build_hostile_names_system(precision)
+    if model_type == "lorenz_julia":
+        return build_lorenz_julia_system(precision)
     if isinstance(model_type, object):
         return model_type
 
     raise ValueError(f"Unknown model type: {model_type}")
+
+
+@pytest.fixture(scope="session")
+def safe_names_system(precision):
+    """Return the safe-named twin of the ``hostile_names`` system.
+
+    Collision tests solve both systems and compare; the dynamics are
+    identical, only the constant names differ.
+    """
+    return build_safe_names_system(precision)
 
 
 @pytest.fixture(scope="session")
@@ -564,6 +581,7 @@ def solver_settings(solver_settings_override, system, precision):
         "preconditioner_order": 2,
         "krylov_max_iters": 50,
         "newton_max_iters": 50,
+        "newton_target_iters": 20,
         "min_gain": precision(0.1),
         "max_gain": precision(5.0),
         "safety": precision(0.9),

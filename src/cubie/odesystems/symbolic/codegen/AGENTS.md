@@ -31,8 +31,8 @@ with respect to the stage increment `u`. The `a_ij` placement differs between th
 | `linear_operators.py` | Emits the matrix-free linear operator and JVP cache helpers: `generate_operator_apply_code`, `generate_cached_operator_apply_code`, `generate_prepare_jac_code` (populates `cached_aux`, returns `(code, aux_count)`), `generate_cached_jvp_code`, `generate_n_stage_linear_operator_code` (flattened FIRK). `*_from_jvp` variants take a prebuilt `JVPEquations`. |
 | `preconditioners.py` | Emits truncated Neumann-series preconditioners: `generate_neumann_preconditioner_code` (inline state eval), `generate_neumann_preconditioner_cached_code`, `generate_n_stage_neumann_preconditioner_code` (FIRK, `A⊗J`). Device fn takes a caller-supplied `jvp` scratch buffer. The **only** generator whose `order` argument is live (Neumann truncation degree, factory default 1). |
 | `nonlinear_residuals.py` | Emits the Newton residual: `generate_residual_code` / `generate_stage_residual_code` (single stage, SDIRK/ESDIRK) and `generate_n_stage_residual_code` (flattened FIRK). |
-| `neumann_convergence.py` | Neumann-series convergence diagnostic: `NeumannRHSEvaluator` (a `CUDAFactory` owned by `SymbolicODE`; builds a kernel wrapping the compiled `dxdt` for finite-difference Jacobians, attaching a `CUBIECache` from the cache settings the solver pushes down `update`), `neumann_spectral_radius`, `check_neumann_convergence`. Runs from `get_solver_helper` on `neumann_*` helper requests and warns when the series will diverge. |
-| `_stage_utils.py` | Shared FIRK helpers: `prepare_stage_data` (Butcher `A`/`c` → IR rows, nodes, stage count) and `build_stage_metadata` (emit `c_i`, `a_i_j` symbol assignments). Used by every `n_stage_*` generator. |
+| `neumann_convergence.py` | Neumann-series convergence diagnostic: `NeumannRHSEvaluator` (a `CUDAFactory` owned by `SymbolicODE`; builds a kernel wrapping the compiled `dxdt` for finite-difference Jacobians, attaching a `CUBIECache` from the cache settings the solver pushes down `update`), `neumann_spectral_radius`, `check_neumann_convergence`. Runs from `get_solver_helper` on `neumann_*` helper requests and reports the initial-state radius per unit `h` for FIRK or per unit `a_ij*h` when the single-stage runtime coefficient is unknown; an exact infinite-series verdict requires the full step factor. |
+| `_stage_utils.py` | Shared FIRK helpers: `prepare_stage_data` (Butcher `A`/`c` → IR rows, nodes, stage count) and `build_stage_metadata` (emit `_cubie_codegen_c_<i>`, `_cubie_codegen_a_<i>_<j>` symbol assignments). Used by every `n_stage_*` generator. |
 
 ## Generator variants
 Most callbacks come in up to three forms, differing only in how state/auxiliaries are supplied —
@@ -79,10 +79,21 @@ also differs by variant (see Generator variants): non-cached paths substitute
 `state → base_state + a_ij*state`; cached paths read `cached_aux` and apply no substitution
 (`_build_operator_body`'s `use_cached_aux` flag gates this).
 
-### beta/gamma are renamed (#373)
-Emitted as `_cubie_codegen_beta`/`_cubie_codegen_gamma` so they can't collide with user
-state/parameter symbols named `beta`/`gamma`; factory signatures still expose plain
-`beta=1.0, gamma=1.0`.
+### The `_cubie_codegen_` reserved namespace (#373 and successors)
+Every name the generators bind — user constants (loaded as
+`_cubie_codegen_const_<name>` and printed that way by the engine printer), solver
+scalings (`_cubie_codegen_beta`/`_cubie_codegen_gamma`), the scalar device arguments
+`_cubie_codegen_h`/`_cubie_codegen_a_ij`, factory locals (`_cubie_codegen_n`,
+`_cubie_codegen_order`, `_cubie_codegen_total_n`, ...), tableau metadata
+(`_cubie_codegen_c_<i>`, `_cubie_codegen_a_<i>_<j>`), and builder-internal IR locals
+(`_cubie_codegen_dx_*`, `_cubie_codegen_aux_*`, `_cubie_codegen_j_*`,
+`_cubie_codegen_diag_*`, stage renames `_cubie_codegen_s<i>_*`) — lives in the
+`_cubie_codegen_` namespace. `IndexedBases.from_user_inputs` rejects user names with
+that prefix, so a user symbol can never alias a generated binding (in either
+direction) at IR-merge time, factory scope, or device-body scope. When adding a
+generator, bind nothing outside this namespace except the template's positional
+argument names (`t` is parse-reserved and stays bare). Factory signatures still
+expose plain `beta=1.0, gamma=1.0, order=1`.
 
 ### Mass matrix & order
 `M` defaults to identity (`sp.eye(n)`); pass an explicit matrix for DAEs (integer entries are cast

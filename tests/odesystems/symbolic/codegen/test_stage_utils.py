@@ -43,26 +43,26 @@ def test_prepare_stage_data_returns_stage_count():
 # ── build_stage_metadata ────────────────────────────── #
 
 def test_build_stage_metadata_node_symbols():
-    """Node symbols are named c_0, c_1, ... with correct values."""
+    """Node symbols are named _cubie_codegen_c_<i> with correct values."""
     coeffs, nodes, _ = prepare_stage_data(
         [[sp.Rational(1, 4), 0], [0, sp.Rational(3, 4)]],
         [sp.Rational(1, 4), sp.Rational(3, 4)],
     )
     metadata, _, node_syms = build_stage_metadata(coeffs, nodes)
     assert len(node_syms) == 2
-    assert node_syms[0] is ir.sym("c_0")
-    assert node_syms[1] is ir.sym("c_1")
+    assert node_syms[0] is ir.sym("_cubie_codegen_c_0")
+    assert node_syms[1] is ir.sym("_cubie_codegen_c_1")
     node_assignments = {
         lhs: value
         for lhs, value in metadata
-        if lhs.name.startswith("c_")
+        if lhs.name.startswith("_cubie_codegen_c_")
     }
-    assert node_assignments[ir.sym("c_0")] is ir.num(Fraction(1, 4))
-    assert node_assignments[ir.sym("c_1")] is ir.num(Fraction(3, 4))
+    assert node_assignments[ir.sym("_cubie_codegen_c_0")] is ir.num(Fraction(1, 4))
+    assert node_assignments[ir.sym("_cubie_codegen_c_1")] is ir.num(Fraction(3, 4))
 
 
 def test_build_stage_metadata_coeff_symbols():
-    """Coefficient symbols are named a_i_j with correct values."""
+    """Coefficient symbols are named _cubie_codegen_a_i_j with correct values."""
     coeffs, nodes, _ = prepare_stage_data(
         [
             [sp.Rational(1, 3), sp.Rational(2, 3)],
@@ -73,23 +73,23 @@ def test_build_stage_metadata_coeff_symbols():
     metadata, coeff_syms, _ = build_stage_metadata(coeffs, nodes)
     assert len(coeff_syms) == 2
     assert len(coeff_syms[0]) == 2
-    assert coeff_syms[0][0] is ir.sym("a_0_0")
-    assert coeff_syms[1][1] is ir.sym("a_1_1")
+    assert coeff_syms[0][0] is ir.sym("_cubie_codegen_a_0_0")
+    assert coeff_syms[1][1] is ir.sym("_cubie_codegen_a_1_1")
     coeff_assignments = {
         lhs: value
         for lhs, value in metadata
-        if lhs.name.startswith("a_")
+        if lhs.name.startswith("_cubie_codegen_a_")
     }
-    assert coeff_assignments[ir.sym("a_0_0")] is ir.num(
+    assert coeff_assignments[ir.sym("_cubie_codegen_a_0_0")] is ir.num(
         Fraction(1, 3)
     )
-    assert coeff_assignments[ir.sym("a_0_1")] is ir.num(
+    assert coeff_assignments[ir.sym("_cubie_codegen_a_0_1")] is ir.num(
         Fraction(2, 3)
     )
-    assert coeff_assignments[ir.sym("a_1_0")] is ir.num(
+    assert coeff_assignments[ir.sym("_cubie_codegen_a_1_0")] is ir.num(
         Fraction(1, 2)
     )
-    assert coeff_assignments[ir.sym("a_1_1")] is ir.num(
+    assert coeff_assignments[ir.sym("_cubie_codegen_a_1_1")] is ir.num(
         Fraction(1, 2)
     )
 

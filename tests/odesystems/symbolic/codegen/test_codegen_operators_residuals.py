@@ -68,6 +68,33 @@ def test_prepare_jac_without_cache_emits_pass(
 
 # ── n-stage linear operator ─────────────────────────────────────── #
 
+def test_n_stage_operator_isolates_user_constants_from_scalings(
+    solver_scaling_collision_equations,
+    solver_scaling_collision_indexed_bases,
+):
+    """User beta/gamma constants cannot replace solver scalings."""
+    code = generate_n_stage_linear_operator_code(
+        solver_scaling_collision_equations,
+        solver_scaling_collision_indexed_bases,
+        stage_coefficients=[[1.0]],
+        stage_nodes=[1.0],
+    )
+
+    assert "_cubie_codegen_beta = precision(beta)" in code
+    assert "_cubie_codegen_gamma = precision(gamma)" in code
+    assert (
+        "_cubie_codegen_const_beta = precision(constants['beta'])"
+        in code
+    )
+    assert (
+        "_cubie_codegen_const_gamma = precision(constants['gamma'])"
+        in code
+    )
+    # The user constants must never bind the bare solver names.
+    assert "\n    beta = " not in code
+    assert "\n    gamma = " not in code
+
+
 def test_n_stage_operator_skips_zero_stage_coupling(
     bare_nonlinear_equations,
     bare_indexed_bases,

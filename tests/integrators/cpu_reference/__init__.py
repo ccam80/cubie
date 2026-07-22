@@ -13,7 +13,6 @@ from .cpu_ode_system import CPUODESystem
 from .cpu_utils import (
     Array,
     DriverEvaluator,
-    InstrumentedStepResult,
     STATUS_MASK,
     StepResult,
     StepResultLike,
@@ -27,7 +26,6 @@ __all__ = [
     "CPUAdaptiveController",
     "CPUODESystem",
     "DriverEvaluator",
-    "InstrumentedStepResult",
     "STATUS_MASK",
     "StepResult",
     "StepResultLike",

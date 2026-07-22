@@ -49,19 +49,6 @@ CUDA on the CPU.  CI pipelines without GPUs use this mode.  CUDASIM is
 single-threaded and much slower than GPU execution, so keep CUDASIM-
 compatible tests lightweight.
 
-Instrumented Test Copies
-------------------------
-
-``tests/integrators/algorithms/instrumented/`` contains copies of
-algorithm device functions with added logging.  These are used to verify
-internal step behaviour (stage values, error estimates, etc.).
-
-.. important::
-
-   When you change a source algorithm, replicate the change in its
-   instrumented copy.  The instrumented tests will fail if the two
-   diverge.
-
 Fixture Patterns
 ----------------
 

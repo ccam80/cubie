@@ -150,6 +150,7 @@ if POPULATION:
     backend_cuda.synchronize = lambda: None
     backend_cuda.stream = lambda: _fake_stream
     backend_cuda.default_stream = lambda: _fake_stream
+    backend_cuda.external_stream = lambda ptr: _fake_stream
 
 if POPULATION and BACKEND == "numba-cuda":
     from cuda.core._device import ComputeCapability  # noqa: E402
@@ -166,6 +167,29 @@ if POPULATION and BACKEND == "numba-cuda":
     _fake_context = SimpleNamespace(device=_fake_device)
     nb_dispatcher.get_current_device = lambda: _fake_device
     nb_devices.get_context = lambda *args, **kwargs: _fake_context
+    backend_cuda.get_current_device = lambda: _fake_device
+
+if POPULATION and BACKEND == "mlir":
+    from numba_cuda_mlir.numba_cuda.cudadrv import (  # noqa: E402
+        devices as mlir_devices,
+    )
+
+    # cubie queries the live device outside any launch: the
+    # memory-placement heuristics call
+    # ``cuda.get_current_device().compute_capability`` during Solver
+    # construction (``resolve_thresholds``), which initialises the
+    # real CUDA driver and raises on the driverless population
+    # runner, erroring every affected fixture before its kernels
+    # reach the cache. Mirror the numba-cuda fakes above.
+    _fake_device = SimpleNamespace(
+        compute_capability=ComputeCapability(*TARGET_CC),
+        id=0,
+        name=b"cubie-precompile",
+        MAX_SHARED_MEMORY_PER_BLOCK=49152,
+        WARP_SIZE=32,
+    )
+    _fake_context = SimpleNamespace(device=_fake_device)
+    mlir_devices.get_context = lambda *args, **kwargs: _fake_context
     backend_cuda.get_current_device = lambda: _fake_device
 
 
@@ -391,11 +415,12 @@ else:
         """Normalize a launch argument the way the real launch does.
 
         Mirrors ``_ArgMarshaller._maybe_copy_to_device_item``'s scalar
-        rules: the launch path converts numpy integer scalars to
-        Python ints (typed int64), float64 scalars to Python floats,
-        and numpy bools to Python bools before typing, so population
-        signatures must do the same or GPU consumers recompile with
-        promoted-scalar signatures.
+        rules in the installed cubie-numba-cuda-mlir wheel: numpy
+        integer scalars stay at their exact width (typing an
+        ``np.int32`` argument as ``int32``), float64 scalars become
+        Python floats, and numpy bools become Python bools before
+        typing. Population signatures must match, or GPU consumers
+        recompile with differently-typed scalar signatures.
         """
         if isinstance(value, (tuple, list)):
             processed = [_marshal_launch_arg(item) for item in value]
@@ -405,7 +430,7 @@ else:
         if isinstance(value, (np.datetime64, np.timedelta64)):
             return value
         if isinstance(value, np.integer):
-            return int(value)
+            return value
         if isinstance(value, (np.float16, np.float32)):
             return value
         if isinstance(value, np.floating):
@@ -499,6 +524,33 @@ if POPULATION:
         ),
     )
     _array_interpolator.current_cupy_stream = _fake_cupy_stream
+
+    # Input/output chunk staging draws pinned buffers from the
+    # ChunkBufferPool, which allocates through ``cupyx.empty_pinned``;
+    # without a CUDA driver that raises inside every solver run's
+    # fixture setup, so no batch-solver kernel would reach the cache.
+    import cubie.memory.chunk_buffer_pool as _chunk_buffer_pool  # noqa: E402
+
+    _chunk_buffer_pool.cupyx = SimpleNamespace(
+        empty_pinned=lambda shape, dtype=np.float64: np.zeros(
+            shape, dtype=dtype
+        ),
+    )
+
+    # The busy-kernel canary fixture (tests.conftest.start_cuda_busy_work)
+    # builds its non-blocking stream through ``cupy.cuda.Stream``,
+    # imported from cuda_simsafe at fixture call time. Stub the stream
+    # constructor while keeping the real pinned-pointer class so
+    # ``is_pinned_array`` still answers correctly.
+    import cubie.cuda_simsafe as _cuda_simsafe  # noqa: E402
+
+    _real_pinned_pointer = _cuda_simsafe.cupy.cuda.PinnedMemoryPointer
+    _cuda_simsafe.cupy = SimpleNamespace(
+        cuda=SimpleNamespace(
+            Stream=lambda non_blocking=False: SimpleNamespace(ptr=0),
+            PinnedMemoryPointer=_real_pinned_pointer,
+        ),
+    )
 
 
 # CuBIE creates a few dispatchers while importing its cache module. Finish

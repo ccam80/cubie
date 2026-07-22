@@ -718,7 +718,9 @@ def test_operator_apply_constant_unpacking(operator_system):
     code = generate_operator_apply_code(
         operator_system.equations, operator_system.indices
     )
-    assert "a = precision(constants['a'])" in code
+    assert (
+        "_cubie_codegen_const_a = precision(constants['a'])" in code
+    )
 
 
 def test_cached_jvp_matches_jacobian(

@@ -258,10 +258,7 @@ class ExplicitEulerStep(ODEExplicitStep):
         """Return ``False`` because explicit Euler is a single-stage method."""
         return False
 
-    @property
-    def is_adaptive(self) -> bool:
-        """Return ``False`` because explicit Euler has no error estimator."""
-        return False
+    is_adaptive = False
 
     @property
     def order(self) -> int:

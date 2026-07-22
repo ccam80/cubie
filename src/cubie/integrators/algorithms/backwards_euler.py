@@ -323,11 +323,9 @@ class BackwardsEulerStep(ODEImplicitStep):
 
         return False
 
-    @property
-    def is_adaptive(self) -> bool:
-        """Return ``False`` because backward Euler is fixed step."""
-
-        return False
+    # Class attribute so alias-level queries can read adaptivity
+    # without an instance; backward Euler has no error estimate.
+    is_adaptive = False
 
     @property
     def threads_per_step(self) -> int:

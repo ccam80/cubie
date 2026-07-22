@@ -15,11 +15,11 @@ See `CUDAFactory` (repo root) for the build/cache/`update`, buffer-registry, and
 attrs-config mechanics; CUDA-authoring *optimisation* patterns are in
 `../../writing_cuda_functions.md`. This file documents the algorithm specifics.
 
-> **Numerical correctness is critical, and every device function here is mirrored
-> (with logging only) under `tests/integrators/algorithms/instrumented/`** (solver code
-> too, in `instrumented/matrix_free_solvers.py`). Any change to an algorithm/solver
-> device function MUST be replicated in its instrumented copy — the copies differ only
-> by added log-array parameters and snapshot recording, never functional logic.
+> **Numerical correctness is critical.** Every device function here is
+> verified against a plain CPU reference implementation under
+> `tests/integrators/cpu_reference/algorithms.py`. Any change to an
+> algorithm/solver device function's numerical behaviour MUST be
+> replicated in its CPU reference counterpart.
 
 ## Key Files
 | File | Description |
@@ -74,8 +74,8 @@ attrs-config mechanics; CUDA-authoring *optimisation* patterns are in
   families — DIRK/FIRK/Rosenbrock-W/Crank-Nicolson — with RADAU5's gain limits and
   deadband). **Errorless tableaus must use a fixed controller** — constructors enforce
   this; never pair an adaptive controller with an errorless tableau. Controller-defaults
-  dicts must never contain keys that are also algorithm parameters (e.g. `gamma`,
-  `newton_max_iters`): on hot-swap the defaults merge into the shared `updates_dict`
+  dicts must never contain keys that are also algorithm parameters: on hot-swap
+  the defaults merge into the shared `updates_dict`
   and would overwrite the algorithm's own setting.
 - **`update` additions:** new keywords must be added to `ALL_ALGORITHM_STEP_PARAMETERS`
   (`base_algorithm_step.py`) or `update` rejects them; `ODEImplicitStep` routes solver
@@ -115,10 +115,10 @@ attrs-config mechanics; CUDA-authoring *optimisation* patterns are in
   guidance: `../../writing_cuda_functions.md`.)
 
 ### Testing
-Tests under `tests/integrators/algorithms/` (+ the `instrumented/` mirror):
+Tests under `tests/integrators/algorithms/`:
 `test_step_algorithms.py`, `test_init.py`, `test_ode_explicitstep.py`,
 `test_ode_implicitstep.py`, `test_tableau_properties.py`, `test_*_tableaus.py`,
-`test_last_step_caching_integration.py`, `instrumented/test_instrumented.py`.
+`test_last_step_caching_integration.py`.
 
 ## Dependencies
 ### Internal

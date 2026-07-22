@@ -65,9 +65,9 @@ STEP_CASES_CONSTANT_DERIV = [
 ]
 
 # BiCGSTAB and Jacobi-preconditioner cases run through the same
-# device-vs-CPU comparison as ALGORITHM_PARAM_SETS. Kept out of the
-# shared STEP_CASES list because the instrumented debug harness only
-# implements the MR/SD solver.
+# device-vs-CPU comparison as ALGORITHM_PARAM_SETS. Kept in a
+# separate parametrize group to isolate the bicgstab solver variant
+# from the default minimal-residual/steepest-descent cases.
 BICGSTAB_STEP_CASES = [
     merge_param(MID_RUN_PARAMS, case)
     for case in [
