@@ -54,7 +54,11 @@ from cubie.result_codes import decode_status_codes
 from cubie.batchsolving.BatchSolverConfig import ActiveOutputs
 from cubie.batchsolving.BatchInputHandler import BatchInputHandler
 from cubie.batchsolving.BatchSolverKernel import BatchSolverKernel
-from cubie.batchsolving.solveresult import SolveResult, SolveSpec
+from cubie.batchsolving.solveresult import (
+    DeviceSolveResult,
+    SolveResult,
+    SolveSpec,
+)
 from cubie.batchsolving.SystemInterface import SystemInterface
 from cubie.memory.mem_manager import ALL_MEMORY_MANAGER_PARAMETERS
 from cubie.odesystems.baseODE import BaseODE
@@ -308,7 +312,7 @@ def solve_ivp(
         kwargs.setdefault("summarise_variables", summarise_variables)
 
     # Solve-time options go to solve(); the rest configure the Solver.
-    solve_option_keys = ("blocksize", "stream")
+    solve_option_keys = ("blocksize",)
     solve_options = {
         key: kwargs.pop(key) for key in solve_option_keys if key in kwargs
     }
@@ -515,6 +519,11 @@ class Solver:
             | cache_recognized
             | kernel_recognized
         )
+        # Seed the compiled driver-coefficient layout; the driver
+        # update paths keep it aligned when the interpolator changes.
+        kernel_settings["driver_coefficients_shape"] = (
+            self.driver_interpolator.coefficients_shape
+        )
 
         self.kernel = BatchSolverKernel(
             system,
@@ -625,6 +634,9 @@ class Solver:
                         self.driver_interpolator.evaluation_function
                     ),
                     "driver_del_t": self.driver_interpolator.driver_del_t,
+                    "driver_coefficients_shape": (
+                        self.driver_interpolator.coefficients_shape
+                    ),
                 }
             )
 
@@ -637,11 +649,11 @@ class Solver:
         settling_time: float = 0.0,
         t0: float = 0.0,
         blocksize: int = 256,
-        stream: Any = None,
         grid_type: str = "verbatim",
         nan_error_trajectories: bool = True,
+        on_device: bool = False,
         **kwargs: Any,
-    ) -> SolveResult:
+    ) -> Union[SolveResult, DeviceSolveResult]:
         """Solve a batch initial value problem.
 
         Parameters
@@ -650,11 +662,14 @@ class Solver:
             Initial state values for each integration run. Accepts
             dictionaries mapping state names to values for grid
             construction, or pre-built arrays in (n_states, n_runs)
-            format for fast-path execution.
+            format for fast-path execution. Device arrays (CuPy or
+            Numba) are used in place with no host-to-device transfer;
+            they must already match the system precision.
         parameters
             Parameter values for each run. Accepts dictionaries
             mapping parameter names to values, or pre-built arrays
-            in (n_params, n_runs) format.
+            in (n_params, n_runs) format. Device arrays are accepted
+            as for ``initial_values``.
         drivers
             Driver samples or configuration matching
             :class:`cubie.array_interpolator.ArrayInterpolator`.
@@ -666,9 +681,6 @@ class Solver:
             Initial integration time. Default ``0.0``.
         blocksize
             CUDA block size used for kernel launch. Default ``256``.
-        stream
-            Stream on which to execute the kernel. ``None`` uses the solver's
-            default stream.
         grid_type
             Strategy for constructing the integration grid from inputs.
             Only used when dict inputs trigger grid construction.
@@ -676,21 +688,27 @@ class Solver:
             When ``True`` (default), trajectories with nonzero status codes
             are automatically set to NaN, making failed runs easy to identify
             and exclude from analysis. When ``False``, all trajectories are
-            returned unchanged.
+            returned unchanged. Ignored when ``on_device`` is ``True``.
+        on_device
+            When ``True``, skip the device-to-host copy of the output
+            arrays and return a :class:`DeviceSolveResult` holding the
+            solver's device output buffers plus the CUDA stream the
+            solve ran on; see Notes. Default ``False``.
         **kwargs
             Additional options forwarded to :meth:`update`. See "Optional
             Arguments" in the docs for possibilities.
 
         Returns
         -------
-        SolveResult
-            Result owning the solve's host output buffers — nothing is
-            copied. Keep it alive while its data is needed: once it is
-            garbage collected the solver reuses the buffers on its
-            next run. ``as_numpy``, ``as_numpy_per_summary``, and
-            ``as_pandas`` build RAM representations on demand;
+        SolveResult or DeviceSolveResult
+            ``SolveResult`` owning the solve's host output buffers —
+            nothing is copied. Keep it alive while its data is needed:
+            once it is garbage collected the solver reuses the buffers
+            on its next run. ``as_numpy``, ``as_numpy_per_summary``,
+            and ``as_pandas`` build RAM representations on demand;
             disk-backed results release their spill files on
-            ``close()`` or context exit.
+            ``close()`` or context exit. ``DeviceSolveResult`` when
+            ``on_device`` is ``True``.
 
         Notes
         -----
@@ -700,11 +718,16 @@ class Solver:
           :class:`BatchInputHandler`
         - Pre-built numpy arrays with correct shapes skip grid
           construction for improved performance
-        - Device arrays receive minimal processing before kernel
-          execution
+        - Device arrays are used in place: no grid construction and
+          no host-to-device transfer
 
         When GPU memory is insufficient for the full batch, arrays are
         automatically chunked along the run axis.
+
+        ``on_device=True`` returns without synchronizing: buffer
+        contents are valid once the returned stream is synchronized,
+        and the next ``solve()`` on this solver overwrites them. A
+        chunked run raises ``ValueError``.
         """
         if kwargs:
             self.update(kwargs)
@@ -727,16 +750,22 @@ class Solver:
             warmup=settling_time,
             t0=t0,
             blocksize=blocksize,
-            stream=stream,
+            transfer_outputs=not on_device,
         )
 
-        # Synchronize stream, wait until arrays written in "chunked" mode.
-        self.kernel.synchronize()
-        self.kernel.wait_for_writeback()
+        if not on_device:
+            # Synchronize stream, wait until arrays written in
+            # "chunked" mode. Device results return unsynchronized:
+            # the caller orders further work on the returned stream.
+            self.kernel.synchronize()
+            self.kernel.wait_for_writeback()
 
         # Stop wall-clock timing for solve
         default_timelogger.stop_event("solver_solve")
         default_timelogger.print_summary()
+
+        if on_device:
+            return DeviceSolveResult.from_solver(self)
 
         return SolveResult.from_solver(
             self,
@@ -839,6 +868,9 @@ class Solver:
             )
             updates_dict["driver_del_t"] = (
                 self.driver_interpolator.driver_del_t
+            )
+            updates_dict["driver_coefficients_shape"] = (
+                self.driver_interpolator.coefficients_shape
             )
 
         all_unrecognized = set(updates_dict.keys())
@@ -1072,6 +1104,36 @@ class Solver:
     def status_codes(self):
         """Expose integration status codes."""
         return self.kernel.status_codes
+
+    @property
+    def device_state(self):
+        """Expose the device buffer of state outputs."""
+        return self.kernel.device_state
+
+    @property
+    def device_observables(self):
+        """Expose the device buffer of observable outputs."""
+        return self.kernel.device_observables
+
+    @property
+    def device_state_summaries(self):
+        """Expose the device buffer of state summaries."""
+        return self.kernel.device_state_summaries
+
+    @property
+    def device_observable_summaries(self):
+        """Expose the device buffer of observable summaries."""
+        return self.kernel.device_observable_summaries
+
+    @property
+    def device_status_codes(self):
+        """Expose the device buffer of status codes."""
+        return self.kernel.device_status_codes
+
+    @property
+    def device_iteration_counters(self):
+        """Expose the device buffer of iteration counters."""
+        return self.kernel.device_iteration_counters
 
     @property
     def status_messages(self):

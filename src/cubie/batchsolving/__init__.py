@@ -44,6 +44,7 @@ from cubie.batchsolving.arrays.BatchOutputArrays import (  # noqa: E402
 )
 from cubie.batchsolving.solver import Solver, solve_ivp  # noqa: E402
 from cubie.batchsolving.solveresult import (  # noqa: E402
+    DeviceSolveResult,
     SolveResult,
     SolveSpec,
 )
@@ -58,6 +59,7 @@ __all__ = [
     "BatchSolverConfig",
     "BatchSolverKernel",
     "BaseArrayManager",
+    "DeviceSolveResult",
     "InputArrayContainer",
     "InputArrays",
     "ManagedArray",
