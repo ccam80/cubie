@@ -159,7 +159,7 @@ def matched_controller_settings(constants, alias, order):
     if c["controller"] == "PredictiveController":
         return {
             "step_controller": "gustafsson",
-            "gamma": c["gamma"],
+            "safety": c["gamma"],
         }
     return None
 

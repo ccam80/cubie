@@ -123,8 +123,10 @@ def build_solver_settings(precision: type[np.floating[Any]]) -> Dict[str, Any]:
         "preconditioner_order": 2,
         "krylov_max_iters": 500,
         "newton_max_iters": 500,
+        "newton_target_iters": 20,
         "min_gain": precision(0.2),
         "max_gain": precision(2.0),
+        "safety": precision(0.9),
         "kp": precision(0.7),
         "ki": precision(-0.4),
         "kd": precision(0.0),
@@ -203,7 +205,10 @@ def build_step_controller_settings(
         "kd": precision(solver_settings["kd"]),
         "deadband_min": precision(solver_settings["deadband_min"]),
         "deadband_max": precision(solver_settings["deadband_max"]),
-        "newton_max_iters": int(solver_settings["newton_max_iters"]),
+        "newton_target_iters": int(
+            solver_settings["newton_target_iters"]
+        ),
+        "safety": precision(solver_settings["safety"]),
     }
 
     if overrides:

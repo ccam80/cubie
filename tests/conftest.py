@@ -582,6 +582,7 @@ def solver_settings(solver_settings_override, system, precision):
         "preconditioner_order": 2,
         "krylov_max_iters": 50,
         "newton_max_iters": 50,
+        "newton_target_iters": 20,
         "min_gain": precision(0.1),
         "max_gain": precision(5.0),
         "safety": precision(0.9),
