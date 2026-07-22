@@ -437,8 +437,40 @@ def build_colliding_constants_system(precision: np_dtype) -> BaseODE:
     return system
 
 
+# ---------------------------------------------------------------------------
+# Lorenz system pinned by the Julia golden-reference gate
+# ---------------------------------------------------------------------------
+
+LORENZ_JULIA_EQUATIONS = [
+    "dx = sigma * (y - x)",
+    "dy = x * (rho - z) - y",
+    "dz = x * y - beta * z",
+]
+
+LORENZ_JULIA_STATES = {"x": 1.0, "y": 0.0, "z": 0.0}
+LORENZ_JULIA_PARAMETERS = {"rho": 21.0}
+LORENZ_JULIA_CONSTANTS = {"sigma": 10.0, "beta": 8.0 / 3.0}
+
+
+def build_lorenz_julia_system(precision: np_dtype) -> BaseODE:
+    """Return the Lorenz system used by the Julia reference gate."""
+
+    system = create_ODE_system(
+        dxdt=LORENZ_JULIA_EQUATIONS,
+        states=LORENZ_JULIA_STATES,
+        parameters=LORENZ_JULIA_PARAMETERS,
+        constants=LORENZ_JULIA_CONSTANTS,
+        precision=precision,
+        name="lorenz_julia",
+        strict=True,
+    )
+
+    return system
+
+
 __all__ = [
     "build_colliding_constants_system",
+    "build_lorenz_julia_system",
     "build_two_driver_system",
     "build_three_state_linear_system",
     "build_three_state_nonlinear_system",

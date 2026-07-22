@@ -362,11 +362,9 @@ class CrankNicolsonStep(ODEImplicitStep):
 
         return False
 
-    @property
-    def is_adaptive(self) -> bool:
-        """Return ``True`` because the embedded error estimate enables adaptivity."""
-
-        return True
+    # Class attribute so alias-level queries can read adaptivity
+    # without an instance; the embedded estimate enables adaptivity.
+    is_adaptive = True
 
     @property
     def threads_per_step(self) -> int:

@@ -60,6 +60,7 @@ from tests.system_fixtures import (
     build_diagonally_dominant_system,
     build_gating_singularity_system,
     build_large_nonlinear_system,
+    build_lorenz_julia_system,
     build_off_diagonal_heavy_system,
     build_singular_initial_state_system,
     build_three_chamber_system,
@@ -322,6 +323,8 @@ def system(request, solver_settings_override, precision):
         return build_gating_singularity_system(precision)
     if model_type == "singular_initial_state":
         return build_singular_initial_state_system(precision)
+    if model_type == "lorenz_julia":
+        return build_lorenz_julia_system(precision)
     if isinstance(model_type, object):
         return model_type
 
