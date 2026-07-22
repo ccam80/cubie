@@ -498,17 +498,13 @@ class DenseStagePredictor(CUDAFactory):
             previous_dt = previous_step_size[0]
             previous_step_size[0] = dt_scalar
 
-            # Unwritten storage reads zero before the first step;
-            # substituting the current step size keeps the ratio
-            # finite and the commit predicate discards the result.
+            # Keep the ratio finite on zeroed first-step storage.
             safe_previous_dt = (
                 previous_dt if previous_dt > typed_zero else dt_scalar
             )
             ratio = dt_scalar / safe_previous_dt
 
-            # A truncated previous step can make the ratio arbitrarily
-            # large; the read-ahead is only meaningful within the
-            # controllers' growth bound.
+            # Truncated slivers unbound the ratio; cap application.
             commit_prediction = apply_flag and (
                 ratio <= max_step_ratio
             )
