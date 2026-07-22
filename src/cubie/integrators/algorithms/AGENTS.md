@@ -74,8 +74,8 @@ attrs-config mechanics; CUDA-authoring *optimisation* patterns are in
   families — DIRK/FIRK/Rosenbrock-W/Crank-Nicolson — with RADAU5's gain limits and
   deadband). **Errorless tableaus must use a fixed controller** — constructors enforce
   this; never pair an adaptive controller with an errorless tableau. Controller-defaults
-  dicts must never contain keys that are also algorithm parameters (e.g. `gamma`,
-  `newton_max_iters`): on hot-swap the defaults merge into the shared `updates_dict`
+  dicts must never contain keys that are also algorithm parameters: on hot-swap
+  the defaults merge into the shared `updates_dict`
   and would overwrite the algorithm's own setting.
 - **`update` additions:** new keywords must be added to `ALL_ALGORITHM_STEP_PARAMETERS`
   (`base_algorithm_step.py`) or `update` rejects them; `ODEImplicitStep` routes solver

@@ -108,18 +108,10 @@ Controller-specific gains:
 
     - Default: ``0.0``
 
-**gamma** — damping factor (``gustafsson`` only).
-    Lower values make step-size changes more conservative.
-
-    - Default: ``0.9``
-
-**newton_max_iters** — Newton-iteration budget (``gustafsson`` only).
+**newton_target_iters** — Newton-work reference (``gustafsson`` only).
     The Gustafsson controller scales its prediction by how hard the
-    implicit solver is working; this is the iteration count it treats
-    as "full effort".  This is the same option name as the implicit
-    solver's Newton iteration limit below: passing it once sets both,
-    so keep it equal to the Newton budget you actually intend.  Left
-    unset, the controller uses 20 while the solver uses 100.
+    implicit solver is working; this reference count sets the strength
+    of that damping.  It does not limit Newton solver execution.
 
     - Default: ``20``
 

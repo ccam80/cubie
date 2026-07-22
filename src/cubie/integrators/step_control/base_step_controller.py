@@ -72,8 +72,7 @@ ALL_STEP_CONTROLLER_PARAMETERS = {
     "kd",
     "deadband_min",
     "deadband_max",
-    "gamma",
-    "newton_max_iters",
+    "newton_target_iters",
     "timestep_memory_location",
 }
 """All keyword arguments accepted by step controllers.
@@ -140,12 +139,9 @@ by parent components to filter kwargs before forwarding them.
    * - ``deadband_max``
      - :class:`~cubie.integrators.step_control.adaptive_step_controller.AdaptiveStepControlConfig`
      - Upper gain threshold for the unity deadband.
-   * - ``gamma``
+   * - ``newton_target_iters``
      - :class:`~cubie.integrators.step_control.gustafsson_controller.GustafssonStepControlConfig`
-     - Damping factor for the Gustafsson predictor.
-   * - ``newton_max_iters``
-     - :class:`~cubie.integrators.step_control.gustafsson_controller.GustafssonStepControlConfig`
-     - Maximum Newton iterations considered by the predictor.
+     - Reference Newton-work count used to damp step-size proposals.
    * - ``timestep_memory_location``
      - :class:`BaseStepControllerConfig`
      - Memory location for the timestep buffer (``'local'`` or

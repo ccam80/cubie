@@ -1328,7 +1328,9 @@ def _build_cpu_step_controller(
         deadband_min=step_controller_settings["deadband_min"],
         deadband_max=step_controller_settings["deadband_max"],
         safety=step_controller_settings["safety"],
-        newton_max_iters=step_controller_settings["newton_max_iters"],
+        newton_target_iters=step_controller_settings[
+            "newton_target_iters"
+        ],
     )
     if kind == "pi":
         controller.kp = step_controller_settings["kp"]
