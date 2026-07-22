@@ -422,12 +422,10 @@ class InputArrays(BaseArrayManager):
             arrays_to_copy = [array for array in self._needs_overwrite]
             self._needs_overwrite = []
         else:
-            if self._device_inputs:
-                raise ValueError(
-                    "Device-array inputs require the batch to fit in "
-                    "a single chunk, but this run is chunked. Pass "
-                    "host arrays or reduce the batch size."
-                )
+            # Device-input passthrough cannot reach here: an attached
+            # slot queues no allocation, so this manager's chunk count
+            # stays 1. BatchSolverKernel guards chunked runs against
+            # device inputs before the chunk loop starts.
             arrays_to_copy = list(self.device.array_names())
 
         for array_name in arrays_to_copy:

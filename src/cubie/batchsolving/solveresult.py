@@ -66,6 +66,7 @@ from numpy import (
 from numpy.typing import NDArray
 from cubie.batchsolving.BatchSolverConfig import ActiveOutputs
 from cubie.batchsolving import ArrayTypes
+from cubie.cuda_simsafe import DeviceNDArrayBase, Stream
 from cubie.result_codes import decode_status_codes
 from cubie._utils import (
     slice_variable_dimension,
@@ -287,7 +288,10 @@ class SolveResult:
         default=None,
         validator=attrsval_optional(attrsval_instance_of(SolveSpec)),
     )
-    stream: Optional[Any] = field(default=None, eq=False)
+    # A backend Stream on real hardware, the simulator's stream object
+    # under CUDASIM, or 0 for the legacy default stream — an isinstance
+    # validator cannot cover all three, so the field is unvalidated.
+    stream: Optional[Union[Stream, int]] = field(default=None, eq=False)
     _singlevar_summary_legend: Optional[dict[int, str]] = field(
         default=attrsFactory(dict),
         validator=attrsval_optional(attrsval_instance_of(dict)),
@@ -946,13 +950,44 @@ class DeviceSolveResult:
         The kernel's memory-manager stream the solve ran on.
     """
 
-    _state: Optional[Any] = field(default=None)
-    _observables: Optional[Any] = field(default=None)
-    _state_summaries: Optional[Any] = field(default=None)
-    _observable_summaries: Optional[Any] = field(default=None)
-    _iteration_counters: Optional[Any] = field(default=None)
-    status_codes: Optional[Any] = field(default=None)
-    stream: Optional[Any] = field(default=None)
+    _state: Optional[DeviceNDArrayBase] = field(
+        default=None,
+        validator=attrsval_optional(
+            attrsval_instance_of(DeviceNDArrayBase)
+        ),
+    )
+    _observables: Optional[DeviceNDArrayBase] = field(
+        default=None,
+        validator=attrsval_optional(
+            attrsval_instance_of(DeviceNDArrayBase)
+        ),
+    )
+    _state_summaries: Optional[DeviceNDArrayBase] = field(
+        default=None,
+        validator=attrsval_optional(
+            attrsval_instance_of(DeviceNDArrayBase)
+        ),
+    )
+    _observable_summaries: Optional[DeviceNDArrayBase] = field(
+        default=None,
+        validator=attrsval_optional(
+            attrsval_instance_of(DeviceNDArrayBase)
+        ),
+    )
+    _iteration_counters: Optional[DeviceNDArrayBase] = field(
+        default=None,
+        validator=attrsval_optional(
+            attrsval_instance_of(DeviceNDArrayBase)
+        ),
+    )
+    status_codes: Optional[DeviceNDArrayBase] = field(
+        default=None,
+        validator=attrsval_optional(
+            attrsval_instance_of(DeviceNDArrayBase)
+        ),
+    )
+    # See SolveResult.stream for why this field is unvalidated.
+    stream: Optional[Union[Stream, int]] = field(default=None)
     _active_outputs: Optional[ActiveOutputs] = field(
         default=attrsFactory(ActiveOutputs)
     )
@@ -993,28 +1028,28 @@ class DeviceSolveResult:
         )
 
     @property
-    def state(self) -> Optional[Any]:
+    def state(self) -> Optional[DeviceNDArrayBase]:
         """Device state buffer, with its time column when time is saved."""
         if self._active_outputs.state or self._save_time:
             return self._state
         return None
 
     @property
-    def observables(self) -> Optional[Any]:
+    def observables(self) -> Optional[DeviceNDArrayBase]:
         """Device observables buffer, or ``None`` when not saved."""
         if self._active_outputs.observables:
             return self._observables
         return None
 
     @property
-    def state_summaries(self) -> Optional[Any]:
+    def state_summaries(self) -> Optional[DeviceNDArrayBase]:
         """Device state summary buffer, or ``None`` when not summarised."""
         if self._active_outputs.state_summaries:
             return self._state_summaries
         return None
 
     @property
-    def observable_summaries(self) -> Optional[Any]:
+    def observable_summaries(self) -> Optional[DeviceNDArrayBase]:
         """Device observable summary buffer, or ``None`` when not
         summarised."""
         if self._active_outputs.observable_summaries:
@@ -1022,7 +1057,7 @@ class DeviceSolveResult:
         return None
 
     @property
-    def iteration_counters(self) -> Optional[Any]:
+    def iteration_counters(self) -> Optional[DeviceNDArrayBase]:
         """Device iteration counters, or ``None`` when not requested."""
         if self._active_outputs.iteration_counters:
             return self._iteration_counters

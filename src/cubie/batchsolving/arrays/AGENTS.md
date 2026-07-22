@@ -58,8 +58,9 @@ routes them to `_attach_device_inputs`: validated (exact shape vs `_sizes`, exac
 raise, never coerce) and attached directly as the kernel-facing device array, tracked in
 `_device_inputs`, removed from `_needs_reallocation`/`_needs_overwrite` so no buffer is
 allocated and no H2D runs. A slot that later reverts to host input is re-queued for
-reallocation. Device inputs are single-chunk only (`initialise` and
-`BatchSolverKernel.run` raise on chunked runs); `has_device_inputs` exposes the state, and
+reallocation. Device inputs are single-chunk only, guarded in `BatchSolverKernel._execute_run` — the
+only place that can: an attached slot queues no allocation, so `InputArrays` never learns
+the run's chunk count. `has_device_inputs` exposes the state, and
 the `initial_values`/`parameters` properties return the caller's device array while one is
 attached.
 
@@ -113,9 +114,9 @@ warns (doesn't raise) on an unknown label.
 `_sizes` is a `BatchInputSizes`/`BatchOutputSizes` (`ArraySizingClass`); `update_sizes` raises
 `TypeError` if the replacement isn't the same subtype. `.nonzero` (floor empty/disabled dims to
 1) is applied to `_sizes` before allocation, in `update_from_solver`. All dims are concrete:
-`BatchInputSizes.driver_coefficients` comes from `kernel.driver_coefficients_shape`, pinned by
-the Solver from `ArrayInterpolator.coefficients_shape` before each run — no `None` wildcards
-exist in the sizing scheme. See root for the `ArraySizingClass`/`.nonzero` pattern.
+`BatchInputSizes.driver_coefficients` comes from `kernel.driver_coefficients_shape` — a
+`BatchSolverConfig` compile setting the Solver keeps aligned with
+`ArrayInterpolator.coefficients_shape` — so no `None` wildcards exist in the sizing scheme. See root for the `ArraySizingClass`/`.nonzero` pattern.
 
 ### Testing
 `tests/batchsolving/arrays/`. Pinned/async-writeback paths short-circuit under `CUDA_SIMULATION`

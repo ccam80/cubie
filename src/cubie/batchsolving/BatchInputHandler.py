@@ -559,6 +559,12 @@ class BatchInputHandler:
         is paired verbatim: ``None`` or a single-column input is
         broadcast to the device array's run count, and a multi-column
         input must match it exactly.
+
+        Drivers never pass through the handler: driver samples flow
+        through ``ArrayInterpolator`` (host coefficients), and a
+        coefficient array handed to ``BatchSolverKernel.run`` directly
+        is validated against the compiled layout by
+        ``InputArrays._attach_device_inputs``.
         """
         # Update precision from current system state
         self.precision = self.states.precision

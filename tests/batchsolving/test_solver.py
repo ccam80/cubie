@@ -369,29 +369,30 @@ def test_solve_result_representations(
     )
 
 
-def test_full_results_carry_stream(
-    solver_mutable,
-    simple_initial_values,
-    simple_parameters,
-    driver_settings,
-):
+# Shared override for the device-path tests below: the solvers are
+# built with these settings so no solve call updates compile settings,
+# and every test reuses the same compiled kernel configuration.
+DEVICE_SOLVE_SETTINGS = {
+    "duration": 0.05,
+    "dt": 0.01,
+    "save_every": 0.01,
+    "summarise_every": None,
+}
+
+
+def test_full_results_carry_stream(unchunked_solved_solver):
     """Host results expose the stream the solve ran on."""
-    solver = solver_mutable
-    full = solver.solve(
-        initial_values=simple_initial_values,
-        parameters=simple_parameters,
-        drivers=driver_settings,
-        duration=0.05,
-        save_every=0.01,
-        dt=0.01,
-        summarise_every=None,
-    )
-    assert full.stream is solver.kernel.stream
-    assert full.stream is not None
+    solver, result = unchunked_solved_solver
+    assert result.stream is solver.kernel.stream
+    assert result.stream is not None
 
 
+@pytest.mark.parametrize(
+    "solver_settings_override", [DEVICE_SOLVE_SETTINGS], indirect=True
+)
 def test_device_results_match_host(
     solver_mutable,
+    solver_settings,
     system,
     precision,
     driver_settings,
@@ -408,10 +409,7 @@ def test_device_results_match_host(
         inits,
         params,
         drivers=driver_settings,
-        duration=0.05,
-        save_every=0.01,
-        dt=0.01,
-        summarise_every=None,
+        duration=solver_settings["duration"],
         nan_error_trajectories=False,
     )
     host_state = np.array(host.state, copy=True)
@@ -421,7 +419,7 @@ def test_device_results_match_host(
         inits,
         params,
         drivers=driver_settings,
-        duration=0.05,
+        duration=solver_settings["duration"],
         on_device=True,
     )
     assert isinstance(device, DeviceSolveResult)
@@ -440,8 +438,13 @@ def test_device_results_match_host(
     )
 
 
+@pytest.mark.parametrize(
+    "solver_settings_override", [DEVICE_SOLVE_SETTINGS], indirect=True
+)
+@pytest.mark.parametrize("forced_free_mem", [400], indirect=True)
 def test_device_results_chunked_raises(
     low_mem_solver,
+    solver_settings,
     system,
     precision,
     driver_settings,
@@ -457,16 +460,17 @@ def test_device_results_chunked_raises(
             inits,
             params,
             drivers=driver_settings,
-            duration=0.05,
-            summarise_every=None,
-            save_every=0.01,
-            dt=0.01,
+            duration=solver_settings["duration"],
             on_device=True,
         )
 
 
+@pytest.mark.parametrize(
+    "solver_settings_override", [DEVICE_SOLVE_SETTINGS], indirect=True
+)
 def test_device_inputs_match_host_inputs(
     solver_mutable,
+    solver_settings,
     system,
     precision,
     driver_settings,
@@ -486,10 +490,7 @@ def test_device_inputs_match_host_inputs(
         inits,
         params,
         drivers=driver_settings,
-        duration=0.05,
-        save_every=0.01,
-        dt=0.01,
-        summarise_every=None,
+        duration=solver_settings["duration"],
     )
     host_state = host_result.time_domain_array.copy()
 
@@ -499,7 +500,7 @@ def test_device_inputs_match_host_inputs(
         d_inits,
         d_params,
         drivers=driver_settings,
-        duration=0.05,
+        duration=solver_settings["duration"],
     )
     # The caller's arrays are wired straight into the kernel.
     input_arrays = solver.kernel.input_arrays
@@ -516,7 +517,7 @@ def test_device_inputs_match_host_inputs(
         inits,
         params,
         drivers=driver_settings,
-        duration=0.05,
+        duration=solver_settings["duration"],
     )
     assert not input_arrays.has_device_inputs
     np.testing.assert_array_equal(
@@ -524,8 +525,12 @@ def test_device_inputs_match_host_inputs(
     )
 
 
+@pytest.mark.parametrize(
+    "solver_settings_override", [DEVICE_SOLVE_SETTINGS], indirect=True
+)
 def test_device_inputs_device_results_roundtrip(
     solver_mutable,
+    solver_settings,
     system,
     precision,
     driver_settings,
@@ -542,10 +547,7 @@ def test_device_inputs_device_results_roundtrip(
         inits,
         params,
         drivers=driver_settings,
-        duration=0.05,
-        save_every=0.01,
-        dt=0.01,
-        summarise_every=None,
+        duration=solver_settings["duration"],
         nan_error_trajectories=False,
     )
     ref_state = np.array(reference.state, copy=True)
@@ -554,7 +556,7 @@ def test_device_inputs_device_results_roundtrip(
         cuda.to_device(inits),
         cuda.to_device(params),
         drivers=driver_settings,
-        duration=0.05,
+        duration=solver_settings["duration"],
         on_device=True,
     )
     device.stream.synchronize()
@@ -563,13 +565,23 @@ def test_device_inputs_device_results_roundtrip(
     )
 
 
+@pytest.mark.parametrize(
+    "solver_settings_override", [DEVICE_SOLVE_SETTINGS], indirect=True
+)
+@pytest.mark.parametrize("forced_free_mem", [400], indirect=True)
 def test_device_inputs_chunked_raises(
     low_mem_solver,
+    solver_settings,
     system,
     precision,
     driver_settings,
 ):
-    """Device-array inputs refuse a run that chunks."""
+    """Device-array inputs refuse a run that chunks.
+
+    Free memory is pinned low enough that the output arrays alone
+    force chunking: attached device inputs queue no input buffers,
+    so they cannot contribute to the footprint.
+    """
     n_runs = 5
     inits = np.ones((system.sizes.states, n_runs), dtype=precision)
     params = np.ones(
@@ -580,10 +592,7 @@ def test_device_inputs_chunked_raises(
             cuda.to_device(inits),
             cuda.to_device(params),
             drivers=driver_settings,
-            duration=0.05,
-            summarise_every=None,
-            save_every=0.01,
-            dt=0.01,
+            duration=solver_settings["duration"],
         )
 
 

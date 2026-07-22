@@ -18,7 +18,7 @@ See Also
     Consumer of this configuration.
 """
 
-from typing import Callable, Optional
+from typing import Callable, Optional, Tuple
 
 import attrs
 from attrs import validators as val
@@ -116,6 +116,19 @@ class ActiveOutputs(_CubieConfigBase):
 ALL_KERNEL_PARAMETERS = frozenset({"max_registers"})
 
 
+def _as_int_tuple(value: Tuple) -> Tuple[int, ...]:
+    """Coerce an iterable of dimension sizes to a tuple of ints."""
+    return tuple(int(dim) for dim in value)
+
+
+def _three_dims(instance, attribute, value) -> None:
+    """Validate that a shape tuple has exactly three dimensions."""
+    if len(value) != 3:
+        raise ValueError(
+            f"{attribute.name} must have three dimensions, got {value}."
+        )
+
+
 @attrs.define
 class BatchSolverConfig(CUDAFactoryConfig):
     """Compile-critical settings for the batch solver kernel.
@@ -138,6 +151,14 @@ class BatchSolverConfig(CUDAFactoryConfig):
         from hashing so cache relocation never alters the disk-cache
         key; a change still invalidates the build, which reattaches a
         freshly configured cache to the dispatcher.
+    driver_coefficients_shape
+        Driver-coefficient layout ``(num_segments, num_drivers,
+        order + 1)`` baked into the compiled driver evaluators as
+        closure constants. The Solver keeps it aligned with
+        ``ArrayInterpolator.coefficients_shape``; input sizing and
+        device-array validation check supplied coefficient arrays
+        against it. The zero default marks kernels never given driver
+        metadata (sizing floors it to a unit placeholder).
     """
 
     loop_fn: Optional[Callable] = attrs.field(
@@ -159,6 +180,14 @@ class BatchSolverConfig(CUDAFactoryConfig):
         factory=CacheConfig,
         validator=attrs.validators.instance_of(CacheConfig),
         eq=False,
+    )
+    driver_coefficients_shape: Tuple[int, int, int] = attrs.field(
+        default=(0, 0, 0),
+        converter=_as_int_tuple,
+        validator=[
+            val.deep_iterable(val.instance_of(int), val.instance_of(tuple)),
+            _three_dims,
+        ],
     )
 
     def __attrs_post_init__(self):

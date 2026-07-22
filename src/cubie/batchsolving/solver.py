@@ -519,6 +519,11 @@ class Solver:
             | cache_recognized
             | kernel_recognized
         )
+        # Seed the compiled driver-coefficient layout; the driver
+        # update paths keep it aligned when the interpolator changes.
+        kernel_settings["driver_coefficients_shape"] = (
+            self.driver_interpolator.coefficients_shape
+        )
 
         self.kernel = BatchSolverKernel(
             system,
@@ -629,6 +634,9 @@ class Solver:
                         self.driver_interpolator.evaluation_function
                     ),
                     "driver_del_t": self.driver_interpolator.driver_del_t,
+                    "driver_coefficients_shape": (
+                        self.driver_interpolator.coefficients_shape
+                    ),
                 }
             )
 
@@ -716,14 +724,10 @@ class Solver:
         When GPU memory is insufficient for the full batch, arrays are
         automatically chunked along the run axis.
 
-        ``on_device=True`` returns without synchronizing: the device
-        buffer contents are valid once the returned stream has been
-        synchronized, and further work queued on that stream executes
-        in order after the solve. The buffers are reused (and their
-        contents invalidated) by the next ``solve()`` on this solver.
-        Host-side post-processing (legends, NaN masking) is skipped.
-        Device-resident results require the batch to fit in a single
-        chunk; a chunked run raises ``ValueError``.
+        ``on_device=True`` returns without synchronizing: buffer
+        contents are valid once the returned stream is synchronized,
+        and the next ``solve()`` on this solver overwrites them. A
+        chunked run raises ``ValueError``.
         """
         if kwargs:
             self.update(kwargs)
@@ -738,11 +742,6 @@ class Solver:
         if drivers is not None:
             self._configure_drivers(drivers)
 
-        # Pin the coefficient layout the compiled evaluators expect so
-        # input validation checks supplied arrays against it.
-        self.kernel.driver_coefficients_shape = (
-            self.driver_interpolator.coefficients_shape
-        )
         self.kernel.run(
             inits=inits,
             params=params,
@@ -869,6 +868,9 @@ class Solver:
             )
             updates_dict["driver_del_t"] = (
                 self.driver_interpolator.driver_del_t
+            )
+            updates_dict["driver_coefficients_shape"] = (
+                self.driver_interpolator.coefficients_shape
             )
 
         all_unrecognized = set(updates_dict.keys())

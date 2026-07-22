@@ -288,10 +288,6 @@ class BatchSolverKernel(CUDAFactory):
         self._closed = False
         self._last_stream = None
         self._work_complete = True
-        # Pinned by the owning Solver from the driver interpolator's
-        # compiled layout before each run; the zero default floors to
-        # a unit placeholder for kernels never given driver metadata.
-        self._driver_coefficients_shape = (0, 0, 0)
         self._memory_manager = self._setup_memory_manager(memory_settings)
 
         system_name = system.name
@@ -603,7 +599,7 @@ class BatchSolverKernel(CUDAFactory):
         stream: Optional[Any],
         warmup: float,
         t0: float,
-        transfer_outputs: bool = True,
+        transfer_outputs: bool,
     ) -> None:
         """Allocate, chunk, and launch the batch kernel."""
         self._last_stream = stream
@@ -648,6 +644,9 @@ class BatchSolverKernel(CUDAFactory):
         if chunks > 1:
             # Host arrays are the stitch target for chunked runs, so
             # device-resident results and inputs cannot span chunks.
+            # This is the only place that can guard device inputs: an
+            # attached slot queues no allocation, so InputArrays never
+            # learns the run's chunk count.
             if not transfer_outputs:
                 raise ValueError(
                     "Device-resident results require the batch to fit "
@@ -1513,24 +1512,15 @@ class BatchSolverKernel(CUDAFactory):
     def driver_coefficients_shape(self) -> tuple[int, int, int]:
         """Expected driver-coefficient layout for input validation.
 
-        Set by the owning :class:`Solver` from
+        A :class:`BatchSolverConfig` compile setting the owning
+        :class:`Solver` keeps aligned with
         ``ArrayInterpolator.coefficients_shape`` — the exact
         ``(num_segments, num_drivers, order + 1)`` layout baked into
         the compiled driver evaluators — so supplied coefficient
         arrays are checked against the shape the kernel was compiled
-        for.
+        for. Update via ``update(driver_coefficients_shape=...)``.
         """
-        return self._driver_coefficients_shape
-
-    @driver_coefficients_shape.setter
-    def driver_coefficients_shape(self, shape: tuple[int, int, int]) -> None:
-        shape = tuple(int(dim) for dim in shape)
-        if len(shape) != 3:
-            raise ValueError(
-                f"driver_coefficients_shape must have three "
-                f"dimensions, got {shape}."
-            )
-        self._driver_coefficients_shape = shape
+        return self.compile_settings.driver_coefficients_shape
 
     @property
     def device_driver_coefficients(self) -> Optional[NDArray[floating]]:
