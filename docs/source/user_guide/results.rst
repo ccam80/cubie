@@ -38,11 +38,60 @@ Key attributes:
 ``summaries_legend``
    Dictionary mapping row indices to summary labels.
 
+``stream``
+   The kernel's memory-manager stream the solve ran on — every
+   launch and transfer for a solver uses this one stream.  Work
+   queued on it executes in order after the solve, so a follow-up
+   job can be enqueued without a device-wide synchronisation.
+
 Convenience accessors:
 
 - ``result.as_numpy`` --- returns a dict of NumPy arrays.
 - ``result.as_pandas`` --- returns a dict of pandas DataFrames.
 - ``result.as_numpy_per_summary`` --- splits summaries by metric type.
+
+Device-Resident Results
+-----------------------
+
+A normal solve copies the output arrays from the GPU to the host
+before returning.  For workflows that never read the outputs on the
+host — benchmarking loops, or GPU-resident pipelines that feed solver
+output straight into further device work — ``on_device=True`` skips
+that copy and returns a
+:class:`~cubie.batchsolving.solveresult.DeviceSolveResult` of
+device-array handles::
+
+   result = solver.solve(y0, params, on_device=True)
+   result.stream.synchronize()      # results valid after this
+   device_state = result.state      # GPU array, no host copy made
+
+The result carries ``state``, ``observables``, ``state_summaries``,
+``observable_summaries``, ``iteration_counters``, ``status_codes``,
+and ``stream``; inactive outputs are ``None``.  The result is a pure
+handle container — it performs no stream or memory operations
+itself.  Points to note:
+
+- The solve does **not** synchronise before returning.  The handles
+  are safe to pass to work queued on ``result.stream`` immediately;
+  reading them from the host requires synchronising that stream
+  first, then copying (e.g. ``result.state.copy_to_host()``).  If
+  you want host results, a normal host solve is the better tool.
+- The handles are views of the solver's reusable output buffers: the
+  next ``solve()`` on the same solver overwrites them.
+- Host-side post-processing (legends, NaN masking of failed runs) is
+  skipped.
+- The batch must fit in a single chunk.  A run that chunks along the
+  run axis raises ``ValueError`` — host arrays are the stitch target
+  for chunked transfers.
+- Device results need a live :class:`~cubie.Solver`;
+  :func:`~cubie.solve_ivp` closes its temporary solver before
+  returning, so it has no ``on_device`` option.
+
+Initial values and parameters may likewise be passed as device
+arrays (CuPy or Numba) in ``(n_variables, n_runs)`` layout, matching
+the system precision.  They are wired directly into the kernel with
+no host round-trip, which keeps a solve → post-process → solve
+pipeline entirely on the GPU.
 
 Output Types
 ------------

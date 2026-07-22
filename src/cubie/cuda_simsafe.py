@@ -22,6 +22,8 @@ Published Functions
     Test whether a callable is a CUDA device function.
 :func:`is_cuda_array`
     Check whether a value should be treated as a CUDA array.
+:func:`is_device_array`
+    Check whether a value is a GPU-resident array (not host numpy).
 :func:`is_cudasim_enabled`
     Return whether the CUDA simulator is active.
 :func:`get_jit_kwargs`
@@ -371,6 +373,35 @@ def is_cuda_array(value: Any) -> bool:
     return _is_cuda_array(value)
 
 
+def is_device_array(value: Any) -> bool:
+    """Check whether ``value`` is a GPU-resident array.
+
+    Parameters
+    ----------
+    value
+        Object to test.
+
+    Returns
+    -------
+    bool
+        ``True`` for device arrays (Numba device arrays, CuPy arrays,
+        or any non-numpy object exposing
+        ``__cuda_array_interface__``; the simulator's fake device
+        arrays under CUDASIM), ``False`` for host numpy arrays and
+        everything else.
+
+    Notes
+    -----
+    Unlike :func:`is_cuda_array`, this is never truthy for host numpy
+    arrays, so it distinguishes device inputs under the simulator.
+    """
+    if value is None or isinstance(value, np_ndarray):
+        return False
+    if isinstance(value, DeviceNDArrayBase):
+        return True
+    return hasattr(value, "__cuda_array_interface__")
+
+
 def is_pinned_array(array: Any) -> bool:
     """Return whether a host array is backed by page-locked memory.
 
@@ -662,6 +693,7 @@ __all__ = [
     "int32",
     "is_cuda_array",
     "is_cudasim_enabled",
+    "is_device_array",
     "is_pinned_array",
     "max_shared_memory_per_block",
     "is_devfunc",

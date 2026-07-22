@@ -6,7 +6,7 @@ import pytest
 
 from cubie.batchsolving.solver import Solver
 from cubie.batchsolving.BatchSolverConfig import ActiveOutputs
-from cubie.batchsolving.solveresult import SolveResult
+from cubie.batchsolving.solveresult import DeviceSolveResult, SolveResult
 from cubie.memory import MemoryManager
 
 Array = np.ndarray
@@ -94,7 +94,6 @@ def solver_with_arrays(
         inits=inits,
         driver_coefficients=driver_array.coefficients,
         blocksize=solver_settings["blocksize"],
-        stream=solver_settings["stream"],
         warmup=solver_settings["warmup"],
     )
     # kernel.run launches and copies back asynchronously; wait for the
@@ -717,6 +716,49 @@ def test_from_solver_hands_over_buffers(solver_with_arrays):
     assert result.status_codes is status_buffer
     assert solver_with_arrays.kernel.output_arrays.state is None
     result.close()
+
+
+def test_from_solver_result_carries_stream(solver_with_arrays):
+    """The result records the kernel's memory-manager stream."""
+    result = SolveResult.from_solver(solver_with_arrays)
+    assert result.stream is solver_with_arrays.kernel.stream
+    assert result.stream is not None
+    result.close()
+
+
+def test_device_result_from_solver(solver_with_arrays):
+    """DeviceSolveResult holds the solver's device buffers and stream."""
+    result = DeviceSolveResult.from_solver(solver_with_arrays)
+
+    assert result.state is solver_with_arrays.device_state
+    assert (
+        result.status_codes
+        is solver_with_arrays.device_status_codes
+    )
+    assert result.stream is solver_with_arrays.kernel.stream
+    assert result.active_outputs == solver_with_arrays.active_outputs
+    assert (
+        result.stride_order
+        == solver_with_arrays.kernel.output_arrays.host.state.stride_order
+    )
+
+
+def test_device_result_handles_match_host_buffers(solver_with_arrays):
+    """Synchronized handle copies match the host arrays of the solve."""
+    outputs = solver_with_arrays.kernel.output_arrays
+    outputs.reclaim_or_release_loan()
+    host_state = np.array(solver_with_arrays.state, copy=True)
+    host_status = np.array(
+        solver_with_arrays.status_codes, copy=True
+    )
+    result = DeviceSolveResult.from_solver(solver_with_arrays)
+    result.stream.synchronize()
+    np.testing.assert_array_equal(
+        result.state.copy_to_host(), host_state
+    )
+    np.testing.assert_array_equal(
+        result.status_codes.copy_to_host(), host_status
+    )
 
 
 @pytest.mark.parametrize(

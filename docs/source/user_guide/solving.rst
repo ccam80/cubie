@@ -105,6 +105,12 @@ from scratch, and
 input grid once so repeated ``solve`` calls with the same batch layout
 skip grid construction.
 
+Initial values and parameters that already live on the GPU (CuPy or
+Numba device arrays in ``(n_variables, n_runs)`` layout, matching the
+system precision) are wired directly into the kernel with no
+host-to-device transfer; pair them with ``on_device=True`` to keep an
+entire solve → post-process pipeline on the GPU (see :doc:`results`).
+
 The ``duration`` Parameter
 --------------------------
 

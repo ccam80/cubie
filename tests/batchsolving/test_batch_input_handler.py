@@ -273,31 +273,117 @@ def test_call_updates_precision(input_handler, system):
     assert params.dtype == system.precision
 
 
-def test_call_fast_return_device_arrays(input_handler, system):
-    """Attempts _fast_return_arrays first for device arrays."""
+class _FakeDeviceArray:
+    """Minimal stand-in exposing the CUDA array interface."""
+
+    def __init__(self, shape, dtype):
+        self._data = np.ones(shape, dtype=dtype)
+        self.shape = shape
+        self.dtype = self._data.dtype
+
+    @property
+    def __cuda_array_interface__(self):
+        return {
+            "shape": self._data.shape,
+            "typestr": self._data.dtype.str,
+            "data": (self._data.ctypes.data, False),
+            "version": 3,
+        }
+
+
+def test_call_device_arrays_pass_through(input_handler, system):
+    """Matched device states and params pass through untouched."""
     n_states = system.sizes.states
     n_params = system.sizes.parameters
-
-    class FakeDevice:
-        def __init__(self, shape, dtype):
-            self._data = np.ones(shape, dtype=dtype)
-            self.shape = shape
-
-        @property
-        def __cuda_array_interface__(self):
-            return {
-                "shape": self._data.shape,
-                "typestr": self._data.dtype.str,
-                "data": (self._data.ctypes.data, False),
-                "version": 3,
-            }
-
-    states = FakeDevice((n_states, 2), system.precision)
-    params = FakeDevice((n_params, 2), system.precision)
-    # __init__ test: inline construction justified for device mock
+    states = _FakeDeviceArray((n_states, 2), system.precision)
+    params = _FakeDeviceArray((n_params, 2), system.precision)
     result_s, result_p = input_handler(states, params, "verbatim")
     assert result_s is states
     assert result_p is params
+
+
+def test_call_device_states_none_params(input_handler, system):
+    """Device states pair with defaults tiled to the run count."""
+    n_states = system.sizes.states
+    states = _FakeDeviceArray((n_states, 4), system.precision)
+    result_s, result_p = input_handler(states, None, "verbatim")
+    assert result_s is states
+    assert result_p.shape == (system.sizes.parameters, 4)
+    assert result_p.dtype == system.precision
+    expected = np.tile(
+        system.parameters.values_array[:, np.newaxis], (1, 4)
+    )
+    assert_array_equal(result_p, expected)
+
+
+def test_call_device_states_single_column_params(input_handler, system):
+    """A single-column host input broadcasts to the device run count."""
+    n_states = system.sizes.states
+    n_params = system.sizes.parameters
+    states = _FakeDeviceArray((n_states, 3), system.precision)
+    params = np.arange(n_params, dtype=system.precision)
+    result_s, result_p = input_handler(states, params, "verbatim")
+    assert result_s is states
+    assert result_p.shape == (n_params, 3)
+    for run in range(3):
+        assert_array_equal(result_p[:, run], params)
+
+
+def test_call_device_params_matching_host_states(input_handler, system):
+    """A right-sized host grid pairs verbatim with device params."""
+    n_states = system.sizes.states
+    n_params = system.sizes.parameters
+    params = _FakeDeviceArray((n_params, 3), system.precision)
+    states = np.ones((n_states, 3), dtype=np.float64)
+    result_s, result_p = input_handler(states, params, "verbatim")
+    assert result_p is params
+    assert result_s.shape == (n_states, 3)
+    assert result_s.dtype == system.precision
+
+
+def test_call_device_states_mismatched_host_params_raise(
+    input_handler, system
+):
+    """Multi-column host input must match the device run count."""
+    n_states = system.sizes.states
+    n_params = system.sizes.parameters
+    states = _FakeDeviceArray((n_states, 4), system.precision)
+    params = np.ones((n_params, 3), dtype=system.precision)
+    with pytest.raises(ValueError, match="paired\\s+verbatim"):
+        input_handler(states, params, "verbatim")
+
+
+def test_call_device_states_dict_params_raise(input_handler, system):
+    """Non-empty dict grids cannot combine with device arrays."""
+    n_states = system.sizes.states
+    param_names = list(system.parameters.names)
+    states = _FakeDeviceArray((n_states, 2), system.precision)
+    with pytest.raises(TypeError, match="device array"):
+        input_handler(states, {param_names[0]: [1.0, 2.0]}, "verbatim")
+
+
+def test_call_device_array_wrong_dtype_raises(input_handler, system):
+    """Device arrays must match the system precision exactly."""
+    n_states = system.sizes.states
+    wrong = np.float64 if system.precision == np.float32 else np.float32
+    states = _FakeDeviceArray((n_states, 2), wrong)
+    with pytest.raises(TypeError, match="precision"):
+        input_handler(states, None, "verbatim")
+
+
+def test_call_device_array_wrong_rows_raises(input_handler, system):
+    """Device arrays must carry every system variable."""
+    n_states = system.sizes.states
+    states = _FakeDeviceArray((n_states + 1, 2), system.precision)
+    with pytest.raises(ValueError, match="variables"):
+        input_handler(states, None, "verbatim")
+
+
+def test_call_device_array_1d_raises(input_handler, system):
+    """Device arrays must be 2D in (variable, run) format."""
+    states = _FakeDeviceArray((system.sizes.states,), system.precision)
+    with pytest.raises(ValueError, match="2D"):
+        input_handler(states, None, "verbatim")
 
 
 def test_call_processes_inputs(input_handler, system):
@@ -650,20 +736,20 @@ def test_get_run_count_none(input_handler):
     assert input_handler._get_run_count(None) is None
 
 
-def test_get_run_count_device_array(input_handler, system):
-    """Extracts shape[1] from __cuda_array_interface__."""
+def test_get_run_count_ignores_device_arrays(input_handler, system):
+    """Returns None for non-ndarray inputs such as device arrays."""
 
     class FakeDevice:
         def __init__(self, shape):
-            self._shape = shape
+            self.shape = shape
 
         @property
         def __cuda_array_interface__(self):
-            return {"shape": self._shape, "version": 3}
+            return {"shape": self.shape, "version": 3}
 
     # __init__ test: inline construction justified for device mock
     dev = FakeDevice((3, 5))
-    assert input_handler._get_run_count(dev) == 5
+    assert input_handler._get_run_count(dev) is None
 
 
 # ── _align_run_counts (forwarding) ─────────────────────── #
@@ -913,32 +999,14 @@ def test_is_1d_or_none_scalar_returns_false(input_handler):
 # ── _fast_return_arrays: remaining branches ─────────────────── #
 
 
-def test_fast_return_device_mismatched_runs_returns_none(
-    input_handler, system
-):
-    """Both device arrays but mismatched run counts fall through to
-    None instead of a fast return."""
+def test_device_arrays_mismatched_runs_raise(input_handler, system):
+    """Both device arrays but mismatched run counts raise."""
     n_s = system.sizes.states
     n_p = system.sizes.parameters
-
-    class FakeDevice:
-        def __init__(self, shape, dtype):
-            self._data = np.ones(shape, dtype=dtype)
-            self.shape = shape
-
-        @property
-        def __cuda_array_interface__(self):
-            return {
-                "shape": self._data.shape,
-                "typestr": self._data.dtype.str,
-                "data": (self._data.ctypes.data, False),
-                "version": 3,
-            }
-
-    states = FakeDevice((n_s, 2), system.precision)
-    params = FakeDevice((n_p, 3), system.precision)
-    result = input_handler._fast_return_arrays(states, params, "verbatim")
-    assert result is None
+    states = _FakeDeviceArray((n_s, 2), system.precision)
+    params = _FakeDeviceArray((n_p, 3), system.precision)
+    with pytest.raises(ValueError, match="different run counts"):
+        input_handler(states, params, "verbatim")
 
 
 def test_fast_return_empty_params_none_marks_params_ok(no_param_system):
