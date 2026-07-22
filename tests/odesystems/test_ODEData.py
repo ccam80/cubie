@@ -68,21 +68,29 @@ def test_odedata_construction():
 
 # ── ODEData.update_precisions ─────────────────────────────────── #
 
-def test_update_precisions_updates_all():
-    """update_precisions propagates precision to all SystemValues."""
+def test_update_precision_propagates_to_all_containers():
+    """A precision update re-materialises every SystemValues container."""
     data = _make_odedata(precision=np.float32)
-    data.update_precisions({"precision": np.float64})
-    assert data.parameters.precision == np.float64
-    assert data.constants.precision == np.float64
-    assert data.initial_states.precision == np.float64
-    assert data.observables.precision == np.float64
-
-
-def test_update_precisions_noop_without_key():
-    """update_precisions leaves precision unchanged when key absent."""
-    data = _make_odedata(precision=np.float32)
-    data.update_precisions({"unrelated": 42})
+    replacement, recognized, changed = data.update(
+        {"precision": np.float64}
+    )
+    assert "precision" in changed
+    assert replacement.parameters.precision == np.float64
+    assert replacement.constants.precision == np.float64
+    assert replacement.initial_states.precision == np.float64
+    assert replacement.observables.precision == np.float64
+    assert replacement.parameters.values_array.dtype == np.float64
+    # Original snapshot untouched
     assert data.parameters.precision == np.float32
+
+
+def test_update_precision_noop_without_key():
+    """Precision stays unchanged when the key is absent."""
+    data = _make_odedata(precision=np.float32)
+    replacement, _, changed = data.update({"unrelated": 42})
+    assert changed == set()
+    assert replacement is data
+    assert replacement.parameters.precision == np.float32
 
 
 # ── ODEData properties ────────────────────────────────────────── #
@@ -125,19 +133,30 @@ def test_mass_change_alters_values_hash():
     data = _make_odedata()  # _mass defaults to None
     baseline = data.values_hash
 
-    data.update({"mass": np.eye(2, dtype=np.float64)})
+    data, _, _ = data.update({"mass": np.eye(2, dtype=np.float64)})
     hash_identity = data.values_hash
     assert hash_identity != baseline  # None -> ndarray recompiles
 
-    data.update({"mass": np.eye(2, dtype=np.float64)})
-    assert data.values_hash == hash_identity  # equal ndarray: no recompile
+    replacement, _, changed = data.update(
+        {"mass": np.eye(2, dtype=np.float64)}
+    )
+    assert changed == set()  # equal ndarray: no recompile
+    assert replacement.values_hash == hash_identity
 
-    data.update({"mass": np.diag([1.0, 2.0])})
+    data, _, _ = data.update({"mass": np.diag([1.0, 2.0])})
     hash_diag = data.values_hash
     assert hash_diag != hash_identity  # different ndarray recompiles
 
-    data.update({"mass": sp.Matrix([[1, 0], [0, 3]])})
+    data, _, _ = data.update({"mass": sp.Matrix([[1, 0], [0, 3]])})
     assert data.values_hash != hash_diag  # sympy.Matrix participates
+
+    # Input-form independence: a sympy matrix and its numeric array
+    # normalise to the same stored mass and the same hash.
+    via_sympy, _, _ = data.update({"mass": sp.Matrix([[2, 0], [0, 5]])})
+    via_array, _, _ = data.update(
+        {"mass": np.diag([2.0, 5.0])}
+    )
+    assert via_sympy.values_hash == via_array.values_hash
 
 
 # ── ODEData.from_BaseODE_initargs ─────────────────────────────── #

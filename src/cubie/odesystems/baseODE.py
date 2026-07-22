@@ -36,12 +36,12 @@ See Also
 
 from abc import abstractmethod
 from typing import Any, Callable, Dict, Optional, Set, Union
-from hashlib import sha256
 
 from attrs import define, field
 from numpy import float32
 
-from cubie.CUDAFactory import CUDAFactory, CUDADispatcherCache, hash_tuple
+from cubie._serialize import canonical_digest
+from cubie.CUDAFactory import CUDAFactory, CUDADispatcherCache
 from cubie._utils import PrecisionDType
 from cubie.odesystems.ODEData import ODEData
 from cubie.odesystems.SystemValues import SystemValues
@@ -254,11 +254,6 @@ class BaseODE(CUDAFactory):
             updates,
             silent=True,
         )
-
-        # Special handling of the updating of SystemValues precision - if
-        # precision was updated, it will already be in 'recognised' and
-        # 'changed'.
-        self.compile_settings.update_precisions(updates_dict)
         recognised |= recognised_constants
 
         if not silent:
@@ -306,10 +301,15 @@ class BaseODE(CUDAFactory):
         recognised = set(updates_dict.keys()) & const.values_dict.keys()
         unrecognised = set()
         if recognised:
-            recognised = const.update_from_dict(updates_dict, silent=True)
+            # Snapshot discipline: derive a modified copy and pass the
+            # copy through the write boundary, never the instance the
+            # current settings snapshot holds.
+            new_const = const.copy()
+            recognised = new_const.update_from_dict(
+                updates_dict, silent=True
+            )
             unrecognised = set(updates_dict.keys()) - recognised
-
-        self.update_compile_settings(constants=const, silent=True)
+            self.update_compile_settings(constants=new_const, silent=True)
 
         if not silent and unrecognised:
             raise KeyError(
@@ -389,14 +389,20 @@ class BaseODE(CUDAFactory):
         """Hash of the current constant values."""
         const_values = tuple()
         if self.constants is not None:
-            const_values = tuple(sorted(self.constants.values_dict.items()))
-        return hash_tuple(const_values)
+            const_values = tuple(
+                (name, float(value))
+                for name, value in sorted(
+                    self.constants.values_dict.items()
+                )
+            )
+        return canonical_digest(const_values)
 
     @property
     def config_hash(self):
         """Configuration hash incorporating constant values."""
-        combined = "|".join([super().config_hash, self._constants_hash])
-        return sha256(combined.encode("utf-8")).hexdigest()
+        return canonical_digest(
+            ("cubie-ode-config", super().config_hash, self._constants_hash)
+        )
 
     @property
     def settings_and_constants_hash(self) -> str:
@@ -406,10 +412,13 @@ class BaseODE(CUDAFactory):
         fold this hash into its own configuration without creating a
         self-referential hash chain.
         """
-        combined = "|".join(
-            [self.compile_settings.values_hash, self._constants_hash]
+        return canonical_digest(
+            (
+                "cubie-ode-settings",
+                self.compile_settings.values_hash,
+                self._constants_hash,
+            )
         )
-        return sha256(combined.encode("utf-8")).hexdigest()
 
     def get_solver_helper(
         self,

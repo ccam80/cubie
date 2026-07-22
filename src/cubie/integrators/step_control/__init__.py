@@ -34,7 +34,6 @@ See Also
     Union of all accepted keyword arguments.
 """
 
-import warnings
 from typing import Any, Dict, Mapping, Optional, Type
 
 from cubie._utils import PrecisionDType

@@ -30,7 +30,7 @@ from typing import Callable
 
 from cubie.cuda_simsafe import cuda, int32
 from numpy import ndarray
-from attrs import field, define, validators
+from attrs import field, validators, frozen
 from math import isnan, isinf
 
 from cubie._utils import PrecisionDType, _expand_dtype
@@ -44,7 +44,7 @@ from cubie.result_codes import CUBIE_RESULT_CODES
 from cubie.integrators.step_control.base_step_controller import ControllerCache
 
 
-@define
+@frozen
 class PIStepControlConfig(AdaptiveStepControlConfig):
     """Configuration for proportional–integral adaptive controllers.
 

@@ -26,7 +26,7 @@ See Also
 from abc import abstractmethod
 from typing import Callable, Optional, Union, Set
 
-from attrs import define, field, validators
+from attrs import field, validators, frozen
 from numpy import ndarray
 
 from cubie._utils import inrangetype_validator, is_device_validator
@@ -50,7 +50,7 @@ from cubie.integrators.stage_predictors import (
 )
 
 
-@define
+@frozen
 class ImplicitStepConfig(BaseStepConfig):
     """Configuration settings for implicit integration steps.
 
@@ -79,8 +79,13 @@ class ImplicitStepConfig(BaseStepConfig):
     preconditioner_order: int = field(
         default=2, validator=inrangetype_validator(int, 1, 32)
     )
-    preconditioner_type: Union[str, list] = field(
+    preconditioner_type: Union[str, tuple] = field(
         default="neumann",
+        converter=lambda value: (
+            tuple(value)
+            if isinstance(value, (list, tuple))
+            else value
+        ),
     )
     solver_function = field(
         default=None,
@@ -342,8 +347,11 @@ class ODEImplicitStep(BaseAlgorithmStep):
         StepCache
             Container with the compiled step and nonlinear solver.
         """
-        config = self.compile_settings
+        # Helper refresh replaces the settings snapshot (it pushes the
+        # rebuilt solver callable through update_compile_settings), so
+        # the snapshot is read once, after the refresh.
         self.build_implicit_helpers()
+        config = self.compile_settings
 
         evaluate_f = config.evaluate_f
         numba_precision = config.numba_precision

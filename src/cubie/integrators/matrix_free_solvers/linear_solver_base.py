@@ -29,7 +29,7 @@ See Also
 from abc import abstractmethod
 from typing import Callable, Dict, Any, Optional, Set
 
-from attrs import define, field, validators
+from attrs import define, field, validators, frozen
 from numpy import finfo as np_finfo
 from numpy import ndarray
 
@@ -49,7 +49,7 @@ from cubie.CUDAFactory import CUDADispatcherCache
 from cubie.integrators.norms import ScaledNorm
 
 
-@define
+@frozen
 class LinearSolverBaseConfig(MatrixFreeSolverConfig):
     """Base configuration for linear solver compilation.
 
@@ -114,10 +114,16 @@ class LinearSolverBaseConfig(MatrixFreeSolverConfig):
 
     def __attrs_post_init__(self):
         if self._residual_reduction is None:
-            self._residual_reduction = float(np_finfo(self.precision).eps)
+            object.__setattr__(
+                self,
+                "_residual_reduction",
+                float(np_finfo(self.precision).eps),
+            )
         if self._residual_floor is None:
-            self._residual_floor = (
-                float(np_finfo(self.precision).eps) ** 0.5
+            object.__setattr__(
+                self,
+                "_residual_floor",
+                float(np_finfo(self.precision).eps) ** 0.5,
             )
         super().__attrs_post_init__()
 

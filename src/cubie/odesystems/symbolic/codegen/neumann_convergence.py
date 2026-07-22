@@ -41,7 +41,7 @@ from typing import Callable, Dict, Optional, Sequence, Union
 
 import numpy as np
 import sympy as sp
-from attrs import define, field, validators as val
+from attrs import define, field, validators as val, frozen
 
 from cubie.CUDAFactory import (
     CUDADispatcherCache,
@@ -56,7 +56,7 @@ from cubie.odesystems.symbolic.indexedbasemaps import IndexedBases
 logger = logging.getLogger(__name__)
 
 
-@define
+@frozen
 class NeumannEvaluatorConfig(CUDAFactoryConfig):
     """Compile settings for the Jacobian evaluation kernel.
 

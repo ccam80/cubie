@@ -82,7 +82,8 @@ import os
 from types import MappingProxyType
 from typing import Any, Callable, Mapping, Optional, Tuple, Union
 
-from attrs import Factory, define, field
+from attrs import Factory, field, frozen
+from attrs import evolve as attrs_evolve
 from attrs import validators as attrs_validators
 from numpy import dtype, ndarray as np_ndarray
 
@@ -136,7 +137,7 @@ else:
     INLINE_ALWAYS = "always"
 
 
-@define
+@frozen
 class JITFlags:
     """Per-factory ``cuda.jit`` compile flags.
 
@@ -144,7 +145,8 @@ class JITFlags:
     factory's compile settings (hashed into the config, so a change
     triggers a rebuild), then rendered to decorator keyword arguments
     by :func:`get_jit_kwargs`. New jit options are added here as new
-    fields.
+    fields. Instances are immutable snapshots; :meth:`update` derives
+    a replacement rather than mutating in place.
 
     Attributes
     ----------
@@ -196,7 +198,7 @@ class JITFlags:
         return {name for name, on in enabled.items() if on}
 
     def update(self, updates_dict=None, **kwargs):
-        """Update flag fields, following the config-update contract.
+        """Derive a replacement snapshot with new flag values.
 
         Parameters
         ----------
@@ -209,14 +211,16 @@ class JITFlags:
 
         Returns
         -------
-        tuple[set[str], set[str]]
-            Names of recognised settings and names of changed settings.
+        tuple[JITFlags, set[str], set[str]]
+            Replacement snapshot (``self`` when unchanged), names of
+            recognised settings, and names of changed settings.
         """
         if updates_dict is None:
             updates_dict = {}
         updates_dict = {**updates_dict, **kwargs}
         recognized = set()
         changed = set()
+        replacements = {}
         flag_names = {
             "lineinfo",
             "nsz",
@@ -230,9 +234,11 @@ class JITFlags:
                 continue
             recognized.add(key)
             if getattr(self, key) != value:
-                setattr(self, key, bool(value))
+                replacements[key] = bool(value)
                 changed.add(key)
-        return recognized, changed
+        if not changed:
+            return self, recognized, changed
+        return attrs_evolve(self, **replacements), recognized, changed
 
 
 # Base compile kwargs for cuda.jit decorators, from the default flag

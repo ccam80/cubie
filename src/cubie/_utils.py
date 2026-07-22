@@ -478,8 +478,6 @@ def tol_converter(
     ValueError
         Raised when ``value`` cannot be broadcast to shape (n,).
     """
-    if getattr(self_, "_n_changing", False):
-        return value
     if isscalar(value):
         tol = full(self_.n, value, dtype=self_.precision)
     else:

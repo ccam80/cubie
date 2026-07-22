@@ -42,7 +42,7 @@ Designed for Parabolic Problems. *BIT Numerical Mathematics* 41,
 
 from typing import Callable, Optional
 
-from attrs import define, field, validators
+from attrs import field, validators, frozen
 from cubie.cuda_simsafe import cuda, int32
 
 from cubie.result_codes import CUBIE_RESULT_CODES
@@ -111,7 +111,7 @@ adaptive stepping requires an error estimate to adjust the step size.
 """
 
 
-@define
+@frozen
 class RosenbrockWStepConfig(ImplicitStepConfig):
     """Configuration describing the Rosenbrock-W integrator."""
 

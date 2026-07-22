@@ -35,13 +35,20 @@ See Also
     Abstract ODE factory that owns an ``ODEData`` as compile settings.
 """
 
-from typing import Optional, Dict, Any
+from typing import Optional, Dict, Any, Set, Tuple
 
-from attrs import cmp_using as attrs_cmp_using, define, field
+from attrs import (
+    cmp_using as attrs_cmp_using,
+    define,
+    evolve,
+    field,
+    frozen,
+)
 from attrs.validators import (
     instance_of as attrsval_instance_of,
     optional as attrsval_optional,
 )
+from numpy import asarray as np_asarray, float64 as np_float64
 
 
 from cubie.CUDAFactory import CUDAFactoryConfig
@@ -50,6 +57,21 @@ from cubie._utils import (
     mass_equal,
 )
 from cubie.odesystems.SystemValues import SystemValues
+
+
+def _mass_matrix_converter(value: Any) -> Any:
+    """Normalise a mass matrix to ``None`` or a float64 array.
+
+    The stored form is canonical: SymPy matrices, NumPy arrays, and
+    nested sequences all normalise to the same numeric array, so the
+    configuration identity does not depend on which input form the
+    caller used. Symbolic (non-numeric) entries raise.
+    """
+    if value is None:
+        return None
+    if hasattr(value, "tolist"):
+        value = value.tolist()
+    return np_asarray(value, dtype=np_float64)
 
 
 @define
@@ -82,7 +104,7 @@ class SystemSizes:
     drivers: int = field(validator=attrsval_instance_of(int))
 
 
-@define
+@frozen
 class ODEData(CUDAFactoryConfig):
     """Bundle numerical values and metadata for an ODE system.
 
@@ -154,7 +176,11 @@ class ODEData(CUDAFactoryConfig):
         ),
     )
     num_drivers: int = field(validator=attrsval_instance_of(int), default=1)
-    _mass: Any = field(default=None, eq=attrs_cmp_using(eq=mass_equal))
+    _mass: Any = field(
+        default=None,
+        converter=_mass_matrix_converter,
+        eq=attrs_cmp_using(eq=mass_equal),
+    )
     _solver_beta: float = field(default=1.0, converter=float)
     _solver_gamma: float = field(default=1.0, converter=float)
     preconditioner_order: int = field(default=2, converter=int)
@@ -165,14 +191,33 @@ class ODEData(CUDAFactoryConfig):
     def __attrs_post_init__(self):
         super().__attrs_post_init__()
 
-    def update_precisions(self, updates_dict):
-        """Update precision of all values in the ODEData instance."""
-        if "precision" in updates_dict:
-            precision = updates_dict["precision"]
-            self.parameters.precision = precision
-            self.constants.precision = precision
-            self.initial_states.precision = precision
-            self.observables.precision = precision
+    def update(
+        self, updates_dict: dict = None, **kwargs
+    ) -> Tuple["ODEData", Set[str], Set[str]]:
+        """Derive a replacement snapshot, propagating precision changes.
+
+        A changed ``precision`` re-materialises every embedded
+        :class:`SystemValues` container at the new precision on the
+        replacement snapshot, so packed value arrays always match the
+        configured precision.
+        """
+        replacement, recognized, changed = super().update(
+            updates_dict, **kwargs
+        )
+        if "precision" in changed:
+            precision = replacement.precision
+            reprecisioned = {}
+            for name in (
+                "constants",
+                "parameters",
+                "initial_states",
+                "observables",
+            ):
+                container = getattr(replacement, name)
+                if container is not None:
+                    reprecisioned[name] = container.with_precision(precision)
+            replacement = evolve(replacement, **reprecisioned)
+        return replacement, recognized, changed
 
     @property
     def num_states(self) -> int:

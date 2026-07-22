@@ -32,7 +32,7 @@ from cubie.cubie_cache import CacheConfig
 from cubie.outputhandling.output_config import OutputCompileFlags
 
 
-@attrs.define
+@attrs.frozen
 class ActiveOutputs(_CubieConfigBase):
     """
     Track which output arrays are configured to be produced.
@@ -129,7 +129,7 @@ def _three_dims(instance, attribute, value) -> None:
         )
 
 
-@attrs.define
+@attrs.frozen
 class BatchSolverConfig(CUDAFactoryConfig):
     """Compile-critical settings for the batch solver kernel.
 

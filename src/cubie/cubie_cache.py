@@ -36,7 +36,7 @@ if os.name == "nt":
 else:
     import fcntl
 
-from attrs import field, validators as val, define, converters
+from attrs import field, validators as val, converters, frozen
 
 from cubie.CUDAFactory import _CubieConfigBase
 from cubie._env import kernel_cache_dir_default, max_cache_entries_default
@@ -613,7 +613,7 @@ class CUBIECache(CUDACache):
         """Return the cache directory path."""
         return Path(self._cache_path)
 
-@define
+@frozen
 class CacheConfig(_CubieConfigBase):
     """Configuration for file-based kernel caching.
 

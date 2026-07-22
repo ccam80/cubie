@@ -26,7 +26,7 @@ See Also
     Base configuration class.
 """
 
-from attrs import define, field
+from attrs import field, frozen
 from cubie.cuda_simsafe import cuda, int32
 from cubie.result_codes import CUBIE_RESULT_CODES
 
@@ -38,7 +38,7 @@ from cubie.integrators.step_control.base_step_controller import (
 )
 
 
-@define
+@frozen
 class FixedStepControlConfig(BaseStepControllerConfig):
     """Configuration for fixed-step integrator loops.
 

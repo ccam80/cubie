@@ -39,7 +39,7 @@ import attrs
 from cubie.integrators.algorithms.base_algorithm_step import ButcherTableau
 
 
-@attrs.define
+@attrs.frozen
 class RosenbrockTableau(ButcherTableau):
     """Coefficient tableau describing a Rosenbrock-W integration scheme.
 

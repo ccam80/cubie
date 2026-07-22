@@ -32,7 +32,7 @@ from typing import Callable
 
 from numpy import ndarray
 from cubie.cuda_simsafe import cuda, int32
-from attrs import define, field, validators
+from attrs import field, validators, frozen
 from math import isnan, isinf
 from cubie._utils import PrecisionDType, _expand_dtype
 from cubie.buffer_registry import buffer_registry
@@ -47,7 +47,7 @@ from cubie.result_codes import CUBIE_RESULT_CODES
 from cubie.integrators.step_control.base_step_controller import ControllerCache
 
 
-@define
+@frozen
 class PIDStepControlConfig(PIStepControlConfig):
     """Configuration for a proportional–integral–derivative controller."""
 

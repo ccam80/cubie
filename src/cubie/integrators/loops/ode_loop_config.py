@@ -28,7 +28,7 @@ See Also
 
 from typing import Callable, Optional
 
-from attrs import define, field, validators
+from attrs import field, validators, frozen
 from cubie.CUDAFactory import CUDAFactoryConfig
 from warnings import warn
 
@@ -40,7 +40,7 @@ from cubie._utils import (
 from cubie.outputhandling.output_config import OutputCompileFlags
 
 
-@define
+@frozen
 class ODELoopConfig(CUDAFactoryConfig):
     """Compile-critical settings for an integrator loop.
 

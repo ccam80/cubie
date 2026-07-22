@@ -849,10 +849,13 @@ class SymbolicODE(BaseODE):
         value = self.constants.values_dict.get(name, 0.0)
         self.indices.constant_to_parameter(name)
 
-        self.compile_settings.constants.remove_entry(name)
-        self.compile_settings.parameters.add_entry(name, value)
-
-        self._invalidate_cache()
+        new_constants = self.compile_settings.constants.copy()
+        new_constants.remove_entry(name)
+        new_parameters = self.compile_settings.parameters.copy()
+        new_parameters.add_entry(name, value)
+        self.update_compile_settings(
+            constants=new_constants, parameters=new_parameters
+        )
 
     def make_constant(self, name: str) -> None:
         """Convert a parameter to a compile-time constant.
@@ -873,10 +876,13 @@ class SymbolicODE(BaseODE):
         value = self.parameters.values_dict.get(name, 0.0)
         self.indices.parameter_to_constant(name)
 
-        self.compile_settings.parameters.remove_entry(name)
-        self.compile_settings.constants.add_entry(name, value)
-
-        self._invalidate_cache()
+        new_parameters = self.compile_settings.parameters.copy()
+        new_parameters.remove_entry(name)
+        new_constants = self.compile_settings.constants.copy()
+        new_constants.add_entry(name, value)
+        self.update_compile_settings(
+            constants=new_constants, parameters=new_parameters
+        )
 
     def set_constant_value(self, name: str, value: float) -> None:
         """Set the value of a constant.

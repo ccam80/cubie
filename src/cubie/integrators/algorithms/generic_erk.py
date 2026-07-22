@@ -54,7 +54,7 @@ See Also
 
 from typing import Callable, Optional
 
-from attrs import define, field, validators
+from attrs import field, validators, frozen
 from cubie.cuda_simsafe import cuda, int32
 
 from cubie._utils import PrecisionDType, build_config
@@ -111,7 +111,7 @@ Applied when ``tableau.has_error_estimate`` is ``False``.
 """
 
 
-@define
+@frozen
 class ERKStepConfig(ExplicitStepConfig):
     """Configuration describing an explicit Runge--Kutta integrator.
 

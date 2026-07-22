@@ -156,6 +156,71 @@ class SystemValues:
             return f"{name}: variables ({list(self.values_dict.keys())})"
         return f"{name}: ({self.values_dict})"
 
+    def __eq__(self, other: Any) -> bool:
+        """Compare by stored names, values, and precision.
+
+        Value-exact comparison lets configuration snapshots detect
+        whether a replacement container actually changed anything.
+        """
+        if not isinstance(other, SystemValues):
+            return NotImplemented
+        return (
+            self.precision == other.precision
+            and self.values_dict == other.values_dict
+        )
+
+    def __ne__(self, other: Any) -> bool:
+        result = self.__eq__(other)
+        if result is NotImplemented:
+            return result
+        return not result
+
+    # Identity hashing is retained: instances are mutable containers,
+    # and value equality exists solely for config change detection.
+    __hash__ = object.__hash__
+
+    def _cubie_canonical_(self) -> tuple:
+        """Return the canonical structural identity of this container.
+
+        Only compile-critical structure enters the identity: the
+        ordered names (sizes and indices are baked into generated
+        code) and the precision. Stored values are runtime data —
+        constant values, the one value set that is compile-critical,
+        are folded into the owning system's ``config_hash``
+        separately.
+        """
+        from numpy import dtype as np_dtype
+
+        return (
+            "SystemValues",
+            tuple(self.values_dict.keys()),
+            np_dtype(self.precision).name,
+        )
+
+    def copy(self) -> "SystemValues":
+        """Return an independent copy of this container.
+
+        Configuration snapshots hold ``SystemValues`` instances by
+        reference: derive a copy, modify the copy, and pass it back
+        through the owning factory's update path rather than mutating
+        the instance a snapshot holds.
+        """
+        return SystemValues(
+            dict(self.values_dict), self.precision, name=self.name
+        )
+
+    def with_precision(self, precision: PrecisionDType) -> "SystemValues":
+        """Return a copy of this container at a new precision.
+
+        Parameters
+        ----------
+        precision
+            Precision applied to the copy's packed array.
+        """
+        return SystemValues(
+            dict(self.values_dict), precision, name=self.name
+        )
+
     def _convert_symbol_keys(self, input_dict: Any) -> Any:
         """Return a dictionary whose keys are converted to strings.
 
