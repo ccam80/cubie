@@ -45,6 +45,9 @@ from cubie.integrators.algorithms.base_algorithm_step import (
     StepCache,
     StepControlDefaults,
 )
+from cubie.integrators.stage_predictors import (
+    tableau_supports_dense_prediction,
+)
 
 
 @define
@@ -168,6 +171,9 @@ class ODEImplicitStep(BaseAlgorithmStep):
         }
     )
 
+    # Parameters accepted by DenseStagePredictor
+    _PREDICTOR_PARAMS = frozenset({"previous_step_size_location"})
+
     def __init__(
         self,
         config: ImplicitStepConfig,
@@ -195,6 +201,10 @@ class ODEImplicitStep(BaseAlgorithmStep):
             solver builds its default.
         """
         super().__init__(config, _controller_defaults)
+
+        # Subclasses that support dense stage prediction construct a
+        # DenseStagePredictor here after solver construction.
+        self.dense_predictor = None
 
         if solver_type not in ["newton", "linear"]:
             raise ValueError(
@@ -277,8 +287,9 @@ class ODEImplicitStep(BaseAlgorithmStep):
 
         Notes
         -----
-        Delegates solver parameters to owned solver instance.
-        Invalidates step cache only if solver cache was invalidated.
+        Delegates solver parameters to the owned solver instance and,
+        when the algorithm owns a dense stage predictor, predictor
+        parameters to the predictor.
         """
         all_updates = {}
         if updates_dict:
@@ -294,9 +305,34 @@ class ODEImplicitStep(BaseAlgorithmStep):
 
         all_updates["solver_function"] = self.solver.device_function
 
+        if self.dense_predictor is not None:
+            recognized |= self.dense_predictor.update(
+                all_updates, silent=True
+            )
+            all_updates["predictor_function"] = (
+                self.dense_predictor.device_function
+                if self.dense_prediction
+                else None
+            )
+
         recognized |= super().update(all_updates, silent=True)
 
         return recognized
+
+    @property
+    def dense_prediction(self) -> bool:
+        """Return whether dense stage prediction compiles into the step.
+
+        True only when the algorithm owns a predictor, prediction is
+        requested, and the tableau meets the transform preconditions.
+        """
+        if self.dense_predictor is None:
+            return False
+        config = self.compile_settings
+        return bool(
+            config.attempt_dense_prediction
+            and tableau_supports_dense_prediction(config.tableau)
+        )
 
     def build(self) -> StepCache:
         """Create and cache the device helpers for the implicit algorithm.

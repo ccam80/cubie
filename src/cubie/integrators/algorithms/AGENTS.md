@@ -31,9 +31,9 @@ attrs-config mechanics; CUDA-authoring *optimisation* patterns are in
 | `explicit_euler.py` | `ExplicitEulerStep`: forward Euler, order 1, fixed-step. |
 | `generic_erk.py` | `ERKStep` + `ERKStepConfig`: streamed-accumulator explicit RK; FSAL caching; controller auto-selected from `tableau.has_error_estimate`. |
 | `generic_erk_tableaus.py` | `ERKTableau` + ERK sets (Heun, Ralston, Bogacki-Shampine, Dormand-Prince 5(4)/8(5,3), RK4, Cash-Karp, Fehlberg, Tsit5, Vern7); `ERK_TABLEAU_REGISTRY`, `DEFAULT_ERK_TABLEAU`. |
-| `generic_dirk.py` | `DIRKStep` + `DIRKStepConfig`: diagonally-implicit RK, one Newton solve per implicit stage, stage-skipping for explicit stages, FSAL caching. |
+| `generic_dirk.py` | `DIRKStep` + `DIRKStepConfig`: diagonally-implicit RK, one Newton solve per implicit stage, stage-skipping for explicit stages, FSAL caching, dense-predictor warm starts. |
 | `generic_dirk_tableaus.py` | `DIRKTableau` (adds `diagonal()`) + tableaus (implicit midpoint, trapezoidal/ESDIRK, Lobatto IIIC-3 default, SDIRK_2_2, L-stable DIRK3/SDIRK4). |
-| `generic_firk.py` | `FIRKStep` + `FIRKStepConfig`: fully-implicit RK; all stages as one coupled `n*stages` Newton system; Kahan-summed output accumulation. |
+| `generic_firk.py` | `FIRKStep` + `FIRKStepConfig`: fully-implicit RK; all stages as one coupled `n*stages` Newton system; dense-predictor warm starts; Kahan-summed output accumulation. |
 | `generic_firk_tableaus.py` | `FIRKTableau` + Gauss-Legendre-2 (default) and Radau IIA-5; `compute_embedded_weights_radauIIA`. |
 | `generic_rosenbrock_w.py` | `GenericRosenbrockWStep` + `RosenbrockWStepConfig`: linearly-implicit Rosenbrock-W using a cached Jacobian and a **linear** (not Newton) solve per stage; needs `driver_del_t` and time-derivative helpers. |
 | `generic_rosenbrockw_tableaus.py` | `RosenbrockTableau` (adds `C`, `gamma`, `gamma_stages`) + ROS3P (default), RODAS3P, SciML Rosenbrock23. RODAS4P/5P and ode23s 2(3) are commented-out / non-working. |
@@ -108,6 +108,17 @@ attrs-config mechanics; CUDA-authoring *optimisation* patterns are in
 - **Rosenbrock lazy sizing:** `cached_auxiliary_count` triggers `build_implicit_helpers()`
   on first access to learn the cached-auxiliaries buffer size; `register_buffers` first
   registers it at size 0 and resizes later via `update_buffer`.
+
+### Dense stage prediction (FIRK and DIRK)
+Both steps own a `DenseStagePredictor` (`../stage_predictors.py`) child that
+reads the previous step's stage-derivative curve ahead over the next step as
+the Newton warm start, with the step-size ratio handled at runtime.
+`ODEImplicitStep.dense_prediction` gates compilation (`attempt_dense_prediction`
+requested + tableau nodes pairwise distinct and well spread); the step judges
+first-step/rejection and passes a flag, the predictor bounds the ratio. DIRK
+keeps a persistent `stage_increment_history` (`stage_count * n`, registered
+size 0 when inactive); FIRK transforms its coupled stage vector in place.
+`predictor_function` pipes through compile settings like `solver_function`.
 
 ### FSAL warp-coherence
 - FSAL stage-0 RHS reuse is guarded by `all_sync(activemask(), accepted_flag != 0)` so

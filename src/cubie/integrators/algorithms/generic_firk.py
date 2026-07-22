@@ -42,7 +42,11 @@ from cubie.cuda_simsafe import cuda, int32
 
 from cubie.result_codes import CUBIE_RESULT_CODES
 
-from cubie._utils import PrecisionDType, build_config
+from cubie._utils import (
+    PrecisionDType,
+    build_config,
+    is_device_validator,
+)
 from cubie.integrators.algorithms.base_algorithm_step import (
     StepCache,
     StepControlDefaults,
@@ -56,6 +60,7 @@ from cubie.integrators.algorithms.ode_implicitstep import (
     ODEImplicitStep,
 )
 from cubie.integrators.norms import FIRKCorrectionNorm, TiledScaledNorm
+from cubie.integrators.stage_predictors import DenseStagePredictor
 from cubie.buffer_registry import buffer_registry
 
 
@@ -106,10 +111,38 @@ adaptive stepping requires an error estimate to adjust the step size.
 
 @define
 class FIRKStepConfig(ImplicitStepConfig):
-    """Configuration describing the FIRK integrator."""
+    """Configuration describing the FIRK integrator.
+
+    Attributes
+    ----------
+    tableau : FIRKTableau
+        Butcher tableau describing the fully implicit method.
+    attempt_dense_prediction : bool
+        Request dense stage prediction: accepted steps warm-start
+        Newton by reading the previous step's stage curve ahead over
+        the next step. Ignored when the tableau does not meet the
+        transform's preconditions.
+    predictor_function : Callable or None
+        Compiled dense-prediction device function, piped through
+        compile settings so predictor rebuilds invalidate the step.
+    stage_increment_location : str
+        Buffer location for the coupled stage-increment vector.
+    stage_driver_stack_location : str
+        Buffer location for the per-stage driver samples.
+    stage_state_location : str
+        Buffer location for the stage-state scratch vector.
+    """
 
     tableau: FIRKTableau = field(
         default=DEFAULT_FIRK_TABLEAU,
+    )
+    attempt_dense_prediction: bool = field(
+        default=True, validator=validators.instance_of(bool)
+    )
+    predictor_function: Optional[Callable] = field(
+        default=None,
+        validator=validators.optional(is_device_validator),
+        eq=False,
     )
     stage_increment_location: str = field(
         default="local", validator=validators.in_(["local", "shared"])
@@ -153,6 +186,7 @@ class FIRKStep(ODEImplicitStep):
         get_solver_helper_fn: Optional[Callable] = None,
         tableau: FIRKTableau = DEFAULT_FIRK_TABLEAU,
         n_drivers: int = 0,
+        attempt_dense_prediction: bool = True,
         **kwargs,
     ) -> None:
         """Initialise the FIRK step configuration.
@@ -182,6 +216,9 @@ class FIRKStep(ODEImplicitStep):
             :data:`DEFAULT_FIRK_TABLEAU`.
         n_drivers
             Number of driver variables in the system.
+        attempt_dense_prediction
+            Request dense stage prediction; ignored when the tableau
+            does not meet the transform's preconditions.
         **kwargs
             Optional parameters passed to config classes. See
             FIRKStepConfig, ImplicitStepConfig, and solver config classes
@@ -214,6 +251,7 @@ class FIRKStep(ODEImplicitStep):
                 "evaluate_driver_at_t": evaluate_driver_at_t,
                 "get_solver_helper_fn": get_solver_helper_fn,
                 "tableau": tableau,
+                "attempt_dense_prediction": attempt_dense_prediction,
                 "beta": 1.0,
                 "gamma": 1.0,
             },
@@ -250,6 +288,17 @@ class FIRKStep(ODEImplicitStep):
             krylov_norm=krylov_norm,
             **kwargs,
         )
+        predictor_kwargs = {
+            key: value
+            for key, value in kwargs.items()
+            if key in self._PREDICTOR_PARAMS and value is not None
+        }
+        self.dense_predictor = DenseStagePredictor(
+            precision=self.compile_settings.precision,
+            n=n,
+            tableau=tableau,
+            **predictor_kwargs,
+        )
         self.register_buffers()
 
     def register_buffers(self) -> None:
@@ -259,12 +308,20 @@ class FIRKStep(ODEImplicitStep):
         n = config.n
         tableau = config.tableau
 
+        # Clear this step's own registrations only: child factories
+        # keep their still-valid declarations, and register_child
+        # below re-records them with fresh sizes.
+        buffer_registry.clear_own(self)
+
         # Calculate buffer sizes
         all_stages_n = tableau.stage_count * n
         stage_driver_stack_elements = tableau.stage_count * config.n_drivers
 
         buffer_registry.register_child(
             self, self.solver, name="solver"
+        )
+        buffer_registry.register_child(
+            self, self.dense_predictor, name="dense_predictor"
         )
         buffer_registry.register(
             "stage_increment",
@@ -342,7 +399,14 @@ class FIRKStep(ODEImplicitStep):
         )
 
         self.update_compile_settings(
-            {"solver_function": self.solver.device_function}
+            {
+                "solver_function": self.solver.device_function,
+                "predictor_function": (
+                    self.dense_predictor.device_function
+                    if self.dense_prediction
+                    else None
+                ),
+            }
         )
 
     def build_step(
@@ -359,6 +423,9 @@ class FIRKStep(ODEImplicitStep):
 
         config = self.compile_settings
         tableau = config.tableau
+
+        use_dense_prediction = self.dense_prediction
+        predict_stages = config.predictor_function
 
         nonlinear_solver = solver_function
 
@@ -404,6 +471,11 @@ class FIRKStep(ODEImplicitStep):
         alloc_solver_shared, alloc_solver_persistent = (
             buffer_registry.get_child_allocators(
                 self, self.solver, name="solver"
+            )
+        )
+        alloc_predictor_shared, alloc_predictor_persistent = (
+            buffer_registry.get_child_allocators(
+                self, self.dense_predictor, name="dense_predictor"
             )
         )
 
@@ -461,12 +533,33 @@ class FIRKStep(ODEImplicitStep):
             stage_driver_stack = alloc_stage_driver_stack(
                 shared, persistent_local
             )
+            predictor_shared = alloc_predictor_shared(
+                shared, persistent_local
+            )
+            predictor_persistent = alloc_predictor_persistent(
+                shared, persistent_local
+            )
 
             # ----------------------------------------------------------- #
 
             current_time = time_scalar
             end_time = current_time + dt_scalar
             status_code = success
+
+            if use_dense_prediction:
+                # No previous curve exists on the first step, and a
+                # rejected proposal's curve does not end where this
+                # step starts, so both carry the increments unchanged.
+                first_step = first_step_flag != int32(0)
+                previous_accepted = accepted_flag != int32(0)
+                apply_prediction = (not first_step) and previous_accepted
+                predict_stages(
+                    stage_increment,
+                    dt_scalar,
+                    apply_prediction,
+                    predictor_shared,
+                    predictor_persistent,
+                )
 
             for idx in range(n):
                 if accumulates_output:

@@ -25,6 +25,11 @@ from cubie.integrators.algorithms.generic_firk_tableaus import (
     FIRKTableau,
     DEFAULT_FIRK_TABLEAU,
 )
+from cubie.integrators.stage_predictors import (
+    MAX_PREDICTION_STEP_RATIO,
+    dense_predictor_matrix,
+    tableau_supports_dense_prediction,
+)
 from cubie.integrators.algorithms.generic_erk_tableaus import (
     DEFAULT_ERK_TABLEAU,
     ERKTableau,
@@ -423,6 +428,7 @@ class CPUExplicitEulerStep(CPUStep):
         params: Optional[Array] = None,
         dt: Optional[float] = None,
         time: float = 0.0,
+        prev_accepted: bool = True,
     ) -> StepResultLike:
         state_vector = self.ensure_array(state)
         params_array = self.ensure_array(params)
@@ -544,6 +550,7 @@ class CPUBackwardEulerStep(CPUStep):
         dt: Optional[float] = None,
         initial_guess: Optional[Array] = None,
         time: float = 0.0,
+        prev_accepted: bool = True,
     ) -> StepResultLike:
         state_vector = self.ensure_array(state, copy=True)
         params_array = self.ensure_array(params)
@@ -715,6 +722,7 @@ class CPUCrankNicolsonStep(CPUStep):
         params: Optional[Array] = None,
         dt: Optional[float] = None,
         time: float = 0.0,
+        prev_accepted: bool = True,
     ) -> StepResultLike:
         state_vector = self.ensure_array(state, copy=True)
         params_array = self.ensure_array(params)
@@ -847,6 +855,7 @@ class CPUERKStep(CPUStep):
         params: Optional[Array] = None,
         dt: Optional[float] = None,
         time: float = 0.0,
+        prev_accepted: bool = True,
     ) -> StepResultLike:
         state_vector = self.ensure_array(state)
         params_array = self.ensure_array(params)
@@ -961,6 +970,7 @@ class CPUDIRKStep(CPUStep):
         residual_reduction: Optional[float] = None,
         residual_floor: Optional[float] = None,
         tableau: Optional[DIRKTableau] = None,
+        attempt_dense_prediction: bool = True,
     ) -> None:
         resolved = DEFAULT_DIRK_TABLEAU if tableau is None else tableau
         super().__init__(
@@ -987,6 +997,14 @@ class CPUDIRKStep(CPUStep):
         self._dirk_dt = self.precision(0.0)
         self._dirk_diag_coeff = self.precision(0.0)
         self._dirk_increment = np.zeros(self._state_size, dtype=self.precision)
+        self._dirk_stage_increment_history = None
+        self._dirk_previous_dt = None
+        # Mirrors the device gate: prediction requires both the
+        # request and a tableau meeting the transform preconditions.
+        self._dirk_dense_prediction = bool(
+            attempt_dense_prediction
+            and tableau_supports_dense_prediction(resolved)
+        )
 
     def residual(self, candidate: Array) -> Array:
         base_state = self._dirk_reference
@@ -1027,6 +1045,7 @@ class CPUDIRKStep(CPUStep):
         params: Optional[Array] = None,
         dt: Optional[float] = None,
         time: float = 0.0,
+        prev_accepted: bool = True,
     ) -> StepResultLike:
         state_vector = self.ensure_array(state)
         params_array = self.ensure_array(params)
@@ -1052,8 +1071,36 @@ class CPUDIRKStep(CPUStep):
         all_converged = True
         total_iters = 0
 
+        # Mirrors the device: the persistent history is transformed
+        # in place on accepted steps within the ratio bound and
+        # carried unchanged otherwise; stages a solver never touches
+        # (explicit stages) keep the transform's read-ahead values.
+        history = None
+        if self._dirk_dense_prediction:
+            if self._dirk_stage_increment_history is None:
+                self._dirk_stage_increment_history = np.zeros(
+                    (stage_count, state_dim), dtype=self.precision
+                )
+            history = self._dirk_stage_increment_history
+            if prev_accepted and self._dirk_previous_dt is not None:
+                ratio = float(dt_value) / float(
+                    self._dirk_previous_dt
+                )
+                if ratio <= MAX_PREDICTION_STEP_RATIO:
+                    predictor = np.asarray(
+                        dense_predictor_matrix(self.tableau, ratio),
+                        dtype=self.precision,
+                    )
+                    history[:] = (predictor @ history).astype(
+                        self.precision
+                    )
+        self._dirk_previous_dt = dt_value
+
         for stage_index in range(stage_count):
-            guess = self._dirk_increment
+            if history is not None:
+                guess = history[stage_index].copy()
+            else:
+                guess = self._dirk_increment
 
             # Rounding-sensitive: scale by dt once, after accumulating.
             stage_accum = np.zeros_like(state_vector)
@@ -1140,6 +1187,8 @@ class CPUDIRKStep(CPUStep):
             )
             stage_derivatives[stage_index, :] = derivative
             self._dirk_increment = increment
+            if history is not None:
+                history[stage_index] = increment
 
         # A stage whose A row equals b (or b_hat) already holds the
         # output (or embedded) solution.
@@ -1204,6 +1253,7 @@ class CPUFIRKStep(CPUStep):
         residual_reduction: Optional[float] = None,
         residual_floor: Optional[float] = None,
         tableau: Optional[FIRKTableau] = None,
+        attempt_dense_prediction: bool = True,
     ) -> None:
         resolved = DEFAULT_FIRK_TABLEAU if tableau is None else tableau
         super().__init__(
@@ -1227,10 +1277,17 @@ class CPUFIRKStep(CPUStep):
         self._firk_time = self.precision(0.0)
         self._firk_dt = self.precision(0.0)
         self._firk_stage_increments = None
+        self._firk_previous_dt = None
+        # Mirrors the device gate: prediction requires both the
+        # request and a tableau meeting the transform preconditions.
+        self._firk_dense_prediction = bool(
+            attempt_dense_prediction
+            and tableau_supports_dense_prediction(resolved)
+        )
 
     def residual(self, candidate: Array) -> Array:
         """Compute the residual for the fully implicit stage equations.
-        
+
         For FIRK, all stages are coupled: candidate is a flattened vector
         of all stage increments k_i for i=1..s where s is the stage count.
         The residual for each stage i is:
@@ -1240,15 +1297,15 @@ class CPUFIRKStep(CPUStep):
         state_dim = self._state_size
         a_matrix = self.a_matrix
         c_nodes = self.c_nodes
-        
+
         residual = np.zeros_like(candidate)
-        
+
         for stage_idx in range(stage_count):
             # Extract this stage's increment from the flattened candidate
             k_start = stage_idx * state_dim
             k_end = (stage_idx + 1) * state_dim
             k_i = candidate[k_start:k_end]
-            
+
             # Compute the stage state: x_0 + sum_j(a_ij * k_j)
             stage_state = self._firk_state.copy()
             for j in range(stage_count):
@@ -1256,7 +1313,7 @@ class CPUFIRKStep(CPUStep):
                 j_end = (j + 1) * state_dim
                 k_j = candidate[j_start:j_end]
                 stage_state += a_matrix[stage_idx, j] * k_j
-            
+
             # Evaluate the RHS at this stage
             stage_time = self._firk_time + c_nodes[stage_idx] * self._firk_dt
             drivers_stage = self._firk_drivers[stage_idx]
@@ -1273,16 +1330,16 @@ class CPUFIRKStep(CPUStep):
                 observables_stage,
                 stage_time,
             )
-            
+
             # Residual: M * k_i - dt * f(...)
             mass_term = self.mass_matrix_apply(k_i)
             residual[k_start:k_end] = mass_term - self._firk_dt * derivative
-        
+
         return residual
 
     def jacobian(self, candidate: Array) -> Array:
         """Compute the Jacobian of the residual for the fully implicit system.
-        
+
         The Jacobian is block-structured:
             J[i,j] = delta_ij * M - dt * a_ij * df/dx
         where delta_ij is the Kronecker delta.
@@ -1291,10 +1348,10 @@ class CPUFIRKStep(CPUStep):
         state_dim = self._state_size
         a_matrix = self.a_matrix
         c_nodes = self.c_nodes
-        
+
         all_dim = stage_count * state_dim
         jac = np.zeros((all_dim, all_dim), dtype=self.precision)
-        
+
         for stage_idx in range(stage_count):
             # Compute the stage state to evaluate the Jacobian
             stage_state = self._firk_state.copy()
@@ -1303,7 +1360,7 @@ class CPUFIRKStep(CPUStep):
                 j_end = (j + 1) * state_dim
                 k_j = candidate[j_start:j_end]
                 stage_state += a_matrix[stage_idx, j] * k_j
-            
+
             stage_time = self._firk_time + c_nodes[stage_idx] * self._firk_dt
             drivers_stage = self._firk_drivers[stage_idx]
             _, df_dx = self.observables_and_jac(
@@ -1312,15 +1369,15 @@ class CPUFIRKStep(CPUStep):
                 drivers_stage,
                 stage_time,
             )
-            
+
             # Fill in the block row for this stage
             i_start = stage_idx * state_dim
             i_end = (stage_idx + 1) * state_dim
-            
+
             for dep_idx in range(stage_count):
                 j_start = dep_idx * state_dim
                 j_end = (dep_idx + 1) * state_dim
-                
+
                 if stage_idx == dep_idx:
                     # Diagonal block: M - dt * a_ii * df/dx
                     jac[i_start:i_end, j_start:j_end] = (
@@ -1331,7 +1388,7 @@ class CPUFIRKStep(CPUStep):
                     jac[i_start:i_end, j_start:j_end] = (
                         -self._firk_dt * a_matrix[stage_idx, dep_idx] * df_dx
                     )
-        
+
         return jac
 
     def step(
@@ -1341,6 +1398,7 @@ class CPUFIRKStep(CPUStep):
         params: Optional[Array] = None,
         dt: Optional[float] = None,
         time: float = 0.0,
+        prev_accepted: bool = True,
     ) -> StepResultLike:
         state_vector = self.ensure_array(state)
         params_array = self.ensure_array(params)
@@ -1355,14 +1413,14 @@ class CPUFIRKStep(CPUStep):
 
         state_dim = state_vector.shape[0]
         all_dim = stage_count * state_dim
-        
+
         # Pre-compute driver values for all stages
         stage_drivers = []
         for stage_idx in range(stage_count):
             stage_time = current_time + c_nodes[stage_idx] * dt_value
             drivers_stage = self.drivers(stage_time)
             stage_drivers.append(drivers_stage)
-        
+
         # Set up the fully implicit solve
         self._firk_state = state_vector.copy()
         self._firk_params = params_array
@@ -1373,10 +1431,29 @@ class CPUFIRKStep(CPUStep):
         # state weights every stage block of the coupled residual.
         self._linear_norm_reference = np.tile(state_vector, stage_count)
 
-        # Initial guess: zero increments (or could use previous step's increments)
+        # Accepted steps read the previous step's stage curve ahead
+        # over the next step; the first step and rejected proposals
+        # keep the carried increments unchanged.
         guess = np.zeros(all_dim, dtype=self.precision)
         if self._firk_stage_increments is not None:
-            guess = self._firk_stage_increments.copy()
+            ratio = float(dt_value) / float(self._firk_previous_dt)
+            if (
+                self._firk_dense_prediction
+                and prev_accepted
+                and ratio <= MAX_PREDICTION_STEP_RATIO
+            ):
+                predictor = np.asarray(
+                    dense_predictor_matrix(self.tableau, ratio),
+                    dtype=self.precision,
+                )
+                previous = self._firk_stage_increments.reshape(
+                    stage_count,
+                    state_dim,
+                )
+                guess = (predictor @ previous).reshape(all_dim)
+            else:
+                guess = self._firk_stage_increments.copy()
+        self._firk_previous_dt = dt_value
 
         def correction_norm(update, iterate):
             stage_values = np.zeros(all_dim, dtype=self.precision)
@@ -1531,6 +1608,7 @@ class CPURosenbrockWStep(CPUStep):
         tol: Optional[float] = None,
         max_iters: Optional[int] = None,
         time: float = 0.0,
+        prev_accepted: bool = True,
     ) -> StepResultLike:
         state_vector = self.ensure_array(state, copy=True)
         params_array = self.ensure_array(params)
@@ -1756,6 +1834,7 @@ class CPUBackwardEulerPCStep(CPUStep):
         params: Optional[Array] = None,
         dt: Optional[float] = None,
         time: float = 0.0,
+        prev_accepted: bool = True,
     ) -> StepResultLike:
         state_vector = self.ensure_array(state, copy=True)
         params_array = self.ensure_array(params)
@@ -1875,7 +1954,13 @@ def get_ref_step_factory(
         preconditioner_order: int = 2,
         residual_reduction: Optional[float] = None,
         residual_floor: Optional[float] = None,
+        attempt_dense_prediction: bool = True,
     ) -> Callable:
+        extra_kwargs = {}
+        if step_class in (CPUFIRKStep, CPUDIRKStep):
+            extra_kwargs["attempt_dense_prediction"] = (
+                attempt_dense_prediction
+            )
         if tableau_value is None:
             return step_class(
                 evaluator,
@@ -1890,6 +1975,7 @@ def get_ref_step_factory(
                 preconditioner_order=preconditioner_order,
                 residual_reduction=residual_reduction,
                 residual_floor=residual_floor,
+                **extra_kwargs,
             )
         return step_class(
             evaluator,
@@ -1905,6 +1991,7 @@ def get_ref_step_factory(
             residual_reduction=residual_reduction,
             residual_floor=residual_floor,
             tableau=tableau_value,
+            **extra_kwargs,
         )
 
     return factory
@@ -1926,6 +2013,7 @@ def get_ref_stepper(
     residual_reduction: Optional[float] = None,
     residual_floor: Optional[float] = None,
     tableau: Optional[Union[str, ButcherTableau]] = None,
+    attempt_dense_prediction: bool = True,
 ) -> CPUStep:
     """Return a configured CPU reference stepper for ``algorithm``."""
 
@@ -1943,4 +2031,5 @@ def get_ref_stepper(
         preconditioner_order=preconditioner_order,
         residual_reduction=residual_reduction,
         residual_floor=residual_floor,
+        attempt_dense_prediction=attempt_dense_prediction,
     )

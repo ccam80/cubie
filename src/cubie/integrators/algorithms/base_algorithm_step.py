@@ -57,6 +57,7 @@ ALL_ALGORITHM_STEP_PARAMETERS = {
     "algorithm",
     "precision",
     "n",
+    "attempt_dense_prediction",
     "evaluate_f",
     "evaluate_observables",
     "evaluate_driver_at_t",
@@ -78,8 +79,11 @@ ALL_ALGORITHM_STEP_PARAMETERS = {
     "n_drivers",
     # DIRK buffer location parameters
     "stage_increment_location",
+    "stage_increment_history_location",
     "stage_base_location",
     "accumulator_location",
+    # Dense stage predictor buffer location parameters
+    "previous_step_size_location",
     # ERK buffer location parameters
     "stage_rhs_location",
     "stage_accumulator_location",
@@ -629,7 +633,6 @@ class BaseAlgorithmStep(CUDAFactory):
         super().__init__()
         self._controller_defaults = _controller_defaults.copy()
         self.setup_compile_settings(config)
-        self.is_controller_fixed = False  # Set by check_compatibility
 
     def register_buffers(self) -> None:
         """Register buffers required by the algorithm step."""

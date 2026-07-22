@@ -500,11 +500,6 @@ class SingleIntegratorRunCore(CUDAFactory):
                 },
                 warn_on_unused=False,
             )
-            
-        # Set the is_controller_fixed attribute on the algorithm
-        self._algo_step.is_controller_fixed = (
-            not self._step_controller.is_adaptive
-        )
 
     def instantiate_loop(
         self,
