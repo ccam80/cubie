@@ -670,6 +670,43 @@ def test_dirk_dense_predictor_matches_reference(
         merge_dicts(
             MID_RUN_PARAMS,
             {
+                "algorithm": "trapezoidal_dirk",
+                "step_controller": "fixed",
+            },
+        )
+    ],
+    ids=["dirk-dense-predictor-explicit-first-stage"],
+    indirect=True,
+)
+def test_explicit_stage_dirk_dense_predictor_matches_reference(
+    device_loop_outputs,
+    cpu_loop_outputs,
+    output_functions,
+    tolerance,
+):
+    """History slots no solver writes carry the transform's values.
+
+    An explicit first stage never solves, so its history slot is
+    only ever refreshed by the read-ahead itself; the device and CPU
+    reference must roll it forward identically.
+    """
+
+    assert_integration_outputs(
+        cpu_loop_outputs,
+        device_loop_outputs,
+        output_functions,
+        rtol=tolerance.rel_loose,
+        atol=tolerance.abs_loose,
+    )
+    assert device_loop_outputs.status == 0
+
+
+@pytest.mark.parametrize(
+    "solver_settings_override",
+    [
+        merge_dicts(
+            MID_RUN_PARAMS,
+            {
                 "algorithm": "radau_iia_5",
                 "step_controller": "PI",
                 "dt_min": 1e-6,

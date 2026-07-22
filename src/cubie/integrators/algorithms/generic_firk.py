@@ -291,7 +291,7 @@ class FIRKStep(ODEImplicitStep):
         predictor_kwargs = {
             key: value
             for key, value in kwargs.items()
-            if key == "previous_step_size_location" and value is not None
+            if key in self._PREDICTOR_PARAMS and value is not None
         }
         self.dense_predictor = DenseStagePredictor(
             precision=self.compile_settings.precision,
@@ -320,10 +320,9 @@ class FIRKStep(ODEImplicitStep):
         buffer_registry.register_child(
             self, self.solver, name="solver"
         )
-        if self.dense_prediction:
-            buffer_registry.register_child(
-                self, self.dense_predictor, name="dense_predictor"
-            )
+        buffer_registry.register_child(
+            self, self.dense_predictor, name="dense_predictor"
+        )
         buffer_registry.register(
             "stage_increment",
             self,
@@ -400,7 +399,14 @@ class FIRKStep(ODEImplicitStep):
         )
 
         self.update_compile_settings(
-            {"solver_function": self.solver.device_function}
+            {
+                "solver_function": self.solver.device_function,
+                "predictor_function": (
+                    self.dense_predictor.device_function
+                    if self.dense_prediction
+                    else None
+                ),
+            }
         )
 
     def build_step(
@@ -418,14 +424,8 @@ class FIRKStep(ODEImplicitStep):
         config = self.compile_settings
         tableau = config.tableau
 
-        # Accepted steps warm-start Newton by reading the previous
-        # step's stage curve ahead over the next step; the step-size
-        # ratio is handled at runtime, so any controller benefits.
         use_dense_prediction = self.dense_prediction
-        if use_dense_prediction:
-            predict_stages = self.dense_predictor.device_function
-        else:
-            predict_stages = None
+        predict_stages = config.predictor_function
 
         nonlinear_solver = solver_function
 
@@ -473,15 +473,11 @@ class FIRKStep(ODEImplicitStep):
                 self, self.solver, name="solver"
             )
         )
-        if use_dense_prediction:
-            alloc_predictor_shared, alloc_predictor_persistent = (
-                buffer_registry.get_child_allocators(
-                    self, self.dense_predictor, name="dense_predictor"
-                )
+        alloc_predictor_shared, alloc_predictor_persistent = (
+            buffer_registry.get_child_allocators(
+                self, self.dense_predictor, name="dense_predictor"
             )
-        else:
-            alloc_predictor_shared = None
-            alloc_predictor_persistent = None
+        )
 
         # no cover: start
         @cuda.jit(
@@ -537,13 +533,12 @@ class FIRKStep(ODEImplicitStep):
             stage_driver_stack = alloc_stage_driver_stack(
                 shared, persistent_local
             )
-            if use_dense_prediction:
-                predictor_shared = alloc_predictor_shared(
-                    shared, persistent_local
-                )
-                predictor_persistent = alloc_predictor_persistent(
-                    shared, persistent_local
-                )
+            predictor_shared = alloc_predictor_shared(
+                shared, persistent_local
+            )
+            predictor_persistent = alloc_predictor_persistent(
+                shared, persistent_local
+            )
 
             # ----------------------------------------------------------- #
 

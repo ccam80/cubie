@@ -171,6 +171,9 @@ class ODEImplicitStep(BaseAlgorithmStep):
         }
     )
 
+    # Parameters accepted by DenseStagePredictor
+    _PREDICTOR_PARAMS = frozenset({"previous_step_size_location"})
+
     def __init__(
         self,
         config: ImplicitStepConfig,

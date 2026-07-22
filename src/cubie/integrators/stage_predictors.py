@@ -311,7 +311,10 @@ class DenseStagePredictorConfig(CUDAFactoryConfig):
     """
 
     n: int = field(default=1, validator=getype_validator(int, 1))
-    tableau: ButcherTableau = field(default=None)
+    tableau: ButcherTableau = field(
+        default=None,
+        validator=validators.instance_of(ButcherTableau),
+    )
     previous_step_size_location: str = field(
         default="local",
         validator=validators.in_(["local", "shared"]),
@@ -386,15 +389,30 @@ class DenseStagePredictor(CUDAFactory):
         self.register_buffers()
 
     def register_buffers(self) -> None:
-        """Register the previous-step-size scalar with the registry."""
+        """Register the predictor's buffers with the registry."""
 
         config = self.compile_settings
+        stage_count = int(config.stage_count)
         buffer_registry.register(
             "previous_step_size",
             self,
             1,
             config.previous_step_size_location,
             persistent=True,
+            precision=config.precision,
+        )
+        buffer_registry.register(
+            "predictor_transform",
+            self,
+            stage_count * stage_count,
+            "local",
+            precision=config.precision,
+        )
+        buffer_registry.register(
+            "predictor_previous_values",
+            self,
+            stage_count,
+            "local",
             precision=config.precision,
         )
 
@@ -435,11 +453,9 @@ class DenseStagePredictor(CUDAFactory):
         typed_zero = numba_precision(0.0)
         n = int32(config.n)
         stage_count = int32(config.stage_count)
-        # Local scratch shapes must be plain Python ints at compile
-        # time.
-        stage_count_py = int(config.stage_count)
-        transform_size_py = stage_count_py * stage_count_py
-        transform_size = int32(transform_size_py)
+        transform_size = int32(
+            int(config.stage_count) * int(config.stage_count)
+        )
 
         # Flattened power-major coefficient stack: entry
         # [power][row][column] multiplies ratio ** (power + 1).
@@ -452,8 +468,11 @@ class DenseStagePredictor(CUDAFactory):
 
         max_step_ratio = numba_precision(MAX_PREDICTION_STEP_RATIO)
 
-        alloc_previous_step_size = buffer_registry.get_allocator(
-            "previous_step_size", self
+        getalloc = buffer_registry.get_allocator
+        alloc_previous_step_size = getalloc("previous_step_size", self)
+        alloc_transform = getalloc("predictor_transform", self)
+        alloc_previous_values = getalloc(
+            "predictor_previous_values", self
         )
 
         # no cover: start
@@ -472,55 +491,61 @@ class DenseStagePredictor(CUDAFactory):
             previous_step_size = alloc_previous_step_size(
                 shared, persistent_local
             )
+            transform = alloc_transform(shared, persistent_local)
+            previous_values = alloc_previous_values(
+                shared, persistent_local
+            )
             previous_dt = previous_step_size[0]
             previous_step_size[0] = dt_scalar
 
-            if apply_flag:
-                ratio = dt_scalar / previous_dt
+            # Unwritten storage reads zero before the first step;
+            # substituting the current step size keeps the ratio
+            # finite and the commit predicate discards the result.
+            safe_previous_dt = (
+                previous_dt if previous_dt > typed_zero else dt_scalar
+            )
+            ratio = dt_scalar / safe_previous_dt
 
-                # A truncated previous step can make the ratio
-                # arbitrarily large (or infinite on unwritten
-                # storage); the read-ahead is only meaningful within
-                # the controllers' growth bound.
-                if ratio > max_step_ratio:
-                    return
+            # A truncated previous step can make the ratio arbitrarily
+            # large; the read-ahead is only meaningful within the
+            # controllers' growth bound.
+            commit_prediction = apply_flag and (
+                ratio <= max_step_ratio
+            )
 
-                # Evaluate each matrix entry's ratio polynomial,
-                # highest power first.
-                transform = cuda.local.array(
-                    transform_size_py, numba_precision
-                )
-                for entry_idx in range(transform_size):
+            # Evaluate each matrix entry's ratio polynomial, highest
+            # power first.
+            for entry_idx in range(transform_size):
+                accumulator = typed_zero
+                for power_idx in range(stage_count):
+                    flat_idx = (
+                        (stage_count - int32(1) - power_idx)
+                        * transform_size
+                        + entry_idx
+                    )
+                    accumulator = (
+                        accumulator * ratio
+                        + ratio_coefficients[flat_idx]
+                    )
+                transform[entry_idx] = accumulator * ratio
+
+            # Multiply each state's stage vector by the matrix,
+            # committing only when the caller's flag and the ratio
+            # bound allow.
+            for state_idx in range(n):
+                for stage_idx in range(stage_count):
+                    previous_values[stage_idx] = stage_increment[
+                        stage_idx * n + state_idx
+                    ]
+                for stage_idx in range(stage_count):
                     accumulator = typed_zero
-                    for power_idx in range(stage_count):
-                        flat_idx = (
-                            (stage_count - int32(1) - power_idx)
-                            * transform_size
-                            + entry_idx
+                    row_base = stage_idx * stage_count
+                    for source_idx in range(stage_count):
+                        accumulator += (
+                            transform[row_base + source_idx]
+                            * previous_values[source_idx]
                         )
-                        accumulator = (
-                            accumulator * ratio
-                            + ratio_coefficients[flat_idx]
-                        )
-                    transform[entry_idx] = accumulator * ratio
-
-                # Multiply each state's stage vector by the matrix.
-                previous_values = cuda.local.array(
-                    stage_count_py, numba_precision
-                )
-                for state_idx in range(n):
-                    for stage_idx in range(stage_count):
-                        previous_values[stage_idx] = stage_increment[
-                            stage_idx * n + state_idx
-                        ]
-                    for stage_idx in range(stage_count):
-                        accumulator = typed_zero
-                        row_base = stage_idx * stage_count
-                        for source_idx in range(stage_count):
-                            accumulator += (
-                                transform[row_base + source_idx]
-                                * previous_values[source_idx]
-                            )
+                    if commit_prediction:
                         stage_increment[stage_idx * n + state_idx] = (
                             accumulator
                         )
