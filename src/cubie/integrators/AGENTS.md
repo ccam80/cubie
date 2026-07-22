@@ -24,6 +24,7 @@ each have their own `AGENTS.md`.
 | `SingleIntegratorRunCore.py` | `SingleIntegratorRunCore(CUDAFactory)`: owns `_output_functions`, `_algo_step`, `_step_controller`, `_loop`; wires them and delegates compilation to `IVPLoop` in `build()`. Defines `SingleIntegratorRunCache` (holds `single_integrator_function`). |
 | `IntegratorRunSettings.py` | `IntegratorRunSettings(CUDAFactoryConfig)`: thin compile-settings holding only `algorithm` and `step_controller` names (plus inherited `precision`) — the core's own cache key. |
 | `norms.py` | CUDA factories for scaled vector norms and DIRK/FIRK Newton correction terms. |
+| `stage_predictors.py` | `DenseStagePredictor(CUDAFactory)`: in-place dense collocation extrapolation of a persistent stage-increment vector for equal-size accepted steps; tableau-derived, no codegen. Algorithms opt in as a buffer-registry child (FIRK today). |
 | `__init__.py` | Package API re-exports (`SingleIntegratorRun`, `IVPLoop`, algorithm/solver/controller classes, `get_algorithm_step`, `get_controller`); re-exports `CUBIE_RESULT_CODES` from `cubie.result_codes`. |
 
 ## Subdirectories

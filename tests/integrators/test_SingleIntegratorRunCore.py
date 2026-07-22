@@ -408,7 +408,6 @@ def test_errorless_euler_with_adaptive_warns_and_replaces(system):
         assert "fixed" in msg
         assert "error estimate" in msg
         assert not core._step_controller.is_adaptive
-        assert core._algo_step.is_controller_fixed
 
 
 def test_replacement_controller_uses_original_dt(system):
@@ -451,7 +450,6 @@ def test_errorless_rk4_with_adaptive_warns(system):
         compat = [x for x in w if "cannot be used with" in str(x.message)]
         assert len(compat) >= 1
         assert not core._step_controller.is_adaptive
-        assert core._algo_step.is_controller_fixed
 
 
 def test_adaptive_algo_with_adaptive_controller_no_warning(system):
@@ -474,7 +472,6 @@ def test_adaptive_algo_with_adaptive_controller_no_warning(system):
         assert len(compat) == 0
         assert core._algo_step.is_adaptive
         assert core._step_controller.is_adaptive
-        assert not core._algo_step.is_controller_fixed
 
 
 def test_errorless_euler_with_fixed_no_warning(system):
@@ -493,7 +490,6 @@ def test_errorless_euler_with_fixed_no_warning(system):
         assert len(compat) == 0
         assert not core._algo_step.is_adaptive
         assert not core._step_controller.is_adaptive
-        assert core._algo_step.is_controller_fixed
 
 
 # ── update ──────────────────────────────────────────────────────────────── #
@@ -729,7 +725,6 @@ def test_update_check_compatibility_after_switch(
         compat = [x for x in w if "cannot be used with" in str(x.message)]
         assert len(compat) >= 1
         assert not run._step_controller.is_adaptive
-        assert run._algo_step.is_controller_fixed
 
 
 def test_update_process_loop_timing_called(

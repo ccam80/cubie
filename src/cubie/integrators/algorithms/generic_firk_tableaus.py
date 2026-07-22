@@ -146,11 +146,69 @@ RADAU_IIA_5_TABLEAU = FIRKTableau(
     order=5,
 )
 
+GAUSS_LEGENDRE_4_TABLEAU = FIRKTableau(
+    a=(
+        (
+            0.08696371128436345,
+            -0.026604180084998798,
+            0.012627462689404742,
+            -0.003555149685795684,
+        ),
+        (
+            0.188118117499868,
+            0.16303628871563644,
+            -0.027880428602470995,
+            0.006735500594538164,
+        ),
+        (
+            0.1671919219741886,
+            0.3539530060337439,
+            0.16303628871563638,
+            -0.014190694931141147,
+        ),
+        (
+            0.17748257225452202,
+            0.3134451147418685,
+            0.3526767575162713,
+            0.08696371128436325,
+        ),
+    ),
+    b=(
+        0.17392742256872662,
+        0.32607257743127305,
+        0.3260725774312722,
+        0.1739274225687269,
+    ),
+    c=(
+        0.06943184420297371,
+        0.33000947820757187,
+        0.6699905217924281,
+        0.9305681557970262,
+    ),
+    order=8,
+)
+"""Four-stage Gauss--Legendre collocation tableau of order eight.
+
+Collocation at the four Gauss--Legendre quadrature nodes on the unit
+interval: each ``a[i][j]`` integrates the j-th Lagrange basis
+polynomial from zero to ``c[i]`` and each ``b[j]`` integrates it over
+the whole step. The coefficients are float64 literals of that
+construction. No embedded error estimate exists, so the method
+requires a fixed step controller.
+
+References
+----------
+Hairer, E., & Wanner, G. (1996). *Solving Ordinary Differential
+Equations II: Stiff and Differential-Algebraic Problems* (2nd ed.).
+Springer. Theorem IV.5.2.
+"""
+
 DEFAULT_FIRK_TABLEAU = GAUSS_LEGENDRE_2_TABLEAU
 
 
 FIRK_TABLEAU_REGISTRY: Dict[str, FIRKTableau] = {
     "firk_gauss_legendre_2": GAUSS_LEGENDRE_2_TABLEAU,
+    "firk_gauss_legendre_4": GAUSS_LEGENDRE_4_TABLEAU,
     "radau_iia_5": RADAU_IIA_5_TABLEAU,
     "radau": RADAU_IIA_5_TABLEAU,
 }

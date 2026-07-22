@@ -121,6 +121,9 @@ def run_reference_loop(
         residual_reduction=residual_reduction,
         residual_floor=solver_settings.get("krylov_residual_floor"),
         tableau=tableau,
+        attempt_dense_prediction=solver_settings.get(
+            "attempt_dense_prediction", True
+        ),
     )
 
     saved_state_indices = _ensure_array(
@@ -183,6 +186,8 @@ def run_reference_loop(
     end_time = precision(warmup + t0 + duration)
 
     status_flags = 0
+    # Mirrors the device loop's previous-proposal-accepted flag.
+    prev_accepted = True
 
     # Track when we need to sample for summaries vs save for output
     while next_save_time <= end_time or next_summary_sample_time <= end_time:
@@ -218,6 +223,7 @@ def run_reference_loop(
             params=params,
             dt=dt,
             time=t32,
+            prev_accepted=prev_accepted,
         )
 
         step_status = int(result.status)
@@ -229,6 +235,7 @@ def run_reference_loop(
             niters=result.niters,
             truncated=truncated,
         )
+        prev_accepted = bool(accept)
         if not accept:
             continue
 
