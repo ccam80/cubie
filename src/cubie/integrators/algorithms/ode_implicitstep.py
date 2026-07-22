@@ -171,6 +171,9 @@ class ODEImplicitStep(BaseAlgorithmStep):
         }
     )
 
+    # Parameters accepted by DenseStagePredictor
+    _PREDICTOR_PARAMS = frozenset({"previous_step_size_location"})
+
     def __init__(
         self,
         config: ImplicitStepConfig,
@@ -286,9 +289,7 @@ class ODEImplicitStep(BaseAlgorithmStep):
         -----
         Delegates solver parameters to the owned solver instance and,
         when the algorithm owns a dense stage predictor, predictor
-        parameters to the predictor. The child device functions are
-        piped through compile settings so a child rebuild invalidates
-        the step cache.
+        parameters to the predictor.
         """
         all_updates = {}
         if updates_dict:

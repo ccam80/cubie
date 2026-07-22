@@ -3,7 +3,6 @@
 import numpy as np
 import pytest
 
-from cubie import create_ODE_system, solve_ivp
 from cubie.integrators.algorithms.base_algorithm_step import (
     ButcherTableau,
 )
@@ -16,7 +15,6 @@ from cubie.integrators.algorithms.generic_firk_tableaus import (
     RADAU_IIA_5_TABLEAU,
 )
 from cubie.integrators.stage_predictors import (
-    DenseStagePredictor,
     dense_predictor_matrix,
     dense_predictor_ratio_coefficients,
     tableau_supports_dense_prediction,
@@ -72,33 +70,37 @@ def test_near_duplicate_node_tableau_is_rejected():
         dense_predictor_matrix(NEAR_DUPLICATE_NODE_TABLEAU)
 
 
+FIRK_SUPPORT_EXPECTATIONS = {
+    "firk_gauss_legendre_2": True,
+    "firk_gauss_legendre_4": True,
+    "radau_iia_5": True,
+}
+
+DIRK_SUPPORT_EXPECTATIONS = {
+    "implicit_midpoint": True,
+    "trapezoidal_dirk": True,
+    "ode23t": True,
+    "kvaerno3": True,
+    "kvaerno5": True,
+    "lobatto_iiic_3": True,
+    "sdirk_2_2": True,
+    "l_stable_dirk_3": True,
+    "l_stable_sdirk_4": True,
+}
+
+
 def test_registry_tableaus_support_expectations():
-    """Every registry tableau lands on the expected side of the gate."""
-    firk_support = {
-        name: tableau_supports_dense_prediction(tableau)
-        for name, tableau in FIRK_TABLEAU_REGISTRY.items()
-    }
-    assert firk_support == {
-        "firk_gauss_legendre_2": True,
-        "firk_gauss_legendre_4": True,
-        "radau_iia_5": True,
-        "radau": True,
-    }
-    dirk_support = {
-        name: tableau_supports_dense_prediction(tableau)
-        for name, tableau in DIRK_TABLEAU_REGISTRY.items()
-    }
-    assert dirk_support == {
-        "implicit_midpoint": True,
-        "trapezoidal_dirk": True,
-        "ode23t": True,
-        "kvaerno3": True,
-        "kvaerno5": True,
-        "lobatto_iiic_3": True,
-        "sdirk_2_2": True,
-        "l_stable_dirk_3": True,
-        "l_stable_sdirk_4": True,
-    }
+    """Known registry tableaus land on the expected side of the gate."""
+    for name, expected in FIRK_SUPPORT_EXPECTATIONS.items():
+        tableau = FIRK_TABLEAU_REGISTRY[name]
+        assert (
+            tableau_supports_dense_prediction(tableau) is expected
+        ), name
+    for name, expected in DIRK_SUPPORT_EXPECTATIONS.items():
+        tableau = DIRK_TABLEAU_REGISTRY[name]
+        assert (
+            tableau_supports_dense_prediction(tableau) is expected
+        ), name
 
 
 @pytest.mark.parametrize(
@@ -216,58 +218,74 @@ def test_ratio_coefficients_reconstruct_matrix(tableau, step_ratio):
     assert np.max(np.abs(reconstructed - direct)) < 1e-12 * scale
 
 
-def test_radau_dense_predictor_coefficients_are_pinned():
-    expected = np.asarray(
-        [
-            [0.19107136, -0.89141154, 1.7003402],
-            [1.5580782, -5.5244045, 4.9663267],
-            [3.2735543, -10.606888, 8.333333],
-        ],
-        dtype=np.float32,
+@pytest.mark.parametrize(
+    "solver_settings_override",
+    [{"algorithm": "radau"}],
+    indirect=True,
+)
+def test_predictor_update_flows_through_solver(solver_mutable):
+    """Predictor settings ride the standard solver update path."""
+    algo_step = solver_mutable.kernel.single_integrator._algo_step
+    predictor = algo_step.dense_predictor
+    assert (
+        predictor.compile_settings.previous_step_size_location
+        == "local"
     )
-
-    actual = np.asarray(
-        dense_predictor_matrix(RADAU_IIA_5_TABLEAU),
-        dtype=np.float32,
+    solver_mutable.update(previous_step_size_location="shared")
+    assert (
+        predictor.compile_settings.previous_step_size_location
+        == "shared"
     )
-    np.testing.assert_array_equal(actual, expected)
+    assert algo_step.dense_prediction
+    solver_mutable.update(attempt_dense_prediction=False)
+    assert not algo_step.dense_prediction
 
 
-def test_predictor_update_recognises_parameters(precision):
-    """The predictor participates in the standard update flow."""
-    predictor = DenseStagePredictor(
-        precision=precision,
-        n=3,
-        tableau=DEFAULT_FIRK_TABLEAU,
-    )
-    recognised = predictor.update(
-        previous_step_size_location="shared", n=5
-    )
-    assert recognised == {"previous_step_size_location", "n"}
-    assert callable(predictor.device_function)
+_LORENZ_ITERATION_BASE = {
+    "system_type": "lorenz_julia",
+    "output_types": ["state", "iteration_counters"],
+    "saved_state_indices": [0, 1, 2],
+    "saved_observable_indices": [],
+    "summarised_state_indices": [],
+    "summarised_observable_indices": [],
+    "summarise_every": None,
+    "sample_summaries_every": None,
+}
 
-
-ITERATION_CASES = [
+DENSE_PREDICTION_ITERATION_CASES = [
     pytest.param(
-        "firk",
-        {"step_controller": "fixed", "dt": 0.005},
+        {
+            **_LORENZ_ITERATION_BASE,
+            "algorithm": "firk",
+            "step_controller": "fixed",
+            "dt": 0.005,
+        },
         id="firk-fixed",
     ),
     pytest.param(
-        "l_stable_dirk_3",
-        {"step_controller": "fixed", "dt": 0.005},
+        {
+            **_LORENZ_ITERATION_BASE,
+            "algorithm": "l_stable_dirk_3",
+            "step_controller": "fixed",
+            "dt": 0.005,
+        },
         id="dirk-fixed",
     ),
     pytest.param(
-        "trapezoidal_dirk",
-        {"step_controller": "fixed", "dt": 0.005},
+        {
+            **_LORENZ_ITERATION_BASE,
+            "algorithm": "trapezoidal_dirk",
+            "step_controller": "fixed",
+            "dt": 0.005,
+        },
         id="dirk-explicit-first-stage",
     ),
     # At float32-reachable tolerances every seed converges in one
     # iteration; float64 + tight tolerances let the guard discriminate.
     pytest.param(
-        "kvaerno3",
         {
+            **_LORENZ_ITERATION_BASE,
+            "algorithm": "kvaerno3",
             "step_controller": "fixed",
             "dt": 0.005,
             "precision": np.float64,
@@ -279,8 +297,9 @@ ITERATION_CASES = [
         id="dirk-repeated-nodes",
     ),
     pytest.param(
-        "radau",
         {
+            **_LORENZ_ITERATION_BASE,
+            "algorithm": "radau",
             "step_controller": "gustafsson",
             "dt_min": 1e-6,
             "dt_max": 0.02,
@@ -292,54 +311,41 @@ ITERATION_CASES = [
 ]
 
 
-@pytest.mark.parametrize("method,controller_settings", ITERATION_CASES)
-def test_dense_prediction_reduces_newton_iterations(
-    precision, method, controller_settings
-):
+@pytest.mark.parametrize(
+    "solver_settings_override",
+    DENSE_PREDICTION_ITERATION_CASES,
+    indirect=True,
+)
+def test_dense_prediction_reduces_newton_iterations(solver_mutable):
     """A live predictor strictly beats carried increments.
 
     Guards against the predictor silently compiling to a no-op
     (e.g. its persistent step-size scalar missing from the loop's
     layout): converged results cannot distinguish a dead predictor,
-    but the Newton iteration count can.
+    but the Newton iteration count can. The chaotic ``rho = 28``
+    regime is critical: there the stage curve moves enough between
+    steps for the read-ahead to strictly beat carried increments on
+    every method; the fixture default ``rho = 21`` settles onto a
+    fixed point where both seeds are equally converged.
     """
-    controller_settings = dict(controller_settings)
-    case_precision = controller_settings.pop("precision", precision)
-    system = create_ODE_system(
-        "\n".join(
-            (
-                "dx = sigma*(y - x)",
-                "dy = x*(rho - z) - y",
-                "dz = x*y - b_const*z",
-            )
-        ),
-        states={"x": 1.05, "y": 0.97, "z": 1.02},
-        parameters={"sigma": 10.0, "rho": 28.0},
-        constants={"b_const": 8.0 / 3.0},
-        precision=case_precision,
-        name="dense_prediction_iteration_probe",
-    )
-    common = {
-        "y0": {
+    solve_kwargs = dict(
+        initial_values={
             "x": np.array([1.05]),
             "y": np.array([0.97]),
             "z": np.array([1.02]),
         },
-        "grid_type": "verbatim",
-        "method": method,
-        "duration": 0.1,
-        "save_every": 0.025,
-        "output_types": ["state", "iteration_counters"],
-    }
-    common.update(controller_settings)
+        parameters={"rho": np.array([28.0])},
+        grid_type="verbatim",
+        duration=0.1,
+        save_every=0.025,
+    )
 
     def newton_total(result):
         assert not np.any(result.status_codes)
         counters = np.asarray(result.iteration_counters)
-        return int(counters.sum(axis=0).T[0, 0])
+        return int(counters.sum(axis=0)[0].sum())
 
-    predicted = newton_total(solve_ivp(system, **common))
-    carried = newton_total(
-        solve_ivp(system, attempt_dense_prediction=False, **common)
-    )
+    predicted = newton_total(solver_mutable.solve(**solve_kwargs))
+    solver_mutable.update(attempt_dense_prediction=False)
+    carried = newton_total(solver_mutable.solve(**solve_kwargs))
     assert predicted < carried

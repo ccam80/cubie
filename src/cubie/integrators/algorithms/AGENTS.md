@@ -31,9 +31,9 @@ attrs-config mechanics; CUDA-authoring *optimisation* patterns are in
 | `explicit_euler.py` | `ExplicitEulerStep`: forward Euler, order 1, fixed-step. |
 | `generic_erk.py` | `ERKStep` + `ERKStepConfig`: streamed-accumulator explicit RK; FSAL caching; controller auto-selected from `tableau.has_error_estimate`. |
 | `generic_erk_tableaus.py` | `ERKTableau` + ERK sets (Heun, Ralston, Bogacki-Shampine, Dormand-Prince 5(4)/8(5,3), RK4, Cash-Karp, Fehlberg, Tsit5, Vern7); `ERK_TABLEAU_REGISTRY`, `DEFAULT_ERK_TABLEAU`. |
-| `generic_dirk.py` | `DIRKStep` + `DIRKStepConfig`: diagonally-implicit RK, one Newton solve per implicit stage, stage-skipping for explicit stages, FSAL caching. |
+| `generic_dirk.py` | `DIRKStep` + `DIRKStepConfig`: diagonally-implicit RK, one Newton solve per implicit stage, stage-skipping for explicit stages, FSAL caching, dense-predictor warm starts. |
 | `generic_dirk_tableaus.py` | `DIRKTableau` (adds `diagonal()`) + tableaus (implicit midpoint, trapezoidal/ESDIRK, Lobatto IIIC-3 default, SDIRK_2_2, L-stable DIRK3/SDIRK4). |
-| `generic_firk.py` | `FIRKStep` + `FIRKStepConfig`: fully-implicit RK; all stages as one coupled `n*stages` Newton system; owns a `DenseStagePredictor` for fixed-controller warm starts; Kahan-summed output accumulation. |
+| `generic_firk.py` | `FIRKStep` + `FIRKStepConfig`: fully-implicit RK; all stages as one coupled `n*stages` Newton system; dense-predictor warm starts; Kahan-summed output accumulation. |
 | `generic_firk_tableaus.py` | `FIRKTableau` + Gauss-Legendre-2 (default) and Radau IIA-5; `compute_embedded_weights_radauIIA`. |
 | `generic_rosenbrock_w.py` | `GenericRosenbrockWStep` + `RosenbrockWStepConfig`: linearly-implicit Rosenbrock-W using a cached Jacobian and a **linear** (not Newton) solve per stage; needs `driver_del_t` and time-derivative helpers. |
 | `generic_rosenbrockw_tableaus.py` | `RosenbrockTableau` (adds `C`, `gamma`, `gamma_stages`) + ROS3P (default), RODAS3P, SciML Rosenbrock23. RODAS4P/5P and ode23s 2(3) are commented-out / non-working. |
@@ -110,26 +110,19 @@ attrs-config mechanics; CUDA-authoring *optimisation* patterns are in
   registers it at size 0 and resizes later via `update_buffer`.
 
 ### Dense stage prediction (FIRK and DIRK)
-`FIRKStep` and `DIRKStep` each own a `DenseStagePredictor`
-(`../stage_predictors.py`), registered as a buffer-registry child only when
-`ODEImplicitStep.dense_prediction` is true (`attempt_dense_prediction`
-requested and the tableau passes the node-amplification gate; repeated
-stage nodes fit through the distinct-node subset, last sample per node).
-The compiled step reads the previous step's stage-derivative curve ahead
-over the next step as the Newton warm start; the transform's entries are
-polynomials in the runtime step-size ratio. The step judges applicability
-(not the predictor): no prediction on the first step or after a rejected
-proposal. DIRK skips predicting a never-solved explicit first stage
-(`predict_first_stage`; its free ``dt*f`` sample still enters the history)
-and seeds node-repeating stages from the prior stage's converged increment.
-FIRK transforms its persistent coupled stage vector in place; DIRK keeps a
-persistent `stage_increment_history` (`stage_count * n`) that the transform
-updates and each stage solve reads from and writes back to. The predictor's
-only own storage is one persistent step-size scalar, and steps with
-prediction inactive compile without the predictor or its buffers.
-`ODEImplicitStep.update` delegates predictor parameters and pipes
-`predictor_function` through compile settings so predictor rebuilds
-invalidate the step cache, mirroring `solver_function`.
+Both steps own a `DenseStagePredictor` (`../stage_predictors.py`) child that
+reads the previous step's stage-derivative curve ahead over the next step as
+the Newton warm start, with the step-size ratio handled at runtime.
+`ODEImplicitStep.dense_prediction` gates compilation (`attempt_dense_prediction`
+requested + tableau passes the node-amplification gate; repeated nodes fit
+through the distinct-node subset, last sample per node); the step judges
+first-step/rejection and passes a flag, the predictor bounds the ratio. DIRK
+keeps a persistent `stage_increment_history` (`stage_count * n`, registered
+size 0 when inactive); FIRK transforms its coupled stage vector in place.
+DIRK skips predicting a never-solved explicit first stage
+(`predict_first_stage`; its free `dt*f` sample still enters the history) and
+seeds node-repeating stages from the prior stage's converged increment.
+`predictor_function` pipes through compile settings like `solver_function`.
 
 ### FSAL warp-coherence
 - FSAL stage-0 RHS reuse is guarded by `all_sync(activemask(), accepted_flag != 0)` so

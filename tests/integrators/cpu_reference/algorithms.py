@@ -1071,30 +1071,30 @@ class CPUDIRKStep(CPUStep):
         all_converged = True
         total_iters = 0
 
-        # Accepted steps read the previous step's stage curve ahead
-        # over the next step to seed every stage's Newton solve; the
-        # first step and rejected proposals keep the existing
-        # carried-increment seeding.
-        predicted_increments = None
-        if (
-            self._dirk_dense_prediction
-            and self._dirk_stage_increment_history is not None
-            and prev_accepted
-        ):
-            ratio = float(dt_value) / float(self._dirk_previous_dt)
-            if ratio <= MAX_PREDICTION_STEP_RATIO:
-                predictor = np.asarray(
-                    dense_predictor_matrix(self.tableau, ratio),
-                    dtype=self.precision,
-                )
-                predicted_increments = (
-                    predictor @ self._dirk_stage_increment_history
-                )
-        self._dirk_previous_dt = dt_value
+        # Mirrors the device: the persistent history is transformed
+        # in place on accepted steps within the ratio bound and
+        # carried unchanged otherwise; stages a solver never touches
+        # (explicit stages) keep the transform's read-ahead values.
+        history = None
         if self._dirk_dense_prediction:
-            new_history = np.zeros(
-                (stage_count, state_dim), dtype=self.precision
-            )
+            if self._dirk_stage_increment_history is None:
+                self._dirk_stage_increment_history = np.zeros(
+                    (stage_count, state_dim), dtype=self.precision
+                )
+            history = self._dirk_stage_increment_history
+            if prev_accepted and self._dirk_previous_dt is not None:
+                ratio = float(dt_value) / float(
+                    self._dirk_previous_dt
+                )
+                if ratio <= MAX_PREDICTION_STEP_RATIO:
+                    predictor = np.asarray(
+                        dense_predictor_matrix(self.tableau, ratio),
+                        dtype=self.precision,
+                    )
+                    history[:] = (predictor @ history).astype(
+                        self.precision
+                    )
+        self._dirk_previous_dt = dt_value
 
         for stage_index in range(stage_count):
             # A stage repeating an earlier node seeds from the
@@ -1102,8 +1102,8 @@ class CPUDIRKStep(CPUStep):
             node_seen_earlier = bool(
                 np.any(c_nodes[:stage_index] == c_nodes[stage_index])
             )
-            if predicted_increments is not None and not node_seen_earlier:
-                guess = predicted_increments[stage_index]
+            if history is not None and not node_seen_earlier:
+                guess = history[stage_index].copy()
             else:
                 guess = self._dirk_increment
 
@@ -1136,10 +1136,10 @@ class CPUDIRKStep(CPUStep):
                 )
                 stage_derivatives[stage_index, :] = derivative
                 stage_states[stage_index, :] = stage_state
-                if self._dirk_dense_prediction:
+                if history is not None:
                     # The explicit stage's free sample joins the
                     # history, mirroring the device step.
-                    new_history[stage_index] = dt_value * derivative
+                    history[stage_index] = dt_value * derivative
                 continue
 
             base_state = stage_state.copy()
@@ -1196,11 +1196,8 @@ class CPUDIRKStep(CPUStep):
             )
             stage_derivatives[stage_index, :] = derivative
             self._dirk_increment = increment
-            if self._dirk_dense_prediction:
-                new_history[stage_index] = increment
-
-        if self._dirk_dense_prediction:
-            self._dirk_stage_increment_history = new_history
+            if history is not None:
+                history[stage_index] = increment
 
         # A stage whose A row equals b (or b_hat) already holds the
         # output (or embedded) solution.

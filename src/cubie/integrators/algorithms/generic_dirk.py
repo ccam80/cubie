@@ -62,9 +62,6 @@ from cubie.integrators.stage_predictors import DenseStagePredictor
 from cubie.buffer_registry import buffer_registry
 
 
-
-
-
 DIRK_ADAPTIVE_DEFAULTS = StepControlDefaults(
     step_controller={
         "step_controller": "gustafsson",
@@ -109,6 +106,8 @@ Fixed-step controllers maintain a constant step size throughout the
 integration. This is the only valid choice for errorless tableaus since
 adaptive stepping requires an error estimate to adjust the step size.
 """
+
+
 @define
 class DIRKStepConfig(ImplicitStepConfig):
     """Configuration describing the DIRK integrator.
@@ -169,6 +168,7 @@ class DIRKStepConfig(ImplicitStepConfig):
         default='local',
         validator=validators.in_(['local', 'shared'])
     )
+
 
 class DIRKStep(ODEImplicitStep):
     """Diagonally implicit Runge–Kutta step with an embedded error estimate."""
@@ -262,7 +262,7 @@ class DIRKStep(ODEImplicitStep):
         predictor_kwargs = {
             key: value
             for key, value in kwargs.items()
-            if key == "previous_step_size_location" and value is not None
+            if key in self._PREDICTOR_PARAMS and value is not None
         }
         # An explicit first stage is never solved, so its
         # prediction row is skipped.
@@ -285,13 +285,16 @@ class DIRKStep(ODEImplicitStep):
         n = config.n
         tableau = config.tableau
 
-        # Clear this step's own registrations only: the nonlinear
-        # solver child keeps its still-valid declarations, and
-        # register_child below re-records it with fresh sizes.
+        # Clear this step's own registrations only: child factories
+        # keep their still-valid declarations, and register_child
+        # below re-records them with fresh sizes.
         buffer_registry.clear_own(self)
 
         # Calculate buffer sizes
         accumulator_length = max(tableau.stage_count - 1, 0) * n
+        history_length = (
+            tableau.stage_count * n if self.dense_prediction else 0
+        )
 
         # Register solver scratch and solver persistent buffers so they can
         # be aliased
@@ -300,19 +303,17 @@ class DIRKStep(ODEImplicitStep):
                 self.solver,
                 name='solver'
         )
-        if self.dense_prediction:
-            buffer_registry.register_child(
-                self, self.dense_predictor, name='dense_predictor'
-            )
-            buffer_registry.register(
-                'stage_increment_history',
-                self,
-                tableau.stage_count * n,
-                config.stage_increment_history_location,
-                persistent=True,
-                precision=precision
-            )
-
+        buffer_registry.register_child(
+            self, self.dense_predictor, name='dense_predictor'
+        )
+        buffer_registry.register(
+            'stage_increment_history',
+            self,
+            history_length,
+            config.stage_increment_history_location,
+            persistent=True,
+            precision=precision
+        )
         buffer_registry.register(
             'stage_increment',
             self,
@@ -328,7 +329,6 @@ class DIRKStep(ODEImplicitStep):
             config.accumulator_location,
             precision=precision
         )
-
 
         buffer_registry.register(
             'stage_base',
@@ -393,7 +393,14 @@ class DIRKStep(ODEImplicitStep):
         )
 
         self.update_compile_settings(
-                {'solver_function': self.solver.device_function}
+            {
+                'solver_function': self.solver.device_function,
+                'predictor_function': (
+                    self.dense_predictor.device_function
+                    if self.dense_prediction
+                    else None
+                ),
+            }
         )
 
     def build_step(
@@ -412,15 +419,8 @@ class DIRKStep(ODEImplicitStep):
         tableau = config.tableau
         nonlinear_solver = solver_function
 
-        # Accepted steps warm-start each stage's Newton solve by
-        # reading the previous step's stage curve ahead over the next
-        # step; the step-size ratio is handled at runtime, so any
-        # controller benefits.
         use_dense_prediction = self.dense_prediction
-        if use_dense_prediction:
-            predict_stages = self.dense_predictor.device_function
-        else:
-            predict_stages = None
+        predict_stages = config.predictor_function
 
         n = int32(n)
         stage_count = int32(tableau.stage_count)
@@ -481,21 +481,14 @@ class DIRKStep(ODEImplicitStep):
         alloc_accumulator = getalloc('accumulator', self)
         alloc_stage_base = getalloc('stage_base', self)
         alloc_stage_rhs = getalloc('stage_rhs', self)
-        if use_dense_prediction:
-            alloc_stage_increment_history = getalloc(
-                'stage_increment_history', self
+        alloc_stage_increment_history = getalloc(
+            'stage_increment_history', self
+        )
+        alloc_predictor_shared, alloc_predictor_persistent = (
+            buffer_registry.get_child_allocators(
+                self, self.dense_predictor, name='dense_predictor'
             )
-            alloc_predictor_shared, alloc_predictor_persistent = (
-                buffer_registry.get_child_allocators(
-                    self, self.dense_predictor, name='dense_predictor'
-                )
-            )
-        else:
-            alloc_stage_increment_history = None
-            alloc_predictor_shared = None
-            alloc_predictor_persistent = None
-
-
+        )
 
         # no cover: start
         @cuda.jit(
@@ -546,16 +539,15 @@ class DIRKStep(ODEImplicitStep):
             solver_shared = alloc_solver_shared(shared, persistent_local)
             solver_persistent = alloc_solver_persistent(shared, persistent_local)
             stage_rhs = alloc_stage_rhs(shared, persistent_local)
-            if use_dense_prediction:
-                stage_increment_history = alloc_stage_increment_history(
-                    shared, persistent_local
-                )
-                predictor_shared = alloc_predictor_shared(
-                    shared, persistent_local
-                )
-                predictor_persistent = alloc_predictor_persistent(
-                    shared, persistent_local
-                )
+            stage_increment_history = alloc_stage_increment_history(
+                shared, persistent_local
+            )
+            predictor_shared = alloc_predictor_shared(
+                shared, persistent_local
+            )
+            predictor_persistent = alloc_predictor_persistent(
+                shared, persistent_local
+            )
 
             for _i in range(accumulator_length):
                 stage_accumulator[_i] = typed_zero
@@ -626,11 +618,10 @@ class DIRKStep(ODEImplicitStep):
 
                 if stage_implicit[0]:
                     if use_dense_prediction:
-                        if apply_prediction:
-                            for idx in range(n):
-                                stage_increment[idx] = (
-                                    stage_increment_history[idx]
-                                )
+                        for idx in range(n):
+                            stage_increment[idx] = (
+                                stage_increment_history[idx]
+                            )
                     solver_status = nonlinear_solver(
                         stage_increment,
                         parameters,
@@ -701,7 +692,7 @@ class DIRKStep(ODEImplicitStep):
                     elif b_hat_row == int32(0):
                         # Direct assignment for error
                         error[idx] = stage_base[idx]
-                        
+
             for idx in range(accumulator_length):
                 stage_accumulator[idx] = typed_zero
 
@@ -744,9 +735,9 @@ class DIRKStep(ODEImplicitStep):
                 if stage_implicit[stage_idx]:
                     if use_dense_prediction:
                         history_offset = stage_idx * n
-                        if apply_prediction and (
-                            seeds_from_prediction[stage_idx]
-                        ):
+                        # A stage repeating an earlier node keeps the
+                        # just-converged sibling increment as its seed.
+                        if seeds_from_prediction[stage_idx]:
                             for idx in range(n):
                                 stage_increment[idx] = (
                                     stage_increment_history[
@@ -769,7 +760,6 @@ class DIRKStep(ODEImplicitStep):
                     status_code = int32(status_code | solver_status)
 
                     if use_dense_prediction:
-                        history_offset = stage_idx * n
                         for idx in range(n):
                             stage_increment_history[
                                 history_offset + idx
@@ -856,7 +846,6 @@ class DIRKStep(ODEImplicitStep):
     def is_multistage(self) -> bool:
         """Return ``True`` as the method has multiple stages."""
         return self.tableau.stage_count > 1
-
 
     @property
     def is_adaptive(self) -> bool:
