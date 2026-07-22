@@ -1,5 +1,39 @@
 # Changelog
 
+## [0.3.0](https://github.com/cubiepy/cubie/compare/v0.2.0...v0.3.0) (2026-07-22)
+
+
+### Features
+
+* Chunking and eviction from VRAM and RAM extended to handle simultaneous and extra-large runs ([#621](https://github.com/cubiepy/cubie/issues/621)) ([3505e02](https://github.com/cubiepy/cubie/commit/3505e02e11eac9752d2760d022fa319948d3dbc7))
+* **ci:** pre-compile and cache GPU tests on a CPU runner ([#638](https://github.com/cubiepy/cubie/issues/638)) ([f2b90c6](https://github.com/cubiepy/cubie/commit/f2b90c69fcb7740676feddbe1acdc72bb5303c49))
+* inputs and outputs can now stay on-device ([#635](https://github.com/cubiepy/cubie/issues/635)) ([1f70c1d](https://github.com/cubiepy/cubie/commit/1f70c1dab46c2d18b70436210f98400e437745fd))
+* Kvaerno3 and Kvaerno5 ESDIRK tableaus added ([#646](https://github.com/cubiepy/cubie/issues/646)) ([8f50158](https://github.com/cubiepy/cubie/commit/8f50158f88b82d39f3f2b1270b14e46b1e6ad126))
+* linear solves stop on a reduction of the entry residual ([#627](https://github.com/cubiepy/cubie/issues/627)) ([6385260](https://github.com/cubiepy/cubie/commit/6385260024e4c2731bb7ef522a0f4fff0de5a02d))
+* Newton convergence bounds the update error, not the residual ([#626](https://github.com/cubiepy/cubie/issues/626)) ([f5f5a83](https://github.com/cubiepy/cubie/commit/f5f5a8369fd76885c83ea13c1814d4616a607475))
+* numba-cuda-mlir is the default CUDA backend; numba-cuda deprecated ([#640](https://github.com/cubiepy/cubie/issues/640)) ([bcd1e9b](https://github.com/cubiepy/cubie/commit/bcd1e9bc12a8f21b183bfa2e22192b1ae70244a0))
+
+
+### Bug Fixes
+
+* **ci:** ci precompile now covers all mlir kernels ([#653](https://github.com/cubiepy/cubie/issues/653)) ([eda2366](https://github.com/cubiepy/cubie/commit/eda2366d22ac042e9ac41f7792fb8240eacf667e))
+* **ci:** coverage reporting now works correctly on new GPU runs ([#649](https://github.com/cubiepy/cubie/issues/649)) ([f695c1c](https://github.com/cubiepy/cubie/commit/f695c1cd935f1a48cf5b0c3245f337de1048b4e9))
+* **ci:** precompiled kernel cache survives the CPU-to-GPU machine hop ([#645](https://github.com/cubiepy/cubie/issues/645)) ([5a5a8c3](https://github.com/cubiepy/cubie/commit/5a5a8c3bce139b18ece675a1a9a6c026755ab7ee))
+* correct sdirk4 fourth-stage coefficient ([#647](https://github.com/cubiepy/cubie/issues/647)) ([727fd2a](https://github.com/cubiepy/cubie/commit/727fd2ab39e618931018d2117fcd5776f82efa00))
+* driver coefficients update after interpolator settings change ([#631](https://github.com/cubiepy/cubie/issues/631)) ([72b6b06](https://github.com/cubiepy/cubie/commit/72b6b069030b535830a16631526b4961fc2e9cf8))
+* ftz flag piped through mFlorid fastmath ([#643](https://github.com/cubiepy/cubie/issues/643)) ([270efb0](https://github.com/cubiepy/cubie/commit/270efb0a24a4e50315271114c6853048bf538de8))
+* GPU work syncs per-process instead of globally in test suite ([#644](https://github.com/cubiepy/cubie/issues/644)) ([04c833a](https://github.com/cubiepy/cubie/commit/04c833a0f3eef8602fd2eb0f8959c191531efbc7))
+* Gustafsson controller setting "gamma" disambiguated ([#658](https://github.com/cubiepy/cubie/issues/658)) ([14ad5e7](https://github.com/cubiepy/cubie/commit/14ad5e7444731f8b9e6fd32272be41c54a8fbab1))
+* solver operator beta, gamma no longer collide with system parameters ([#624](https://github.com/cubiepy/cubie/issues/624)) ([f1b13cf](https://github.com/cubiepy/cubie/commit/f1b13cfc5681cd0be7c5ce0dd2a3e543c92fe254))
+* solvers release GPU buffers on collection, not on the next registration ([#620](https://github.com/cubiepy/cubie/issues/620)) ([8d04c24](https://github.com/cubiepy/cubie/commit/8d04c24c60909eb4dacdfdda58ed38da3af37172))
+* time-logger tests bracket durations with the measuring clock ([#637](https://github.com/cubiepy/cubie/issues/637)) ([55cdb7b](https://github.com/cubiepy/cubie/commit/55cdb7b714a518e1e6e38b852c709b26a82f39b2))
+* user model symbols can no longer alias generated codegen variables ([#654](https://github.com/cubiepy/cubie/issues/654)) ([43a1c7c](https://github.com/cubiepy/cubie/commit/43a1c7cf01d7b425f8a36779c00a0e76b52b5287))
+
+
+### Performance Improvements
+
+* hash-consed IR expression engine replaces SymPy in codegen compute ([#622](https://github.com/cubiepy/cubie/issues/622)) ([bab4837](https://github.com/cubiepy/cubie/commit/bab48378a375941b11e1f522f7890c2d1c68160c))
+
 ## [0.2.0](https://github.com/ccam80/cubie/compare/v0.1.1...v0.2.0) (2026-07-15)
 
 
