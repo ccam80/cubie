@@ -123,18 +123,23 @@ the shared S3 cache bucket must not be enabled for runners that
 public repositories can use — cubie is public. Workflow-level caching
 (setup-uv) uses GitHub's cache service instead.
 
-## Cost & timeline report
+## Cost & timeline dashboard
 
-`cost_report.py` renders a single self-contained HTML report for one
-`ci_cuda_tests.yml` run: per-leg boot / CI-step / shutdown bands, per-leg
-cost at the achieved spot price, per-instance-type minutes and cost, the
-run aggregate, a separate spot-capacity **wait** chart (wait is not
-billed, so it is kept out of the runtime and cost charts), and account
-24h-hourly / 30d-daily usage-by-instance-type and cost-by-service panels.
+`cost_dashboard.py` serves a local interactive dashboard for GPU CI cost
+and timing.
 
 ```powershell
-python infra/fleet/cost_report.py <run-id> --out report.html
+python infra/fleet/cost_dashboard.py    # opens http://localhost:8787
 ```
+
+Pick a run from the dropdown (recent `ci_cuda_tests.yml` runs, fetched on
+demand) to see, per leg: a timeline of spot-capacity wait / boot / CI
+steps / shutdown with the run total broken down beside it; time in each
+CI step (with a run-total bar beside it); cost at the achieved spot
+price; minutes and cost per instance type with the average spot rate
+annotated; and spot-capacity wait per leg. The account section takes
+from/to date pickers and a granularity and charts whole-account usage
+hours per instance type and gross usage $ by service.
 
 It correlates three data planes, keyed on the EC2 instance id RunsOn
 embeds in each runner name (`runs-on--i-<id>--...`): the GitHub Actions
@@ -142,14 +147,20 @@ Jobs API (step timings), each leg's `Set up job` log (RunsOn boot
 timeline, instance type/AZ, launch time), and AWS via the `cubie-fleet`
 profile — `ec2:DescribeSpotPriceHistory` (achieved spot rate),
 `cloudtrail:LookupEvents` (instance terminate time), and Cost Explorer
-(`ce:GetCostAndUsage`) for the aggregate panels. The last two are the
-read-only grants the bootstrap policy's `ReadOnly` /
-`CostExplorerReadOnly` statements add; the CloudTrail and Cost Explorer
-panels degrade to a note if they are absent.
+(`ce:GetCostAndUsage`) for the account panels. The last two are the
+read-only grants the bootstrap policy's `ReadOnly` / `CostExplorerReadOnly`
+statements add.
 
-Requirements: `gh` authenticated to the repo, the `cubie-fleet` AWS
-profile, and `matplotlib`/`numpy`. Cost Explorer hourly granularity must
-be enabled on the account for the 24h panel. Runs on Windows (it forces
-UTF-8 on the AWS CLI subprocess, which otherwise dies rendering the
-non-breaking spaces CloudTrail events carry). `--cache-dir` sets where
-per-job logs are cached between runs.
+**Cost of use:** per-run views are free (GitHub API, `ec2:Describe*` and
+`cloudtrail:LookupEvents` carry no charge). Only the account panels touch
+Cost Explorer, billed $0.01 per `GetCostAndUsage` request. Results are
+cached at bucket granularity under `.dashboard-cache/` (gitignored) and a
+bucket is re-fetched only when it is missing, or still inside Cost
+Explorer's ~2-day finalisation window and more than a day stale — so
+re-viewing a range is free, and the account section shows whether a fetch
+hit the API or the cache.
+
+Requirements: `gh` authenticated to the repo and the `cubie-fleet` AWS
+profile; charts load ECharts from a CDN, so the browser needs internet.
+The AWS CLI subprocess is forced to UTF-8 (it otherwise dies on Windows
+rendering the non-breaking spaces CloudTrail events carry).
