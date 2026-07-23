@@ -390,41 +390,37 @@ DENSE_PREDICTION_ITERATION_CASES = [
         },
         id="firk-fixed",
     ),
-    # The float32 ceilings of these tableaus sit below the fixed
-    # controller's ratio of 1, so prediction only applies at float64.
+    # The only DIRK tableau whose float32 ceiling (1.07) sits above
+    # the fixed controller's ratio of 1, so prediction applies on
+    # every step at the fixture's float32 default.
     pytest.param(
         {
             **_LORENZ_ITERATION_BASE,
-            "algorithm": "l_stable_dirk_3",
+            "algorithm": "sdirk_2_2",
             "step_controller": "fixed",
             "dt": 0.005,
-            "precision": np.float64,
         },
         id="dirk-fixed",
     ),
+    # These tableaus' float32 ceilings sit below the fixed
+    # controller's nominal ratio of 1; prediction applies on the
+    # tiny clamped steps float32 save-boundary rounding inserts,
+    # which is enough for the strict iteration guard.
     pytest.param(
         {
             **_LORENZ_ITERATION_BASE,
             "algorithm": "trapezoidal_dirk",
             "step_controller": "fixed",
             "dt": 0.005,
-            "precision": np.float64,
         },
         id="dirk-explicit-first-stage",
     ),
-    # At float32-reachable tolerances every seed converges in one
-    # iteration; float64 + tight tolerances let the guard discriminate.
     pytest.param(
         {
             **_LORENZ_ITERATION_BASE,
             "algorithm": "kvaerno3",
             "step_controller": "fixed",
             "dt": 0.005,
-            "precision": np.float64,
-            "newton_atol": 1e-10,
-            "newton_rtol": 1e-10,
-            "krylov_atol": 1e-10,
-            "krylov_rtol": 1e-10,
         },
         id="dirk-repeated-nodes",
     ),
