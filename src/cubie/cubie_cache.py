@@ -805,6 +805,10 @@ class CubieCacheHandler:
     def update_policy(self, policy: CachePolicy) -> bool:
         """Replace the cache policy.
 
+        A change drops the configured cache reference: a cache built
+        under the previous policy may point at a directory the new
+        policy does not own, and a later flush must never reach it.
+
         Parameters
         ----------
         policy
@@ -817,6 +821,8 @@ class CubieCacheHandler:
             policy.
         """
         changed = policy != self._policy
+        if changed:
+            self._cache = None
         self._policy = policy
         return changed
 

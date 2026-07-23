@@ -214,6 +214,37 @@ def test_cache_policy_has_cache_enabled_field():
     assert policy_disabled.cache_enabled is False
 
 
+def test_policy_replacement_never_flushes_previous_cache(tmp_path):
+    """A policy change drops the configured cache without flushing.
+
+    A cache configured under the previous policy may point at a
+    directory the new policy does not own (for example the CI
+    kernel-cache artifact); switching to flush_on_change and
+    invalidating must not delete it.
+    """
+    old_dir = tmp_path / "artifact"
+    handler = CubieCacheHandler(
+        CachePolicy(cache_enabled=True, cache_dir=old_dir),
+        system_name="flush_scope_test",
+    )
+    cache = handler.configured_cache("aaaa1111", "bbbb2222")
+    cache.cache_path.mkdir(parents=True, exist_ok=True)
+    marker = cache.cache_path / "entry.nbi"
+    marker.write_bytes(b"payload")
+
+    changed = handler.update_policy(
+        CachePolicy(
+            cache_enabled=True,
+            cache_mode="flush_on_change",
+            cache_dir=tmp_path / "elsewhere",
+        )
+    )
+    assert changed
+    assert handler.cache is None
+    handler.invalidate()
+    assert marker.exists()
+
+
 def test_cache_policy_holds_no_identity():
     """CachePolicy is pure policy: no system name or hash fields."""
     policy = CachePolicy()
