@@ -6,7 +6,9 @@ Covers the pure-numeric :func:`neumann_spectral_radius`,
 policies selecting independent evaluators on a shared system.
 """
 
+import os
 from pathlib import Path
+import shutil
 import warnings
 
 import numpy as np
@@ -125,6 +127,30 @@ def test_get_solver_helper_runs_diagnostic_for_neumann_type(system):
         )
 
 
+def _seed_kernel_cache(*target_dirs):
+    """Copy the shared kernel-cache artifact into per-test dirs.
+
+    A per-test cache directory starts empty, so a diagnostic launch
+    in the CI consumer leg would cold-compile there and trip the
+    zero-compile gate. Each directory receives a private copy of the
+    environment kernel cache: isolation between the directories is
+    preserved while their kernels load instead of compiling. Without
+    the environment cache the directories stay empty and launches
+    compile as usual.
+    """
+    shared = os.environ.get("CUBIE_KERNEL_CACHE_DIR", "").strip()
+    if not shared or not Path(shared).is_dir():
+        return
+    # Lock files are live inter-process state, not cache content:
+    # another worker may hold a byte-range lock that makes the copy
+    # raise on Windows.
+    skip_locks = shutil.ignore_patterns("*.lock")
+    for target in target_dirs:
+        shutil.copytree(
+            shared, target, dirs_exist_ok=True, ignore=skip_locks
+        )
+
+
 @pytest.mark.parametrize(
     "solver_settings_override", [_DIAGONALLY_DOMINANT], indirect=True
 )
@@ -138,6 +164,7 @@ def test_kernel_cache_policies_stay_isolated(system, tmp_path):
     """
     dir_a = tmp_path / "kernel_a"
     dir_b = tmp_path / "kernel_b"
+    _seed_kernel_cache(dir_a, dir_b, tmp_path / "kernel_a_moved")
     kernel_a = BatchSolverKernel(
         system,
         algorithm_settings={"algorithm": "euler"},
