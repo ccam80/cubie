@@ -48,7 +48,7 @@ from attrs.validators import (
     instance_of as attrsval_instance_of,
     optional as attrsval_optional,
 )
-from numpy import asarray as np_asarray, float64 as np_float64
+from numpy import array as np_array, float64 as np_float64
 
 
 from cubie.CUDAFactory import CUDAFactoryConfig
@@ -60,18 +60,49 @@ from cubie.odesystems.SystemValues import SystemValues
 
 
 def _mass_matrix_converter(value: Any) -> Any:
-    """Normalise a mass matrix to ``None`` or a float64 array.
+    """Normalise a mass matrix to ``None`` or a sealed float64 array.
 
     The stored form is canonical: SymPy matrices, NumPy arrays, and
     nested sequences all normalise to the same numeric array, so the
     configuration identity does not depend on which input form the
-    caller used. Symbolic (non-numeric) entries raise.
+    caller used. Symbolic (non-numeric) entries raise. The stored
+    array is an owned read-only copy, so the frozen snapshot can
+    neither observe later mutation of the caller's array nor hand
+    out writable storage.
     """
     if value is None:
         return None
     if hasattr(value, "tolist"):
         value = value.tolist()
-    return np_asarray(value, dtype=np_float64)
+    array = np_array(value, dtype=np_float64)
+    array.setflags(write=False)
+    return array
+
+
+def _runtime_values_converter(value: Any) -> Any:
+    """Seal the structure of a runtime-valued container.
+
+    Names and precision are configuration identity; the stored
+    values (parameter defaults, initial states, observable slots)
+    are runtime data and stay updatable in place.
+    """
+    if value is None:
+        return None
+    return value.freeze(values_writable=True)
+
+
+def _constants_converter(value: Any) -> Any:
+    """Fully seal the constants container held by this snapshot.
+
+    Constant values are compile-critical: they are baked into device
+    closures and folded into the owning system's ``config_hash``, so
+    both structure and values seal at the snapshot boundary. Updates
+    flow through ``BaseODE.set_constants``, which derives a copy and
+    passes it back through ``update_compile_settings``.
+    """
+    if value is None:
+        return None
+    return value.freeze(values_writable=False)
 
 
 @define
@@ -136,6 +167,7 @@ class ODEData(CUDAFactoryConfig):
     """
 
     constants: Optional[SystemValues] = field(
+        converter=_constants_converter,
         validator=attrsval_optional(
             attrsval_instance_of(
                 SystemValues,
@@ -143,6 +175,7 @@ class ODEData(CUDAFactoryConfig):
         ),
     )
     parameters: Optional[SystemValues] = field(
+        converter=_runtime_values_converter,
         validator=attrsval_optional(
             attrsval_instance_of(
                 SystemValues,
@@ -150,6 +183,7 @@ class ODEData(CUDAFactoryConfig):
         ),
     )
     initial_states: SystemValues = field(
+        converter=_runtime_values_converter,
         validator=attrsval_optional(
             attrsval_instance_of(
                 SystemValues,
@@ -157,6 +191,7 @@ class ODEData(CUDAFactoryConfig):
         ),
     )
     observables: SystemValues = field(
+        converter=_runtime_values_converter,
         validator=attrsval_optional(
             attrsval_instance_of(
                 SystemValues,

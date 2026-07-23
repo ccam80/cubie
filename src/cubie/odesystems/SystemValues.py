@@ -23,6 +23,7 @@ See Also
 """
 
 from collections.abc import Mapping, Sequence, Sized
+from types import MappingProxyType
 from typing import Any, Union
 
 from numpy import (
@@ -67,10 +68,16 @@ class SystemValues:
     values_array: Union[ndarray, None]
     indices_dict: Union[dict[str, int], None]
     keys_by_index: Union[dict[int, str], None]
-    values_dict: dict[str, float]
+    values_dict: Mapping[str, float]
     precision: PrecisionDType
     n: int
     name: Union[str, None]
+
+    # Snapshot-freeze state. Class-level defaults keep construction
+    # unrestricted; freeze() seals an instance in place once it is
+    # held by a configuration snapshot.
+    _snapshot_frozen = False
+    _values_writable = True
 
     def __init__(
         self,
@@ -175,9 +182,67 @@ class SystemValues:
             return result
         return not result
 
-    # Identity hashing is retained: instances are mutable containers,
-    # and value equality exists solely for config change detection.
-    __hash__ = object.__hash__
+    # Mutable containers with value equality are unhashable: two
+    # equal instances would need equal hashes, and these instances
+    # can mutate out from under any hash-based collection.
+    __hash__ = None
+
+    def __setattr__(self, name: str, value: Any) -> None:
+        """Reject attribute rebinding on a frozen snapshot member."""
+        if self._snapshot_frozen:
+            raise AttributeError(
+                "This SystemValues instance is held by a settings "
+                "snapshot and is sealed. Derive a copy() and pass "
+                "it through the owning factory's update path."
+            )
+        super().__setattr__(name, value)
+
+    def freeze(self, values_writable: bool = False) -> "SystemValues":
+        """Seal this container as a settings-snapshot member.
+
+        Parameters
+        ----------
+        values_writable
+            When ``True``, stored values remain updatable through
+            :meth:`update_from_dict` and the paths built on it while
+            the structure (names, precision, packed layout) is
+            sealed. When ``False``, values seal too: the packed
+            array becomes read-only and the values mapping becomes a
+            read-only view.
+
+        Returns
+        -------
+        SystemValues
+            This instance, sealed in place.
+
+        Notes
+        -----
+        Configuration snapshots apply this through their field
+        converters, so every container a snapshot holds is sealed at
+        the write boundary. Values stay writable for containers
+        whose stored values are runtime data (parameters, states,
+        observables); the constants container seals fully because
+        constant values are compile-critical. :meth:`copy` and
+        :meth:`with_precision` return unfrozen copies for the
+        copy-and-replace update path.
+        """
+        if self._snapshot_frozen:
+            if self._values_writable != values_writable:
+                raise ValueError(
+                    "This SystemValues instance is already frozen "
+                    "with a different value-mutability tier."
+                )
+            return self
+        if not values_writable:
+            self.values_array.setflags(write=False)
+            object.__setattr__(
+                self,
+                "values_dict",
+                MappingProxyType(dict(self.values_dict)),
+            )
+        object.__setattr__(self, "_values_writable", values_writable)
+        object.__setattr__(self, "_snapshot_frozen", True)
+        return self
 
     def _cubie_canonical_(self) -> tuple:
         """Return the canonical structural identity of this container.
@@ -198,12 +263,11 @@ class SystemValues:
         )
 
     def copy(self) -> "SystemValues":
-        """Return an independent copy of this container.
+        """Return an independent, unfrozen copy of this container.
 
-        Configuration snapshots hold ``SystemValues`` instances by
-        reference: derive a copy, modify the copy, and pass it back
-        through the owning factory's update path rather than mutating
-        the instance a snapshot holds.
+        Configuration snapshots seal the instances they hold (see
+        :meth:`freeze`): derive a copy, modify the copy, and pass it
+        back through the owning factory's update path.
         """
         return SystemValues(
             dict(self.values_dict), self.precision, name=self.name
@@ -519,7 +583,17 @@ class SystemValues:
             Raised when a key is missing and ``silent`` is ``False``.
         TypeError
             Raised when a value cannot be cast to ``precision``.
+        ValueError
+            Raised when this instance is a fully sealed snapshot
+            member (constants held by a settings snapshot).
         """
+        if self._snapshot_frozen and not self._values_writable:
+            raise ValueError(
+                "These values are sealed by a settings snapshot. "
+                "Update them through the owning system (for "
+                "constants: set_constants() or update()), which "
+                "derives a replacement snapshot and rebuilds."
+            )
         if values_dict is None:
             values_dict = {}
         if kwargs:
@@ -665,8 +739,15 @@ class SystemValues:
         Raises
         ------
         ValueError
-            If the name already exists.
+            If the name already exists or this instance is a sealed
+            snapshot member.
         """
+        if self._snapshot_frozen:
+            raise ValueError(
+                "The structure of this SystemValues is sealed by a "
+                "settings snapshot. Derive a copy() and pass it "
+                "through the owning factory's update path."
+            )
         if name in self.values_dict:
             raise ValueError(f"Entry '{name}' already exists")
 
@@ -691,7 +772,15 @@ class SystemValues:
         ------
         KeyError
             If the name does not exist.
+        ValueError
+            If this instance is a sealed snapshot member.
         """
+        if self._snapshot_frozen:
+            raise ValueError(
+                "The structure of this SystemValues is sealed by a "
+                "settings snapshot. Derive a copy() and pass it "
+                "through the owning factory's update path."
+            )
         if name not in self.values_dict:
             raise KeyError(f"Entry '{name}' not found")
 

@@ -31,7 +31,7 @@ with respect to the stage increment `u`. The `a_ij` placement differs between th
 | `linear_operators.py` | Emits the matrix-free linear operator and JVP cache helpers: `generate_operator_apply_code`, `generate_cached_operator_apply_code`, `generate_prepare_jac_code` (populates `cached_aux`, returns `(code, aux_count)`), `generate_cached_jvp_code`, `generate_n_stage_linear_operator_code` (flattened FIRK). `*_from_jvp` variants take a prebuilt `JVPEquations`. |
 | `preconditioners.py` | Emits the Neumann-series and diagonal-Jacobi preconditioners (`generate_neumann_preconditioner_code` + cached/n-stage variants, `generate_jacobi_preconditioner_code` + cached/n-stage variants) and `generate_chained_preconditioner_code`, which nests two stage factories in one emitted factory and applies them as `P1(P0(v))`. Every emitted preconditioner shares one wide signature ending `..., v, out, jvp, scratch, chain_scratch` — single kinds ignore `chain_scratch`; the chained wrapper uses `scratch` for the intermediate, borrows `out` as P0's scratch, and hands P1 `chain_scratch`. The Neumann family is the **only** generator whose `order` argument is live (truncation degree, factory default 1). |
 | `nonlinear_residuals.py` | Emits the Newton residual: `generate_residual_code` / `generate_stage_residual_code` (single stage, SDIRK/ESDIRK) and `generate_n_stage_residual_code` (flattened FIRK). |
-| `neumann_convergence.py` | Neumann-series convergence diagnostic: `NeumannRHSEvaluator` (a `CUDAFactory` owned by `SymbolicODE` as a diagnostic service excluded from child-factory discovery; builds a kernel wrapping the compiled `dxdt` for finite-difference Jacobians, attaching a `CUBIECache` when the `CachePolicy` injected via `set_cache_policy` enables caching), `neumann_spectral_radius`, `check_neumann_convergence`. Runs as the registry validation hook on `neumann_*` helper requests and reports the initial-state radius per unit `h` for FIRK or per unit `a_ij*h` when the single-stage runtime coefficient is unknown; an exact infinite-series verdict requires the full step factor. |
+| `neumann_convergence.py` | Neumann-series convergence diagnostic: `NeumannRHSEvaluator` (a `CUDAFactory` that builds a kernel wrapping the compiled `dxdt` for finite-difference Jacobians, attaching a `CUBIECache` when its construction-time `CachePolicy` enables caching — evaluator ownership and per-policy keying live with `SymbolicODE`, see `../AGENTS.md`), `neumann_spectral_radius`, `check_neumann_convergence`. Runs as the registry validation hook on `neumann_*` helper requests and reports the initial-state radius per unit `h` for FIRK or per unit `a_ij*h` when the single-stage runtime coefficient is unknown; an exact infinite-series verdict requires the full step factor. |
 | `_stage_utils.py` | Shared FIRK helpers: `prepare_stage_data` (Butcher `A`/`c` → IR rows, nodes, stage count) and `build_stage_metadata` (emit `_cubie_codegen_c_<i>`, `_cubie_codegen_a_<i>_<j>` symbol assignments). Used by every `n_stage_*` generator. |
 
 ## Generator variants
@@ -54,14 +54,11 @@ this is a property of the emitted code, not separate subsystems:
   `max_cached_terms`). The threshold is deliberately conservative, so on many systems few terms
   are cached — but the path is live, not disabled.
 
-**Consumers:** emitted device functions are wired by
-`symbolicODE.get_solver_helper(request)` through the registry in
-`../helper_registry.py` (which declares each generator's source dependencies and exact
-factory-binding arguments) and consumed downstream by
-`cubie/integrators/matrix_free_solvers/` (`LinearSolver`, `NewtonKrylov`) and the
-implicit algorithms in `cubie/integrators/algorithms/`. Treat the device-function
-signatures in each template docstring as the contract — factory-binding signatures are
-declared in the registry, never introspected.
+**Consumers:** dispatch, identities, and downstream consumer topology are owned
+by `../AGENTS.md` (get_solver_helper section) and `../helper_registry.py`. Here,
+treat the device-function signatures in each template docstring as the
+contract — factory-binding signatures are declared in the registry, never
+introspected.
 
 ## For AI Agents
 

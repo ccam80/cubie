@@ -20,7 +20,7 @@ attrs conventions.
 |------|-------------|
 | `baseODE.py` | `BaseODE(CUDAFactory)` abstract base and `ODECache(CUDADispatcherCache)` — the cache `build()` returns: `dxdt`, `observables`, and a `helpers: SolverHelperCache` member map. |
 | `ODEData.py` | `ODEData(CUDAFactoryConfig)` compile-settings bundle + `SystemSizes` (frozen per-category counts passed to kernels). Holds only ODE-system state — solver-helper request parameters live with the requesting algorithm. |
-| `solver_helpers.py` | Solver-helper request/product containers: `SolverHelperKind` (including the chained composition kinds), frozen `SolverHelperRequest` (kind, beta, gamma, order, canonical stage spec, `chained_kinds` for composed preconditioners), `HelperResult` (device callable + `cached_auxiliary_count`), mutable `SolverHelperCache` (`factories[source_hash]`, `members[member_hash]`). |
+| `solver_helpers.py` | Solver-helper request/product containers and request identity: `SolverHelperKind`, `HELPER_KIND_TRAITS` (the single authority for kind-level traits — stage awareness, chained membership; `STAGE_AWARE_KINDS`/`CHAINED_KINDS` are derived views), frozen `SolverHelperRequest` (kind, beta, gamma, order, canonical stage spec, `chained_kinds` for composed preconditioners), `HelperResult` (device callable + `cached_auxiliary_count`), mutable `SolverHelperCache` (`factories[source_hash]`, `members[member_hash]`). |
 | `SystemValues.py` | `SystemValues` — name↔value mapping with dict/array access, precision coercion, and sympy-key conversion. |
 | `__init__.py` | Re-exports `BaseODE`, `ODECache`, `ODEData`, `SystemSizes`, `SystemValues`, and (from `symbolic/`) `SymbolicODE`, `create_ODE_system`, `load_cellml_model`. |
 
@@ -36,10 +36,10 @@ attrs conventions.
 `dxdt`, `observables`, and `helpers: SolverHelperCache`. There is no sentinel and no
 `NotImplementedError`-as-cache-miss path: unknown helper kinds fail when a
 `SolverHelperRequest` is constructed, and supported kinds always return a typed
-`HelperResult`. An exact repeated request returns the same member object; different
-bindings that share emitted source reuse one generated factory and produce distinct
-members. A true ODE compile-setting change rebuilds the `ODECache` and therefore
-starts a fresh member map.
+`HelperResult`. A true ODE compile-setting change rebuilds the `ODECache` and
+therefore starts a fresh member map. The helper identity/reuse protocol
+(source and member hashes, factory naming, binding) is owned by
+`symbolic/AGENTS.md` and `symbolic/helper_registry.py`.
 
 ### BaseODE.update() — additions over the base contract
 On top of the standard `CUDAFactory` update (non-underscored keys, `KeyError` on unknown unless
@@ -56,9 +56,12 @@ constant items, because constants are captured into CUDA closures and so affect 
 output while `SystemValues`' canonical identity is structural (names + precision) only.
 
 ### get_solver_helper at the base level
-`BaseODE.get_solver_helper(request)` raises `NotImplementedError`: solver helpers are
-generated from symbolic systems, and only `SymbolicODE` overrides it. Cache policy for
-diagnostic services arrives through `set_cache_policy(policy)` (a no-op on the base).
+`BaseODE.get_solver_helper(request, cache_policy=None)` raises
+`NotImplementedError`: solver helpers are generated from symbolic systems, and only
+`SymbolicODE` overrides it. `cache_policy` is per-request service context for
+diagnostics run on the consumer's behalf; a consumer that owns a policy binds it
+once via `solver_helper_getter(policy)` and passes the returned getter around.
+No consumer policy is ever stored on the system.
 
 ### The mass matrix is system-owned
 The mass matrix is part of the system definition, fixed at construction (`mass=` on
@@ -79,12 +82,20 @@ explicit algorithms (at construction and on hot-swap) whenever `system.mass` is 
   materialising `values_array` at `precision`. Reassigning `.precision` later does *not* recast
   existing values — call `update_param_array_and_indices()` again to rebuild.
 - `update_from_dict()` returns the **recognised** keys as `set[str]` (not the unrecognised);
-  `add_entry()`/`remove_entry()` mutate in place and rebuild the index maps.
-- **Snapshot discipline:** never mutate a `SystemValues` instance held by a config
-  snapshot — derive a `copy()` (or `with_precision()`), modify the copy, and pass
-  the copy through the owning factory's update path. Value equality (`__eq__`)
-  exists for change detection at that boundary; identity hashing is retained. The
-  canonical serialization identity (`_cubie_canonical_`) is structural — names and
+  `add_entry()`/`remove_entry()` mutate in place and rebuild the index maps —
+  on unfrozen instances only.
+- **Snapshot freezing is enforced:** `ODEData`'s field converters call
+  `freeze()` on every container a snapshot takes. Structure (names, precision,
+  packed layout) seals on all four; the constants container seals fully
+  because constant values are compile-critical, so
+  `system.constants.update_from_dict(...)` raises — use
+  `set_constants()`/`update()`, which derive a `copy()` (unfrozen) and pass it
+  through the update boundary. Parameter/state/observable *values* stay
+  writable in place: they are runtime data outside configuration identity.
+  Value equality (`__eq__`) exists for change detection at the update
+  boundary; instances are unhashable (`__hash__ = None`) because a mutable
+  value-equal container cannot satisfy the hash contract. The canonical
+  serialization identity (`_cubie_canonical_`) is structural — names and
   precision — because stored values are runtime data (constants fold into
   `config_hash` separately).
 

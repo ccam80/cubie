@@ -532,3 +532,78 @@ def test_get_labels_non_sequence_raises():
     params = SystemValues({"a": 1.0}, np.float32)
     with pytest.raises(TypeError, match="list or numpy array"):
         params.get_labels("a")
+
+
+def test_unhashable():
+    """Mutable value-equal containers reject hashing."""
+    params = SystemValues({"a": 1.0}, np.float32)
+    with pytest.raises(TypeError):
+        hash(params)
+
+
+def test_freeze_full_seals_values_and_structure():
+    """A fully frozen instance rejects every mutation path."""
+    params = SystemValues({"a": 1.0, "b": 2.0}, np.float32)
+    assert params.freeze(values_writable=False) is params
+
+    with pytest.raises(ValueError):
+        params.update_from_dict({"a": 9.0})
+    with pytest.raises(ValueError):
+        params.set_values("a", 9.0)
+    with pytest.raises(ValueError):
+        params["a"] = 9.0
+    with pytest.raises(ValueError):
+        params.add_entry("c", 3.0)
+    with pytest.raises(ValueError):
+        params.remove_entry("a")
+    with pytest.raises(AttributeError):
+        params.precision = np.float64
+    with pytest.raises(ValueError):
+        params.values_array[0] = 9.0
+    with pytest.raises(TypeError):
+        params.values_dict["a"] = 9.0
+
+    assert params.values_dict["a"] == np.float32(1.0)
+    assert params["a"] == np.float32(1.0)
+
+
+def test_freeze_structural_keeps_values_writable():
+    """A structurally frozen instance updates values in place only."""
+    params = SystemValues({"a": 1.0, "b": 2.0}, np.float32)
+    assert params.freeze(values_writable=True) is params
+
+    updated = params.update_from_dict({"a": 9.0})
+    assert updated == {"a"}
+    assert params.values_dict["a"] == np.float32(9.0)
+    assert params.values_array[0] == np.float32(9.0)
+
+    with pytest.raises(ValueError):
+        params.add_entry("c", 3.0)
+    with pytest.raises(ValueError):
+        params.remove_entry("a")
+    with pytest.raises(AttributeError):
+        params.precision = np.float64
+
+
+def test_freeze_tier_conflict_raises():
+    """Refreezing with a different tier is rejected."""
+    params = SystemValues({"a": 1.0}, np.float32)
+    params.freeze(values_writable=True)
+    assert params.freeze(values_writable=True) is params
+    with pytest.raises(ValueError):
+        params.freeze(values_writable=False)
+
+
+def test_frozen_copy_is_unfrozen():
+    """copy() and with_precision() return independent mutable copies."""
+    params = SystemValues({"a": 1.0}, np.float32)
+    params.freeze(values_writable=False)
+
+    derived = params.copy()
+    derived.update_from_dict({"a": 5.0})
+    assert derived.values_dict["a"] == np.float32(5.0)
+    assert params.values_dict["a"] == np.float32(1.0)
+
+    recast = params.with_precision(np.float64)
+    recast.add_entry("b", 2.0)
+    assert "b" not in params.values_dict

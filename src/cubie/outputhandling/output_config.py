@@ -45,6 +45,7 @@ from attrs import (
 from attrs.validators import instance_of as attrsval_instance_of
 from numpy import (
     any as np_any,
+    array as np_array,
     array_equal as np_array_equal,
     asarray as np_asarray,
     int_ as np_int,
@@ -108,10 +109,18 @@ def _output_types_converter(value: Any) -> Tuple[str, ...]:
 
 
 def _index_array_converter(value: Any) -> NDArray[np_int]:
-    """Normalise index specifications to an int array."""
+    """Copy index specifications into a sealed int array.
+
+    The stored array is an owned read-only copy, so the frozen
+    snapshot can neither observe later mutation of the caller's
+    array nor hand out writable storage through its properties, and
+    the memoized ``values_hash`` stays truthful.
+    """
     if value is None:
-        return np_asarray([], dtype=np_int)
-    return np_asarray(value, dtype=np_int)
+        value = []
+    array = np_array(value, dtype=np_int)
+    array.setflags(write=False)
+    return array
 
 
 def _parse_output_types(

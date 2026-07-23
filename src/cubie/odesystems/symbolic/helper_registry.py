@@ -39,7 +39,7 @@ from attrs import field, frozen
 from cubie._serialize import canonical_digest
 from cubie.odesystems.solver_helpers import (
     CHAINED_KINDS,
-    STAGE_AWARE_KINDS,
+    HELPER_KIND_TRAITS,
     SolverHelperKind,
     SolverHelperRequest,
 )
@@ -73,15 +73,19 @@ __all__ = [
 ]
 
 
-def _neumann_validation(system, request: SolverHelperRequest) -> None:
+def _neumann_validation(
+    system, request: SolverHelperRequest, cache_policy=None
+) -> None:
     """Run the Neumann convergence diagnostic for a request.
 
     Runs on every request — including cache hits — so the warning
-    surfaces for reused code as well as freshly generated code.
+    surfaces for reused code as well as freshly generated code. The
+    requesting consumer's cache policy selects that consumer's own
+    evaluator instance on the system.
     """
     check_neumann_convergence(
         system.indices,
-        evaluator=system._get_neumann_evaluator(),
+        evaluator=system._get_neumann_evaluator(cache_policy),
         stage_coefficients=request.stage_coefficients,
         beta=request.beta,
         gamma=request.gamma,
@@ -97,13 +101,15 @@ _NEUMANN_STAGE_KINDS = frozenset(
 )
 
 
-def _chained_validation(system, request: SolverHelperRequest) -> None:
+def _chained_validation(
+    system, request: SolverHelperRequest, cache_policy=None
+) -> None:
     """Run stage diagnostics for a chained-preconditioner request."""
     if any(
         member in _NEUMANN_STAGE_KINDS
         for member in request.chained_kinds
     ):
-        _neumann_validation(system, request)
+        _neumann_validation(system, request, cache_policy)
 
 
 _SCALAR_ARGS = ("constants", "precision", "lineinfo")
@@ -122,10 +128,14 @@ _ORDERED_ARGS = (
 class _RegistryEntry:
     """One concrete helper kind's generation and binding contract.
 
+    Kind-level traits (stage awareness, chained membership) are not
+    repeated here — they live in
+    :data:`~cubie.odesystems.solver_helpers.HELPER_KIND_TRAITS`, the
+    single trait authority; entries hold only what generation and
+    binding need.
+
     Attributes
     ----------
-    kind
-        The helper kind this entry serves.
     generate
         Callable ``(system, request, func_name)`` returning generated
         source, or ``(source, aux_count)`` when ``returns_aux_count``.
@@ -134,20 +144,17 @@ class _RegistryEntry:
         factory accepts. Declared, never introspected.
     uses_mass
         Whether the generator bakes the mass matrix into source.
-    stage_aware
-        Whether the generator consumes the stage specification.
     returns_aux_count
         Whether generation returns ``(source, aux_count)`` and the
         imported factory carries an ``aux_count`` attribute.
     validation_hook
-        Optional diagnostic run on every request of this kind.
+        Optional diagnostic run on every request of this kind, as
+        ``hook(system, request, cache_policy)``.
     """
 
-    kind: SolverHelperKind
     generate: Callable = field(eq=False)
     factory_args: Tuple[str, ...] = _SCALED_ARGS
     uses_mass: bool = False
-    stage_aware: bool = False
     returns_aux_count: bool = False
     validation_hook: Optional[Callable] = field(default=None, eq=False)
 
@@ -313,115 +320,85 @@ def _gen_chained(system, request, func_name):
 
 SOLVER_HELPER_REGISTRY = {
     SolverHelperKind.LINEAR_OPERATOR: _RegistryEntry(
-        kind=SolverHelperKind.LINEAR_OPERATOR,
         generate=_gen_linear_operator,
         uses_mass=True,
     ),
     SolverHelperKind.LINEAR_OPERATOR_CACHED: _RegistryEntry(
-        kind=SolverHelperKind.LINEAR_OPERATOR_CACHED,
         generate=_gen_linear_operator_cached,
         uses_mass=True,
     ),
     SolverHelperKind.NEUMANN_PRECONDITIONER: _RegistryEntry(
-        kind=SolverHelperKind.NEUMANN_PRECONDITIONER,
         generate=_gen_neumann,
         factory_args=_ORDERED_ARGS,
         validation_hook=_neumann_validation,
     ),
     SolverHelperKind.NEUMANN_PRECONDITIONER_CACHED: _RegistryEntry(
-        kind=SolverHelperKind.NEUMANN_PRECONDITIONER_CACHED,
         generate=_gen_neumann_cached,
         factory_args=_ORDERED_ARGS,
         validation_hook=_neumann_validation,
     ),
     SolverHelperKind.JACOBI_PRECONDITIONER: _RegistryEntry(
-        kind=SolverHelperKind.JACOBI_PRECONDITIONER,
         generate=_gen_jacobi,
         factory_args=_ORDERED_ARGS,
         uses_mass=True,
     ),
     SolverHelperKind.JACOBI_PRECONDITIONER_CACHED: _RegistryEntry(
-        kind=SolverHelperKind.JACOBI_PRECONDITIONER_CACHED,
         generate=_gen_jacobi_cached,
         factory_args=_ORDERED_ARGS,
         uses_mass=True,
     ),
     SolverHelperKind.STAGE_RESIDUAL: _RegistryEntry(
-        kind=SolverHelperKind.STAGE_RESIDUAL,
         generate=_gen_stage_residual,
         uses_mass=True,
     ),
     SolverHelperKind.N_STAGE_RESIDUAL: _RegistryEntry(
-        kind=SolverHelperKind.N_STAGE_RESIDUAL,
         generate=_gen_n_stage_residual,
         uses_mass=True,
-        stage_aware=True,
     ),
     SolverHelperKind.N_STAGE_LINEAR_OPERATOR: _RegistryEntry(
-        kind=SolverHelperKind.N_STAGE_LINEAR_OPERATOR,
         generate=_gen_n_stage_linear_operator,
         uses_mass=True,
-        stage_aware=True,
     ),
     SolverHelperKind.N_STAGE_NEUMANN_PRECONDITIONER: _RegistryEntry(
-        kind=SolverHelperKind.N_STAGE_NEUMANN_PRECONDITIONER,
         generate=_gen_n_stage_neumann,
         factory_args=_ORDERED_ARGS,
-        stage_aware=True,
         validation_hook=_neumann_validation,
     ),
     SolverHelperKind.N_STAGE_JACOBI_PRECONDITIONER: _RegistryEntry(
-        kind=SolverHelperKind.N_STAGE_JACOBI_PRECONDITIONER,
         generate=_gen_n_stage_jacobi,
         factory_args=_ORDERED_ARGS,
         uses_mass=True,
-        stage_aware=True,
     ),
     SolverHelperKind.CHAINED_PRECONDITIONER: _RegistryEntry(
-        kind=SolverHelperKind.CHAINED_PRECONDITIONER,
         generate=_gen_chained,
         factory_args=_ORDERED_ARGS,
         validation_hook=_chained_validation,
     ),
     SolverHelperKind.CHAINED_PRECONDITIONER_CACHED: _RegistryEntry(
-        kind=SolverHelperKind.CHAINED_PRECONDITIONER_CACHED,
         generate=_gen_chained,
         factory_args=_ORDERED_ARGS,
         validation_hook=_chained_validation,
     ),
     SolverHelperKind.N_STAGE_CHAINED_PRECONDITIONER: _RegistryEntry(
-        kind=SolverHelperKind.N_STAGE_CHAINED_PRECONDITIONER,
         generate=_gen_chained,
         factory_args=_ORDERED_ARGS,
-        stage_aware=True,
         validation_hook=_chained_validation,
     ),
     SolverHelperKind.PREPARE_JAC: _RegistryEntry(
-        kind=SolverHelperKind.PREPARE_JAC,
         generate=_gen_prepare_jac,
         factory_args=_SCALAR_ARGS,
         returns_aux_count=True,
     ),
     SolverHelperKind.CALCULATE_CACHED_JVP: _RegistryEntry(
-        kind=SolverHelperKind.CALCULATE_CACHED_JVP,
         generate=_gen_cached_jvp,
         factory_args=_SCALAR_ARGS,
     ),
     SolverHelperKind.TIME_DERIVATIVE_RHS: _RegistryEntry(
-        kind=SolverHelperKind.TIME_DERIVATIVE_RHS,
         generate=_gen_time_derivative,
         factory_args=_SCALAR_ARGS,
     ),
 }
 """Registry mapping each concrete kind to its generation contract."""
-
-# The request container gates stage data by kind; the registry's
-# per-entry flags must agree with it.
-assert {
-    entry.kind
-    for entry in SOLVER_HELPER_REGISTRY.values()
-    if entry.stage_aware
-} == STAGE_AWARE_KINDS
 
 
 def helper_source_hash(system, request: SolverHelperRequest) -> str:
@@ -436,6 +413,7 @@ def helper_source_hash(system, request: SolverHelperRequest) -> str:
     constants, precision, lineinfo) are deliberately absent.
     """
     entry = SOLVER_HELPER_REGISTRY[request.kind]
+    traits = HELPER_KIND_TRAITS[request.kind]
     uses_mass = entry.uses_mass
     if request.kind in CHAINED_KINDS:
         uses_mass = any(
@@ -449,7 +427,7 @@ def helper_source_hash(system, request: SolverHelperRequest) -> str:
             request.kind.value,
             system.fn_hash,
             mass,
-            request.stage_identity if entry.stage_aware else None,
+            request.stage_identity if traits.stage_aware else None,
             request.chain_identity,
         )
     )

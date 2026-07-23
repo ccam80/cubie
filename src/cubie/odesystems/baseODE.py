@@ -35,6 +35,7 @@ See Also
 """
 
 from abc import abstractmethod
+from functools import partial
 from typing import Any, Callable, Dict, Optional, Set
 
 from attrs import define, field
@@ -412,18 +413,35 @@ class BaseODE(CUDAFactory):
             )
         )
 
-    def set_cache_policy(self, policy: Any) -> None:
-        """Accept a cache policy for owned diagnostic services.
+    def solver_helper_getter(
+        self, cache_policy: Optional[Any] = None
+    ) -> Callable:
+        """Bind a consumer's cache policy as helper-request context.
 
-        The abstract base owns no diagnostic kernels, so the policy is
-        ignored. Subclasses that compile diagnostic kernels forward it
-        to their owned services. Cache policy never enters compile
-        settings or configuration identity.
+        Parameters
+        ----------
+        cache_policy
+            The consumer's cache policy, forwarded with every
+            request made through the returned callable. Service
+            context only — it never enters any identity.
+
+        Returns
+        -------
+        Callable
+            A callable with the :meth:`get_solver_helper` contract.
+
+        Notes
+        -----
+        Consumers that own a cache policy (e.g. a batch solver
+        kernel) each hold one getter, so no policy state is ever
+        written onto a shared system.
         """
+        return partial(self.get_solver_helper, cache_policy=cache_policy)
 
     def get_solver_helper(
         self,
         request: SolverHelperRequest,
+        cache_policy: Optional[Any] = None,
     ) -> HelperResult:
         """Return the bound helper member for ``request``.
 
@@ -435,6 +453,9 @@ class BaseODE(CUDAFactory):
         ----------
         request
             Immutable description of the requested helper.
+        cache_policy
+            The requesting consumer's cache policy, forwarded to
+            diagnostic services run on its behalf. Ignored here.
 
         Returns
         -------

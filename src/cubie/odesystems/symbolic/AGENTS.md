@@ -51,7 +51,9 @@ requests never touch the ODE's configuration, so request order affects no identi
 Each concrete kind resolves through `helper_registry.SOLVER_HELPER_REGISTRY` and
 produces two identities: `helper_source_hash` (kind + `fn_hash` + mass for
 mass-consuming generators + canonical stage spec for stage-aware ones) names the
-generated factory `<kind>_s<hash-prefix>` in the `ODEFile`, and
+generated factory `<kind>_s<full source hash>` in the `ODEFile` — the complete
+digest appears in the identifier, so the name *is* the identity and a cached
+factory can never be remapped onto a colliding prefix — and
 `helper_member_hash` (source hash + the normalized binding arguments the entry
 declares: constants, precision, beta, gamma, order, lineinfo as applicable) keys
 the bound member in `ODECache.helpers`. Repeated requests return the same
@@ -62,11 +64,18 @@ implicit algorithm layer: it resolves `preconditioner_type` into concrete kinds 
 for a two-element type, issues one chained-kind request whose `chained_kinds` carry
 the composed stages — the registry fuses them into a single generated source whose
 `source_hash` folds the stage-kind sequence (and the mass matrix when a composed
-stage consumes it). The Neumann
-convergence diagnostic runs as a registry validation hook on every neumann-kind
-request — chained requests with a neumann stage included — and on cache hits. `prepare_jac`'s auxiliary count travels on its
-`HelperResult.cached_auxiliary_count`. Mass-consuming helpers read the system's own
-`compile_settings.mass` — callers never pass a matrix.
+stage consumes it). Kind-level traits (stage awareness, chained membership)
+live once in `odesystems/solver_helpers.py` (`HELPER_KIND_TRAITS`); registry
+entries hold only generation/binding contracts and derive traits from there.
+The Neumann convergence diagnostic runs as a registry validation hook on every
+neumann-kind request — chained requests with a neumann stage included — and on
+cache hits; the hook receives the requesting consumer's `cache_policy`
+(threaded through `get_solver_helper(request, cache_policy=...)`) and resolves
+that consumer's own evaluator: `SymbolicODE` keys one `NeumannRHSEvaluator`
+per policy, created on demand, so kernels sharing a system never share or
+overwrite diagnostic cache configuration. `prepare_jac`'s auxiliary count
+travels on its `HelperResult.cached_auxiliary_count`. Mass-consuming helpers
+read the system's own `compile_settings.mass` — callers never pass a matrix.
 
 ### build() and system identity
 `build()` compiles `dxdt`+`observables` into the `ODECache`, first recomputing the system hash —
@@ -86,9 +95,10 @@ pass both copies through `update_compile_settings` — the structural change is 
 a change and invalidates the build. Keep the index map and the containers in sync.
 `SymbolicODE` overrides `set_constants()` to update the index map
 (`self.indices.update_constants(...)`) before delegating to `BaseODE.set_constants`, and
-`update()` to forward updates to the owned Neumann diagnostic evaluator (a diagnostic
-service excluded from child-factory discovery; its cache policy arrives through
-`set_cache_policy`).
+`update()` to forward updates to every existing Neumann diagnostic evaluator
+(diagnostic services held in a per-policy dict, invisible to child-factory
+discovery; each consumer's cache policy arrives as request context through
+`get_solver_helper`).
 
 ### Codegen cache gotchas (`ODEFile`)
 - `function_is_cached` parses the generated file textually: it needs a top-level `def <name>(`

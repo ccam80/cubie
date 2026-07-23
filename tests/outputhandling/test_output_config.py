@@ -210,6 +210,48 @@ def test_max_states_assignment_raises():
         cfg.max_states = 5
 
 
+def test_index_arrays_are_sealed_owned_copies():
+    """Snapshots are deeply sealed, not just top-level frozen.
+
+    A dtype-matching input array is copied, not aliased; the index
+    properties return read-only storage; and the memoized
+    ``values_hash`` therefore cannot be desynchronised by mutating
+    either the constructor input or a returned property.
+    """
+    caller_indices = np.array([0, 1], dtype=np.int_)
+    cfg = OutputConfig(
+        max_states=3, max_observables=2,
+        saved_state_indices=caller_indices,
+        output_types=["state"], precision=np.float32,
+    )
+    digest = cfg.values_hash
+
+    # Mutating the caller's own array never reaches the snapshot.
+    caller_indices[0] = 2
+    assert_array_equal(
+        cfg.saved_state_indices, np.array([0, 1], dtype=np.int_)
+    )
+
+    # The returned property is read-only storage.
+    with pytest.raises(ValueError):
+        cfg.saved_state_indices[0] = 2
+
+    # The memoized digest still matches an equal fresh snapshot.
+    assert cfg.values_hash == digest
+    fresh = OutputConfig(
+        max_states=3, max_observables=2,
+        saved_state_indices=np.array([0, 1], dtype=np.int_),
+        output_types=["state"], precision=np.float32,
+    )
+    assert fresh.values_hash == digest
+    different = OutputConfig(
+        max_states=3, max_observables=2,
+        saved_state_indices=np.array([2, 1], dtype=np.int_),
+        output_types=["state"], precision=np.float32,
+    )
+    assert different.values_hash != digest
+
+
 def test_max_observables_getter():
     """Getter returns _max_observables."""
     cfg = OutputConfig(

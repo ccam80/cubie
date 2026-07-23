@@ -598,9 +598,6 @@ def test_batch_solver_kernel_update_forwards_cache_params(
         solverkernel_mutable.cache_handler.policy.cache_mode
         == "flush_on_change"
     )
-    # The shared system's diagnostic received the flush-mode policy;
-    # hand it back a default so no state leaks past this test.
-    solverkernel_mutable.system.set_cache_policy(CachePolicy())
 
 
 # --- Integration tests for complete cache flow ---
@@ -649,7 +646,6 @@ def test_solver_kernel_update_cache_mode(
         solverkernel_mutable.cache_handler.policy.cache_mode
         == "flush_on_change"
     )
-    solverkernel_mutable.system.set_cache_policy(CachePolicy())
 
 
 def test_cache_policy_change_leaves_identity_unchanged(
@@ -659,10 +655,10 @@ def test_cache_policy_change_leaves_identity_unchanged(
 
     Every cache parameter changes together, yet the kernel's and the
     system's config_hash and the object build cache stay untouched,
-    and the replacement policy reaches the system's diagnostic
-    services through set_cache_policy. Runs under an isolated cache
-    root so the flush-on-change switch can never target the CI
-    artifact directory.
+    and the replacement policy is rebound onto this kernel's own
+    helper getter — never written onto the shared system. Runs under
+    an isolated cache root so the flush-on-change switch can never
+    target the CI artifact directory.
     """
     kernel = solverkernel_mutable
     hash_before = kernel.config_hash
@@ -684,10 +680,9 @@ def test_cache_policy_change_leaves_identity_unchanged(
     assert policy.cache_mode == "flush_on_change"
     assert policy.max_cache_entries == 7
     assert policy.cache_dir == tmp_path
-    # The same policy object reaches the system's diagnostic service.
-    diagnostic = kernel.system._neumann_diagnostic
-    assert diagnostic.cache_policy is policy
-    kernel.system.set_cache_policy(CachePolicy())
+    # The replacement policy is bound into this kernel's own helper
+    # getter as request context, not stored on the shared system.
+    assert kernel._solver_helper_fn.keywords["cache_policy"] is policy
 
 
 # --- CUBIECache.enforce_cache_limit eviction-failure tests ---

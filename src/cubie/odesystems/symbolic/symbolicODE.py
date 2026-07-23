@@ -238,11 +238,11 @@ class SymbolicODE(BaseODE):
         Identifier used for generated modules.
     """
 
-    # The Neumann convergence evaluator is a diagnostic service: it
-    # launches the compiled dxdt for a convergence check but never
-    # shapes generated code, so it is excluded from child-factory
-    # discovery and contributes nothing to config_hash.
-    _excluded_child_factories = frozenset({"_neumann_diagnostic"})
+    # The Neumann convergence evaluators are diagnostic services:
+    # they launch the compiled dxdt for a convergence check but never
+    # shape generated code. They live in a per-policy dict, which
+    # child-factory discovery does not enter, so they contribute
+    # nothing to config_hash.
 
     def __init__(
         self,
@@ -315,14 +315,12 @@ class SymbolicODE(BaseODE):
         system_name = name
         if system_name == fn_hash:
             system_name = f"unnamed_{fn_hash[:8]}"
-        # Excluded from child-factory discovery (see
-        # _excluded_child_factories): the diagnostic kernel never
-        # shapes generated code, so its configuration must stay out
-        # of the system's config_hash.
-        self._neumann_diagnostic = NeumannRHSEvaluator(
-            precision=precision,
-            system_name=system_name,
-        )
+        # One diagnostic evaluator exists per cache policy, created
+        # on demand: cache policy is consumer-owned service
+        # configuration, so kernels sharing this system never
+        # overwrite each other's diagnostic cache settings.
+        self._diagnostic_system_name = system_name
+        self._neumann_diagnostics = {}
 
     @classmethod
     def create(
@@ -541,9 +539,10 @@ class SymbolicODE(BaseODE):
         """Update system settings, forwarding to diagnostic factories.
 
         Updates are offered to the system's own settings and to the
-        convergence evaluator's compile settings. Cache policy does
-        not travel this route — it arrives through
-        :meth:`set_cache_policy`.
+        compile settings of every existing convergence evaluator.
+        Cache policy does not travel this route — each consumer
+        passes its policy as request context through
+        :meth:`get_solver_helper`.
 
         Parameters
         ----------
@@ -568,9 +567,10 @@ class SymbolicODE(BaseODE):
             return set()
 
         recognised = super().update(updates, silent=True)
-        recognised |= self._neumann_diagnostic.update_compile_settings(
-            updates, silent=True
-        )
+        for evaluator in self._neumann_diagnostics.values():
+            recognised |= evaluator.update_compile_settings(
+                updates, silent=True
+            )
 
         if not silent:
             unrecognised = set(updates.keys()) - recognised
@@ -581,16 +581,15 @@ class SymbolicODE(BaseODE):
                 )
         return recognised
 
-    def set_cache_policy(self, policy: CachePolicy) -> None:
-        """Forward a cache policy to the system's diagnostic services.
+    def _get_neumann_evaluator(
+        self, cache_policy: Optional[CachePolicy] = None
+    ) -> NeumannRHSEvaluator:
+        """Return the convergence evaluator for a consumer's policy.
 
-        Cache policy is service configuration: it never enters the
-        system's compile settings or configuration identity.
-        """
-        self._neumann_diagnostic.set_cache_policy(policy)
-
-    def _get_neumann_evaluator(self) -> NeumannRHSEvaluator:
-        """Return the convergence evaluator, refreshed for current code.
+        One evaluator exists per cache policy, created on demand, so
+        consumers with different policies (kernels sharing this
+        system) hold independent diagnostic services and never
+        overwrite each other's cache configuration.
 
         The evaluator launches the compiled ``dxdt`` device function
         on the device, so the diagnostic reflects the production code
@@ -600,8 +599,23 @@ class SymbolicODE(BaseODE):
         settings shaping it change. ``settings_and_constants_hash``
         stands in for ``config_hash``, which would self-reference if
         the evaluator's configuration fed back into it.
+
+        Parameters
+        ----------
+        cache_policy
+            Service configuration of the requesting consumer.
+            ``None`` selects the default-policy evaluator.
         """
-        evaluator = self._neumann_diagnostic
+        if cache_policy is None:
+            cache_policy = CachePolicy()
+        evaluator = self._neumann_diagnostics.get(cache_policy)
+        if evaluator is None:
+            evaluator = NeumannRHSEvaluator(
+                precision=self.precision,
+                system_name=self._diagnostic_system_name,
+                cache_policy=cache_policy,
+            )
+            self._neumann_diagnostics[cache_policy] = evaluator
         evaluator.update_compile_settings(
             {
                 "dxdt_function": self.evaluate_f,
@@ -948,6 +962,7 @@ class SymbolicODE(BaseODE):
     def get_solver_helper(
         self,
         request: SolverHelperRequest,
+        cache_policy: Optional[CachePolicy] = None,
     ) -> HelperResult:
         """Return the bound helper member for ``request``.
 
@@ -958,6 +973,10 @@ class SymbolicODE(BaseODE):
             preconditioner types are not requestable here: the
             implicit algorithm layer resolves ``preconditioner_type``
             into concrete kinds and owns any chain composition.
+        cache_policy
+            The requesting consumer's cache policy, passed through
+            to diagnostic services run on its behalf. Service
+            context only — it never enters any identity.
 
         Returns
         -------
@@ -993,12 +1012,15 @@ class SymbolicODE(BaseODE):
         # Validation hooks (the Neumann convergence diagnostic) run on
         # every request so warnings surface for reused code too.
         if entry.validation_hook is not None:
-            entry.validation_hook(self, request)
+            entry.validation_hook(self, request, cache_policy)
 
         helpers = self.get_cached_output("helpers")
 
+        # The complete digest is the identity, so it appears in full
+        # in the generated identifier: a truncated prefix could remap
+        # a cached factory onto a colliding source hash.
         source_hash = helper_source_hash(self, request)
-        factory_name = f"{kind_name}_s{source_hash[:8]}"
+        factory_name = f"{kind_name}_s{source_hash}"
 
         aux_count = None
         factory = helpers.factories.get(source_hash)

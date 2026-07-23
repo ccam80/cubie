@@ -106,22 +106,27 @@ class NeumannRHSEvaluator(CUDAFactory):
     ``dxdt_settings_hash`` before each use, so the kernel rebuilds
     through the standard compile-settings invalidation whenever the
     system's device code changes. Cache policy is service
-    configuration injected by the owner through
-    :meth:`set_cache_policy`; the build attaches a configured disk
-    cache when the policy enables caching.
+    configuration fixed at construction: the owning system keys one
+    evaluator per policy, so consumers with different policies never
+    share or overwrite each other's evaluator state. The build
+    attaches a configured disk cache when the policy enables
+    caching.
     """
 
     def __init__(
         self,
         precision: PrecisionDType,
         system_name: str = "",
+        cache_policy: Optional[CachePolicy] = None,
     ) -> None:
         super().__init__()
+        if cache_policy is None:
+            cache_policy = CachePolicy()
         # The handler must exist before setup_compile_settings, which
         # invalidates the build and reaches the handler through
         # _invalidate_cache.
         self._cache_handler = CubieCacheHandler(
-            CachePolicy(), system_name=system_name
+            cache_policy, system_name=system_name
         )
         self.setup_compile_settings(
             NeumannEvaluatorConfig(precision=precision)
@@ -131,15 +136,6 @@ class NeumannRHSEvaluator(CUDAFactory):
     def cache_policy(self) -> CachePolicy:
         """Return the cache policy this evaluator's kernel follows."""
         return self._cache_handler.policy
-
-    def set_cache_policy(self, policy: CachePolicy) -> None:
-        """Install a replacement cache policy.
-
-        A changed policy invalidates the built kernel so a freshly
-        configured disk cache attaches on the next build.
-        """
-        if self._cache_handler.update_policy(policy):
-            self._invalidate_cache()
 
     def build(self) -> NeumannEvaluatorCache:
         """Compile the evaluation kernel for the configured ``dxdt``."""

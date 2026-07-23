@@ -394,7 +394,7 @@ class TestCacheSkipsCodegen:
         # Verify function is marked as cached in file under its
         # source-suffixed name.
         source_hash = helper_source_hash(ode, request)
-        factory_name = f"linear_operator_s{source_hash[:8]}"
+        factory_name = f"linear_operator_s{source_hash}"
         assert ode.gen_file.function_is_cached(factory_name)
 
         # Create a new ODE instance with the same definition and name
@@ -539,7 +539,7 @@ class TestCacheSkipsCodegen:
         source = ode.gen_file.file_path.read_text()
         for request in requests:
             source_hash = helper_source_hash(ode, request)
-            assert f"n_stage_residual_s{source_hash[:8]}(" in source
+            assert f"n_stage_residual_s{source_hash}(" in source
 
 
 class TestConstantParameterConversion:
@@ -699,6 +699,42 @@ class TestValueSetters:
 
         ode.set_constant_value("c", 1.0)
         assert ode.constants["c"] == 1.0
+
+    def test_constants_getter_is_sealed_against_bypass(self, precision):
+        """In-place mutation through the public getter raises.
+
+        The constants container held by the settings snapshot is
+        fully sealed, so the ``update_compile_settings`` bypass that
+        would leave the build cache valid with stale closure values
+        cannot happen; ``set_constants`` remains the write path and
+        changes ``config_hash``.
+        """
+        ode = SymbolicODE.create(
+            dxdt=["dx = -k * x + c"],
+            precision=precision,
+            states={"x": 1.0},
+            parameters={"k": 0.1},
+            constants={"c": 0.5},
+            name="test_sealed_constants",
+        )
+        ode.build()
+        hash_before = ode.config_hash
+
+        with pytest.raises(ValueError):
+            ode.constants.update_from_dict({"c": 2.0})
+        with pytest.raises(ValueError):
+            ode.constants["c"] = 2.0
+        with pytest.raises(ValueError):
+            ode.constants.values_array[0] = 2.0
+        with pytest.raises(TypeError):
+            ode.constants.values_dict["c"] = 2.0
+
+        assert ode.constants["c"] == precision(0.5)
+        assert ode.config_hash == hash_before
+
+        ode.set_constants({"c": 2.0})
+        assert ode.constants["c"] == precision(2.0)
+        assert ode.config_hash != hash_before
 
     def test_set_initial_value(self, precision):
         """Verify set_initial_value updates state correctly."""

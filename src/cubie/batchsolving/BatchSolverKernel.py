@@ -329,11 +329,12 @@ class BatchSolverKernel(CUDAFactory):
         self.cache_handler = CubieCacheHandler(
             cache_policy, system_name=system_name
         )
-        # The solver's cache policy flows to the system as a service
-        # setting so factories it owns (the Neumann convergence
-        # evaluator) apply the same policy to the kernels they
-        # compile. Policy never enters compile-settings identity.
-        system.set_cache_policy(cache_policy)
+        # The kernel owns its cache policy. Diagnostics the system
+        # runs on this kernel's behalf receive it as request context
+        # through this kernel's helper getter, so kernels sharing a
+        # system never overwrite each other's service configuration.
+        # Policy never enters compile-settings identity.
+        self._solver_helper_fn = system.solver_helper_getter(cache_policy)
 
         # Build the single integrator to derive compile-critical metadata
         self.single_integrator = SingleIntegratorRun(
@@ -344,6 +345,7 @@ class BatchSolverKernel(CUDAFactory):
             step_control_settings=step_control_settings,
             algorithm_settings=algorithm_settings,
             output_settings=output_settings,
+            solver_helper_fn=self._solver_helper_fn,
         )
         # An explicit lineinfo argument must reach every child factory;
         # None leaves the CUBIE_LINEINFO-derived config defaults in place.
@@ -1068,17 +1070,23 @@ class BatchSolverKernel(CUDAFactory):
         all_unrecognized = set(updates_dict.keys())
 
         # Cache parameters are policy, not compile settings: route
-        # them to the handler and forward the replacement policy to
-        # the system's diagnostic services. A changed policy
-        # invalidates the build so a freshly configured cache attaches
-        # to the rebuilt dispatcher.
+        # them to the handler and rebind this kernel's helper getter
+        # to the replacement policy. A changed policy invalidates the
+        # build so a freshly configured cache attaches to the rebuilt
+        # dispatcher. No policy state is written onto the (possibly
+        # shared) system.
         cache_keys = set(updates_dict.keys()) & ALL_CACHE_PARAMETERS
         if cache_keys:
             policy_changed = self.cache_handler.update_policy_params(
                 {key: updates_dict.pop(key) for key in cache_keys}
             )
-            self.system.set_cache_policy(self.cache_handler.policy)
             if policy_changed:
+                self._solver_helper_fn = self.system.solver_helper_getter(
+                    self.cache_handler.policy
+                )
+                self.single_integrator.set_solver_helper_fn(
+                    self._solver_helper_fn
+                )
                 self._invalidate_cache()
             all_unrecognized -= cache_keys
 

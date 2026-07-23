@@ -101,9 +101,14 @@ warp-coherent loops, …) live in `writing_cuda_functions.md`.
   (derived callables) compare by identity, arrays elementwise, everything else by
   inequality. Hashing and invalidation are different predicates: `values_hash`
   covers only semantic (eq-participating) fields, but a replaced `eq=False`
-  callable still rebuilds the consumer. Compile-settings snapshots are frozen —
-  direct assignment raises, and nested containers follow copy-and-replace
-  discipline (derive a copy, modify it, pass the copy through the boundary).
+  callable still rebuilds the consumer. Compile-settings snapshots are deeply
+  sealed, not just top-level frozen: direct assignment raises, array-valued
+  fields are stored by their converters as owned read-only copies (never
+  aliases of caller arrays), and `SystemValues` containers freeze in place at
+  the snapshot boundary — structure always; values too for constants, whose
+  values are compile-critical. In-place mutation of a held value raises, which
+  is what makes memoizing `values_hash` sound. Updates derive a copy
+  (`copy()`), modify the copy, and pass it through the boundary.
   A subclass `update` documents **only its additions** over this contract.
 - **`config_hash` recurses into child `CUDAFactory` attributes** (direct attributes
   only, discovered alphabetically), so a composite factory invalidates when any

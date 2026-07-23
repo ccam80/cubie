@@ -10,13 +10,26 @@ its identity depending on request order.
 
 The generation side (source emitters and their binding contracts)
 lives in :mod:`cubie.odesystems.symbolic.helper_registry`; this module
-holds only the request/product containers so the abstract ODE base can
-reference them without importing the symbolic pipeline.
+holds the request/product containers and the request *identity* they
+carry, so the abstract ODE base can reference them without importing
+the symbolic pipeline. Because canonical stage identity is part of a
+request from construction, the SymPy-based canonical text form of
+stage entries is owned here (SymPy is a core dependency; the boundary
+this module keeps is the symbolic codegen pipeline, not SymPy).
+
+:data:`HELPER_KIND_TRAITS` is the single authority for kind-level
+traits (stage awareness, chained-composition membership). Request
+validation, source-identity hashing, and the symbolic registry all
+derive from it; :data:`STAGE_AWARE_KINDS` and :data:`CHAINED_KINDS`
+are derived views.
 
 Published Classes
 -----------------
 :class:`SolverHelperKind`
     Enumeration of concrete generated-helper kinds.
+:class:`HelperKindTraits`
+    Kind-level trait record; one entry per kind in
+    :data:`HELPER_KIND_TRAITS`.
 :class:`SolverHelperRequest`
     Frozen description of one helper lookup.
 :class:`HelperResult`
@@ -34,6 +47,8 @@ from attrs import Factory, define, field, frozen
 
 __all__ = [
     "SolverHelperKind",
+    "HelperKindTraits",
+    "HELPER_KIND_TRAITS",
     "STAGE_AWARE_KINDS",
     "CHAINED_KINDS",
     "SolverHelperRequest",
@@ -70,49 +85,103 @@ class SolverHelperKind(Enum):
     TIME_DERIVATIVE_RHS = "time_derivative_rhs"
 
 
-STAGE_AWARE_KINDS = frozenset(
-    (
-        SolverHelperKind.N_STAGE_RESIDUAL,
-        SolverHelperKind.N_STAGE_LINEAR_OPERATOR,
-        SolverHelperKind.N_STAGE_NEUMANN_PRECONDITIONER,
-        SolverHelperKind.N_STAGE_JACOBI_PRECONDITIONER,
-        SolverHelperKind.N_STAGE_CHAINED_PRECONDITIONER,
+@frozen
+class HelperKindTraits:
+    """Kind-level traits of one generated-helper kind.
+
+    Attributes
+    ----------
+    stage_aware
+        Whether the kind's emitted source depends on the stage
+        specification.
+    chained_members
+        Concrete stage kinds a chained kind may compose, or ``None``
+        for non-chained kinds.
+    """
+
+    stage_aware: bool = False
+    chained_members: Optional[frozenset] = None
+
+    @property
+    def chained(self) -> bool:
+        """Whether this kind composes two concrete preconditioners."""
+        return self.chained_members is not None
+
+
+HELPER_KIND_TRAITS = {
+    SolverHelperKind.LINEAR_OPERATOR: HelperKindTraits(),
+    SolverHelperKind.LINEAR_OPERATOR_CACHED: HelperKindTraits(),
+    SolverHelperKind.NEUMANN_PRECONDITIONER: HelperKindTraits(),
+    SolverHelperKind.NEUMANN_PRECONDITIONER_CACHED: HelperKindTraits(),
+    SolverHelperKind.JACOBI_PRECONDITIONER: HelperKindTraits(),
+    SolverHelperKind.JACOBI_PRECONDITIONER_CACHED: HelperKindTraits(),
+    SolverHelperKind.CHAINED_PRECONDITIONER: HelperKindTraits(
+        chained_members=frozenset(
+            (
+                SolverHelperKind.NEUMANN_PRECONDITIONER,
+                SolverHelperKind.JACOBI_PRECONDITIONER,
+            )
+        ),
+    ),
+    SolverHelperKind.CHAINED_PRECONDITIONER_CACHED: HelperKindTraits(
+        chained_members=frozenset(
+            (
+                SolverHelperKind.NEUMANN_PRECONDITIONER_CACHED,
+                SolverHelperKind.JACOBI_PRECONDITIONER_CACHED,
+            )
+        ),
+    ),
+    SolverHelperKind.STAGE_RESIDUAL: HelperKindTraits(),
+    SolverHelperKind.N_STAGE_RESIDUAL: HelperKindTraits(
+        stage_aware=True,
+    ),
+    SolverHelperKind.N_STAGE_LINEAR_OPERATOR: HelperKindTraits(
+        stage_aware=True,
+    ),
+    SolverHelperKind.N_STAGE_NEUMANN_PRECONDITIONER: HelperKindTraits(
+        stage_aware=True,
+    ),
+    SolverHelperKind.N_STAGE_JACOBI_PRECONDITIONER: HelperKindTraits(
+        stage_aware=True,
+    ),
+    SolverHelperKind.N_STAGE_CHAINED_PRECONDITIONER: HelperKindTraits(
+        stage_aware=True,
+        chained_members=frozenset(
+            (
+                SolverHelperKind.N_STAGE_NEUMANN_PRECONDITIONER,
+                SolverHelperKind.N_STAGE_JACOBI_PRECONDITIONER,
+            )
+        ),
+    ),
+    SolverHelperKind.PREPARE_JAC: HelperKindTraits(),
+    SolverHelperKind.CALCULATE_CACHED_JVP: HelperKindTraits(),
+    SolverHelperKind.TIME_DERIVATIVE_RHS: HelperKindTraits(),
+}
+"""Single authority for kind-level traits, one entry per kind."""
+
+_untraited = [
+    kind for kind in SolverHelperKind if kind not in HELPER_KIND_TRAITS
+]
+if _untraited:
+    raise RuntimeError(
+        f"SolverHelperKind members missing traits: {_untraited}"
     )
+
+
+STAGE_AWARE_KINDS = frozenset(
+    kind
+    for kind, traits in HELPER_KIND_TRAITS.items()
+    if traits.stage_aware
 )
 """Kinds whose emitted source depends on the stage specification."""
 
 
 CHAINED_KINDS = frozenset(
-    (
-        SolverHelperKind.CHAINED_PRECONDITIONER,
-        SolverHelperKind.CHAINED_PRECONDITIONER_CACHED,
-        SolverHelperKind.N_STAGE_CHAINED_PRECONDITIONER,
-    )
+    kind
+    for kind, traits in HELPER_KIND_TRAITS.items()
+    if traits.chained
 )
 """Kinds whose emitted source composes two concrete preconditioners."""
-
-
-_CHAINED_MEMBER_KINDS = {
-    SolverHelperKind.CHAINED_PRECONDITIONER: frozenset(
-        (
-            SolverHelperKind.NEUMANN_PRECONDITIONER,
-            SolverHelperKind.JACOBI_PRECONDITIONER,
-        )
-    ),
-    SolverHelperKind.CHAINED_PRECONDITIONER_CACHED: frozenset(
-        (
-            SolverHelperKind.NEUMANN_PRECONDITIONER_CACHED,
-            SolverHelperKind.JACOBI_PRECONDITIONER_CACHED,
-        )
-    ),
-    SolverHelperKind.N_STAGE_CHAINED_PRECONDITIONER: frozenset(
-        (
-            SolverHelperKind.N_STAGE_NEUMANN_PRECONDITIONER,
-            SolverHelperKind.N_STAGE_JACOBI_PRECONDITIONER,
-        )
-    ),
-}
-"""Concrete stage kinds each chained kind may compose."""
 
 
 def _kind_converter(value: Any) -> SolverHelperKind:
@@ -204,8 +273,9 @@ class SolverHelperRequest:
     )
 
     def __attrs_post_init__(self):
-        if self.kind in CHAINED_KINDS:
-            allowed = _CHAINED_MEMBER_KINDS[self.kind]
+        traits = HELPER_KIND_TRAITS[self.kind]
+        if traits.chained:
+            allowed = traits.chained_members
             if (
                 self.chained_kinds is None
                 or len(self.chained_kinds) != 2
@@ -224,7 +294,7 @@ class SolverHelperRequest:
                 f"Helper kind '{self.kind.value}' does not compose "
                 "chained preconditioner stages."
             )
-        if self.kind in STAGE_AWARE_KINDS:
+        if traits.stage_aware:
             if self.stage_coefficients is None or self.stage_nodes is None:
                 raise ValueError(
                     f"Helper kind '{self.kind.value}' requires stage "
