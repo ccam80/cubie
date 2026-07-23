@@ -11,8 +11,35 @@ from cubie.integrators.algorithms.generic_dirk_tableaus import (
     DIRKTableau,
     KVAERNO3_TABLEAU,
     KVAERNO5_TABLEAU,
+    L_STABLE_DIRK3_TABLEAU,
     L_STABLE_SDIRK4_TABLEAU,
 )
+
+
+def _consistent_dummy(nodes):
+    """Build a DIRK tableau whose only meaningful content is ``c``.
+
+    ``prediction_source_stages`` reads the node vector alone, but the
+    constructor now enforces ``c[i] == sum(a[i])``. Placing each node
+    on its own diagonal entry satisfies that relation while leaving the
+    stage-node structure under test untouched; the weights merely sum
+    to one so the tableau validates.
+    """
+
+    stage_count = len(nodes)
+    a = tuple(
+        tuple(
+            nodes[row] if column == row else 0.0
+            for column in range(stage_count)
+        )
+        for row in range(stage_count)
+    )
+    return DIRKTableau(
+        a=a,
+        b=(1.0 / stage_count,) * stage_count,
+        c=nodes,
+        order=1,
+    )
 
 
 @pytest.mark.parametrize(
@@ -63,13 +90,13 @@ def test_first_stage_is_explicit_classifies_by_diagonal():
 
 
 @pytest.mark.parametrize(
-    "nodes,expected",
+    "tableau,expected",
     [
-        ((0.0, 0.5, 1.0), (0, 1, 2)),
-        ((0.0, 0.87, 1.0, 1.0), (0, 1, 2, 2)),
-        ((0.0, 0.5, 1.0, 0.5), (0, 1, 2, 1)),
-        ((0.0, 0.5, 0.0), (0, 1, 0)),
-        ((0.5, 0.5, 0.5), (0, 0, 1)),
+        (L_STABLE_DIRK3_TABLEAU, (0, 1, 2)),
+        (KVAERNO3_TABLEAU, (0, 1, 2, 2)),
+        (_consistent_dummy((0.0, 0.5, 1.0, 0.5)), (0, 1, 2, 1)),
+        (_consistent_dummy((0.0, 0.5, 0.0)), (0, 1, 0)),
+        (_consistent_dummy((0.5, 0.5, 0.5)), (0, 0, 1)),
     ],
     ids=[
         "distinct-nodes",
@@ -79,23 +106,17 @@ def test_first_stage_is_explicit_classifies_by_diagonal():
         "triple-repeat",
     ],
 )
-def test_prediction_source_stages_mappings(nodes, expected):
+def test_prediction_source_stages_mappings(tableau, expected):
     """Each stage's starting guess reads the latest earlier stage at
-    its time, or its own row when its time is new."""
+    its time, or its own row when its time is new.
 
-    stage_count = len(nodes)
-    tableau = DIRKTableau(
-        a=tuple(
-            tuple(
-                0.5 if column == row else 0.0
-                for column in range(stage_count)
-            )
-            for row in range(stage_count)
-        ),
-        b=(1.0 / stage_count,) * stage_count,
-        c=nodes,
-        order=1,
-    )
+    Real tableaus supply the cases they exhibit: ``l_stable_dirk_3``
+    has three distinct nodes, and ``kvaerno3`` repeats its final node
+    for stiff accuracy. No registered DIRK tableau revisits an earlier
+    interior node, so a consistent dummy carries the non-adjacent,
+    explicit-first-source, and triple-repeat cases.
+    """
+
     assert tableau.prediction_source_stages == expected
 
 
