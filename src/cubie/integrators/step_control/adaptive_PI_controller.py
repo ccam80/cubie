@@ -253,9 +253,10 @@ class AdaptivePIController(BaseAdaptiveStepController):
             # A truncated step's error norm carries no step-size
             # info: on accept, freeze dt/history and report success.
             freeze = accept and truncated
+            commit_history = accept and not truncated
             dt_new_raw = dt[0] * gain
             dt[0] = selp(freeze, dt[0], clamp(dt_new_raw, dt_min, dt_max))
-            timestep_buffer[0] = selp(freeze, err_prev, nrm2)
+            timestep_buffer[0] = selp(commit_history, nrm2, err_prev)
 
             ret = (
                 success

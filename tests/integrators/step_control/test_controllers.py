@@ -4,6 +4,15 @@ import numpy as np
 import pytest
 from cubie.cuda_simsafe import cuda
 
+from cubie.integrators.step_control.adaptive_PI_controller import (
+    AdaptivePIController,
+)
+from cubie.integrators.step_control.adaptive_PID_controller import (
+    AdaptivePIDController,
+)
+from cubie.integrators.step_control.gustafsson_controller import (
+    GustafssonController,
+)
 from cubie.result_codes import CUBIE_RESULT_CODES
 from tests._utils import run_controller_device_step
 
@@ -11,6 +20,11 @@ from tests._utils import run_controller_device_step
 _CONTROLLER_SETTINGS = {
     controller: {"step_controller": controller, "atol": 1e-3, "rtol": 0.0}
     for controller in ("i", "pi", "pid", "gustafsson")
+}
+
+_HISTORY_CONTROLLER_SETTINGS = {
+    controller: _CONTROLLER_SETTINGS[controller]
+    for controller in ("pi", "pid", "gustafsson")
 }
 
 _DT_CLAMP_LIMITS = {"dt": 0.15, "dt_min": 0.1, "dt_max": 0.2}
@@ -87,12 +101,7 @@ class TestControllers:
     def test_rejected_step_never_grows_dt(
         self, step_controller, precision, system
     ):
-        """A rejected step shrinks dt despite a huge stored error history.
-
-        The error history from a failed step (the loop stores 1e16 on
-        solver failure) feeds the PI/PID history term on the next call;
-        the gain on a rejected step must stay below one regardless.
-        """
+        """A rejected step shrinks dt after a solver failure."""
         device_func = step_controller.device_function
         n = system.sizes.states
 
@@ -118,8 +127,7 @@ class TestControllers:
                      accept, shared_scratch, persistent_local)
         assert int(accept[0]) == 0
 
-        # Second step: moderate rejection (nrm2 just above one). The
-        # stored history from the failed step must not grow dt.
+        # Second step: moderate rejection (nrm2 just above one).
         dt_before = precision(0.017)
         dt[0] = dt_before
         moderate_error = np.full(n, 1.23e-3, dtype=precision)
@@ -213,3 +221,75 @@ class TestControllers:
         assert result.accepted == 1
         assert result.dt == dt_min
         assert result.status == int(CUBIE_RESULT_CODES.SUCCESS)
+
+
+@pytest.mark.parametrize(
+    "solver_settings_override",
+    list(_HISTORY_CONTROLLER_SETTINGS.values()),
+    ids=list(_HISTORY_CONTROLLER_SETTINGS),
+    indirect=True,
+)
+class TestControllerHistory:
+    @pytest.mark.parametrize(
+        "accepted, truncated",
+        (
+            (False, False),
+            (False, True),
+            (True, False),
+            (True, True),
+        ),
+        ids=(
+            "rejection",
+            "truncated-rejection",
+            "acceptance",
+            "truncated-acceptance",
+        ),
+    )
+    def test_history_commits_only_untruncated_acceptance(
+        self,
+        step_controller,
+        precision,
+        system,
+        accepted,
+        truncated,
+    ):
+        """History advances only after an ordinary accepted step."""
+        controller_names = {
+            AdaptivePIController: "pi",
+            AdaptivePIDController: "pid",
+            GustafssonController: "gustafsson",
+        }
+        controller_name = controller_names[type(step_controller)]
+        seeds = {
+            "pi": np.asarray([0.25], dtype=precision),
+            "pid": np.asarray([0.25, 0.5], dtype=precision),
+            "gustafsson": np.asarray([0.0125, 0.25], dtype=precision),
+        }
+        accepted_history = {
+            "pi": np.asarray([1.0], dtype=precision),
+            "pid": np.asarray([1.0, 0.25], dtype=precision),
+            "gustafsson": np.asarray([0.017, 1.0], dtype=precision),
+        }
+        error_value = 1e-3 if accepted else 2e-3
+        error = np.full(system.sizes.states, error_value, dtype=precision)
+        state = np.ones(system.sizes.states, dtype=precision)
+        seed = seeds[controller_name]
+
+        result = run_controller_device_step(
+            step_controller.device_function,
+            precision,
+            precision(0.017),
+            error,
+            local_mem=seed.copy(),
+            state=state,
+            state_prev=state,
+            truncated=truncated,
+        )
+
+        assert result.accepted == int(accepted)
+        expected = (
+            accepted_history[controller_name]
+            if accepted and not truncated
+            else seed
+        )
+        np.testing.assert_array_equal(result.local_mem, expected)
