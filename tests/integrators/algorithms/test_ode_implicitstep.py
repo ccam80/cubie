@@ -261,6 +261,7 @@ def test_update_swaps_linear_solver_back_to_mr(
     "solver_settings_override",
     [
         {
+            **_RESIDUAL_SETTINGS,
             "algorithm": "backwards_euler",
             "linear_correction_type": "bicgstab",
         },

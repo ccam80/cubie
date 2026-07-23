@@ -300,7 +300,7 @@ def test_algorithm_hot_swap_after_solve(
 
 @pytest.mark.parametrize(
     "solver_settings_override",
-    [{"algorithm": "backwards_euler", "step_controller": "fixed"}],
+    [{"algorithm": "backwards_euler"}],
     indirect=True,
 )
 def test_linear_solver_hot_swap_after_solve(
