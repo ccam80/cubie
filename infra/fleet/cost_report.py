@@ -24,15 +24,16 @@ import re
 import subprocess
 from datetime import datetime, timedelta, timezone
 
+import matplotlib
+import numpy as np
+
+matplotlib.use("Agg")
+import matplotlib.pyplot as plt  # noqa: E402  (backend selected above)
+
 # The AWS CLI is a Python program that encodes its own stdout with the
 # process locale; on a Windows cp1252 console it dies rendering the
 # U+202F etc. that CloudTrail events carry. Force UTF-8 for subprocesses.
 _ENV = {**os.environ, "PYTHONUTF8": "1", "PYTHONIOENCODING": "utf-8"}
-
-import matplotlib
-matplotlib.use("Agg")
-import matplotlib.pyplot as plt
-import numpy as np
 
 REPO = "cubiepy/cubie"
 PROFILE = "cubie-fleet"
@@ -224,7 +225,7 @@ def enrich(legs):
         leg["steps_s"] = max(0, (last - first).total_seconds())
         leg["shutdown_s"] = max(0, (leg["billed_end"] - last).total_seconds())
         leg["wait_s"] = (log["wait_ms"] or 0) / 1000
-    return [l for l in legs if l["instance_id"]]
+    return [leg for leg in legs if leg["instance_id"]]
 
 
 # ---------------------------------------------------------------- plotting
@@ -248,7 +249,7 @@ def fig_gantt(legs, t0):
         ax.barh(i, st, left=b + w + bo, color="#54a24b")
         ax.barh(i, sh, left=b + w + bo + st, color="#e45756")
     ax.set_yticks(range(len(legs)))
-    ax.set_yticklabels([l["label"] for l in legs], fontsize=7)
+    ax.set_yticklabels([leg["label"] for leg in legs], fontsize=7)
     ax.invert_yaxis()
     ax.set_xlabel("minutes since first job scheduled")
     ax.set_title("Per-leg wall-clock: wait / boot / CI steps / shutdown")
@@ -263,14 +264,14 @@ def fig_gantt(legs, t0):
 def fig_leg_bands(legs):
     fig, ax = plt.subplots(figsize=(12, 4.5))
     x = np.arange(len(legs))
-    boot = np.array([l["boot_s"] / 60 for l in legs])
-    step = np.array([l["steps_s"] / 60 for l in legs])
-    shut = np.array([l["shutdown_s"] / 60 for l in legs])
+    boot = np.array([leg["boot_s"] / 60 for leg in legs])
+    step = np.array([leg["steps_s"] / 60 for leg in legs])
+    shut = np.array([leg["shutdown_s"] / 60 for leg in legs])
     ax.bar(x, boot, label="boot", color="#4c78a8")
     ax.bar(x, step, bottom=boot, label="CI steps", color="#54a24b")
     ax.bar(x, shut, bottom=boot + step, label="shutdown", color="#e45756")
     ax.set_xticks(x)
-    ax.set_xticklabels([l["label"] for l in legs], rotation=45, ha="right",
+    ax.set_xticklabels([leg["label"] for leg in legs], rotation=45, ha="right",
                        fontsize=7)
     ax.set_ylabel("minutes (billed instance time)")
     ax.set_title("Chart 1 — per-leg billed time: boot / CI steps / shutdown "
@@ -300,7 +301,7 @@ def fig_leg_steps(legs):
                color=cmap(idx[n] % 20))
         bottom += vals
     ax.set_xticks(x)
-    ax.set_xticklabels([l["label"] for l in legs], rotation=45, ha="right",
+    ax.set_xticklabels([leg["label"] for leg in legs], rotation=45, ha="right",
                        fontsize=7)
     ax.set_ylabel("minutes")
     ax.set_title("Chart 1 (detail) — per-leg time in each CI step")
@@ -309,20 +310,20 @@ def fig_leg_steps(legs):
 
 
 def fig_leg_cost(legs):
-    types = sorted({l["instance_type"] for l in legs if l["instance_type"]})
+    types = sorted({leg["instance_type"] for leg in legs if leg["instance_type"]})
     cmap = plt.get_cmap("tab10")
     tcol = {t: cmap(i) for i, t in enumerate(types)}
     fig, ax = plt.subplots(figsize=(12, 4.5))
     x = np.arange(len(legs))
-    costs = [l["cost"] or 0 for l in legs]
-    ax.bar(x, costs, color=[tcol.get(l["instance_type"], "grey")
-                            for l in legs])
-    for i, l in enumerate(legs):
-        if l["cost"] is not None and l["price"]:
-            ax.text(i, l["cost"], f"${l['cost']:.3f}", ha="center",
+    costs = [leg["cost"] or 0 for leg in legs]
+    ax.bar(x, costs, color=[tcol.get(leg["instance_type"], "grey")
+                            for leg in legs])
+    for i, leg in enumerate(legs):
+        if leg["cost"] is not None and leg["price"]:
+            ax.text(i, leg["cost"], f"${leg['cost']:.3f}", ha="center",
                     va="bottom", fontsize=6)
     ax.set_xticks(x)
-    ax.set_xticklabels([l["label"] for l in legs], rotation=45, ha="right",
+    ax.set_xticklabels([leg["label"] for leg in legs], rotation=45, ha="right",
                        fontsize=7)
     ax.set_ylabel("USD (billed hrs x achieved spot $/hr)")
     ax.set_title("Chart 2 — per-leg AWS cost at achieved spot price")
@@ -332,15 +333,15 @@ def fig_leg_cost(legs):
 
 
 def fig_by_type(legs):
-    types = sorted({l["instance_type"] for l in legs if l["instance_type"]})
+    types = sorted({leg["instance_type"] for leg in legs if leg["instance_type"]})
     mins = {t: 0.0 for t in types}
     cost = {t: 0.0 for t in types}
-    for l in legs:
-        t = l["instance_type"]
+    for leg in legs:
+        t = leg["instance_type"]
         if not t:
             continue
-        mins[t] += l["billed_hours"] * 60
-        cost[t] += l["cost"] or 0
+        mins[t] += leg["billed_hours"] * 60
+        cost[t] += leg["cost"] or 0
     fig, (a1, a2) = plt.subplots(1, 2, figsize=(12, 4))
     a1.bar(types, [mins[t] for t in types], color="#4c78a8")
     a1.set_ylabel("billed minutes")
@@ -354,10 +355,10 @@ def fig_by_type(legs):
 
 
 def fig_run_aggregate(legs):
-    boot = sum(l["boot_s"] for l in legs) / 60
-    step = sum(l["steps_s"] for l in legs) / 60
-    shut = sum(l["shutdown_s"] for l in legs) / 60
-    wait = sum(l["wait_s"] for l in legs) / 60
+    boot = sum(leg["boot_s"] for leg in legs) / 60
+    step = sum(leg["steps_s"] for leg in legs) / 60
+    shut = sum(leg["shutdown_s"] for leg in legs) / 60
+    wait = sum(leg["wait_s"] for leg in legs) / 60
     fig, (a1, a2) = plt.subplots(1, 2, figsize=(12, 4),
                                  gridspec_kw={"width_ratios": [1, 1]})
     a1.bar(["run"], [boot], label="boot", color="#4c78a8")
@@ -377,10 +378,10 @@ def fig_run_aggregate(legs):
 def fig_wait(legs):
     fig, ax = plt.subplots(figsize=(12, 4))
     x = np.arange(len(legs))
-    ax.bar(x, [l["wait_s"] / 60 for l in legs], color="#c7ccd1",
+    ax.bar(x, [leg["wait_s"] / 60 for leg in legs], color="#c7ccd1",
            edgecolor="#8a9197")
     ax.set_xticks(x)
-    ax.set_xticklabels([l["label"] for l in legs], rotation=45, ha="right",
+    ax.set_xticklabels([leg["label"] for leg in legs], rotation=45, ha="right",
                        fontsize=7)
     ax.set_ylabel("minutes")
     ax.set_title("Chart 5 (separate) — spot-capacity wait per leg "
@@ -427,17 +428,21 @@ def img(b64, note=None):
     return f'<img src="data:image/png;base64,{b64}">'
 
 
+def money(v):
+    return "" if v is None else f"${v:.4f}"
+
+
 def build_html(run_id, legs, panels, meta):
-    total_cost = sum(l["cost"] or 0 for l in legs)
-    priced = sum(1 for l in legs if l["cost"] is not None)
+    total_cost = sum(leg["cost"] or 0 for leg in legs)
+    priced = sum(1 for leg in legs if leg["cost"] is not None)
     rows = "".join(
-        f"<tr><td>{l['label']}</td><td>{l['instance_id']}</td>"
-        f"<td>{l['instance_type']}</td><td>{l['az']}</td>"
-        f"<td>{l['wait_s']/60:.1f}</td><td>{l['boot_s']/60:.1f}</td>"
-        f"<td>{l['steps_s']/60:.1f}</td><td>{l['shutdown_s']/60:.1f}</td>"
-        f"<td>{'' if l['price'] is None else f'${l['price']:.4f}'}</td>"
-        f"<td>{'' if l['cost'] is None else f'${l['cost']:.4f}'}</td></tr>"
-        for l in legs
+        f"<tr><td>{leg['label']}</td><td>{leg['instance_id']}</td>"
+        f"<td>{leg['instance_type']}</td><td>{leg['az']}</td>"
+        f"<td>{leg['wait_s']/60:.1f}</td><td>{leg['boot_s']/60:.1f}</td>"
+        f"<td>{leg['steps_s']/60:.1f}</td><td>{leg['shutdown_s']/60:.1f}</td>"
+        f"<td>{money(leg['price'])}</td>"
+        f"<td>{money(leg['cost'])}</td></tr>"
+        for leg in legs
     )
     sections = "".join(
         f'<h2>{t}</h2>{img(b, n)}' for t, b, n in panels
@@ -481,9 +486,9 @@ def main():
 
     print(f"fetching legs for run {args.run_id} ...")
     legs = enrich(fetch_legs(args.run_id))
-    legs.sort(key=lambda l: l["run_start"])
+    legs.sort(key=lambda leg: leg["run_start"])
     print(f"  {len(legs)} GPU legs")
-    t0 = min(l["job_scheduled"] or l["run_start"] for l in legs)
+    t0 = min(leg["job_scheduled"] or leg["run_start"] for leg in legs)
 
     # AWS-side aggregate panels (24h hourly, 30d daily)
     now = datetime.now(timezone.utc)
@@ -501,9 +506,9 @@ def main():
                    EC2)
     d_svc, e4 = ce("DAILY", day30, today, "SERVICE", "UnblendedCost")
 
-    ct_denied = next((l["terminate_note"] for l in legs
-                      if l["terminate_note"] and "authorized" in
-                      (l["terminate_note"] or "")), None)
+    ct_denied = next((leg["terminate_note"] for leg in legs
+                      if leg["terminate_note"] and "authorized" in
+                      (leg["terminate_note"] or "")), None)
     meta = []
     if ct_denied:
         meta.append("shutdown band + billed end use job-completion time "
