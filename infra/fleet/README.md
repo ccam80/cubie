@@ -138,8 +138,9 @@ steps / shutdown with the run total broken down beside it; time in each
 CI step (with a run-total bar beside it); cost at the achieved spot
 price; minutes and cost per instance type with the average spot rate
 annotated; and spot-capacity wait per leg. The account section takes
-from/to date pickers and a granularity and charts whole-account usage
-hours per instance type and gross usage $ by service.
+inclusive from/to date pickers and a granularity and charts whole-account
+usage hours per instance type and gross usage $ by service. Hourly ranges
+are limited to 366 inclusive days and daily ranges to 3,660 days.
 
 It correlates three data planes, keyed on the EC2 instance id RunsOn
 embeds in each runner name (`runs-on--i-<id>--...`): the GitHub Actions
@@ -155,20 +156,43 @@ statements add.
 `cloudtrail:LookupEvents` carry no charge). Only the account panels touch
 Cost Explorer, billed $0.01 per `GetCostAndUsage` request. Account usage is
 sourced from **hourly** Cost Explorer data and daily values are aggregated
-from it (this matches CE's own daily totals to the cent). The *data
-frontier* is the most recent hour CE has any data for — it trails ~1 day
-behind real time as usage settles, and it's read from the data itself, not
-guessed from a clock. Days fully behind the frontier are rolled up and
-cached permanently under `.dashboard-cache/` (gitignored); the recent tail
-is re-pulled only when the range reaches past the frontier and the last
-fetch was over a day ago — a **Force refresh** button overrides that
-throttle. Days older than CE's ~14-day hourly retention fall back to a
-one-off daily query, also cached permanently, so full history survives
-even as hours age out of the hourly window. The status line reports the
-data frontier, the last fetch time, and whether the fetch hit the API or
-the cache.
+from it (this matches CE's own daily totals to the cent). The *usage
+frontier* is the most recent hour CE reports non-zero EC2 instance usage
+for. It may trail real time when no instances ran or while recent usage
+settles, and it is read from the usage data rather than guessed from a
+clock.
+
+The dashboard owns a transactional SQLite usage database at
+`.dashboard-cache/usage.sqlite3` (gitignored). Existing `hours.json`,
+`days.json`, and `meta.json` caches are imported once. Acquired hourly
+buckets are retained indefinitely. A normal refresh happens exactly when
+the inclusive requested range extends beyond the frontier **and** the last
+successful refresh is at least one day old. It starts 12 hours before the
+frontier so Cost Explorer settlement changes replace earlier values, then
+transactionally upserts the fetched hours, recomputes every fully covered
+finalised day touched by that interval, and records `last_fetch`. A failed
+fetch commits none of those changes. Dates first requested after they have
+left Cost Explorer's ~14-day hourly window use a cached daily query; the UI
+explicitly warns when requested hourly coverage is not in the local
+database.
+
+**Force refresh** bypasses the one-day decision and uses a POST request.
+A persisted ten-minute refresh lease coalesces concurrent dashboard
+processes, and forced-refresh attempts have a five-minute safety rate
+limit. The status line reports the usage frontier, last fetch, refresh
+state, and partial coverage. Each refresh uses two Cost Explorer queries:
+one for EC2 usage by instance type and one for gross cost by service.
+
+The local server binds only to `127.0.0.1`. It validates the exact
+localhost Host and Origin, injects a per-process token into the page, and
+requires that token in a custom header for every API request. Responses
+disable caching and set restrictive CSP, framing, referrer, and MIME
+headers. ECharts remains CDN-hosted, but its exact bytes are pinned with
+Subresource Integrity and `crossorigin="anonymous"`; all dashboard
+JavaScript is served locally. Missing spot-price or termination telemetry
+is shown as incomplete and is never converted to a zero-cost leg.
 
 Requirements: `gh` authenticated to the repo and the `cubie-fleet` AWS
-profile; charts load ECharts from a CDN, so the browser needs internet.
-The AWS CLI subprocess is forced to UTF-8 (it otherwise dies on Windows
-rendering the non-breaking spaces CloudTrail events carry).
+profile; the pinned ECharts asset needs browser internet access. The AWS
+CLI subprocess is forced to UTF-8 (it otherwise dies on Windows rendering
+the non-breaking spaces CloudTrail events carry).

@@ -3,9 +3,13 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
+<meta name="api-token" content="__API_TOKEN__">
 <title>Fleet CI cost dashboard</title>
-<script src="https://cdn.jsdelivr.net/npm/echarts@5.5.1/dist/echarts.min.js">
-</script>
+<script
+  src="https://cdn.jsdelivr.net/npm/echarts@5.5.1/dist/echarts.min.js"
+  integrity="sha384-Mx5lkUEQPM1pOJCwFtUICyX45KNojXbkWdYhkKUKsbv391mavbfoAmONbzkgYPzR"
+  crossorigin="anonymous" defer></script>
+<script src="/cost_dashboard.js" defer></script>
 <style>
   :root { color-scheme: light dark; }
   * { box-sizing: border-box; }
@@ -30,6 +34,7 @@
   h2 { font-size: 15px; margin: 22px 0 8px; }
   .sub { color: #666; font-size: 12px; margin: 0 0 8px; }
   .row { display: flex; gap: 14px; align-items: stretch; }
+  .wrap { flex-wrap: wrap; align-items: center; }
   .card {
     background: #fff; border: 1px solid #ececec; border-radius: 10px;
     padding: 8px 6px 4px;
@@ -43,10 +48,12 @@
     font-size: 12px; background: #eef; color: #225;
   }
   #status { color: #666; font-size: 12px; }
+  #costLegend { padding: 0 8px; }
   .note {
     background: #fff6e5; border: 1px solid #f0c36d; color: #7a5b12;
     border-radius: 8px; padding: 10px 12px; font-size: 13px;
   }
+  .hidden { display: none; }
   a { color: #2a6; }
 </style>
 </head>
@@ -62,45 +69,54 @@
 <main>
   <section id="runSection">
     <div id="runMeta" class="sub"></div>
-
-    <h2>Timeline</h2>
-    <p class="sub">Per-leg wall-clock; the bar at right is the run total
-      split into the same phases.</p>
-    <div class="row">
-      <div class="card grow"><div id="cGantt" class="chart tall"></div></div>
-      <div class="card agg"><div id="cGanttAgg" class="chart tall"></div>
+    <div id="runEmpty" class="note hidden"></div>
+    <div id="runCharts">
+      <h2>Timeline</h2>
+      <p class="sub">Per-leg wall-clock; the bar at right is the run total
+        split into the same phases. Unknown termination telemetry remains
+        unplotted rather than being estimated from the job end.</p>
+      <div class="row">
+        <div class="card grow">
+          <div id="cGantt" class="chart tall"></div>
+        </div>
+        <div class="card agg">
+          <div id="cGanttAgg" class="chart tall"></div>
+        </div>
       </div>
-    </div>
 
-    <h2>Time in each CI step</h2>
-    <div class="row">
-      <div class="card grow"><div id="cSteps" class="chart tall"></div></div>
-      <div class="card agg"><div id="cStepsAgg" class="chart tall"></div>
+      <h2>Time in each CI step</h2>
+      <div class="row">
+        <div class="card grow">
+          <div id="cSteps" class="chart tall"></div>
+        </div>
+        <div class="card agg">
+          <div id="cStepsAgg" class="chart tall"></div>
+        </div>
       </div>
+
+      <h2>Cost per leg at achieved spot price</h2>
+      <div id="costLegend" class="sub"></div>
+      <div class="card"><div id="cCost" class="chart"></div></div>
+
+      <h2>Per instance type</h2>
+      <div class="card"><div id="cType" class="chart"></div></div>
+
+      <h2>Spot-capacity wait per leg</h2>
+      <div class="card"><div id="cWait" class="chart"></div></div>
     </div>
-
-    <h2>Cost per leg at achieved spot price</h2>
-    <div id="costLegend" class="sub" style="padding:0 8px"></div>
-    <div class="card"><div id="cCost" class="chart"></div></div>
-
-    <h2>Per instance type</h2>
-    <div class="card"><div id="cType" class="chart"></div></div>
-
-    <h2>Spot-capacity wait per leg</h2>
-    <div class="card"><div id="cWait" class="chart"></div></div>
   </section>
 
   <section id="acctSection">
     <h2>Account usage &amp; cost</h2>
     <p class="sub">Whole account (all services, CI and background), from
-      hourly Cost Explorer data aggregated to days. Days behind the data
-      frontier are cached permanently; the recent tail is re-pulled at
-      most once a day (Force refresh overrides). The status line shows the
-      data frontier and whether the fetch hit the API ($0.01/query) or the
-      cache.</p>
-    <div class="row" style="flex-wrap:wrap; align-items:center">
+      retained hourly Cost Explorer data aggregated to days. A requested
+      range beyond the non-zero usage frontier refreshes after one day;
+      the refresh rechecks the preceding 12 hours for billing adjustments.
+      Force refresh bypasses the daily decision, subject to a five-minute
+      safety limit. Each Cost Explorer query costs $0.01.</p>
+    <div class="row wrap">
       <label>From <input type="date" id="acctFrom"></label>
-      <label>To <input type="date" id="acctTo"></label>
+      <label>To (inclusive) <input type="date" id="acctTo"></label>
       <label>Granularity
         <select id="acctGran">
           <option value="DAILY">daily</option>
@@ -108,280 +124,20 @@
         </select>
       </label>
       <button id="acctFetch">Fetch</button>
-      <button id="acctForce" class="secondary" title="Bypass the once-a-day
-refresh throttle and re-pull the recent hourly tail now">Force
-        refresh</button>
+      <button id="acctForce" class="secondary"
+        title="Re-pull the recent hourly tail now">Force refresh</button>
       <span id="acctStatus" class="sub"></span>
     </div>
+    <div id="acctWarning" class="note hidden"></div>
     <h2>Usage hours per instance type</h2>
     <div id="acctUsageWrap" class="card">
-      <div id="cAcctUsage" class="chart"></div></div>
+      <div id="cAcctUsage" class="chart"></div>
+    </div>
     <h2>Gross usage $ by service</h2>
     <div id="acctCostWrap" class="card">
-      <div id="cAcctCost" class="chart"></div></div>
+      <div id="cAcctCost" class="chart"></div>
+    </div>
   </section>
 </main>
-
-<script>
-const C = { wait:'#c7ccd1', boot:'#4c78a8', steps:'#54a24b',
-            shutdown:'#e45756' };
-const PALETTE = ['#4c78a8','#f58518','#54a24b','#e45756','#72b7b2',
-  '#eeca3b','#b279a2','#ff9da6','#9d755d','#bab0ac','#1f77b4','#aec7e8',
-  '#ff7f0e','#2ca02c','#98df8a','#d62728','#9467bd','#8c564b','#e377c2',
-  '#7f7f7f'];
-const charts = {};
-function ec(id){
-  if(!charts[id]) charts[id] = echarts.init(document.getElementById(id));
-  return charts[id];
-}
-window.addEventListener('resize', () =>
-  Object.values(charts).forEach(c => c.resize()));
-const money = v => v==null ? '' : '$'+v.toFixed(4);
-const mins = s => s/60;
-async function getJSON(u){
-  const r = await fetch(u); const j = await r.json();
-  if(j && j.error) throw new Error(j.detail || j.error);
-  return j;
-}
-
-// ---------------------------------------------------------------- per run
-function renderGantt(p){
-  const legs = p.legs, cats = legs.map(l=>l.label);
-  const off = legs.map(l=>mins(l.offset_s));
-  const mk = (name,key,color)=>({
-    name, type:'bar', stack:'t', color,
-    emphasis:{focus:'series'},
-    data: legs.map(l=>mins(l[key]))
-  });
-  ec('cGantt').setOption({
-    grid:{left:150,right:16,top:30,bottom:36},
-    legend:{top:0, data:['wait','boot','CI steps','shutdown']},
-    tooltip:{trigger:'axis', axisPointer:{type:'shadow'},
-      valueFormatter:v=>v==null?'':v.toFixed(1)+' min'},
-    xAxis:{type:'value', name:'minutes from first job scheduled',
-      nameLocation:'middle', nameGap:24},
-    yAxis:{type:'category', data:cats, inverse:true,
-      axisLabel:{fontSize:10}},
-    series:[
-      {name:'off', type:'bar', stack:'t', data:off, silent:true,
-       itemStyle:{color:'transparent'}, tooltip:{show:false}},
-      mk('wait','wait_s',C.wait), mk('boot','boot_s',C.boot),
-      mk('CI steps','steps_s',C.steps), mk('shutdown','shutdown_s',C.shutdown)
-    ]
-  }, true);
-}
-function sum(legs,k){ return legs.reduce((a,l)=>a+l[k],0); }
-function renderGanttAgg(p){
-  const L=p.legs, bands=[['wait','wait_s',C.wait],['boot','boot_s',C.boot],
-    ['CI steps','steps_s',C.steps],['shutdown','shutdown_s',C.shutdown]];
-  ec('cGanttAgg').setOption({
-    grid:{left:44,right:10,top:30,bottom:36},
-    legend:{show:false},
-    tooltip:{trigger:'item',
-      formatter:o=>o.seriesName+': '+o.value.toFixed(1)+' min'},
-    xAxis:{type:'category', data:['run total']},
-    yAxis:{type:'value', name:'minutes'},
-    series:bands.map(([n,k,c])=>({name:n,type:'bar',stack:'t',color:c,
-      data:[mins(sum(L,k))],
-      label:{show:true, formatter:o=>o.value>=6?n:'' , color:'#fff',
-        fontSize:10}}))
-  }, true);
-}
-function stepTotals(legs){
-  const t={}; legs.forEach(l=>l.steps.forEach(s=>{
-    t[s.name]=(t[s.name]||0)+s.dur_s; }));
-  // largest total first -> drawn at bottom of the stack
-  return Object.keys(t).sort((a,b)=>t[b]-t[a]);
-}
-function renderSteps(p){
-  const legs=p.legs, cats=legs.map(l=>l.label), order=stepTotals(legs);
-  const series=order.map((name,i)=>({
-    name, type:'bar', stack:'t', color:PALETTE[i%PALETTE.length],
-    emphasis:{focus:'series'},
-    data:legs.map(l=>{ const s=l.steps.find(x=>x.name===name);
-      return s?mins(s.dur_s):0; })
-  }));
-  ec('cSteps').setOption({
-    grid:{left:44,right:16,top:30,bottom:96},
-    legend:{type:'scroll', top:0, data:order},
-    tooltip:{trigger:'axis', axisPointer:{type:'shadow'},
-      valueFormatter:v=>v==null?'':v.toFixed(2)+' min'},
-    xAxis:{type:'category', data:cats,
-      axisLabel:{rotate:40, fontSize:10, interval:0}},
-    yAxis:{type:'value', name:'minutes'},
-    series
-  }, true);
-}
-function renderStepsAgg(p){
-  const legs=p.legs, order=stepTotals(legs);
-  const total={}; legs.forEach(l=>l.steps.forEach(s=>{
-    total[s.name]=(total[s.name]||0)+s.dur_s; }));
-  ec('cStepsAgg').setOption({
-    grid:{left:44,right:10,top:30,bottom:96},
-    legend:{show:false},
-    tooltip:{trigger:'item',
-      formatter:o=>o.seriesName+': '+o.value.toFixed(2)+' min'},
-    xAxis:{type:'category', data:['run total']},
-    yAxis:{type:'value', name:'minutes'},
-    series:order.map((name,i)=>({name,type:'bar',stack:'t',
-      color:PALETTE[i%PALETTE.length], data:[mins(total[name]||0)]}))
-  }, true);
-}
-const typeColor={};
-function colorFor(t){
-  if(!(t in typeColor))
-    typeColor[t]=PALETTE[Object.keys(typeColor).length%PALETTE.length];
-  return typeColor[t];
-}
-function renderCost(p){
-  const legs=p.legs;
-  const types=[...new Set(legs.map(l=>l.type).filter(Boolean))].sort();
-  document.getElementById('costLegend').innerHTML = types.map(t=>
-    `<span style="color:${colorFor(t)};font-size:15px">&#9632;</span> ${t}`
-  ).join(' &nbsp; ');
-  ec('cCost').setOption({
-    grid:{left:60,right:16,top:16,bottom:96},
-    tooltip:{trigger:'item', formatter:o=>{ const l=legs[o.dataIndex];
-      return `${l.label}<br>${l.type} @ ${money(l.price)}/h`+
-             `<br><b>${money(l.cost)}</b>`; }},
-    xAxis:{type:'category', data:legs.map(l=>l.label),
-      axisLabel:{rotate:40, fontSize:10, interval:0}},
-    yAxis:{type:'value', name:'USD (billed hrs × spot $/h)'},
-    series:[{type:'bar', data:legs.map(l=>({value:l.cost||0,
-      itemStyle:{color:colorFor(l.type)}})),
-      label:{show:true, position:'top', fontSize:9,
-        formatter:o=>'$'+o.value.toFixed(3)}}]
-  }, true);
-}
-function renderType(p){
-  const agg={};
-  p.legs.forEach(l=>{ if(!l.type) return;
-    const a=agg[l.type]||(agg[l.type]={min:0,cost:0,hrs:0});
-    a.min+=l.billed_hours*60; a.cost+=l.cost||0;
-    a.hrs+=l.billed_hours; });
-  const types=Object.keys(agg).sort();
-  const rate=t=>agg[t].hrs?agg[t].cost/agg[t].hrs:0;
-  ec('cType').setOption({
-    grid:{left:56,right:56,top:30,bottom:40},
-    legend:{top:0, data:['minutes','cost']},
-    tooltip:{trigger:'axis', axisPointer:{type:'shadow'}},
-    xAxis:{type:'category', data:types},
-    yAxis:[{type:'value', name:'billed minutes'},
-      {type:'value', name:'USD', position:'right'}],
-    series:[
-      {name:'minutes', type:'bar', color:C.boot,
-        data:types.map(t=>+agg[t].min.toFixed(1))},
-      {name:'cost', type:'bar', color:C.steps, yAxisIndex:1,
-        data:types.map(t=>+agg[t].cost.toFixed(4)),
-        label:{show:true, position:'top', fontSize:10,
-          formatter:o=>'~$'+rate(types[o.dataIndex]).toFixed(3)+'/h'}}
-    ]
-  }, true);
-}
-function renderWait(p){
-  const legs=p.legs;
-  ec('cWait').setOption({
-    grid:{left:56,right:16,top:16,bottom:96},
-    tooltip:{trigger:'axis', axisPointer:{type:'shadow'},
-      valueFormatter:v=>v.toFixed(1)+' min'},
-    xAxis:{type:'category', data:legs.map(l=>l.label),
-      axisLabel:{rotate:40, fontSize:10, interval:0}},
-    yAxis:{type:'value', name:'minutes'},
-    series:[{type:'bar', color:C.wait,
-      data:legs.map(l=>+mins(l.wait_s).toFixed(2))}]
-  }, true);
-}
-function renderRun(p){
-  const cost=p.legs.reduce((a,l)=>a+(l.cost||0),0);
-  document.getElementById('runMeta').innerHTML =
-    `run <code>${p.run_id}</code> · ${p.legs.length} GPU legs · `+
-    `compute (achieved spot) <b>$${cost.toFixed(3)}</b>`;
-  renderGantt(p); renderGanttAgg(p); renderSteps(p); renderStepsAgg(p);
-  renderCost(p); renderType(p); renderWait(p);
-}
-
-// ---------------------------------------------------------------- account
-function renderStack(id, times, series, yName){
-  const wrap = document.getElementById(id).parentElement;
-  if(!series.length){
-    wrap.innerHTML = '<div class="note">No finalised Cost Explorer data '+
-      'in this window. CE settles recent usage over ~1–2 days.</div>';
-    return;
-  }
-  ec(id).setOption({
-    grid:{left:56,right:16,top:30,bottom:70},
-    legend:{type:'scroll', top:0},
-    tooltip:{trigger:'axis', axisPointer:{type:'shadow'}},
-    xAxis:{type:'category', data:times.map(t=>t.replace('T',' ')
-      .replace(':00:00Z','h').slice(5)),
-      axisLabel:{rotate:60, fontSize:9, interval:0}},
-    yAxis:{type:'value', name:yName},
-    series:series.map((s,i)=>({name:s.name, type:'bar', stack:'t',
-      color:PALETTE[i%PALETTE.length], data:s.data}))
-  }, true);
-}
-async function loadAccount(force){
-  const st=document.getElementById('acctStatus');
-  const from=document.getElementById('acctFrom').value;
-  const to=document.getElementById('acctTo').value;
-  const gran=document.getElementById('acctGran').value;
-  st.textContent='fetching…';
-  try{
-    const p=await getJSON(`/api/account?start=${from}&end=${to}&gran=${gran}`
-      +(force?'&force=1':''));
-    document.getElementById('acctUsageWrap').innerHTML=
-      '<div id="cAcctUsage" class="chart"></div>';
-    document.getElementById('acctCostWrap').innerHTML=
-      '<div id="cAcctCost" class="chart"></div>';
-    delete charts['cAcctUsage']; delete charts['cAcctCost'];
-    renderStack('cAcctUsage', p.times, p.usage, 'EC2 hours');
-    renderStack('cAcctCost', p.times, p.cost, 'USD (gross usage)');
-    const front=p.frontier
-      ? p.frontier.replace('T',' ').replace(':00:00Z','h UTC') : '—';
-    const fetched=p.last_fetch
-      ? new Date(p.last_fetch).toLocaleString() : '—';
-    st.innerHTML=(p.charged
-      ? '<span class="pill">fetched from Cost Explorer</span>'
-      : '<span class="pill">served from cache (free)</span>')
-      +` &middot; data through ${front} &middot; last fetch ${fetched}`;
-  }catch(e){ st.textContent='error: '+e.message; }
-}
-
-// ------------------------------------------------------------------- boot
-async function loadRun(id){
-  const st=document.getElementById('status');
-  st.textContent='fetching run '+id+' …';
-  try{ renderRun(await getJSON('/api/run?id='+id)); st.textContent=''; }
-  catch(e){ st.textContent='error: '+e.message; }
-}
-async function init(){
-  const iso=d=>d.toISOString().slice(0,10);
-  const now=new Date();
-  document.getElementById('acctTo').value=iso(now);
-  document.getElementById('acctFrom').value=
-    iso(new Date(now.getTime()-30*864e5));
-  document.getElementById('acctFetch').onclick=()=>loadAccount(false);
-  document.getElementById('acctForce').onclick=()=>loadAccount(true);
-  const sel=document.getElementById('runSelect');
-  try{
-    const runs=await getJSON('/api/runs');
-    sel.innerHTML='';
-    runs.forEach(r=>{
-      const o=document.createElement('option');
-      o.value=r.id;
-      o.textContent=`${r.created_at.slice(0,16).replace('T',' ')} · `+
-        `${r.event} · ${r.conclusion||r.status}`;
-      sel.appendChild(o);
-    });
-    sel.onchange=()=>loadRun(sel.value);
-    const params=new URLSearchParams(location.search);
-    const pick=params.get('run')||(runs[0]&&runs[0].id);
-    if(pick){ sel.value=pick; loadRun(pick); }
-    if(params.get('acct')) loadAccount(false);
-  }catch(e){ sel.innerHTML='<option>error</option>';
-    document.getElementById('status').textContent=e.message; }
-}
-init();
-</script>
 </body>
 </html>

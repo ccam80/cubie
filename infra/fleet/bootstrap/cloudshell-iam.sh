@@ -143,13 +143,7 @@ cat > /tmp/cubie-fleet-deployer-policy.json <<EOF
     {
       "Sid": "CostExplorerReadOnly",
       "Effect": "Allow",
-      "Action": [
-        "ce:GetCostAndUsage",
-        "ce:GetCostAndUsageWithResources",
-        "ce:GetDimensionValues",
-        "ce:GetTags",
-        "ce:ListCostAllocationTags"
-      ],
+      "Action": "ce:GetCostAndUsage",
       "Resource": "*"
     },
     {
