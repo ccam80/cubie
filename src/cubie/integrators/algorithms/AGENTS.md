@@ -111,25 +111,18 @@ attrs-config mechanics; CUDA-authoring *optimisation* patterns are in
 
 ### Dense stage prediction (FIRK and DIRK)
 Both steps own a `DenseStagePredictor` (`../stage_predictors.py`) child that
-reads the previous step's stage-derivative curve ahead over the next step as
-the Newton warm start. `ODEImplicitStep.dense_prediction` gates compilation
-(`attempt_dense_prediction` requested + tableau passes the node-amplification
-gate + a positive calibrated ratio ceiling at the configured precision;
-repeated nodes fit through the distinct-node subset, last sample per node).
-The algorithm owns the eligibility decision end to end: it registers the
-persistent `previous_step_size` scalar, computes the step ratio, compares it
-against the tableau's per-precision `dense_prediction_ratio_*` ceiling
-(calibrated by `benchmarks/dense_prediction_ratio_sweep.py`), folds in
-first-step/rejection, and passes ratio plus flag to the predictor, which
-evaluates the transform and commits per lane via predicated `selp`. DIRK
-keeps a persistent `stage_increment_history` (`stage_count * n`, registered
-size 0 when inactive); FIRK transforms its coupled stage vector in place.
-DIRK skips predicting a never-solved explicit first stage
-(`predict_first_stage`, rederived from the tableau and precision on every
-update; its free `dt*f` sample still enters the history) and seeds a
-node-repeating stage from the most recent earlier same-node stage's history
-row (`stage_seed_sources`), writing its own row after convergence.
-`predictor_function` pipes through compile settings like `solver_function`.
+turns the previous accepted step's stage increments into the next step's
+Newton starting guesses. The algorithm owns eligibility: it keeps the
+persistent `previous_step_size` scalar and folds first-step, rejection, and
+the tableau's per-precision `dense_prediction_ratio_*` ceiling (calibrated
+by `benchmarks/dense_prediction_ratio_sweep.py`) into a flag the predictor
+commits per lane via predicated `selp`. Tableau-derived behaviour lives on
+the tableaus: `prediction_sample_stages` (one sample per distinct node),
+`first_stage_is_explicit` (an explicit first stage is never predicted; its
+`dt*f` sample still enters DIRK's history), and DIRK's
+`prediction_source_stages` (a repeated stage time starts from the earlier
+same-time stage's row). `predictor_function` pipes through compile settings
+like `solver_function`.
 
 ### FSAL warp-coherence
 - FSAL stage-0 RHS reuse is guarded by `all_sync(activemask(), accepted_flag != 0)` so

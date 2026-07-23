@@ -1,4 +1,4 @@
-"""Tests for DIRK dense-prediction ownership and seeding policy."""
+"""Tests for DIRK dense-prediction ownership and guess sourcing."""
 
 import attrs
 import numpy as np
@@ -7,10 +7,6 @@ from numpy.testing import assert_allclose
 
 from cubie.cuda_simsafe import cuda, int32
 from cubie.cuda_simsafe import numba_from_dtype as from_dtype
-from cubie.integrators.algorithms.generic_dirk import (
-    DIRKStep,
-    stage_seed_sources,
-)
 from cubie.integrators.algorithms.generic_dirk_tableaus import (
     DIRKTableau,
     IMPLICIT_MIDPOINT_TABLEAU,
@@ -45,78 +41,87 @@ NON_ADJACENT_REPEAT_TABLEAU = DIRKTableau(
 )
 
 
-def test_stage_seed_sources_mappings():
-    """Exact predecessor mappings for every repeat layout."""
-    # Unique nodes seed from their own predicted rows.
-    assert stage_seed_sources((0.0, 0.5, 1.0)) == (0, 1, 2)
-    # Adjacent repeats seed from the immediately preceding stage.
-    assert stage_seed_sources((0.0, 0.87, 1.0, 1.0)) == (0, 1, 2, 2)
-    # Non-adjacent repeats reach back past intervening stages.
-    assert stage_seed_sources((0.0, 0.5, 1.0, 0.5)) == (0, 1, 2, 1)
-    # An explicit first stage can be a repeated node's source.
-    assert stage_seed_sources((0.0, 0.5, 0.0)) == (0, 1, 0)
-    # Multiple repeats use the most recent equal-node predecessor.
-    assert stage_seed_sources((0.5, 0.5, 0.5)) == (0, 0, 1)
+LORENZ_DIRK = {
+    "system_type": "lorenz_julia",
+    "output_types": ["state"],
+    "saved_state_indices": [0, 1, 2],
+    "saved_observable_indices": [],
+    "summarised_state_indices": [],
+    "summarised_observable_indices": [],
+    "summarise_every": None,
+    "sample_summaries_every": None,
+    "precision": np.float64,
+    "algorithm": "l_stable_dirk_3",
+    "step_controller": "fixed",
+    "dt": 0.005,
+    "newton_atol": 1e-10,
+    "newton_rtol": 1e-10,
+    "krylov_atol": 1e-10,
+    "krylov_rtol": 1e-10,
+    "newton_max_iters": 50,
+    "krylov_max_iters": 100,
+}
+
+LOOSE_LORENZ_DIRK = {
+    **LORENZ_DIRK,
+    "newton_atol": 1e-3,
+    "newton_rtol": 1e-3,
+    "krylov_atol": 1e-4,
+    "krylov_rtol": 1e-4,
+}
 
 
-def test_update_rederives_predict_first_stage():
+@pytest.mark.parametrize(
+    "solver_settings_override", [LORENZ_DIRK], indirect=True
+)
+def test_update_rederives_predict_first_stage(step_object_mutable):
     """Tableau updates in both directions refresh the predictor's
     first-stage row through the single update path."""
-    step = DIRKStep(
-        precision=np.float64,
-        n=3,
-        tableau=opened(KVAERNO3_TABLEAU),
-    )
-    predictor = step.dense_predictor
-    assert predictor.compile_settings.predict_first_stage is False
-    step.update(tableau=opened(L_STABLE_DIRK3_TABLEAU))
+    predictor = step_object_mutable.dense_predictor
     assert predictor.compile_settings.predict_first_stage is True
-    assert (
-        step.compile_settings.tableau.stage_count
-        == L_STABLE_DIRK3_TABLEAU.stage_count
-    )
-    step.update(tableau=opened(KVAERNO3_TABLEAU))
+    step_object_mutable.update(tableau=KVAERNO3_TABLEAU)
     assert predictor.compile_settings.predict_first_stage is False
     assert (
         predictor.compile_settings.stage_count
         == KVAERNO3_TABLEAU.stage_count
     )
+    step_object_mutable.update(tableau=L_STABLE_DIRK3_TABLEAU)
+    assert predictor.compile_settings.predict_first_stage is True
+    assert (
+        step_object_mutable.compile_settings.tableau.stage_count
+        == L_STABLE_DIRK3_TABLEAU.stage_count
+    )
 
 
-def test_previous_step_size_owned_by_algorithm():
+@pytest.mark.parametrize(
+    "solver_settings_override", [LORENZ_DIRK], indirect=True
+)
+def test_previous_step_size_owned_by_algorithm(step_object_mutable):
     """The previous-step-size scalar lives on the DIRK config; the
     predictor has no such setting."""
-    step = DIRKStep(
-        precision=np.float32,
-        n=2,
-        tableau=opened(L_STABLE_DIRK3_TABLEAU),
-    )
-    assert (
-        step.compile_settings.previous_step_size_location == "local"
-    )
-    step.update(previous_step_size_location="shared")
-    assert (
-        step.compile_settings.previous_step_size_location == "shared"
-    )
+    settings = step_object_mutable.compile_settings
+    assert settings.previous_step_size_location == "local"
+    step_object_mutable.update(previous_step_size_location="shared")
+    settings = step_object_mutable.compile_settings
+    assert settings.previous_step_size_location == "shared"
     assert not hasattr(
-        step.dense_predictor.compile_settings,
+        step_object_mutable.dense_predictor.compile_settings,
         "previous_step_size_location",
     )
 
 
-def test_single_stage_midpoint_predicts_its_stage():
+@pytest.mark.parametrize(
+    "solver_settings_override", [LORENZ_DIRK], indirect=True
+)
+def test_single_stage_midpoint_predicts_its_stage(step_object_mutable):
     """Implicit midpoint's sole implicit stage keeps its predicted
     row."""
-    step = DIRKStep(
-        precision=np.float64,
-        n=2,
-        tableau=opened(IMPLICIT_MIDPOINT_TABLEAU),
+    step_object_mutable.update(tableau=IMPLICIT_MIDPOINT_TABLEAU)
+    assert step_object_mutable.dense_prediction
+    predictor_settings = (
+        step_object_mutable.dense_predictor.compile_settings
     )
-    assert step.dense_prediction
-    assert (
-        step.dense_predictor.compile_settings.predict_first_stage
-        is True
-    )
+    assert predictor_settings.predict_first_stage is True
 
 
 def _run_schedule(step_object, system, precision, state, params,
@@ -223,19 +228,12 @@ def _run_schedule(step_object, system, precision, state, params,
     return d_state.copy_to_host(), int(d_iters.copy_to_host()[0])
 
 
-LORENZ_F64 = {
-    "system_type": "lorenz_julia",
-    "precision": np.float64,
-    "algorithm": "l_stable_dirk_3",
-    "step_controller": "fixed",
-    "dt": 0.005,
-}
-
-
 @pytest.mark.parametrize(
-    "solver_settings_override", [LORENZ_F64], indirect=True
+    "solver_settings_override", [LOOSE_LORENZ_DIRK], indirect=True
 )
-def test_ratio_ceiling_boundary_on_device(system, precision):
+def test_ratio_ceiling_boundary_on_device(
+    step_object_mutable, system, precision, initial_state
+):
     """The hoisted ratio gate applies at the ceiling and carries
     above it.
 
@@ -244,48 +242,42 @@ def test_ratio_ceiling_boundary_on_device(system, precision):
     representable ratio of 2.0, so ceilings 2.0 and 8.0 both apply
     prediction — bit-identical execution — while ceiling 1.0 carries
     and its differently seeded Newton solves land on different bits.
-    The loose tolerance stops Newton after one iteration so the
-    result keeps the seed's imprint; at tight tolerances Newton
-    converges to the same bits from either seed.
+    The loose fixture tolerances stop Newton after one iteration so
+    the result keeps the starting guess's imprint; at tight
+    tolerances Newton converges to the same bits from either guess.
     """
     ceilings = [2.0, 8.0, 1.0]
     params = np.asarray(
         system.parameters.values_array, dtype=precision
     ).copy()
     params[system.parameters.get_index_of_key("rho")] = 28.0
-    state = np.asarray(
-        system.initial_values.values_array, dtype=precision
-    )
+    state = np.asarray(initial_state, dtype=precision)
     small_dt = precision(0.005)
     schedule = [small_dt] * 3 + [precision(2.0) * small_dt]
     final_states = {}
     for ceiling in ceilings:
-        step = DIRKStep(
-            precision=precision,
-            n=int(system.sizes.states),
-            evaluate_f=system.evaluate_f,
-            evaluate_observables=system.evaluate_observables,
-            get_solver_helper_fn=system.get_solver_helper,
-            tableau=opened(L_STABLE_DIRK3_TABLEAU, ceiling=ceiling),
-            newton_atol=1e-3,
-            newton_rtol=1e-3,
-            krylov_atol=1e-4,
-            krylov_rtol=1e-4,
-            newton_max_iters=50,
-            krylov_max_iters=100,
+        step_object_mutable.update(
+            tableau=opened(L_STABLE_DIRK3_TABLEAU, ceiling=ceiling)
         )
         final_states[ceiling], _ = _run_schedule(
-            step, system, precision, state, params, schedule
+            step_object_mutable, system, precision, state, params,
+            schedule
         )
     assert np.array_equal(final_states[2.0], final_states[8.0])
     assert not np.array_equal(final_states[1.0], final_states[2.0])
 
 
 @pytest.mark.parametrize(
-    "solver_settings_override", [LORENZ_F64], indirect=True
+    "solver_settings_override", [LORENZ_DIRK], indirect=True
 )
 def test_non_adjacent_repeat_matches_cpu_reference(
-    system, precision, cpu_system, cpu_driver_evaluator
+    step_object_mutable,
+    system,
+    precision,
+    solver_settings,
+    initial_state,
+    cpu_system,
+    cpu_driver_evaluator,
 ):
     """A non-adjacent repeated node integrates identically on device
     and CPU reference.
@@ -295,28 +287,12 @@ def test_non_adjacent_repeat_matches_cpu_reference(
     differ, so an adjacent-only carry would diverge even though each
     solve still converges.
     """
-    n = int(system.sizes.states)
-    step = DIRKStep(
-        precision=precision,
-        n=n,
-        evaluate_f=system.evaluate_f,
-        evaluate_observables=system.evaluate_observables,
-        get_solver_helper_fn=system.get_solver_helper,
-        tableau=NON_ADJACENT_REPEAT_TABLEAU,
-        newton_atol=1e-10,
-        newton_rtol=1e-10,
-        krylov_atol=1e-10,
-        krylov_rtol=1e-10,
-        newton_max_iters=50,
-        krylov_max_iters=100,
-    )
-    assert step.dense_prediction
+    step_object_mutable.update(tableau=NON_ADJACENT_REPEAT_TABLEAU)
+    assert step_object_mutable.dense_prediction
     params = np.asarray(
         system.parameters.values_array, dtype=precision
     )
-    state = np.asarray(
-        system.initial_values.values_array, dtype=precision
-    )
+    state = np.asarray(initial_state, dtype=precision)
     base_dt = precision(0.005)
     schedule = [
         base_dt,
@@ -325,18 +301,19 @@ def test_non_adjacent_repeat_matches_cpu_reference(
         precision(0.75) * base_dt,
     ]
     device_state, _ = _run_schedule(
-        step, system, precision, state, params, schedule
+        step_object_mutable, system, precision, state, params,
+        schedule
     )
 
     cpu_step = CPUDIRKStep(
         cpu_system,
         cpu_driver_evaluator,
-        newton_tol=1e-10,
-        newton_rtol=1e-10,
-        newton_max_iters=50,
-        linear_tol=1e-10,
-        linear_rtol=1e-10,
-        linear_max_iters=100,
+        newton_tol=float(solver_settings["newton_atol"]),
+        newton_rtol=float(solver_settings["newton_rtol"]),
+        newton_max_iters=int(solver_settings["newton_max_iters"]),
+        linear_tol=float(solver_settings["krylov_atol"]),
+        linear_rtol=float(solver_settings["krylov_rtol"]),
+        linear_max_iters=int(solver_settings["krylov_max_iters"]),
         tableau=NON_ADJACENT_REPEAT_TABLEAU,
     )
     cpu_state = state.copy()

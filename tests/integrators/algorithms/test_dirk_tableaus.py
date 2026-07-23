@@ -1,6 +1,5 @@
 """Tests covering DIRK tableau registration and selection."""
 
-import numpy as np
 import pytest
 
 from cubie.integrators.algorithms.generic_dirk import DIRKStep
@@ -47,36 +46,55 @@ def test_l_stable_sdirk4_fourth_stage_is_consistent():
     )
 
 
-@pytest.mark.parametrize("precision_value", [np.float32, np.float64])
-def test_first_stage_is_explicit_classifies_by_diagonal(
-    precision_value,
-):
+def test_first_stage_is_explicit_classifies_by_diagonal():
     """ESDIRK tableaus report an explicit stage zero; SDIRK and
     single-stage tableaus report an implicit one."""
 
-    assert KVAERNO3_TABLEAU.first_stage_is_explicit(precision_value)
-    assert KVAERNO5_TABLEAU.first_stage_is_explicit(precision_value)
+    assert KVAERNO3_TABLEAU.first_stage_is_explicit
+    assert KVAERNO5_TABLEAU.first_stage_is_explicit
     assert not DIRK_TABLEAU_REGISTRY[
         "lobatto_iiic_3"
-    ].first_stage_is_explicit(precision_value)
+    ].first_stage_is_explicit
     assert not DIRK_TABLEAU_REGISTRY[
         "implicit_midpoint"
-    ].first_stage_is_explicit(precision_value)
+    ].first_stage_is_explicit
 
 
-def test_first_stage_is_explicit_uses_typed_diagonal():
-    """The classification compares in the requested precision, so a
-    subnormal-below-float32 coefficient counts as explicit there and
-    implicit at float64."""
+@pytest.mark.parametrize(
+    "nodes,expected",
+    [
+        ((0.0, 0.5, 1.0), (0, 1, 2)),
+        ((0.0, 0.87, 1.0, 1.0), (0, 1, 2, 2)),
+        ((0.0, 0.5, 1.0, 0.5), (0, 1, 2, 1)),
+        ((0.0, 0.5, 0.0), (0, 1, 0)),
+        ((0.5, 0.5, 0.5), (0, 0, 1)),
+    ],
+    ids=[
+        "distinct-nodes",
+        "adjacent-repeat",
+        "non-adjacent-repeat",
+        "explicit-first-source",
+        "triple-repeat",
+    ],
+)
+def test_prediction_source_stages_mappings(nodes, expected):
+    """Each stage's starting guess reads the latest earlier stage at
+    its time, or its own row when its time is new."""
 
-    tiny_diagonal = DIRKTableau(
-        a=((1e-46, 0.0), (0.5, 0.5)),
-        b=(0.5, 0.5),
-        c=(1e-46, 1.0),
+    stage_count = len(nodes)
+    tableau = DIRKTableau(
+        a=tuple(
+            tuple(
+                0.5 if column == row else 0.0
+                for column in range(stage_count)
+            )
+            for row in range(stage_count)
+        ),
+        b=(1.0 / stage_count,) * stage_count,
+        c=nodes,
         order=1,
     )
-    assert tiny_diagonal.first_stage_is_explicit(np.float32)
-    assert not tiny_diagonal.first_stage_is_explicit(np.float64)
+    assert tableau.prediction_source_stages == expected
 
 
 def test_dirk_step_accepts_tableau_instance(precision):

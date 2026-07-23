@@ -405,6 +405,27 @@ class ButcherTableau(_CubieConfigBase):
         return typed_precision(value)
 
     @property
+    def first_stage_is_explicit(self) -> bool:
+        """Return whether the first stage needs no implicit solve."""
+
+        first_row = self.a[0] if self.a else ()
+        return len(first_row) == 0 or first_row[0] == 0.0
+
+    @property
+    def prediction_sample_stages(self) -> Tuple[int, ...]:
+        """Return the stage sampled at each distinct stage time.
+
+        Stages sharing an entry of ``c`` sample the derivative at
+        the same time, so only the last such stage contributes a
+        sample to dense prediction.
+        """
+
+        last_stage_at_node = {}
+        for stage, node in enumerate(self.c):
+            last_stage_at_node[node] = stage
+        return tuple(last_stage_at_node.values())
+
+    @property
     def first_same_as_last(self) -> bool:
         """Return ``True`` when the first and last stages align."""
 

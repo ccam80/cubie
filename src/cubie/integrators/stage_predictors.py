@@ -92,34 +92,23 @@ check instead.
 """
 
 
-def _distinct_stage_nodes(
-    stage_nodes: np_ndarray,
-) -> tuple:
-    """Return the distinct nodes and the stage kept at each node.
-
-    Two samples at one time cannot both pin a single curve, so a
-    repeated node contributes the last sharing stage's sample only.
-    """
-
-    representatives = {}
-    for stage_index, node in enumerate(stage_nodes.tolist()):
-        representatives[node] = stage_index
-    distinct_nodes = np_asarray(list(representatives.keys()))
-    return distinct_nodes, tuple(representatives.values())
-
-
 def _predictor_matrix_from_nodes(
     stage_nodes: np_ndarray,
     step_ratio: float,
+    sample_indices: tuple,
 ) -> np_ndarray:
-    """Return the read-ahead matrix for *stage_nodes*."""
+    """Return the read-ahead matrix for *stage_nodes*.
+
+    ``sample_indices`` lists the stage sampled at each distinct
+    node, as :attr:`ButcherTableau.prediction_sample_stages` does.
+    """
 
     stage_count = len(stage_nodes)
-    distinct_nodes, sample_indices = _distinct_stage_nodes(stage_nodes)
-    # Weight of each kept derivative sample in the curve's value at
-    # each of the next step's stage times, rescaled by the ratio
-    # because increments carry a factor of the step size. Stages
-    # sharing a node get equal rows; dropped samples zero columns.
+    distinct_nodes = np_asarray(
+        [stage_nodes[index] for index in sample_indices]
+    )
+    # Each entry is the Lagrange weight of one sample at one of the
+    # next step's stage times, times step_ratio for the new dt.
     predictor = np_zeros((stage_count, stage_count))
     for target_index, target_node in enumerate(
         1.0 + step_ratio * stage_nodes
@@ -159,14 +148,20 @@ def _validate_tableau(tableau: ButcherTableau) -> np_ndarray:
     """
 
     stage_nodes = np_asarray(tableau.c, dtype=float)
-    distinct_nodes, _ = _distinct_stage_nodes(stage_nodes)
-    distinct_count = len(distinct_nodes)
+    sample_indices = tableau.prediction_sample_stages
+    distinct_count = len(sample_indices)
 
-    equal_step = _predictor_matrix_from_nodes(stage_nodes, 1.0)
+    equal_step = _predictor_matrix_from_nodes(
+        stage_nodes, 1.0, sample_indices
+    )
     amplification = float(abs(equal_step).sum(axis=1).max())
     gauss_nodes = 0.5 * (np_leggauss(distinct_count)[0] + 1.0)
     reference = float(
-        abs(_predictor_matrix_from_nodes(gauss_nodes, 1.0))
+        abs(
+            _predictor_matrix_from_nodes(
+                gauss_nodes, 1.0, tuple(range(distinct_count))
+            )
+        )
         .sum(axis=1)
         .max()
     )
@@ -217,7 +212,9 @@ def dense_predictor_matrix(
     """
 
     stage_nodes = _validate_tableau(tableau)
-    return _predictor_matrix_from_nodes(stage_nodes, step_ratio)
+    return _predictor_matrix_from_nodes(
+        stage_nodes, step_ratio, tableau.prediction_sample_stages
+    )
 
 
 def dense_predictor_ratio_coefficients(
@@ -252,7 +249,8 @@ def dense_predictor_ratio_coefficients(
 
     stage_nodes = _validate_tableau(tableau)
     stage_count = tableau.stage_count
-    distinct_nodes, sample_indices = _distinct_stage_nodes(stage_nodes)
+    sample_indices = tableau.prediction_sample_stages
+    distinct_nodes = [stage_nodes[index] for index in sample_indices]
     distinct_count = len(distinct_nodes)
 
     # Weight of each kept derivative sample in the curve's value at a
@@ -312,10 +310,6 @@ class DenseStagePredictorConfig(CUDAFactoryConfig):
         Number of state variables per stage.
     tableau : ButcherTableau
         Tableau the prediction matrix derives from.
-    predict_first_stage : bool
-        Whether the transform predicts the first stage. Callers that
-        never solve it pass ``False``; its entries then keep the
-        stored sample.
     """
 
     n: int = field(default=1, validator=getype_validator(int, 1))
@@ -323,15 +317,22 @@ class DenseStagePredictorConfig(CUDAFactoryConfig):
         default=None,
         validator=validators.instance_of(ButcherTableau),
     )
-    predict_first_stage: bool = field(
-        default=True, validator=validators.instance_of(bool)
-    )
 
     @property
     def stage_count(self) -> int:
         """Return the number of stages described by the tableau."""
 
         return self.tableau.stage_count
+
+    @property
+    def predict_first_stage(self) -> bool:
+        """Return whether the transform predicts the first stage.
+
+        An explicit first stage is never solved, so its stored
+        sample is kept instead of predicted.
+        """
+
+        return not self.tableau.first_stage_is_explicit
 
 
 @define
@@ -356,8 +357,8 @@ class DenseStagePredictor(CUDAFactory):
     previous step size and passes the ratio ``next dt / previous
     dt``; it also folds first-step, rejected-step, and step-ratio
     ceiling conditions into ``apply_flag``, which may vary by lane
-    (the commit is a predicated value selection, not a branch). With
-    ``predict_first_stage`` false the first stage's entries are left
+    (the commit is a predicated value selection, not a branch). An
+    explicit first stage is never solved, so its entries are left
     untouched (its sample still feeds the read-ahead of the other
     stages).
     """
@@ -380,8 +381,8 @@ class DenseStagePredictor(CUDAFactory):
         tableau
             Tableau the prediction matrix derives from.
         **kwargs
-            Optional ``predict_first_stage`` setting. None values are
-            ignored.
+            Optional overrides for other compile settings. None
+            values are ignored.
         """
 
         super().__init__()

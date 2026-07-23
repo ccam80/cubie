@@ -1009,16 +1009,16 @@ class CPUDIRKStep(CPUStep):
             and float(self._dirk_max_ratio) > 0.0
             and tableau_supports_dense_prediction(resolved)
         )
-        # A repeated node seeds from the most recent earlier
-        # same-node stage's history row; distinct nodes seed from
-        # their own predicted row. Derived independently of the
-        # device mapping.
+        # Derived independently of the device mapping: a repeated
+        # stage time starts from the earlier same-time stage's row.
         latest_stage_at_node = {}
-        seed_sources = []
+        prediction_sources = []
         for stage, node in enumerate(resolved.c):
-            seed_sources.append(latest_stage_at_node.get(node, stage))
+            prediction_sources.append(
+                latest_stage_at_node.get(node, stage)
+            )
             latest_stage_at_node[node] = stage
-        self._dirk_seed_sources = tuple(seed_sources)
+        self._dirk_prediction_sources = tuple(prediction_sources)
 
     def residual(self, candidate: Array) -> Array:
         base_state = self._dirk_reference
@@ -1113,11 +1113,13 @@ class CPUDIRKStep(CPUStep):
         self._dirk_previous_dt = dt_value
 
         for stage_index in range(stage_count):
-            # A repeated node seeds from the most recent earlier
-            # same-node stage's history row, mirroring the device.
+            # A repeated stage time starts from the earlier
+            # same-time stage's row, mirroring the device.
             if history is not None:
-                seed_stage = self._dirk_seed_sources[stage_index]
-                guess = history[seed_stage].copy()
+                source_stage = self._dirk_prediction_sources[
+                    stage_index
+                ]
+                guess = history[source_stage].copy()
             else:
                 guess = self._dirk_increment
 

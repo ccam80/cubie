@@ -328,7 +328,6 @@ def test_device_predictor_commit_flag(precision, apply_flag):
         precision=precision,
         n=n,
         tableau=tableau,
-        predict_first_stage=True,
     )
     predict = predictor.device_function
     numba_precision = from_dtype(precision)

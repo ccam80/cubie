@@ -51,7 +51,7 @@ from typing import Dict, Tuple
 import attrs
 import math
 
-from cubie._utils import PrecisionDType, precision_converter
+from cubie.cuda_simsafe import int32
 from cubie.integrators.algorithms.base_algorithm_step import ButcherTableau
 
 
@@ -68,6 +68,8 @@ class DIRKTableau(ButcherTableau):
     diagonal(precision)
         Return the diagonal elements of the :math:`A` matrix as a
         precision-typed tuple.
+    prediction_source_stages
+        Return the history row each stage's starting guess reads.
 
     References
     ----------
@@ -89,14 +91,22 @@ class DIRKTableau(ButcherTableau):
         )
         return self.typed_vector(diagonal_entries, precision)
 
-    def first_stage_is_explicit(
-        self,
-        precision: PrecisionDType,
-    ) -> bool:
-        """Return whether stage zero has a zero diagonal coefficient."""
+    @property
+    def prediction_source_stages(self) -> Tuple[int, ...]:
+        """Return the history row each stage's starting guess reads.
 
-        typed_precision = precision_converter(precision)
-        return self.diagonal(typed_precision)[0] == typed_precision(0.0)
+        A stage that repeats an earlier stage's time starts its
+        solve from that stage's converged increment; every other
+        stage starts from its own predicted increment. Members are
+        ``int32`` for direct use in device code.
+        """
+
+        latest_stage_at_node = {}
+        sources = []
+        for stage, node in enumerate(self.c):
+            sources.append(latest_stage_at_node.get(node, stage))
+            latest_stage_at_node[node] = stage
+        return tuple(int32(source) for source in sources)
 
 
 IMPLICIT_MIDPOINT_TABLEAU = DIRKTableau(

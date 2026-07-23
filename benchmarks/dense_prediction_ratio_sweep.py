@@ -197,16 +197,10 @@ class ProbeContext:
             self.predicted_step, capture=history_name
         )
         self.run_carry = self._build_runner(self.carry_step)
-        predict_first_stage = (
-            not tableau.first_stage_is_explicit(precision)
-            if kind == "dirk"
-            else True
-        )
         self.predictor = DenseStagePredictor(
             precision=precision,
             n=n,
             tableau=opened,
-            predict_first_stage=predict_first_stage,
         )
         self.apply_prediction = self._build_predictor_runner()
         self.rows = compare_rows(kind, tableau)

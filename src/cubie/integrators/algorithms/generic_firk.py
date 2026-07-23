@@ -465,8 +465,8 @@ class FIRKStep(ODEImplicitStep):
             b_hat_row = int32(b_hat_row)
 
         ends_at_one = stage_time_fractions[-1] == numba_precision(1.0)
-        max_step_ratio = numba_precision(
-            tableau.dense_prediction_ratio_limit(config.precision)
+        max_step_ratio = tableau.dense_prediction_ratio_limit(
+            config.precision
         )
 
         # Get allocators from buffer registry
@@ -563,6 +563,9 @@ class FIRKStep(ODEImplicitStep):
 
             if use_dense_prediction:
                 previous_dt = previous_step_size[0]
+                # Safe to store on a rejected attempt: prediction is
+                # skipped after a rejection, so a rejected size is
+                # never consumed.
                 previous_step_size[0] = dt_scalar
                 # Zeroed first-step storage keeps the ratio finite.
                 safe_previous_dt = (
@@ -571,11 +574,7 @@ class FIRKStep(ODEImplicitStep):
                     else dt_scalar
                 )
                 step_ratio = dt_scalar / safe_previous_dt
-                # No previous curve exists on the first step, a
-                # rejected proposal's curve does not end where this
-                # step starts, and beyond the tableau's calibrated
-                # ratio ceiling the read-ahead loses to carrying, so
-                # all three carry the increments unchanged.
+                # Predict only from an accepted step within the ceiling.
                 first_step = first_step_flag != int32(0)
                 previous_accepted = accepted_flag != int32(0)
                 apply_prediction = (

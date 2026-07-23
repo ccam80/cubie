@@ -93,25 +93,6 @@ explicitly specifying step controller parameters.
 """
 
 
-def stage_seed_sources(stage_nodes) -> tuple:
-    """Return each stage's Newton-seed source stage.
-
-    A stage repeating an earlier node seeds from the most recent
-    earlier stage at that node (its just-converged increment, or an
-    explicit stage's free derivative sample); a distinct node seeds
-    from the stage's own predicted history row. This intentionally
-    differs from the predictor's keep-last sample dedupe: the seed
-    source looks backwards, the kept sample looks forwards.
-    """
-
-    latest_stage_at_node = {}
-    sources = []
-    for stage, node in enumerate(stage_nodes):
-        sources.append(latest_stage_at_node.get(node, stage))
-        latest_stage_at_node[node] = stage
-    return tuple(sources)
-
-
 DIRK_FIXED_DEFAULTS = StepControlDefaults(
     step_controller={
         "step_controller": "fixed",
@@ -286,47 +267,13 @@ class DIRKStep(ODEImplicitStep):
 
         super().__init__(config, controller_defaults, **kwargs)
 
-        # An explicit first stage is never solved, so its
-        # prediction row is skipped.
         settings = self.compile_settings
-        predict_first_stage = not settings.tableau.first_stage_is_explicit(
-            settings.precision
-        )
         self.dense_predictor = DenseStagePredictor(
             precision=settings.precision,
             n=n,
             tableau=settings.tableau,
-            predict_first_stage=predict_first_stage,
         )
         self.register_buffers()
-
-    def update(self, updates_dict=None, silent=False, **kwargs):
-        """Update settings, rederiving the first-stage prediction row.
-
-        Returns
-        -------
-        set
-            Set of recognized parameter names that were updated.
-        """
-
-        all_updates = {}
-        if updates_dict:
-            all_updates.update(updates_dict)
-        all_updates.update(kwargs)
-        if not all_updates:
-            return set()
-
-        if "tableau" in all_updates or "precision" in all_updates:
-            tableau = all_updates.get(
-                "tableau", self.compile_settings.tableau
-            )
-            precision = all_updates.get(
-                "precision", self.compile_settings.precision
-            )
-            all_updates["predict_first_stage"] = not (
-                tableau.first_stage_is_explicit(precision)
-            )
-        return super().update(all_updates, silent=silent)
 
     def register_buffers(self) -> None:
         """Register buffers according to locations in compile settings."""
@@ -515,18 +462,11 @@ class DIRKStep(ODEImplicitStep):
 
         stage_implicit = tuple(coeff != numba_precision(0.0)
                           for coeff in diagonal_coeffs)
-        # Explicit stages still feed their free derivative samples
-        # into the prediction history.
         first_stage_implicit = bool(stage_implicit[0])
         has_later_explicit_stage = not all(stage_implicit[1:])
-        # Seed source and result row stay separate on repeats: a
-        # repeated stage reads its source's row but always writes
-        # its own row after convergence.
-        seed_source_stages = tuple(
-            int32(source) for source in stage_seed_sources(tableau.c)
-        )
-        max_step_ratio = numba_precision(
-            tableau.dense_prediction_ratio_limit(config.precision)
+        prediction_source_stages = tableau.prediction_source_stages
+        max_step_ratio = tableau.dense_prediction_ratio_limit(
+            config.precision
         )
         accumulator_length = int32(max(stage_count - 1, 0) * n)
 
@@ -636,6 +576,9 @@ class DIRKStep(ODEImplicitStep):
 
             if use_dense_prediction:
                 previous_dt = previous_step_size[0]
+                # Safe to store on a rejected attempt: prediction is
+                # skipped after a rejection, so a rejected size is
+                # never consumed.
                 previous_step_size[0] = dt_scalar
                 # Zeroed first-step storage keeps the ratio finite.
                 safe_previous_dt = (
@@ -644,11 +587,7 @@ class DIRKStep(ODEImplicitStep):
                     else dt_scalar
                 )
                 step_ratio = dt_scalar / safe_previous_dt
-                # No previous curve exists on the first step, a
-                # rejected proposal's curve does not end where this
-                # step starts, and beyond the tableau's calibrated
-                # ratio ceiling the read-ahead loses to carrying, so
-                # all three leave the history unchanged.
+                # Predict only from an accepted step within the ceiling.
                 previous_accepted = accepted_flag != int32(0)
                 apply_prediction = (
                     (not first_step)
@@ -749,8 +688,7 @@ class DIRKStep(ODEImplicitStep):
                 )
 
             if use_dense_prediction and not first_stage_implicit:
-                # Store the first stage's free derivative sample;
-                # valid on both the recomputed and cached RHS paths.
+                # An explicit first stage's history row is dt * f.
                 for idx in range(n):
                     stage_increment_history[idx] = (
                         dt_scalar * stage_rhs[idx]
@@ -817,13 +755,13 @@ class DIRKStep(ODEImplicitStep):
                 if stage_implicit[stage_idx]:
                     if use_dense_prediction:
                         history_offset = stage_idx * n
-                        seed_offset = (
-                            seed_source_stages[stage_idx] * n
+                        source_offset = (
+                            prediction_source_stages[stage_idx] * n
                         )
                         for idx in range(n):
                             stage_increment[idx] = (
                                 stage_increment_history[
-                                    seed_offset + idx
+                                    source_offset + idx
                                 ]
                             )
                     solver_status = nonlinear_solver(
