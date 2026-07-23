@@ -17,9 +17,9 @@ See `CUDAFactory` (root) for build/cache/`update`, config, and attrs conventions
 ## Key Files
 | File | Description |
 |------|-------------|
-| `solver.py` | `Solver` + `solve_ivp()` — the public API. `solve_ivp` also accepts raw equations (callable / string / iterable of strings), building the system via `_system_from_equations` (state names from a `y0` dict, parameter defaults from a `parameters` dict; array `parameters` rejected). `Solver` owns `system_interface`, `input_handler` (`BatchInputHandler`), `driver_interpolator` (`ArrayInterpolator`), and `kernel` (`BatchSolverKernel`); most getters are thin pass-throughs to `kernel`. |
-| `BatchSolverKernel.py` | `BatchSolverKernel(CUDAFactory)` — the batch `@cuda.jit` kernel; maps each run to the `SingleIntegratorRun` device loop. Defines `RunParams` (frozen: duration/warmup/t0/runs + chunk metadata) and `BatchSolverCache`; owns the `InputArrays`/`OutputArrays` managers and memory-manager registration. |
-| `BatchSolverConfig.py` | `BatchSolverConfig(CUDAFactoryConfig)` — holds `precision`, `loop_fn`, `compile_flags`, `driver_coefficients_shape`. `ActiveOutputs(_CubieConfigBase)` — booleans for which output arrays are produced, built via `ActiveOutputs.from_compile_flags(...)`. |
+| `solver.py` | `Solver` + `solve_ivp()` — the public API. `solve_ivp` also accepts raw equations (callable / string / iterable of strings), building the system via `_system_from_equations` (state names from a `y0` dict, parameter defaults from a `parameters` dict; array `parameters` rejected). `Solver` owns `system_interface`, `input_handler` (`BatchInputHandler`), and `kernel` (`BatchSolverKernel`); `driver_interpolator` is a passthrough to the kernel-owned interpolator, and most getters are thin pass-throughs to `kernel`. |
+| `BatchSolverKernel.py` | `BatchSolverKernel(CUDAFactory)` — the batch `@cuda.jit` kernel; maps each run to the `SingleIntegratorRun` device loop. Owns the `ArrayInterpolator` as a direct child factory (`driver_interpolator`; `configure_drivers()` updates it and the dependent compile settings as one unit) and the `CubieCacheHandler` with its `CachePolicy`. Defines `RunParams` (frozen: duration/warmup/t0/runs + chunk metadata) and `BatchSolverCache`; owns the `InputArrays`/`OutputArrays` managers and memory-manager registration. |
+| `BatchSolverConfig.py` | `BatchSolverConfig(CUDAFactoryConfig)` — holds `precision`, `loop_fn`, `compile_flags`, `driver_coefficients_shape`. Cache policy is **not** a compile setting — it lives with the kernel's `CubieCacheHandler`. `ActiveOutputs(_CubieConfigBase)` — booleans for which output arrays are produced, built via `ActiveOutputs.from_compile_flags(...)`. |
 | `BatchInputHandler.py` | `BatchInputHandler` (plain class) + module-level grid builders (`unique_cartesian_product`, `combinatorial_grid`, `verbatim_grid`, `generate_grid`, `combine_grids`, `extend_grid_to_array`). Converts user dicts/arrays into `(variable, run)` 2D arrays; anything it materialises (cast or assembly) lands in a memory-manager buffer, pinned below `pinned_max_bytes`, while a right-sized correct-precision user array passes through untouched. |
 | `SystemInterface.py` | `SystemInterface` — wraps the system's `SystemValues`; resolves labels↔indices, and `merge_variable_labels_and_idxs` merges `save_variables`/`summarise_variables` labels + index kwargs into final index arrays. |
 | `solveresult.py` | `SolveSpec` (attrs config snapshot); `SolveResult` — owns the solve's host buffers via `OutputArrays.loan_host_arrays` (zero copy), applies NaN-on-error masking in place, carries the solve's `stream`, and derives `time`/`time_domain_array`/`summaries_array` plus `as_numpy`/`as_numpy_per_summary`/`as_pandas` lazily; `DeviceSolveResult` — device-array handles to the solve's output buffers plus the kernel's stream, returned by `Solver.solve(on_device=True)` with no D2H copy. Both are pure data containers: no stream or memory operations happen in this module. |
@@ -137,9 +137,11 @@ a lone device input is paired verbatim (defaults or a single column broadcast to
 run count). Device inputs are likewise single-chunk only. Every dim in `BatchInputSizes` is
 concrete: `driver_coefficients_shape` is a `BatchSolverConfig` compile setting (the
 `(num_segments, num_drivers, order + 1)` layout baked into the compiled driver evaluators as
-closure constants), seeded at Solver construction and refreshed through `kernel.update`
-wherever the interpolator's evaluators change, so shape checks compare against the layout
-the kernel was compiled for.
+closure constants), seeded at kernel construction from the kernel-owned interpolator and
+refreshed through `kernel.configure_drivers`/`kernel.update` wherever the interpolator's
+evaluators change, so shape checks compare against the layout the kernel was compiled for.
+Driver dicts name their sample spacing `driver_sample_period` — `dt` is the integrator
+timestep and never reaches the interpolator.
 
 ### Testing
 `tests/batchsolving/` (`test_solver.py`, `test_BatchSolverKernel.py`, input-handler/result tests).
@@ -152,7 +154,7 @@ Prefer real system fixtures (`tests/system_fixtures.py`) over mocks.
   `cubie.memory` (`default_memmgr`, `MemoryManager`, `ArrayRequest`/`ArrayResponse`,
   `chunk_buffer_pool`) + `cubie.buffer_registry`; `cubie.outputhandling` (`OutputCompileFlags`,
   `output_sizes`, `summary_metrics`); `cubie.odesystems` (`BaseODE`, `SymbolicODE`,
-  `SystemValues`); `cubie.cubie_cache` (`CacheConfig`, `CubieCacheHandler`,
+  `SystemValues`); `cubie.cubie_cache` (`CachePolicy`, `CubieCacheHandler`,
   `ALL_CACHE_PARAMETERS`); `cubie.cuda_simsafe`; `cubie._utils`.
 ### External
 - `numba`/`numba.cuda`; `numpy`; `attrs`; optional `pandas` (lazy in `as_pandas`).

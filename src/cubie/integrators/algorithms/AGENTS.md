@@ -27,7 +27,8 @@ attrs-config mechanics; CUDA-authoring *optimisation* patterns are in
 | `__init__.py` | Public surface: `get_algorithm_step()`, `_ALGORITHM_REGISTRY`, `_TABLEAU_REGISTRY_BY_ALGORITHM`, `resolve_alias`/`resolve_supplied_tableau`; re-exports every step class and tableau registry. |
 | `base_algorithm_step.py` | Core abstractions: `ButcherTableau` (typed accessors, FSAL/error detection), `BaseStepConfig`, `StepCache`, `StepControlDefaults`, `BaseAlgorithmStep` (CUDAFactory base), `ALL_ALGORITHM_STEP_PARAMETERS`. |
 | `ode_explicitstep.py` | `ExplicitStepConfig` + `ODEExplicitStep`: `build()` delegates to `build_step` (no solver); `is_implicit` → `False`. |
-| `ode_implicitstep.py` | `ImplicitStepConfig` (beta, gamma, preconditioner_order — no mass: the matrix belongs to the ODE system) + `ODEImplicitStep`: owns a `NewtonKrylov`/`LinearSolver`, builds operator/preconditioner/residual helpers, routes solver-param updates; `is_implicit` → `True`. |
+| `ode_implicitstep.py` | `ImplicitStepConfig` (beta, gamma, preconditioner_order — no mass: the matrix belongs to the ODE system) + `ODEImplicitStep`: owns a `NewtonKrylov`/`LinearSolver`, builds operator/preconditioner/residual helpers as immutable `SolverHelperRequest`s, resolves `preconditioner_type` into concrete kinds (owning a `PreconditionerChain` for two-stage composition), routes solver-param updates; `is_implicit` → `True`. |
+| `preconditioner_chain.py` | `PreconditionerChain(CUDAFactory)`: composes two concrete preconditioners as `P1(P0(v))`. Owned by an implicit step only while a two-element `preconditioner_type` is configured; the chained kinds are semantic settings, the two callables `eq=False` derived settings. The consuming linear solver still registers `chain_scratch` — it materialises the argument. |
 | `explicit_euler.py` | `ExplicitEulerStep`: forward Euler, order 1, fixed-step. |
 | `generic_erk.py` | `ERKStep` + `ERKStepConfig`: streamed-accumulator explicit RK; FSAL caching; controller auto-selected from `tableau.has_error_estimate`. |
 | `generic_erk_tableaus.py` | `ERKTableau` + ERK sets (Heun, Ralston, Bogacki-Shampine, Dormand-Prince 5(4)/8(5,3), RK4, Cash-Karp, Fehlberg, Tsit5, Vern7); `ERK_TABLEAU_REGISTRY`, `DEFAULT_ERK_TABLEAU`. |
@@ -119,6 +120,19 @@ first-step/rejection and passes a flag, the predictor bounds the ratio. DIRK
 keeps a persistent `stage_increment_history` (`stage_count * n`, registered
 size 0 when inactive); FIRK transforms its coupled stage vector in place.
 `predictor_function` pipes through compile settings like `solver_function`.
+
+### Solver helpers arrive as requests
+Implicit steps request every generated helper through immutable
+`SolverHelperRequest` values (`cubie.odesystems.solver_helpers`): the step derives
+beta/gamma/order (and the stage specification for FIRK) from its own compile
+settings and calls `get_solver_helper_fn(request).device_function`. Requests never
+mutate the ODE system's configuration. `ODEImplicitStep.update` refreshes the step
+settings first and translates the model `n` to `solver_n` (the coupled all-stages
+length for FIRK) before forwarding to the solver subtree, so every snapshot the
+solver's norms validate is self-consistent. `ODEImplicitStep.build()` runs
+`build_implicit_helpers()` **before** snapshotting `compile_settings` — the helper
+refresh replaces the snapshot. Rosenbrock-W reads its cached-auxiliary count from
+`prepare_jac`'s `HelperResult`.
 
 ### FSAL warp-coherence
 - FSAL stage-0 RHS reuse is guarded by `all_sync(activemask(), accepted_flag != 0)` so
