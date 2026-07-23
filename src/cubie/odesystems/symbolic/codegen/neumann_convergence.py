@@ -49,7 +49,7 @@ from cubie.CUDAFactory import (
     CUDAFactoryConfig,
 )
 from cubie._utils import PrecisionDType
-from cubie.cubie_cache import CacheConfig, CubieCacheHandler
+from cubie.cubie_cache import CachePolicy, CubieCacheHandler
 from cubie.cuda_simsafe import CUDA_SIMULATION, cuda
 from cubie.odesystems.symbolic.indexedbasemaps import IndexedBases
 
@@ -69,10 +69,9 @@ class NeumannEvaluatorConfig(CUDAFactoryConfig):
         Hash of the owning system's own settings and constants, so the
         disk-cache key changes whenever ``dxdt`` is regenerated with
         different semantics under the same equations.
-    cache_config
-        Disk-cache configuration. Excluded from hashing so cache
-        relocation never alters the disk-cache key; a change still
-        invalidates the build, which reattaches a fresh cache.
+    system_hash
+        The owning system's equation/layout identity, used as the
+        disk-cache freshness stamp.
     """
 
     dxdt_function: Optional[Callable] = field(default=None, eq=False)
@@ -80,10 +79,9 @@ class NeumannEvaluatorConfig(CUDAFactoryConfig):
         default="",
         validator=val.instance_of(str),
     )
-    cache_config: CacheConfig = field(
-        factory=CacheConfig,
-        validator=val.instance_of(CacheConfig),
-        eq=False,
+    system_hash: str = field(
+        default="",
+        validator=val.instance_of(str),
     )
 
     def __attrs_post_init__(self):
@@ -94,7 +92,7 @@ class NeumannEvaluatorConfig(CUDAFactoryConfig):
 class NeumannEvaluatorCache(CUDADispatcherCache):
     """Container for the compiled Jacobian evaluation kernel."""
 
-    evaluation_kernel: Union[int, Callable] = field(default=-1)
+    evaluation_kernel: Optional[Callable] = field(default=None)
 
 
 class NeumannRHSEvaluator(CUDAFactory):
@@ -107,27 +105,41 @@ class NeumannRHSEvaluator(CUDAFactory):
     :class:`SymbolicODE` refreshes ``dxdt_function`` and
     ``dxdt_settings_hash`` before each use, so the kernel rebuilds
     through the standard compile-settings invalidation whenever the
-    system's device code changes. Cache settings arrive through the
-    same ``update`` chain; the build attaches a configured disk cache
-    when caching is enabled.
+    system's device code changes. Cache policy is service
+    configuration injected by the owner through
+    :meth:`set_cache_policy`; the build attaches a configured disk
+    cache when the policy enables caching.
     """
 
     def __init__(
         self,
         precision: PrecisionDType,
-        cache_config: CacheConfig,
+        system_name: str = "",
     ) -> None:
         super().__init__()
         # The handler must exist before setup_compile_settings, which
         # invalidates the build and reaches the handler through
         # _invalidate_cache.
-        self._cache_handler = CubieCacheHandler(cache_config)
-        self.setup_compile_settings(
-            NeumannEvaluatorConfig(
-                precision=precision,
-                cache_config=cache_config,
-            )
+        self._cache_handler = CubieCacheHandler(
+            CachePolicy(), system_name=system_name
         )
+        self.setup_compile_settings(
+            NeumannEvaluatorConfig(precision=precision)
+        )
+
+    @property
+    def cache_policy(self) -> CachePolicy:
+        """Return the cache policy this evaluator's kernel follows."""
+        return self._cache_handler.policy
+
+    def set_cache_policy(self, policy: CachePolicy) -> None:
+        """Install a replacement cache policy.
+
+        A changed policy invalidates the built kernel so a freshly
+        configured disk cache attaches on the next build.
+        """
+        if self._cache_handler.update_policy(policy):
+            self._invalidate_cache()
 
     def build(self) -> NeumannEvaluatorCache:
         """Compile the evaluation kernel for the configured ``dxdt``."""
@@ -154,7 +166,7 @@ class NeumannRHSEvaluator(CUDAFactory):
         # no cover: end
         if not CUDA_SIMULATION:
             disk_cache = self._cache_handler.configured_cache(
-                config.cache_config.system_hash,
+                config.system_hash,
                 config.values_hash,
             )
             if disk_cache is not None:

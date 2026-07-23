@@ -16,7 +16,7 @@ from cubie.cubie_cache import (
     CUBIECacheImpl,
     CUBIECache,
     CubieCacheHandler,
-    CacheConfig,
+    CachePolicy,
     ALL_CACHE_PARAMETERS,
     _CacheFileLock,
     environment_hash,
@@ -165,27 +165,25 @@ def test_all_cache_parameters_contains_expected_keys():
     assert ALL_CACHE_PARAMETERS == expected_keys
 
 
-def test_cache_config_has_cache_enabled_field():
-    """Verify CacheConfig has cache_enabled field (not enabled)."""
-    config = CacheConfig()
-    assert hasattr(config, "cache_enabled")
-    assert not hasattr(config, "enabled")
-    assert config.cache_enabled is False
+def test_cache_policy_has_cache_enabled_field():
+    """Verify CachePolicy has cache_enabled field (not enabled)."""
+    policy = CachePolicy()
+    assert hasattr(policy, "cache_enabled")
+    assert not hasattr(policy, "enabled")
+    assert policy.cache_enabled is False
 
     # Verify it can be set to True
-    config_enabled = CacheConfig(cache_enabled=True)
-    assert config_enabled.cache_enabled is True
+    policy_enabled = CachePolicy(cache_enabled=True)
+    assert policy_enabled.cache_enabled is True
 
 
-def test_cache_config_has_system_name_field():
-    """Verify CacheConfig has system_name field."""
-    config = CacheConfig()
-    assert hasattr(config, "system_name")
-    assert config.system_name == ""
-
-    # Verify it can be set
-    config_with_name = CacheConfig(system_name="my_system")
-    assert config_with_name.system_name == "my_system"
+def test_cache_policy_holds_no_identity():
+    """CachePolicy is pure policy: no system name or hash fields."""
+    policy = CachePolicy()
+    assert not hasattr(policy, "system_name")
+    assert not hasattr(policy, "system_hash")
+    handler = CubieCacheHandler(policy, system_name="my_system")
+    assert handler.system_name == "my_system"
 
 
 # --- CUBIECacheImpl tests ---
@@ -389,13 +387,11 @@ def test_cache_impl_instantiation_works():
 
 
 def _handler(cache_enabled, system_name, system_hash):
-    """Build a handler around a fresh CacheConfig."""
+    """Build a handler with a fresh policy; hashes stay call-time."""
+    del system_hash
     return CubieCacheHandler(
-        CacheConfig(
-            cache_enabled=cache_enabled,
-            system_name=system_name,
-            system_hash=system_hash,
-        )
+        CachePolicy(cache_enabled=cache_enabled),
+        system_name=system_name,
     )
 
 
@@ -403,14 +399,14 @@ def test_cache_handler_init_with_disabled_cache():
     """Verify CubieCacheHandler initializes with None cache when disabled."""
     handler = _handler(False, "test_system", "abc123")
     assert handler.cache is None
-    assert handler.config.cache_enabled is False
+    assert handler.policy.cache_enabled is False
 
 
 def test_cache_handler_init_with_enabled_cache():
     """An enabled handler creates its cache only for a build."""
     handler = _handler(True, "test_system", "abc123")
     assert handler.cache is None
-    assert handler.config.cache_enabled is True
+    assert handler.policy.cache_enabled is True
 
 
 def test_cache_handler_configured_cache_returns_none_when_disabled():
@@ -441,14 +437,13 @@ def test_cache_handler_flush_handles_none_cache():
     handler.flush()
 
 
-def test_cache_handler_follows_shared_config_updates():
-    """Enabling through the shared config affects the next build."""
+def test_cache_handler_policy_replacement_enables_builds():
+    """Installing an enabling policy affects the next build."""
     handler = _handler(False, "test_system", "abc123")
     assert handler.configured_cache("abc123", "compile_hash") is None
 
-    recognized, changed = handler.config.update({"cache_enabled": True})
-    assert "cache_enabled" in recognized
-    assert "cache_enabled" in changed
+    changed = handler.update_policy_params({"cache_enabled": True})
+    assert changed is True
     cache = handler.configured_cache("abc123", "compile_hash")
     assert isinstance(cache, CUBIECache)
 
@@ -463,9 +458,12 @@ def test_batch_solver_kernel_extracts_system_hash_from_symbolic_ode(
     # SymbolicODE should have fn_hash attribute
     assert hasattr(system, "fn_hash")
 
-    # Verify cache_handler config has the system_hash from system.fn_hash
-    handler_config = solverkernel.cache_handler.config
-    assert handler_config.system_hash == system.fn_hash
+    # The handler receives identity hashes at build time; the kernel
+    # passes system.fn_hash when configuring the dispatcher cache.
+    cache = solverkernel.cache_handler.configured_cache(
+        system.fn_hash, "d" * 64
+    )
+    assert cache is None or system.fn_hash[:8] in str(cache.cache_path)
 
 
 def test_batch_solver_kernel_uses_name_from_system(solverkernel, system):
@@ -473,14 +471,12 @@ def test_batch_solver_kernel_uses_name_from_system(solverkernel, system):
     # System should have a name
     assert hasattr(system, "name")
 
-    # Verify cache_handler config has the system_name from system.name
-    handler_config = solverkernel.cache_handler.config
     # If system.name is set, it should be used; otherwise hash prefix
-    if system.name:
-        assert handler_config.system_name == system.name
+    handler = solverkernel.cache_handler
+    if system.name and system.name != system.fn_hash:
+        assert handler.system_name == system.name
     else:
-        # Fallback to first 12 chars of hash
-        assert handler_config.system_name == system.fn_hash[:12]
+        assert handler.system_name.startswith("unnamed_")
 
 
 def test_batch_solver_kernel_handles_none_cache_settings(
@@ -514,7 +510,7 @@ def test_batch_solver_kernel_update_forwards_cache_params(
 ):
     """Verify update(cache_mode='flush_on_change') is recognized."""
     # Initial mode should be 'hash' (default)
-    initial_mode = solverkernel_mutable.cache_handler.config.cache_mode
+    initial_mode = solverkernel_mutable.cache_handler.policy.cache_mode
     assert initial_mode == "hash"
 
     # Update cache mode
@@ -523,7 +519,7 @@ def test_batch_solver_kernel_update_forwards_cache_params(
     # Verify cache_mode is recognized and updated
     assert "cache_mode" in recognized
     assert (
-        solverkernel_mutable.cache_handler.config.cache_mode
+        solverkernel_mutable.cache_handler.policy.cache_mode
         == "flush_on_change"
     )
 
@@ -532,11 +528,8 @@ def test_batch_solver_kernel_update_forwards_cache_params(
 
 
 def test_cache_handler_uses_symbolic_ode_fn_hash(system):
-    """Verify CubieCacheHandler uses fn_hash from SymbolicODE."""
+    """Verify configured caches key on the call-time system hash."""
     handler = _handler(True, system.name, system.fn_hash)
-
-    assert handler.config.system_hash == system.fn_hash
-    assert handler.config.system_name == system.name
 
     cache = handler.configured_cache(system.fn_hash, "compile_hash")
     path_str = str(cache.cache_path)
@@ -557,8 +550,8 @@ def test_solver_cache_configuration_flow(system):
 
     # Verify cache handler is configured
     assert solver.kernel.cache_handler is not None
-    assert solver.kernel.cache_handler.config.cache_mode == "hash"
-    assert solver.kernel.cache_handler.config.max_cache_entries == 5
+    assert solver.kernel.cache_handler.policy.cache_mode == "hash"
+    assert solver.kernel.cache_handler.policy.max_cache_entries == 5
 
 
 def test_solver_kernel_update_cache_mode(solverkernel_mutable):
@@ -568,7 +561,7 @@ def test_solver_kernel_update_cache_mode(solverkernel_mutable):
 
     assert "cache_mode" in recognized
     assert (
-        solverkernel_mutable.cache_handler.config.cache_mode
+        solverkernel_mutable.cache_handler.policy.cache_mode
         == "flush_on_change"
     )
 
@@ -654,22 +647,22 @@ def test_flush_cache_handles_rmtree_failure_silently(tmp_path):
 
 
 def test_cache_handler_disable_stops_configured_caches():
-    """Disabling through the shared config stops new configured caches."""
+    """A disabling policy replacement stops new configured caches."""
     handler = _handler(True, "disable_test", "h2")
     assert handler.configured_cache("h2", "compile_hash") is not None
 
-    handler.config.update({"cache_enabled": False})
+    handler.update_policy_params({"cache_enabled": False})
     assert handler.configured_cache("h2", "compile_hash") is None
 
 
-def test_cache_handler_configured_cache_updates_system_hash_in_config():
-    """Verify configured_cache() writes a changed system_hash back into
-    the handler's config."""
+def test_cache_handler_configured_cache_keys_on_call_time_hash():
+    """Each configured cache keys on the hash supplied at build time."""
     handler = _handler(True, "hash_update_test", "old_hash")
-    assert handler.config.system_hash == "old_hash"
 
-    handler.configured_cache("new_hash", "c" * 64)
-    assert handler.config.system_hash == "new_hash"
+    first = handler.configured_cache("first_hash", "c" * 64)
+    second = handler.configured_cache("second_hash", "c" * 64)
+    assert first._system_hash == "first_hash"
+    assert second._system_hash == "second_hash"
 
 
 def test_cache_handler_cache_enabled_property():

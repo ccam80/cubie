@@ -54,7 +54,8 @@ from cubie.cuda_simsafe import (
     max_shared_memory_per_block,
 )
 from cubie.cubie_cache import (
-    CacheConfig,
+    ALL_CACHE_PARAMETERS,
+    CachePolicy,
     CubieCacheHandler,
 )
 
@@ -74,7 +75,7 @@ from cubie.batchsolving.BatchSolverConfig import BatchSolverConfig
 from cubie.odesystems.baseODE import BaseODE
 from cubie.outputhandling.output_config import OutputCompileFlags
 from cubie.integrators.SingleIntegratorRun import SingleIntegratorRun
-from cubie._utils import build_config, unpack_dict_values, getype_validator
+from cubie._utils import unpack_dict_values, getype_validator
 
 if TYPE_CHECKING:
     from cubie.memory import MemoryManager
@@ -231,7 +232,7 @@ class BatchSolverKernel(CUDAFactory):
         typically via :mod:`cubie.memory`.
     cache_settings
         Mapping of cache configuration forwarded to
-        :class:`cubie.cubie_cache.CacheConfig`.
+        :class:`cubie.cubie_cache.CachePolicy`.
     cache
         Cache mode control. ``True`` enables default caching, ``False``
         disables caching, or a string/``Path`` sets a custom cache
@@ -296,26 +297,22 @@ class BatchSolverKernel(CUDAFactory):
             system_name = f"unnamed_{system_hash[:8]}"
         if cache_settings is None:
             cache_settings = {}
-        cache_params = CacheConfig.params_from_user_kwarg(cache)
+        cache_params = CachePolicy.params_from_user_kwarg(cache)
         cache_params.update(cache_settings)
-        cache_config = build_config(
-            CacheConfig,
-            {"system_name": system_name, "system_hash": system_hash},
-            **cache_params,
+        cache_params = {
+            key: value
+            for key, value in cache_params.items()
+            if value is not None
+        }
+        cache_policy = CachePolicy(**cache_params)
+        self.cache_handler = CubieCacheHandler(
+            cache_policy, system_name=system_name
         )
-        self.cache_handler = CubieCacheHandler(cache_config)
-        # The solver's cache settings flow to the system so factories
-        # it owns (the Neumann convergence evaluator) apply the same
-        # policy to the kernels they compile.
-        system.update(
-            {
-                "cache_enabled": cache_config.cache_enabled,
-                "cache_mode": cache_config.cache_mode,
-                "max_cache_entries": cache_config.max_cache_entries,
-                "cache_dir": cache_config.cache_dir,
-            },
-            silent=True,
-        )
+        # The solver's cache policy flows to the system as a service
+        # setting so factories it owns (the Neumann convergence
+        # evaluator) apply the same policy to the kernels they
+        # compile. Policy never enters compile-settings identity.
+        system.set_cache_policy(cache_policy)
 
         # Build the single integrator to derive compile-critical metadata
         self.single_integrator = SingleIntegratorRun(
@@ -338,7 +335,6 @@ class BatchSolverKernel(CUDAFactory):
             precision=precision,
             loop_fn=None,
             compile_flags=self.single_integrator.output_compile_flags,
-            cache_config=cache_config,
             **(kernel_settings or {}),
         )
         self.setup_compile_settings(initial_config)
@@ -1044,6 +1040,22 @@ class BatchSolverKernel(CUDAFactory):
         updates_dict, unpacked_keys = unpack_dict_values(updates_dict)
 
         all_unrecognized = set(updates_dict.keys())
+
+        # Cache parameters are policy, not compile settings: route
+        # them to the handler and forward the replacement policy to
+        # the system's diagnostic services. A changed policy
+        # invalidates the build so a freshly configured cache attaches
+        # to the rebuilt dispatcher.
+        cache_keys = set(updates_dict.keys()) & ALL_CACHE_PARAMETERS
+        if cache_keys:
+            policy_changed = self.cache_handler.update_policy_params(
+                {key: updates_dict.pop(key) for key in cache_keys}
+            )
+            self.system.set_cache_policy(self.cache_handler.policy)
+            if policy_changed:
+                self._invalidate_cache()
+            all_unrecognized -= cache_keys
+
         all_unrecognized -= self.single_integrator.update(
             updates_dict, silent=True
         )
@@ -1063,7 +1075,9 @@ class BatchSolverKernel(CUDAFactory):
             updates_dict, silent=True
         )
 
-        recognised = set(updates_dict.keys()) - all_unrecognized
+        recognised = (
+            set(updates_dict.keys()) - all_unrecognized
+        ) | cache_keys
 
         if all_unrecognized:
             if not silent:
@@ -1131,9 +1145,9 @@ class BatchSolverKernel(CUDAFactory):
         return self.compile_settings.active_outputs
 
     @property
-    def cache_config(self) -> "CacheConfig":
-        """Cache configuration for the kernel, parsed on demand."""
-        return self.cache_handler.config
+    def cache_policy(self) -> "CachePolicy":
+        """Cache policy the kernel's disk cache follows."""
+        return self.cache_handler.policy
 
     def set_cache_dir(self, path: Union[str, Path]) -> None:
         """Set a custom cache directory for compiled kernels.

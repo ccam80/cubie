@@ -412,6 +412,15 @@ class BaseODE(CUDAFactory):
             )
         )
 
+    def set_cache_policy(self, policy: Any) -> None:
+        """Accept a cache policy for owned diagnostic services.
+
+        The abstract base owns no diagnostic kernels, so the policy is
+        ignored. Subclasses that compile diagnostic kernels forward it
+        to their owned services. Cache policy never enters compile
+        settings or configuration identity.
+        """
+
     def get_solver_helper(
         self,
         request: SolverHelperRequest,

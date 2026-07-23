@@ -80,7 +80,7 @@ from cubie.odesystems.solver_helpers import (
     SolverHelperRequest,
 )
 from cubie._utils import PrecisionDType, is_devfunc
-from cubie.cubie_cache import CacheConfig
+from cubie.cubie_cache import CachePolicy
 from cubie.time_logger import default_timelogger
 
 def _system_source_hash(equations, index_map) -> str:
@@ -321,10 +321,7 @@ class SymbolicODE(BaseODE):
         # of the system's config_hash.
         self._neumann_diagnostic = NeumannRHSEvaluator(
             precision=precision,
-            cache_config=CacheConfig(
-                system_name=system_name,
-                system_hash=fn_hash,
-            ),
+            system_name=system_name,
         )
 
     @classmethod
@@ -584,6 +581,14 @@ class SymbolicODE(BaseODE):
                     f"{unrecognised}. These parameters were not updated.",
                 )
         return recognised
+
+    def set_cache_policy(self, policy: CachePolicy) -> None:
+        """Forward a cache policy to the system's diagnostic services.
+
+        Cache policy is service configuration: it never enters the
+        system's compile settings or configuration identity.
+        """
+        self._neumann_diagnostic.set_cache_policy(policy)
 
     def _get_neumann_evaluator(self) -> NeumannRHSEvaluator:
         """Return the convergence evaluator, refreshed for current code.

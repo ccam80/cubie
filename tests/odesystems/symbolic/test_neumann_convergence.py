@@ -14,7 +14,7 @@ import pytest
 
 from cubie.odesystems.solver_helpers import SolverHelperRequest
 from cubie.batchsolving.BatchSolverKernel import BatchSolverKernel
-from cubie.cubie_cache import CUBIECache
+from cubie.cubie_cache import CachePolicy, CUBIECache
 from cubie.odesystems.symbolic.codegen.neumann_convergence import (
     check_neumann_convergence,
     neumann_spectral_radius,
@@ -129,7 +129,7 @@ def test_get_solver_helper_runs_diagnostic_for_neumann_type(system):
     "solver_settings_override", [_DIAGONALLY_DOMINANT], indirect=True
 )
 def test_solver_cache_policy_reaches_evaluator(system, tmp_path):
-    """A solver's cache settings flow down to the system's evaluator."""
+    """A solver's cache policy flows down to the system's evaluator."""
     evaluator = system._neumann_diagnostic
     try:
         disabled = BatchSolverKernel(
@@ -138,8 +138,7 @@ def test_solver_cache_policy_reaches_evaluator(system, tmp_path):
             cache=False,
         )
         try:
-            cache_config = evaluator.compile_settings.cache_config
-            assert cache_config.cache_enabled is False
+            assert evaluator.cache_policy.cache_enabled is False
         finally:
             disabled.close()
 
@@ -149,22 +148,19 @@ def test_solver_cache_policy_reaches_evaluator(system, tmp_path):
             cache=tmp_path,
         )
         try:
-            cache_config = evaluator.compile_settings.cache_config
-            assert cache_config.cache_enabled is True
-            assert cache_config.cache_dir == tmp_path
+            assert evaluator.cache_policy.cache_enabled is True
+            assert evaluator.cache_policy.cache_dir == tmp_path
         finally:
             enabled.close()
     finally:
-        system.update(
-            {"cache_enabled": False, "cache_dir": None}, silent=True
-        )
+        system.set_cache_policy(CachePolicy(cache_enabled=False))
 
 
 @pytest.mark.parametrize(
     "solver_settings_override", [_DIAGONALLY_DOMINANT], indirect=True
 )
-def test_cache_change_rebuilds_evaluator_kernel(system, tmp_path):
-    """A cache-setting update rebuilds the diagnostic kernel."""
+def test_cache_policy_change_rebuilds_evaluator_kernel(system, tmp_path):
+    """A cache-policy replacement rebuilds the diagnostic kernel."""
     try:
         evaluator = system._get_neumann_evaluator()
         first = evaluator.get_cached_output("evaluation_kernel")
@@ -173,17 +169,24 @@ def test_cache_change_rebuilds_evaluator_kernel(system, tmp_path):
         )
         assert again is first
 
-        system.update(
-            {"cache_enabled": True, "cache_dir": tmp_path}, silent=True
+        system.set_cache_policy(
+            CachePolicy(cache_enabled=True, cache_dir=tmp_path)
         )
         rebuilt = system._get_neumann_evaluator().get_cached_output(
             "evaluation_kernel"
         )
         assert rebuilt is not first
-    finally:
-        system.update(
-            {"cache_enabled": False, "cache_dir": None}, silent=True
+
+        # An equal policy is not a change and keeps the built kernel.
+        system.set_cache_policy(
+            CachePolicy(cache_enabled=True, cache_dir=tmp_path)
         )
+        kept = system._get_neumann_evaluator().get_cached_output(
+            "evaluation_kernel"
+        )
+        assert kept is rebuilt
+    finally:
+        system.set_cache_policy(CachePolicy(cache_enabled=False))
 
 
 @pytest.mark.nocudasim
@@ -193,17 +196,15 @@ def test_cache_change_rebuilds_evaluator_kernel(system, tmp_path):
 def test_evaluator_attaches_configured_disk_cache(system, tmp_path):
     """With caching enabled the built kernel carries a CUBIECache."""
     try:
-        system.update(
-            {"cache_enabled": True, "cache_dir": tmp_path}, silent=True
+        system.set_cache_policy(
+            CachePolicy(cache_enabled=True, cache_dir=tmp_path)
         )
         evaluator = system._get_neumann_evaluator()
         kernel = evaluator.get_cached_output("evaluation_kernel")
         assert isinstance(kernel._cache, CUBIECache)
         assert Path(kernel._cache.cache_path).parent == tmp_path
     finally:
-        system.update(
-            {"cache_enabled": False, "cache_dir": None}, silent=True
-        )
+        system.set_cache_policy(CachePolicy(cache_enabled=False))
 
 
 def test_spectral_radius_tracks_beta():

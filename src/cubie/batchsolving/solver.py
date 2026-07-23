@@ -1283,17 +1283,17 @@ class Solver:
     @property
     def cache_enabled(self) -> bool:
         """Whether file-based caching is enabled."""
-        return self.kernel.cache_config.cache_enabled
+        return self.kernel.cache_policy.cache_enabled
 
     @property
     def cache_mode(self) -> str:
         """Current caching mode ('hash' or 'flush_on_change')."""
-        return self.kernel.cache_config.cache_mode
+        return self.kernel.cache_policy.cache_mode
 
     @property
     def cache_dir(self) -> Optional[Path]:
         """Custom cache directory, or None for default location."""
-        return self.kernel.cache_config.cache_dir
+        return self.kernel.cache_policy.cache_dir
 
     def set_cache_dir(self, path: Union[str, Path]) -> None:
         """Set a custom cache directory for compiled kernels.
