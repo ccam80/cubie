@@ -31,7 +31,7 @@ Decision Guide
 
 The bare family names ``erk``, ``dirk``, ``firk``, and ``rosenbrock``
 are also accepted and select each family's default tableau
-(``dormand-prince-54``, ``lobatto_iiic_3``, ``firk_gauss_legendre_2``,
+(``dormand-prince-54``, ``l_stable_dirk_3``, ``firk_gauss_legendre_2``,
 and ``ros3p`` respectively).
 
 Adaptive or fixed?
@@ -124,11 +124,7 @@ Available Algorithms
    * - ``l_stable_dirk_3``
      - 3
      - No
-     - L-stable, 3 stages.
-   * - ``lobatto_iiic_3``
-     - 4
-     - No
-     - Default DIRK tableau; stiffly accurate.
+     - Default DIRK tableau; L-stable, stiffly accurate, 3 stages.
    * - ``l_stable_sdirk_4``
      - 4
      - Yes

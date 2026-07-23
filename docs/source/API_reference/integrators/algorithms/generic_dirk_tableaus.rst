@@ -6,15 +6,15 @@ DIRK tableau registry
 ``DIRK_TABLEAU_REGISTRY`` exposes diagonally implicit Runge--Kutta schemes as
 :class:`~cubie.integrators.algorithms.generic_dirk.DIRKTableau` instances.
 Aliases in the registry integrate with :func:`get_algorithm_step` so callers can
-select stiffly accurate SDIRK, ESDIRK, and Lobatto families without repeating
+select stiffly accurate SDIRK and ESDIRK families without repeating
 coefficients.
 
 .. autodata:: DIRK_TABLEAU_REGISTRY
     :annotation: Dict[str, DIRKTableau]
 
-The :class:`DIRKStep` factory defaults to ``"sdirk_2_2"``—Alexander's
-second-order, L-stable SDIRK pair—providing embedded error estimates for
-adaptive controllers.
+The :class:`DIRKStep` factory defaults to ``"l_stable_dirk_3"``—a
+three-stage, third-order L-stable, stiffly accurate DIRK scheme with no
+embedded error estimate, so the default runs fixed-step.
 
 Available aliases
 -----------------
@@ -31,9 +31,6 @@ Available aliases
    * - ``"trapezoidal_dirk"``
      - Two-stage trapezoidal (Crank--Nicolson) ESDIRK scheme.
      - [CrankNicolson1947]_
-   * - ``"lobatto_iiic_3"``
-     - Three-stage Lobatto IIIC method with stiff accuracy.
-     - [HairerLubichWanner2006]_
    * - ``"sdirk_2_2"``
      - Alexander's L-stable SDIRK pair with embedded error weights.
      - [Alexander1977]_
@@ -59,8 +56,6 @@ References
 .. [CrankNicolson1947] J. Crank and P. Nicolson. "A practical method for numerical
    solution of partial differential equations of the heat-conduction type."
    *Math. Proc. Camb. Phil. Soc.* 43(1), 1947.
-.. [HairerLubichWanner2006] E. Hairer, C. Lubich, and G. Wanner. *Geometric Numerical
-   Integration* (2nd ed.). Springer, 2006.
 .. [Alexander1977] R. Alexander. "Diagonally implicit Runge--Kutta methods for stiff
    ODEs." *SIAM J. Numer. Anal.* 14(6), 1977.
 .. [MOOSELStableDirk3] Idaho National Laboratory. "LStableDirk3 time integrator."
