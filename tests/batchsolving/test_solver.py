@@ -298,6 +298,39 @@ def test_algorithm_hot_swap_after_solve(
     assert np.all(np.isfinite(second.time_domain_array))
 
 
+@pytest.mark.parametrize(
+    "solver_settings_override",
+    [{"algorithm": "backwards_euler", "step_controller": "fixed"}],
+    indirect=True,
+)
+def test_linear_solver_hot_swap_after_solve(
+    solver_mutable,
+    simple_initial_values,
+    simple_parameters,
+    driver_settings,
+):
+    """Swapping the linear-solver class keeps the solver usable."""
+    solve_kwargs = dict(
+        initial_values=simple_initial_values,
+        parameters=simple_parameters,
+        drivers=driver_settings,
+        duration=0.05,
+        save_every=0.02,
+        settling_time=0.0,
+        blocksize=32,
+        grid_type="combinatorial",
+    )
+    first = solver_mutable.solve(**solve_kwargs)
+    assert not np.any(first.status_codes)
+
+    solver_mutable.update(linear_correction_type="bicgstab")
+    algo_step = solver_mutable.kernel.single_integrator._algo_step
+    assert algo_step.linear_correction_type == "bicgstab"
+    second = solver_mutable.solve(**solve_kwargs)
+    assert not np.any(second.status_codes)
+    assert np.all(np.isfinite(second.time_domain_array))
+
+
 def test_solve_with_different_grid_types(
     solver_mutable,
     simple_initial_values,
