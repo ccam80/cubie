@@ -1462,14 +1462,14 @@ def test_solver_accepts_max_registers_kwarg(system, solver_settings):
 
 
 def test_solve_ivp_passes_cache_kwargs(
-    system, simple_initial_values, simple_parameters, driver_settings,
-    tmp_path,
+    system, simple_initial_values, simple_parameters, driver_settings
 ):
     """Verify solve_ivp(system, y0, params, cache_mode='hash') works.
 
-    The explicit cache directory keeps the entry-limited cache away
-    from any shared kernel-cache directory: eviction against the CI
-    artifact would prune the shared system's precompiled kernels.
+    The entry limit sits far above any realistic entry count: a small
+    limit against a shared kernel-cache directory (the CI artifact)
+    would evict the shared system's precompiled kernels, and an
+    isolated directory would guarantee a consumer-leg compile.
     """
     result = solve_ivp(
         system=system,
@@ -1479,9 +1479,8 @@ def test_solve_ivp_passes_cache_kwargs(
         dt=1e-2,
         duration=0.05,
         method="euler",
-        cache=tmp_path,
         cache_mode="hash",
-        max_cache_entries=10,
+        max_cache_entries=100000,
     )
 
     assert isinstance(result, SolveResult)
