@@ -204,7 +204,7 @@ def test_spill_solve_is_async(
     # driver function and recompiles, which is not the staging path
     # under test.
     with cuda.defer_cleanup():
-        work, stream, done = start_cuda_busy_work()
+        work, stream, done, release = start_cuda_busy_work()
         try:
             solver_mutable.solve(y0, params, duration=0.1)
             assert not done.query()
@@ -215,6 +215,7 @@ def test_spill_solve_is_async(
                     for buffer in buffers
                 )
         finally:
+            release()
             stream.synchronize()
             assert work.copy_to_host()[0] > 0
 

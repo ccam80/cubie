@@ -413,19 +413,27 @@ def second_low_mem_solver(
 
 @pytest.fixture(scope="session")
 def start_cuda_busy_work():
-    """Return a launcher for a long busy kernel on its own stream.
+    """Return a launcher for a host-released busy kernel on a stream.
 
-    The launcher returns ``(out, stream, done)``; ``done`` is an event
-    recorded after the kernel, so ``done.query()`` reports whether the
-    unrelated work has finished. The kernel runs on a non-blocking
-    stream: ambient legacy-default-stream traffic (allocator frees and
-    pool growth land there) serializes every *blocking* stream against
+    The launcher returns ``(out, stream, done, release)``; ``done``
+    is an event recorded after the kernel, so ``done.query()``
+    reports whether the unrelated work has finished, and
+    ``release()`` lets the kernel exit promptly from the host.
+    Completion is gated on the host, so not-yet-done assertions
+    cannot flake under GPU contention, and the kernel occupies the
+    device only for the bracketed operation: a long-resident spin
+    kernel under parallel test load draws driver-level preemption
+    exceptions that can poison the whole worker's CUDA context. The
+    spin cap bounds a regression in which the bracketed operation
+    synchronizes the whole device — the test then fails its canary
+    assertion instead of deadlocking against a kernel the host has
+    not yet released. The kernel runs on a non-blocking stream:
+    ambient legacy-default-stream traffic (allocator frees and pool
+    growth land there) serializes every *blocking* stream against
     it, which would entangle the canary with the code under test
-    through no fault of that code. A non-blocking stream is immune to
-    legacy-stream ordering while still being awaited by any genuine
-    device-wide synchronization. The default iteration count runs for
-    a few seconds, comfortably longer than any bracketed operation
-    under test.
+    through no fault of that code. A non-blocking stream is immune
+    to legacy-stream ordering while still being awaited by any
+    genuine device-wide synchronization.
     """
     from cubie.cuda_simsafe import CUDA_SIMULATION, cuda, cupy
 
@@ -433,25 +441,35 @@ def start_cuda_busy_work():
         pytest.skip("busy-kernel canary requires real CUDA")
 
     @cuda.jit
-    def _busy_kernel(out, iterations):
-        value = 0.0
-        for _ in range(iterations[0]):
-            value += 1.0
-        out[0] = value
+    def _busy_kernel(flag, out):
+        spins = 0.0
+        while cuda.atomic.add(flag, 0, 0) == 0 and spins < 1.0e9:
+            spins += 1.0
+        # The +1 keeps the completed-write sentinel nonzero even
+        # when the release lands before the first poll.
+        out[0] = spins + 1.0
 
-    def _start(iterations=100_000_000):
+    def _start():
         cupy_stream = cupy.cuda.Stream(non_blocking=True)
         stream = cuda.external_stream(cupy_stream.ptr)
         # Keep the owning cupy stream alive alongside the wrapper.
         stream._cubie_owner = cupy_stream
         out = cuda.device_array(1, dtype=np.float32)
-        iteration_count = cuda.to_device(
-            np.array([iterations], dtype=np.int64), stream=stream
-        )
+        flag = cuda.to_device(np.zeros(1, dtype=np.int32), stream=stream)
         done = cuda.event()
-        _busy_kernel[1, 1, stream](out, iteration_count)
+        _busy_kernel[1, 1, stream](flag, out)
         done.record(stream)
-        return out, stream, done
+
+        def release():
+            # A copy-engine write lands while the spin kernel is
+            # resident; a release kernel could not. The closure
+            # keeps the polled flag alive until the kernel exits.
+            release_stream = cuda.stream()
+            flag.copy_to_device(
+                np.ones(1, dtype=np.int32), stream=release_stream
+            )
+
+        return out, stream, done, release
 
     return _start
 
