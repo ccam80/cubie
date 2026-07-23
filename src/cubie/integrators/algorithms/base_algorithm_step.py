@@ -39,11 +39,17 @@ from typing import Callable, Dict, Optional, Set, Any, Tuple, Sequence
 import warnings
 
 from attrs import define, field, validators
-from numpy import sum as np_sum
+from numpy import (
+    float16 as np_float16,
+    float32 as np_float32,
+    sum as np_sum,
+)
 
 from cubie._utils import (
+    PrecisionDType,
     getype_validator,
     is_device_validator,
+    precision_converter,
 )
 from cubie.buffer_registry import buffer_registry
 from cubie.CUDAFactory import (
@@ -244,6 +250,11 @@ class ButcherTableau(_CubieConfigBase):
     c: Tuple[float, ...] = field()
     order: int = field()
     b_hat: Optional[Tuple[float, ...]] = field(default=None)
+    # Calibrated dense-prediction step-ratio ceilings, one per
+    # precision; zero disables dense prediction at that precision.
+    dense_prediction_ratio_float16: float = field(default=0.0)
+    dense_prediction_ratio_float32: float = field(default=0.0)
+    dense_prediction_ratio_float64: float = field(default=0.0)
 
     def __attrs_post_init__(self) -> None:
         """Validate tableau structure after initialisation."""
@@ -372,6 +383,26 @@ class ButcherTableau(_CubieConfigBase):
             return None
         error_coeffs = self.d
         return self.typed_vector(error_coeffs, numba_precision)
+
+    def dense_prediction_ratio_limit(
+        self,
+        precision: PrecisionDType,
+    ) -> float:
+        """Return the calibrated dense-prediction ratio ceiling.
+
+        Dense prediction is applied only while the step-size ratio
+        ``next dt / previous dt`` stays at or below this value. Zero
+        means dense prediction is unavailable at that precision.
+        """
+
+        typed_precision = precision_converter(precision)
+        if typed_precision is np_float16:
+            value = self.dense_prediction_ratio_float16
+        elif typed_precision is np_float32:
+            value = self.dense_prediction_ratio_float32
+        else:
+            value = self.dense_prediction_ratio_float64
+        return typed_precision(value)
 
     @property
     def first_same_as_last(self) -> bool:

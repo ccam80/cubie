@@ -92,6 +92,26 @@ with an adaptive tableau. Users can override any of these settings by
 explicitly specifying step controller parameters.
 """
 
+
+def stage_seed_sources(stage_nodes) -> tuple:
+    """Return each stage's Newton-seed source stage.
+
+    A stage repeating an earlier node seeds from the most recent
+    earlier stage at that node (its just-converged increment, or an
+    explicit stage's free derivative sample); a distinct node seeds
+    from the stage's own predicted history row. This intentionally
+    differs from the predictor's keep-last sample dedupe: the seed
+    source looks backwards, the kept sample looks forwards.
+    """
+
+    latest_stage_at_node = {}
+    sources = []
+    for stage, node in enumerate(stage_nodes):
+        sources.append(latest_stage_at_node.get(node, stage))
+        latest_stage_at_node[node] = stage
+    return tuple(sources)
+
+
 DIRK_FIXED_DEFAULTS = StepControlDefaults(
     step_controller={
         "step_controller": "fixed",
@@ -129,6 +149,9 @@ class DIRKStepConfig(ImplicitStepConfig):
     stage_increment_history_location : str
         Buffer location for the previous step's per-stage increment
         history consumed by dense prediction.
+    previous_step_size_location : str
+        Buffer location for the previous-step-size scalar consumed
+        by dense prediction.
     stage_base_location : str
         Buffer location for the stage base-state vector.
     accumulator_location : str
@@ -153,6 +176,10 @@ class DIRKStepConfig(ImplicitStepConfig):
         validator=validators.in_(['local', 'shared'])
     )
     stage_increment_history_location: str = field(
+        default='local',
+        validator=validators.in_(['local', 'shared'])
+    )
+    previous_step_size_location: str = field(
         default='local',
         validator=validators.in_(['local', 'shared'])
     )
@@ -259,24 +286,47 @@ class DIRKStep(ODEImplicitStep):
 
         super().__init__(config, controller_defaults, **kwargs)
 
-        predictor_kwargs = {
-            key: value
-            for key, value in kwargs.items()
-            if key in self._PREDICTOR_PARAMS and value is not None
-        }
         # An explicit first stage is never solved, so its
         # prediction row is skipped.
-        predict_first_stage = (
-            tableau.a[0][0] != 0.0 or tableau.stage_count == 1
+        settings = self.compile_settings
+        predict_first_stage = not settings.tableau.first_stage_is_explicit(
+            settings.precision
         )
         self.dense_predictor = DenseStagePredictor(
-            precision=self.compile_settings.precision,
+            precision=settings.precision,
             n=n,
-            tableau=tableau,
+            tableau=settings.tableau,
             predict_first_stage=predict_first_stage,
-            **predictor_kwargs,
         )
         self.register_buffers()
+
+    def update(self, updates_dict=None, silent=False, **kwargs):
+        """Update settings, rederiving the first-stage prediction row.
+
+        Returns
+        -------
+        set
+            Set of recognized parameter names that were updated.
+        """
+
+        all_updates = {}
+        if updates_dict:
+            all_updates.update(updates_dict)
+        all_updates.update(kwargs)
+        if not all_updates:
+            return set()
+
+        if "tableau" in all_updates or "precision" in all_updates:
+            tableau = all_updates.get(
+                "tableau", self.compile_settings.tableau
+            )
+            precision = all_updates.get(
+                "precision", self.compile_settings.precision
+            )
+            all_updates["predict_first_stage"] = not (
+                tableau.first_stage_is_explicit(precision)
+            )
+        return super().update(all_updates, silent=silent)
 
     def register_buffers(self) -> None:
         """Register buffers according to locations in compile settings."""
@@ -295,6 +345,7 @@ class DIRKStep(ODEImplicitStep):
         history_length = (
             tableau.stage_count * n if self.dense_prediction else 0
         )
+        previous_step_size_length = 1 if self.dense_prediction else 0
 
         # Register solver scratch and solver persistent buffers so they can
         # be aliased
@@ -311,6 +362,14 @@ class DIRKStep(ODEImplicitStep):
             self,
             history_length,
             config.stage_increment_history_location,
+            persistent=True,
+            precision=precision
+        )
+        buffer_registry.register(
+            'previous_step_size',
+            self,
+            previous_step_size_length,
+            config.previous_step_size_location,
             persistent=True,
             precision=precision
         )
@@ -460,12 +519,14 @@ class DIRKStep(ODEImplicitStep):
         # into the prediction history.
         first_stage_implicit = bool(stage_implicit[0])
         has_later_explicit_stage = not all(stage_implicit[1:])
-        # A stage repeating an earlier node seeds from that stage's
-        # just-converged increment, not the prediction.
-        stage_nodes = tableau.c
-        seeds_from_prediction = tuple(
-            stage_nodes[stage] not in stage_nodes[:stage]
-            for stage in range(tableau.stage_count)
+        # Seed source and result row stay separate on repeats: a
+        # repeated stage reads its source's row but always writes
+        # its own row after convergence.
+        seed_source_stages = tuple(
+            int32(source) for source in stage_seed_sources(tableau.c)
+        )
+        max_step_ratio = numba_precision(
+            tableau.dense_prediction_ratio_limit(config.precision)
         )
         accumulator_length = int32(max(stage_count - 1, 0) * n)
 
@@ -483,6 +544,9 @@ class DIRKStep(ODEImplicitStep):
         alloc_stage_rhs = getalloc('stage_rhs', self)
         alloc_stage_increment_history = getalloc(
             'stage_increment_history', self
+        )
+        alloc_previous_step_size = getalloc(
+            'previous_step_size', self
         )
         alloc_predictor_shared, alloc_predictor_persistent = (
             buffer_registry.get_child_allocators(
@@ -542,6 +606,9 @@ class DIRKStep(ODEImplicitStep):
             stage_increment_history = alloc_stage_increment_history(
                 shared, persistent_local
             )
+            previous_step_size = alloc_previous_step_size(
+                shared, persistent_local
+            )
             predictor_shared = alloc_predictor_shared(
                 shared, persistent_local
             )
@@ -568,14 +635,29 @@ class DIRKStep(ODEImplicitStep):
             first_step = first_step_flag != int32(0)
 
             if use_dense_prediction:
-                # No previous curve exists on the first step, and a
+                previous_dt = previous_step_size[0]
+                previous_step_size[0] = dt_scalar
+                # Zeroed first-step storage keeps the ratio finite.
+                safe_previous_dt = (
+                    previous_dt
+                    if previous_dt > typed_zero
+                    else dt_scalar
+                )
+                step_ratio = dt_scalar / safe_previous_dt
+                # No previous curve exists on the first step, a
                 # rejected proposal's curve does not end where this
-                # step starts, so both leave the history unchanged.
+                # step starts, and beyond the tableau's calibrated
+                # ratio ceiling the read-ahead loses to carrying, so
+                # all three leave the history unchanged.
                 previous_accepted = accepted_flag != int32(0)
-                apply_prediction = (not first_step) and previous_accepted
+                apply_prediction = (
+                    (not first_step)
+                    and previous_accepted
+                    and (step_ratio <= max_step_ratio)
+                )
                 predict_stages(
                     stage_increment_history,
-                    dt_scalar,
+                    step_ratio,
                     apply_prediction,
                     predictor_shared,
                     predictor_persistent,
@@ -735,15 +817,15 @@ class DIRKStep(ODEImplicitStep):
                 if stage_implicit[stage_idx]:
                     if use_dense_prediction:
                         history_offset = stage_idx * n
-                        # A stage repeating an earlier node keeps the
-                        # just-converged sibling increment as its seed.
-                        if seeds_from_prediction[stage_idx]:
-                            for idx in range(n):
-                                stage_increment[idx] = (
-                                    stage_increment_history[
-                                        history_offset + idx
-                                    ]
-                                )
+                        seed_offset = (
+                            seed_source_stages[stage_idx] * n
+                        )
+                        for idx in range(n):
+                            stage_increment[idx] = (
+                                stage_increment_history[
+                                    seed_offset + idx
+                                ]
+                            )
                     solver_status = nonlinear_solver(
                         stage_increment,
                         parameters,

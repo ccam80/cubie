@@ -13,13 +13,15 @@ a matrix whose entries are polynomials in the step-size ratio
 ``next dt / previous dt``; the polynomial coefficients are fixed by
 the tableau and precomputed on the host, so the device evaluates one
 small polynomial per matrix entry and applies one matrix-vector
-product per state. The only persistent storage is a single scalar
-holding the previous step size.
+product per state.
 
 The predictor does not decide when prediction is valid: the calling
-algorithm judges first-step and rejected-step conditions and passes
-the verdict as a flag. The predictor must be called on every step so
-its stored step size tracks the increments the solver last wrote.
+algorithm owns the previous step size, judges first-step,
+rejected-step, and step-ratio-ceiling conditions, and passes the
+step ratio together with the verdict as a flag. The predictor
+evaluates the transform and commits it per lane through a
+predicated selection, leaving the vector unchanged when the flag is
+false.
 
 Published Functions
 -------------------
@@ -69,21 +71,11 @@ from cubie.CUDAFactory import (
     CUDAFactory,
     CUDAFactoryConfig,
 )
-from cubie.cuda_simsafe import cuda, int32
+from cubie.cuda_simsafe import cuda, int32, selp
 from cubie.integrators.algorithms.base_algorithm_step import (
     ButcherTableau,
 )
 
-
-MAX_PREDICTION_STEP_RATIO = 8.0
-"""Largest step-size ratio the transform is applied at.
-
-Matches the largest single-step growth the default controllers allow
-(RADAU5's ``facr``). Beyond it the read-ahead leaves the sampled
-interval so far that amplification outweighs the guess — a save
-boundary can truncate a step to a sliver, making the next ratio
-arbitrarily large — so the increments carry unchanged instead.
-"""
 
 MAX_NODE_AMPLIFICATION_RATIO = 10.0
 """Largest amplification allowed relative to ideally spread nodes.
@@ -323,9 +315,7 @@ class DenseStagePredictorConfig(CUDAFactoryConfig):
     predict_first_stage : bool
         Whether the transform predicts the first stage. Callers that
         never solve it pass ``False``; its entries then keep the
-        stored sample. Must stay ``True`` for single-stage tableaus.
-    previous_step_size_location : str
-        Buffer location for the previous-step-size scalar.
+        stored sample.
     """
 
     n: int = field(default=1, validator=getype_validator(int, 1))
@@ -335,10 +325,6 @@ class DenseStagePredictorConfig(CUDAFactoryConfig):
     )
     predict_first_stage: bool = field(
         default=True, validator=validators.instance_of(bool)
-    )
-    previous_step_size_location: str = field(
-        default="local",
-        validator=validators.in_(["local", "shared"]),
     )
 
     @property
@@ -360,20 +346,20 @@ class DenseStagePredictor(CUDAFactory):
 
     The compiled device function has signature::
 
-        predict(stage_increment, dt_scalar, apply_flag, shared,
+        predict(stage_increment, step_ratio, apply_flag, shared,
                 persistent_local)
 
     ``stage_increment`` holds the previous step's converged stage
     increments in stage-major layout. When ``apply_flag`` is true the
-    vector is transformed in place into the next step's Newton guess,
-    unless the step-size ratio exceeds
-    :data:`MAX_PREDICTION_STEP_RATIO`; otherwise it is left
-    unchanged. With ``predict_first_stage`` false the first stage's
-    entries are left untouched (its sample still feeds the read-ahead
-    of the other stages). Either way the stored previous step size is
-    refreshed, so the caller must invoke the function on every step
-    and must pass ``apply_flag`` false on the first step and after a
-    rejected step.
+    vector is transformed in place into the next step's Newton guess;
+    otherwise it is left unchanged. The calling algorithm owns the
+    previous step size and passes the ratio ``next dt / previous
+    dt``; it also folds first-step, rejected-step, and step-ratio
+    ceiling conditions into ``apply_flag``, which may vary by lane
+    (the commit is a predicated value selection, not a branch). With
+    ``predict_first_stage`` false the first stage's entries are left
+    untouched (its sample still feeds the read-ahead of the other
+    stages).
     """
 
     def __init__(
@@ -394,8 +380,7 @@ class DenseStagePredictor(CUDAFactory):
         tableau
             Tableau the prediction matrix derives from.
         **kwargs
-            Optional ``predict_first_stage`` and
-            ``previous_step_size_location`` settings. None values are
+            Optional ``predict_first_stage`` setting. None values are
             ignored.
         """
 
@@ -420,14 +405,6 @@ class DenseStagePredictor(CUDAFactory):
         # A skipped first stage drops its row from the transform.
         predicted_rows = stage_count - (
             0 if config.predict_first_stage else 1
-        )
-        buffer_registry.register(
-            "previous_step_size",
-            self,
-            1,
-            config.previous_step_size_location,
-            persistent=True,
-            precision=config.precision,
         )
         buffer_registry.register(
             "predictor_transform",
@@ -501,10 +478,7 @@ class DenseStagePredictor(CUDAFactory):
             numba_precision(value) for value in coefficient_stack.flat
         )
 
-        max_step_ratio = numba_precision(MAX_PREDICTION_STEP_RATIO)
-
         getalloc = buffer_registry.get_allocator
-        alloc_previous_step_size = getalloc("previous_step_size", self)
         alloc_transform = getalloc("predictor_transform", self)
         alloc_previous_values = getalloc(
             "predictor_previous_values", self
@@ -518,30 +492,14 @@ class DenseStagePredictor(CUDAFactory):
         )
         def predict(
             stage_increment,
-            dt_scalar,
+            step_ratio,
             apply_flag,
             shared,
             persistent_local,
         ):
-            previous_step_size = alloc_previous_step_size(
-                shared, persistent_local
-            )
             transform = alloc_transform(shared, persistent_local)
             previous_values = alloc_previous_values(
                 shared, persistent_local
-            )
-            previous_dt = previous_step_size[0]
-            previous_step_size[0] = dt_scalar
-
-            # Keep the ratio finite on zeroed first-step storage.
-            safe_previous_dt = (
-                previous_dt if previous_dt > typed_zero else dt_scalar
-            )
-            ratio = dt_scalar / safe_previous_dt
-
-            # Truncated slivers unbound the ratio; cap application.
-            commit_prediction = apply_flag and (
-                ratio <= max_step_ratio
             )
 
             # Evaluate each matrix entry's ratio polynomial, highest
@@ -555,14 +513,14 @@ class DenseStagePredictor(CUDAFactory):
                         + entry_idx
                     )
                     accumulator = (
-                        accumulator * ratio
+                        accumulator * step_ratio
                         + ratio_coefficients[flat_idx]
                     )
-                transform[entry_idx] = accumulator * ratio
+                transform[entry_idx] = accumulator * step_ratio
 
-            # Multiply each state's stage vector by the matrix,
-            # committing only when the caller's flag and the ratio
-            # bound allow.
+            # Multiply each state's stage vector by the matrix; the
+            # caller's flag selects prediction or the stored value
+            # per lane.
             for state_idx in range(n):
                 for stage_idx in range(stage_count):
                     previous_values[stage_idx] = stage_increment[
@@ -576,10 +534,14 @@ class DenseStagePredictor(CUDAFactory):
                             transform[row_base + source_idx]
                             * previous_values[source_idx]
                         )
-                    if commit_prediction:
-                        stage_increment[
-                            (first_predicted + row_idx) * n + state_idx
-                        ] = accumulator
+                    target_idx = (
+                        (first_predicted + row_idx) * n + state_idx
+                    )
+                    stage_increment[target_idx] = selp(
+                        apply_flag,
+                        accumulator,
+                        stage_increment[target_idx],
+                    )
 
         # no cover: end
         return DenseStagePredictorCache(predict=predict)

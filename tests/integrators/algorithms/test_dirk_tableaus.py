@@ -1,5 +1,6 @@
 """Tests covering DIRK tableau registration and selection."""
 
+import numpy as np
 import pytest
 
 from cubie.integrators.algorithms.generic_dirk import DIRKStep
@@ -44,6 +45,38 @@ def test_l_stable_sdirk4_fourth_stage_is_consistent():
     assert sum(L_STABLE_SDIRK4_TABLEAU.a[3]) == pytest.approx(
         L_STABLE_SDIRK4_TABLEAU.c[3]
     )
+
+
+@pytest.mark.parametrize("precision_value", [np.float32, np.float64])
+def test_first_stage_is_explicit_classifies_by_diagonal(
+    precision_value,
+):
+    """ESDIRK tableaus report an explicit stage zero; SDIRK and
+    single-stage tableaus report an implicit one."""
+
+    assert KVAERNO3_TABLEAU.first_stage_is_explicit(precision_value)
+    assert KVAERNO5_TABLEAU.first_stage_is_explicit(precision_value)
+    assert not DIRK_TABLEAU_REGISTRY[
+        "lobatto_iiic_3"
+    ].first_stage_is_explicit(precision_value)
+    assert not DIRK_TABLEAU_REGISTRY[
+        "implicit_midpoint"
+    ].first_stage_is_explicit(precision_value)
+
+
+def test_first_stage_is_explicit_uses_typed_diagonal():
+    """The classification compares in the requested precision, so a
+    subnormal-below-float32 coefficient counts as explicit there and
+    implicit at float64."""
+
+    tiny_diagonal = DIRKTableau(
+        a=((1e-46, 0.0), (0.5, 0.5)),
+        b=(0.5, 0.5),
+        c=(1e-46, 1.0),
+        order=1,
+    )
+    assert tiny_diagonal.first_stage_is_explicit(np.float32)
+    assert not tiny_diagonal.first_stage_is_explicit(np.float64)
 
 
 def test_dirk_step_accepts_tableau_instance(precision):

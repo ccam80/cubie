@@ -51,6 +51,7 @@ from typing import Dict, Tuple
 import attrs
 import math
 
+from cubie._utils import PrecisionDType, precision_converter
 from cubie.integrators.algorithms.base_algorithm_step import ButcherTableau
 
 
@@ -88,12 +89,23 @@ class DIRKTableau(ButcherTableau):
         )
         return self.typed_vector(diagonal_entries, precision)
 
+    def first_stage_is_explicit(
+        self,
+        precision: PrecisionDType,
+    ) -> bool:
+        """Return whether stage zero has a zero diagonal coefficient."""
+
+        typed_precision = precision_converter(precision)
+        return self.diagonal(typed_precision)[0] == typed_precision(0.0)
+
 
 IMPLICIT_MIDPOINT_TABLEAU = DIRKTableau(
     a=((0.5,),),
     b=(1.0,),
     c=(0.5,),
     order=2,
+    dense_prediction_ratio_float32=1.0,
+    dense_prediction_ratio_float64=1.0,
 )
 """DIRK tableau for the implicit midpoint rule (second order).
 
@@ -115,6 +127,8 @@ TRAPEZOIDAL_DIRK_TABLEAU = DIRKTableau(
     b=(0.5, 0.5),
     c=(0.0, 1.0),
     order=2,
+    dense_prediction_ratio_float32=0.39,
+    dense_prediction_ratio_float64=1.21,
 )
 """DIRK tableau for the Crank--Nicolson (trapezoidal) rule.
 
@@ -162,6 +176,8 @@ KVAERNO3_TABLEAU = DIRKTableau(
     ),
     c=(0.0, 2.0 * KVAERNO3_GAMMA, 1.0, 1.0),
     order=3,
+    dense_prediction_ratio_float32=0.85,
+    dense_prediction_ratio_float64=1.28,
 )
 """Four-stage, third-order Kvaerno ESDIRK tableau.
 
@@ -276,6 +292,8 @@ LOBATTO_IIIC_3_TABLEAU = DIRKTableau(
     b=(1.0 / 6.0, 2.0 / 3.0, 1.0 / 6.0),
     c=(0.0, 0.5, 1.0),
     order=4,
+    dense_prediction_ratio_float32=0.53,
+    dense_prediction_ratio_float64=0.53,
 )
 """Three-stage Lobatto IIIC DIRK tableau of order four.
 
@@ -300,6 +318,8 @@ SDIRK_2_2_TABLEAU = DIRKTableau(
     b=(1 - SDIRK2_GAMMA, SDIRK2_GAMMA),
     c=(SDIRK2_GAMMA, 1.0),
     order=2,
+    dense_prediction_ratio_float32=1.07,
+    dense_prediction_ratio_float64=1.21,
 )
 """Two-stage, second-order SDIRK tableau by Alexander.
 
@@ -352,6 +372,8 @@ L_STABLE_DIRK3_TABLEAU = DIRKTableau(
         1.0,
     ),
     order=3,
+    dense_prediction_ratio_float32=0.85,
+    dense_prediction_ratio_float64=1.07,
 )
 """Three-stage, third-order L-stable DIRK method with stiff accuracy.
 
@@ -404,6 +426,8 @@ L_STABLE_SDIRK4_TABLEAU = DIRKTableau(
         1.0,
     ),
     order=4,
+    dense_prediction_ratio_float32=0.79,
+    dense_prediction_ratio_float64=0.79,
 )
 """Hairer--Wanner L-stable SDIRK tableau of order four.
 
