@@ -27,8 +27,7 @@ attrs-config mechanics; CUDA-authoring *optimisation* patterns are in
 | `__init__.py` | Public surface: `get_algorithm_step()`, `_ALGORITHM_REGISTRY`, `_TABLEAU_REGISTRY_BY_ALGORITHM`, `resolve_alias`/`resolve_supplied_tableau`; re-exports every step class and tableau registry. |
 | `base_algorithm_step.py` | Core abstractions: `ButcherTableau` (typed accessors, FSAL/error detection), `BaseStepConfig`, `StepCache`, `StepControlDefaults`, `BaseAlgorithmStep` (CUDAFactory base), `ALL_ALGORITHM_STEP_PARAMETERS`. |
 | `ode_explicitstep.py` | `ExplicitStepConfig` + `ODEExplicitStep`: `build()` delegates to `build_step` (no solver); `is_implicit` → `False`. |
-| `ode_implicitstep.py` | `ImplicitStepConfig` (beta, gamma, preconditioner_order — no mass: the matrix belongs to the ODE system) + `ODEImplicitStep`: owns a `NewtonKrylov`/`LinearSolver`, builds operator/preconditioner/residual helpers as immutable `SolverHelperRequest`s, resolves `preconditioner_type` into concrete kinds (owning a `PreconditionerChain` for two-stage composition), routes solver-param updates; `is_implicit` → `True`. |
-| `preconditioner_chain.py` | `PreconditionerChain(CUDAFactory)`: composes two concrete preconditioners as `P1(P0(v))`. Owned by an implicit step only while a two-element `preconditioner_type` is configured; the chained kinds are semantic settings, the two callables `eq=False` derived settings. The consuming linear solver still registers `chain_scratch` — it materialises the argument. |
+| `ode_implicitstep.py` | `ImplicitStepConfig` (beta, gamma, preconditioner_order — no mass: the matrix belongs to the ODE system) + `ODEImplicitStep`: owns a `NewtonKrylov`/`LinearSolver`, builds operator/preconditioner/residual helpers as immutable `SolverHelperRequest`s, resolves `preconditioner_type` into concrete kinds (a two-element type becomes one chained-kind request carrying `chained_kinds`, fused in codegen as `P1(P0(v))`), routes solver-param updates; `is_implicit` → `True`. |
 | `explicit_euler.py` | `ExplicitEulerStep`: forward Euler, order 1, fixed-step. |
 | `generic_erk.py` | `ERKStep` + `ERKStepConfig`: streamed-accumulator explicit RK; FSAL caching; controller auto-selected from `tableau.has_error_estimate`. |
 | `generic_erk_tableaus.py` | `ERKTableau` + ERK sets (Heun, Ralston, Bogacki-Shampine, Dormand-Prince 5(4)/8(5,3), RK4, Cash-Karp, Fehlberg, Tsit5, Vern7); `ERK_TABLEAU_REGISTRY`, `DEFAULT_ERK_TABLEAU`. |
@@ -106,9 +105,10 @@ attrs-config mechanics; CUDA-authoring *optimisation* patterns are in
   CN's `base_state` aliases `error`, and DIRK's `stage_base` aliases `accumulator`.
   Implicit steps additionally pull **child allocators** for their owned solver via
   `get_child_allocators(self, self.solver, ...)`.
-- **Rosenbrock lazy sizing:** `cached_auxiliary_count` triggers `build_implicit_helpers()`
-  on first access to learn the cached-auxiliaries buffer size; `register_buffers` first
-  registers it at size 0 and resizes later via `update_buffer`.
+- **Rosenbrock auxiliary-cache sizing:** `register_buffers` registers
+  `cached_auxiliaries` at size 0; `build_implicit_helpers()` resizes it via
+  `update_buffer` from `prepare_jac`'s `HelperResult.cached_auxiliary_count`.
+  The step keeps no ambient auxiliary-count state.
 
 ### Dense stage prediction (FIRK and DIRK)
 Both steps own a `DenseStagePredictor` (`../stage_predictors.py`) child that

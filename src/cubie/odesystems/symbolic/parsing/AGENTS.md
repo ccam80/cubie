@@ -73,7 +73,7 @@ only defines the container and its derived metadata; treat its `_*` fields as `i
 state set in `__attrs_post_init__` (never set them directly).
 
 ### Driver settings
-Keys in `DRIVER_SETTING_KEYS` (`time`, `dt`, `wrap`, `order`) are configuration, not driver
+Keys in `DRIVER_SETTING_KEYS` (`time`, `driver_sample_period`, `wrap`, `order`) are configuration, not driver
 symbols; they're stripped before building driver names and reattached via
 `drivers.set_passthrough_defaults`.
 

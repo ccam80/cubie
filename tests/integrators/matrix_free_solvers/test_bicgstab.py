@@ -178,7 +178,7 @@ def _cached_diag_operator(
 @cuda.jit(device=True, inline=True)
 def _cached_jacobi_precond(
     state, parameters, drivers, cached_aux, base_state,
-    t, h, a_ij, rhs, out, temp, scratch,
+    t, h, a_ij, rhs, out, temp, scratch, chain_scratch,
 ):
     for i in range(rhs.shape[0]):
         out[i] = rhs[i] / cached_aux[i]

@@ -484,6 +484,9 @@ def neumann_kernel(precision):
             drivers = cuda.local.array(1, precision)
             temp = cuda.shared.array(scratch_size, dtype=precision)
             scratch = cuda.shared.array(scratch_size, dtype=precision)
+            chain_scratch = cuda.shared.array(
+                scratch_size, dtype=precision
+            )
             precond(
                 state,
                 parameters,
@@ -496,6 +499,7 @@ def neumann_kernel(precision):
                 out,
                 temp,
                 scratch,
+                chain_scratch,
             )
 
         return kernel

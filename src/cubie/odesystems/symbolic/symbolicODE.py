@@ -430,7 +430,7 @@ class SymbolicODE(BaseODE):
         """
 
         if isinstance(drivers, dict) and (
-            "time" in drivers or "dt" in drivers
+            "time" in drivers or "driver_sample_period" in drivers
         ):
             ArrayInterpolator(precision=precision, input_dict=drivers)
 
@@ -540,11 +540,10 @@ class SymbolicODE(BaseODE):
     ) -> Set[str]:
         """Update system settings, forwarding to diagnostic factories.
 
-        Cache settings (see
-        :data:`cubie.cubie_cache.ALL_CACHE_PARAMETERS`) are applied to
-        the convergence evaluator's compile settings alongside the
-        system's own updates, so a solver's cache configuration flows
-        down the ordinary ``update`` chain.
+        Updates are offered to the system's own settings and to the
+        convergence evaluator's compile settings. Cache policy does
+        not travel this route — it arrives through
+        :meth:`set_cache_policy`.
 
         Parameters
         ----------
@@ -1058,7 +1057,9 @@ class SymbolicODE(BaseODE):
         }
         device_function = factory(**bound_kwargs)
         if entry.returns_aux_count and aux_count is None:
-            aux_count = getattr(factory, "aux_count", 0)
+            # Generated prepare_jac files stamp aux_count on the
+            # factory; a cached file without it is malformed.
+            aux_count = factory.aux_count
         member = HelperResult(
             device_function=device_function,
             cached_auxiliary_count=(

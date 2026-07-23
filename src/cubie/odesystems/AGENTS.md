@@ -20,7 +20,7 @@ attrs conventions.
 |------|-------------|
 | `baseODE.py` | `BaseODE(CUDAFactory)` abstract base and `ODECache(CUDADispatcherCache)` — the cache `build()` returns: `dxdt`, `observables`, and a `helpers: SolverHelperCache` member map. |
 | `ODEData.py` | `ODEData(CUDAFactoryConfig)` compile-settings bundle + `SystemSizes` (frozen per-category counts passed to kernels). Holds only ODE-system state — solver-helper request parameters live with the requesting algorithm. |
-| `solver_helpers.py` | Solver-helper request/product containers: `SolverHelperKind`, frozen `SolverHelperRequest` (kind, beta, gamma, order, canonical stage spec), `HelperResult` (device callable + `cached_auxiliary_count`), mutable `SolverHelperCache` (`factories[source_hash]`, `members[member_hash]`). |
+| `solver_helpers.py` | Solver-helper request/product containers: `SolverHelperKind` (including the chained composition kinds), frozen `SolverHelperRequest` (kind, beta, gamma, order, canonical stage spec, `chained_kinds` for composed preconditioners), `HelperResult` (device callable + `cached_auxiliary_count`), mutable `SolverHelperCache` (`factories[source_hash]`, `members[member_hash]`). |
 | `SystemValues.py` | `SystemValues` — name↔value mapping with dict/array access, precision coercion, and sympy-key conversion. |
 | `__init__.py` | Re-exports `BaseODE`, `ODECache`, `ODEData`, `SystemSizes`, `SystemValues`, and (from `symbolic/`) `SymbolicODE`, `create_ODE_system`, `load_cellml_model`. |
 

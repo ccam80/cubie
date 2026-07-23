@@ -207,11 +207,11 @@ def test_cache_policy_has_cache_enabled_field():
     policy = CachePolicy()
     assert hasattr(policy, "cache_enabled")
     assert not hasattr(policy, "enabled")
-    assert policy.cache_enabled is False
+    # Caching is on by default for every bare policy.
+    assert policy.cache_enabled is True
 
-    # Verify it can be set to True
-    policy_enabled = CachePolicy(cache_enabled=True)
-    assert policy_enabled.cache_enabled is True
+    policy_disabled = CachePolicy(cache_enabled=False)
+    assert policy_disabled.cache_enabled is False
 
 
 def test_cache_policy_holds_no_identity():
@@ -603,6 +603,41 @@ def test_solver_kernel_update_cache_mode(solverkernel_mutable):
         solverkernel_mutable.cache_handler.policy.cache_mode
         == "flush_on_change"
     )
+
+
+def test_cache_policy_change_leaves_identity_unchanged(
+    solverkernel_mutable, tmp_path
+):
+    """Cache-policy updates never touch configuration identity.
+
+    Every cache parameter changes together, yet the kernel's and the
+    system's config_hash and the object build cache stay untouched,
+    and the replacement policy reaches the system's diagnostic
+    services through set_cache_policy.
+    """
+    kernel = solverkernel_mutable
+    hash_before = kernel.config_hash
+    system_hash_before = kernel.system.config_hash
+    cache_valid_before = kernel._cache_valid
+
+    recognized = kernel.update(
+        cache_mode="flush_on_change",
+        max_cache_entries=7,
+        cache_dir=tmp_path,
+    )
+    assert {"cache_mode", "max_cache_entries", "cache_dir"} <= recognized
+
+    assert kernel.config_hash == hash_before
+    assert kernel.system.config_hash == system_hash_before
+    assert kernel._cache_valid == cache_valid_before
+
+    policy = kernel.cache_handler.policy
+    assert policy.cache_mode == "flush_on_change"
+    assert policy.max_cache_entries == 7
+    assert policy.cache_dir == tmp_path
+    # The same policy object reaches the system's diagnostic service.
+    diagnostic = kernel.system._neumann_diagnostic
+    assert diagnostic.cache_policy is policy
 
 
 # --- CUBIECache.enforce_cache_limit eviction-failure tests ---

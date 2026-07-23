@@ -17,9 +17,10 @@ length-prefixed payload. Container and type boundaries are explicit, so
 ``1``, ``1.0``, ``True``, and ``numpy.int64(1)``. Floats are encoded by
 IEEE-754 bit pattern with signed zero preserved; every NaN is
 canonicalized to the single quiet-NaN pattern. Arrays include dtype,
-shape, and C-order little-endian element bytes. Attrs instances encode
-their class identity and their ``eq``-participating fields in declared
-order. Value objects outside these built-in forms participate through
+shape, and C-order little-endian element bytes. Tuple subclasses
+(namedtuples included) encode as plain tuples — element values only,
+no class identity. Attrs instances encode their class identity and
+their ``eq``-participating fields in declared order. Value objects outside these built-in forms participate through
 the :data:`CANONICAL_PROTOCOL` method, which must return a value that
 is itself canonically encodable.
 

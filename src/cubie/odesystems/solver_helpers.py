@@ -35,6 +35,7 @@ from attrs import Factory, define, field, frozen
 __all__ = [
     "SolverHelperKind",
     "STAGE_AWARE_KINDS",
+    "CHAINED_KINDS",
     "SolverHelperRequest",
     "HelperResult",
     "SolverHelperCache",
@@ -44,9 +45,10 @@ __all__ = [
 class SolverHelperKind(Enum):
     """Concrete generated-helper kinds.
 
-    Composite preconditioner names are not helper kinds: the implicit
-    algorithm layer resolves ``preconditioner_type`` into one or two
-    concrete requests and owns the chain composition.
+    The chained kinds compose two concrete preconditioners in one
+    generated source; the composed stages travel on the request's
+    ``chained_kinds`` field, so a composed preconditioner is one
+    ordinary generated helper with a source identity of its own.
     """
 
     LINEAR_OPERATOR = "linear_operator"
@@ -55,11 +57,14 @@ class SolverHelperKind(Enum):
     NEUMANN_PRECONDITIONER_CACHED = "neumann_preconditioner_cached"
     JACOBI_PRECONDITIONER = "jacobi_preconditioner"
     JACOBI_PRECONDITIONER_CACHED = "jacobi_preconditioner_cached"
+    CHAINED_PRECONDITIONER = "chained_preconditioner"
+    CHAINED_PRECONDITIONER_CACHED = "chained_preconditioner_cached"
     STAGE_RESIDUAL = "stage_residual"
     N_STAGE_RESIDUAL = "n_stage_residual"
     N_STAGE_LINEAR_OPERATOR = "n_stage_linear_operator"
     N_STAGE_NEUMANN_PRECONDITIONER = "n_stage_neumann_preconditioner"
     N_STAGE_JACOBI_PRECONDITIONER = "n_stage_jacobi_preconditioner"
+    N_STAGE_CHAINED_PRECONDITIONER = "n_stage_chained_preconditioner"
     PREPARE_JAC = "prepare_jac"
     CALCULATE_CACHED_JVP = "calculate_cached_jvp"
     TIME_DERIVATIVE_RHS = "time_derivative_rhs"
@@ -71,9 +76,43 @@ STAGE_AWARE_KINDS = frozenset(
         SolverHelperKind.N_STAGE_LINEAR_OPERATOR,
         SolverHelperKind.N_STAGE_NEUMANN_PRECONDITIONER,
         SolverHelperKind.N_STAGE_JACOBI_PRECONDITIONER,
+        SolverHelperKind.N_STAGE_CHAINED_PRECONDITIONER,
     )
 )
 """Kinds whose emitted source depends on the stage specification."""
+
+
+CHAINED_KINDS = frozenset(
+    (
+        SolverHelperKind.CHAINED_PRECONDITIONER,
+        SolverHelperKind.CHAINED_PRECONDITIONER_CACHED,
+        SolverHelperKind.N_STAGE_CHAINED_PRECONDITIONER,
+    )
+)
+"""Kinds whose emitted source composes two concrete preconditioners."""
+
+
+_CHAINED_MEMBER_KINDS = {
+    SolverHelperKind.CHAINED_PRECONDITIONER: frozenset(
+        (
+            SolverHelperKind.NEUMANN_PRECONDITIONER,
+            SolverHelperKind.JACOBI_PRECONDITIONER,
+        )
+    ),
+    SolverHelperKind.CHAINED_PRECONDITIONER_CACHED: frozenset(
+        (
+            SolverHelperKind.NEUMANN_PRECONDITIONER_CACHED,
+            SolverHelperKind.JACOBI_PRECONDITIONER_CACHED,
+        )
+    ),
+    SolverHelperKind.N_STAGE_CHAINED_PRECONDITIONER: frozenset(
+        (
+            SolverHelperKind.N_STAGE_NEUMANN_PRECONDITIONER,
+            SolverHelperKind.N_STAGE_JACOBI_PRECONDITIONER,
+        )
+    ),
+}
+"""Concrete stage kinds each chained kind may compose."""
 
 
 def _kind_converter(value: Any) -> SolverHelperKind:
@@ -102,6 +141,13 @@ def _stage_vector_converter(value: Any) -> Optional[tuple]:
     return tuple(value)
 
 
+def _chained_kinds_converter(value: Any) -> Optional[tuple]:
+    """Normalise composed stage kinds to a tuple of enum members."""
+    if value is None:
+        return None
+    return tuple(_kind_converter(member) for member in value)
+
+
 @frozen
 class SolverHelperRequest:
     """Immutable description of one solver-helper lookup.
@@ -125,6 +171,9 @@ class SolverHelperRequest:
     stage_nodes
         Stage nodes expressed as timestep fractions for stage-aware
         helpers.
+    chained_kinds
+        Ordered concrete stage kinds composed by a chained kind, in
+        application order.
 
     Notes
     -----
@@ -132,7 +181,9 @@ class SolverHelperRequest:
     SymPy text form, so exact and floating forms of the same tableau
     are distinguished deliberately — they emit different source.
     Unsupported combinations fail at construction: stage-aware kinds
-    require stage data and other kinds reject it.
+    require stage data and other kinds reject it; chained kinds
+    require exactly two concrete stage kinds from their own variant
+    family and other kinds reject them.
     """
 
     kind: SolverHelperKind = field(converter=_kind_converter)
@@ -145,11 +196,34 @@ class SolverHelperRequest:
     stage_nodes: Optional[tuple] = field(
         default=None, converter=_stage_vector_converter, eq=False
     )
+    chained_kinds: Optional[Tuple[SolverHelperKind, ...]] = field(
+        default=None, converter=_chained_kinds_converter
+    )
     _stage_identity: Optional[tuple] = field(
         default=None, init=False, repr=False
     )
 
     def __attrs_post_init__(self):
+        if self.kind in CHAINED_KINDS:
+            allowed = _CHAINED_MEMBER_KINDS[self.kind]
+            if (
+                self.chained_kinds is None
+                or len(self.chained_kinds) != 2
+                or any(
+                    member not in allowed
+                    for member in self.chained_kinds
+                )
+            ):
+                raise ValueError(
+                    f"Helper kind '{self.kind.value}' requires "
+                    "chained_kinds naming exactly two concrete "
+                    "preconditioner kinds from its variant family."
+                )
+        elif self.chained_kinds is not None:
+            raise ValueError(
+                f"Helper kind '{self.kind.value}' does not compose "
+                "chained preconditioner stages."
+            )
         if self.kind in STAGE_AWARE_KINDS:
             if self.stage_coefficients is None or self.stage_nodes is None:
                 raise ValueError(
@@ -178,6 +252,13 @@ class SolverHelperRequest:
         """Canonical identity of the stage specification, if any."""
         return self._stage_identity
 
+    @property
+    def chain_identity(self) -> Optional[tuple]:
+        """Canonical identity of the composed stage kinds, if any."""
+        if self.chained_kinds is None:
+            return None
+        return tuple(member.value for member in self.chained_kinds)
+
     def _cubie_canonical_(self) -> tuple:
         """Return the canonical identity of this request."""
         return (
@@ -187,6 +268,7 @@ class SolverHelperRequest:
             self.gamma,
             self.preconditioner_order,
             self._stage_identity,
+            self.chain_identity,
         )
 
 

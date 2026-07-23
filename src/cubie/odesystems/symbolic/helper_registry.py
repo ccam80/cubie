@@ -38,6 +38,7 @@ from attrs import field, frozen
 
 from cubie._serialize import canonical_digest
 from cubie.odesystems.solver_helpers import (
+    CHAINED_KINDS,
     STAGE_AWARE_KINDS,
     SolverHelperKind,
     SolverHelperRequest,
@@ -45,6 +46,7 @@ from cubie.odesystems.solver_helpers import (
 from cubie.odesystems.symbolic.codegen import (
     generate_cached_jvp_code,
     generate_cached_operator_apply_code,
+    generate_chained_preconditioner_code,
     generate_jacobi_preconditioner_cached_code,
     generate_jacobi_preconditioner_code,
     generate_n_stage_jacobi_preconditioner_code,
@@ -84,6 +86,24 @@ def _neumann_validation(system, request: SolverHelperRequest) -> None:
         beta=request.beta,
         gamma=request.gamma,
     )
+
+
+_NEUMANN_STAGE_KINDS = frozenset(
+    (
+        SolverHelperKind.NEUMANN_PRECONDITIONER,
+        SolverHelperKind.NEUMANN_PRECONDITIONER_CACHED,
+        SolverHelperKind.N_STAGE_NEUMANN_PRECONDITIONER,
+    )
+)
+
+
+def _chained_validation(system, request: SolverHelperRequest) -> None:
+    """Run stage diagnostics for a chained-preconditioner request."""
+    if any(
+        member in _NEUMANN_STAGE_KINDS
+        for member in request.chained_kinds
+    ):
+        _neumann_validation(system, request)
 
 
 _SCALAR_ARGS = ("constants", "precision", "lineinfo")
@@ -268,6 +288,29 @@ def _gen_n_stage_jacobi(system, request, func_name):
     )
 
 
+def _gen_chained(system, request, func_name):
+    """Compose two concrete preconditioner sources into one factory."""
+    stage_sources = []
+    for index, member in enumerate(request.chained_kinds):
+        stage_entry = SOLVER_HELPER_REGISTRY[member]
+        stage_sources.append(
+            stage_entry.generate(
+                system,
+                request,
+                f"_cubie_codegen_stage{index}_factory",
+            )
+        )
+    return generate_chained_preconditioner_code(
+        stage_sources[0],
+        stage_sources[1],
+        func_name=func_name,
+        cached=(
+            request.kind
+            is SolverHelperKind.CHAINED_PRECONDITIONER_CACHED
+        ),
+    )
+
+
 SOLVER_HELPER_REGISTRY = {
     SolverHelperKind.LINEAR_OPERATOR: _RegistryEntry(
         kind=SolverHelperKind.LINEAR_OPERATOR,
@@ -334,6 +377,25 @@ SOLVER_HELPER_REGISTRY = {
         uses_mass=True,
         stage_aware=True,
     ),
+    SolverHelperKind.CHAINED_PRECONDITIONER: _RegistryEntry(
+        kind=SolverHelperKind.CHAINED_PRECONDITIONER,
+        generate=_gen_chained,
+        factory_args=_ORDERED_ARGS,
+        validation_hook=_chained_validation,
+    ),
+    SolverHelperKind.CHAINED_PRECONDITIONER_CACHED: _RegistryEntry(
+        kind=SolverHelperKind.CHAINED_PRECONDITIONER_CACHED,
+        generate=_gen_chained,
+        factory_args=_ORDERED_ARGS,
+        validation_hook=_chained_validation,
+    ),
+    SolverHelperKind.N_STAGE_CHAINED_PRECONDITIONER: _RegistryEntry(
+        kind=SolverHelperKind.N_STAGE_CHAINED_PRECONDITIONER,
+        generate=_gen_chained,
+        factory_args=_ORDERED_ARGS,
+        stage_aware=True,
+        validation_hook=_chained_validation,
+    ),
     SolverHelperKind.PREPARE_JAC: _RegistryEntry(
         kind=SolverHelperKind.PREPARE_JAC,
         generate=_gen_prepare_jac,
@@ -367,12 +429,20 @@ def helper_source_hash(system, request: SolverHelperRequest) -> str:
 
     Contains only inputs that change the emitted source: helper kind,
     the ODE equation/layout identity, the mass matrix for generators
-    that consume it, and the canonical stage specification for
-    stage-aware generators. Binding values (beta, gamma, order,
+    that consume it, the canonical stage specification for stage-aware
+    generators, and the composed stage kinds for chained generators.
+    A chained kind consumes the mass matrix exactly when one of its
+    composed stages does. Binding values (beta, gamma, order,
     constants, precision, lineinfo) are deliberately absent.
     """
     entry = SOLVER_HELPER_REGISTRY[request.kind]
-    mass = system.compile_settings.mass if entry.uses_mass else None
+    uses_mass = entry.uses_mass
+    if request.kind in CHAINED_KINDS:
+        uses_mass = any(
+            SOLVER_HELPER_REGISTRY[member].uses_mass
+            for member in request.chained_kinds
+        )
+    mass = system.compile_settings.mass if uses_mass else None
     return canonical_digest(
         (
             "cubie-helper-source",
@@ -380,6 +450,7 @@ def helper_source_hash(system, request: SolverHelperRequest) -> str:
             system.fn_hash,
             mass,
             request.stage_identity if entry.stage_aware else None,
+            request.chain_identity,
         )
     )
 

@@ -271,6 +271,34 @@ def test_update_delegates_to_nested():
     assert c.inner.x == 1
 
 
+def test_update_delegates_to_optional_nested():
+    """Delegates to a nested config behind an Optional annotation."""
+    from typing import Optional
+
+    @attrs.frozen
+    class _Inner(_CubieConfigBase):
+        x: int = 1
+
+    @attrs.frozen
+    class _Outer(_CubieConfigBase):
+        inner: Optional[_Inner] = attrs.Factory(_Inner)
+
+    c = _Outer()
+    replacement, recognized, changed = c.update({"x": 42})
+    assert "x" in recognized
+    assert "x" in changed
+    assert replacement.inner.x == 42
+    assert c.inner.x == 1
+    # A None-valued optional nested config is skipped, not an error.
+    empty = _Outer(inner=None)
+    replacement, recognized, changed = empty.update(
+        {"x": 42},
+    )
+    assert recognized == set()
+    assert changed == set()
+    assert replacement is empty
+
+
 def test_update_changes_hash_on_replacement():
     """The replacement's hash differs after a semantic change."""
     c = _make_config(value1=10)

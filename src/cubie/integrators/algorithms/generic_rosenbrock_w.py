@@ -236,7 +236,6 @@ class GenericRosenbrockWStep(ODEImplicitStep):
             },
             **kwargs,
         )
-        self._cached_auxiliary_count = None
 
         # Select defaults based on error estimate
         if tableau_value.has_error_estimate:
@@ -334,13 +333,14 @@ class GenericRosenbrockWStep(ODEImplicitStep):
             SolverHelperRequest(kind=SolverHelperKind.PREPARE_JAC)
         )
         prepare_jacobian = prepare_result.device_function
-        self._cached_auxiliary_count = (
-            prepare_result.cached_auxiliary_count or 0
-        )
 
-        # Update buffer registry with the actual cached_auxiliary_count
+        # Size the auxiliary cache from the helper metadata: the
+        # buffer is registered at zero size and takes its real size
+        # here, after the helper refresh.
         buffer_registry.update_buffer(
-            "cached_auxiliaries", self, size=self._cached_auxiliary_count
+            "cached_auxiliaries",
+            self,
+            size=prepare_result.cached_auxiliary_count,
         )
 
         time_derivative_function = get_fn(
@@ -770,15 +770,6 @@ class GenericRosenbrockWStep(ODEImplicitStep):
     def is_adaptive(self) -> bool:
         """Return ``True`` if algorithm calculates an error estimate."""
         return self.tableau.has_error_estimate
-
-    @property
-    def cached_auxiliary_count(self) -> int:
-        """Return the number of cached auxiliary entries for the JVP.
-
-        Lazily builds implicit helpers so as not to return an errant 'None'."""
-        if self._cached_auxiliary_count is None:
-            self.build_implicit_helpers()
-        return self._cached_auxiliary_count
 
     @property
     def is_implicit(self) -> bool:

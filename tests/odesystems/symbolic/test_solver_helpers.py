@@ -907,6 +907,7 @@ def neumann_kernel(precision):
             drivers = cuda.local.array(1, precision)
             jvp = cuda.local.array(n, precision)
             scratch = cuda.local.array(n, precision)
+            chain_scratch = cuda.local.array(n, precision)
             pre(
                 state,
                 parameters,
@@ -919,6 +920,7 @@ def neumann_kernel(precision):
                 out,
                 jvp,
                 scratch,
+                chain_scratch,
             )
 
         return kernel
@@ -985,6 +987,7 @@ def neumann_cached_kernel(cached_system, precision):
             cached_aux = cuda.local.array(aux_len, precision)
             jvp = cuda.local.array(n_state, precision)
             scratch = cuda.local.array(n_state, precision)
+            chain_scratch = cuda.local.array(n_state, precision)
 
             for idx in range(n_state):
                 state[idx] = state_values[idx]
@@ -1007,6 +1010,7 @@ def neumann_cached_kernel(cached_system, precision):
                 out,
                 jvp,
                 scratch,
+                chain_scratch,
             )
 
         return kernel
@@ -1503,6 +1507,7 @@ def jacobi_kernel(precision):
             drivers = cuda.local.array(1, precision)
             jvp = cuda.local.array(n, precision)
             scratch = cuda.local.array(n, precision)
+            chain_scratch = cuda.local.array(n, precision)
             for idx in range(n):
                 state[idx] = state_values[idx]
             pre(
@@ -1517,6 +1522,7 @@ def jacobi_kernel(precision):
                 out,
                 jvp,
                 scratch,
+                chain_scratch,
             )
 
         return kernel
@@ -1650,14 +1656,10 @@ def test_chained_preconditioner_composition(
 ):
     """Chained ["neumann", "jacobi"] equals jacobi(neumann(v)).
 
-    The composite helper feeds P0's output into P1, so the chained
-    device function must reproduce sequential application of the
-    individually generated preconditioners.
+    The composed generated helper feeds P0's output into P1, so it
+    must reproduce sequential application of the individually
+    generated preconditioners.
     """
-    from cubie.integrators.algorithms.preconditioner_chain import (
-        PreconditionerChain,
-    )
-
     kwargs = {
         "beta": 1.0,
         "gamma": 1.0,
@@ -1669,15 +1671,16 @@ def test_chained_preconditioner_composition(
     jacobi = operator_system.get_solver_helper(
         SolverHelperRequest(kind="jacobi_preconditioner", **kwargs)
     ).device_function
-
-    chain = PreconditionerChain(precision=precision)
-    chain.update_compile_settings(
-        kinds=("neumann_preconditioner", "jacobi_preconditioner"),
-        cached=False,
-        p0=neumann,
-        p1=jacobi,
-    )
-    chained = chain.device_function
+    chained = operator_system.get_solver_helper(
+        SolverHelperRequest(
+            kind="chained_preconditioner",
+            chained_kinds=(
+                "neumann_preconditioner",
+                "jacobi_preconditioner",
+            ),
+            **kwargs,
+        )
+    ).device_function
 
     n = 2
 
@@ -1700,10 +1703,12 @@ def test_chained_preconditioner_composition(
         neumann(
             state, parameters, drivers, base_state,
             t, h, a_ij, vec, intermediate, jvp, scratch,
+            chain_scratch,
         )
         jacobi(
             state, parameters, drivers, base_state,
             t, h, a_ij, intermediate, out_seq, jvp, scratch,
+            chain_scratch,
         )
 
     v = np.array([0.7, -1.3], dtype=precision)

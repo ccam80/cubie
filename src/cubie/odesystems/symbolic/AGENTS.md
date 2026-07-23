@@ -57,11 +57,14 @@ declares: constants, precision, beta, gamma, order, lineinfo as applicable) keys
 the bound member in `ODECache.helpers`. Repeated requests return the same
 `HelperResult`; different beta/gamma/order bindings reuse one generated factory.
 Adding a helper means a kind in `odesystems/solver_helpers.py`, a generator in
-`codegen/`, and a registry entry. Composite preconditioner types are **not**
-requestable here — the implicit algorithm layer resolves `preconditioner_type` into
-concrete kinds and owns any `PreconditionerChain` composition. The Neumann
+`codegen/`, and a registry entry. Composite preconditioner *policy* stays with the
+implicit algorithm layer: it resolves `preconditioner_type` into concrete kinds and,
+for a two-element type, issues one chained-kind request whose `chained_kinds` carry
+the composed stages — the registry fuses them into a single generated source whose
+`source_hash` folds the stage-kind sequence (and the mass matrix when a composed
+stage consumes it). The Neumann
 convergence diagnostic runs as a registry validation hook on every neumann-kind
-request (cache hits included). `prepare_jac`'s auxiliary count travels on its
+request — chained requests with a neumann stage included — and on cache hits. `prepare_jac`'s auxiliary count travels on its
 `HelperResult.cached_auxiliary_count`. Mass-consuming helpers read the system's own
 `compile_settings.mass` — callers never pass a matrix.
 

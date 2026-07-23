@@ -34,9 +34,6 @@ from cubie.odesystems.solver_helpers import (
     SolverHelperKind,
     SolverHelperRequest,
 )
-from cubie.integrators.algorithms.preconditioner_chain import (
-    PreconditionerChain,
-)
 from cubie.integrators.matrix_free_solvers.linear_solver import (
     MRLinearSolver,
 )
@@ -110,8 +107,10 @@ class ImplicitStepConfig(BaseStepConfig):
         """Return whether the preconditioner resolves to a chain.
 
         Single strings and one-element lists resolve to a bare
-        preconditioner; two-element lists compose as ``P1(P0(v))``
-        with the chained (``chain_scratch``-carrying) signature.
+        preconditioner; two-element lists compose as ``P1(P0(v))`` in
+        one generated helper. Every preconditioner shares one
+        signature; the flag only sizes the solver's ``chain_scratch``
+        buffer (``n`` for a chain, zero otherwise).
         """
         return (
             isinstance(self.preconditioner_type, (list, tuple))
@@ -275,10 +274,6 @@ class ODEImplicitStep(BaseAlgorithmStep):
             )
         else:
             self.solver = linear_solver
-
-        # Owned only while a two-stage preconditioner chain is
-        # configured; None keeps it out of child-factory discovery.
-        self._preconditioner_chain = None
 
     def register_buffers(self) -> None:
         """Register buffers with buffer_registry."""
@@ -452,6 +447,18 @@ class ODEImplicitStep(BaseAlgorithmStep):
         },
     }
 
+    # Chained helper kind serving each signature family when two
+    # preconditioner types are configured.
+    _CHAINED_VARIANT_KINDS = {
+        "preconditioner": SolverHelperKind.CHAINED_PRECONDITIONER,
+        "preconditioner_cached": (
+            SolverHelperKind.CHAINED_PRECONDITIONER_CACHED
+        ),
+        "n_stage_preconditioner": (
+            SolverHelperKind.N_STAGE_CHAINED_PRECONDITIONER
+        ),
+    }
+
     def _helper_request_kwargs(self) -> dict:
         """Return the shared request fields from the step settings."""
         config = self.compile_settings
@@ -478,9 +485,9 @@ class ODEImplicitStep(BaseAlgorithmStep):
         Returns
         -------
         Callable
-            A single concrete preconditioner, or the owned
-            :class:`PreconditionerChain`'s composed device function
-            when two types are configured.
+            A single generated preconditioner: a concrete kind when
+            one type is configured, or one composed (chained)
+            generated helper when two are.
         """
         config = self.compile_settings
         preconditioner_type = config.preconditioner_type
@@ -499,38 +506,23 @@ class ODEImplicitStep(BaseAlgorithmStep):
                 )
             kinds.append(mapping[type_name])
 
-        get_fn = config.get_solver_helper_fn
-        functions = [
-            get_fn(
-                SolverHelperRequest(kind=kind, **request_kwargs)
-            ).device_function
-            for kind in kinds
-        ]
-
-        if len(functions) == 1:
-            self._preconditioner_chain = None
-            return functions[0]
-
-        if len(functions) != 2:
+        if len(kinds) == 1:
+            request = SolverHelperRequest(
+                kind=kinds[0], **request_kwargs
+            )
+        elif len(kinds) == 2:
+            request = SolverHelperRequest(
+                kind=self._CHAINED_VARIANT_KINDS[variant],
+                chained_kinds=tuple(kinds),
+                **request_kwargs,
+            )
+        else:
             raise ValueError(
                 "Preconditioner chaining supports exactly "
-                f"2 preconditioners, got {len(functions)}"
+                f"2 preconditioners, got {len(kinds)}"
             )
-
-        if self._preconditioner_chain is None:
-            self._preconditioner_chain = PreconditionerChain(
-                precision=config.precision,
-                jit_flags=config.jit_flags,
-            )
-        self._preconditioner_chain.update_compile_settings(
-            kinds=tuple(kind.value for kind in kinds),
-            cached=(variant == "preconditioner_cached"),
-            p0=functions[0],
-            p1=functions[1],
-            jit_flags=config.jit_flags,
-            silent=True,
-        )
-        return self._preconditioner_chain.device_function
+        get_fn = config.get_solver_helper_fn
+        return get_fn(request).device_function
 
     def build_implicit_helpers(self) -> None:
         """Construct the nonlinear solver chain used by implicit methods.

@@ -339,7 +339,10 @@ def _attach_cache(dispatcher):
     # production cache and its production key stay untouched. Only
     # factory-less dispatchers — kernels defined inline in tests —
     # receive the function-keyed test cache so the consumer leg still
-    # compiles nothing.
+    # compiles nothing. A production dispatcher whose factory ran with
+    # caching disabled carries no CUBIECache and is indistinguishable
+    # from an inline kernel here; it takes the function-keyed cache,
+    # which replaces nothing and keeps the zero-compile guarantee.
     if isinstance(dispatcher._cache, CUBIECache):
         return
     dispatcher._cache = _test_kernel_cache_class()(

@@ -167,6 +167,10 @@ _BACKEND_ABI_DISTRIBUTIONS = {
 }
 """Distributions whose versions define each backend's artifact ABI.
 
+Keys must cover every backend name ``cubie.cuda_backend`` can
+resolve; a new backend without an entry fails fast at fingerprint
+time.
+
 numba-cuda artifacts are pickled ``_Kernel`` states whose layout
 follows numba-cuda itself and the numba/llvmlite serialization it
 builds on. MLIR artifacts are cubin/PTX compile-result payloads whose
@@ -188,7 +192,7 @@ def _abi_fingerprint_entries() -> list:
     magic) is carried per-overload by the backend's
     ``codegen.magic_tuple()`` inside each index key.
     """
-    abi_tag = getattr(implementation, "cache_tag", None)
+    abi_tag = implementation.cache_tag
     if not abi_tag:
         abi_tag = (
             f"{implementation.name}-{version_info.major}."
@@ -675,7 +679,7 @@ class CachePolicy:
     """
 
     cache_enabled: bool = field(
-        default=False,
+        default=True,
         validator=val.instance_of(bool),
     )
     cache_mode: str = field(
