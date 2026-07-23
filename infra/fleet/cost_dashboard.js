@@ -432,18 +432,21 @@ function renderRun(payload) {
 }
 
 function renderStack(id, times, series, yName) {
-  const wrapper = document.getElementById(id).parentElement;
-  if (!series.length) {
-    const note = document.createElement('div');
-    note.className = 'note';
-    note.textContent =
-      'No available Cost Explorer data has a non-zero value in this window.';
-    wrapper.replaceChildren(note);
-    return;
-  }
   chart(id).setOption({
     grid: {left: 56, right: 16, top: 30, bottom: 70},
-    legend: {type: 'scroll', top: 0},
+    legend: {type: 'scroll', top: 0, show: Boolean(series.length)},
+    graphic: series.length ? [] : [{
+      type: 'text',
+      left: 'center',
+      top: 'middle',
+      style: {
+        text: 'No available Cost Explorer data has a non-zero value ' +
+          'in this window.',
+        fill: '#7f8c8d',
+        font: '14px sans-serif',
+        textAlign: 'center'
+      }
+    }],
     tooltip: {
       trigger: 'axis',
       axisPointer: {type: 'shadow'},
@@ -455,7 +458,7 @@ function renderStack(id, times, series, yName) {
         .replace('T', ' ')
         .replace(':00:00Z', 'h')
         .slice(5)),
-      axisLabel: {rotate: 60, fontSize: 9, interval: 0}
+      axisLabel: {rotate: 60, fontSize: 9}
     },
     yAxis: {type: 'value', name: yName},
     series: series.map((item, index) => ({
@@ -574,7 +577,7 @@ async function init() {
   const now = new Date();
   document.getElementById('acctTo').value = iso(now);
   document.getElementById('acctFrom').value = iso(
-    new Date(now.getTime() - 29 * 864e5)
+    new Date(now.getTime() - 2 * 864e5)
   );
   document.getElementById('acctFrom').onchange = () => loadAccount(false);
   document.getElementById('acctTo').onchange = () => loadAccount(false);

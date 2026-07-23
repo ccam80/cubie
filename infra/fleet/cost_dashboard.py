@@ -389,7 +389,7 @@ def _ce_query(gran, start, end, group_key, metric, service=None):
     return res["ResultsByTime"]
 
 
-def _validate_account_range(start, end, gran, today=None):
+def _validate_account_range(start, end, gran):
     """Validate a bounded account range whose two dates are inclusive."""
     gran = gran.upper()
     if gran not in {"DAILY", "HOURLY"}:
@@ -405,9 +405,6 @@ def _validate_account_range(start, end, gran, today=None):
         raise ValueError("start and end must use YYYY-MM-DD") from exc
     if start_date > end_date:
         raise ValueError("start must be on or before end")
-    today = today or now_utc().date()
-    if end_date > today:
-        raise ValueError("end cannot be in the future")
     days = (end_date - start_date).days + 1
     limit = MAX_HOURLY_RANGE_DAYS if gran == "HOURLY" else MAX_DAILY_RANGE_DAYS
     if days > limit:
@@ -946,23 +943,34 @@ def account_payload(start, end, gran, force=False, store=None, now=None):
     )
     store = store or UsageStore(USAGE_DB)
     now = now or now_utc()
-    range_end = datetime.combine(
+    requested_start = datetime.combine(
+        start_date, datetime.min.time(), tzinfo=timezone.utc
+    )
+    requested_end = datetime.combine(
         end_exclusive, datetime.min.time(), tzinfo=timezone.utc
     )
+    current_hour_end = now.replace(
+        minute=0, second=0, microsecond=0
+    ) + timedelta(hours=1)
+    data_end = min(requested_end, current_hour_end)
+    has_data_window = requested_start < data_end
     refresh_status = "cached"
     charged = False
     with _CE_LOCK:
         frontier = store.frontier()
         _, hourly_high_water = store.hourly_bounds()
         last_fetch = store.metadata("last_fetch")
-        if _should_refresh(
-            range_end,
-            frontier,
-            hourly_high_water,
-            last_fetch,
-            now,
-            force,
-        ):
+        should_refresh = force or (
+            has_data_window
+            and _should_refresh(
+                data_end,
+                frontier,
+                hourly_high_water,
+                last_fetch,
+                now,
+            )
+        )
+        if should_refresh:
             refresh_status = _refresh(store, now, force)
             charged = refresh_status == "fetched"
 
@@ -972,12 +980,15 @@ def account_payload(start, end, gran, force=False, store=None, now=None):
         expected_days = [
             day for day, _ in _expected_buckets(start, end, "DAILY")
         ]
-        stop_day = end_exclusive.isoformat()
-        hourly_counts = store.hourly_day_counts(
-            start_date.isoformat(), stop_day
+        cache_end_date = min(end_exclusive, now.date() + timedelta(days=1))
+        stop_day = cache_end_date.isoformat()
+        hourly_counts = (
+            store.hourly_day_counts(start_date.isoformat(), stop_day)
+            if start_date < cache_end_date
+            else {}
         )
         cached_days = {}
-        if gran == "DAILY":
+        if gran == "DAILY" and start_date < cache_end_date:
             final_days = [
                 day
                 for day in expected_days
@@ -989,19 +1000,30 @@ def account_payload(start, end, gran, force=False, store=None, now=None):
             cached_days = store.daily_range(start_date.isoformat(), stop_day)
 
         expected = _expected_buckets(start, end, gran)
+        if gran == "HOURLY" and end_exclusive == now.date() + timedelta(
+            days=1
+        ):
+            expected = [
+                bucket for bucket in expected if bucket[1] < current_hour_end
+            ]
+        data_expected = [bucket for bucket in expected if bucket[1] < data_end]
         if gran == "HOURLY":
-            hourly = store.hourly_range(
-                f"{start}T00:00:00Z",
-                f"{end_exclusive.isoformat()}T00:00:00Z",
+            hourly = (
+                store.hourly_range(
+                    f"{start}T00:00:00Z",
+                    data_end.strftime("%Y-%m-%dT%H:00:00Z"),
+                )
+                if has_data_window
+                else {}
             )
             shown = [
                 (period, hourly[period])
-                for period, _ in expected
+                for period, _ in data_expected
                 if period in hourly
             ]
         else:
             shown = []
-            for day, _ in expected:
+            for day, bucket_start in data_expected:
                 prefer_hourly = hourly_counts.get(day) == 24 and (
                     not frontier_day or day >= frontier_day
                 )
@@ -1012,17 +1034,16 @@ def account_payload(start, end, gran, force=False, store=None, now=None):
                 if not prefer_hourly and day in cached_days:
                     shown.append((day, cached_days[day]))
                     continue
-                next_day = (
-                    date.fromisoformat(day) + timedelta(days=1)
-                ).isoformat()
+                bucket_end = min(bucket_start + timedelta(days=1), data_end)
                 hourly = store.hourly_range(
                     f"{day}T00:00:00Z",
-                    f"{next_day}T00:00:00Z",
+                    bucket_end.strftime("%Y-%m-%dT%H:00:00Z"),
                 )
                 if hourly:
                     shown.append((day, _rollup(hourly, day)))
 
-    times = [key for key, _ in shown]
+    times = [key for key, _ in expected]
+    shown_by_key = dict(shown)
 
     def series(field):
         keys = sorted(
@@ -1031,12 +1052,21 @@ def account_payload(start, end, gran, force=False, store=None, now=None):
         output = []
         for name in keys:
             row = [
-                payload.get(field, {}).get(name, 0.0) for _, payload in shown
+                (
+                    shown_by_key[period].get(field, {}).get(name, 0.0)
+                    if period in shown_by_key
+                    else None
+                )
+                for period, _ in expected
             ]
-            if any(row):
+            if any(value for value in row if value is not None):
                 output.append({"name": name, "data": row})
         return output
 
+    coverage = _coverage(
+        data_expected, shown, gran, hourly_high_water, now.date()
+    )
+    coverage["future_buckets"] = len(expected) - len(data_expected)
     return {
         "start": start,
         "end": end,
@@ -1047,9 +1077,7 @@ def account_payload(start, end, gran, force=False, store=None, now=None):
         "times": times,
         "frontier": frontier,
         "last_fetch": store.metadata("last_fetch"),
-        "coverage": _coverage(
-            expected, shown, gran, hourly_high_water, now.date()
-        ),
+        "coverage": coverage,
         "usage": series("usage"),
         "cost": series("cost"),
     }

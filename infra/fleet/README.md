@@ -180,7 +180,11 @@ cached daily values and explicitly reports unavailable coverage.
 Account plots load automatically and reload when their date or granularity
 controls change. **Force fetch** is the only fetch control; it bypasses the
 one-day decision with a POST request and re-pulls the same settlement-aware
-recent tail rather than the selected historical range.
+recent tail rather than the selected historical range. Requests may extend
+into the future: data access and normal refresh decisions stop at the current
+UTC hour, while future plot buckets remain visible as empty slots. The
+default view is hourly for the latest three UTC calendar days through the
+current hour.
 A persisted ten-minute refresh lease coalesces concurrent dashboard
 processes, and forced-refresh attempts have a five-minute safety rate
 limit. The status line reports the usage frontier, last fetch, refresh
