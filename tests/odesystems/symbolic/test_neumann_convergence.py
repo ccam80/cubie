@@ -12,6 +12,7 @@ import warnings
 import numpy as np
 import pytest
 
+from cubie.odesystems.solver_helpers import SolverHelperRequest
 from cubie.batchsolving.BatchSolverKernel import BatchSolverKernel
 from cubie.cubie_cache import CUBIECache
 from cubie.odesystems.symbolic.codegen.neumann_convergence import (
@@ -118,7 +119,9 @@ def test_get_solver_helper_runs_diagnostic_for_neumann_type(system):
     """Static helper check reports a step limit, not divergence."""
     with pytest.warns(UserWarning, match="not a divergence verdict"):
         system.get_solver_helper(
-            "neumann_preconditioner", solver_beta=1.0, solver_gamma=1.0
+            SolverHelperRequest(
+                kind="neumann_preconditioner", beta=1.0, gamma=1.0
+            )
         )
 
 
@@ -127,7 +130,7 @@ def test_get_solver_helper_runs_diagnostic_for_neumann_type(system):
 )
 def test_solver_cache_policy_reaches_evaluator(system, tmp_path):
     """A solver's cache settings flow down to the system's evaluator."""
-    evaluator = system._diagnostic_factories["neumann_rhs"]
+    evaluator = system._neumann_diagnostic
     try:
         disabled = BatchSolverKernel(
             system,

@@ -49,6 +49,10 @@ from cubie.result_codes import CUBIE_RESULT_CODES
 from numpy import int32 as np_int32
 
 from cubie._utils import PrecisionDType, build_config, is_device_validator
+from cubie.odesystems.solver_helpers import (
+    SolverHelperKind,
+    SolverHelperRequest,
+)
 from cubie.integrators.algorithms.base_algorithm_step import (
     StepCache,
     StepControlDefaults,
@@ -311,39 +315,39 @@ class GenericRosenbrockWStep(ODEImplicitStep):
     ) -> None:
         """Construct the linear solver used by Rosenbrock methods."""
         config = self.compile_settings
-        beta = config.beta
-        gamma = config.gamma
-        preconditioner_order = config.preconditioner_order
+        request_kwargs = self._helper_request_kwargs()
 
         get_fn = config.get_solver_helper_fn
 
         # Get device functions from ODE system
-        preconditioner = get_fn(
-            "preconditioner_cached",
-            preconditioner_type=config.preconditioner_type,
-            solver_beta=beta,
-            solver_gamma=gamma,
-            preconditioner_order=preconditioner_order,
+        preconditioner = self._resolve_preconditioner(
+            "preconditioner_cached", **request_kwargs
         )
         operator = get_fn(
-            "linear_operator_cached",
-            solver_beta=beta,
-            solver_gamma=gamma,
-            preconditioner_order=preconditioner_order,
-        )
+            SolverHelperRequest(
+                kind=SolverHelperKind.LINEAR_OPERATOR_CACHED,
+                **request_kwargs,
+            )
+        ).device_function
 
-        prepare_jacobian = get_fn(
-            "prepare_jac",
-            preconditioner_order=preconditioner_order,
+        prepare_result = get_fn(
+            SolverHelperRequest(kind=SolverHelperKind.PREPARE_JAC)
         )
-        self._cached_auxiliary_count = get_fn("cached_aux_count")
+        prepare_jacobian = prepare_result.device_function
+        self._cached_auxiliary_count = (
+            prepare_result.cached_auxiliary_count or 0
+        )
 
         # Update buffer registry with the actual cached_auxiliary_count
         buffer_registry.update_buffer(
             "cached_auxiliaries", self, size=self._cached_auxiliary_count
         )
 
-        time_derivative_function = get_fn("time_derivative_rhs")
+        time_derivative_function = get_fn(
+            SolverHelperRequest(
+                kind=SolverHelperKind.TIME_DERIVATIVE_RHS
+            )
+        ).device_function
 
         # Update linear solver with device functions
         self.solver.update(

@@ -4,6 +4,7 @@ from typing import Tuple
 
 import numpy as np
 import pytest
+from cubie.odesystems.solver_helpers import SolverHelperRequest
 from cubie.cuda_simsafe import cuda
 
 from cubie.array_interpolator import ArrayInterpolator
@@ -334,7 +335,9 @@ def test_symbolic_time_derivative_matches_interpolated(cubic_inputs, precision):
         name="cubic_time_derivative",
     )
 
-    helper = system.get_solver_helper("time_derivative_rhs")
+    helper = system.get_solver_helper(
+        SolverHelperRequest(kind="time_derivative_rhs")
+    ).device_function
 
     query_times = np.array([0.75, 2.25], dtype=precision)
 

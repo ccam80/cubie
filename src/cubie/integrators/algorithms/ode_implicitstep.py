@@ -30,6 +30,13 @@ from attrs import field, validators, frozen
 from numpy import ndarray
 
 from cubie._utils import inrangetype_validator, is_device_validator
+from cubie.odesystems.solver_helpers import (
+    SolverHelperKind,
+    SolverHelperRequest,
+)
+from cubie.integrators.algorithms.preconditioner_chain import (
+    PreconditionerChain,
+)
 from cubie.integrators.matrix_free_solvers.linear_solver import (
     MRLinearSolver,
 )
@@ -269,6 +276,10 @@ class ODEImplicitStep(BaseAlgorithmStep):
         else:
             self.solver = linear_solver
 
+        # Owned only while a two-stage preconditioner chain is
+        # configured; None keeps it out of child-factory discovery.
+        self._preconditioner_chain = None
+
     def register_buffers(self) -> None:
         """Register buffers with buffer_registry."""
         pass
@@ -423,6 +434,104 @@ class ODEImplicitStep(BaseAlgorithmStep):
         """
         raise NotImplementedError
 
+    # Composite preconditioner variants resolved by the algorithm
+    # layer: each maps a user-facing preconditioner type to the
+    # concrete helper kind for that signature family.
+    _PRECONDITIONER_VARIANTS = {
+        "preconditioner": {
+            "neumann": SolverHelperKind.NEUMANN_PRECONDITIONER,
+            "jacobi": SolverHelperKind.JACOBI_PRECONDITIONER,
+        },
+        "preconditioner_cached": {
+            "neumann": SolverHelperKind.NEUMANN_PRECONDITIONER_CACHED,
+            "jacobi": SolverHelperKind.JACOBI_PRECONDITIONER_CACHED,
+        },
+        "n_stage_preconditioner": {
+            "neumann": SolverHelperKind.N_STAGE_NEUMANN_PRECONDITIONER,
+            "jacobi": SolverHelperKind.N_STAGE_JACOBI_PRECONDITIONER,
+        },
+    }
+
+    def _helper_request_kwargs(self) -> dict:
+        """Return the shared request fields from the step settings."""
+        config = self.compile_settings
+        return {
+            "beta": float(config.beta),
+            "gamma": float(config.gamma),
+            "preconditioner_order": config.preconditioner_order,
+        }
+
+    def _resolve_preconditioner(
+        self, variant: str, **request_kwargs
+    ) -> Callable:
+        """Resolve ``preconditioner_type`` into a device function.
+
+        Parameters
+        ----------
+        variant
+            Signature family: ``"preconditioner"``,
+            ``"preconditioner_cached"``, or
+            ``"n_stage_preconditioner"``.
+        **request_kwargs
+            Request fields forwarded to each concrete helper request.
+
+        Returns
+        -------
+        Callable
+            A single concrete preconditioner, or the owned
+            :class:`PreconditionerChain`'s composed device function
+            when two types are configured.
+        """
+        config = self.compile_settings
+        preconditioner_type = config.preconditioner_type
+        if isinstance(preconditioner_type, str):
+            types = (preconditioner_type,)
+        else:
+            types = tuple(preconditioner_type)
+
+        mapping = self._PRECONDITIONER_VARIANTS[variant]
+        kinds = []
+        for type_name in types:
+            if type_name not in mapping:
+                raise ValueError(
+                    f"Unknown preconditioner type '{type_name}' for "
+                    f"variant '{variant}'"
+                )
+            kinds.append(mapping[type_name])
+
+        get_fn = config.get_solver_helper_fn
+        functions = [
+            get_fn(
+                SolverHelperRequest(kind=kind, **request_kwargs)
+            ).device_function
+            for kind in kinds
+        ]
+
+        if len(functions) == 1:
+            self._preconditioner_chain = None
+            return functions[0]
+
+        if len(functions) != 2:
+            raise ValueError(
+                "Preconditioner chaining supports exactly "
+                f"2 preconditioners, got {len(functions)}"
+            )
+
+        if self._preconditioner_chain is None:
+            self._preconditioner_chain = PreconditionerChain(
+                precision=config.precision,
+                jit_flags=config.jit_flags,
+            )
+        self._preconditioner_chain.update_compile_settings(
+            kinds=tuple(kind.value for kind in kinds),
+            cached=(variant == "preconditioner_cached"),
+            p0=functions[0],
+            p1=functions[1],
+            jit_flags=config.jit_flags,
+            silent=True,
+        )
+        return self._preconditioner_chain.device_function
+
     def build_implicit_helpers(self) -> None:
         """Construct the nonlinear solver chain used by implicit methods.
 
@@ -432,32 +541,24 @@ class ODEImplicitStep(BaseAlgorithmStep):
         """
 
         config = self.compile_settings
-        beta = config.beta
-        gamma = config.gamma
-        preconditioner_order = config.preconditioner_order
+        request_kwargs = self._helper_request_kwargs()
 
         get_fn = config.get_solver_helper_fn
 
         # Get device functions from ODE system
-        preconditioner = get_fn(
-            "preconditioner",
-            preconditioner_type=config.preconditioner_type,
-            solver_beta=beta,
-            solver_gamma=gamma,
-            preconditioner_order=preconditioner_order,
+        preconditioner = self._resolve_preconditioner(
+            "preconditioner", **request_kwargs
         )
         residual = get_fn(
-            "stage_residual",
-            solver_beta=beta,
-            solver_gamma=gamma,
-            preconditioner_order=preconditioner_order,
-        )
+            SolverHelperRequest(
+                kind=SolverHelperKind.STAGE_RESIDUAL, **request_kwargs
+            )
+        ).device_function
         operator = get_fn(
-            "linear_operator",
-            solver_beta=beta,
-            solver_gamma=gamma,
-            preconditioner_order=preconditioner_order,
-        )
+            SolverHelperRequest(
+                kind=SolverHelperKind.LINEAR_OPERATOR, **request_kwargs
+            )
+        ).device_function
 
         self.solver.update(
             operator_apply=operator,

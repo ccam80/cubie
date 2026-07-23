@@ -574,9 +574,6 @@ class CUDAFactory(ABC):
         ------
         KeyError
             If ``output_name`` is not present in the cache.
-        NotImplementedError
-            If a cache has been filled with a "-1" integer, this indicates
-            that the requested object is not implemented in the subclass.
         """
         if not self.cache_valid:
             self._build()
@@ -586,12 +583,7 @@ class CUDAFactory(ABC):
             raise KeyError(
                 f"Output '{output_name}' not found in cached outputs."
             )
-        cache_contents = getattr(self._cache, output_name)
-        if type(cache_contents) is int and cache_contents == -1:
-            raise NotImplementedError(
-                f"Output '{output_name}' is not implemented in this class."
-            )
-        return cache_contents
+        return getattr(self._cache, output_name)
 
     @property
     def config_hash(self):
@@ -610,15 +602,30 @@ class CUDAFactory(ABC):
             )
         return own_hash
 
+    _excluded_child_factories: frozenset = frozenset()
+    """Attribute names excluded from child-factory discovery.
+
+    Owned child factories must be direct attributes so
+    :meth:`config_hash` recurses into them. A subclass lists an
+    attribute here only when the factory it holds is a diagnostic
+    service whose configuration deliberately does not shape this
+    factory's built products — excluded factories contribute nothing
+    to semantic identity.
+    """
+
     def _iter_child_factories(self):
         """Yield direct attribute values that are CUDAFactory instances.
 
         Only inspects immediate attributes (no nested attrs/dicts/iterables).
         Each child is yielded once (uniqueness by id). Attributes are sorted
-        alphabetically by name for deterministic ordering.
+        alphabetically by name for deterministic ordering. Names in
+        :attr:`_excluded_child_factories` are skipped.
         """
         seen = set()
+        excluded = self._excluded_child_factories
         for name in sorted(vars(self).keys()):
+            if name in excluded:
+                continue
             val = getattr(self, name)
             if isinstance(val, CUDAFactory):
                 oid = id(val)

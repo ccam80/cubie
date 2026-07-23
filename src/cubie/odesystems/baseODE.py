@@ -35,7 +35,7 @@ See Also
 """
 
 from abc import abstractmethod
-from typing import Any, Callable, Dict, Optional, Set, Union
+from typing import Any, Callable, Dict, Optional, Set
 
 from attrs import define, field
 from numpy import float32
@@ -44,41 +44,33 @@ from cubie._serialize import canonical_digest
 from cubie.CUDAFactory import CUDAFactory, CUDADispatcherCache
 from cubie._utils import PrecisionDType
 from cubie.odesystems.ODEData import ODEData
+from cubie.odesystems.solver_helpers import (
+    HelperResult,
+    SolverHelperCache,
+    SolverHelperRequest,
+)
 from cubie.odesystems.SystemValues import SystemValues
 
 
 @define
 class ODECache(CUDADispatcherCache):
-    """Cache compiled CUDA device and support functions for an ODE system.
+    """Cache the compiled base outputs and helper products of an ODE build.
 
-    Attributes default to ``-1`` when the corresponding function is not built.
+    Attributes
+    ----------
+    dxdt
+        Compiled right-hand-side device function.
+    observables
+        Compiled observables device function.
+    helpers
+        Memoized solver-helper factories and bound members for this
+        build. A true compile-setting change produces a fresh
+        ``ODECache`` and therefore a fresh member map.
     """
 
-    dxdt: Optional[Callable] = field()
-    linear_operator: Optional[Union[Callable, int]] = field(default=-1)
-    linear_operator_cached: Optional[Union[Callable, int]] = field(default=-1)
-    neumann_preconditioner: Optional[Union[Callable, int]] = field(default=-1)
-    neumann_preconditioner_cached: Optional[Union[Callable, int]] = field(
-        default=-1
-    )
-    jacobi_preconditioner: Optional[Union[Callable, int]] = field(default=-1)
-    jacobi_preconditioner_cached: Optional[Union[Callable, int]] = field(
-        default=-1
-    )
-    stage_residual: Optional[Union[Callable, int]] = field(default=-1)
-    n_stage_residual: Optional[Union[Callable, int]] = field(default=-1)
-    n_stage_linear_operator: Optional[Union[Callable, int]] = field(default=-1)
-    n_stage_neumann_preconditioner: Optional[Union[Callable, int]] = field(
-        default=-1
-    )
-    n_stage_jacobi_preconditioner: Optional[Union[Callable, int]] = field(
-        default=-1
-    )
-    observables: Optional[Union[Callable, int]] = field(default=-1)
-    prepare_jac: Optional[Union[Callable, int]] = field(default=-1)
-    calculate_cached_jvp: Optional[Union[Callable, int]] = field(default=-1)
-    time_derivative_rhs: Optional[Union[Callable, int]] = field(default=-1)
-    cached_aux_count: Optional[int] = field(default=-1)
+    dxdt: Callable = field()
+    observables: Optional[Callable] = field(default=None)
+    helpers: SolverHelperCache = field(factory=SolverHelperCache)
 
 
 class BaseODE(CUDAFactory):
@@ -422,12 +414,9 @@ class BaseODE(CUDAFactory):
 
     def get_solver_helper(
         self,
-        func_name: str,
-        solver_beta: Optional[float] = None,
-        solver_gamma: Optional[float] = None,
-        preconditioner_order: Optional[int] = None,
-    ) -> Callable:
-        """Retrieve a cached solver helper function.
+        request: SolverHelperRequest,
+    ) -> HelperResult:
+        """Return the bound helper member for ``request``.
 
         Helpers that consume a mass matrix read the system's own
         :attr:`mass`; the matrix is part of the system definition,
@@ -435,26 +424,24 @@ class BaseODE(CUDAFactory):
 
         Parameters
         ----------
-        func_name
-            Identifier for the helper function.
-        solver_beta
-            Shift parameter for the linear operator. Ignored by this
-            base implementation.
-        solver_gamma
-            Weight of the Jacobian term in the linear operator. Ignored
-            by this base implementation.
-        preconditioner_order
-            Polynomial order of the preconditioner. Ignored by this
-            base implementation.
+        request
+            Immutable description of the requested helper.
 
         Returns
         -------
-        Callable
-            Cached device function corresponding to ``func_name``.
+        HelperResult
+            The bound device callable and its typed metadata.
 
-        Notes
-        -----
-        Returns ``NotImplementedError`` if the ``ODESystem`` lacks generated
-        code for the requested helper.
+        Raises
+        ------
+        NotImplementedError
+            Always, on this base class: solver helpers are generated
+            from symbolic systems.
         """
-        return self.get_cached_output(func_name)
+        raise NotImplementedError(
+            "Solver helpers are generated from symbolic systems; "
+            f"{type(self).__name__} does not provide "
+            f"'{request.kind.value}'. Define the system through "
+            "create_ODE_system or SymbolicODE to use implicit "
+            "algorithms."
+        )

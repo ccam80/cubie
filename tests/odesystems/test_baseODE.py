@@ -74,13 +74,16 @@ class TestNumConstants:
 
 
 class TestGetSolverHelper:
-    """Cover get_solver_helper delegation to the cache.
+    """Cover the base-class solver-helper contract.
 
-    ``SymbolicODE`` overrides ``get_solver_helper`` (symbolicODE.py:778), so
-    the base-class delegation is exercised against ``BaseODE`` directly.
+    ``SymbolicODE`` overrides ``get_solver_helper`` with generated
+    helpers; the abstract base provides none.
     """
 
-    def test_get_solver_helper_returns_cached_dxdt(self, system):
-        """Base-class get_solver_helper returns the cached device func."""
-        helper = BaseODE.get_solver_helper(system, "dxdt")
-        assert callable(helper)
+    def test_get_solver_helper_raises_on_base(self, system):
+        """Base-class get_solver_helper raises for any request."""
+        from cubie.odesystems.solver_helpers import SolverHelperRequest
+
+        request = SolverHelperRequest(kind="linear_operator")
+        with pytest.raises(NotImplementedError, match="symbolic"):
+            BaseODE.get_solver_helper(system, request)
