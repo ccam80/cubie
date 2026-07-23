@@ -72,7 +72,7 @@ function axisTooltip(parameters, suffix, digits = 1) {
     .filter(item => item.value != null && item.seriesName !== 'off')
     .map(item => {
       const value = Number(item.value).toFixed(digits);
-      return `${escapeHTML(item.marker)}${escapeHTML(item.seriesName)}: ` +
+      return `${item.marker}${escapeHTML(item.seriesName)}: ` +
         `${value}${suffix}`;
     });
   return `<b>${escapeHTML(parameters[0].axisValueLabel)}</b><br>` +
