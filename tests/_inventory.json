@@ -11381,7 +11381,7 @@
       "file": "ode_implicitstep.py",
       "section": "`__init__`",
       "num": 4,
-      "text": "Raises `ValueError` when `solver_type` is not 'newton' or 'linear'",
+      "text": "Class attribute `is_linear` is False on Newton-owned steps and True on linearly-implicit steps",
       "tags": [
         "error",
         "init"
@@ -11418,7 +11418,7 @@
       "file": "ode_implicitstep.py",
       "section": "`__init__`",
       "num": 8,
-      "text": "Creates `NewtonKrylov` wrapping `LinearSolver` when `solver_type='newton'`",
+      "text": "Creates `NewtonKrylov` wrapping `LinearSolver` when `is_linear` is False",
       "tags": [
         "init"
       ]
@@ -11427,7 +11427,7 @@
       "file": "ode_implicitstep.py",
       "section": "`__init__`",
       "num": 9,
-      "text": "Assigns `LinearSolver` directly when `solver_type='linear'`",
+      "text": "Assigns `LinearSolver` directly when `is_linear` is True",
       "tags": [
         "init"
       ]
@@ -12989,7 +12989,7 @@
       "file": "generic_rosenbrock_w.py",
       "section": "`__init__`",
       "num": 18,
-      "text": "Passes `solver_type='linear'` to parent (not Newton)",
+      "text": "Sets `is_linear = True`, so the parent assigns the linear solver directly (not Newton)",
       "tags": [
         "init"
       ]

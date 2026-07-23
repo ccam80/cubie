@@ -175,7 +175,6 @@ class ODEImplicitStep(BaseAlgorithmStep):
         self,
         config: ImplicitStepConfig,
         _controller_defaults: StepControlDefaults,
-        solver_type: str = "newton",
         **kwargs,
     ) -> None:
         """Initialise the implicit step with its configuration.
@@ -186,8 +185,6 @@ class ODEImplicitStep(BaseAlgorithmStep):
             Configuration describing the implicit step.
         _controller_defaults
            Per-algorithm default runtime collaborators.
-        solver_type
-            Type of solver to create: 'newton' or 'linear'.
         **kwargs
             Optional solver parameters (krylov_atol, krylov_max_iters,
             newton_rtol, etc.). None values are ignored and defaults
@@ -196,17 +193,18 @@ class ODEImplicitStep(BaseAlgorithmStep):
             ``krylov_norm`` supplies a :class:`ScaledNorm` for the
             linear solver's convergence weighting; when absent each
             solver builds its default.
+
+        Notes
+        -----
+        The class attribute ``is_linear`` selects the solver
+        arrangement: linearly-implicit steps own their linear solver
+        directly, all others wrap it in a :class:`NewtonKrylov`.
         """
         super().__init__(config, _controller_defaults)
 
         # Subclasses that support dense stage prediction construct a
         # DenseStagePredictor here after solver construction.
         self.dense_predictor = None
-
-        if solver_type not in ["newton", "linear"]:
-            raise ValueError(
-                f"solver_type must be 'newton' or 'linear', got '{solver_type}'"
-            )
 
         newton_norm = kwargs.pop("newton_norm", None)
         krylov_norm = kwargs.pop("krylov_norm", None)
@@ -229,8 +227,8 @@ class ODEImplicitStep(BaseAlgorithmStep):
         solver_n = config.solver_n
 
         # Newton solves weight the norm by the stage base state,
-        # direct Rosenbrock solves by the model state.
-        norm_reference = "base_state" if solver_type == "newton" else "state"
+        # linearly-implicit solves by the model state.
+        norm_reference = "state" if self.is_linear else "base_state"
 
         if correction_type == "bicgstab":
             linear_solver = BiCGSTABSolver(
@@ -250,7 +248,9 @@ class ODEImplicitStep(BaseAlgorithmStep):
                 **linear_kwargs,
             )
 
-        if solver_type == "newton":
+        if self.is_linear:
+            self.solver = linear_solver
+        else:
             self.solver = NewtonKrylov(
                 precision=config.precision,
                 n=solver_n,
@@ -258,8 +258,6 @@ class ODEImplicitStep(BaseAlgorithmStep):
                 norm=newton_norm,
                 **newton_kwargs,
             )
-        else:
-            self.solver = linear_solver
 
     def register_buffers(self) -> None:
         """Register buffers with buffer_registry."""

@@ -265,12 +265,15 @@ class AdaptivePIDController(BaseAdaptiveStepController):
             gain = selp(accept, gain, min(gain, safety))
 
             # A truncated step's error norm carries no step-size
-            # info: on accept, freeze dt/history and report success.
+            # info: on accept, freeze dt and report success. History
+            # commits only after ordinary accepted steps, so rejected
+            # or truncated attempts never overwrite it.
             freeze = accept and truncated
+            commit_history = accept and not truncated
             dt_new_raw = dt[0] * gain
             dt[0] = selp(freeze, dt[0], clamp(dt_new_raw, dt_min, dt_max))
-            timestep_buffer[1] = selp(freeze, err_prev_prev, err_prev)
-            timestep_buffer[0] = selp(freeze, err_prev, nrm2)
+            timestep_buffer[1] = selp(commit_history, err_prev, err_prev_prev)
+            timestep_buffer[0] = selp(commit_history, nrm2, err_prev)
 
             ret = (
                 success

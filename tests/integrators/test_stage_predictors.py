@@ -88,7 +88,6 @@ DIRK_SUPPORT_EXPECTATIONS = {
     "ode23t": True,
     "kvaerno3": True,
     "kvaerno5": True,
-    "lobatto_iiic_3": True,
     "sdirk_2_2": True,
     "l_stable_dirk_3": True,
     "l_stable_sdirk_4": True,
@@ -113,7 +112,7 @@ def test_registry_tableaus_support_expectations():
     "tableau",
     [
         DIRK_TABLEAU_REGISTRY["l_stable_dirk_3"],
-        DIRK_TABLEAU_REGISTRY["lobatto_iiic_3"],
+        DIRK_TABLEAU_REGISTRY["sdirk_2_2"],
         RADAU_IIA_5_TABLEAU,
     ],
 )
@@ -206,7 +205,7 @@ def test_dense_predictor_extrapolates_stage_curve(tableau, step_ratio):
         DEFAULT_FIRK_TABLEAU,
         RADAU_IIA_5_TABLEAU,
         DIRK_TABLEAU_REGISTRY["l_stable_dirk_3"],
-        DIRK_TABLEAU_REGISTRY["lobatto_iiic_3"],
+        DIRK_TABLEAU_REGISTRY["sdirk_2_2"],
         DIRK_TABLEAU_REGISTRY["kvaerno3"],
         DIRK_TABLEAU_REGISTRY["kvaerno5"],
     ],
@@ -258,7 +257,6 @@ CALIBRATED_CEILINGS = {
     "trapezoidal_dirk": (0.39, 1.21),
     "kvaerno3": (0.85, 1.28),
     "kvaerno5": (0.0, 0.0),
-    "lobatto_iiic_3": (0.53, 0.53),
     "sdirk_2_2": (1.07, 1.21),
     "l_stable_dirk_3": (0.85, 1.07),
     "l_stable_sdirk_4": (0.79, 0.79),

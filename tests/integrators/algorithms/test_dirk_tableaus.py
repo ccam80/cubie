@@ -2,6 +2,7 @@
 
 import pytest
 
+from cubie.integrators.algorithms.base_algorithm_step import ButcherTableau
 from cubie.integrators.algorithms.generic_dirk import DIRKStep
 from cubie.integrators.algorithms.generic_dirk_tableaus import (
     DEFAULT_DIRK_TABLEAU,
@@ -19,10 +20,11 @@ from cubie.integrators.algorithms.generic_dirk_tableaus import (
     [
         "implicit_midpoint",
         "trapezoidal_dirk",
-        "lobatto_iiic_3",
         "sdirk_2_2",
         "kvaerno3",
         "kvaerno5",
+        "l_stable_dirk_3",
+        "l_stable_sdirk_4",
     ],
 )
 def test_dirk_tableau_registry_contains_expected_entries(expected_key):
@@ -53,7 +55,7 @@ def test_first_stage_is_explicit_classifies_by_diagonal():
     assert KVAERNO3_TABLEAU.first_stage_is_explicit
     assert KVAERNO5_TABLEAU.first_stage_is_explicit
     assert not DIRK_TABLEAU_REGISTRY[
-        "lobatto_iiic_3"
+        "sdirk_2_2"
     ].first_stage_is_explicit
     assert not DIRK_TABLEAU_REGISTRY[
         "implicit_midpoint"
@@ -100,10 +102,56 @@ def test_prediction_source_stages_mappings(nodes, expected):
 def test_dirk_step_accepts_tableau_instance(precision):
     """DIRKStep should consume explicit tableau instances."""
 
-    custom_name = "lobatto_iiic_3"
+    custom_name = "sdirk_2_2"
     custom_tableau = DIRK_TABLEAU_REGISTRY[custom_name]
     step = DIRKStep(precision=precision, n=2, tableau=custom_tableau)
     assert step.compile_settings.tableau is custom_tableau
+
+
+def test_dirk_tableau_rejects_inconsistent_stage_nodes():
+    """A ``c`` entry that disagrees with its ``A`` row sum must raise.
+
+    The coefficients are the former ``lobatto_iiic_3`` tableau, whose
+    first two stage nodes disagreed with their ``A`` row sums.
+    """
+
+    with pytest.raises(ValueError, match="row sum"):
+        DIRKTableau(
+            a=(
+                (1.0 / 6.0, 0.0, 0.0),
+                (2.0 / 3.0, 1.0 / 6.0, 0.0),
+                (1.0 / 6.0, 2.0 / 3.0, 1.0 / 6.0),
+            ),
+            b=(1.0 / 6.0, 2.0 / 3.0, 1.0 / 6.0),
+            c=(0.0, 0.5, 1.0),
+            order=4,
+        )
+
+
+def test_fsal_requires_explicit_first_stage():
+    """An implicit first stage disqualifies stage-0 RHS reuse even
+    when ``c[0] == 0``, ``c[-1] == 1``, and the last row equals ``b``."""
+
+    implicit_first = ButcherTableau(
+        a=(
+            (1.0 / 6.0, 0.0, 0.0),
+            (2.0 / 3.0, 1.0 / 6.0, 0.0),
+            (1.0 / 6.0, 2.0 / 3.0, 1.0 / 6.0),
+        ),
+        b=(1.0 / 6.0, 2.0 / 3.0, 1.0 / 6.0),
+        c=(0.0, 0.5, 1.0),
+        order=4,
+    )
+    assert not implicit_first.first_same_as_last
+    assert implicit_first.can_reuse_accepted_start
+
+
+def test_fsal_true_for_stiffly_accurate_esdirk():
+    """ESDIRK tableaus with an explicit first stage keep FSAL reuse."""
+
+    assert KVAERNO3_TABLEAU.first_same_as_last
+    assert DIRK_TABLEAU_REGISTRY["trapezoidal_dirk"].first_same_as_last
+    assert not DEFAULT_DIRK_TABLEAU.first_same_as_last
 
 
 @pytest.mark.parametrize(
