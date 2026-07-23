@@ -408,7 +408,6 @@ def test_errorless_euler_with_adaptive_warns_and_replaces(system):
         assert "fixed" in msg
         assert "error estimate" in msg
         assert not core._step_controller.is_adaptive
-        assert core._algo_step.is_controller_fixed
 
 
 def test_replacement_controller_uses_original_dt(system):
@@ -451,7 +450,6 @@ def test_errorless_rk4_with_adaptive_warns(system):
         compat = [x for x in w if "cannot be used with" in str(x.message)]
         assert len(compat) >= 1
         assert not core._step_controller.is_adaptive
-        assert core._algo_step.is_controller_fixed
 
 
 def test_adaptive_algo_with_adaptive_controller_no_warning(system):
@@ -474,7 +472,6 @@ def test_adaptive_algo_with_adaptive_controller_no_warning(system):
         assert len(compat) == 0
         assert core._algo_step.is_adaptive
         assert core._step_controller.is_adaptive
-        assert not core._algo_step.is_controller_fixed
 
 
 def test_errorless_euler_with_fixed_no_warning(system):
@@ -493,7 +490,6 @@ def test_errorless_euler_with_fixed_no_warning(system):
         assert len(compat) == 0
         assert not core._algo_step.is_adaptive
         assert not core._step_controller.is_adaptive
-        assert core._algo_step.is_controller_fixed
 
 
 # ── update ──────────────────────────────────────────────────────────────── #
@@ -729,7 +725,6 @@ def test_update_check_compatibility_after_switch(
         compat = [x for x in w if "cannot be used with" in str(x.message)]
         assert len(compat) >= 1
         assert not run._step_controller.is_adaptive
-        assert run._algo_step.is_controller_fixed
 
 
 def test_update_process_loop_timing_called(
@@ -984,10 +979,8 @@ def test_update_controller_swap_builds(single_integrator_run_mutable):
 
 # ── Inner-solver tolerance defaults ─────────────────────────────────── #
 
-# Adaptive implicit configuration with one explicit inner tolerance;
-# the rest are left unset (``None`` marks not-given) and must be
-# derived from the controller. The derivation ratio is a tuning
-# constant and is deliberately not pinned here.
+# One explicit inner tolerance; the rest are left unset (``None``
+# marks not-given) and must derive from the controller.
 _CN_ADAPTIVE_KRYLOV_GIVEN = {
     "algorithm": "crank_nicolson",
     "step_controller": "pid",
@@ -999,6 +992,21 @@ _CN_ADAPTIVE_KRYLOV_GIVEN = {
     "krylov_rtol": None,
     "newton_atol": None,
     "newton_rtol": None,
+}
+
+_RODAS3P_ADAPTIVE_KRYLOV_DEFAULT = {
+    "algorithm": "rodas3p",
+    "step_controller": "pid",
+    "atol": 3e-7,
+    "rtol": 2e-4,
+    "dt_min": 1e-10,
+    "dt_max": 0.1,
+    "krylov_residual_reduction": None,
+}
+
+_RODAS3P_ADAPTIVE_KRYLOV_GIVEN = {
+    **_RODAS3P_ADAPTIVE_KRYLOV_DEFAULT,
+    "krylov_residual_reduction": 0.03125,
 }
 
 
@@ -1014,6 +1022,7 @@ def test_explicit_inner_tolerance_survives_derivation(
     controller = run._step_controller
     assert controller.is_adaptive
     assert algo.is_implicit
+    assert not algo.is_linear
 
     assert np.allclose(algo.krylov_atol, 3e-5)
     # The unset linear weight derives the controller's tolerance
@@ -1031,13 +1040,52 @@ def test_explicit_inner_tolerance_survives_derivation(
     assert np.all(
         np.asarray(algo.newton_rtol) <= np.asarray(controller.rtol)
     )
-    # The unset linear stopping terms derive the controller's rtol
-    # and sqrt(eps) of the precision.
-    assert np.isclose(
-        float(algo.krylov_residual_reduction),
-        float(np.min(np.asarray(controller.rtol))),
+    # Newton-owned linear solves retain the controller's rtol directly.
+    expected_reduction = run.precision(
+        float(np.min(np.asarray(controller.rtol)))
     )
+    assert algo.krylov_residual_reduction == expected_reduction
     assert np.isclose(
         float(algo.krylov_residual_floor),
         float(np.finfo(run.precision).eps) ** 0.5,
     )
+
+
+@pytest.mark.parametrize(
+    "solver_settings_override",
+    [_RODAS3P_ADAPTIVE_KRYLOV_DEFAULT],
+    indirect=True,
+)
+def test_linear_step_reduction_defaults_to_rtol_over_100(
+    single_integrator_run,
+):
+    """A linearly-implicit step defaults to one percent of rtol."""
+    run = single_integrator_run
+    algo = run._algo_step
+    controller = run._step_controller
+    assert controller.is_adaptive
+    assert algo.is_implicit
+    assert algo.is_linear
+
+    controller_rtol_floor = float(
+        np.min(np.asarray(controller.rtol))
+    )
+    expected_reduction = run.precision(
+        0.01 * controller_rtol_floor
+    )
+    assert algo.krylov_residual_reduction == expected_reduction
+
+
+@pytest.mark.parametrize(
+    "solver_settings_override",
+    [_RODAS3P_ADAPTIVE_KRYLOV_GIVEN],
+    indirect=True,
+)
+def test_linear_step_reduction_override_is_preserved(
+    single_integrator_run,
+):
+    """An explicit reduction on a linearly-implicit step is kept."""
+    run = single_integrator_run
+    algo = run._algo_step
+    assert algo.is_linear
+    assert algo.krylov_residual_reduction == run.precision(0.03125)

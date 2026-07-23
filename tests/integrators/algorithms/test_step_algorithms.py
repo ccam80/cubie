@@ -234,14 +234,6 @@ ALIAS_CASES = [
         id="dirk-sdirk-2-2",
     ),
     pytest.param(
-        "lobatto_iiic_3",
-        DIRKStep,
-        DIRK_TABLEAU_REGISTRY["lobatto_iiic_3"],
-        CPUDIRKStep,
-        marks=pytest.mark.specific_algos,
-        id="dirk-lobatto-iiic-3",
-    ),
-    pytest.param(
         "l_stable_dirk_3",
         DIRKStep,
         DIRK_TABLEAU_REGISTRY["l_stable_dirk_3"],

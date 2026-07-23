@@ -57,6 +57,7 @@ ALL_ALGORITHM_STEP_PARAMETERS = {
     "algorithm",
     "precision",
     "n",
+    "attempt_dense_prediction",
     "evaluate_f",
     "evaluate_observables",
     "evaluate_driver_at_t",
@@ -78,8 +79,11 @@ ALL_ALGORITHM_STEP_PARAMETERS = {
     "n_drivers",
     # DIRK buffer location parameters
     "stage_increment_location",
+    "stage_increment_history_location",
     "stage_base_location",
     "accumulator_location",
+    # Dense stage predictor buffer location parameters
+    "previous_step_size_location",
     # ERK buffer location parameters
     "stage_rhs_location",
     "stage_accumulator_location",
@@ -260,6 +264,27 @@ class ButcherTableau(_CubieConfigBase):
         if abs(1.0 - np_sum(self.b)) > 1e-8:
             raise ValueError("b must sum to one")
 
+    def _validate_stage_node_consistency(self) -> None:
+        """Validate that every stage node matches its ``A`` row sum.
+
+        Runge--Kutta stage equations evaluate stage ``i`` at the state
+        implied by row ``i`` of ``A``, so ``c[i]`` must equal
+        ``sum(a[i])`` for the stage times and stage states to describe
+        the same point. Predicates that infer stage meaning from ``c``
+        (such as first-same-as-last detection) rely on this relation.
+        Rosenbrock-W tableaus obey a different consistency condition
+        and do not use this check.
+        """
+        for stage_index in range(self.stage_count):
+            row = self.a[stage_index]
+            node = self.c[stage_index]
+            if abs(node - np_sum(row)) > 1e-8:
+                raise ValueError(
+                    f"Stage {stage_index} node c={node} does not equal "
+                    f"its A row sum {np_sum(row)}; the stage time and "
+                    "stage state disagree."
+                )
+
     @property
     def d(self) -> Optional[Tuple[float, ...]]:
         """Return coefficients for embedded error estimation."""
@@ -371,18 +396,32 @@ class ButcherTableau(_CubieConfigBase):
 
     @property
     def first_same_as_last(self) -> bool:
-        """Return ``True`` when the first and last stages align."""
+        """Return ``True`` when the first and last stages align.
+
+        Stage-0 RHS reuse requires the first stage to evaluate at the
+        step-start state itself: ``c[0] == 0`` with an all-zero first
+        ``A`` row (an explicit first stage). A tableau whose first
+        stage is implicit evaluates a different state even when its
+        node sits at the step start, so ``c[0]`` alone is not enough.
+        """
 
         return bool(
             self.c
             and self.c[0] == 0.0
             and self.c[-1] == 1.0
             and self.a[-1] == self.b
+            and not any(self.a[0])
         )
 
     @property
     def can_reuse_accepted_start(self) -> bool:
-        """Return ``True`` when an accepted step can reuse the start state."""
+        """Return ``True`` when stage 0 evaluates at the step-start time.
+
+        Licenses reuse of quantities that depend only on the stage
+        time, such as driver values sampled at the step start;
+        state-dependent reuse additionally needs
+        :attr:`first_same_as_last`.
+        """
 
         return bool(self.c and (self.c[0] == 0.0))
 
@@ -610,6 +649,10 @@ class BaseAlgorithmStep(CUDAFactory):
     usage.
     """
 
+    #: Linearly-implicit steps own their linear solver directly (no
+    #: Newton iteration) and override this to ``True``.
+    is_linear = False
+
     def __init__(
         self,
         config: BaseStepConfig,
@@ -629,7 +672,6 @@ class BaseAlgorithmStep(CUDAFactory):
         super().__init__()
         self._controller_defaults = _controller_defaults.copy()
         self.setup_compile_settings(config)
-        self.is_controller_fixed = False  # Set by check_compatibility
 
     def register_buffers(self) -> None:
         """Register buffers required by the algorithm step."""

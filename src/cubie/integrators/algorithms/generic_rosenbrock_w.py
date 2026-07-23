@@ -151,6 +151,8 @@ class RosenbrockWStepConfig(ImplicitStepConfig):
 class GenericRosenbrockWStep(ODEImplicitStep):
     """Rosenbrock-W step with an embedded error estimate."""
 
+    is_linear = True
+
     def __init__(
         self,
         precision: PrecisionDType,
@@ -240,9 +242,7 @@ class GenericRosenbrockWStep(ODEImplicitStep):
         else:
             controller_defaults = ROSENBROCK_FIXED_DEFAULTS
 
-        super().__init__(
-            config, controller_defaults, solver_type="linear", **kwargs
-        )
+        super().__init__(config, controller_defaults, **kwargs)
 
         self.register_buffers()
 
