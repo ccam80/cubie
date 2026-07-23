@@ -210,6 +210,7 @@ class ODEImplicitStep(BaseAlgorithmStep):
             raise ValueError(
                 f"solver_type must be 'newton' or 'linear', got '{solver_type}'"
             )
+        self._solver_type = solver_type
 
         newton_norm = kwargs.pop("newton_norm", None)
         krylov_norm = kwargs.pop("krylov_norm", None)
@@ -454,6 +455,11 @@ class ODEImplicitStep(BaseAlgorithmStep):
     def is_implicit(self) -> bool:
         """Return ``True`` to indicate the algorithm is implicit."""
         return True
+
+    @property
+    def linear_solver_is_direct(self) -> bool:
+        """Return whether the step owns its linear solver directly."""
+        return self._solver_type == "linear"
 
     @property
     def beta(self) -> float:

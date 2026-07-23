@@ -96,8 +96,11 @@ attrs-config mechanics; CUDA-authoring *optimisation* patterns are in
 - **Implicit** (`ODEImplicitStep`, owns a solver): `BackwardsEulerStep`,
   `BackwardsEulerPCStep`, `CrankNicolsonStep`, `DIRKStep`, `FIRKStep`,
   `GenericRosenbrockWStep`. All use **Newton-Krylov except `GenericRosenbrockWStep`**,
-  which is linearly-implicit and constructs a `LinearSolver` (`solver_type="linear"`,
-  no Newton iteration).
+  which is linearly-implicit and constructs a `LinearSolver`
+  (`solver_type="linear"`, no Newton iteration).
+  `ODEImplicitStep.linear_solver_is_direct` exposes this ownership
+  distinction to the composition root without inspecting concrete
+  algorithm classes.
 
 ### Registered buffers
 - Each step registers its working buffers (e.g. DIRK `stage_base`/`accumulator`,
