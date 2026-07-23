@@ -14,6 +14,7 @@ const PALETTE = [
   '#d62728', '#9467bd', '#8c564b', '#e377c2', '#7f7f7f'
 ];
 const charts = {};
+const runTitles = new Map();
 let accountRequestVersion = 0;
 
 function chart(id) {
@@ -40,12 +41,22 @@ function escapeHTML(value) {
   );
 }
 
-function money(value) {
-  return value == null ? 'unknown' : `$${value.toFixed(4)}`;
-}
-
 function mins(seconds) {
   return seconds == null ? null : seconds / 60;
+}
+
+function renderSharedLegend(id, entries) {
+  const legend = document.getElementById(id);
+  legend.replaceChildren();
+  entries.forEach(entry => {
+    const item = document.createElement('span');
+    item.className = 'legend-item';
+    const swatch = document.createElement('span');
+    swatch.className = 'legend-swatch';
+    swatch.style.backgroundColor = entry.color;
+    item.append(swatch, document.createTextNode(entry.name));
+    legend.appendChild(item);
+  });
 }
 
 function localDateValue(value) {
@@ -200,7 +211,7 @@ function stepTotals(legs) {
 function renderSteps(payload) {
   const legs = payload.legs;
   const order = stepTotals(legs);
-  const series = order.map((name, index) => ({
+  const stepSeries = order.map((name, index) => ({
     name,
     type: 'bar',
     stack: 'steps',
@@ -211,9 +222,16 @@ function renderSteps(payload) {
       return step ? mins(step.dur_s) : 0;
     })
   }));
+  renderSharedLegend('stepsLegend', [
+    {name: 'wait', color: C.wait},
+    ...order.map((name, index) => ({
+      name,
+      color: PALETTE[index % PALETTE.length]
+    }))
+  ]);
   chart('cSteps').setOption({
-    grid: {left: 44, right: 16, top: 30, bottom: 96},
-    legend: {type: 'scroll', top: 0, data: order},
+    grid: {left: 44, right: 16, top: 16, bottom: 96},
+    legend: {show: false},
     tooltip: {
       trigger: 'axis',
       axisPointer: {type: 'shadow'},
@@ -225,7 +243,15 @@ function renderSteps(payload) {
       axisLabel: {rotate: 40, fontSize: 10, interval: 0}
     },
     yAxis: {type: 'value', name: 'minutes'},
-    series
+    series: [
+      {
+        name: 'wait',
+        type: 'bar',
+        color: C.wait,
+        data: legs.map(leg => mins(leg.wait_s))
+      },
+      ...stepSeries
+    ]
   }, true);
 }
 
@@ -236,116 +262,109 @@ function renderStepsAggregate(payload) {
     totals[step.name] = (totals[step.name] || 0) + step.dur_s;
   }));
   chart('cStepsAgg').setOption({
-    grid: {left: 44, right: 10, top: 30, bottom: 96},
+    grid: {left: 44, right: 10, top: 16, bottom: 96},
     legend: {show: false},
     tooltip: {
-      trigger: 'item',
-      formatter: item => `${escapeHTML(item.seriesName)}: ` +
-        `${Number(item.value).toFixed(2)} min`
+      trigger: 'axis',
+      axisPointer: {type: 'shadow'},
+      formatter: parameters => axisTooltip(parameters, ' min', 2)
     },
     xAxis: {type: 'category', data: ['run total']},
     yAxis: {type: 'value', name: 'minutes'},
-    series: order.map((name, index) => ({
-      name,
-      type: 'bar',
-      stack: 'steps',
-      color: PALETTE[index % PALETTE.length],
-      data: [mins(totals[name] || 0)]
-    }))
-  }, true);
-}
-
-const typeColors = {};
-
-function colorFor(type) {
-  if (!(type in typeColors)) {
-    const index = Object.keys(typeColors).length % PALETTE.length;
-    typeColors[type] = PALETTE[index];
-  }
-  return typeColors[type];
-}
-
-function renderCost(payload) {
-  const legs = payload.legs;
-  const types = [...new Set(
-    legs.map(leg => leg.type).filter(Boolean)
-  )].sort();
-  const legend = document.getElementById('costLegend');
-  legend.replaceChildren();
-  types.forEach((type, index) => {
-    if (index) {
-      legend.append(document.createTextNode('   '));
-    }
-    const swatch = document.createElement('span');
-    swatch.textContent = '■';
-    swatch.style.color = colorFor(type);
-    swatch.style.fontSize = '15px';
-    legend.append(swatch, document.createTextNode(` ${type}`));
-  });
-  chart('cCost').setOption({
-    grid: {left: 60, right: 16, top: 16, bottom: 96},
-    tooltip: {
-      trigger: 'item',
-      formatter: item => {
-        const leg = legs[item.dataIndex];
-        return `${escapeHTML(leg.label)}<br>` +
-          `${escapeHTML(leg.type || 'unknown type')} @ ` +
-          `${money(leg.price)}/h<br><b>${money(leg.cost)}</b>`;
-      }
-    },
-    xAxis: {
-      type: 'category',
-      data: legs.map(leg => leg.label),
-      axisLabel: {rotate: 40, fontSize: 10, interval: 0}
-    },
-    yAxis: {type: 'value', name: 'USD (billed hrs × spot $/h)'},
-    series: [{
-      type: 'bar',
-      data: legs.map(leg => ({
-        value: leg.cost,
-        itemStyle: {color: colorFor(leg.type || 'unknown')}
-      })),
-      label: {
-        show: true,
-        position: 'top',
-        fontSize: 9,
-        formatter: item => item.value == null
-          ? ''
-          : `$${Number(item.value).toFixed(3)}`
-      }
-    }]
+    series: [
+      {
+        name: 'wait',
+        type: 'bar',
+        color: C.wait,
+        data: [mins(completeSum(payload.legs, 'wait_s'))]
+      },
+      ...order.map((name, index) => ({
+        name,
+        type: 'bar',
+        stack: 'steps',
+        color: PALETTE[index % PALETTE.length],
+        data: [mins(totals[name] || 0)]
+      }))
+    ]
   }, true);
 }
 
 function renderType(payload) {
-  const aggregates = {};
-  payload.legs.forEach(leg => {
-    if (!leg.type) {
-      return;
+  const legs = payload.legs.filter(leg => leg.type);
+  const types = [...new Set(legs.map(leg => leg.type))].sort();
+  const aggregates = types.map(type => {
+    const matching = legs.filter(leg => leg.type === type);
+    const complete = matching.every(
+      leg => leg.cost != null && leg.billed_hours != null
+    );
+    if (!complete) {
+      return {cost: null, billedHours: null};
     }
-    const aggregate = aggregates[leg.type] || {
-      minutes: 0,
-      cost: 0,
-      hours: 0,
-      complete: true
+    return {
+      cost: matching.reduce((total, leg) => total + leg.cost, 0),
+      billedHours: matching.reduce(
+        (total, leg) => total + leg.billed_hours,
+        0
+      )
     };
-    if (leg.billed_hours == null || leg.cost == null) {
-      aggregate.complete = false;
-    } else {
-      aggregate.minutes += leg.billed_hours * 60;
-      aggregate.cost += leg.cost;
-      aggregate.hours += leg.billed_hours;
-    }
-    aggregates[leg.type] = aggregate;
   });
-  const types = Object.keys(aggregates).sort();
+  const costs = aggregates.map(aggregate => aggregate.cost);
+  const costColor = '#25324b';
+  const usageSeries = legs.map((leg, index) => ({
+    name: leg.label,
+    type: 'bar',
+    stack: 'usage',
+    color: PALETTE[index % PALETTE.length],
+    emphasis: {focus: 'series'},
+    data: types.map(type => {
+      if (leg.type !== type) {
+        return null;
+      }
+      return leg.billed_hours == null ? null : leg.billed_hours * 60;
+    })
+  }));
+  renderSharedLegend('typeLegend', [
+    ...legs.map((leg, index) => ({
+      name: leg.label,
+      color: PALETTE[index % PALETTE.length]
+    })),
+    {name: 'cost', color: costColor}
+  ]);
   chart('cType').setOption({
-    grid: {left: 56, right: 56, top: 30, bottom: 40},
-    legend: {top: 0, data: ['minutes', 'cost']},
+    grid: {left: 56, right: 56, top: 16, bottom: 40},
+    legend: {show: false},
     tooltip: {
       trigger: 'axis',
       axisPointer: {type: 'shadow'},
-      formatter: parameters => axisTooltip(parameters, '', 4)
+      formatter: parameters => {
+        if (!parameters.length) {
+          return '';
+        }
+        const typeIndex = parameters[0].dataIndex;
+        const type = types[typeIndex];
+        const markers = new Map(
+          parameters.map(item => [item.seriesIndex, item.marker])
+        );
+        const lines = [];
+        legs.forEach((leg, index) => {
+          if (leg.type !== type) {
+            return;
+          }
+          const value = leg.billed_hours == null
+            ? 'unknown'
+            : `${(leg.billed_hours * 60).toFixed(1)} min`;
+          lines.push(
+            `${markers.get(index) || ''}${escapeHTML(leg.label)}: ${value}`
+          );
+        });
+        const cost = costs[typeIndex];
+        const costMarker = markers.get(legs.length) || '';
+        const costText = cost == null
+          ? 'unknown'
+          : `$${cost.toFixed(4)}`;
+        lines.push(`${costMarker}cost: ${costText}`);
+        return `<b>${escapeHTML(type)}</b><br>${lines.join('<br>')}`;
+      }
     },
     xAxis: {type: 'category', data: types},
     yAxis: [
@@ -353,37 +372,24 @@ function renderType(payload) {
       {type: 'value', name: 'USD', position: 'right'}
     ],
     series: [
-      {
-        name: 'minutes',
-        type: 'bar',
-        color: C.boot,
-        data: types.map(type => {
-          const aggregate = aggregates[type];
-          return aggregate.complete
-            ? Number(aggregate.minutes.toFixed(1))
-            : null;
-        })
-      },
+      ...usageSeries,
       {
         name: 'cost',
         type: 'bar',
-        color: C.steps,
+        color: costColor,
         yAxisIndex: 1,
-        data: types.map(type => {
-          const aggregate = aggregates[type];
-          return aggregate.complete
-            ? Number(aggregate.cost.toFixed(4))
-            : null;
-        }),
+        data: costs,
         label: {
           show: true,
           position: 'top',
           fontSize: 10,
           formatter: item => {
-            const aggregate = aggregates[types[item.dataIndex]];
-            return aggregate.complete && aggregate.hours
-              ? `~$${(aggregate.cost / aggregate.hours).toFixed(3)}/h`
-              : '';
+            const aggregate = aggregates[item.dataIndex];
+            if (aggregate.cost == null || !aggregate.billedHours) {
+              return '';
+            }
+            const rate = aggregate.cost / aggregate.billedHours;
+            return `~$${rate.toFixed(3)}/h`;
           }
         }
       }
@@ -391,35 +397,14 @@ function renderType(payload) {
   }, true);
 }
 
-function renderWait(payload) {
-  const legs = payload.legs;
-  chart('cWait').setOption({
-    grid: {left: 56, right: 16, top: 16, bottom: 96},
-    tooltip: {
-      trigger: 'axis',
-      axisPointer: {type: 'shadow'},
-      formatter: parameters => axisTooltip(parameters, ' min')
-    },
-    xAxis: {
-      type: 'category',
-      data: legs.map(leg => leg.label),
-      axisLabel: {rotate: 40, fontSize: 10, interval: 0}
-    },
-    yAxis: {type: 'value', name: 'minutes'},
-    series: [{
-      type: 'bar',
-      color: C.wait,
-      data: legs.map(leg => Number(mins(leg.wait_s).toFixed(2)))
-    }]
-  }, true);
-}
-
 function renderRun(payload) {
   const empty = document.getElementById('runEmpty');
   const chartArea = document.getElementById('runCharts');
+  const title = runTitles.get(String(payload.run_id)) ||
+    `Run ${payload.run_id}`;
   if (!payload.legs.length) {
     document.getElementById('runMeta').textContent =
-      `run ${payload.run_id} · 0 GPU legs`;
+      `${title} · 0 GPU legs`;
     empty.textContent =
       'This run did not launch any completed GPU legs. Select another run.';
     empty.classList.remove('hidden');
@@ -437,14 +422,12 @@ function renderRun(payload) {
       'or termination telemetry'
     : `compute cost $${knownCost.toFixed(3)}`;
   document.getElementById('runMeta').textContent =
-    `run ${payload.run_id} · ${payload.legs.length} GPU legs · ${costText}`;
+    `${title} · ${payload.legs.length} GPU legs · ${costText}`;
   renderGantt(payload);
   renderGanttAggregate(payload);
   renderSteps(payload);
   renderStepsAggregate(payload);
-  renderCost(payload);
   renderType(payload);
-  renderWait(payload);
 }
 
 function renderStack(id, times, series, yName) {
@@ -557,6 +540,7 @@ async function init() {
     const runs = await requestJSON('/api/runs');
     selector.replaceChildren();
     runs.forEach(run => {
+      runTitles.set(String(run.id), run.title || `Run ${run.id}`);
       const option = document.createElement('option');
       option.value = run.id;
       option.textContent =
