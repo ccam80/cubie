@@ -171,12 +171,16 @@ successful refresh is at least one day old. It starts 12 hours before the
 frontier so Cost Explorer settlement changes replace earlier values, then
 transactionally upserts the fetched hours, recomputes every fully covered
 finalised day touched by that interval, and records `last_fetch`. A failed
-fetch commits none of those changes. Dates first requested after they have
-left Cost Explorer's ~14-day hourly window use a cached daily query; the UI
-explicitly warns when requested hourly coverage is not in the local
-database.
+fetch commits none of those changes. When no non-zero usage frontier exists,
+the latest retained hourly bucket is the refresh boundary. Requests ending
+before the applicable boundary never fetch. The dashboard never attempts to
+acquire missing history before the retained dataset; it renders any existing
+cached daily values and explicitly reports unavailable coverage.
 
-**Force refresh** bypasses the one-day decision and uses a POST request.
+Account plots load automatically and reload when their date or granularity
+controls change. **Force fetch** is the only fetch control; it bypasses the
+one-day decision with a POST request and re-pulls the same settlement-aware
+recent tail rather than the selected historical range.
 A persisted ten-minute refresh lease coalesces concurrent dashboard
 processes, and forced-refresh attempts have a five-minute safety rate
 limit. The status line reports the usage frontier, last fetch, refresh

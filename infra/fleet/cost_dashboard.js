@@ -14,6 +14,7 @@ const PALETTE = [
   '#d62728', '#9467bd', '#8c564b', '#e377c2', '#7f7f7f'
 ];
 const charts = {};
+let accountRequestVersion = 0;
 
 function chart(id) {
   if (!charts[id]) {
@@ -479,6 +480,7 @@ function resetAccountChart(wrapperId, chartId) {
 }
 
 async function loadAccount(force) {
+  const requestVersion = ++accountRequestVersion;
   const status = document.getElementById('acctStatus');
   const start = document.getElementById('acctFrom').value;
   const end = document.getElementById('acctTo').value;
@@ -495,6 +497,7 @@ async function loadAccount(force) {
       `${route}?${query.toString()}`,
       force ? 'POST' : 'GET'
     );
+    if (requestVersion !== accountRequestVersion) return;
     resetAccountChart('acctUsageWrap', 'cAcctUsage');
     resetAccountChart('acctCostWrap', 'cAcctCost');
     renderStack('cAcctUsage', payload.times, payload.usage, 'EC2 hours');
@@ -511,7 +514,7 @@ async function loadAccount(force) {
       fetched: 'fetched from Cost Explorer',
       cached: 'served from local SQLite',
       in_progress: 'another refresh is in progress; served stored data',
-      rate_limited: 'force refresh recently attempted; served stored data'
+      rate_limited: 'force fetch recently attempted; served stored data'
     };
     const fetchLabel = payload.charged
       ? 'fetched from Cost Explorer'
@@ -528,7 +531,9 @@ async function loadAccount(force) {
       warning.classList.add('hidden');
     }
   } catch (error) {
-    status.textContent = `error: ${error.message}`;
+    if (requestVersion === accountRequestVersion) {
+      status.textContent = `error: ${error.message}`;
+    }
   }
 }
 
@@ -571,8 +576,11 @@ async function init() {
   document.getElementById('acctFrom').value = iso(
     new Date(now.getTime() - 29 * 864e5)
   );
-  document.getElementById('acctFetch').onclick = () => loadAccount(false);
+  document.getElementById('acctFrom').onchange = () => loadAccount(false);
+  document.getElementById('acctTo').onchange = () => loadAccount(false);
+  document.getElementById('acctGran').onchange = () => loadAccount(false);
   document.getElementById('acctForce').onclick = () => loadAccount(true);
+  loadAccount(false);
   const selector = document.getElementById('runSelect');
   try {
     const runs = await requestJSON('/api/runs');
@@ -593,9 +601,6 @@ async function init() {
       await loadRun(selected);
     } else {
       await loadFirstLegBearingRun(runs);
-    }
-    if (parameters.get('acct')) {
-      await loadAccount(false);
     }
   } catch (error) {
     selector.replaceChildren(new Option('error'));

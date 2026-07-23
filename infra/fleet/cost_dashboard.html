@@ -112,8 +112,10 @@
       retained hourly Cost Explorer data aggregated to days. A requested
       range beyond the non-zero usage frontier refreshes after one day;
       the refresh rechecks the preceding 12 hours for billing adjustments.
-      Force refresh bypasses the daily decision, subject to a five-minute
-      safety limit. Each Cost Explorer query costs $0.01.</p>
+      The plots update automatically. Force fetch bypasses the daily
+      decision and re-pulls only the settlement-aware recent tail, subject
+      to a five-minute safety limit. Each Cost Explorer query costs
+      $0.01.</p>
     <div class="row wrap">
       <label>From <input type="date" id="acctFrom"></label>
       <label>To (inclusive) <input type="date" id="acctTo"></label>
@@ -123,9 +125,8 @@
           <option value="HOURLY">hourly</option>
         </select>
       </label>
-      <button id="acctFetch">Fetch</button>
       <button id="acctForce" class="secondary"
-        title="Re-pull the recent hourly tail now">Force refresh</button>
+        title="Re-pull the recent hourly tail now">Force fetch</button>
       <span id="acctStatus" class="sub"></span>
     </div>
     <div id="acctWarning" class="note hidden"></div>

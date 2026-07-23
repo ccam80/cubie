@@ -14,7 +14,7 @@ Cost Explorer, billed at $0.01 per GetCostAndUsage request. Hourly usage
 is retained in a transactional SQLite store. When a requested range
 extends beyond the latest non-zero hour and the last successful fetch is
 at least a day old, the latest tail is fetched again, including a
-12-hour settlement overlap. Force refresh bypasses that daily decision
+12-hour settlement overlap. Force fetch bypasses that daily decision
 but remains protected by a short persisted rate limit.
 
 The loopback server validates Host and Origin, requires a per-process
@@ -53,8 +53,8 @@ HERE = Path(__file__).resolve().parent
 CACHE_DIR = HERE / ".dashboard-cache"
 USAGE_DB = CACHE_DIR / "usage.sqlite3"
 # Cost Explorer exposes only a recent hourly window. Once acquired, every
-# hourly bucket remains in SQLite; older dates first requested after that
-# window has passed are filled by a daily query.
+# hourly bucket remains in SQLite. Missing history before the first retained
+# bucket remains unavailable rather than triggering a paid historical query.
 CE_HOURLY_WINDOW_DAYS = 14
 HOURLY_REFETCH_BACK = 12
 REFRESH_THROTTLE = timedelta(days=1)
@@ -787,8 +787,6 @@ class UsageStore:
             self._set_metadata(
                 connection, "last_fetch", fetched_at.isoformat()
             )
-            self._set_metadata(connection, "last_hourly_start", start)
-            self._set_metadata(connection, "last_hourly_end", end)
             if force:
                 self._set_metadata(
                     connection, "last_force_fetch", fetched_at.isoformat()
@@ -816,23 +814,24 @@ class UsageStore:
                         connection, "daily", "day", day, _rollup(hourly, day)
                     )
 
-    def upsert_daily(self, buckets, owner, completed_at):
-        with self._connection() as connection:
-            connection.execute("BEGIN IMMEDIATE")
-            self._assert_owned_lease(connection, owner, completed_at)
-            for day, payload in buckets.items():
-                self._upsert_bucket(connection, "daily", "day", day, payload)
-            self._delete_owned_lease(connection, owner)
-            connection.commit()
 
-
-def _should_refresh(range_end, frontier, last_fetch, now, force=False):
+def _should_refresh(
+    range_end,
+    frontier,
+    hourly_high_water,
+    last_fetch,
+    now,
+    force=False,
+):
     """Return the exact frontier/staleness refresh decision."""
     if force:
         return True
-    extends_frontier = frontier is None or range_end > ts(frontier)
+    refresh_boundary = frontier or hourly_high_water
+    extends_boundary = refresh_boundary is None or range_end > ts(
+        refresh_boundary
+    )
     stale = last_fetch is None or now - ts(last_fetch) >= REFRESH_THROTTLE
-    return extends_frontier and stale
+    return extends_boundary and stale
 
 
 def _complete_hourly_buckets(start, end, parsed):
@@ -896,37 +895,6 @@ def _refresh(store, now, force=False):
     return "fetched"
 
 
-def _seed_daily(store, days):
-    """Fetch missing historical daily buckets under the persisted lease."""
-    todo = sorted(days)
-    if not todo:
-        return "cached"
-    lease_status, owner = store.acquire_refresh_lease(now_utc())
-    if lease_status != "acquired":
-        return lease_status
-    end = (date.fromisoformat(todo[-1]) + timedelta(days=1)).isoformat()
-    try:
-        parsed = _parse_ce(
-            _ce_query(
-                "DAILY",
-                todo[0],
-                end,
-                "INSTANCE_TYPE",
-                "UsageQuantity",
-                EC2_COMPUTE,
-            ),
-            _ce_query("DAILY", todo[0], end, "SERVICE", "UnblendedCost"),
-        )
-        buckets = {
-            day: parsed.get(day, {"usage": {}, "cost": {}}) for day in todo
-        }
-        store.upsert_daily(buckets, owner, now_utc())
-    except Exception:
-        store.release_refresh_lease(owner)
-        raise
-    return "fetched"
-
-
 def _coverage(expected, shown, gran, hourly_high_water, today=None):
     available = {key for key, _ in shown}
     missing = [key for key, _ in expected if key not in available]
@@ -964,38 +932,14 @@ def _coverage(expected, shown, gran, hourly_high_water, today=None):
     }
 
 
-def _daily_fallback_days(
-    expected_days, hourly_counts, frontier, tail_start, today
-):
-    """Return incomplete historical days safe for a daily CE fallback."""
-    frontier_day = frontier[:10] if frontier else None
-    tail_start_time = ts(tail_start) if tail_start else None
-    fallback = []
-    for day in expected_days:
-        if hourly_counts.get(day) == 24:
-            continue
-        day_end = datetime.combine(
-            date.fromisoformat(day) + timedelta(days=1),
-            datetime.min.time(),
-            tzinfo=timezone.utc,
-        )
-        before_frontier = frontier_day and day < frontier_day
-        before_recent_tail = tail_start_time and day_end <= tail_start_time
-        no_hourly_context = (
-            not frontier and not tail_start_time and day < today.isoformat()
-        )
-        if before_frontier or before_recent_tail or no_hourly_context:
-            fallback.append(day)
-    return fallback
-
-
 def account_payload(start, end, gran, force=False, store=None, now=None):
     """Assemble account data for an inclusive, bounded date range.
 
     A normal refresh occurs exactly when the range extends beyond the
-    latest non-zero hour and the last successful fetch is at least one
-    day old. Force bypasses that decision, while a persisted lease and
-    five-minute force rate limit coalesce duplicate paid requests.
+    latest non-zero hour (or the hourly high-water mark when all cached
+    usage is zero) and the last successful fetch is at least one day old.
+    Force bypasses that decision, while a persisted lease and five-minute
+    force rate limit coalesce duplicate paid requests.
     """
     start_date, _, end_exclusive, gran = _validate_account_range(
         start, end, gran
@@ -1009,15 +953,22 @@ def account_payload(start, end, gran, force=False, store=None, now=None):
     charged = False
     with _CE_LOCK:
         frontier = store.frontier()
+        _, hourly_high_water = store.hourly_bounds()
         last_fetch = store.metadata("last_fetch")
-        if _should_refresh(range_end, frontier, last_fetch, now, force):
+        if _should_refresh(
+            range_end,
+            frontier,
+            hourly_high_water,
+            last_fetch,
+            now,
+            force,
+        ):
             refresh_status = _refresh(store, now, force)
             charged = refresh_status == "fetched"
 
         frontier = store.frontier()
         frontier_day = frontier[:10] if frontier else None
         _, hourly_high_water = store.hourly_bounds()
-        tail_start = store.metadata("last_hourly_start")
         expected_days = [
             day for day, _ in _expected_buckets(start, end, "DAILY")
         ]
@@ -1036,24 +987,6 @@ def account_payload(start, end, gran, force=False, store=None, now=None):
             ]
             store.recompute_daily(final_days)
             cached_days = store.daily_range(start_date.isoformat(), stop_day)
-            fallback_days = _daily_fallback_days(
-                expected_days,
-                hourly_counts,
-                frontier,
-                tail_start,
-                now.date(),
-            )
-            missing_fallback = [
-                day for day in fallback_days if day not in cached_days
-            ]
-            if missing_fallback:
-                seed_status = _seed_daily(store, missing_fallback)
-                charged = charged or seed_status == "fetched"
-                if refresh_status == "cached":
-                    refresh_status = seed_status
-                cached_days = store.daily_range(
-                    start_date.isoformat(), stop_day
-                )
 
         expected = _expected_buckets(start, end, gran)
         if gran == "HOURLY":
