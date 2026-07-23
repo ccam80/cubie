@@ -185,21 +185,17 @@ jobs:
           # A lane can fill the cache with peripheral kernels while
           # every solver-run fixture dies before its launch (a broken
           # population fake produces exactly that), so require the
-          # batch-solver integration kernel by name.
+          # batch-solver integration kernel. Production index keys
+          # carry no function identity, so the check reads the stored
+          # compile payloads: the kernel's mangled symbol name embeds
+          # the function name on both backends.
           python - <<'EOF'
-          import pickle
           import sys
           from pathlib import Path
 
-          needle = (
-              "BatchSolverKernel.build_kernel.<locals>"
-              ".integration_kernel"
-          )
-          for nbi in Path("kernel-cache/kernels").rglob("*.nbi"):
-              with open(nbi, "rb") as stream:
-                  pickle.load(stream)
-                  _, index = pickle.load(stream)
-              if any(needle in key[5][1] for key in index):
+          needle = b"integration_kernel"
+          for nbc in Path("kernel-cache/kernels").rglob("*.nbc"):
+              if needle in nbc.read_bytes():
                   sys.exit(0)
           print(
               "precompile cache holds no batch-solver integration "
