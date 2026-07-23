@@ -183,16 +183,21 @@ def terminate_time(iid, after):
 
 
 def ce(granularity, start, end, group_key, metric, service=None):
+    # Filter to real usage line items. The account is credit-covered, so
+    # unblended cost nets to ~0 and per-service Credit line items blow out
+    # the scale (negative bars); RECORD_TYPE=Usage shows the gross usage
+    # the workload actually drives.
+    dims = [{"Dimensions": {"Key": "RECORD_TYPE", "Values": ["Usage"]}}]
+    if service:
+        dims.append({"Dimensions": {"Key": "SERVICE", "Values": [service]}})
+    flt = dims[0] if len(dims) == 1 else {"And": dims}
     args = [
         "ce", "get-cost-and-usage",
         "--time-period", f"Start={start},End={end}",
         "--granularity", granularity, "--metrics", metric,
         "--group-by", f"Type=DIMENSION,Key={group_key}",
+        "--filter", json.dumps(flt),
     ]
-    if service:
-        args += ["--filter", json.dumps(
-            {"Dimensions": {"Key": "SERVICE", "Values": [service]}}
-        )]
     ok, res = aws(*args)
     return (res, None) if ok else (None, res)
 
@@ -280,13 +285,24 @@ def fig_leg_bands(legs):
     return png(fig)
 
 
+def _step_name(name):
+    # Collapse names that differ only by matrix axis so the legend does
+    # not carry a separate entry per Python version / cubie extra / action
+    # SHA (e.g. "Set up Python 3.10/3.11/3.14" -> "Set up Python").
+    name = re.sub(r"@[0-9a-f]{7,}", "", name)
+    name = re.sub(r"\s*\(dev[\w-]*\)", "", name)
+    name = re.sub(r"\s+3\.\d+\b", "", name)
+    return name.strip()
+
+
 def fig_leg_steps(legs):
     names, idx = [], {}
     for leg in legs:
         for s in leg["steps"]:
-            if s["name"] not in idx:
-                idx[s["name"]] = len(names)
-                names.append(s["name"])
+            nm = _step_name(s["name"])
+            if nm not in idx:
+                idx[nm] = len(names)
+                names.append(nm)
     cmap = plt.get_cmap("tab20")
     fig, ax = plt.subplots(figsize=(12, 5))
     x = np.arange(len(legs))
@@ -294,7 +310,7 @@ def fig_leg_steps(legs):
     for n in names:
         vals = np.array([
             sum((s["end"] - s["start"]).total_seconds()
-                for s in leg["steps"] if s["name"] == n) / 60
+                for s in leg["steps"] if _step_name(s["name"]) == n) / 60
             for leg in legs
         ])
         ax.bar(x, vals, bottom=bottom, label=n[:34],
@@ -393,7 +409,11 @@ def fig_ce_stack(res, title, unit):
     if res is None:
         return None
     buckets = res["ResultsByTime"]
-    keys = sorted({g["Keys"][0] for b in buckets for g in b["Groups"]})
+    # NoInstanceType is EC2-Other (EBS volume-hours, data transfer) with no
+    # instance type; drop it so a "per instance type" chart is not swamped
+    # by non-compute usage.
+    keys = sorted({g["Keys"][0] for b in buckets for g in b["Groups"]}
+                  - {"NoInstanceType"})
     times = [b["TimePeriod"]["Start"] for b in buckets]
     cmap = plt.get_cmap("tab20")
     fig, ax = plt.subplots(figsize=(12, 4.2))
@@ -411,13 +431,16 @@ def fig_ce_stack(res, title, unit):
                color=cmap(i % 20))
         bottom += vals
         drawn += 1
+    if not drawn:
+        # Empty window: let the caller render an explanatory note instead
+        # of a blank chart (Cost Explorer finalises recent data with lag).
+        plt.close(fig)
+        return None
     ax.set_xticks(range(len(buckets)))
     ax.set_xticklabels([t[5:] for t in times], rotation=90, fontsize=6)
     ax.set_ylabel(unit)
     ax.set_title(title)
-    if drawn:
-        ax.legend(fontsize=6, ncol=2, loc="upper left",
-                  bbox_to_anchor=(1, 1))
+    ax.legend(fontsize=6, ncol=2, loc="upper left", bbox_to_anchor=(1, 1))
     return png(fig)
 
 
@@ -497,14 +520,22 @@ def main():
     day30 = (now - timedelta(days=30)).strftime("%Y-%m-%d")
     today = now.strftime("%Y-%m-%d")
     EC2 = "Amazon Elastic Compute Cloud - Compute"
-    ce_note = ("Cost Explorer read not yet granted to the deployer role "
-               "(add the CostExplorerReadOnly statement and repaste the "
-               "bootstrap). Panel will populate once granted.")
     h_use, e1 = ce("HOURLY", d1, dnow, "INSTANCE_TYPE", "UsageQuantity", EC2)
     h_svc, e2 = ce("HOURLY", d1, dnow, "SERVICE", "UnblendedCost")
     d_use, e3 = ce("DAILY", day30, today, "INSTANCE_TYPE", "UsageQuantity",
                    EC2)
     d_svc, e4 = ce("DAILY", day30, today, "SERVICE", "UnblendedCost")
+
+    lag_note = ("No finalized Cost Explorer data in this window. CE "
+                "finalises recent usage with a ~24-48h lag, so a "
+                "just-completed run may not appear yet -- charts 1-5 carry "
+                "the run's own EC2 cost from spot price x duration. (If the "
+                "deployer role lacks ce:GetCostAndUsage, the panel errors "
+                "instead.)")
+
+    def ce_panel(res, err, title, unit):
+        b = fig_ce_stack(res, title, unit)
+        return (b, None) if b is not None else (None, err or lag_note)
 
     ct_denied = next((leg["terminate_note"] for leg in legs
                       if leg["terminate_note"] and "authorized" in
@@ -532,18 +563,16 @@ def main():
         ("Chart 4 — run aggregate bands", fig_run_aggregate(legs), None),
         ("Chart 5 — spot-capacity wait per leg (separate; not billed)",
          fig_wait(legs), None),
-        ("Chart 6 — last 24h, EC2 usage hours per instance type (hourly)",
-         fig_ce_stack(h_use, "EC2 usage hours per instance type — last 24h",
-                      "hours"), e1 or ce_note),
-        ("Chart 6 — last 24h, cost by service (hourly)",
-         fig_ce_stack(h_svc, "Cost by service — last 24h", "USD"),
-         e2 or ce_note),
-        ("Chart 7 — last 30d, EC2 usage hours per instance type (daily)",
-         fig_ce_stack(d_use, "EC2 usage hours per instance type — last 30d",
-                      "hours"), e3 or ce_note),
-        ("Chart 7 — last 30d, cost by service (daily)",
-         fig_ce_stack(d_svc, "Cost by service — last 30d", "USD"),
-         e4 or ce_note),
+        ("Chart 6 — last 24h, EC2 usage hrs per instance type (hourly)",
+         *ce_panel(h_use, e1,
+                   "EC2 usage hours per instance type — last 24h", "hours")),
+        ("Chart 6 — last 24h, gross usage $ by service (hourly)",
+         *ce_panel(h_svc, e2, "Gross usage $ by service — last 24h", "USD")),
+        ("Chart 7 — last 30d, EC2 usage hrs per instance type (daily)",
+         *ce_panel(d_use, e3,
+                   "EC2 usage hours per instance type — last 30d", "hours")),
+        ("Chart 7 — last 30d, gross usage $ by service (daily)",
+         *ce_panel(d_svc, e4, "Gross usage $ by service — last 30d", "USD")),
     ]
     Path(args.out).write_text(build_html(args.run_id, legs, panels,
                                          meta_html), encoding="utf-8")
