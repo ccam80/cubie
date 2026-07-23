@@ -153,12 +153,18 @@ statements add.
 
 **Cost of use:** per-run views are free (GitHub API, `ec2:Describe*` and
 `cloudtrail:LookupEvents` carry no charge). Only the account panels touch
-Cost Explorer, billed $0.01 per `GetCostAndUsage` request. Results are
-cached at bucket granularity under `.dashboard-cache/` (gitignored) and a
-bucket is re-fetched only when it is missing, or still inside Cost
-Explorer's ~2-day finalisation window and more than a day stale — so
-re-viewing a range is free, and the account section shows whether a fetch
-hit the API or the cache.
+Cost Explorer, billed $0.01 per `GetCostAndUsage` request. Only *finalised*
+buckets — older than `FINALIZE_LAG_DAYS` (2), where CE no longer revises
+usage — are cached (bucket-keyed under `.dashboard-cache/`, gitignored) and
+plotted; younger buckets are left out, since their numbers are still
+settling. A range is queried only for the finalised buckets it does not
+already have, spanning just that gap, so re-viewing a range is free,
+widening it fetches only the new gap (the first fetch of a range naturally
+backfills it), and a range ending today never re-fetches merely because
+today has no data yet. The account status line shows whether a fetch hit
+the API or the cache, and how many trailing periods were omitted as
+not-yet-finalised. Cost Explorer's hourly granularity only covers the last
+~14 days, so the hourly view is inherently a short recent window.
 
 Requirements: `gh` authenticated to the repo and the `cubie-fleet` AWS
 profile; charts load ECharts from a CDN, so the browser needs internet.

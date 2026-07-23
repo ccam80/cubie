@@ -38,6 +38,10 @@ REGION = "ap-southeast-2"
 EC2_COMPUTE = "Amazon Elastic Compute Cloud - Compute"
 HERE = Path(__file__).resolve().parent
 CACHE_DIR = HERE / ".dashboard-cache"
+# Cost Explorer keeps revising the most recent usage for a day or two;
+# a bucket older than this is treated as final, cached, and never
+# re-fetched. Younger buckets are left out (not cached, not plotted).
+FINALIZE_LAG_DAYS = 2
 
 # The AWS CLI encodes its own stdout with the process locale; on a Windows
 # cp1252 console it dies rendering the U+202F characters CloudTrail events
@@ -323,73 +327,80 @@ def _save_ce_cache(gran, cache):
     p.write_text(json.dumps(cache), encoding="utf-8")
 
 
+def _bucket_dt(key):
+    if "T" in key:
+        return ts(key)
+    return datetime.strptime(key, "%Y-%m-%d").replace(tzinfo=timezone.utc)
+
+
 def account_payload(start, end, gran):
-    """Assemble usage-by-type and gross-cost-by-service for a date range,
-    fetching from Cost Explorer only the buckets that are missing or still
-    settling and stale."""
+    """Assemble usage-by-type and gross-usage-$-by-service for a range.
+
+    Only *finalized* buckets (older than FINALIZE_LAG_DAYS, where Cost
+    Explorer no longer revises usage) are cached and plotted. Cost
+    Explorer is queried only for finalized buckets in the range that are
+    not already cached, spanning just that gap. Younger buckets are left
+    out entirely -- their numbers are still settling. So re-viewing a
+    range is free, widening it fetches only the new gap, and a range that
+    ends today never re-fetches merely because today has no data yet."""
     gran = gran.upper()
+    step = timedelta(hours=1) if gran == "HOURLY" else timedelta(days=1)
+    cutoff = now_utc() - timedelta(days=FINALIZE_LAG_DAYS)
+    expected = _expected_buckets(start, end, gran)
+    shown = [(k, w) for k, w in expected if w + step <= cutoff]
     with _CE_LOCK:
         cache = _load_ce_cache(gran)
-        expected = _expected_buckets(start, end, gran)
-        now = now_utc()
-        stale = []
-        for key, when in expected:
-            hit = cache.get(key)
-            finalized = when < now - timedelta(days=2)
-            if hit is None:
-                stale.append(key)
-            elif not finalized:
-                age = now - ts(hit["fetched"])
-                if age > timedelta(days=1):
-                    stale.append(key)
+        missing = [w for k, w in shown if k not in cache]
         charged = False
-        if stale:
-            usage = _ce_query(gran, start, end, "INSTANCE_TYPE",
+        if missing:
+            f_start = min(missing).strftime("%Y-%m-%d")
+            f_end = (max(missing).date() + timedelta(days=1)).strftime(
+                "%Y-%m-%d")
+            usage = _ce_query(gran, f_start, f_end, "INSTANCE_TYPE",
                               "UsageQuantity", EC2_COMPUTE)
-            cost = _ce_query(gran, start, end, "SERVICE", "UnblendedCost")
-            fetched = now.isoformat()
+            cost = _ce_query(gran, f_start, f_end, "SERVICE",
+                             "UnblendedCost")
             merged = {}
             for rt in usage:
-                key = rt["TimePeriod"]["Start"]
-                d = merged.setdefault(key, {"usage": {}, "cost": {}})
+                d = merged.setdefault(rt["TimePeriod"]["Start"],
+                                      {"usage": {}, "cost": {}})
                 for g in rt["Groups"]:
                     t = g["Keys"][0]
-                    if t == "NoInstanceType":
-                        continue
-                    d["usage"][t] = float(
-                        g["Metrics"]["UsageQuantity"]["Amount"])
+                    if t != "NoInstanceType":
+                        d["usage"][t] = float(
+                            g["Metrics"]["UsageQuantity"]["Amount"])
             for rt in cost:
-                key = rt["TimePeriod"]["Start"]
-                d = merged.setdefault(key, {"usage": {}, "cost": {}})
+                d = merged.setdefault(rt["TimePeriod"]["Start"],
+                                      {"usage": {}, "cost": {}})
                 for g in rt["Groups"]:
                     d["cost"][g["Keys"][0]] = float(
                         g["Metrics"]["UnblendedCost"]["Amount"])
+            # cache only the finalized buckets the fetch returned
             for key, d in merged.items():
-                cache[key] = {"fetched": fetched, **d}
+                if _bucket_dt(key) + step <= cutoff:
+                    cache[key] = d
             _save_ce_cache(gran, cache)
             charged = True
 
-    times, usage_keys, cost_keys = [], set(), set()
-    for key, _ in expected:
-        hit = cache.get(key, {"usage": {}, "cost": {}})
-        times.append(key)
-        usage_keys |= set(hit.get("usage", {}))
-        cost_keys |= set(hit.get("cost", {}))
+    times = [k for k, _ in shown]
 
-    def series(keys, field):
+    def series(field):
+        keys = sorted({t for k, _ in shown
+                       for t in cache.get(k, {}).get(field, {})})
         out = []
-        for k in sorted(keys):
-            row = [cache.get(key, {}).get(field, {}).get(k, 0.0)
-                   for key, _ in expected]
+        for name in keys:
+            row = [cache.get(k, {}).get(field, {}).get(name, 0.0)
+                   for k, _ in shown]
             if any(row):
-                out.append({"name": k, "data": row})
+                out.append({"name": name, "data": row})
         return out
 
     return {
         "start": start, "end": end, "granularity": gran,
         "charged": charged, "times": times,
-        "usage": series(usage_keys, "usage"),
-        "cost": series(cost_keys, "cost"),
+        "omitted": len(expected) - len(shown),
+        "usage": series("usage"),
+        "cost": series("cost"),
     }
 
 

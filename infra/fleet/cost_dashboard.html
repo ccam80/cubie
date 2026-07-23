@@ -106,9 +106,6 @@
         </select>
       </label>
       <button id="acctFetch">Fetch</button>
-      <button id="acctBackfill" class="secondary" title="One ~$0.02 daily
-query caches CE's whole retained window so future views are free">Backfill
-        all history</button>
       <span id="acctStatus" class="sub"></span>
     </div>
     <h2>Usage hours per instance type</h2>
@@ -333,9 +330,12 @@ async function loadAccount(){
     delete charts['cAcctUsage']; delete charts['cAcctCost'];
     renderStack('cAcctUsage', p.times, p.usage, 'hours');
     renderStack('cAcctCost', p.times, p.cost, 'USD (gross usage)');
-    st.innerHTML = p.charged
+    const omit = p.omitted
+      ? ` &middot; latest ${p.omitted} period(s) omitted (not yet finalised)`
+      : '';
+    st.innerHTML = (p.charged
       ? '<span class="pill">fetched from Cost Explorer (~$0.02)</span>'
-      : '<span class="pill">served from cache (free)</span>';
+      : '<span class="pill">served from cache (free)</span>') + omit;
   }catch(e){ st.textContent='error: '+e.message; }
 }
 
@@ -353,15 +353,6 @@ async function init(){
   document.getElementById('acctFrom').value=
     iso(new Date(now.getTime()-30*864e5));
   document.getElementById('acctFetch').onclick=loadAccount;
-  document.getElementById('acctBackfill').onclick=()=>{
-    // CE keeps ~14 months of daily data; one wide query fills the whole
-    // window, after which any narrower daily view is served from cache.
-    document.getElementById('acctFrom').value=
-      iso(new Date(now.getTime()-400*864e5));
-    document.getElementById('acctTo').value=iso(now);
-    document.getElementById('acctGran').value='DAILY';
-    loadAccount();
-  };
   const sel=document.getElementById('runSelect');
   try{
     const runs=await getJSON('/api/runs');
