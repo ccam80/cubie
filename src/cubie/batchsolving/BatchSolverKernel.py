@@ -42,7 +42,12 @@ from warnings import warn
 from pathlib import Path
 from weakref import finalize
 
-from numpy import ceil as np_ceil, float64 as np_float64, floating
+from numpy import (
+    ceil as np_ceil,
+    float64 as np_float64,
+    floating,
+    zeros as np_zeros,
+)
 from cubie.cuda_simsafe import cuda, float64
 from cubie.cuda_simsafe import int32
 
@@ -62,6 +67,7 @@ from cubie.cubie_cache import (
 from cubie.time_logger import CUDAEvent
 from numpy.typing import NDArray
 
+from cubie.array_interpolator import ArrayInterpolator
 from cubie.memory import default_memmgr
 from cubie.memory.mem_manager import defer_instance_teardown
 from cubie.buffer_registry import buffer_registry
@@ -291,6 +297,21 @@ class BatchSolverKernel(CUDAFactory):
         self._work_complete = True
         self._memory_manager = self._setup_memory_manager(memory_settings)
 
+        # The kernel owns the driver interpolator as a direct child
+        # factory: its configuration participates in config_hash, so
+        # driver-evaluator settings baked into the compiled kernel
+        # re-key the disk cache, and its rebuilt evaluators invalidate
+        # the kernel through the normal update path. Zero-driver
+        # operation is represented by this owned child's placeholder
+        # configuration.
+        self.driver_interpolator = ArrayInterpolator(
+            precision=precision,
+            input_dict={
+                "placeholder": np_zeros(6, dtype=precision),
+                "driver_sample_period": 0.1,
+            },
+        )
+
         system_name = system.name
         system_hash = system.fn_hash
         if system_name == system_hash:
@@ -331,11 +352,16 @@ class BatchSolverKernel(CUDAFactory):
                 {"lineinfo": lineinfo}, silent=True
             )
 
+        kernel_settings = dict(kernel_settings or {})
+        kernel_settings.setdefault(
+            "driver_coefficients_shape",
+            self.driver_interpolator.coefficients_shape,
+        )
         initial_config = BatchSolverConfig(
             precision=precision,
             loop_fn=None,
             compile_flags=self.single_integrator.output_compile_flags,
-            **(kernel_settings or {}),
+            **kernel_settings,
         )
         self.setup_compile_settings(initial_config)
         if lineinfo is not None:
@@ -1056,6 +1082,21 @@ class BatchSolverKernel(CUDAFactory):
                 self._invalidate_cache()
             all_unrecognized -= cache_keys
 
+        driver_recognised = self.driver_interpolator.update(
+            updates_dict, silent=True
+        )
+        if driver_recognised and self.n_drivers > 0:
+            updates_dict["evaluate_driver_at_t"] = (
+                self.driver_interpolator.evaluation_function
+            )
+            updates_dict["driver_del_t"] = (
+                self.driver_interpolator.driver_del_t
+            )
+            updates_dict["driver_coefficients_shape"] = (
+                self.driver_interpolator.coefficients_shape
+            )
+        all_unrecognized -= driver_recognised
+
         all_unrecognized -= self.single_integrator.update(
             updates_dict, silent=True
         )
@@ -1085,6 +1126,34 @@ class BatchSolverKernel(CUDAFactory):
 
         # Include unpacked dict keys in recognized set
         return recognised | unpacked_keys
+
+    def configure_drivers(self, drivers: Dict[str, Any]) -> None:
+        """Update the owned driver interpolator and dependent settings.
+
+        Parameters
+        ----------
+        drivers
+            Driver samples plus interpolation settings, as accepted by
+            :meth:`ArrayInterpolator.update_from_dict`.
+        """
+        drivers = ArrayInterpolator.check_against_system_drivers(
+            drivers, self.system
+        )
+        fn_changed = self.driver_interpolator.update_from_dict(drivers)
+        if fn_changed:
+            self.update(
+                {
+                    "evaluate_driver_at_t": (
+                        self.driver_interpolator.evaluation_function
+                    ),
+                    "driver_del_t": (
+                        self.driver_interpolator.driver_del_t
+                    ),
+                    "driver_coefficients_shape": (
+                        self.driver_interpolator.coefficients_shape
+                    ),
+                }
+            )
 
     def wait_for_writeback(
         self, timeout: Optional[float] = None

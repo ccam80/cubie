@@ -19,7 +19,8 @@ from cubie.cubie_cache import (
     CachePolicy,
     ALL_CACHE_PARAMETERS,
     _CacheFileLock,
-    environment_hash,
+    _abi_fingerprint_entries,
+    toolchain_fingerprint,
 )
 from cubie._utils import package_source_hash
 
@@ -82,29 +83,65 @@ def test_cache_locator_get_source_stamp():
         system_hash="abc123",
         compile_settings_hash="def456",
     )
-    assert locator.get_source_stamp() == f"abc123-{environment_hash()}"
+    assert (
+        locator.get_source_stamp() == f"abc123-{toolchain_fingerprint()}"
+    )
 
 
-def test_environment_hash_is_stable_hex_digest():
-    """Verify the environment hash is a deterministic sha256 digest."""
-    digest = environment_hash()
+def test_toolchain_fingerprint_is_stable_hex_digest():
+    """Verify the fingerprint is a deterministic sha256 digest."""
+    digest = toolchain_fingerprint()
     assert len(digest) == 64
     assert all(c in "0123456789abcdef" for c in digest)
-    assert environment_hash() == digest
+    assert toolchain_fingerprint() == digest
 
 
-def test_environment_hash_covers_python_and_installed_packages():
-    """The hash covers Python and every installed distribution."""
-    entries = [
-        f"python=={implementation.name}-{version_info.major}."
-        f"{version_info.minor}.{version_info.micro}"
-    ]
-    for distribution in distributions():
-        name = distribution.metadata["Name"] or "unknown"
-        version = distribution.metadata["Version"] or "unknown"
-        entries.append(f"{name}=={version}")
-    expected = sha256("\n".join(sorted(entries)).encode()).hexdigest()
-    assert environment_hash() == expected
+def test_fingerprint_covers_declared_abi_inputs_only():
+    """The fingerprint holds only declared ABI/toolchain inputs.
+
+    Every declared input (schema, Python ABI tag, backend id, backend
+    package versions) is present; unrelated installed packages, paths,
+    and host identity are absent.
+    """
+    from cubie.cuda_backend import CUDA_BACKEND
+
+    entries = _abi_fingerprint_entries()
+    keys = [entry.split("=")[0] for entry in entries]
+    assert keys[0] == "schema"
+    assert keys[1] == "python-abi"
+    assert entries[2] == f"backend={CUDA_BACKEND}"
+    # Backend serialization owners only — nothing else from the env.
+    allowed = {
+        "schema",
+        "python-abi",
+        "backend",
+        "numba-cuda",
+        "numba",
+        "llvmlite",
+        "cubie-numba-cuda-mlir",
+        "numba-cuda-mlir",
+    }
+    for entry in entries:
+        assert entry.split("==")[0].split("=")[0] in allowed
+        # No absolute paths or host identity can hide in an entry.
+        assert "\\" not in entry
+        assert "/" not in entry
+    # An unrelated-but-installed package must not participate.
+    assert not any(entry.startswith("numpy==") for entry in entries)
+    assert not any(entry.startswith("attrs==") for entry in entries)
+
+
+def test_fingerprint_moves_with_declared_inputs():
+    """Changing any declared entry changes the digest; reordering or
+    dropping an unrelated candidate does not exist as an input."""
+    entries = _abi_fingerprint_entries()
+    baseline = sha256("\n".join(entries).encode("utf-8")).hexdigest()
+    assert toolchain_fingerprint() == baseline
+
+    changed = list(entries)
+    changed[0] = "schema=cubie-cache-v999"
+    moved = sha256("\n".join(changed).encode("utf-8")).hexdigest()
+    assert moved != baseline
 
 
 def test_cache_file_lock_cleans_up_after_timeout(tmp_path):
@@ -367,7 +404,9 @@ def test_cache_locator_instantiation_works():
     )
     # Path operations should work
     assert locator.get_cache_path() is not None
-    assert locator.get_source_stamp() == f"abc123-{environment_hash()}"
+    assert (
+        locator.get_source_stamp() == f"abc123-{toolchain_fingerprint()}"
+    )
     assert locator.get_disambiguator() == "def456"
 
 

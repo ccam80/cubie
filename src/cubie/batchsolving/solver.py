@@ -46,7 +46,7 @@ from typing import (
     Union,
 )
 
-from numpy import asarray, ndarray, zeros as np_zeros
+from numpy import asarray, ndarray
 
 from cubie.outputhandling.output_config import OutputCompileFlags
 from cubie._utils import PrecisionDType
@@ -453,13 +453,6 @@ class Solver:
         kwargs["precision"] = precision
         interface = SystemInterface.from_system(system)
         self.system_interface = interface
-        self.driver_interpolator = ArrayInterpolator(
-            precision=precision,
-            input_dict={
-                "placeholder": np_zeros(6, dtype=precision),
-                "dt": 0.1,
-            },
-        )
 
         recognized_kwargs: set[str] = set()
 
@@ -518,11 +511,6 @@ class Solver:
             | loop_recognized
             | cache_recognized
             | kernel_recognized
-        )
-        # Seed the compiled driver-coefficient layout; the driver
-        # update paths keep it aligned when the interpolator changes.
-        kernel_settings["driver_coefficients_shape"] = (
-            self.driver_interpolator.coefficients_shape
         )
 
         self.kernel = BatchSolverKernel(
@@ -614,8 +602,13 @@ class Solver:
         """
         self.system_interface.merge_variable_labels_and_idxs(output_settings)
 
+    @property
+    def driver_interpolator(self) -> ArrayInterpolator:
+        """The kernel-owned driver interpolator."""
+        return self.kernel.driver_interpolator
+
     def _configure_drivers(self, drivers: Dict[str, Any]) -> None:
-        """Update owned driver data and evaluators as one unit.
+        """Update the kernel-owned driver interpolator as one unit.
 
         Parameters
         ----------
@@ -623,22 +616,7 @@ class Solver:
             Driver samples plus interpolation settings, as accepted by
             :meth:`ArrayInterpolator.update_from_dict`.
         """
-        drivers = ArrayInterpolator.check_against_system_drivers(
-            drivers, self.system
-        )
-        fn_changed = self.driver_interpolator.update_from_dict(drivers)
-        if fn_changed:
-            self.kernel.update(
-                {
-                    "evaluate_driver_at_t": (
-                        self.driver_interpolator.evaluation_function
-                    ),
-                    "driver_del_t": self.driver_interpolator.driver_del_t,
-                    "driver_coefficients_shape": (
-                        self.driver_interpolator.coefficients_shape
-                    ),
-                }
-            )
+        self.kernel.configure_drivers(drivers)
 
     def solve(
         self,
@@ -859,22 +837,7 @@ class Solver:
         if any(key in updates_dict for key in variable_keys):
             self.convert_output_labels(updates_dict)
 
-        driver_recognised = self.driver_interpolator.update(
-            updates_dict, silent=True
-        )
-        if driver_recognised and self.kernel.n_drivers > 0:
-            updates_dict["evaluate_driver_at_t"] = (
-                self.driver_interpolator.evaluation_function
-            )
-            updates_dict["driver_del_t"] = (
-                self.driver_interpolator.driver_del_t
-            )
-            updates_dict["driver_coefficients_shape"] = (
-                self.driver_interpolator.coefficients_shape
-            )
-
         all_unrecognized = set(updates_dict.keys())
-        all_unrecognized -= driver_recognised
         all_unrecognized -= self.update_memory_settings(
             updates_dict, silent=True
         )

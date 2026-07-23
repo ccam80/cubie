@@ -71,10 +71,12 @@ class TestLineinfoPrecedence:
             precision=float32, jit_flags=JITFlags(lineinfo=False)
         )
         before = cfg.values_hash
-        recognized, changed = cfg.update({"lineinfo": True})
+        replacement, recognized, changed = cfg.update({"lineinfo": True})
         assert recognized == {"lineinfo"}
         assert changed == {"lineinfo"}
-        assert cfg.values_hash != before
+        assert replacement.values_hash != before
+        # The original snapshot is untouched.
+        assert cfg.values_hash == before
 
 
 @pytest.mark.nocudasim

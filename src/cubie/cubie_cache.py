@@ -23,7 +23,10 @@ import os
 from contextlib import AbstractContextManager
 from functools import cache
 from hashlib import sha256
-from importlib.metadata import distributions
+from importlib.metadata import (
+    PackageNotFoundError,
+    version as dist_version,
+)
 from pathlib import Path
 from shutil import rmtree
 from sys import implementation, version_info
@@ -39,7 +42,7 @@ else:
 from attrs import evolve, field, validators as val, converters, frozen
 from cubie._env import kernel_cache_dir_default, max_cache_entries_default
 from cubie._utils import getype_validator
-from cubie.cuda_backend import IS_MLIR
+from cubie.cuda_backend import CUDA_BACKEND, IS_MLIR
 from cubie.cuda_simsafe import (  # noqa: F401
     _CacheLocator,  # noqa: F401
     CacheImpl,  # noqa: F401
@@ -155,23 +158,59 @@ this set to filter kwargs before forwarding.
 """
 
 
-def _environment_entries() -> list[str]:
-    """List the Python and installed-package versions."""
+CACHE_SCHEMA_VERSION = "cubie-cache-v1"
+"""Serialized-artifact schema tag folded into the ABI fingerprint."""
+
+_BACKEND_ABI_DISTRIBUTIONS = {
+    "numba-cuda": ("numba-cuda", "numba", "llvmlite"),
+    "mlir": ("cubie-numba-cuda-mlir", "numba-cuda-mlir"),
+}
+"""Distributions whose versions define each backend's artifact ABI.
+
+numba-cuda artifacts are pickled ``_Kernel`` states whose layout
+follows numba-cuda itself and the numba/llvmlite serialization it
+builds on. MLIR artifacts are cubin/PTX compile-result payloads whose
+scheme is owned by the numba-cuda-mlir package (either the stock wheel
+or cubie's ``cubie-numba-cuda-mlir`` build, whichever is installed).
+"""
+
+
+def _abi_fingerprint_entries() -> list:
+    """List the minimal ABI/toolchain inputs for artifact compatibility.
+
+    Contains only inputs that can change the stored artifact's ABI or
+    code-generation compatibility: the cache schema version, the
+    Python implementation ABI tag, the active backend identifier, and
+    the backend/compiler package versions that own the serialization
+    format. Workspace paths, host identity, unrelated installed
+    packages, and arbitrary environment state are deliberately absent.
+    Target code-generation capability (compute capability and toolkit
+    magic) is carried per-overload by the backend's
+    ``codegen.magic_tuple()`` inside each index key.
+    """
+    abi_tag = getattr(implementation, "cache_tag", None)
+    if not abi_tag:
+        abi_tag = (
+            f"{implementation.name}-{version_info.major}."
+            f"{version_info.minor}"
+        )
     entries = [
-        f"python=={implementation.name}-{version_info.major}."
-        f"{version_info.minor}.{version_info.micro}"
+        f"schema={CACHE_SCHEMA_VERSION}",
+        f"python-abi={abi_tag}",
+        f"backend={CUDA_BACKEND}",
     ]
-    for distribution in distributions():
-        name = distribution.metadata["Name"] or "unknown"
-        version = distribution.metadata["Version"] or "unknown"
-        entries.append(f"{name}=={version}")
-    return sorted(entries)
+    for dist_name in _BACKEND_ABI_DISTRIBUTIONS[CUDA_BACKEND]:
+        try:
+            entries.append(f"{dist_name}=={dist_version(dist_name)}")
+        except PackageNotFoundError:
+            continue
+    return entries
 
 
 @cache
-def environment_hash() -> str:
-    """Hash Python and all installed package versions."""
-    joined = "\n".join(_environment_entries())
+def toolchain_fingerprint() -> str:
+    """Hash the minimal ABI/toolchain compatibility inputs."""
+    joined = "\n".join(_abi_fingerprint_entries())
     return sha256(joined.encode("utf-8")).hexdigest()
 
 
@@ -232,7 +271,7 @@ class CUBIECacheLocator(_CacheLocator):
             The system hash combined with the environment hash, so a
             change to any installed package invalidates the cache.
         """
-        return f"{self._system_hash}-{environment_hash()}"
+        return f"{self._system_hash}-{toolchain_fingerprint()}"
 
     def get_disambiguator(self) -> str:
         """Return a string to disambiguate similar functions.
