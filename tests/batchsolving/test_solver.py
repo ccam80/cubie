@@ -16,6 +16,9 @@ from cubie.batchsolving.solveresult import (
 from cubie.batchsolving.BatchInputHandler import BatchInputHandler
 from cubie.batchsolving.SystemInterface import SystemInterface
 from cubie.cuda_simsafe import cuda, is_device_array
+from cubie.integrators.matrix_free_solvers.bicgstab_solver import (
+    BiCGSTABSolver,
+)
 
 
 @pytest.fixture(scope="session")
@@ -298,6 +301,47 @@ def test_algorithm_hot_swap_after_solve(
     second = solver_mutable.solve(**solve_kwargs)
     assert not np.any(second.status_codes)
     assert np.all(np.isfinite(second.time_domain_array))
+
+
+@pytest.mark.parametrize(
+    "solver_settings_override", [{"algorithm": "firk"}], indirect=True
+)
+def test_linear_solver_hot_swap_after_solve(
+    solver_mutable,
+    solver_settings,
+    simple_initial_values,
+    simple_parameters,
+    driver_settings,
+):
+    """Swapping the linear-solver class preserves solve results."""
+    solve_kwargs = dict(
+        initial_values=simple_initial_values,
+        parameters=simple_parameters,
+        drivers=driver_settings,
+        duration=0.05,
+        save_every=0.02,
+        settling_time=0.0,
+        blocksize=32,
+        grid_type="combinatorial",
+    )
+    first = solver_mutable.solve(**solve_kwargs)
+    assert not np.any(first.status_codes)
+
+    solver_mutable.update(linear_correction_type="bicgstab")
+    algo_step = solver_mutable.kernel.single_integrator._algo_step
+    assert isinstance(algo_step.linear_solver, BiCGSTABSolver)
+    assert algo_step.linear_correction_type == "bicgstab"
+    second = solver_mutable.solve(**solve_kwargs)
+    assert not np.any(second.status_codes)
+    # The fixed controller walks both solves through identical steps,
+    # so the trajectories differ only by inner-solver convergence.
+    tolerance = 100.0 * float(solver_settings["newton_atol"])
+    assert np.allclose(
+        second.time_domain_array,
+        first.time_domain_array,
+        rtol=tolerance,
+        atol=tolerance,
+    )
 
 
 def test_solve_with_different_grid_types(

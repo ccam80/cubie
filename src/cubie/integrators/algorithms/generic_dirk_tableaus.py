@@ -20,9 +20,6 @@ Constants
 :data:`KVAERNO5_TABLEAU`
     Seven-stage, fifth-order A-L stable stiffly accurate ESDIRK method.
 
-:data:`LOBATTO_IIIC_3_TABLEAU`
-    Three-stage, fourth-order Lobatto IIIC scheme.
-
 :data:`SDIRK_2_2_TABLEAU`
     Two-stage, second-order L-stable SDIRK by Alexander.
 
@@ -36,7 +33,7 @@ Constants
     Name → tableau mapping for alias-based lookup.
 
 :data:`DEFAULT_DIRK_TABLEAU`
-    Default tableau (Lobatto IIIC 3-stage).
+    Default tableau (three-stage L-stable DIRK).
 
 See Also
 --------
@@ -76,9 +73,10 @@ class DIRKTableau(ButcherTableau):
     """
 
     def __attrs_post_init__(self) -> None:
-        """Validate structure and Runge--Kutta weight sums."""
+        """Validate structure, weight sums, and stage-node consistency."""
         super().__attrs_post_init__()
         self._validate_weight_sums()
+        self._validate_stage_node_consistency()
 
     def diagonal(self, precision: type) -> Tuple[float, ...]:
         """Return the diagonal entries of the tableau."""
@@ -267,29 +265,6 @@ with an explicit first stage. *BIT Numerical Mathematics*, 44,
 489--502.
 """
 
-LOBATTO_IIIC_3_TABLEAU = DIRKTableau(
-    a=(
-        (1.0 / 6.0, 0.0, 0.0),
-        (2.0 / 3.0, 1.0 / 6.0, 0.0),
-        (1.0 / 6.0, 2.0 / 3.0, 1.0 / 6.0),
-    ),
-    b=(1.0 / 6.0, 2.0 / 3.0, 1.0 / 6.0),
-    c=(0.0, 0.5, 1.0),
-    order=4,
-)
-"""Three-stage Lobatto IIIC DIRK tableau of order four.
-
-All stages share the same diagonal coefficient, so the tableau may be
-solved sequentially without resorting to coupled implicit systems. The
-method is symplectic and stiffly accurate, making it attractive for high
-accuracy integrations.
-
-References
-----------
-Hairer, E., Lubich, C., & Wanner, G. (2006). *Geometric Numerical
-Integration* (2nd ed.). Springer.
-"""
-
 SQRT2 = 2**0.5
 SDIRK2_GAMMA = (2 - SQRT2) / 2.0
 SDIRK_2_2_TABLEAU = DIRKTableau(
@@ -425,12 +400,11 @@ DIRK_TABLEAU_REGISTRY: Dict[str, DIRKTableau] = {
     "ode23t": TRAPEZOIDAL_DIRK_TABLEAU,
     "kvaerno3": KVAERNO3_TABLEAU,
     "kvaerno5": KVAERNO5_TABLEAU,
-    "lobatto_iiic_3": LOBATTO_IIIC_3_TABLEAU,
     "sdirk_2_2": SDIRK_2_2_TABLEAU,
     "l_stable_dirk_3": L_STABLE_DIRK3_TABLEAU,
     "l_stable_sdirk_4": L_STABLE_SDIRK4_TABLEAU,
 }
 """Registry of named DIRK tableaus available to the integrator."""
 
-DEFAULT_DIRK_TABLEAU_NAME = "lobatto_iiic_3"
+DEFAULT_DIRK_TABLEAU_NAME = "l_stable_dirk_3"
 DEFAULT_DIRK_TABLEAU = DIRK_TABLEAU_REGISTRY[DEFAULT_DIRK_TABLEAU_NAME]

@@ -4,6 +4,15 @@ import numpy as np
 import pytest
 
 from cubie.integrators.algorithms.backwards_euler import BackwardsEulerStep
+from cubie.integrators.algorithms.generic_rosenbrock_w import (
+    GenericRosenbrockWStep,
+)
+from cubie.integrators.matrix_free_solvers.bicgstab_solver import (
+    BiCGSTABSolver,
+)
+from cubie.integrators.matrix_free_solvers.linear_solver import (
+    MRLinearSolver,
+)
 
 
 def test_implicit_step_accepts_tolerance_arrays(precision):
@@ -96,14 +105,8 @@ def test_direct_construction_matches_hot_swap_products(precision, system):
 
 
 def test_implicit_step_linear_solver_newton_atol_returns_none(precision):
-    """Verify newton_atol/rtol return None when solver is MRLinearSolver."""
-    n = 3
-
-    step = BackwardsEulerStep(
-        precision=precision,
-        n=n,
-        solver_type='linear',
-    )
+    """Verify newton_atol/rtol return None for a linearly-implicit step."""
+    step = GenericRosenbrockWStep(precision=precision, n=3)
 
     # MRLinearSolver doesn't have newton_atol/rtol, so properties return None
     assert step.newton_atol is None
@@ -114,14 +117,12 @@ def test_implicit_step_linear_solver_newton_atol_returns_none(precision):
     assert step.krylov_rtol is not None
 
 
-def test_implicit_step_rejects_invalid_solver_type(precision):
-    """Constructing with an unknown solver_type raises ValueError."""
-    with pytest.raises(ValueError, match="solver_type must be"):
-        BackwardsEulerStep(
-            precision=precision,
-            n=3,
-            solver_type='not_a_real_solver',
-        )
+def test_is_linear_marks_direct_linear_solver_ownership(precision):
+    """is_linear is True only for linearly-implicit step classes."""
+    assert GenericRosenbrockWStep.is_linear
+    assert not BackwardsEulerStep.is_linear
+    step = BackwardsEulerStep(precision=precision, n=3)
+    assert not step.is_linear
 
 
 def test_implicit_config_settings_dict_includes_implicit_fields(precision):
@@ -229,3 +230,78 @@ def test_implicit_step_updates_residual_settings(
     } <= recognized
     assert step.krylov_residual_reduction == precision(0.25)
     assert step.krylov_residual_floor == precision(0.04)
+
+
+@pytest.mark.parametrize(
+    "solver_settings_override",
+    [
+        {**_RESIDUAL_SETTINGS, "algorithm": "backwards_euler"},
+        {**_RESIDUAL_SETTINGS, "algorithm": "ros3p"},
+    ],
+    ids=["newton", "linear"],
+    indirect=True,
+)
+def test_update_swaps_linear_solver_to_bicgstab(step_object_mutable):
+    """update() rebuilds the linear solver as BiCGSTAB, keeping state."""
+    step = step_object_mutable
+    assert isinstance(step.linear_solver, MRLinearSolver)
+    atol_before = np.array(step.krylov_atol, copy=True)
+    rtol_before = np.array(step.krylov_rtol, copy=True)
+    reduction_before = step.krylov_residual_reduction
+    floor_before = step.krylov_residual_floor
+
+    recognized = step.update(linear_correction_type="bicgstab")
+
+    assert "linear_correction_type" in recognized
+    assert isinstance(step.linear_solver, BiCGSTABSolver)
+    assert step.linear_correction_type == "bicgstab"
+    assert step.krylov_residual_reduction == reduction_before
+    assert step.krylov_residual_floor == floor_before
+    assert np.allclose(step.krylov_atol, atol_before)
+    assert np.allclose(step.krylov_rtol, rtol_before)
+    assert step.step_function is not None
+
+
+@pytest.mark.parametrize(
+    "solver_settings_override",
+    [
+        {
+            **_RESIDUAL_SETTINGS,
+            "algorithm": "backwards_euler",
+            "linear_correction_type": "bicgstab",
+        },
+    ],
+    ids=["newton-bicgstab"],
+    indirect=True,
+)
+def test_update_swaps_linear_solver_back_to_mr(step_object_mutable):
+    """update() rebuilds a BiCGSTAB solver as MR, keeping state."""
+    step = step_object_mutable
+    assert isinstance(step.linear_solver, BiCGSTABSolver)
+    reduction_before = step.krylov_residual_reduction
+    floor_before = step.krylov_residual_floor
+
+    recognized = step.update(
+        linear_correction_type="minimal_residual"
+    )
+
+    assert "linear_correction_type" in recognized
+    assert isinstance(step.linear_solver, MRLinearSolver)
+    assert step.linear_correction_type == "minimal_residual"
+    assert step.krylov_residual_reduction == reduction_before
+    assert step.krylov_residual_floor == floor_before
+    assert step.step_function is not None
+
+
+def test_update_within_mr_class_switches_correction(precision):
+    """MR/SD switches stay inside MRLinearSolver's own update."""
+    step = BackwardsEulerStep(precision=precision, n=3)
+    solver_before = step.linear_solver
+
+    recognized = step.update(
+        linear_correction_type="steepest_descent"
+    )
+
+    assert "linear_correction_type" in recognized
+    assert step.linear_solver is solver_before
+    assert step.linear_correction_type == "steepest_descent"

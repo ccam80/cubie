@@ -94,8 +94,8 @@ compiled callable from `.device_function`.
   (direct) — `norm_reference` config field, bound at compile time.
   Derived defaults: `krylov_atol`/`krylov_rtol` = the step
   controller's `atol`/`rtol`; reduction = adaptive controller min
-  `rtol` (machine epsilon for non-adaptive runs); floor =
-  `sqrt(eps)`.
+  `rtol`, divided by 100 for linearly-implicit (`is_linear`) steps
+  (machine epsilon for non-adaptive runs); floor = `sqrt(eps)`.
 - **Newton convergence follows OrdinaryDiffEq's NLNewton.** Consecutive
   full steps estimate the contraction `theta` (decay-floored at
   `0.3 * prev_theta`, warm-started across solves via the persistent

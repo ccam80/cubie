@@ -79,8 +79,8 @@ same family.
      - 5(4)
      - PI: ``kp=0.7``, ``ki=-0.4``, gain clamp 0.2–10.0
    * - ``dirk``
-     - ``lobatto_iiic_3`` (diagonally implicit, three stages)
-     - 4
+     - ``l_stable_dirk_3`` (diagonally implicit, three stages)
+     - 3
      - Fixed step — the default tableau has no error estimate
    * - ``firk``
      - ``firk_gauss_legendre_2`` (fully implicit, two coupled

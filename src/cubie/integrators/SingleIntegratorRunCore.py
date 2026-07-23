@@ -363,11 +363,10 @@ class SingleIntegratorRunCore(CUDAFactory):
         controller's ``atol``/``rtol`` directly: they weight the
         linear stopping norm, placing its absolute floor at the step
         tolerance envelope.  Unset ``krylov_residual_reduction``
-        defaults to the adaptive controller's ``rtol`` (its tightest
-        entry), so each linear solve reduces its residual by the same
-        relative tolerance the controller enforces on steps; for
-        non-adaptive runs it defaults to machine epsilon, leaving the
-        floor governing.  Values the user set explicitly (tracked in
+        defaults to the adaptive controller's tightest ``rtol`` entry,
+        divided by one hundred for linearly-implicit (``is_linear``)
+        steps; non-adaptive runs default to machine epsilon, leaving
+        the floor governing.  Values the user set explicitly (tracked in
         ``_user_given_inner_tols``) are preserved.  The solver norms'
         tolerance converter broadcasts uniform arrays to their own
         vector length; a non-uniform per-state vector must match the
@@ -399,6 +398,8 @@ class SingleIntegratorRunCore(CUDAFactory):
         # the floor governing.
         controller_rtol_floor = float(controller_rtol.min())
         if self._step_controller.is_adaptive and controller_rtol_floor > 0.0:
+            if self._algo_step.is_linear:
+                controller_rtol_floor *= 0.01
             derived_source["krylov_residual_reduction"] = (
                 controller_rtol_floor
             )
