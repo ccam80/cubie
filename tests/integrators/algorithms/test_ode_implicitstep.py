@@ -4,6 +4,9 @@ import numpy as np
 import pytest
 
 from cubie.integrators.algorithms.backwards_euler import BackwardsEulerStep
+from cubie.integrators.algorithms.generic_rosenbrock_w import (
+    GenericRosenbrockWStep,
+)
 
 
 def test_implicit_step_accepts_tolerance_arrays(precision):
@@ -60,14 +63,8 @@ def test_implicit_step_exposes_tolerance_properties(precision):
 
 
 def test_implicit_step_linear_solver_newton_atol_returns_none(precision):
-    """Verify newton_atol/rtol return None when solver is MRLinearSolver."""
-    n = 3
-
-    step = BackwardsEulerStep(
-        precision=precision,
-        n=n,
-        solver_type='linear',
-    )
+    """Verify newton_atol/rtol return None for a linearly-implicit step."""
+    step = GenericRosenbrockWStep(precision=precision, n=3)
 
     # MRLinearSolver doesn't have newton_atol/rtol, so properties return None
     assert step.newton_atol is None
@@ -78,14 +75,12 @@ def test_implicit_step_linear_solver_newton_atol_returns_none(precision):
     assert step.krylov_rtol is not None
 
 
-def test_implicit_step_rejects_invalid_solver_type(precision):
-    """Constructing with an unknown solver_type raises ValueError."""
-    with pytest.raises(ValueError, match="solver_type must be"):
-        BackwardsEulerStep(
-            precision=precision,
-            n=3,
-            solver_type='not_a_real_solver',
-        )
+def test_is_linear_marks_direct_linear_solver_ownership(precision):
+    """is_linear is True only for linearly-implicit step classes."""
+    assert GenericRosenbrockWStep.is_linear
+    assert not BackwardsEulerStep.is_linear
+    step = BackwardsEulerStep(precision=precision, n=3)
+    assert not step.is_linear
 
 
 def test_implicit_config_settings_dict_includes_implicit_fields(precision):
