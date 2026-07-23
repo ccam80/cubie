@@ -4,15 +4,6 @@ import numpy as np
 import pytest
 from cubie.cuda_simsafe import cuda
 
-from cubie.integrators.step_control.adaptive_PI_controller import (
-    AdaptivePIController,
-)
-from cubie.integrators.step_control.adaptive_PID_controller import (
-    AdaptivePIDController,
-)
-from cubie.integrators.step_control.gustafsson_controller import (
-    GustafssonController,
-)
 from cubie.result_codes import CUBIE_RESULT_CODES
 from tests._utils import run_controller_device_step
 
@@ -248,27 +239,27 @@ class TestControllerHistory:
     def test_history_commits_only_untruncated_acceptance(
         self,
         step_controller,
+        step_controller_settings,
         precision,
         system,
         accepted,
         truncated,
     ):
         """History advances only after an ordinary accepted step."""
-        controller_names = {
-            AdaptivePIController: "pi",
-            AdaptivePIDController: "pid",
-            GustafssonController: "gustafsson",
-        }
-        controller_name = controller_names[type(step_controller)]
+        controller_name = step_controller_settings["step_controller"]
+        dt0 = precision(0.017)
         seeds = {
             "pi": np.asarray([0.25], dtype=precision),
             "pid": np.asarray([0.25, 0.5], dtype=precision),
             "gustafsson": np.asarray([0.0125, 0.25], dtype=precision),
         }
+        # The accepted error equals atol with rtol zero, so the
+        # committed norm is exactly one and history slots either take
+        # these values verbatim or stay bit-identical to the seed.
         accepted_history = {
             "pi": np.asarray([1.0], dtype=precision),
             "pid": np.asarray([1.0, 0.25], dtype=precision),
-            "gustafsson": np.asarray([0.017, 1.0], dtype=precision),
+            "gustafsson": np.asarray([dt0, 1.0], dtype=precision),
         }
         error_value = 1e-3 if accepted else 2e-3
         error = np.full(system.sizes.states, error_value, dtype=precision)
@@ -278,7 +269,7 @@ class TestControllerHistory:
         result = run_controller_device_step(
             step_controller.device_function,
             precision,
-            precision(0.017),
+            dt0,
             error,
             local_mem=seed.copy(),
             state=state,
