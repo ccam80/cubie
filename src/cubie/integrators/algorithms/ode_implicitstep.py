@@ -315,33 +315,28 @@ class ODEImplicitStep(BaseAlgorithmStep):
             **linear_kwargs,
         )
 
-    def _swap_linear_solver(self, new_type: str) -> Set[str]:
+    def _swap_linear_solver(self, new_type: str) -> None:
         """Swap the linear-solver class when the correction type demands.
 
         A value that crosses the MR/BiCGSTAB class boundary rebuilds
         the linear solver from the outgoing instance's
         ``settings_dict`` and shared norm; the operator and
         preconditioner device functions are re-injected by the next
-        ``build_implicit_helpers`` run. Within-class MR/SD switches
-        are left to the owned solver's own update.
+        ``build_implicit_helpers`` run. Same-type values and
+        within-class MR/SD switches change no class and are left to
+        the owned solver's own update.
 
         Parameters
         ----------
         new_type
             Correction strategy identifier from the pending update.
-
-        Returns
-        -------
-        set[str]
-            ``{"linear_correction_type"}`` when the value was handled
-            here, empty when the owned solver's update applies it.
         """
         new_type = _validated_correction_type(new_type)
         current = self.linear_solver
         if new_type == current.linear_correction_type:
-            return {"linear_correction_type"}
+            return
         if "bicgstab" not in (new_type, current.linear_correction_type):
-            return set()
+            return
 
         carried = current.settings_dict
         carried["linear_correction_type"] = new_type
@@ -360,7 +355,6 @@ class ODEImplicitStep(BaseAlgorithmStep):
             # NewtonKrylov re-registers the named child registration
             # when its update runs later in the same update pass.
             self.solver.linear_solver = replacement
-        return {"linear_correction_type"}
 
     def update(self, updates_dict=None, silent=False, **kwargs) -> Set[str]:
         """Update algorithm and owned solver parameters.
@@ -399,9 +393,8 @@ class ODEImplicitStep(BaseAlgorithmStep):
         recognized = set()
 
         if "linear_correction_type" in all_updates:
-            recognized |= self._swap_linear_solver(
-                all_updates["linear_correction_type"]
-            )
+            self._swap_linear_solver(all_updates["linear_correction_type"])
+            recognized.add("linear_correction_type")
 
         recognized |= self.solver.update(all_updates, silent=True)
 
