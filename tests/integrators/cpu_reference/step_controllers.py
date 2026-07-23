@@ -127,9 +127,10 @@ class CPUAdaptiveController:
         unclamped_dt = self.precision(current_dt * gain)
         new_dt = min(self.dt_max, max(self.dt_min, unclamped_dt))
         self.dt = new_dt
-        self._prev_dt = current_dt
-        self._prev_prev_nrm2 = self._prev_nrm2
-        self._prev_nrm2 = errornorm
+        if accept:
+            self._prev_dt = current_dt
+            self._prev_prev_nrm2 = self._prev_nrm2
+            self._prev_nrm2 = errornorm
 
         return accept
 
