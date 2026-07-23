@@ -152,6 +152,7 @@ def fetch_runs(limit=40):
 
 
 def fetch_legs(run_id):
+    """Return completed GPU legs and whether the run is safe to cache."""
     pages = json.loads(
         gh(
             "api",
@@ -162,15 +163,22 @@ def fetch_legs(run_id):
     )
     legs = []
     jobs = [job for page in pages for job in page.get("jobs", [])]
-    for j in jobs:
-        if not j["name"].startswith("cuda ("):
+    gpu_jobs = [
+        job
+        for job in jobs
+        if any(
+            str(label).startswith("runs-on/fleet=gpu-")
+            for label in (job.get("labels") or [])
+        )
+    ]
+    for j in gpu_jobs:
+        m = re.search(r"runs-on--(i-[0-9a-f]+)--", j.get("runner_name") or "")
+        if not (m and j.get("started_at") and j.get("completed_at")):
             continue
-        m = re.search(r"runs-on--(i-[0-9a-f]+)--", j["runner_name"] or "")
-        if not (m and j["started_at"] and j["completed_at"]):
-            continue
+        label_match = re.search(r"\((.+)\)$", j["name"])
         legs.append(
             {
-                "label": j["name"][6:-1],
+                "label": label_match.group(1) if label_match else j["name"],
                 "job_id": j["id"],
                 "instance_id": m.group(1),
                 "job_start": ts(j["started_at"]),
@@ -186,7 +194,13 @@ def fetch_legs(run_id):
                 ],
             }
         )
-    return legs
+    run = json.loads(gh("api", f"repos/{REPO}/actions/runs/{run_id}"))
+    settled = (
+        bool(gpu_jobs)
+        and len(legs) == len(gpu_jobs)
+        and run.get("status") == "completed"
+    )
+    return legs, settled
 
 
 def fetch_log(job_id):
@@ -326,7 +340,7 @@ def _enrich_leg(leg):
 def run_payload(run_id):
     if run_id in _RUN_CACHE:
         return _RUN_CACHE[run_id]
-    legs = fetch_legs(run_id)
+    legs, settled = fetch_legs(run_id)
     with ThreadPoolExecutor(max_workers=8) as ex:
         list(ex.map(_enrich_leg, legs))
     legs.sort(key=lambda leg: leg["_derived"]["run_start"])
@@ -360,7 +374,8 @@ def run_payload(run_id):
                 ],
             }
         )
-    _RUN_CACHE[run_id] = out
+    if settled and out["legs"]:
+        _RUN_CACHE[run_id] = out
     return out
 
 
@@ -419,17 +434,24 @@ def _validate_account_range(start, end, gran):
     )
 
 
-def _expected_buckets(start, end, gran):
+def _expected_buckets(start, end, gran, timezone_offset=0):
     """Return bucket starts for inclusive start and end dates."""
     start_date = date.fromisoformat(start)
     end_date = date.fromisoformat(end)
-    current = datetime.combine(
-        start_date, datetime.min.time(), tzinfo=timezone.utc
+    offset = (
+        timedelta(minutes=timezone_offset) if gran == "HOURLY" else timedelta()
     )
-    stop = datetime.combine(
-        end_date + timedelta(days=1),
-        datetime.min.time(),
-        tzinfo=timezone.utc,
+    current = (
+        datetime.combine(start_date, datetime.min.time(), tzinfo=timezone.utc)
+        - offset
+    )
+    stop = (
+        datetime.combine(
+            end_date + timedelta(days=1),
+            datetime.min.time(),
+            tzinfo=timezone.utc,
+        )
+        - offset
     )
     step = timedelta(hours=1) if gran == "HOURLY" else timedelta(days=1)
     fmt = "%Y-%m-%dT%H:00:00Z" if gran == "HOURLY" else "%Y-%m-%d"
@@ -895,13 +917,6 @@ def _refresh(store, now, force=False):
 def _coverage(expected, shown, gran, hourly_high_water, today=None):
     available = {key for key, _ in shown}
     missing = [key for key, _ in expected if key not in available]
-    warning = None
-    if missing:
-        warning = (
-            f"{len(missing)} of {len(expected)} requested "
-            f"{gran.lower()} buckets are not available in the local "
-            "usage database."
-        )
     has_partial_bucket = False
     if gran == "DAILY" and hourly_high_water:
         high_water_day = hourly_high_water[:10]
@@ -910,14 +925,6 @@ def _coverage(expected, shown, gran, hourly_high_water, today=None):
         has_partial_bucket = high_water_day in available and (
             high_water_hour < 23 or high_water_day == today.isoformat()
         )
-        if has_partial_bucket:
-            partial_message = (
-                f"{high_water_day} is partial through {hourly_high_water}; "
-                "Cost Explorer can revise it while billing settles."
-            )
-            warning = (
-                f"{warning} {partial_message}" if warning else partial_message
-            )
     return {
         "complete": not missing and not has_partial_bucket,
         "requested_buckets": len(expected),
@@ -925,11 +932,18 @@ def _coverage(expected, shown, gran, hourly_high_water, today=None):
         "missing_buckets": len(missing),
         "first_available": shown[0][0] if shown else None,
         "last_available": shown[-1][0] if shown else None,
-        "warning": warning,
     }
 
 
-def account_payload(start, end, gran, force=False, store=None, now=None):
+def account_payload(
+    start,
+    end,
+    gran,
+    timezone_offset=0,
+    force=False,
+    store=None,
+    now=None,
+):
     """Assemble account data for an inclusive, bounded date range.
 
     A normal refresh occurs exactly when the range extends beyond the
@@ -941,13 +955,28 @@ def account_payload(start, end, gran, force=False, store=None, now=None):
     start_date, _, end_exclusive, gran = _validate_account_range(
         start, end, gran
     )
+    try:
+        timezone_offset = int(timezone_offset)
+    except (TypeError, ValueError) as exc:
+        raise ValueError("timezone offset must be an integer") from exc
+    if not -840 <= timezone_offset <= 840:
+        raise ValueError("timezone offset must be between -840 and 840")
+    if timezone_offset % 60:
+        raise ValueError("timezone offset must be a whole number of hours")
     store = store or UsageStore(USAGE_DB)
     now = now or now_utc()
-    requested_start = datetime.combine(
-        start_date, datetime.min.time(), tzinfo=timezone.utc
+    bucket_offset = (
+        timedelta(minutes=timezone_offset) if gran == "HOURLY" else timedelta()
     )
-    requested_end = datetime.combine(
-        end_exclusive, datetime.min.time(), tzinfo=timezone.utc
+    requested_start = (
+        datetime.combine(start_date, datetime.min.time(), tzinfo=timezone.utc)
+        - bucket_offset
+    )
+    requested_end = (
+        datetime.combine(
+            end_exclusive, datetime.min.time(), tzinfo=timezone.utc
+        )
+        - bucket_offset
     )
     current_hour_end = now.replace(
         minute=0, second=0, microsecond=0
@@ -999,8 +1028,11 @@ def account_payload(start, end, gran, force=False, store=None, now=None):
             store.recompute_daily(final_days)
             cached_days = store.daily_range(start_date.isoformat(), stop_day)
 
-        expected = _expected_buckets(start, end, gran)
-        if gran == "HOURLY" and end_exclusive == now.date() + timedelta(
+        expected = _expected_buckets(
+            start, end, gran, timezone_offset=timezone_offset
+        )
+        local_today = (now + timedelta(minutes=timezone_offset)).date()
+        if gran == "HOURLY" and end_exclusive == local_today + timedelta(
             days=1
         ):
             expected = [
@@ -1010,7 +1042,7 @@ def account_payload(start, end, gran, force=False, store=None, now=None):
         if gran == "HOURLY":
             hourly = (
                 store.hourly_range(
-                    f"{start}T00:00:00Z",
+                    requested_start.strftime("%Y-%m-%dT%H:00:00Z"),
                     data_end.strftime("%Y-%m-%dT%H:00:00Z"),
                 )
                 if has_data_window
@@ -1157,6 +1189,7 @@ class Handler(BaseHTTPRequestHandler):
             query["start"][0],
             query["end"][0],
             query.get("gran", ["DAILY"])[0],
+            query.get("tz", ["0"])[0],
         )
 
     def do_GET(self):

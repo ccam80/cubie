@@ -108,15 +108,6 @@
 
   <section id="acctSection">
     <h2>Account usage &amp; cost</h2>
-    <p class="sub">Whole account (all services, CI and background), from
-      retained hourly Cost Explorer data aggregated to days. A requested
-      range beyond the non-zero usage frontier refreshes after one day;
-      the refresh rechecks the preceding 12 hours for billing adjustments.
-      The plots update automatically. Future ranges retain empty slots,
-      while data access stops at the current UTC hour. Force fetch bypasses
-      the daily decision and re-pulls only the settlement-aware recent tail,
-      subject to a five-minute safety limit. Each Cost Explorer query costs
-      $0.01.</p>
     <div class="row wrap">
       <label>From <input type="date" id="acctFrom"></label>
       <label>To (inclusive) <input type="date" id="acctTo"></label>
@@ -130,7 +121,6 @@
         title="Re-pull the recent hourly tail now">Force fetch</button>
       <span id="acctStatus" class="sub"></span>
     </div>
-    <div id="acctWarning" class="note hidden"></div>
     <h2>Usage hours per instance type</h2>
     <div id="acctUsageWrap" class="card">
       <div id="cAcctUsage" class="chart"></div>

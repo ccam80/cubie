@@ -183,13 +183,13 @@ one-day decision with a POST request and re-pulls the same settlement-aware
 recent tail rather than the selected historical range. Requests may extend
 into the future: data access and normal refresh decisions stop at the current
 UTC hour, while future plot buckets remain visible as empty slots. The
-default view is hourly for the latest three UTC calendar days through the
-current hour.
+default view is hourly for the latest three browser-local calendar days
+through the current hour, and visible absolute timestamps use the browser's
+local timezone.
 A persisted ten-minute refresh lease coalesces concurrent dashboard
 processes, and forced-refresh attempts have a five-minute safety rate
-limit. The status line reports the usage frontier, last fetch, refresh
-state, and partial coverage. Each refresh uses two Cost Explorer queries:
-one for EC2 usage by instance type and one for gross cost by service.
+limit. Each refresh uses two Cost Explorer queries: one for EC2 usage by
+instance type and one for gross cost by service.
 
 The local server binds only to `127.0.0.1`. It validates the exact
 localhost Host and Origin, injects a per-process token into the page, and

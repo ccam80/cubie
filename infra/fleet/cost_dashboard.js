@@ -48,6 +48,22 @@ function mins(seconds) {
   return seconds == null ? null : seconds / 60;
 }
 
+function localDateValue(value) {
+  const year = value.getFullYear();
+  const month = String(value.getMonth() + 1).padStart(2, '0');
+  const day = String(value.getDate()).padStart(2, '0');
+  return `${year}-${month}-${day}`;
+}
+
+function localAccountTime(value) {
+  const hourly = value.includes('T');
+  const instant = new Date(hourly ? value : `${value}T00:00:00Z`);
+  const options = hourly
+    ? {month: '2-digit', day: '2-digit', hour: '2-digit', minute: '2-digit'}
+    : {year: 'numeric', month: '2-digit', day: '2-digit'};
+  return instant.toLocaleString(undefined, options);
+}
+
 function axisTooltip(parameters, suffix, digits = 1) {
   if (!parameters.length) {
     return '';
@@ -454,10 +470,7 @@ function renderStack(id, times, series, yName) {
     },
     xAxis: {
       type: 'category',
-      data: times.map(time => time
-        .replace('T', ' ')
-        .replace(':00:00Z', 'h')
-        .slice(5)),
+      data: times.map(localAccountTime),
       axisLabel: {rotate: 60, fontSize: 9}
     },
     yAxis: {type: 'value', name: yName},
@@ -491,7 +504,8 @@ async function loadAccount(force) {
   const query = new URLSearchParams({
     start,
     end,
-    gran: granularity
+    gran: granularity,
+    tz: String(-new Date().getTimezoneOffset())
   });
   status.textContent = 'fetching…';
   try {
@@ -505,34 +519,7 @@ async function loadAccount(force) {
     resetAccountChart('acctCostWrap', 'cAcctCost');
     renderStack('cAcctUsage', payload.times, payload.usage, 'EC2 hours');
     renderStack('cAcctCost', payload.times, payload.cost, 'USD (gross usage)');
-    const frontier = payload.frontier
-      ? payload.frontier
-        .replace('T', ' ')
-        .replace(':00:00Z', 'h UTC')
-      : '—';
-    const fetched = payload.last_fetch
-      ? new Date(payload.last_fetch).toLocaleString()
-      : '—';
-    const statusLabels = {
-      fetched: 'fetched from Cost Explorer',
-      cached: 'served from local SQLite',
-      in_progress: 'another refresh is in progress; served stored data',
-      rate_limited: 'force fetch recently attempted; served stored data'
-    };
-    const fetchLabel = payload.charged
-      ? 'fetched from Cost Explorer'
-      : statusLabels[payload.refresh_status] || payload.refresh_status;
-    status.textContent =
-      `${fetchLabel}` +
-      ` · last non-zero usage ${frontier} · last fetch ${fetched}`;
-    const warning = document.getElementById('acctWarning');
-    if (payload.coverage.warning) {
-      warning.textContent = payload.coverage.warning;
-      warning.classList.remove('hidden');
-    } else {
-      warning.textContent = '';
-      warning.classList.add('hidden');
-    }
+    status.textContent = '';
   } catch (error) {
     if (requestVersion === accountRequestVersion) {
       status.textContent = `error: ${error.message}`;
@@ -554,31 +541,12 @@ async function loadRun(id) {
   }
 }
 
-async function loadFirstLegBearingRun(runs) {
-  const selector = document.getElementById('runSelect');
-  for (const run of runs) {
-    const payload = await loadRun(run.id);
-    if (payload && payload.legs.length) {
-      selector.value = String(run.id);
-      return;
-    }
-  }
-  if (runs.length) {
-    selector.value = String(runs[0].id);
-    await loadRun(runs[0].id);
-  } else {
-    document.getElementById('runMeta').textContent = 'No recent runs found.';
-    document.getElementById('runCharts').classList.add('hidden');
-  }
-}
-
 async function init() {
-  const iso = value => value.toISOString().slice(0, 10);
   const now = new Date();
-  document.getElementById('acctTo').value = iso(now);
-  document.getElementById('acctFrom').value = iso(
-    new Date(now.getTime() - 2 * 864e5)
-  );
+  const accountStart = new Date(now);
+  accountStart.setDate(accountStart.getDate() - 2);
+  document.getElementById('acctTo').value = localDateValue(now);
+  document.getElementById('acctFrom').value = localDateValue(accountStart);
   document.getElementById('acctFrom').onchange = () => loadAccount(false);
   document.getElementById('acctTo').onchange = () => loadAccount(false);
   document.getElementById('acctGran').onchange = () => loadAccount(false);
@@ -592,7 +560,7 @@ async function init() {
       const option = document.createElement('option');
       option.value = run.id;
       option.textContent =
-        `${run.created_at.slice(0, 16).replace('T', ' ')} · ` +
+        `${new Date(run.created_at).toLocaleString()} · ` +
         `${run.event} · ${run.conclusion || run.status}`;
       selector.appendChild(option);
     });
@@ -602,8 +570,13 @@ async function init() {
     if (selected) {
       selector.value = selected;
       await loadRun(selected);
+    } else if (runs.length) {
+      selector.value = String(runs[0].id);
+      await loadRun(runs[0].id);
     } else {
-      await loadFirstLegBearingRun(runs);
+      document.getElementById('runMeta').textContent =
+        'No recent runs found.';
+      document.getElementById('runCharts').classList.add('hidden');
     }
   } catch (error) {
     selector.replaceChildren(new Option('error'));
