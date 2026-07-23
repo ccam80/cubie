@@ -545,9 +545,15 @@ def test_batch_solver_kernel_handles_none_cache_settings(
 
 
 def test_batch_solver_kernel_update_forwards_cache_params(
+    isolated_cache_root,
     solverkernel_mutable,
 ):
-    """Verify update(cache_mode='flush_on_change') is recognized."""
+    """Verify update(cache_mode='flush_on_change') is recognized.
+
+    Runs under an isolated cache root: switching a shared-system
+    kernel to flush_on_change while its handler points at the CI
+    artifact directory would flush the precompiled artifact.
+    """
     # Initial mode should be 'hash' (default)
     initial_mode = solverkernel_mutable.cache_handler.policy.cache_mode
     assert initial_mode == "hash"
@@ -561,6 +567,9 @@ def test_batch_solver_kernel_update_forwards_cache_params(
         solverkernel_mutable.cache_handler.policy.cache_mode
         == "flush_on_change"
     )
+    # The shared system's diagnostic received the flush-mode policy;
+    # hand it back a default so no state leaks past this test.
+    solverkernel_mutable.system.set_cache_policy(CachePolicy())
 
 
 # --- Integration tests for complete cache flow ---
@@ -593,8 +602,14 @@ def test_solver_cache_configuration_flow(system):
     assert solver.kernel.cache_handler.policy.max_cache_entries == 5
 
 
-def test_solver_kernel_update_cache_mode(solverkernel_mutable):
-    """Verify BatchSolverKernel.update forwards cache parameters."""
+def test_solver_kernel_update_cache_mode(
+    isolated_cache_root, solverkernel_mutable
+):
+    """Verify BatchSolverKernel.update forwards cache parameters.
+
+    Runs under an isolated cache root so the flush-on-change switch
+    can never target the CI artifact directory.
+    """
     # Update cache mode
     recognized = solverkernel_mutable.update(cache_mode="flush_on_change")
 
@@ -603,17 +618,20 @@ def test_solver_kernel_update_cache_mode(solverkernel_mutable):
         solverkernel_mutable.cache_handler.policy.cache_mode
         == "flush_on_change"
     )
+    solverkernel_mutable.system.set_cache_policy(CachePolicy())
 
 
 def test_cache_policy_change_leaves_identity_unchanged(
-    solverkernel_mutable, tmp_path
+    isolated_cache_root, solverkernel_mutable, tmp_path
 ):
     """Cache-policy updates never touch configuration identity.
 
     Every cache parameter changes together, yet the kernel's and the
     system's config_hash and the object build cache stay untouched,
     and the replacement policy reaches the system's diagnostic
-    services through set_cache_policy.
+    services through set_cache_policy. Runs under an isolated cache
+    root so the flush-on-change switch can never target the CI
+    artifact directory.
     """
     kernel = solverkernel_mutable
     hash_before = kernel.config_hash
@@ -638,6 +656,7 @@ def test_cache_policy_change_leaves_identity_unchanged(
     # The same policy object reaches the system's diagnostic service.
     diagnostic = kernel.system._neumann_diagnostic
     assert diagnostic.cache_policy is policy
+    kernel.system.set_cache_policy(CachePolicy())
 
 
 # --- CUBIECache.enforce_cache_limit eviction-failure tests ---

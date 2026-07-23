@@ -5,6 +5,7 @@ from pathlib import Path
 
 import pytest
 
+from cubie._env import kernel_cache_dir_default
 from cubie.cubie_cache import CachePolicy, CUBIECache
 
 DEFAULT_CUBIE_CACHE_CONFIG_HASH = (
@@ -423,7 +424,13 @@ class TestParseCacheParam:
 
         assert kernel.cache_policy.cache_enabled is True
         assert kernel.cache_policy.cache_mode == "hash"
-        assert kernel.cache_policy.cache_dir is None
+        # Without a cache argument the directory is the environment
+        # default: CUBIE_KERNEL_CACHE_DIR when set, None otherwise.
+        expected_dir = kernel_cache_dir_default()
+        if expected_dir is None:
+            assert kernel.cache_policy.cache_dir is None
+        else:
+            assert kernel.cache_policy.cache_dir == Path(expected_dir)
 
     def test_parse_cache_param_false(self, simple_system):
         """Verify cache=False creates disabled CachePolicy."""
@@ -633,7 +640,13 @@ class TestSolverCacheProperties:
         from cubie.batchsolving.solver import Solver
 
         solver = Solver(simple_system, cache=True)
-        assert solver.cache_dir is None
+        # Without a cache argument the directory is the environment
+        # default: CUBIE_KERNEL_CACHE_DIR when set, None otherwise.
+        expected_dir = kernel_cache_dir_default()
+        if expected_dir is None:
+            assert solver.cache_dir is None
+        else:
+            assert solver.cache_dir == Path(expected_dir)
 
         custom_path = tmp_path / "cache_dir_test"
         solver_custom = Solver(simple_system, cache=custom_path)
