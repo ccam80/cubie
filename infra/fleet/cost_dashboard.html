@@ -106,6 +106,9 @@
         </select>
       </label>
       <button id="acctFetch">Fetch</button>
+      <button id="acctBackfill" class="secondary" title="One ~$0.02 daily
+query caches CE's whole retained window so future views are free">Backfill
+        all history</button>
       <span id="acctStatus" class="sub"></span>
     </div>
     <h2>Usage hours per instance type</h2>
@@ -350,6 +353,15 @@ async function init(){
   document.getElementById('acctFrom').value=
     iso(new Date(now.getTime()-30*864e5));
   document.getElementById('acctFetch').onclick=loadAccount;
+  document.getElementById('acctBackfill').onclick=()=>{
+    // CE keeps ~14 months of daily data; one wide query fills the whole
+    // window, after which any narrower daily view is served from cache.
+    document.getElementById('acctFrom').value=
+      iso(new Date(now.getTime()-400*864e5));
+    document.getElementById('acctTo').value=iso(now);
+    document.getElementById('acctGran').value='DAILY';
+    loadAccount();
+  };
   const sel=document.getElementById('runSelect');
   try{
     const runs=await getJSON('/api/runs');
@@ -362,9 +374,10 @@ async function init(){
       sel.appendChild(o);
     });
     sel.onchange=()=>loadRun(sel.value);
-    const want=new URLSearchParams(location.search).get('run');
-    const pick=want||(runs[0]&&runs[0].id);
+    const params=new URLSearchParams(location.search);
+    const pick=params.get('run')||(runs[0]&&runs[0].id);
     if(pick){ sel.value=pick; loadRun(pick); }
+    if(params.get('acct')) loadAccount();
   }catch(e){ sel.innerHTML='<option>error</option>';
     document.getElementById('status').textContent=e.message; }
 }
