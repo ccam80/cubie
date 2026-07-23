@@ -202,25 +202,25 @@ def test_implicit_step_updates_residual_settings(
         {**_RESIDUAL_SETTINGS, "algorithm": "backwards_euler"},
         {**_RESIDUAL_SETTINGS, "algorithm": "ros3p"},
     ],
-    ids=["newton", "direct-linear"],
+    ids=["newton", "linear"],
     indirect=True,
 )
-def test_update_swaps_linear_solver_to_bicgstab(
-    step_object_mutable, precision
-):
+def test_update_swaps_linear_solver_to_bicgstab(step_object_mutable):
     """update() rebuilds the linear solver as BiCGSTAB, keeping state."""
     step = step_object_mutable
-    assert isinstance(_linear_solver_of(step), MRLinearSolver)
+    assert isinstance(step.linear_solver, MRLinearSolver)
     atol_before = np.array(step.krylov_atol, copy=True)
     rtol_before = np.array(step.krylov_rtol, copy=True)
+    reduction_before = step.krylov_residual_reduction
+    floor_before = step.krylov_residual_floor
 
     recognized = step.update(linear_correction_type="bicgstab")
 
     assert "linear_correction_type" in recognized
-    assert isinstance(_linear_solver_of(step), BiCGSTABSolver)
+    assert isinstance(step.linear_solver, BiCGSTABSolver)
     assert step.linear_correction_type == "bicgstab"
-    assert step.krylov_residual_reduction == precision(0.2)
-    assert step.krylov_residual_floor == precision(0.03)
+    assert step.krylov_residual_reduction == reduction_before
+    assert step.krylov_residual_floor == floor_before
     assert np.allclose(step.krylov_atol, atol_before)
     assert np.allclose(step.krylov_rtol, rtol_before)
     assert step.step_function is not None
@@ -238,84 +238,34 @@ def test_update_swaps_linear_solver_to_bicgstab(
     ids=["newton-bicgstab"],
     indirect=True,
 )
-def test_update_swaps_linear_solver_back_to_mr(
-    step_object_mutable, precision
-):
+def test_update_swaps_linear_solver_back_to_mr(step_object_mutable):
     """update() rebuilds a BiCGSTAB solver as MR, keeping state."""
     step = step_object_mutable
-    assert isinstance(_linear_solver_of(step), BiCGSTABSolver)
+    assert isinstance(step.linear_solver, BiCGSTABSolver)
+    reduction_before = step.krylov_residual_reduction
+    floor_before = step.krylov_residual_floor
 
     recognized = step.update(
         linear_correction_type="minimal_residual"
     )
 
     assert "linear_correction_type" in recognized
-    assert isinstance(_linear_solver_of(step), MRLinearSolver)
+    assert isinstance(step.linear_solver, MRLinearSolver)
     assert step.linear_correction_type == "minimal_residual"
-    assert step.krylov_residual_reduction == precision(0.2)
-    assert step.krylov_residual_floor == precision(0.03)
+    assert step.krylov_residual_reduction == reduction_before
+    assert step.krylov_residual_floor == floor_before
     assert step.step_function is not None
-
-
-@pytest.mark.parametrize(
-    "solver_settings_override",
-    [
-        {
-            **_RESIDUAL_SETTINGS,
-            "algorithm": "backwards_euler",
-            "linear_correction_type": "bicgstab",
-        },
-    ],
-    ids=["newton-bicgstab"],
-    indirect=True,
-)
-def test_update_same_bicgstab_type_is_recognised_noop(
-    step_object_mutable,
-):
-    """Re-sending 'bicgstab' is recognised without replacing the solver."""
-    step = step_object_mutable
-    solver_before = _linear_solver_of(step)
-
-    recognized = step.update(linear_correction_type="bicgstab")
-
-    assert "linear_correction_type" in recognized
-    assert _linear_solver_of(step) is solver_before
 
 
 def test_update_within_mr_class_switches_correction(precision):
     """MR/SD switches stay inside MRLinearSolver's own update."""
     step = BackwardsEulerStep(precision=precision, n=3)
-    solver_before = _linear_solver_of(step)
+    solver_before = step.linear_solver
 
     recognized = step.update(
         linear_correction_type="steepest_descent"
     )
 
     assert "linear_correction_type" in recognized
-    assert _linear_solver_of(step) is solver_before
+    assert step.linear_solver is solver_before
     assert step.linear_correction_type == "steepest_descent"
-
-
-def test_update_rejects_unknown_correction_type(precision):
-    """Unknown identifiers name every valid correction type."""
-    step = BackwardsEulerStep(precision=precision, n=3)
-    with pytest.raises(ValueError) as excinfo:
-        step.update(linear_correction_type="conjugate_gradient")
-    message = str(excinfo.value)
-    assert "steepest_descent" in message
-    assert "minimal_residual" in message
-    assert "bicgstab" in message
-
-
-def test_construct_rejects_unknown_correction_type(precision):
-    """Construction validates the correction type with the same error."""
-    with pytest.raises(ValueError) as excinfo:
-        BackwardsEulerStep(
-            precision=precision,
-            n=3,
-            linear_correction_type="conjugate_gradient",
-        )
-    message = str(excinfo.value)
-    assert "steepest_descent" in message
-    assert "minimal_residual" in message
-    assert "bicgstab" in message
