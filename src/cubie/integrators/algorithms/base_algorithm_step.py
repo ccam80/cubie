@@ -649,6 +649,10 @@ class BaseAlgorithmStep(CUDAFactory):
     usage.
     """
 
+    #: Linearly-implicit steps own their linear solver directly (no
+    #: Newton iteration) and override this to ``True``.
+    is_linear = False
+
     def __init__(
         self,
         config: BaseStepConfig,

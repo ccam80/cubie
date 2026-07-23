@@ -979,9 +979,8 @@ def test_update_controller_swap_builds(single_integrator_run_mutable):
 
 # ── Inner-solver tolerance defaults ─────────────────────────────────── #
 
-# Adaptive Newton-owned configuration with one explicit inner
-# tolerance; the rest are left unset (``None`` marks not-given) and
-# must be derived from the controller.
+# One explicit inner tolerance; the rest are left unset (``None``
+# marks not-given) and must derive from the controller.
 _CN_ADAPTIVE_KRYLOV_GIVEN = {
     "algorithm": "crank_nicolson",
     "step_controller": "pid",
@@ -1023,7 +1022,7 @@ def test_explicit_inner_tolerance_survives_derivation(
     controller = run._step_controller
     assert controller.is_adaptive
     assert algo.is_implicit
-    assert not algo.linear_solver_is_direct
+    assert not algo.is_linear
 
     assert np.allclose(algo.krylov_atol, 3e-5)
     # The unset linear weight derives the controller's tolerance
@@ -1057,16 +1056,16 @@ def test_explicit_inner_tolerance_survives_derivation(
     [_RODAS3P_ADAPTIVE_KRYLOV_DEFAULT],
     indirect=True,
 )
-def test_direct_rosenbrock_reduction_defaults_to_rtol_over_100(
+def test_linear_step_reduction_defaults_to_rtol_over_100(
     single_integrator_run,
 ):
-    """A direct Rosenbrock solve defaults to one percent of rtol."""
+    """A linearly-implicit step defaults to one percent of rtol."""
     run = single_integrator_run
     algo = run._algo_step
     controller = run._step_controller
     assert controller.is_adaptive
     assert algo.is_implicit
-    assert algo.linear_solver_is_direct
+    assert algo.is_linear
 
     controller_rtol_floor = float(
         np.min(np.asarray(controller.rtol))
@@ -1082,11 +1081,11 @@ def test_direct_rosenbrock_reduction_defaults_to_rtol_over_100(
     [_RODAS3P_ADAPTIVE_KRYLOV_GIVEN],
     indirect=True,
 )
-def test_direct_rosenbrock_reduction_override_is_preserved(
+def test_linear_step_reduction_override_is_preserved(
     single_integrator_run,
 ):
-    """An explicit Rosenbrock reduction bypasses default derivation."""
+    """An explicit reduction on a linearly-implicit step is kept."""
     run = single_integrator_run
     algo = run._algo_step
-    assert algo.linear_solver_is_direct
+    assert algo.is_linear
     assert algo.krylov_residual_reduction == run.precision(0.03125)

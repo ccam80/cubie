@@ -75,9 +75,8 @@ class LinearSolverBaseConfig(MatrixFreeSolverConfig):
         resolves to machine epsilon at construction so the floor
         criterion governs;
         :class:`~cubie.integrators.SingleIntegratorRunCore.SingleIntegratorRunCore`
-        derives the step controller's ``rtol`` for adaptive
-        Newton-owned solves and one hundredth of it for adaptive direct
-        Rosenbrock solves.
+        derives the adaptive controller's ``rtol``, divided by one
+        hundred for linearly-implicit (``is_linear``) steps.
     _residual_floor : Optional[float]
         Absolute term of the stopping rule, in weighted-norm units
         (one sits at the ``krylov_atol``/``krylov_rtol`` envelope).
