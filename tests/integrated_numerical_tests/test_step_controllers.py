@@ -94,12 +94,11 @@ def cpu_step_results(cpu_step_controller, precision, step_setup):
         error_vector=error_vec,
         niters=1,
     )
-    errornorm = controller.error_norm(state_prev, state, error_vec)
 
     if kind == 'i':
         out_local = np.zeros(0, dtype=precision)
     elif kind == 'pi':
-        out_local = np.array([errornorm], dtype=precision)
+        out_local = np.array([controller._prev_nrm2], dtype=precision)
     elif kind == 'pid':
         out_local = np.array([
             controller._prev_nrm2,
@@ -108,7 +107,7 @@ def cpu_step_results(cpu_step_controller, precision, step_setup):
     elif kind == 'gustafsson':
         out_local = np.array([
             controller._prev_dt,
-            errornorm,
+            controller._prev_nrm2,
         ], dtype=precision)
     else:
         out_local = np.zeros(0, dtype=precision)
