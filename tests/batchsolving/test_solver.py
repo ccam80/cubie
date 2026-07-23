@@ -197,7 +197,9 @@ def test_solve_info_property(
     )
 
     assert solve_info.algorithm == solver_settings["algorithm"]
-    assert solve_info.output_types == solver_settings["output_types"]
+    assert solve_info.output_types == tuple(
+        solver_settings["output_types"]
+    )
     assert solve_info.precision == solver_settings["precision"]
 
     # Test that solver kernel properties are correctly exposed
@@ -942,7 +944,7 @@ def test_solver_output_types(system, solver_settings):
             loop_settings={"save_every": solver_settings["save_every"]},
         )
 
-        assert solver.output_types == output_types
+        assert solver.output_types == tuple(output_types)
 
 
 def test_solver_summary_legend(solver):

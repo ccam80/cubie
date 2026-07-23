@@ -306,21 +306,36 @@ class ODEImplicitStep(BaseAlgorithmStep):
 
         recognized = set()
 
-        recognized |= self.solver.update(all_updates, silent=True)
+        # Update the step settings first so the solver subtree sees a
+        # consistent vector length: the step's ``n`` is the model
+        # state count, while the solver and its norms work on
+        # ``solver_n`` — the coupled all-stages length for FIRK.
+        # Every snapshot revalidates its own consistency, so the
+        # solver never transits through the raw model ``n``.
+        recognized |= super().update(all_updates, silent=True)
 
-        all_updates["solver_function"] = self.solver.device_function
+        solver_updates = dict(all_updates)
+        if "n" in solver_updates:
+            solver_updates["n"] = self.compile_settings.solver_n
+            solver_updates["state_n"] = self.compile_settings.n
+
+        recognized |= self.solver.update(solver_updates, silent=True)
+
+        derived_updates = {
+            "solver_function": self.solver.device_function
+        }
 
         if self.dense_predictor is not None:
             recognized |= self.dense_predictor.update(
                 all_updates, silent=True
             )
-            all_updates["predictor_function"] = (
+            derived_updates["predictor_function"] = (
                 self.dense_predictor.device_function
                 if self.dense_prediction
                 else None
             )
 
-        recognized |= super().update(all_updates, silent=True)
+        recognized |= super().update(derived_updates, silent=True)
 
         return recognized
 

@@ -143,7 +143,7 @@ def assert_solver_config(solver, settings, tolerance):
 
     assert solver.algorithm == settings["algorithm"]
     assert solver.precision == settings["precision"]
-    assert solver.output_types == settings["output_types"]
+    assert solver.output_types == tuple(settings["output_types"])
 
     # mem_proportion can be recomputed internally, so check it's in valid range
     if settings.get("mem_proportion") is not None:
@@ -205,7 +205,7 @@ def assert_solverkernel_config(kernel, settings, tolerance):
         rel=tolerance.rel_tight,
         abs=tolerance.abs_tight,
     )
-    assert kernel.output_types == settings["output_types"]
+    assert kernel.output_types == tuple(settings["output_types"])
 
     # Saved and summarised indices - compare directly to expected indices from extended settings
     assert list(kernel.saved_state_indices) == settings["saved_state_indices"]
@@ -375,7 +375,9 @@ def assert_output_functions_config(output_functions, settings, tolerance):
 
     ALL properties and compile_flags are checked.
     """
-    assert output_functions.output_types == settings["output_types"]
+    assert output_functions.output_types == tuple(
+        settings["output_types"]
+    )
 
     # Saved and summarised indices - compare directly to expected indices from extended settings
     assert (
