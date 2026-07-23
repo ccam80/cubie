@@ -1,1 +1,4 @@
 .github/workflows/*.lock.yml linguist-generated=true merge=ours
+# Shell scripts run on Linux (AWS CloudShell); keep LF so a
+# Windows checkout can't inject CRLF and break `set -o pipefail`.
+*.sh text eol=lf
