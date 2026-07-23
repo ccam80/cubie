@@ -92,10 +92,12 @@
 
   <section id="acctSection">
     <h2>Account usage &amp; cost</h2>
-    <p class="sub">Whole account (all services, CI and background).
-      Cost Explorer is billed $0.01/query; buckets are cached and only
-      re-fetched when missing or still settling — a fetch that hits the
-      API is flagged below.</p>
+    <p class="sub">Whole account (all services, CI and background), from
+      hourly Cost Explorer data aggregated to days. Days behind the data
+      frontier are cached permanently; the recent tail is re-pulled at
+      most once a day (Force refresh overrides). The status line shows the
+      data frontier and whether the fetch hit the API ($0.01/query) or the
+      cache.</p>
     <div class="row" style="flex-wrap:wrap; align-items:center">
       <label>From <input type="date" id="acctFrom"></label>
       <label>To <input type="date" id="acctTo"></label>
@@ -106,6 +108,9 @@
         </select>
       </label>
       <button id="acctFetch">Fetch</button>
+      <button id="acctForce" class="secondary" title="Bypass the once-a-day
+refresh throttle and re-pull the recent hourly tail now">Force
+        refresh</button>
       <span id="acctStatus" class="sub"></span>
     </div>
     <h2>Usage hours per instance type</h2>
@@ -315,27 +320,30 @@ function renderStack(id, times, series, yName){
       color:PALETTE[i%PALETTE.length], data:s.data}))
   }, true);
 }
-async function loadAccount(){
+async function loadAccount(force){
   const st=document.getElementById('acctStatus');
   const from=document.getElementById('acctFrom').value;
   const to=document.getElementById('acctTo').value;
   const gran=document.getElementById('acctGran').value;
   st.textContent='fetching…';
   try{
-    const p=await getJSON(`/api/account?start=${from}&end=${to}&gran=${gran}`);
+    const p=await getJSON(`/api/account?start=${from}&end=${to}&gran=${gran}`
+      +(force?'&force=1':''));
     document.getElementById('acctUsageWrap').innerHTML=
       '<div id="cAcctUsage" class="chart"></div>';
     document.getElementById('acctCostWrap').innerHTML=
       '<div id="cAcctCost" class="chart"></div>';
     delete charts['cAcctUsage']; delete charts['cAcctCost'];
-    renderStack('cAcctUsage', p.times, p.usage, 'hours');
+    renderStack('cAcctUsage', p.times, p.usage, 'EC2 hours');
     renderStack('cAcctCost', p.times, p.cost, 'USD (gross usage)');
-    const omit = p.omitted
-      ? ` &middot; latest ${p.omitted} period(s) omitted (not yet finalised)`
-      : '';
-    st.innerHTML = (p.charged
-      ? '<span class="pill">fetched from Cost Explorer (~$0.02)</span>'
-      : '<span class="pill">served from cache (free)</span>') + omit;
+    const front=p.frontier
+      ? p.frontier.replace('T',' ').replace(':00:00Z','h UTC') : '—';
+    const fetched=p.last_fetch
+      ? new Date(p.last_fetch).toLocaleString() : '—';
+    st.innerHTML=(p.charged
+      ? '<span class="pill">fetched from Cost Explorer</span>'
+      : '<span class="pill">served from cache (free)</span>')
+      +` &middot; data through ${front} &middot; last fetch ${fetched}`;
   }catch(e){ st.textContent='error: '+e.message; }
 }
 
@@ -352,7 +360,8 @@ async function init(){
   document.getElementById('acctTo').value=iso(now);
   document.getElementById('acctFrom').value=
     iso(new Date(now.getTime()-30*864e5));
-  document.getElementById('acctFetch').onclick=loadAccount;
+  document.getElementById('acctFetch').onclick=()=>loadAccount(false);
+  document.getElementById('acctForce').onclick=()=>loadAccount(true);
   const sel=document.getElementById('runSelect');
   try{
     const runs=await getJSON('/api/runs');
@@ -368,7 +377,7 @@ async function init(){
     const params=new URLSearchParams(location.search);
     const pick=params.get('run')||(runs[0]&&runs[0].id);
     if(pick){ sel.value=pick; loadRun(pick); }
-    if(params.get('acct')) loadAccount();
+    if(params.get('acct')) loadAccount(false);
   }catch(e){ sel.innerHTML='<option>error</option>';
     document.getElementById('status').textContent=e.message; }
 }

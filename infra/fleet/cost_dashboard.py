@@ -38,10 +38,16 @@ REGION = "ap-southeast-2"
 EC2_COMPUTE = "Amazon Elastic Compute Cloud - Compute"
 HERE = Path(__file__).resolve().parent
 CACHE_DIR = HERE / ".dashboard-cache"
-# Cost Explorer keeps revising the most recent usage for a day or two;
-# a bucket older than this is treated as final, cached, and never
-# re-fetched. Younger buckets are left out (not cached, not plotted).
-FINALIZE_LAG_DAYS = 2
+# Account usage is sourced from HOURLY Cost Explorer data (daily values
+# are aggregated from it, which matches CE's own daily totals exactly). An
+# hour is final once the data frontier -- the most recent non-zero hour --
+# has moved past it; days fully behind the frontier are rolled up and
+# cached permanently. Cost Explorer keeps at most HOURLY_RETENTION_DAYS of
+# hourly data, so days older than that fall back to a one-off daily query,
+# also cached permanently.
+HOURLY_RETENTION_DAYS = 14
+HOURLY_REFETCH_BACK = 6       # hours re-pulled behind the frontier
+REFRESH_THROTTLE = timedelta(days=1)
 
 # The AWS CLI encodes its own stdout with the process locale; on a Windows
 # cp1252 console it dies rendering the U+202F characters CloudTrail events
@@ -310,87 +316,164 @@ def _expected_buckets(start, end, gran):
     return out
 
 
-def _cache_path(gran):
-    return CACHE_DIR / f"ce_{gran.lower()}.json"
+def _load(name):
+    p = CACHE_DIR / name
+    return json.loads(p.read_text(encoding="utf-8")) if p.exists() else {}
 
 
-def _load_ce_cache(gran):
-    p = _cache_path(gran)
-    if p.exists():
-        return json.loads(p.read_text(encoding="utf-8"))
-    return {}
+def _save(name, obj):
+    CACHE_DIR.mkdir(parents=True, exist_ok=True)
+    (CACHE_DIR / name).write_text(json.dumps(obj), encoding="utf-8")
 
 
-def _save_ce_cache(gran, cache):
-    p = _cache_path(gran)
-    p.parent.mkdir(parents=True, exist_ok=True)
-    p.write_text(json.dumps(cache), encoding="utf-8")
+def _parse_ce(usage_rt, cost_rt):
+    out = {}
+    for rt in usage_rt:
+        d = out.setdefault(rt["TimePeriod"]["Start"],
+                           {"usage": {}, "cost": {}})
+        for g in rt["Groups"]:
+            t = g["Keys"][0]
+            if t != "NoInstanceType":
+                d["usage"][t] = float(g["Metrics"]["UsageQuantity"]["Amount"])
+    for rt in cost_rt:
+        d = out.setdefault(rt["TimePeriod"]["Start"],
+                           {"usage": {}, "cost": {}})
+        for g in rt["Groups"]:
+            d["cost"][g["Keys"][0]] = float(
+                g["Metrics"]["UnblendedCost"]["Amount"])
+    return out
 
 
-def _bucket_dt(key):
-    if "T" in key:
-        return ts(key)
-    return datetime.strptime(key, "%Y-%m-%d").replace(tzinfo=timezone.utc)
+def _total(d):
+    return sum(d.get("usage", {}).values()) + sum(d.get("cost", {}).values())
 
 
-def account_payload(start, end, gran):
+def _frontier(hours):
+    # the data edge: the most recent hour Cost Explorer has any data for.
+    # Keyed on total (cost is continuous from always-on baseline services),
+    # not EC2 usage, which is sporadic -- CI instances run a few times a
+    # week, so a usage-only frontier would stall between runs.
+    nz = [h for h, d in hours.items() if _total(d) > 0]
+    return max(nz) if nz else None
+
+
+def _rollup(hours, day):
+    u, c = {}, {}
+    for h, d in hours.items():
+        if h[:10] != day:
+            continue
+        for k, v in d.get("usage", {}).items():
+            u[k] = u.get(k, 0.0) + v
+        for k, v in d.get("cost", {}).items():
+            c[k] = c.get(k, 0.0) + v
+    return {"usage": u, "cost": c}
+
+
+def _refresh(force=False):
+    """Pull the recent hourly tail -- from HOURLY_REFETCH_BACK hours behind
+    the frontier through now -- roll days fully behind the new frontier
+    into the permanent daily cache, then prune hourly beyond retention.
+    Throttled to once a day unless forced. Returns True if it hit CE."""
+    fmt = "%Y-%m-%dT%H:00:00Z"
+    hours, days = _load("hours.json"), _load("days.json")
+    meta = _load("meta.json")
+    now = now_utc()
+    last = ts(meta["last_fetch"]) if meta.get("last_fetch") else None
+    if not force and last and now - last < REFRESH_THROTTLE:
+        return False
+    front = _frontier(hours)
+    start_dt = (ts(front) - timedelta(hours=HOURLY_REFETCH_BACK)) if front \
+        else now - timedelta(days=HOURLY_RETENTION_DAYS)
+    f_start, f_end = start_dt.strftime(fmt), (
+        now + timedelta(hours=1)).strftime(fmt)
+    hours.update(_parse_ce(
+        _ce_query("HOURLY", f_start, f_end, "INSTANCE_TYPE",
+                  "UsageQuantity", EC2_COMPUTE),
+        _ce_query("HOURLY", f_start, f_end, "SERVICE", "UnblendedCost")))
+    # roll up finalised days (strictly before the frontier's day) first...
+    front2 = _frontier(hours)
+    if front2:
+        fday = front2[:10]
+        for day in {h[:10] for h in hours}:
+            if day < fday and day not in days:
+                days[day] = _rollup(hours, day)
+    # ...then drop hourly buckets beyond retention to bound the file
+    keep = (now - timedelta(days=HOURLY_RETENTION_DAYS)).strftime(fmt)
+    hours = {h: d for h, d in hours.items() if h >= keep}
+    meta["last_fetch"] = now.isoformat()
+    _save("hours.json", hours)
+    _save("days.json", days)
+    _save("meta.json", meta)
+    return True
+
+
+def _seed_daily(old_days):
+    """One DAILY query to fill cache for days older than the hourly window
+    (they finalised long ago). Returns True if it hit CE."""
+    days = _load("days.json")
+    todo = sorted(d for d in old_days if d not in days)
+    if not todo:
+        return False
+    hi = (datetime.strptime(todo[-1], "%Y-%m-%d")
+          + timedelta(days=1)).strftime("%Y-%m-%d")
+    parsed = _parse_ce(
+        _ce_query("DAILY", todo[0], hi, "INSTANCE_TYPE", "UsageQuantity",
+                  EC2_COMPUTE),
+        _ce_query("DAILY", todo[0], hi, "SERVICE", "UnblendedCost"))
+    for day in todo:
+        days[day] = parsed.get(day, {"usage": {}, "cost": {}})
+    _save("days.json", days)
+    return True
+
+
+def account_payload(start, end, gran, force=False):
     """Assemble usage-by-type and gross-usage-$-by-service for a range.
 
-    Only *finalized* buckets (older than FINALIZE_LAG_DAYS, where Cost
-    Explorer no longer revises usage) are cached and plotted. Cost
-    Explorer is queried only for finalized buckets in the range that are
-    not already cached, spanning just that gap. Younger buckets are left
-    out entirely -- their numbers are still settling. So re-viewing a
-    range is free, widening it fetches only the new gap, and a range that
-    ends today never re-fetches merely because today has no data yet."""
+    Usage comes from hourly Cost Explorer data; daily values are
+    aggregated from it. Days behind the data frontier (most recent
+    non-zero hour) are cached permanently; the recent tail is re-pulled
+    only when the range reaches past the frontier and the last fetch was
+    over a day ago (Force overrides). Days older than Cost Explorer's
+    hourly retention fall back to a one-off daily query, also cached."""
     gran = gran.upper()
-    step = timedelta(hours=1) if gran == "HOURLY" else timedelta(days=1)
-    cutoff = now_utc() - timedelta(days=FINALIZE_LAG_DAYS)
-    expected = _expected_buckets(start, end, gran)
-    shown = [(k, w) for k, w in expected if w + step <= cutoff]
+    end_dt = datetime.strptime(end, "%Y-%m-%d").replace(tzinfo=timezone.utc)
     with _CE_LOCK:
-        cache = _load_ce_cache(gran)
-        missing = [w for k, w in shown if k not in cache]
+        front = _frontier(_load("hours.json"))
         charged = False
-        if missing:
-            f_start = min(missing).strftime("%Y-%m-%d")
-            f_end = (max(missing).date() + timedelta(days=1)).strftime(
-                "%Y-%m-%d")
-            usage = _ce_query(gran, f_start, f_end, "INSTANCE_TYPE",
-                              "UsageQuantity", EC2_COMPUTE)
-            cost = _ce_query(gran, f_start, f_end, "SERVICE",
-                             "UnblendedCost")
-            merged = {}
-            for rt in usage:
-                d = merged.setdefault(rt["TimePeriod"]["Start"],
-                                      {"usage": {}, "cost": {}})
-                for g in rt["Groups"]:
-                    t = g["Keys"][0]
-                    if t != "NoInstanceType":
-                        d["usage"][t] = float(
-                            g["Metrics"]["UsageQuantity"]["Amount"])
-            for rt in cost:
-                d = merged.setdefault(rt["TimePeriod"]["Start"],
-                                      {"usage": {}, "cost": {}})
-                for g in rt["Groups"]:
-                    d["cost"][g["Keys"][0]] = float(
-                        g["Metrics"]["UnblendedCost"]["Amount"])
-            # cache only the finalized buckets the fetch returned
-            for key, d in merged.items():
-                if _bucket_dt(key) + step <= cutoff:
-                    cache[key] = d
-            _save_ce_cache(gran, cache)
-            charged = True
+        if force or front is None or end_dt > ts(front):
+            charged = _refresh(force)
+        hours, days = _load("hours.json"), _load("days.json")
+        front = _frontier(hours)
+        floor = min((h[:10] for h in hours), default=None)
+        if floor:
+            old = [d for d, _ in _expected_buckets(start, end, "DAILY")
+                   if d < floor and d not in days]
+            if old:
+                charged = _seed_daily(old) or charged
+                days = _load("days.json")
+
+        if gran == "HOURLY":
+            shown = [(h, hours[h])
+                     for h, _ in _expected_buckets(start, end, "HOURLY")
+                     if h in hours]
+        else:
+            fday = front[:10] if front else None
+            shown = []
+            for day, _ in _expected_buckets(start, end, "DAILY"):
+                if day in days:
+                    shown.append((day, days[day]))
+                elif fday and day <= fday:
+                    roll = _rollup(hours, day)
+                    if _total(roll) > 0:
+                        shown.append((day, roll))
 
     times = [k for k, _ in shown]
 
     def series(field):
-        keys = sorted({t for k, _ in shown
-                       for t in cache.get(k, {}).get(field, {})})
+        keys = sorted({t for _, d in shown for t in d.get(field, {})})
         out = []
         for name in keys:
-            row = [cache.get(k, {}).get(field, {}).get(name, 0.0)
-                   for k, _ in shown]
+            row = [d.get(field, {}).get(name, 0.0) for _, d in shown]
             if any(row):
                 out.append({"name": name, "data": row})
         return out
@@ -398,7 +481,7 @@ def account_payload(start, end, gran):
     return {
         "start": start, "end": end, "granularity": gran,
         "charged": charged, "times": times,
-        "omitted": len(expected) - len(shown),
+        "frontier": front, "last_fetch": _load("meta.json").get("last_fetch"),
         "usage": series("usage"),
         "cost": series("cost"),
     }
@@ -432,7 +515,8 @@ class Handler(BaseHTTPRequestHandler):
             if u.path == "/api/account":
                 return self._send(account_payload(
                     q["start"][0], q["end"][0],
-                    q.get("gran", ["DAILY"])[0]))
+                    q.get("gran", ["DAILY"])[0],
+                    force=q.get("force", ["0"])[0] == "1"))
             self._send({"error": "not found"}, 404)
         except PermissionError as e:
             self._send({"error": "access-denied", "detail": str(e)}, 403)
