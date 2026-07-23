@@ -30,8 +30,12 @@ from attrs import define, field, validators
 from numpy import ndarray
 
 from cubie._utils import inrangetype_validator, is_device_validator
+from cubie.buffer_registry import buffer_registry
 from cubie.integrators.matrix_free_solvers.linear_solver import (
     MRLinearSolver,
+)
+from cubie.integrators.matrix_free_solvers.linear_solver_base import (
+    LinearSolverBase,
 )
 from cubie.integrators.matrix_free_solvers.bicgstab_solver import (
     BiCGSTABSolver,
@@ -48,6 +52,29 @@ from cubie.integrators.algorithms.base_algorithm_step import (
 from cubie.integrators.stage_predictors import (
     tableau_supports_dense_prediction,
 )
+
+_VALID_CORRECTION_TYPES = (
+    "steepest_descent",
+    "minimal_residual",
+    "bicgstab",
+)
+
+
+def _validated_correction_type(value: str) -> str:
+    """Return ``value`` if it is a recognised correction identifier.
+
+    Raises
+    ------
+    ValueError
+        If ``value`` is not a recognised identifier.
+    """
+    if value not in _VALID_CORRECTION_TYPES:
+        valid = ", ".join(repr(v) for v in _VALID_CORRECTION_TYPES)
+        raise ValueError(
+            f"linear_correction_type must be one of {valid}; got "
+            f"'{value}'."
+        )
+    return value
 
 
 @define
@@ -224,32 +251,19 @@ class ODEImplicitStep(BaseAlgorithmStep):
             if k in self._NEWTON_KRYLOV_PARAMS and v is not None
         }
 
-        correction_type = linear_kwargs.pop(
-            "linear_correction_type", "minimal_residual"
-        )
         solver_n = config.solver_n
 
         # Newton solves weight the norm by the stage base state,
         # linearly-implicit solves by the model state.
         norm_reference = "state" if self.is_linear else "base_state"
 
-        if correction_type == "bicgstab":
-            linear_solver = BiCGSTABSolver(
-                precision=config.precision,
-                n=solver_n,
-                norm=krylov_norm,
-                norm_reference=norm_reference,
-                **linear_kwargs,
-            )
-        else:
-            linear_solver = MRLinearSolver(
-                precision=config.precision,
-                n=solver_n,
-                linear_correction_type=correction_type,
-                norm=krylov_norm,
-                norm_reference=norm_reference,
-                **linear_kwargs,
-            )
+        linear_solver = self._construct_linear_solver(
+            precision=config.precision,
+            n=solver_n,
+            norm=krylov_norm,
+            norm_reference=norm_reference,
+            **linear_kwargs,
+        )
 
         if self.is_linear:
             self.solver = linear_solver
@@ -265,6 +279,82 @@ class ODEImplicitStep(BaseAlgorithmStep):
     def register_buffers(self) -> None:
         """Register buffers with buffer_registry."""
         pass
+
+    @staticmethod
+    def _construct_linear_solver(
+        precision,
+        n,
+        norm,
+        norm_reference,
+        **linear_kwargs,
+    ):
+        """Construct the linear solver ``linear_correction_type`` selects.
+
+        ``"bicgstab"`` selects :class:`BiCGSTABSolver`; the MR/SD
+        identifiers (and absence) select :class:`MRLinearSolver`.
+        Keys in ``linear_kwargs`` the selected configuration does not
+        define are ignored.
+        """
+        correction_type = _validated_correction_type(
+            linear_kwargs.pop("linear_correction_type", "minimal_residual")
+        )
+        if correction_type == "bicgstab":
+            return BiCGSTABSolver(
+                precision=precision,
+                n=n,
+                norm=norm,
+                norm_reference=norm_reference,
+                **linear_kwargs,
+            )
+        return MRLinearSolver(
+            precision=precision,
+            n=n,
+            linear_correction_type=correction_type,
+            norm=norm,
+            norm_reference=norm_reference,
+            **linear_kwargs,
+        )
+
+    def _swap_linear_solver(self, new_type: str) -> None:
+        """Swap the linear-solver class when the correction type demands.
+
+        A value that crosses the MR/BiCGSTAB class boundary rebuilds
+        the linear solver from the outgoing instance's
+        ``settings_dict`` and shared norm; the operator and
+        preconditioner device functions are re-injected by the next
+        ``build_implicit_helpers`` run. Same-type values and
+        within-class MR/SD switches change no class and are left to
+        the owned solver's own update.
+
+        Parameters
+        ----------
+        new_type
+            Correction strategy identifier from the pending update.
+        """
+        new_type = _validated_correction_type(new_type)
+        current = self.linear_solver
+        if new_type == current.linear_correction_type:
+            return
+        if "bicgstab" not in (new_type, current.linear_correction_type):
+            return
+
+        carried = current.settings_dict
+        carried["linear_correction_type"] = new_type
+        replacement = self._construct_linear_solver(
+            precision=current.precision,
+            n=current.n,
+            norm=current.norm,
+            norm_reference="state" if self.is_linear else "base_state",
+            **carried,
+        )
+
+        buffer_registry.clear_parent(current)
+        if self.is_linear:
+            self.solver = replacement
+        else:
+            # NewtonKrylov re-registers the named child registration
+            # when its update runs later in the same update pass.
+            self.solver.linear_solver = replacement
 
     def update(self, updates_dict=None, silent=False, **kwargs) -> Set[str]:
         """Update algorithm and owned solver parameters.
@@ -287,7 +377,10 @@ class ODEImplicitStep(BaseAlgorithmStep):
         -----
         Delegates solver parameters to the owned solver instance and,
         when the algorithm owns a dense stage predictor, predictor
-        parameters to the predictor.
+        parameters to the predictor. A ``linear_correction_type``
+        value that implies a different linear-solver class replaces
+        the linear solver with an instance rebuilt from the old
+        solver's ``settings_dict``.
         """
         all_updates = {}
         if updates_dict:
@@ -298,6 +391,10 @@ class ODEImplicitStep(BaseAlgorithmStep):
             return set()
 
         recognized = set()
+
+        if "linear_correction_type" in all_updates:
+            self._swap_linear_solver(all_updates["linear_correction_type"])
+            recognized.add("linear_correction_type")
 
         recognized |= self.solver.update(all_updates, silent=True)
 
@@ -505,6 +602,13 @@ class ODEImplicitStep(BaseAlgorithmStep):
     def linear_correction_type(self) -> str:
         """Return the linear correction strategy identifier."""
         return self.solver.linear_correction_type
+
+    @property
+    def linear_solver(self) -> LinearSolverBase:
+        """Return the linear solver, unwrapping Newton when present."""
+        if self.is_linear:
+            return self.solver
+        return self.solver.linear_solver
 
     @property
     def newton_atol(self) -> Optional[ndarray]:
