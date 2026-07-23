@@ -71,13 +71,26 @@ jobs:
       contents: read
     strategy:
       fail-fast: false
-      # Matrix temporarily trimmed to two legs (one per backend,
-      # covering both OSes, both CUDA versions, and both Python
-      # bounds) to verify the precompile cache end-to-end in CI on
-      # this branch; the full 16-leg matrix is restored before merge.
+      # The mlir lanes mirror the numba-cuda lanes, except that
+      # numba-cuda-mlir needs Python >= 3.11, so its lower-bound lanes
+      # run 3.11 where the numba-cuda lanes run 3.10.
       matrix:
         include:
           - {os: linux, python-version: "3.10", cuda: "12", extra: dev12, backend: numba-cuda}
+          - {os: linux, python-version: "3.10", cuda: "13", extra: dev13, backend: numba-cuda}
+          - {os: linux, python-version: "3.14", cuda: "12", extra: dev12, backend: numba-cuda}
+          - {os: linux, python-version: "3.14", cuda: "13", extra: dev13, backend: numba-cuda}
+          - {os: windows, python-version: "3.10", cuda: "12", extra: dev12, backend: numba-cuda}
+          - {os: windows, python-version: "3.10", cuda: "13", extra: dev13, backend: numba-cuda}
+          - {os: windows, python-version: "3.14", cuda: "12", extra: dev12, backend: numba-cuda}
+          - {os: windows, python-version: "3.14", cuda: "13", extra: dev13, backend: numba-cuda}
+          - {os: linux, python-version: "3.11", cuda: "12", extra: dev-mlir12, backend: mlir}
+          - {os: linux, python-version: "3.11", cuda: "13", extra: dev-mlir13, backend: mlir}
+          - {os: linux, python-version: "3.14", cuda: "12", extra: dev-mlir12, backend: mlir}
+          - {os: linux, python-version: "3.14", cuda: "13", extra: dev-mlir13, backend: mlir}
+          - {os: windows, python-version: "3.11", cuda: "12", extra: dev-mlir12, backend: mlir}
+          - {os: windows, python-version: "3.11", cuda: "13", extra: dev-mlir13, backend: mlir}
+          - {os: windows, python-version: "3.14", cuda: "12", extra: dev-mlir12, backend: mlir}
           - {os: windows, python-version: "3.14", cuda: "13", extra: dev-mlir13, backend: mlir}
     runs-on: ${{ matrix.os == 'linux' && 'ubuntu-latest' || 'windows-latest' }}
     steps:
@@ -222,13 +235,26 @@ jobs:
     strategy:
       fail-fast: false
       max-parallel: 2
-      # Matrix temporarily trimmed to two legs (one per backend,
-      # covering both OSes, both CUDA versions, and both Python
-      # bounds) to verify the precompile cache end-to-end in CI on
-      # this branch; the full 16-leg matrix is restored before merge.
+      # The mlir lanes mirror the numba-cuda lanes, except that
+      # numba-cuda-mlir needs Python >= 3.11, so its lower-bound lanes
+      # run 3.11 where the numba-cuda lanes run 3.10.
       matrix:
         include:
           - {os: linux, python-version: "3.10", cuda: "12", extra: dev12, backend: numba-cuda, fleet: gpu-linux}
+          - {os: linux, python-version: "3.10", cuda: "13", extra: dev13, backend: numba-cuda, fleet: gpu-linux}
+          - {os: linux, python-version: "3.14", cuda: "12", extra: dev12, backend: numba-cuda, fleet: gpu-linux}
+          - {os: linux, python-version: "3.14", cuda: "13", extra: dev13, backend: numba-cuda, fleet: gpu-linux}
+          - {os: windows, python-version: "3.10", cuda: "12", extra: dev12, backend: numba-cuda, fleet: gpu-windows}
+          - {os: windows, python-version: "3.10", cuda: "13", extra: dev13, backend: numba-cuda, fleet: gpu-windows}
+          - {os: windows, python-version: "3.14", cuda: "12", extra: dev12, backend: numba-cuda, fleet: gpu-windows}
+          - {os: windows, python-version: "3.14", cuda: "13", extra: dev13, backend: numba-cuda, fleet: gpu-windows}
+          - {os: linux, python-version: "3.11", cuda: "12", extra: dev-mlir12, backend: mlir, fleet: gpu-linux}
+          - {os: linux, python-version: "3.11", cuda: "13", extra: dev-mlir13, backend: mlir, fleet: gpu-linux}
+          - {os: linux, python-version: "3.14", cuda: "12", extra: dev-mlir12, backend: mlir, fleet: gpu-linux}
+          - {os: linux, python-version: "3.14", cuda: "13", extra: dev-mlir13, backend: mlir, fleet: gpu-linux}
+          - {os: windows, python-version: "3.11", cuda: "12", extra: dev-mlir12, backend: mlir, fleet: gpu-windows}
+          - {os: windows, python-version: "3.11", cuda: "13", extra: dev-mlir13, backend: mlir, fleet: gpu-windows}
+          - {os: windows, python-version: "3.14", cuda: "12", extra: dev-mlir12, backend: mlir, fleet: gpu-windows}
           - {os: windows, python-version: "3.14", cuda: "13", extra: dev-mlir13, backend: mlir, fleet: gpu-windows}
     runs-on: runs-on/fleet=${{ matrix.fleet }}/env=production
 
