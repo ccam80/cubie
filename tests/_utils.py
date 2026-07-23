@@ -134,11 +134,6 @@ STEP_CASES = [
         marks=pytest.mark.specific_algos,
     ),
     pytest.param(
-        {"algorithm": "lobatto_iiic_3", "step_controller": "fixed"},
-        id="dirk-lobatto-iiic-3",
-        marks=pytest.mark.specific_algos,
-    ),
-    pytest.param(
         {"algorithm": "l_stable_dirk_3", "step_controller": "fixed"},
         id="dirk-l-stable-3",
         marks=pytest.mark.specific_algos,

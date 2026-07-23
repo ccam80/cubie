@@ -209,7 +209,7 @@ Choosing the method's coefficients
     defaults:
 
     - ERK: ``dormand-prince-54`` (adaptive)
-    - DIRK: ``lobatto_iiic_3`` (fixed-step)
+    - DIRK: ``l_stable_dirk_3`` (fixed-step)
     - FIRK: ``firk_gauss_legendre_2`` (fixed-step)
     - Rosenbrock-W: ``ros3p`` (adaptive)
 
