@@ -315,16 +315,10 @@ class BatchSolverKernel(CUDAFactory):
             cache_settings = {}
         cache_params = CachePolicy.params_from_user_kwarg(cache)
         cache_params.update(cache_settings)
-        cache_params = {
-            key: value
-            for key, value in cache_params.items()
-            if value is not None
-        }
         cache_policy = CachePolicy(**cache_params)
         self.cache_handler = CubieCacheHandler(
             cache_policy, system_name=system_name
         )
-        # Pass cache policy for diagnostic kernels.
         self._solver_helper_fn = system.solver_helper_getter(cache_policy)
 
         # Build the single integrator to derive compile-critical metadata
@@ -345,7 +339,12 @@ class BatchSolverKernel(CUDAFactory):
                 {"lineinfo": lineinfo}, silent=True
             )
 
-        kernel_settings = dict(kernel_settings or {})
+        if kernel_settings is None:
+            kernel_settings = {}
+        kernel_settings = kernel_settings.copy()
+        # The compiled kernel bakes the driver-coefficient layout in
+        # as closure constants; seed it from the owned interpolator
+        # unless the caller supplied a layout explicitly.
         kernel_settings.setdefault(
             "driver_coefficients_shape",
             self.driver_interpolator.coefficients_shape,
@@ -1060,9 +1059,6 @@ class BatchSolverKernel(CUDAFactory):
 
         all_unrecognized = set(updates_dict.keys())
 
-        # Cache parameters are handler policy, not compile settings.
-        # A changed policy invalidates the build so a freshly
-        # configured cache attaches to the rebuilt dispatcher.
         policy_changed = self.cache_handler.update_policy_params(
             updates_dict
         )

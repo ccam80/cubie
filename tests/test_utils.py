@@ -528,8 +528,8 @@ def test_tol_converter_single_element_broadcast():
     assert np.allclose(result, 0.001)
 
 
-def test_tol_converter_full_array_passthrough():
-    """Verify full array (n,) passes through with dtype conversion."""
+def test_tol_converter_full_array_copied():
+    """Verify full-length array is copied with dtype conversion."""
     config = MockConfig(tol_length=3, precision=np.float32)
     input_array = np.array([1e-3, 2e-3, 3e-3], dtype=np.float64)
     result = tol_converter(input_array, config)
@@ -538,6 +538,34 @@ def test_tol_converter_full_array_passthrough():
     assert result.shape == (3,)
     assert result.dtype == np.float32
     assert np.allclose(result, [1e-3, 2e-3, 3e-3])
+
+
+def test_tol_converter_returns_owned_readonly_array():
+    """Every branch returns an owned, read-only array."""
+    config = MockConfig(tol_length=3, precision=np.float32)
+
+    scalar_result = tol_converter(1e-6, config)
+    assert not scalar_result.flags.writeable
+
+    uniform = np.full(2, 1e-5, dtype=np.float32)
+    uniform_result = tol_converter(uniform, config)
+    assert not uniform_result.flags.writeable
+
+    caller = np.array([1e-3, 2e-3, 3e-3], dtype=np.float32)
+    result = tol_converter(caller, config)
+    assert result is not caller
+    assert not result.flags.writeable
+    with pytest.raises(ValueError):
+        result[0] = 9.0
+
+    # Caller-side mutation does not reach the stored array.
+    caller[0] = 9.0
+    assert result[0] == np.float32(1e-3)
+
+    # A stored read-only array converts again without error.
+    rerun = tol_converter(result, config)
+    assert rerun is not result
+    assert not rerun.flags.writeable
 
 
 def test_tol_converter_wrong_size_raises():

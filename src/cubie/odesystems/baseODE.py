@@ -247,6 +247,7 @@ class BaseODE(CUDAFactory):
             updates,
             silent=True,
         )
+
         recognised |= recognised_constants
 
         if not silent:

@@ -312,7 +312,6 @@ class SymbolicODE(BaseODE):
         system_name = name
         if system_name == fn_hash:
             system_name = f"unnamed_{fn_hash[:8]}"
-        # One diagnostic evaluator per consumer cache policy.
         self._diagnostic_system_name = system_name
         self._neumann_diagnostics = {}
 
@@ -573,11 +572,13 @@ class SymbolicODE(BaseODE):
         return recognised
 
     def _get_neumann_evaluator(
-        self, cache_policy: Optional[CachePolicy] = None
+        self, cache_policy: CachePolicy
     ) -> NeumannRHSEvaluator:
         """Return the convergence evaluator for a consumer's policy.
 
-        One evaluator exists per cache policy, created on demand.
+        Each policy gets its own evaluator, created on its first
+        request, kept in a plain dict so the evaluators stay out of
+        child-factory discovery and ``config_hash``.
         ``settings_and_constants_hash`` stands in for ``config_hash``,
         which would self-reference if the evaluator's configuration
         fed back into it.
@@ -585,19 +586,15 @@ class SymbolicODE(BaseODE):
         Parameters
         ----------
         cache_policy
-            Service configuration of the requesting consumer.
-            ``None`` selects the default-policy evaluator.
+            Cache policy of the requesting consumer.
         """
-        if cache_policy is None:
-            cache_policy = CachePolicy()
-        evaluator = self._neumann_diagnostics.get(cache_policy)
-        if evaluator is None:
-            evaluator = NeumannRHSEvaluator(
+        if cache_policy not in self._neumann_diagnostics:
+            self._neumann_diagnostics[cache_policy] = NeumannRHSEvaluator(
                 precision=self.precision,
-                system_name=self._diagnostic_system_name,
                 cache_policy=cache_policy,
+                system_name=self._diagnostic_system_name,
             )
-            self._neumann_diagnostics[cache_policy] = evaluator
+        evaluator = self._neumann_diagnostics[cache_policy]
         evaluator.update_compile_settings(
             {
                 "dxdt_function": self.evaluate_f,
@@ -971,6 +968,8 @@ class SymbolicODE(BaseODE):
         the same member object; different bindings that share emitted
         source reuse one generated factory.
         """
+        if cache_policy is None:
+            cache_policy = CachePolicy()
         entry = SOLVER_HELPER_REGISTRY[request.kind]
         kind_name = request.kind.value
 

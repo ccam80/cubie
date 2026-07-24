@@ -297,6 +297,8 @@ class OutputConfig(CUDAFactoryConfig):
         """
         super().__attrs_post_init__()
         flags, summary_types = _parse_output_types(self._output_types)
+        # Frozen attrs require object.__setattr__ to install derived
+        # init=False fields on the new snapshot.
         object.__setattr__(self, "_save_state", flags["state"])
         object.__setattr__(
             self, "_save_observables", flags["observables"]
