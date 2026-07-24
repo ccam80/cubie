@@ -161,36 +161,55 @@ from it (this matches CE's own daily totals to the cent).
 The dashboard owns a transactional SQLite usage database at
 `.dashboard-cache/usage.sqlite3` (gitignored). Existing `hours.json`,
 `days.json`, and `meta.json` caches are imported once. Acquired hourly
-buckets are retained indefinitely and fully covered finalised days are
-rolled up transactionally.
+buckets are retained indefinitely. Each hour stores its own confirmation
+state, and days are rolled up only when all 24 retained hours are
+confirmed. An overlapping fetch replaces both payload and confirmation
+state in one transaction. Migrated daily rows without 24 confirmed
+supporting hours are discarded rather than treated as authoritative.
 
-Automatic refresh is independent of the selected display range. At or
-after **00:15 UTC**, every account request inspects all 24 hours of the
-previous UTC day. An hour is confirmed only when its cached aggregate
-gross service cost is non-zero; missing and exactly zero-cost buckets are
-unconfirmed. More than 12 unconfirmed hours triggers a fetch, so at least
-12 non-zero-cost hours confirm the day. An all-zero response remains
-unconfirmed.
+Automatic refresh is independent of the selected display range. Non-zero
+aggregate gross service cost confirms an observed hour immediately. A
+zero-cost or missing hour confirms only when a successful fetch completes
+at least 48 hours after that hour began, allowing Cost Explorer billing to
+settle without causing genuinely idle hours to be retried forever.
+Existing database rows migrate conservatively: non-zero-cost hours become
+confirmed, while zero-cost and missing hours require a new sufficiently
+late observation.
+
+Hourly Cost Explorer data is treated as recoverable for approximately 14
+days. Within that window, the dashboard considers only complete UTC days;
+the partially expired oldest day and the current partial day are excluded.
+It finds the most recent complete day with zero confirmed buckets (missing
+buckets count as zero). At or after **00:15 UTC** on the following day,
+that day triggers an automatic fetch. A day with even one confirmed hour
+does not trigger, and no automatic fetch occurs when every eligible day
+has at least one confirmed hour.
 
 An accepted automatic attempt records its timestamp before AWS is called.
 Reloads are then throttled for 15 minutes even if the AWS request fails or
 returns all zeroes. A persisted ten-minute lease coalesces concurrent
 dashboard processes. Every accepted fetch makes two Cost Explorer calls
-and transactionally replaces the window from the previous UTC day at
-00:00 through the end of the current UTC hour: one query for EC2 usage by
-instance type and one for gross cost by service. `last_fetch` is committed
-only with successful data replacement.
+even if the first fails: one for EC2 usage by instance type and one for
+gross cost by service. An automatic fetch starts at the earlier of the
+zero-confirmed target day's 00:00 UTC boundary and 12 hours before the
+latest confirmed retained bucket, clipped to the oldest hourly-retention
+boundary. With no confirmed bucket it starts at that boundary. It ends at
+the start of the current UTC hour, so “latest exposed” means the latest
+completed UTC hour; Cost Explorer exposes no separate hourly watermark.
+`last_fetch` is committed only when both calls succeed and the replacement
+transaction completes.
 
 Account plots load automatically and reload when their date or granularity
 controls change. **Force fetch** is the only fetch control; it bypasses the
 automatic time and content gate with an authenticated POST and has its own
-persisted five-minute attempt limit. It fetches the same fixed window, not
-the selected historical range. The dashboard never attempts to acquire
-missing history before its retained dataset; it renders available cache
-data and reports unavailable coverage. Requests may extend into the future:
-data access stops at the current UTC hour while future plot buckets remain
-visible as empty slots. The default view is hourly for the latest three
-browser-local calendar days through the current hour, and visible absolute
+persisted five-minute attempt limit. It fetches the same retention-aware
+overlap window without an automatic target-day extension, not the selected
+historical range. The dashboard never asks Cost Explorer for hourly data
+older than its recoverable boundary or for the current/future hour; it
+renders available older cache data and reports unavailable coverage.
+Requests may extend into the future, where plot buckets remain visible as
+empty slots. The default view is hourly for the latest three browser-local
+calendar days through the latest completed hour, and visible absolute
 timestamps use the browser's local timezone.
 
 The local server binds only to `127.0.0.1`. It validates the exact

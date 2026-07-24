@@ -11,12 +11,12 @@ Serves an interactive page backed by a local JSON API:
 Per-run data is free to fetch (GitHub API + ec2:DescribeSpotPriceHistory
 + cloudtrail:LookupEvents carry no charge). Only the account panels touch
 Cost Explorer, billed at $0.01 per GetCostAndUsage request. Hourly usage
-is retained in a transactional SQLite store. At or after 00:15 UTC,
-account requests confirm the previous UTC day from gross service cost and
-refresh yesterday plus the current UTC day when fewer than 12 hours are
-confirmed. Failed and zero-result attempts retry after 15 minutes. Force
-fetch bypasses the automatic time and content gate, with its own
-five-minute attempt limit.
+is retained in a transactional SQLite store with per-hour confirmation.
+Non-zero gross service cost confirms an hour immediately; zero or missing
+cost confirms only after a successful observation at least 48 hours after
+that hour began. Automatic refresh targets the most recent recoverable UTC
+day with no confirmed hours. Failed attempts retry after 15 minutes. Force
+fetch bypasses the automatic trigger, with its own five-minute limit.
 
 The loopback server validates Host and Origin, requires a per-process
 token for API requests, accepts paid force refreshes only by POST, and
@@ -57,9 +57,12 @@ REFRESH_LEASE = timedelta(minutes=10)
 AUTO_ATTEMPT_THROTTLE = timedelta(minutes=15)
 AUTO_REFRESH_CUTOFF = timedelta(minutes=15)
 FORCE_RATE_LIMIT = timedelta(minutes=5)
+COST_EXPLORER_HOURLY_RETENTION = timedelta(days=14)
+ZERO_COST_CONFIRMATION_AGE = timedelta(hours=48)
+CONFIRMED_OVERLAP = timedelta(hours=12)
 MAX_DAILY_RANGE_DAYS = 3660
 MAX_HOURLY_RANGE_DAYS = 366
-USAGE_SCHEMA_VERSION = 2
+USAGE_SCHEMA_VERSION = 3
 USAGE_QUERY_VERSION = "ce-usage-v1"
 API_TOKEN = secrets.token_urlsafe(32)
 TOKEN_HEADER = "X-Cubie-Dashboard-Token"
@@ -484,6 +487,20 @@ def _total(d):
     return sum(abs(value) for value in d.get("usage", {}).values())
 
 
+def _gross_service_cost(payload):
+    """Return aggregate gross service cost for a Cost Explorer hour."""
+    return sum(payload.get("cost", {}).values())
+
+
+def _hour_confirmed(period_start, payload, fetched_at=None):
+    """Return whether one observed hour is settled enough to retain."""
+    if _gross_service_cost(payload) != 0.0:
+        return 1
+    if fetched_at is None:
+        return 0
+    return int(fetched_at >= ts(period_start) + ZERO_COST_CONFIRMATION_AGE)
+
+
 def _rollup(hours, day):
     u, c = {}, {}
     for h, d in hours.items():
@@ -507,7 +524,14 @@ class UsageStore:
     def _connect(self):
         connection = sqlite3.connect(self.path, timeout=30)
         connection.execute("PRAGMA busy_timeout = 30000")
-        connection.execute("PRAGMA journal_mode = WAL")
+        try:
+            connection.execute("PRAGMA journal_mode = WAL")
+        except sqlite3.OperationalError as exc:
+            # WAL persists once a peer initializer enables it. Continue
+            # to the busy-timeout-protected transaction during that race.
+            if "locked" not in str(exc).lower():
+                connection.close()
+                raise
         return connection
 
     @contextmanager
@@ -521,10 +545,11 @@ class UsageStore:
 
     def _initialize(self):
         with self._connection() as connection:
+            connection.execute("BEGIN IMMEDIATE")
             schema_version = connection.execute(
                 "PRAGMA user_version"
             ).fetchone()[0]
-            if schema_version not in (0, 1, USAGE_SCHEMA_VERSION):
+            if schema_version not in (0, 1, 2, USAGE_SCHEMA_VERSION):
                 raise RuntimeError(
                     "unsupported usage database schema "
                     f"{schema_version}; expected {USAGE_SCHEMA_VERSION}"
@@ -534,10 +559,27 @@ class UsageStore:
                 CREATE TABLE IF NOT EXISTS hourly (
                     period_start TEXT PRIMARY KEY,
                     payload TEXT NOT NULL,
-                    total REAL NOT NULL
+                    total REAL NOT NULL,
+                    confirmed INTEGER NOT NULL DEFAULT 0
+                        CHECK (confirmed IN (0, 1))
                 )
                 """
             )
+            hourly_columns = {
+                row[1]
+                for row in connection.execute(
+                    "PRAGMA table_info(hourly)"
+                ).fetchall()
+            }
+            confirmation_added = "confirmed" not in hourly_columns
+            if confirmation_added:
+                connection.execute(
+                    """
+                    ALTER TABLE hourly
+                    ADD COLUMN confirmed INTEGER NOT NULL DEFAULT 0
+                        CHECK (confirmed IN (0, 1))
+                    """
+                )
             connection.execute(
                 """
                 CREATE TABLE IF NOT EXISTS daily (
@@ -574,7 +616,7 @@ class UsageStore:
             self._set_metadata(
                 connection, "query_version", USAGE_QUERY_VERSION
             )
-            if schema_version == 1:
+            if schema_version in (0, 1):
                 for table in ("hourly", "daily"):
                     rows = connection.execute(
                         f"SELECT rowid, payload FROM {table}"
@@ -586,6 +628,23 @@ class UsageStore:
                             for rowid, payload in rows
                         ],
                     )
+            if schema_version < USAGE_SCHEMA_VERSION or confirmation_added:
+                rows = connection.execute(
+                    "SELECT rowid, payload FROM hourly"
+                ).fetchall()
+                connection.executemany(
+                    "UPDATE hourly SET confirmed = ? WHERE rowid = ?",
+                    [
+                        (
+                            int(
+                                _gross_service_cost(json.loads(payload)) != 0.0
+                            ),
+                            rowid,
+                        )
+                        for rowid, payload in rows
+                    ],
+                )
+                self._reconcile_daily_rows(connection)
             connection.execute(f"PRAGMA user_version = {USAGE_SCHEMA_VERSION}")
 
     def _migrate_legacy(self, connection):
@@ -598,11 +657,14 @@ class UsageStore:
                 else {}
             )
         for period_start, payload in legacy["hours.json"].items():
-            self._upsert_bucket(
-                connection, "hourly", "period_start", period_start, payload
+            self._upsert_hourly(
+                connection,
+                period_start,
+                payload,
+                _hour_confirmed(period_start, payload),
             )
         for day, payload in legacy["days.json"].items():
-            self._upsert_bucket(connection, "daily", "day", day, payload)
+            self._upsert_daily(connection, day, payload)
         for key, value in legacy["meta.json"].items():
             self._set_metadata(connection, key, str(value))
 
@@ -617,17 +679,65 @@ class UsageStore:
         )
 
     @staticmethod
-    def _upsert_bucket(connection, table, key_column, key, payload):
+    def _upsert_hourly(connection, period_start, payload, confirmed):
         connection.execute(
-            f"""
-            INSERT INTO {table}({key_column}, payload, total)
+            """
+            INSERT INTO hourly(period_start, payload, total, confirmed)
+            VALUES (?, ?, ?, ?)
+            ON CONFLICT(period_start) DO UPDATE SET
+                payload = excluded.payload,
+                total = excluded.total,
+                confirmed = excluded.confirmed
+            """,
+            (
+                period_start,
+                json.dumps(payload, sort_keys=True),
+                _total(payload),
+                confirmed,
+            ),
+        )
+
+    @staticmethod
+    def _upsert_daily(connection, day, payload):
+        connection.execute(
+            """
+            INSERT INTO daily(day, payload, total)
             VALUES (?, ?, ?)
-            ON CONFLICT({key_column}) DO UPDATE SET
+            ON CONFLICT(day) DO UPDATE SET
                 payload = excluded.payload,
                 total = excluded.total
             """,
-            (key, json.dumps(payload, sort_keys=True), _total(payload)),
+            (day, json.dumps(payload, sort_keys=True), _total(payload)),
         )
+
+    def _reconcile_daily_rows(self, connection):
+        """Rebuild or remove daily rows covered by migrated hourly data."""
+        days = connection.execute(
+            """
+            SELECT day FROM daily
+            UNION
+            SELECT DISTINCT substr(period_start, 1, 10) FROM hourly
+            ORDER BY 1
+            """
+        ).fetchall()
+        for (day,) in days:
+            self._reconcile_daily_row(connection, day)
+
+    def _reconcile_daily_row(self, connection, day):
+        """Reconcile one daily rollup against its confirmed hours."""
+        next_day = (date.fromisoformat(day) + timedelta(days=1)).isoformat()
+        rows = connection.execute(
+            """
+            SELECT period_start, payload, confirmed FROM hourly
+            WHERE period_start >= ? AND period_start < ?
+            """,
+            (f"{day}T00:00:00Z", f"{next_day}T00:00:00Z"),
+        ).fetchall()
+        if len(rows) == 24 and all(row[2] for row in rows):
+            hourly = {row[0]: json.loads(row[1]) for row in rows}
+            self._upsert_daily(connection, day, _rollup(hourly, day))
+        else:
+            connection.execute("DELETE FROM daily WHERE day = ?", (day,))
 
     def metadata(self, key):
         with self._connection() as connection:
@@ -651,19 +761,46 @@ class UsageStore:
             ).fetchone()
         return row if row else (None, None)
 
-    def hourly_day_counts(self, start, end):
-        """Return retained hourly-bucket counts keyed by UTC day."""
+    def hourly_day_states(self, start, end):
+        """Return retained and confirmed hourly counts by UTC day."""
         with self._connection() as connection:
             rows = connection.execute(
                 """
-                SELECT substr(period_start, 1, 10), COUNT(*)
+                SELECT substr(period_start, 1, 10),
+                       COUNT(*),
+                       SUM(confirmed)
                 FROM hourly
                 WHERE period_start >= ? AND period_start < ?
                 GROUP BY substr(period_start, 1, 10)
                 """,
                 (f"{start}T00:00:00Z", f"{end}T00:00:00Z"),
             ).fetchall()
-        return dict(rows)
+        return {
+            day: (bucket_count, confirmed_count)
+            for day, bucket_count, confirmed_count in rows
+        }
+
+    def confirmed_day_counts(self, start, end):
+        """Return confirmed hourly counts by UTC day."""
+        return {
+            day: confirmed
+            for day, (_, confirmed) in self.hourly_day_states(
+                start, end
+            ).items()
+        }
+
+    def latest_confirmed_hour(self, start, end):
+        """Return the latest confirmed hour in an exclusive interval."""
+        with self._connection() as connection:
+            row = connection.execute(
+                """
+                SELECT MAX(period_start) FROM hourly
+                WHERE confirmed = 1
+                  AND period_start >= ? AND period_start < ?
+                """,
+                (start, end),
+            ).fetchone()
+        return row[0] if row else None
 
     def _range(self, table, key, start, end):
         with self._connection() as connection:
@@ -764,7 +901,7 @@ class UsageStore:
     def commit_hourly_refresh(
         self, start, end, buckets, fetched_at, owner, force=False
     ):
-        """Replace a fetched interval and rebuild its finalised days."""
+        """Replace a fetched interval and rebuild its confirmed days."""
         with self._connection() as connection:
             connection.execute("BEGIN IMMEDIATE")
             self._assert_owned_lease(connection, owner, fetched_at)
@@ -776,45 +913,17 @@ class UsageStore:
                 (start, end),
             )
             for period_start, payload in buckets.items():
-                self._upsert_bucket(
-                    connection, "hourly", "period_start", period_start, payload
+                self._upsert_hourly(
+                    connection,
+                    period_start,
+                    payload,
+                    _hour_confirmed(period_start, payload, fetched_at),
                 )
-            frontier_row = connection.execute(
-                "SELECT MAX(period_start) FROM hourly WHERE total > 0"
-            ).fetchone()
-            frontier = frontier_row[0] if frontier_row else None
             current_day = ts(start).date()
             last_touched_day = (ts(end) - timedelta(microseconds=1)).date()
-            frontier_day = (
-                date.fromisoformat(frontier[:10]) if frontier else None
-            )
             while current_day <= last_touched_day:
                 day = current_day.isoformat()
-                next_day = (current_day + timedelta(days=1)).isoformat()
-                rows = connection.execute(
-                    """
-                    SELECT period_start, payload FROM hourly
-                    WHERE period_start >= ? AND period_start < ?
-                    """,
-                    (f"{day}T00:00:00Z", f"{next_day}T00:00:00Z"),
-                ).fetchall()
-                if (
-                    frontier_day
-                    and current_day < frontier_day
-                    and len(rows) == 24
-                ):
-                    hourly = {row[0]: json.loads(row[1]) for row in rows}
-                    self._upsert_bucket(
-                        connection,
-                        "daily",
-                        "day",
-                        day,
-                        _rollup(hourly, day),
-                    )
-                else:
-                    connection.execute(
-                        "DELETE FROM daily WHERE day = ?", (day,)
-                    )
+                self._reconcile_daily_row(connection, day)
                 current_day += timedelta(days=1)
             self._set_metadata(
                 connection, "last_fetch", fetched_at.isoformat()
@@ -827,62 +936,60 @@ class UsageStore:
             connection.commit()
 
     def recompute_daily(self, days):
-        """Build missing finalised days when all 24 hours are retained."""
+        """Reconcile daily rows from 24 confirmed retained hours."""
         with self._connection() as connection:
             connection.execute("BEGIN IMMEDIATE")
             for day in days:
-                day_date = date.fromisoformat(day)
-                next_day = (day_date + timedelta(days=1)).isoformat()
-                rows = connection.execute(
-                    """
-                    SELECT period_start, payload FROM hourly
-                    WHERE period_start >= ? AND period_start < ?
-                    """,
-                    (f"{day}T00:00:00Z", f"{next_day}T00:00:00Z"),
-                ).fetchall()
-                if len(rows) == 24:
-                    hourly = {row[0]: json.loads(row[1]) for row in rows}
-                    self._upsert_bucket(
-                        connection, "daily", "day", day, _rollup(hourly, day)
-                    )
+                self._reconcile_daily_row(connection, day)
 
 
-def _previous_utc_day_window(now):
-    """Return the previous UTC day's inclusive-start/exclusive-end."""
-    today = datetime.combine(
-        now.date(), datetime.min.time(), tzinfo=timezone.utc
+def _hourly_exposure_window(now):
+    """Return Cost Explorer's recoverable completed-hour interval."""
+    exposed_end = now.astimezone(timezone.utc).replace(
+        minute=0, second=0, microsecond=0
     )
-    return today - timedelta(days=1), today
+    return exposed_end - COST_EXPLORER_HOURLY_RETENTION, exposed_end
 
 
-def _unconfirmed_cost_hours(hours, day_start):
-    """Count missing or exactly zero-gross-cost hours in one UTC day."""
-    unconfirmed = 0
-    current = day_start
-    for _ in range(24):
-        key = current.strftime("%Y-%m-%dT%H:00:00Z")
-        bucket = hours.get(key)
-        gross_cost = sum(bucket.get("cost", {}).values()) if bucket else 0.0
-        if bucket is None or gross_cost == 0.0:
-            unconfirmed += 1
-        current += timedelta(hours=1)
-    return unconfirmed
+def _fully_exposed_utc_days(start, end):
+    """Return full UTC days wholly inside an hourly retention interval."""
+    first_day = datetime.combine(
+        start.date(), datetime.min.time(), tzinfo=timezone.utc
+    )
+    if first_day < start:
+        first_day += timedelta(days=1)
+    days = []
+    current = first_day
+    while current + timedelta(days=1) <= end:
+        days.append(current)
+        current += timedelta(days=1)
+    return days
 
 
 def _automatic_refresh_decision(store, now):
-    """Return whether content confirmation requires an automatic fetch."""
-    previous_start, previous_end = _previous_utc_day_window(now)
-    cutoff = previous_end + AUTO_REFRESH_CUTOFF
-    if now < cutoff:
-        return False, "before_cutoff"
-    hours = store.hourly_range(
-        previous_start.strftime("%Y-%m-%dT%H:00:00Z"),
-        previous_end.strftime("%Y-%m-%dT%H:00:00Z"),
+    """Return refresh status and the zero-confirmed target UTC day."""
+    exposed_start, exposed_end = _hourly_exposure_window(now)
+    days = _fully_exposed_utc_days(exposed_start, exposed_end)
+    if not days:
+        return False, "no_recoverable_days", None
+    confirmed = store.confirmed_day_counts(
+        days[0].date().isoformat(),
+        (days[-1] + timedelta(days=1)).date().isoformat(),
     )
-    unconfirmed = _unconfirmed_cost_hours(hours, previous_start)
-    if unconfirmed <= 12:
-        return False, "confirmed"
-    return True, "unconfirmed"
+    target_day = next(
+        (
+            day
+            for day in reversed(days)
+            if confirmed.get(day.date().isoformat(), 0) == 0
+        ),
+        None,
+    )
+    if target_day is None:
+        return False, "confirmed", None
+    target = target_day + timedelta(days=1) + AUTO_REFRESH_CUTOFF
+    if now.astimezone(timezone.utc) < target:
+        return False, "before_target", target_day
+    return True, "unconfirmed", target_day
 
 
 def _complete_hourly_buckets(start, end, parsed):
@@ -897,23 +1004,29 @@ def _complete_hourly_buckets(start, end, parsed):
     return buckets
 
 
-def _hourly_refresh_window(now):
-    """Return yesterday through the end of the current UTC hour."""
-    start_dt, _ = _previous_utc_day_window(now)
-    end_dt = now.replace(minute=0, second=0, microsecond=0) + timedelta(
-        hours=1
-    )
+def _hourly_refresh_window(store, now, target_day=None):
+    """Return retained overlap through the latest completed UTC hour."""
+    oldest, end_dt = _hourly_exposure_window(now)
     fmt = "%Y-%m-%dT%H:00:00Z"
-    return start_dt.strftime(fmt), end_dt.strftime(fmt)
+    oldest_key = oldest.strftime(fmt)
+    end_key = end_dt.strftime(fmt)
+    latest = store.latest_confirmed_hour(oldest_key, end_key)
+    start_dt = (
+        max(ts(latest) - CONFIRMED_OVERLAP, oldest) if latest else oldest
+    )
+    if target_day is not None:
+        start_dt = max(oldest, min(start_dt, target_day))
+    return start_dt.strftime(fmt), end_key
 
 
-def _refresh(store, now, force=False):
-    """Fetch and transactionally replace the fixed confirmation window."""
+def _refresh(store, now, force=False, target_day=None):
+    """Fetch and transactionally replace the retained overlap window."""
     lease_status, owner = store.acquire_refresh_lease(now, force)
     if lease_status != "acquired":
         return lease_status
-    start, end = _hourly_refresh_window(now)
     try:
+        window_target = None if force else target_day
+        start, end = _hourly_refresh_window(store, now, window_target)
         usage_results = None
         cost_results = None
         usage_error = None
@@ -982,10 +1095,10 @@ def account_payload(
 ):
     """Assemble account data for an inclusive, bounded date range.
 
-    At or after 00:15 UTC, the previous UTC day is automatically fetched
-    when more than 12 of its 24 hours are missing or have exactly zero
-    aggregate gross service cost. The selected display range never
-    affects that decision. Force bypasses the time and content gate.
+    The most recent retained full UTC day with no confirmed hours is
+    automatically fetched from 00:15 UTC on the following day. The
+    selected display range never affects that decision. Force bypasses
+    the automatic content and time gate.
     """
     start_date, _, end_exclusive, gran = _validate_account_range(
         start, end, gran
@@ -1013,47 +1126,40 @@ def account_payload(
         )
         - bucket_offset
     )
-    current_hour_end = now.replace(
+    completed_hour_end = now.astimezone(timezone.utc).replace(
         minute=0, second=0, microsecond=0
-    ) + timedelta(hours=1)
-    data_end = min(requested_end, current_hour_end)
+    )
+    data_end = min(requested_end, completed_hour_end)
     has_data_window = requested_start < data_end
     refresh_status = "cached"
     charged = False
     with _CE_LOCK:
         if force:
             should_refresh = True
+            target_day = None
         else:
-            should_refresh, refresh_status = _automatic_refresh_decision(
-                store, now
-            )
+            (
+                should_refresh,
+                refresh_status,
+                target_day,
+            ) = _automatic_refresh_decision(store, now)
         if should_refresh:
-            refresh_status = _refresh(store, now, force)
+            refresh_status = _refresh(store, now, force, target_day)
             charged = refresh_status == "fetched"
 
         frontier = store.frontier()
-        frontier_day = frontier[:10] if frontier else None
         _, hourly_high_water = store.hourly_bounds()
-        expected_days = [
-            day for day, _ in _expected_buckets(start, end, "DAILY")
-        ]
-        cache_end_date = min(end_exclusive, now.date() + timedelta(days=1))
+        utc_today = now.astimezone(timezone.utc).date()
+        cache_end_date = min(end_exclusive, utc_today + timedelta(days=1))
         stop_day = cache_end_date.isoformat()
-        hourly_counts = (
-            store.hourly_day_counts(start_date.isoformat(), stop_day)
+        hourly_states = (
+            store.hourly_day_states(start_date.isoformat(), stop_day)
             if start_date < cache_end_date
             else {}
         )
         cached_days = {}
         if gran == "DAILY" and start_date < cache_end_date:
-            final_days = [
-                day
-                for day in expected_days
-                if frontier_day
-                and day < frontier_day
-                and hourly_counts.get(day) == 24
-            ]
-            store.recompute_daily(final_days)
+            store.recompute_daily(hourly_states)
             cached_days = store.daily_range(start_date.isoformat(), stop_day)
 
         expected = _expected_buckets(
@@ -1064,7 +1170,7 @@ def account_payload(
             days=1
         ):
             expected = [
-                bucket for bucket in expected if bucket[1] < current_hour_end
+                bucket for bucket in expected if bucket[1] < completed_hour_end
             ]
         data_expected = [bucket for bucket in expected if bucket[1] < data_end]
         if gran == "HOURLY":
@@ -1084,14 +1190,8 @@ def account_payload(
         else:
             shown = []
             for day, bucket_start in data_expected:
-                prefer_hourly = hourly_counts.get(day) == 24 and (
-                    not frontier_day or day >= frontier_day
-                )
-                prefer_hourly = prefer_hourly or day == frontier_day
-                prefer_hourly = prefer_hourly or (
-                    hourly_high_water and day == hourly_high_water[:10]
-                )
-                if not prefer_hourly and day in cached_days:
+                state = hourly_states.get(day)
+                if state == (24, 24) and day in cached_days:
                     shown.append((day, cached_days[day]))
                     continue
                 bucket_end = min(bucket_start + timedelta(days=1), data_end)
@@ -1124,7 +1224,7 @@ def account_payload(
         return output
 
     coverage = _coverage(
-        data_expected, shown, gran, hourly_high_water, now.date()
+        data_expected, shown, gran, hourly_high_water, utc_today
     )
     coverage["future_buckets"] = len(expected) - len(data_expected)
     return {
