@@ -430,10 +430,17 @@ function renderRun(payload) {
   renderType(payload);
 }
 
-function renderStack(id, times, series, yName) {
+function renderStack(id, legendId, times, series, yName) {
+  renderSharedLegend(
+    legendId,
+    series.map((item, index) => ({
+      name: item.name,
+      color: PALETTE[index % PALETTE.length]
+    }))
+  );
   chart(id).setOption({
-    grid: {left: 56, right: 16, top: 30, bottom: 70},
-    legend: {type: 'scroll', top: 0, show: Boolean(series.length)},
+    grid: {left: 56, right: 16, top: 16, bottom: 70},
+    legend: {show: false},
     graphic: series.length ? [] : [{
       type: 'text',
       left: 'center',
@@ -500,8 +507,20 @@ async function loadAccount(force) {
     if (requestVersion !== accountRequestVersion) return;
     resetAccountChart('acctUsageWrap', 'cAcctUsage');
     resetAccountChart('acctCostWrap', 'cAcctCost');
-    renderStack('cAcctUsage', payload.times, payload.usage, 'EC2 hours');
-    renderStack('cAcctCost', payload.times, payload.cost, 'USD (gross usage)');
+    renderStack(
+      'cAcctUsage',
+      'acctUsageLegend',
+      payload.times,
+      payload.usage,
+      'EC2 hours'
+    );
+    renderStack(
+      'cAcctCost',
+      'acctCostLegend',
+      payload.times,
+      payload.cost,
+      'USD (gross usage)'
+    );
     status.textContent = '';
   } catch (error) {
     if (requestVersion === accountRequestVersion) {
