@@ -92,10 +92,10 @@ class SingleIntegratorRunCore(CUDAFactory):
         ``"i"``, ``"pi"``, ``"pid"``, and ``"gustafsson"``.  When
         ``None`` the algorithm defaults are used.
     solver_helper_fn
-        Optional consumer-scoped helper getter with the system's
-        ``get_solver_helper`` contract, typically
-        ``system.solver_helper_getter(cache_policy)`` from the
-        owning kernel. ``None`` uses the system's bare method.
+        Callable used to fetch solver helper device functions, with
+        the same signature as :meth:`BaseODE.get_solver_helper`. The
+        owning batch solver kernel passes its own binding; ``None``
+        falls back to ``system.get_solver_helper``.
     """
 
     _INNER_TOLERANCE_KEYS = (
@@ -119,11 +119,9 @@ class SingleIntegratorRunCore(CUDAFactory):
     ) -> None:
         super().__init__()
 
-        # Policy-bound helper getter; the system's bare method is the
-        # default.
-        if solver_helper_fn is None:
-            solver_helper_fn = system.get_solver_helper
-        self._solver_helper_fn = solver_helper_fn
+        self._solver_helper_fn = (
+            solver_helper_fn or system.get_solver_helper
+        )
 
         if step_control_settings is None:
             step_control_settings = {}

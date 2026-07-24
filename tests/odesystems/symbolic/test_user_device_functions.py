@@ -12,6 +12,7 @@ import pytest
 from cubie.cuda_simsafe import cuda, INLINE_ALWAYS
 
 from cubie import create_ODE_system, solve_ivp
+from cubie.cubie_cache import CachePolicy
 from cubie.odesystems.symbolic.codegen.neumann_convergence import (
     check_neumann_convergence,
 )
@@ -133,7 +134,7 @@ def test_check_neumann_convergence_evaluates_device_function(
         precision=precision,
         name="userfunc_neumann_device",
     )
-    evaluator = system._get_neumann_evaluator()
+    evaluator = system._get_neumann_evaluator(CachePolicy())
     result = check_neumann_convergence(
         system.indices,
         evaluator,
