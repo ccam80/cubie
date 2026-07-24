@@ -1474,7 +1474,7 @@ def test_solver_accepts_cache_mode_kwarg(system, solver_settings):
         cache_mode="flush_on_change",
     )
 
-    assert solver.kernel.cache_handler.config.cache_mode == "flush_on_change"
+    assert solver.kernel.cache_handler.policy.cache_mode == "flush_on_change"
 
 
 def test_solver_accepts_max_cache_entries_kwarg(system, solver_settings):
@@ -1487,7 +1487,7 @@ def test_solver_accepts_max_cache_entries_kwarg(system, solver_settings):
         max_cache_entries=5,
     )
 
-    assert solver.kernel.cache_handler.config.max_cache_entries == 5
+    assert solver.kernel.cache_handler.policy.max_cache_entries == 5
 
 
 def test_solver_accepts_max_registers_kwarg(system, solver_settings):
@@ -1506,7 +1506,13 @@ def test_solver_accepts_max_registers_kwarg(system, solver_settings):
 def test_solve_ivp_passes_cache_kwargs(
     system, simple_initial_values, simple_parameters, driver_settings
 ):
-    """Verify solve_ivp(system, y0, params, cache_mode='hash') works."""
+    """Verify solve_ivp(system, y0, params, cache_mode='hash') works.
+
+    The entry limit sits far above any realistic entry count: a small
+    limit against a shared kernel-cache directory (the CI artifact)
+    would evict the shared system's precompiled kernels, and an
+    isolated directory would guarantee a consumer-leg compile.
+    """
     result = solve_ivp(
         system=system,
         y0=simple_initial_values,
@@ -1516,7 +1522,7 @@ def test_solve_ivp_passes_cache_kwargs(
         duration=0.05,
         method="euler",
         cache_mode="hash",
-        max_cache_entries=10,
+        max_cache_entries=100000,
     )
 
     assert isinstance(result, SolveResult)

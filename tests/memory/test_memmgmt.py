@@ -1875,7 +1875,7 @@ def test_active_cap_chunking_leaves_unrelated_stream_running(
             )
         }
     }
-    work, stream, done = start_cuda_busy_work()
+    work, stream, done, release = start_cuda_busy_work()
 
     try:
         _, chunks = mgr.get_chunk_parameters(
@@ -1885,6 +1885,7 @@ def test_active_cap_chunking_leaves_unrelated_stream_running(
         assert chunks > 1
         assert not done.query()
     finally:
+        release()
         stream.synchronize()
         assert work.copy_to_host()[0] > 0
 
@@ -2259,7 +2260,7 @@ def test_host_spill_does_not_wait_for_unrelated_stream(
     memory_client, tmp_path, start_cuda_busy_work
 ):
     """Host spill setup leaves unrelated CUDA work running."""
-    work, stream, done = start_cuda_busy_work()
+    work, stream, done, release = start_cuda_busy_work()
     manager = MemoryManager(host_spill_threshold=1, spill_directory=tmp_path)
     manager.register(memory_client)
     try:
@@ -2270,6 +2271,7 @@ def test_host_spill_does_not_wait_for_unrelated_stream(
         assert isinstance(arr, np.memmap)
         assert not done.query()
     finally:
+        release()
         stream.synchronize()
         assert work.copy_to_host()[0] > 0
 
@@ -2285,11 +2287,12 @@ def test_legacy_default_stream_sync_is_stream_local(
     ready = cuda.event()
     ready.record(manager.get_stream(owner))
     ready.synchronize()
-    work, stream, done = start_cuda_busy_work()
+    work, stream, done, release = start_cuda_busy_work()
     try:
         manager.sync_stream(owner, stream=0)
         assert not done.query()
     finally:
+        release()
         stream.synchronize()
         assert work.copy_to_host()[0] > 0
 

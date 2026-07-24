@@ -10,7 +10,6 @@ import numpy as np
 
 from tests._precompile_hashing import (
     _function_key,
-    _portable_magic,
     _stable_value_hash,
 )
 
@@ -226,7 +225,14 @@ def _combined_misses():
 
 
 def _describe_compilation(cache, sig):
-    """Name a compiled kernel so cache misses are diagnosable."""
+    """Name a compiled kernel so cache misses are diagnosable.
+
+    Production caches are named by their semantic key components
+    (system name, system hash, compile-settings hash); test-kernel
+    caches by their function identity. No alternate identity is
+    constructed here — the description quotes the components the
+    cache actually keys on.
+    """
     function_key = getattr(cache, "_function_key", None)
     if function_key is not None and len(function_key) >= 5:
         identity = (
@@ -236,7 +242,15 @@ def _describe_compilation(cache, sig):
             f"defaults={function_key[4][:10]}"
         )
     else:
-        identity = getattr(cache, "_name", repr(cache))
+        system_name = getattr(cache, "_system_name", None)
+        if system_name is not None:
+            identity = (
+                f"{system_name} "
+                f"system={cache._system_hash[:10]} "
+                f"config={cache._compile_settings_hash[:10]}"
+            )
+        else:
+            identity = getattr(cache, "_name", repr(cache))
     return f"{identity} sig={sig}"
 
 
@@ -266,24 +280,28 @@ def _install_cache_stats():
     _CACHE_STATS_INSTALLED = True
 
 
-_PLUGIN_CACHE_CLASS = None
+_TEST_KERNEL_CACHE_CLASS = None
 
 
-def _plugin_cache_class():
-    """Return the function-keyed cache class, defined on first use.
+def _test_kernel_cache_class():
+    """Return the test-kernel cache class, defined on first use.
 
     Deferred because :mod:`cubie.cubie_cache` finishes importing only
-    after the plugin's backend patches are installed.
+    after the plugin's backend patches are installed. This cache
+    exists only for dispatchers with no owning production factory
+    (kernels defined inline in test files); every production
+    dispatcher keeps the ``CUBIECache`` its factory attaches, keyed
+    by the production system and configuration identity.
     """
-    global _PLUGIN_CACHE_CLASS
-    if _PLUGIN_CACHE_CLASS is not None:
-        return _PLUGIN_CACHE_CLASS
+    global _TEST_KERNEL_CACHE_CLASS
+    if _TEST_KERNEL_CACHE_CLASS is not None:
+        return _TEST_KERNEL_CACHE_CLASS
 
     from cubie._utils import package_source_hash
     from cubie.cubie_cache import CUBIECache
 
-    class _PrecompileCache(CUBIECache):
-        """Shared-artifact cache keyed by kernel function identity."""
+    class _TestKernelCache(CUBIECache):
+        """Shared-artifact cache for factory-less test kernels."""
 
         def __init__(self, py_func, options_hash):
             super().__init__(
@@ -298,7 +316,7 @@ def _plugin_cache_class():
         def _index_key(self, sig, codegen):
             key = (
                 sig,
-                _portable_magic(codegen.magic_tuple()),
+                codegen.magic_tuple(),
                 self._system_hash,
                 self._compile_settings_hash,
                 package_source_hash(),
@@ -308,18 +326,23 @@ def _plugin_cache_class():
                 key += (("launch_config", self._launch_config_key),)
             return key
 
-    _PLUGIN_CACHE_CLASS = _PrecompileCache
-    return _PrecompileCache
+    _TEST_KERNEL_CACHE_CLASS = _TestKernelCache
+    return _TestKernelCache
 
 
 def _attach_cache(dispatcher):
     _install_cache_stats()
-    cache_class = _plugin_cache_class()
-    if not isinstance(dispatcher._cache, cache_class):
-        dispatcher._cache = cache_class(
-            dispatcher.py_func,
-            _stable_value_hash(dispatcher.targetoptions),
-        )
+    from cubie.cubie_cache import CUBIECache
+
+    # A dispatcher with a CUBIECache got it from its production
+    # factory; only factory-less dispatchers (inline test kernels)
+    # take the function-keyed test cache.
+    if isinstance(dispatcher._cache, CUBIECache):
+        return
+    dispatcher._cache = _test_kernel_cache_class()(
+        dispatcher.py_func,
+        _stable_value_hash(dispatcher.targetoptions),
+    )
 
 
 def _attach_or_queue(dispatcher):

@@ -28,7 +28,6 @@ from cubie._utils import (
     is_device_validator,
 )
 from cubie.CUDAFactory import CUDAFactoryConfig, _CubieConfigBase
-from cubie.cubie_cache import CacheConfig
 from cubie.outputhandling.output_config import OutputCompileFlags
 
 
@@ -146,11 +145,6 @@ class BatchSolverConfig(CUDAFactoryConfig):
         allocation to ptxas (currently 255 for large systems, limiting
         occupancy to one block per SM); capping trades spill traffic
         for more resident warps.
-    cache_config
-        Disk-cache configuration for the compiled kernel. Excluded
-        from hashing so cache relocation never alters the disk-cache
-        key; a change still invalidates the build, which reattaches a
-        freshly configured cache to the dispatcher.
     driver_coefficients_shape
         Driver-coefficient layout ``(num_segments, num_drivers,
         order + 1)`` baked into the compiled driver evaluators as
@@ -175,11 +169,6 @@ class BatchSolverConfig(CUDAFactoryConfig):
     max_registers: Optional[int] = attrs.field(
         default=None,
         validator=attrs.validators.optional(getype_validator(int, 1)),
-    )
-    cache_config: CacheConfig = attrs.field(
-        factory=CacheConfig,
-        validator=attrs.validators.instance_of(CacheConfig),
-        eq=False,
     )
     driver_coefficients_shape: Tuple[int, int, int] = attrs.field(
         default=(0, 0, 0),
