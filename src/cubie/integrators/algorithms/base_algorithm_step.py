@@ -38,7 +38,7 @@ from abc import ABC, abstractmethod
 from typing import Callable, Dict, Optional, Set, Any, Tuple, Sequence
 import warnings
 
-from attrs import define, field, validators
+from attrs import define, field, validators, frozen
 from numpy import (
     float16 as np_float16,
     float32 as np_float32,
@@ -214,7 +214,7 @@ components use this set to filter kwargs before forwarding.
 """
 
 
-@define
+@frozen
 class ButcherTableau(_CubieConfigBase):
     """Generic Butcher tableau object.
 
@@ -582,7 +582,7 @@ class StepControlDefaults:
         )
 
 
-@define
+@frozen
 class BaseStepConfig(CUDAFactoryConfig, ABC):
     """Configuration shared by explicit and implicit integration steps.
 

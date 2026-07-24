@@ -26,10 +26,14 @@ See Also
 from abc import abstractmethod
 from typing import Callable, Optional, Union, Set
 
-from attrs import define, field, validators
+from attrs import field, validators, frozen
 from numpy import ndarray
 
-from cubie._utils import inrangetype_validator, is_device_validator
+from cubie._utils import (
+    inrangetype_validator,
+    is_device_validator,
+    sequence_to_tuple,
+)
 from cubie.buffer_registry import buffer_registry
 from cubie.integrators.matrix_free_solvers.linear_solver import (
     MRLinearSolver,
@@ -77,7 +81,7 @@ def _validated_correction_type(value: str) -> str:
     return value
 
 
-@define
+@frozen
 class ImplicitStepConfig(BaseStepConfig):
     """Configuration settings for implicit integration steps.
 
@@ -106,8 +110,9 @@ class ImplicitStepConfig(BaseStepConfig):
     preconditioner_order: int = field(
         default=2, validator=inrangetype_validator(int, 1, 32)
     )
-    preconditioner_type: Union[str, list] = field(
+    preconditioner_type: Union[str, tuple] = field(
         default="neumann",
+        converter=sequence_to_tuple,
     )
     solver_function = field(
         default=None,
@@ -389,25 +394,42 @@ class ODEImplicitStep(BaseAlgorithmStep):
 
         recognized = set()
 
+        # Step settings first, so the solver update below reads the
+        # refreshed solver_n.
+        recognized |= super().update(all_updates, silent=True)
+
+        # Swap the solver class first so pending parameters apply to
+        # the replacement.
         if "linear_correction_type" in all_updates:
             self._swap_linear_solver(all_updates["linear_correction_type"])
             recognized.add("linear_correction_type")
 
-        recognized |= self.solver.update(all_updates, silent=True)
+        # Copy: the predictor must see the physical state n, while
+        # FIRK rewrites the solver's n to the all-stages width.
+        solver_updates = dict(all_updates)
+        if "n" in solver_updates:
+            solver_updates["n"] = self.compile_settings.solver_n
+            solver_updates["state_n"] = self.compile_settings.n
 
-        all_updates["solver_function"] = self.solver.device_function
+        recognized |= self.solver.update(solver_updates, silent=True)
+
+        # Push the children's rebuilt device functions into the step
+        # settings.
+        compiled_functions = {
+            "solver_function": self.solver.device_function
+        }
 
         if self.dense_predictor is not None:
             recognized |= self.dense_predictor.update(
                 all_updates, silent=True
             )
-            all_updates["predictor_function"] = (
+            compiled_functions["predictor_function"] = (
                 self.dense_predictor.device_function
                 if self.dense_prediction
                 else None
             )
 
-        recognized |= super().update(all_updates, silent=True)
+        recognized |= super().update(compiled_functions, silent=True)
 
         return recognized
 
@@ -442,8 +464,9 @@ class ODEImplicitStep(BaseAlgorithmStep):
         StepCache
             Container with the compiled step and nonlinear solver.
         """
-        config = self.compile_settings
+        # The helper refresh replaces the settings snapshot; read after.
         self.build_implicit_helpers()
+        config = self.compile_settings
 
         evaluate_f = config.evaluate_f
         numba_precision = config.numba_precision

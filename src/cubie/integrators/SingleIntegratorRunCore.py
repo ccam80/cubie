@@ -741,7 +741,7 @@ class SingleIntegratorRunCore(CUDAFactory):
                     precision=precision,
                     settings=old_settings,
             )
-            self.compile_settings.algorithm = new_algo
+            self.update_compile_settings(algorithm=new_algo)
             self._check_algorithm_consumes_mass(new_algo)
         updates_dict["algorithm"] = new_algo
 
@@ -810,7 +810,9 @@ class SingleIntegratorRunCore(CUDAFactory):
                     precision=precision,
                     settings=old_settings,
             )
-            self.compile_settings.step_controller = new_controller
+            self.update_compile_settings(
+                step_controller=new_controller
+            )
         updates_dict["step_controller"] = new_controller
         return {"step_controller"}
 

@@ -38,7 +38,7 @@ See Also
 from typing import Any, Callable, Optional, Union
 from warnings import warn
 from abc import abstractmethod
-from attrs import define, field
+from attrs import define, field, frozen
 from attrs.validators import instance_of, optional as val_optional
 
 from cubie._utils import (
@@ -70,7 +70,7 @@ class MetricFuncCache(CUDADispatcherCache):
     save: Callable = field(default=None)
 
 
-@define
+@frozen
 class MetricConfig(CUDAFactoryConfig):
     """Configuration for summary metric compilation.
 

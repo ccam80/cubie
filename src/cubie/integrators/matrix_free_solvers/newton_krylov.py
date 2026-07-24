@@ -35,7 +35,7 @@ See Also
 from math import sqrt as math_sqrt
 from typing import Callable, Optional, Set, Dict, Any
 
-from attrs import define, field, validators
+from attrs import define, field, validators, frozen
 from cubie.cuda_simsafe import cuda, int32
 from numpy import finfo as np_finfo
 from numpy import int32 as np_int32
@@ -65,7 +65,7 @@ from cubie.integrators.matrix_free_solvers.linear_solver_base import (
 from cubie.integrators.norms import CorrectionNorm, DIRKCorrectionNorm
 
 
-@define
+@frozen
 class NewtonKrylovConfig(MatrixFreeSolverConfig):
     """Configuration for NewtonKrylov solver compilation.
 

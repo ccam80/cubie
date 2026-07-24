@@ -37,7 +37,7 @@ See Also
 
 from typing import Dict
 
-from attrs import define
+from attrs import frozen
 from numpy import (
     array as np_array,
     asarray as np_asarray,
@@ -49,7 +49,7 @@ from numpy import (
 from cubie.integrators.algorithms.base_algorithm_step import ButcherTableau
 
 
-@define
+@frozen
 class FIRKTableau(ButcherTableau):
     """Coefficient tableau describing a fully implicit RK scheme."""
 

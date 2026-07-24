@@ -24,7 +24,7 @@ See Also
 from math import sqrt as math_sqrt
 from typing import Dict, Any, Optional
 
-from attrs import define, field, validators
+from attrs import field, validators, frozen
 from cubie.cuda_simsafe import cuda, int32
 from numpy import (
     dtype as np_dtype,
@@ -83,7 +83,7 @@ def _default_r0_hat_location(n, precision):
     return "shared" if in_window else "local"
 
 
-@define
+@frozen
 class BiCGSTABSolverConfig(LinearSolverBaseConfig):
     """Configuration for BiCGSTABSolver compilation.
 

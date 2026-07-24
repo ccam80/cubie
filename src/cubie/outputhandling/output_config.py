@@ -33,19 +33,19 @@ See Also
     Parent class providing precision and hashing.
 """
 
-from typing import List, Tuple, Union, Optional, Sequence
+from typing import Any, List, Tuple, Union, Optional, Sequence
 from warnings import warn
 
 from attrs import (
     cmp_using as attrs_cmp_using,
-    define,
     Factory as attrsFactory,
     field,
+    frozen,
 )
 from attrs.validators import instance_of as attrsval_instance_of
 from numpy import (
     any as np_any,
-    arange as np_arange,
+    array as np_array,
     array_equal as np_array_equal,
     asarray as np_asarray,
     int_ as np_int,
@@ -94,7 +94,64 @@ def _indices_validator(
             raise ValueError(f"Duplicate indices found: {duplicates.tolist()}")
 
 
-@define
+def _output_types_converter(value: Any) -> Tuple[str, ...]:
+    """Normalise output type specifications to a tuple of strings."""
+    if value is None:
+        return tuple()
+    if isinstance(value, str):
+        return (value,)
+    if isinstance(value, (list, tuple)):
+        return tuple(value)
+    raise TypeError(
+        f"Output types must be a list or tuple of strings, "
+        f"or a single string. Got {type(value)}"
+    )
+
+
+def _index_array_converter(value: Any) -> NDArray[np_int]:
+    """Copy index specifications into an owned read-only int array."""
+    if value is None:
+        value = []
+    array = np_array(value, dtype=np_int)
+    array.setflags(write=False)
+    return array
+
+
+def _parse_output_types(
+    output_types: Tuple[str, ...],
+) -> tuple[dict[str, bool], Tuple[str, ...]]:
+    """Parse output type names into save flags and summary types.
+
+    Parameters
+    ----------
+    output_types
+        Output type names to parse.
+
+    Returns
+    -------
+    tuple[dict[str, bool], tuple[str, ...]]
+        Flags for the four direct output paths, and the summary metric
+        identifiers in declaration order. Unknown entries trigger
+        warnings but do not raise.
+    """
+    direct_types = ("state", "observables", "time", "iteration_counters")
+    flags = {name: name in output_types for name in direct_types}
+    summary_types = []
+    for output_type in output_types:
+        if any(
+            output_type.startswith(name)
+            for name in summary_metrics.implemented_metrics
+        ):
+            summary_types.append(output_type)
+        elif output_type not in direct_types:
+            warn(
+                f"Summary type '{output_type}' is not implemented. "
+                f"Ignoring."
+            )
+    return flags, tuple(summary_types)
+
+
+@frozen
 class OutputCompileFlags(_CubieConfigBase):
     """Boolean compile-time controls for CUDA output features.
 
@@ -138,7 +195,7 @@ class OutputCompileFlags(_CubieConfigBase):
         super().__attrs_post_init__()
 
 
-@define
+@frozen
 class OutputConfig(CUDAFactoryConfig):
     """Validated configuration for solver outputs and summaries.
 
@@ -182,17 +239,20 @@ class OutputConfig(CUDAFactoryConfig):
 
     _saved_state_indices: Optional[Union[List[int], NDArray[np_int]]] = field(
         default=attrsFactory(list),
+        converter=_index_array_converter,
         eq=attrs_cmp_using(eq=np_array_equal),
     )
     _saved_observable_indices: Optional[Union[List[int], NDArray[np_int]]] = (
         field(
             default=attrsFactory(list),
+            converter=_index_array_converter,
             eq=attrs_cmp_using(eq=np_array_equal),
         )
     )
     _summarised_state_indices: Optional[Union[List[int], NDArray[np_int]]] = (
         field(
             default=attrsFactory(list),
+            converter=_index_array_converter,
             eq=attrs_cmp_using(eq=np_array_equal),
         )
     )
@@ -200,41 +260,54 @@ class OutputConfig(CUDAFactoryConfig):
         Union[List[int], NDArray[np_int]]
     ] = field(
         default=attrsFactory(list),
+        converter=_index_array_converter,
         eq=attrs_cmp_using(eq=np_array_equal),
     )
 
-    _output_types: List[str] = field(default=attrsFactory(list))
-    _save_state: bool = field(default=True, init=False)
-    _save_observables: bool = field(default=True, init=False)
-    _save_time: bool = field(default=False, init=False)
-    _save_counters: bool = field(default=False, init=False)
+    _output_types: Tuple[str, ...] = field(
+        default=attrsFactory(tuple),
+        converter=_output_types_converter,
+    )
+    _save_state: bool = field(
+        default=False, init=False, repr=False, eq=False
+    )
+    _save_observables: bool = field(
+        default=False, init=False, repr=False, eq=False
+    )
+    _save_time: bool = field(
+        default=False, init=False, repr=False, eq=False
+    )
+    _save_counters: bool = field(
+        default=False, init=False, repr=False, eq=False
+    )
     _summary_types: Tuple[str, ...] = field(
-        default=attrsFactory(tuple), init=False
+        default=attrsFactory(tuple), init=False, repr=False, eq=False
     )
     _sample_summaries_every: Optional[float] = field(
         default=None, validator=opt_gttype_validator(float, 0.0)
     )
 
     def __attrs_post_init__(self) -> None:
-        """Perform post-initialisation validation and setup.
+        """Derive output flags and validate the snapshot.
 
-        Notes
-        -----
-        Runs after object creation to populate default arrays, validate
-        indices, and confirm that at least one output path is enabled.
+        Every snapshot — construction or update-derived replacement —
+        recomputes the derived flags from ``output_types``, validates
+        index bounds, and confirms at least one output path is active,
+        so derived state can never go stale.
         """
         super().__attrs_post_init__()
-        self.validation_passes()
-
-    def validation_passes(self) -> None:
-        """Run all validation checks on the current configuration.
-
-        Applies default indices, validates bounds, and ensures at least
-        one output path is active.
-        """
-        self.update_from_outputs_list(self._output_types)
-        self._check_saved_indices()
-        self._check_summarised_indices()
+        flags, summary_types = _parse_output_types(self._output_types)
+        # Frozen attrs require object.__setattr__ to install derived
+        # init=False fields on the new snapshot.
+        object.__setattr__(self, "_save_state", flags["state"])
+        object.__setattr__(
+            self, "_save_observables", flags["observables"]
+        )
+        object.__setattr__(self, "_save_time", flags["time"])
+        object.__setattr__(
+            self, "_save_counters", flags["iteration_counters"]
+        )
+        object.__setattr__(self, "_summary_types", summary_types)
         self._validate_index_arrays()
         self._check_for_no_outputs()
 
@@ -282,87 +355,15 @@ class OutputConfig(CUDAFactoryConfig):
                 "observables, time, iteration_counters, summaries)"
             )
 
-    def _check_saved_indices(self) -> None:
-        """Convert saved indices to numpy arrays.
-
-        Notes
-        -----
-        Converts index collections to numpy int arrays.
-        """
-        self._saved_state_indices = np_asarray(
-            self._saved_state_indices, dtype=np_int
-        )
-        self._saved_observable_indices = np_asarray(
-            self._saved_observable_indices, dtype=np_int
-        )
-
-    def _check_summarised_indices(self) -> None:
-        """Convert summarised indices to numpy arrays.
-
-        Notes
-        -----
-        Converts index collections to numpy int arrays.
-        """
-        self._summarised_state_indices = np_asarray(
-            self._summarised_state_indices, dtype=np_int
-        )
-        self._summarised_observable_indices = np_asarray(
-            self._summarised_observable_indices, dtype=np_int
-        )
-
     @property
     def max_states(self) -> int:
         """Maximum number of states."""
         return self._max_states
 
-    @max_states.setter
-    def max_states(self, value: int) -> None:
-        """Set the maximum number of states and refresh dependent indices.
-
-        Parameters
-        ----------
-        value
-            New maximum number of states.
-
-        Notes
-        -----
-        When saved indices currently span the full range they are expanded to
-        the new size before validation reruns.
-        """
-        if np_array_equal(
-            self._saved_state_indices,
-            np_arange(self.max_states, dtype=np_int),
-        ):
-            self._saved_state_indices = np_arange(value, dtype=np_int)
-        self._max_states = value
-        self.__attrs_post_init__()
-
     @property
     def max_observables(self) -> int:
         """Maximum number of observables."""
         return self._max_observables
-
-    @max_observables.setter
-    def max_observables(self, value: int) -> None:
-        """Set the maximum number of observables and refresh saved indices.
-
-        Parameters
-        ----------
-        value
-            New maximum number of observables.
-
-        Notes
-        -----
-        When saved indices span the full observable range they expand to the
-        new size before validation reruns.
-        """
-        if np_array_equal(
-            self._saved_observable_indices,
-            np_arange(self.max_observables, dtype=np_int),
-        ):
-            self._saved_observable_indices = np_arange(value, dtype=np_int)
-        self._max_observables = value
-        self.__attrs_post_init__()
 
     @property
     def save_state(self) -> bool:
@@ -427,42 +428,12 @@ class OutputConfig(CUDAFactoryConfig):
             return np_asarray([], dtype=np_int)
         return self._saved_state_indices
 
-    @saved_state_indices.setter
-    def saved_state_indices(
-        self, value: Union[Sequence[int], NDArray[np_int]]
-    ) -> None:
-        """Set the state indices that will be saved.
-
-        Parameters
-        ----------
-        value
-            State indices to save.
-        """
-        self._saved_state_indices = np_asarray(value, dtype=np_int)
-        self._validate_index_arrays()
-        self._check_for_no_outputs()
-
     @property
     def saved_observable_indices(self) -> NDArray[np_int]:
         """Observable indices to save, or an empty array when disabled."""
         if not self._save_observables:
             return np_asarray([], dtype=np_int)
         return self._saved_observable_indices
-
-    @saved_observable_indices.setter
-    def saved_observable_indices(
-        self, value: Union[Sequence[int], NDArray[np_int]]
-    ) -> None:
-        """Set the observable indices that will be saved.
-
-        Parameters
-        ----------
-        value
-            Observable indices to save.
-        """
-        self._saved_observable_indices = np_asarray(value, dtype=np_int)
-        self._validate_index_arrays()
-        self._check_for_no_outputs()
 
     @property
     def summarised_state_indices(self) -> NDArray[np_int]:
@@ -471,42 +442,12 @@ class OutputConfig(CUDAFactoryConfig):
             return np_asarray([], dtype=np_int)
         return self._summarised_state_indices
 
-    @summarised_state_indices.setter
-    def summarised_state_indices(
-        self, value: Union[Sequence[int], NDArray[np_int]]
-    ) -> None:
-        """Set the state indices used for summary calculations.
-
-        Parameters
-        ----------
-        value
-            State indices for summary calculations.
-        """
-        self._summarised_state_indices = np_asarray(value, dtype=np_int)
-        self._validate_index_arrays()
-        self._check_for_no_outputs()
-
     @property
     def summarised_observable_indices(self) -> NDArray[np_int]:
         """Observable indices for summaries, or an empty array when disabled."""
         if not self.save_summaries:
             return np_asarray([], dtype=np_int)
         return self._summarised_observable_indices
-
-    @summarised_observable_indices.setter
-    def summarised_observable_indices(
-        self, value: Union[Sequence[int], NDArray[np_int]]
-    ) -> None:
-        """Set the observable indices used for summary calculations.
-
-        Parameters
-        ----------
-        value
-            Observable indices for summary calculations.
-        """
-        self._summarised_observable_indices = np_asarray(value, dtype=np_int)
-        self._validate_index_arrays()
-        self._check_for_no_outputs()
 
     @property
     def n_saved_states(self) -> int:
@@ -744,94 +685,9 @@ class OutputConfig(CUDAFactoryConfig):
         }
 
     @property
-    def output_types(self) -> List[str]:
+    def output_types(self) -> Tuple[str, ...]:
         """Configured output type names in declaration order."""
         return self._output_types
-
-    @output_types.setter
-    def output_types(self, value: Sequence[str]) -> None:
-        """Set output types and update configuration accordingly.
-
-        Parameters
-        ----------
-        value
-            Output types to configure. Accepts a list, tuple, or single string.
-
-        Raises
-        ------
-        TypeError
-            Raised when *value* is not a supported sequence type.
-        """
-        if isinstance(value, tuple):
-            value = list(value)
-        if isinstance(value, str):
-            value = [value]
-        if not isinstance(value, list):
-            raise TypeError(
-                f"Output types must be a list or tuple of strings, "
-                f"or a single string. Got {type(value)}"
-            )
-
-        self.update_from_outputs_list(value)
-        self._check_for_no_outputs()
-
-    def update_from_outputs_list(
-        self,
-        output_types: list[str],
-    ) -> None:
-        """Update configuration from a list of output type names.
-
-        Parameters
-        ----------
-        output_types
-            Output type names to configure.
-
-        Notes
-        -----
-        Parses the list to set boolean flags and collect summary metric
-        selections. Unknown entries trigger warnings but do not raise
-        exceptions.
-        """
-        if not output_types:
-            self._output_types = []
-            self._summary_types = tuple()
-            self._save_state = False
-            self._save_observables = False
-            self._save_time = False
-            self._save_counters = False
-
-        else:
-            self._output_types = output_types
-            self._save_state = "state" in output_types
-            self._save_observables = "observables" in output_types
-            self._save_time = "time" in output_types
-            self._save_counters = "iteration_counters" in output_types
-
-            summary_types = []
-            for output_type in output_types:
-                if any(
-                    (
-                        output_type.startswith(name)
-                        for name in summary_metrics.implemented_metrics
-                    )
-                ):
-                    summary_types.append(output_type)
-                elif output_type in [
-                    "state",
-                    "observables",
-                    "time",
-                    "iteration_counters",
-                ]:
-                    continue
-                else:
-                    warn(
-                        f"Summary type '{output_type}' is not implemented. "
-                        f"Ignoring."
-                    )
-
-            self._summary_types = tuple(summary_types)
-
-            self._check_for_no_outputs()
 
     @classmethod
     def from_loop_settings(
@@ -895,7 +751,7 @@ class OutputConfig(CUDAFactoryConfig):
         to empty arrays.
         """
         # Set boolean compile flags for output types
-        output_types = output_types.copy()
+        output_types = list(output_types)
 
         # OutputConfig doesn't play as nicely with Nones as the rest of python does
         if saved_state_indices is None:

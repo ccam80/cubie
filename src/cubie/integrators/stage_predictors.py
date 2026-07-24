@@ -52,7 +52,7 @@ See Also
 
 from typing import Callable
 
-from attrs import define, field, validators
+from attrs import define, field, validators, frozen
 from numpy import asarray as np_asarray
 from numpy import ndarray as np_ndarray
 from numpy import zeros as np_zeros
@@ -300,7 +300,7 @@ def tableau_supports_dense_prediction(
     return True
 
 
-@define
+@frozen
 class DenseStagePredictorConfig(CUDAFactoryConfig):
     """Compile settings for :class:`DenseStagePredictor`.
 

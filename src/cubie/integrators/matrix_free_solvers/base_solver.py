@@ -30,7 +30,7 @@ See Also
 
 from typing import Any, Callable, Dict, Optional, Set
 
-from attrs import define, field
+from attrs import field, frozen
 from numpy import ndarray
 
 from cubie._utils import (
@@ -45,7 +45,7 @@ from cubie.CUDAFactory import (
 from cubie.integrators.norms import ScaledNorm
 
 
-@define
+@frozen
 class MatrixFreeSolverConfig(MultipleInstanceCUDAFactoryConfig):
     """Base configuration for matrix-free solver factories.
 

@@ -86,12 +86,12 @@ def test_compile_flags_bool_validation():
         OutputCompileFlags(save_state=1)
 
 
-def test_compile_flags_post_init_populates_hash():
-    """__attrs_post_init__ calls super, populating _values_hash."""
+def test_compile_flags_hash_stable():
+    """Equal flag snapshots share a values_hash."""
     f1 = OutputCompileFlags(save_state=True)
     f2 = OutputCompileFlags(save_state=True)
-    assert f1._values_hash == f2._values_hash
-    assert f1._values_hash != ""
+    assert f1.values_hash == f2.values_hash
+    assert len(f1.values_hash) == 64
 
 
 # -- OutputConfig construction & validation_passes ------------------------ #
@@ -182,7 +182,7 @@ def test_check_for_no_outputs_passes_each_branch(output_types):
         output_types=output_types,
         precision=np.float32,
     )
-    assert cfg.output_types == output_types
+    assert cfg.output_types == tuple(output_types)
 
 
 # -- max_states / max_observables properties + setters -------------------- #
@@ -199,32 +199,57 @@ def test_max_states_getter():
     assert cfg.max_states == 7
 
 
-def test_max_states_setter_full_range_expands():
-    """When saved indices span full range, setter expands to new size."""
+def test_max_states_assignment_raises():
+    """Snapshots are immutable: direct assignment raises."""
     cfg = OutputConfig(
         max_states=3, max_observables=2,
         saved_state_indices=np.arange(3, dtype=np.int_),
         output_types=["state"], precision=np.float32,
     )
-    cfg.max_states = 5
-    assert cfg.max_states == 5
-    assert_array_equal(
-        cfg.saved_state_indices, np.arange(5, dtype=np.int_)
-    )
+    with pytest.raises(AttributeError):
+        cfg.max_states = 5
 
 
-def test_max_states_setter_partial_range_unchanged():
-    """When indices don't span full range, leaves them unchanged."""
+def test_index_arrays_are_sealed_owned_copies():
+    """Snapshots are deeply sealed, not just top-level frozen.
+
+    A dtype-matching input array is copied, not aliased; the index
+    properties return read-only storage; and the memoized
+    ``values_hash`` therefore cannot be desynchronised by mutating
+    either the constructor input or a returned property.
+    """
+    caller_indices = np.array([0, 1], dtype=np.int_)
     cfg = OutputConfig(
-        max_states=5, max_observables=2,
-        saved_state_indices=[0, 1],
+        max_states=3, max_observables=2,
+        saved_state_indices=caller_indices,
         output_types=["state"], precision=np.float32,
     )
-    cfg.max_states = 10
-    assert cfg.max_states == 10
+    digest = cfg.values_hash
+
+    # Mutating the caller's own array never reaches the snapshot.
+    caller_indices[0] = 2
     assert_array_equal(
         cfg.saved_state_indices, np.array([0, 1], dtype=np.int_)
     )
+
+    # The returned property is read-only storage.
+    with pytest.raises(ValueError):
+        cfg.saved_state_indices[0] = 2
+
+    # The memoized digest still matches an equal fresh snapshot.
+    assert cfg.values_hash == digest
+    fresh = OutputConfig(
+        max_states=3, max_observables=2,
+        saved_state_indices=np.array([0, 1], dtype=np.int_),
+        output_types=["state"], precision=np.float32,
+    )
+    assert fresh.values_hash == digest
+    different = OutputConfig(
+        max_states=3, max_observables=2,
+        saved_state_indices=np.array([2, 1], dtype=np.int_),
+        output_types=["state"], precision=np.float32,
+    )
+    assert different.values_hash != digest
 
 
 def test_max_observables_getter():
@@ -236,31 +261,19 @@ def test_max_observables_getter():
     assert cfg.max_observables == 7
 
 
-def test_max_observables_setter_full_range_expands():
-    """When observable indices span full range, setter expands."""
-    cfg = OutputConfig(
-        max_states=3, max_observables=3,
-        saved_observable_indices=np.arange(3, dtype=np.int_),
-        output_types=["observables"], precision=np.float32,
-    )
-    cfg.max_observables = 6
-    assert cfg.max_observables == 6
-    assert_array_equal(
-        cfg.saved_observable_indices, np.arange(6, dtype=np.int_)
-    )
-
-
-def test_max_observables_setter_partial_unchanged():
-    """When observable indices not full range, leaves unchanged."""
+def test_max_observables_update_derives_replacement():
+    """max_observables changes through the pure update path."""
     cfg = OutputConfig(
         max_states=3, max_observables=5,
         saved_observable_indices=[0, 2],
         output_types=["observables"], precision=np.float32,
     )
-    cfg.max_observables = 10
-    assert cfg.max_observables == 10
+    replacement, _, changed = cfg.update({"max_observables": 10})
+    assert "max_observables" in changed
+    assert replacement.max_observables == 10
+    assert cfg.max_observables == 5
     assert_array_equal(
-        cfg.saved_observable_indices,
+        replacement.saved_observable_indices,
         np.array([0, 2], dtype=np.int_),
     )
 
@@ -502,9 +515,10 @@ def test_saved_state_indices_setter():
         saved_state_indices=[0, 1],
         output_types=["state"], precision=np.float32,
     )
-    cfg.saved_state_indices = [0, 3]
+    replacement, _, changed = cfg.update({"saved_state_indices": [0, 3]})
+    assert "saved_state_indices" in changed
     assert_array_equal(
-        cfg.saved_state_indices,
+        replacement.saved_state_indices,
         np.array([0, 3], dtype=np.int_),
     )
 
@@ -539,9 +553,12 @@ def test_saved_observable_indices_setter():
         saved_observable_indices=[0],
         output_types=["observables"], precision=np.float32,
     )
-    cfg.saved_observable_indices = [0, 4]
+    replacement, _, changed = cfg.update(
+        {"saved_observable_indices": [0, 4]}
+    )
+    assert "saved_observable_indices" in changed
     assert_array_equal(
-        cfg.saved_observable_indices,
+        replacement.saved_observable_indices,
         np.array([0, 4], dtype=np.int_),
     )
 
@@ -578,9 +595,12 @@ def test_summarised_state_indices_setter():
         summarised_state_indices=[0],
         output_types=["mean"], precision=np.float32,
     )
-    cfg.summarised_state_indices = [0, 3]
+    replacement, _, changed = cfg.update(
+        {"summarised_state_indices": [0, 3]}
+    )
+    assert "summarised_state_indices" in changed
     assert_array_equal(
-        cfg.summarised_state_indices,
+        replacement.summarised_state_indices,
         np.array([0, 3], dtype=np.int_),
     )
 
@@ -617,9 +637,12 @@ def test_summarised_observable_indices_setter():
         summarised_observable_indices=[0],
         output_types=["mean"], precision=np.float32,
     )
-    cfg.summarised_observable_indices = [0, 3]
+    replacement, _, changed = cfg.update(
+        {"summarised_observable_indices": [0, 3]}
+    )
+    assert "summarised_observable_indices" in changed
     assert_array_equal(
-        cfg.summarised_observable_indices,
+        replacement.summarised_observable_indices,
         np.array([0, 3], dtype=np.int_),
     )
 
@@ -1003,42 +1026,47 @@ def test_buffer_sizes_dict():
 
 
 def test_output_types_getter():
-    """Getter returns _output_types list."""
+    """Getter returns the normalised output-types tuple."""
     cfg = OutputConfig(
         max_states=3, max_observables=2,
         output_types=["state", "time"],
         saved_state_indices=[0],
         precision=np.float32,
     )
-    assert cfg.output_types == ["state", "time"]
+    assert cfg.output_types == ("state", "time")
 
 
-def test_output_types_setter_tuple():
-    """Setter accepts tuple (converts to list)."""
+def test_output_types_update_tuple():
+    """Update accepts a tuple and derives the flags."""
     cfg = OutputConfig(
         max_states=3, max_observables=2,
         output_types=["state"],
         saved_state_indices=[0],
         precision=np.float32,
     )
-    cfg.output_types = ("state", "time")
-    assert cfg.save_time is True
+    replacement, _, changed = cfg.update(
+        {"output_types": ("state", "time")}
+    )
+    assert "output_types" in changed
+    assert replacement.save_time is True
+    assert cfg.save_time is False
 
 
-def test_output_types_setter_string():
-    """Setter accepts string (wraps in list)."""
+def test_output_types_update_string():
+    """A bare string normalises to a one-entry tuple."""
     cfg = OutputConfig(
         max_states=3, max_observables=2,
         output_types=["state"],
         saved_state_indices=[0],
         precision=np.float32,
     )
-    cfg.output_types = "time"
-    assert cfg.save_time is True
+    replacement, _, _ = cfg.update({"output_types": "time"})
+    assert replacement.save_time is True
+    assert replacement.output_types == ("time",)
 
 
-def test_output_types_setter_bad_type():
-    """Setter raises TypeError for unsupported type."""
+def test_output_types_bad_type_raises():
+    """The converter raises TypeError for unsupported input."""
     cfg = OutputConfig(
         max_states=3, max_observables=2,
         output_types=["state"],
@@ -1046,81 +1074,84 @@ def test_output_types_setter_bad_type():
         precision=np.float32,
     )
     with pytest.raises(TypeError, match="Output types must be"):
-        cfg.output_types = 42
+        cfg.update({"output_types": 42})
 
 
 # -- update_from_outputs_list --------------------------------------------- #
 
 
-def test_update_from_outputs_list_empty():
-    """Empty list clears all flags and summary types."""
+def test_output_types_update_empty_raises():
+    """An empty output-types update leaves no active output path."""
     cfg = OutputConfig(
         max_states=3, max_observables=2,
         output_types=["state", "mean"],
         saved_state_indices=[0],
         precision=np.float32,
     )
-    cfg.update_from_outputs_list([])
+    with pytest.raises(ValueError, match="At least one output type"):
+        cfg.update({"output_types": []})
+
+
+def test_output_types_update_sets_state():
+    """The replacement derives _save_state from the new list."""
+    cfg = OutputConfig(
+        max_states=3, max_observables=2,
+        output_types=["time"], precision=np.float32,
+    )
+    replacement, _, _ = cfg.update({"output_types": ["state", "time"]})
+    assert replacement._save_state is True
     assert cfg._save_state is False
-    assert cfg._save_observables is False
-    assert cfg._save_time is False
-    assert cfg._save_counters is False
-    assert cfg._summary_types == ()
 
 
-def test_update_from_outputs_list_sets_state():
-    """Sets _save_state True when 'state' in list."""
+def test_output_types_update_sets_observables():
+    """The replacement derives _save_observables from the new list."""
     cfg = OutputConfig(
         max_states=3, max_observables=2,
         output_types=["time"], precision=np.float32,
     )
-    cfg.update_from_outputs_list(["state", "time"])
-    assert cfg._save_state is True
-
-
-def test_update_from_outputs_list_sets_observables():
-    """Sets _save_observables True when 'observables' in list."""
-    cfg = OutputConfig(
-        max_states=3, max_observables=2,
-        output_types=["time"], precision=np.float32,
+    replacement, _, _ = cfg.update(
+        {"output_types": ["observables", "time"]}
     )
-    cfg.update_from_outputs_list(["observables", "time"])
-    assert cfg._save_observables is True
+    assert replacement._save_observables is True
 
 
-def test_update_from_outputs_list_sets_time():
-    """Sets _save_time True when 'time' in list."""
+def test_output_types_update_sets_time():
+    """The replacement derives _save_time from the new list."""
     cfg = OutputConfig(
         max_states=3, max_observables=2,
         output_types=["state"],
         saved_state_indices=[0],
         precision=np.float32,
     )
-    cfg.update_from_outputs_list(["time"])
-    assert cfg._save_time is True
+    replacement, _, _ = cfg.update({"output_types": ["time"]})
+    assert replacement._save_time is True
 
 
-def test_update_from_outputs_list_sets_counters():
-    """Sets _save_counters True for 'iteration_counters'."""
+def test_output_types_update_sets_counters():
+    """The replacement derives _save_counters for iteration counters."""
     cfg = OutputConfig(
         max_states=3, max_observables=2,
         output_types=["time"], precision=np.float32,
     )
-    cfg.update_from_outputs_list(["iteration_counters"])
-    assert cfg._save_counters is True
+    replacement, _, _ = cfg.update(
+        {"output_types": ["iteration_counters"]}
+    )
+    assert replacement._save_counters is True
 
 
-def test_update_from_outputs_list_collects_summaries():
-    """Collects summary types matching implemented_metrics."""
+def test_output_types_update_collects_summaries():
+    """Summary types matching implemented metrics are collected."""
     cfg = OutputConfig(
         max_states=3, max_observables=2,
         output_types=["time"], precision=np.float32,
     )
-    cfg.update_from_outputs_list(["mean", "rms", "time"])
-    assert cfg._summary_types == ("mean", "rms")
+    replacement, _, _ = cfg.update(
+        {"output_types": ["mean", "rms", "time"]}
+    )
+    assert replacement._summary_types == ("mean", "rms")
 
 
-def test_update_from_outputs_list_warns_unknown():
+def test_output_types_update_warns_unknown():
     """Warns for unrecognised output types."""
     cfg = OutputConfig(
         max_states=3, max_observables=2,
@@ -1128,11 +1159,11 @@ def test_update_from_outputs_list_warns_unknown():
     )
     with warnings.catch_warnings(record=True) as caught:
         warnings.simplefilter("always")
-        cfg.update_from_outputs_list(
-            ["bogus_metric", "time"]
-        )
+        cfg.update({"output_types": ["bogus_metric", "time"]})
         assert len(caught) >= 1
-        assert "is not implemented" in str(caught[0].message)
+        assert any(
+            "is not implemented" in str(w.message) for w in caught
+        )
 
 
 # -- from_loop_settings --------------------------------------------------- #

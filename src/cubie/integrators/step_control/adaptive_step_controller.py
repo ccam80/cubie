@@ -25,7 +25,7 @@ from abc import abstractmethod
 from typing import Callable, Optional
 
 from numpy import ndarray, sqrt
-from attrs import define, field
+from attrs import field, frozen
 
 from cubie._utils import (
     PrecisionDType,
@@ -40,7 +40,7 @@ from cubie.integrators.step_control.base_step_controller import (
 )
 
 
-@define
+@frozen
 class AdaptiveStepControlConfig(BaseStepControllerConfig):
     """Configuration for adaptive step controllers.
 

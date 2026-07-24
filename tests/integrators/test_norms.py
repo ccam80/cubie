@@ -44,6 +44,25 @@ def test_config_custom_tolerances():
     assert cfg.atol.shape == (3,)
 
 
+def test_config_tolerance_arrays_sealed_after_hashing():
+    """Stored tolerances cannot change under a memoized hash."""
+    caller_atol = np.array([1e-4, 1e-5, 1e-6], dtype=np.float32)
+    cfg = ScaledNormConfig(
+        precision=np.float32, n=3, atol=caller_atol, rtol=1e-4
+    )
+    hash_before = cfg.values_hash
+
+    assert cfg.atol is not caller_atol
+    with pytest.raises(ValueError):
+        cfg.atol[0] = 5.0
+    with pytest.raises(ValueError):
+        cfg.rtol[0] = 5.0
+
+    caller_atol[0] = 5.0
+    assert cfg.atol[0] == np.float32(1e-4)
+    assert cfg.values_hash == hash_before
+
+
 def test_config_scalar_tolerance_broadcast():
     """Scalar tolerance is broadcast to array of length n."""
     cfg = ScaledNormConfig(precision=np.float64, n=4, atol=1e-5, rtol=1e-4)
@@ -86,12 +105,6 @@ def test_config_tol_floor():
     assert cfg.tol_floor == pytest.approx(1e-16)
 
 
-def test_config_n_changing_not_in_init():
-    """_n_changing is internal, not exposed in init."""
-    cfg = ScaledNormConfig(precision=np.float64, n=2)
-    assert cfg._n_changing is False
-
-
 def test_config_atol_prefixed_metadata():
     """atol field has prefixed=True metadata."""
     for f in ScaledNormConfig.__attrs_attrs__:
@@ -108,48 +121,47 @@ def test_config_rtol_prefixed_metadata():
             break
 
 
-# ── resize_tolerances ────────────────────────────────────── #
+# ── tolerance sizing through the update path ─────────────── #
 
 
 def test_resize_uniform_tolerances_on_n_change():
     """Uniform tolerance arrays expand when n changes."""
     cfg = ScaledNormConfig(precision=np.float64, n=2, atol=1e-5, rtol=1e-4)
     assert cfg.atol.shape == (2,)
-    cfg.n = 5
-    assert cfg.atol.shape == (5,)
-    assert cfg.rtol.shape == (5,)
-    assert_allclose(cfg.atol, np.full(5, 1e-5))
-    assert_allclose(cfg.rtol, np.full(5, 1e-4))
+    replacement, _, changed = cfg.update({"n": 5})
+    assert "n" in changed
+    assert replacement.atol.shape == (5,)
+    assert replacement.rtol.shape == (5,)
+    assert_allclose(replacement.atol, np.full(5, 1e-5))
+    assert_allclose(replacement.rtol, np.full(5, 1e-4))
+    # Original snapshot untouched
+    assert cfg.atol.shape == (2,)
 
 
 def test_resize_skips_matching_length():
     """Tolerances already matching n are not modified."""
     atol = np.array([1e-4, 1e-5, 1e-6], dtype=np.float64)
     cfg = ScaledNormConfig(precision=np.float64, n=3, atol=atol, rtol=1e-3)
-    original_atol = cfg.atol.copy()
-    cfg.n = 3  # same size
-    assert_allclose(cfg.atol, original_atol)
+    replacement, _, changed = cfg.update({"n": 3})  # same size
+    assert changed == set()
+    assert_allclose(replacement.atol, atol)
 
 
-def test_resize_leaves_nonuniform_unchanged():
-    """Non-uniform tolerance arrays are left unchanged on n resize."""
+def test_resize_nonuniform_wrong_length_raises():
+    """A non-uniform tolerance of the wrong length fails the update.
+
+    Update ``n`` and the tolerance arrays together in one call to
+    change both.
+    """
     atol = np.array([1e-4, 1e-5], dtype=np.float64)
     cfg = ScaledNormConfig(precision=np.float64, n=2, atol=atol, rtol=1e-3)
-    original_atol = cfg.atol.copy()
-    cfg.n = 5
-    # atol was non-uniform, so it's not resized (left as-is)
-    assert_allclose(cfg.atol, original_atol)
-
-
-def test_resize_sets_n_changing_flag():
-    """_n_changing is True during resize, False after."""
-    cfg = ScaledNormConfig(precision=np.float64, n=2, atol=1e-5, rtol=1e-4)
-    # After construction, _n_changing should be False
-    assert cfg._n_changing is False
-    # We can verify the flag was toggled by checking that resize completed
-    # (the flag is set/unset within resize_tolerances)
-    cfg.n = 4
-    assert cfg._n_changing is False
+    with pytest.raises(ValueError, match="shape"):
+        cfg.update({"n": 5})
+    # A combined update supplies consistent values in one snapshot.
+    new_atol = np.array([1e-4, 1e-5, 1e-6, 1e-7, 1e-8], dtype=np.float64)
+    replacement, _, changed = cfg.update({"n": 5, "atol": new_atol})
+    assert replacement.atol.shape == (5,)
+    assert_allclose(replacement.atol, new_atol)
 
 
 # ── ScaledNormCache ──────────────────────────────────────── #

@@ -25,7 +25,7 @@ See Also
 
 from typing import Callable, Optional
 
-from attrs import define, field, validators
+from attrs import field, validators, frozen
 from cubie.cuda_simsafe import cuda, int32
 
 from cubie._utils import PrecisionDType, build_config
@@ -58,7 +58,7 @@ deadband, and safety factor follow Hairer & Wanner's RADAU5
 """
 
 
-@define
+@frozen
 class CrankNicolsonStepConfig(ImplicitStepConfig):
     """Configuration for Crank-Nicolson step."""
 

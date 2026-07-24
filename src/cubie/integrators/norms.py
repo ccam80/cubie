@@ -2,9 +2,9 @@
 
 from typing import Callable
 
-from numpy import asarray, ndarray, all, full
+from numpy import asarray, ndarray
 from cubie.cuda_simsafe import cuda, int32
-from attrs import define, field, Converter
+from attrs import define, field, Converter, frozen
 
 from cubie._utils import (
     PrecisionDType,
@@ -21,46 +21,7 @@ from cubie.CUDAFactory import (
 )
 
 
-def resize_tolerances(instance, attribute, value):
-    """Resize tolerance arrays to match configured vector size.
-
-    Parameters
-    ----------
-    instance : ScaledNormConfig
-        Instance of ScaledNormConfig being modified.
-    attribute : attrs.Attribute
-        Attribute being set (``n``).
-    value : int
-        New vector size.
-
-    Notes
-    -----
-    This is only useful (and valid) when the tolerance arrays were set from
-    a scalar value. That is the only case where it's safe to assume that the
-    user wants the same tolerance applied to all elements. If tolerance is a
-    non-equal array then we leave it unchanged, presuming an update to
-    tolerance is incoming shortly. If it isn't the consumer will fail,
-    as expected.
-    """
-    n = value
-    tols = ("atol", "rtol")
-    instance._n_changing = True
-    for tol in tols:
-        tolarray = getattr(instance, tol)
-        if tolarray.shape[0] == n:
-            continue
-        # If all values are the same, then expand to new size
-        if all(tolarray == tolarray[0]):
-            setattr(
-                instance,
-                tol,
-                full(n, tolarray[0], dtype=instance.precision),
-            )
-    instance._n_changing = False
-    return value
-
-
-@define
+@frozen
 class ScaledNormConfig(MultipleInstanceCUDAFactoryConfig):
     """Configure a scaled norm.
 
@@ -72,12 +33,20 @@ class ScaledNormConfig(MultipleInstanceCUDAFactoryConfig):
         Absolute tolerance array of shape (n,).
     rtol : ndarray
         Relative tolerance array of shape (n,).
+
+    Notes
+    -----
+    Tolerance sizing follows ``n`` through the converter: every
+    snapshot (construction or update-derived replacement) re-runs
+    :func:`cubie._utils.tol_converter`, which broadcasts scalar or
+    uniform-array specifications to shape ``(n,)``. A non-uniform
+    array of the wrong length raises at the write boundary; update
+    ``n`` and the tolerance arrays together in one call.
     """
 
     n: int = field(
         default=1,
         validator=getype_validator(int, 1),
-        on_setattr=resize_tolerances,
     )
     atol: ndarray = field(
         default=asarray([1e-6]),
@@ -91,8 +60,6 @@ class ScaledNormConfig(MultipleInstanceCUDAFactoryConfig):
         converter=Converter(tol_converter, takes_self=True),
         metadata={"prefixed": True},
     )
-
-    _n_changing: bool = field(default=False, init=False, repr=False, eq=False)
 
     def __attrs_post_init__(self):
         super().__attrs_post_init__()
@@ -108,7 +75,7 @@ class ScaledNormConfig(MultipleInstanceCUDAFactoryConfig):
         return self.precision(1e-16)
 
 
-@define
+@frozen
 class FIRKCorrectionNormConfig(ScaledNormConfig):
     """Configure a coupled FIRK correction norm.
 
@@ -275,7 +242,7 @@ class ScaledNorm(MultipleInstanceCUDAFactory):
         return self.compile_settings.rtol
 
 
-@define
+@frozen
 class TiledScaledNormConfig(ScaledNormConfig):
     """Configure a scaled norm with a stage-tiled reference.
 

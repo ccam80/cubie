@@ -3,6 +3,7 @@
 import numpy as np
 import pytest
 import attrs
+from attrs.exceptions import FrozenInstanceError
 
 from cubie.CUDAFactory import (
     CUDAFactory,
@@ -11,7 +12,8 @@ from cubie.CUDAFactory import (
     MultipleInstanceCUDAFactory,
     MultipleInstanceCUDAFactoryConfig,
     _CubieConfigBase,
-    hash_tuple,
+    _config_field_map,
+    _nested_config_fields,
     attribute_is_hashable,
 )
 from cubie.buffer_registry import buffer_registry
@@ -49,12 +51,16 @@ def _make_factory(build_fn=None):
 
 
 def _make_config(**overrides):
-    """Return a minimal _CubieConfigBase subclass instance."""
+    """Return a minimal frozen _CubieConfigBase subclass instance."""
     defaults = {"value1": 10, "value2": "test"}
     defaults.update(overrides)
     keys = list(defaults.keys())
     cls = attrs.make_class(
-        "_TestConfig", keys, bases=(_CubieConfigBase,)
+        "_TestConfig",
+        keys,
+        bases=(_CubieConfigBase,),
+        frozen=True,
+        slots=True,
     )
     return cls(**defaults)
 
@@ -67,52 +73,12 @@ def _make_factory_with_settings(precision=np.float32):
     return factory
 
 
-# ── hash_tuple ─────────────────────────────────────────────── #
-
-
-def test_hash_tuple_none_serialized():
-    """None values serialize as the string 'None'."""
-    h = hash_tuple((None,))
-    assert len(h) == 64
-    # Deterministic: same input -> same output
-    assert h == hash_tuple((None,))
-    # Different from a tuple with an int
-    assert h != hash_tuple((0,))
-
-
-def test_hash_tuple_ndarray_hashed_by_bytes():
-    """ndarray values incorporate bytes, shape, and dtype."""
-    a = np.array([1.0, 2.0], dtype=np.float32)
-    b = np.array([1.0, 2.0], dtype=np.float64)
-    # Same values, different dtype -> different hash
-    assert hash_tuple((a,)) != hash_tuple((b,))
-    # Same array -> same hash
-    assert hash_tuple((a,)) == hash_tuple((a.copy(),))
-
-
-def test_hash_tuple_str_serialization():
-    """Other values serialize via str()."""
-    h = hash_tuple((42, "hello"))
-    assert len(h) == 64
-    # Deterministic
-    assert h == hash_tuple((42, "hello"))
-    # Different values -> different hash
-    assert h != hash_tuple((43, "hello"))
-
-
-def test_hash_tuple_returns_64_char_hex():
-    """Returns a 64-character SHA256 hex digest."""
-    h = hash_tuple(("a", 1, 2.0))
-    assert len(h) == 64
-    assert all(c in "0123456789abcdef" for c in h)
-
-
 # ── attribute_is_hashable ──────────────────────────────────── #
 
 
 def test_attribute_is_hashable_eq_false():
     """Returns False when attribute.eq is False."""
-    @attrs.define
+    @attrs.frozen
     class _C:
         x: int = attrs.field(default=1, eq=False)
 
@@ -122,7 +88,7 @@ def test_attribute_is_hashable_eq_false():
 
 def test_attribute_is_hashable_eq_true():
     """Returns True for normal attributes."""
-    @attrs.define
+    @attrs.frozen
     class _C:
         x: int = 1
 
@@ -130,52 +96,55 @@ def test_attribute_is_hashable_eq_true():
     assert attribute_is_hashable(fld, 1) is True
 
 
-# ── _CubieConfigBase __attrs_post_init__ ───────────────────── #
+# ── Immutability ───────────────────────────────────────────── #
 
 
-def test_post_init_builds_field_map_from_name_and_alias():
-    """field_map contains both field names and aliases."""
-    @attrs.define
+def test_direct_assignment_raises():
+    """Direct field assignment on a config snapshot raises."""
+    c = _make_config()
+    with pytest.raises(FrozenInstanceError):
+        c.value1 = 99
+
+
+def test_factory_settings_assignment_raises():
+    """Assignment through a factory's compile_settings raises."""
+    f = _make_factory_with_settings()
+    with pytest.raises(FrozenInstanceError):
+        f.compile_settings.flag = True
+
+
+# ── class-level field maps ─────────────────────────────────── #
+
+
+def test_field_map_contains_name_and_alias():
+    """The class field map contains both field names and aliases."""
+    @attrs.frozen
     class _C(_CubieConfigBase):
         _val: int = attrs.field(default=1, alias="val")
 
-    c = _C()
-    assert "_val" in c._field_map
-    assert "val" in c._field_map
-    # Both map to the same field object
-    assert c._field_map["_val"] is c._field_map["val"]
+    field_map = _config_field_map(_C)
+    assert "_val" in field_map
+    assert "val" in field_map
+    assert field_map["_val"] is field_map["val"]
 
 
-def test_post_init_identifies_nested_attrs():
-    """_nested_attrs includes fields whose type is an attrs class."""
-    @attrs.define
+def test_nested_config_fields_identifies_attrs_fields():
+    """Nested attrs-class fields are recognised for recursion."""
+    @attrs.frozen
     class _Inner(_CubieConfigBase):
         x: int = 1
 
-    @attrs.define
+    @attrs.frozen
     class _Outer(_CubieConfigBase):
         inner: _Inner = attrs.Factory(_Inner)
         plain: int = 2
 
-    c = _Outer()
-    assert "inner" in c._nested_attrs
-    assert "plain" not in c._nested_attrs
+    nested_names = {fld.name for fld in _nested_config_fields(_Outer)}
+    assert "inner" in nested_names
+    assert "plain" not in nested_names
 
 
-def test_post_init_identifies_unhashable_fields():
-    """_unhashable_fields includes eq=False fields."""
-    @attrs.define
-    class _C(_CubieConfigBase):
-        a: int = 1
-        b: object = attrs.field(default=None, eq=False)
-
-    c = _C()
-    unhashable_names = {f.name for f in c._unhashable_fields}
-    assert "b" in unhashable_names
-    assert "a" not in unhashable_names
-
-
-def test_post_init_generates_initial_hash():
+def test_post_init_generates_hash():
     """values_hash is a 64-char hex string after construction."""
     c = _make_config()
     assert len(c.values_hash) == 64
@@ -184,7 +153,7 @@ def test_post_init_generates_initial_hash():
 
 def test_post_init_raises_for_dict_field():
     """TypeError raised for dict-type fields not marked eq=False."""
-    @attrs.define
+    @attrs.frozen
     class _Bad(_CubieConfigBase):
         d: dict = attrs.Factory(dict)
 
@@ -195,104 +164,182 @@ def test_post_init_raises_for_dict_field():
 # ── _CubieConfigBase.update ───────────────────────────────── #
 
 
-def test_update_empty_returns_empty_sets():
-    """Returns (empty, empty) for empty updates."""
+def test_update_empty_returns_self_and_empty_sets():
+    """Returns (self, empty, empty) for empty updates."""
     c = _make_config()
-    recognized, changed = c.update({})
+    replacement, recognized, changed = c.update({})
+    assert replacement is c
     assert recognized == set()
     assert changed == set()
 
 
+def test_update_never_mutates_self():
+    """The original snapshot is untouched by an update."""
+    c = _make_config(value1=10)
+    old_hash = c.values_hash
+    replacement, recognized, changed = c.update({"value1": 99})
+    assert c.value1 == 10
+    assert c.values_hash == old_hash
+    assert replacement.value1 == 99
+
+
 def test_update_recognizes_by_name_and_alias():
     """Recognizes fields by name or alias."""
-    @attrs.define
+    @attrs.frozen
     class _C(_CubieConfigBase):
         _val: int = attrs.field(default=1, alias="val")
 
     c = _C()
-    recognized, changed = c.update({"val": 2})
+    replacement, recognized, changed = c.update({"val": 2})
     assert "val" in recognized
-    assert c._val == 2
+    assert replacement._val == 2
+
+
+def test_update_eq_false_identity_change():
+    """A replaced eq=False object counts as a change."""
+    fn_a = lambda: 1  # noqa: E731
+    fn_b = lambda: 2  # noqa: E731
+
+    @attrs.frozen
+    class _C(_CubieConfigBase):
+        fn: object = attrs.field(default=fn_a, eq=False)
+
+    c = _C()
+    replacement, recognized, changed = c.update({"fn": fn_b})
+    assert "fn" in changed
+    assert replacement.fn is fn_b
+    # Hash is unaffected: eq=False fields are not semantic identity.
+    assert replacement.values_hash == c.values_hash
+
+
+def test_update_eq_false_same_identity_no_change():
+    """Passing the identical eq=False object back is not a change."""
+    fn = lambda: 1  # noqa: E731
+
+    @attrs.frozen
+    class _C(_CubieConfigBase):
+        fn: object = attrs.field(default=None, eq=False)
+
+    c = _C(fn=fn)
+    replacement, recognized, changed = c.update({"fn": fn})
+    assert replacement is c
+    assert changed == set()
 
 
 def test_update_ndarray_comparison():
-    """Handles ndarray comparison via array_equal."""
-    @attrs.define
+    """Semantic array fields compare elementwise."""
+    @attrs.frozen
     class _C(_CubieConfigBase):
-        arr: object = attrs.field(
+        arr: np.ndarray = attrs.field(
             factory=lambda: np.array([1.0, 2.0]),
-            eq=False,
+            eq=attrs.cmp_using(eq=np.array_equal),
         )
 
-    # eq=False means it won't participate in hash, but update still
-    # uses array_equal for change detection
     c = _C()
-    old_arr = c.arr.copy()
-    recognized, changed = c.update({"arr": np.array([3.0, 4.0])})
-    assert "arr" in recognized
+    replacement, _, changed = c.update({"arr": np.array([1.0, 2.0])})
+    assert changed == set()
+    assert replacement is c
+    replacement, _, changed = c.update({"arr": np.array([3.0, 4.0])})
     assert "arr" in changed
 
 
-def test_update_scalar_comparison():
-    """Handles scalar comparison via !=."""
-    c = _make_config(value1=10)
-    old_hash = c.values_hash
-    recognized, changed = c.update({"value1": 99})
-    assert "value1" in changed
-    assert c.value1 == 99
-
-
 def test_update_no_change_when_same_value():
-    """Only updates when value actually changed."""
+    """Only reports change when a value actually changed."""
     c = _make_config(value1=10)
-    old_hash = c.values_hash
-    recognized, changed = c.update({"value1": 10})
+    replacement, recognized, changed = c.update({"value1": 10})
     assert "value1" in recognized
     assert "value1" not in changed
-    assert c.values_hash == old_hash
+    assert replacement is c
 
 
 def test_update_delegates_to_nested():
-    """Delegates to nested attrs objects."""
-    @attrs.define
+    """Delegates to nested attrs objects, evolving parent and child."""
+    @attrs.frozen
     class _Inner(_CubieConfigBase):
         x: int = 1
 
-    @attrs.define
+    @attrs.frozen
     class _Outer(_CubieConfigBase):
         inner: _Inner = attrs.Factory(_Inner)
 
     c = _Outer()
-    recognized, changed = c.update({"x": 42})
+    replacement, recognized, changed = c.update({"x": 42})
     assert "x" in recognized
-    assert c.inner.x == 42
+    assert "x" in changed
+    assert replacement.inner.x == 42
+    # Original snapshot and its nested child are untouched.
+    assert c.inner.x == 1
 
 
-def test_update_regenerates_hash():
-    """Regenerates hash after changes."""
+def test_update_delegates_to_optional_nested():
+    """Delegates to a nested config behind an Optional annotation."""
+    from typing import Optional
+
+    @attrs.frozen
+    class _Inner(_CubieConfigBase):
+        x: int = 1
+
+    @attrs.frozen
+    class _Outer(_CubieConfigBase):
+        inner: Optional[_Inner] = attrs.Factory(_Inner)
+
+    c = _Outer()
+    replacement, recognized, changed = c.update({"x": 42})
+    assert "x" in recognized
+    assert "x" in changed
+    assert replacement.inner.x == 42
+    assert c.inner.x == 1
+    # A None-valued optional nested config is skipped, not an error.
+    empty = _Outer(inner=None)
+    replacement, recognized, changed = empty.update(
+        {"x": 42},
+    )
+    assert recognized == set()
+    assert changed == set()
+    assert replacement is empty
+
+
+def test_update_changes_hash_on_replacement():
+    """The replacement's hash differs after a semantic change."""
     c = _make_config(value1=10)
-    old_hash = c.values_hash
-    c.update({"value1": 99})
-    assert c.values_hash != old_hash
+    replacement, _, _ = c.update({"value1": 99})
+    assert replacement.values_hash != c.values_hash
+
+
+def test_update_equal_values_preserve_hash():
+    """An update carrying only equal values preserves the hash."""
+    c = _make_config(value1=10, value2="test")
+    replacement, _, changed = c.update({"value1": 10, "value2": "test"})
+    assert changed == set()
+    assert replacement.values_hash == c.values_hash
 
 
 def test_update_returns_recognized_and_changed():
     """Returns correct recognized and changed sets."""
     c = _make_config(value1=10, value2="test")
-    recognized, changed = c.update({"value1": 99, "value2": "test"})
+    _, recognized, changed = c.update({"value1": 99, "value2": "test"})
     assert recognized == {"value1", "value2"}
     assert changed == {"value1"}
 
 
-def test_update_kwargs_only_defaults_updates_dict_to_empty_dict():
-    """Update works when called with only kwargs, no positional dict.
-
-    Exercises the ``updates_dict is None`` default path.
-    """
+def test_update_kwargs_only():
+    """Update works when called with only kwargs, no positional dict."""
     c = _make_config(value1=10)
-    recognized, changed = c.update(value1=99)
+    replacement, recognized, _ = c.update(value1=99)
     assert "value1" in recognized
-    assert c.value1 == 99
+    assert replacement.value1 == 99
+
+
+def test_update_reruns_converters_and_validators():
+    """Converters and validators run on the replacement snapshot."""
+    @attrs.frozen
+    class _C(_CubieConfigBase):
+        x: int = attrs.field(default=1, converter=int)
+
+    c = _C()
+    replacement, _, changed = c.update({"x": "7"})
+    assert replacement.x == 7
+    assert "x" in changed
 
 
 # ── _CubieConfigBase properties ───────────────────────────── #
@@ -300,7 +347,7 @@ def test_update_kwargs_only_defaults_updates_dict_to_empty_dict():
 
 def test_cache_dict_excludes_eq_false():
     """cache_dict returns dict without eq=False fields."""
-    @attrs.define
+    @attrs.frozen
     class _C(_CubieConfigBase):
         a: int = 1
         b: object = attrs.field(default=None, eq=False)
@@ -311,23 +358,13 @@ def test_cache_dict_excludes_eq_false():
     assert "b" not in d
 
 
-def test_values_tuple_excludes_eq_false():
-    """values_tuple returns tuple without eq=False fields."""
-    @attrs.define
-    class _C(_CubieConfigBase):
-        a: int = 42
-        b: object = attrs.field(default="hidden", eq=False)
-
-    c = _C()
-    vt = c.values_tuple
-    assert 42 in vt
-    assert "hidden" not in vt
-
-
-def test_values_hash_returns_stored_hash():
-    """values_hash returns the stored _values_hash."""
+def test_values_hash_memoized_and_stable():
+    """values_hash is stable across repeated access."""
     c = _make_config()
-    assert c.values_hash == c._values_hash
+    assert c.values_hash == c.values_hash
+    # An equal snapshot from an equal construction shares the hash.
+    c2 = _make_config()
+    assert c.values_hash == c2.values_hash
 
 
 # ── CUDAFactoryConfig ─────────────────────────────────────── #
@@ -339,7 +376,7 @@ def test_values_hash_returns_stored_hash():
 ])
 def test_config_precision_validation_and_conversion(prec_in, prec_out):
     """Construction validates and converts precision."""
-    @attrs.define
+    @attrs.frozen
     class _C(CUDAFactoryConfig):
         pass
 
@@ -349,7 +386,7 @@ def test_config_precision_validation_and_conversion(prec_in, prec_out):
 
 def test_config_numba_precision():
     """numba_precision returns from_dtype(np_dtype(precision))."""
-    @attrs.define
+    @attrs.frozen
     class _C(CUDAFactoryConfig):
         pass
 
@@ -360,7 +397,7 @@ def test_config_numba_precision():
 
 def test_config_simsafe_precision():
     """simsafe_precision returns simsafe_dtype(np_dtype(precision))."""
-    @attrs.define
+    @attrs.frozen
     class _C(CUDAFactoryConfig):
         pass
 
@@ -437,11 +474,25 @@ def test_update_settings_raises_when_not_set():
         f.update_compile_settings({"x": 1})
 
 
-def test_update_settings_delegates_to_config():
-    """Delegates to compile_settings.update()."""
+def test_update_settings_swaps_replacement_snapshot():
+    """A changed update swaps in a replacement snapshot."""
     f = _make_factory_with_settings()
+    old_settings = f.compile_settings
     f.update_compile_settings(flag=True)
+    assert f.compile_settings is not old_settings
     assert f.compile_settings.flag is True
+    # The old snapshot is untouched.
+    assert old_settings.flag is False
+
+
+def test_update_settings_unchanged_keeps_snapshot():
+    """An update carrying equal values keeps the current snapshot."""
+    f = _make_factory_with_settings()
+    old_settings = f.compile_settings
+    _ = f.device_function
+    f.update_compile_settings(flag=False)
+    assert f.compile_settings is old_settings
+    assert f.cache_valid is True
 
 
 def test_update_settings_raises_for_unrecognized():
@@ -466,6 +517,24 @@ def test_update_settings_invalidates_cache():
     assert f.cache_valid is True
     f.update_compile_settings(flag=True)
     assert f.cache_valid is False
+
+
+def test_update_settings_eq_false_replacement_invalidates():
+    """A replaced eq=False derived callable invalidates the build."""
+    factory = _make_factory()
+
+    @attrs.frozen
+    class _C(_CubieConfigBase):
+        fn: object = attrs.field(default=None, eq=False)
+
+    factory.setup_compile_settings(_C(fn=lambda: 1))
+    _ = factory.device_function
+    old_hash = factory.compile_settings.values_hash
+    factory.update_compile_settings(fn=lambda: 2)
+    assert factory.cache_valid is False
+    # Semantic hash is unchanged: the callable's identity lives with
+    # its owning child factory, not this snapshot.
+    assert factory.compile_settings.values_hash == old_hash
 
 
 def test_update_settings_returns_recognized():
@@ -542,9 +611,6 @@ def test_get_cached_raises_key_for_missing_output():
 
 def test_get_cached_raises_not_implemented_for_minus_one():
     """Raises NotImplementedError when cached value is int(-1)."""
-    f = _make_factory_with_settings()
-    # Default _TestCache has device_function=-1 when no build_fn given,
-    # but our factory returns lambda. Make a new one.
     @attrs.define
     class _CacheWithStub(CUDADispatcherCache):
         device_function: object = attrs.field(default=-1, eq=False)
@@ -592,6 +658,18 @@ def test_config_hash_with_children():
     # Combined hash differs from own hash
     assert p.config_hash != p.compile_settings.values_hash
     assert len(p.config_hash) == 64
+
+
+def test_config_hash_stable_across_equal_states():
+    """Equal snapshots produce equal config hashes."""
+    f1 = _make_factory_with_settings()
+    f2 = _make_factory_with_settings()
+    assert f1.config_hash == f2.config_hash
+    # Updating one to a new value and back restores the hash.
+    f1.update_compile_settings(flag=True)
+    assert f1.config_hash != f2.config_hash
+    f1.update_compile_settings(flag=False)
+    assert f1.config_hash == f2.config_hash
 
 
 # ── CUDAFactory._iter_child_factories ──────────────────────── #
@@ -707,7 +785,7 @@ def test_factory_persistent_local_buffer_size(single_integrator_run):
 
 def test_get_prefixed_attributes_names():
     """get_prefixed_attributes(aliases=False) returns field names."""
-    @attrs.define
+    @attrs.frozen
     class _C(MultipleInstanceCUDAFactoryConfig):
         _atol: float = attrs.field(
             default=1e-6, metadata={"prefixed": True}
@@ -721,7 +799,7 @@ def test_get_prefixed_attributes_names():
 
 def test_get_prefixed_attributes_aliases():
     """get_prefixed_attributes(aliases=True) returns aliases."""
-    @attrs.define
+    @attrs.frozen
     class _C(MultipleInstanceCUDAFactoryConfig):
         _atol: float = attrs.field(
             default=1e-6, alias="atol", metadata={"prefixed": True}
@@ -734,7 +812,7 @@ def test_get_prefixed_attributes_aliases():
 
 def test_prefix_property():
     """prefix property returns instance_label."""
-    @attrs.define
+    @attrs.frozen
     class _C(MultipleInstanceCUDAFactoryConfig):
         pass
 
@@ -745,7 +823,7 @@ def test_prefix_property():
 
 def test_post_init_sets_prefixed_attributes_when_label_nonempty():
     """__attrs_post_init__ sets prefixed_attributes when label non-empty."""
-    @attrs.define
+    @attrs.frozen
     class _C(MultipleInstanceCUDAFactoryConfig):
         _atol: float = attrs.field(
             default=1e-6, metadata={"prefixed": True}
@@ -758,7 +836,7 @@ def test_post_init_sets_prefixed_attributes_when_label_nonempty():
 
     # Empty label -> empty set
     c_empty = _C(precision=np.float32, instance_label="")
-    assert c_empty.prefixed_attributes == set()
+    assert c_empty.prefixed_attributes == frozenset()
 
 
 # ── MultipleInstanceCUDAFactoryConfig.update ───────────────── #
@@ -766,7 +844,7 @@ def test_post_init_sets_prefixed_attributes_when_label_nonempty():
 
 def test_mi_update_removes_non_prefixed_for_prefixed_attrs():
     """Removes non-prefixed keys for prefixed attributes."""
-    @attrs.define
+    @attrs.frozen
     class _C(MultipleInstanceCUDAFactoryConfig):
         _atol: float = attrs.field(
             default=1e-6, alias="atol", metadata={"prefixed": True}
@@ -774,36 +852,38 @@ def test_mi_update_removes_non_prefixed_for_prefixed_attrs():
 
     c = _C(precision=np.float32, instance_label="krylov")
     # Passing unprefixed key for a prefixed attribute: should be removed
-    recognized, changed = c.update({"atol": 1e-8})
+    replacement, recognized, changed = c.update({"atol": 1e-8})
     # atol is stripped, krylov_atol not present -> no change
     assert "atol" not in changed
-    assert c._atol == 1e-6
+    assert replacement._atol == 1e-6
 
 
 def test_mi_update_maps_prefixed_to_unprefixed():
     """Maps prefixed keys (e.g. krylov_atol) to unprefixed (atol)."""
-    @attrs.define
+    @attrs.frozen
     class _C(MultipleInstanceCUDAFactoryConfig):
         _atol: float = attrs.field(
             default=1e-6, alias="atol", metadata={"prefixed": True}
         )
 
     c = _C(precision=np.float32, instance_label="krylov")
-    recognized, changed = c.update({"krylov_atol": 1e-10})
+    replacement, recognized, changed = c.update({"krylov_atol": 1e-10})
     assert "krylov_atol" in recognized
-    assert c._atol == 1e-10
+    assert replacement._atol == 1e-10
+    # Original untouched
+    assert c._atol == 1e-6
 
 
 def test_mi_update_returns_prefixed_key_names():
     """Returns recognized/changed with prefixed key names restored."""
-    @attrs.define
+    @attrs.frozen
     class _C(MultipleInstanceCUDAFactoryConfig):
         _atol: float = attrs.field(
             default=1e-6, alias="atol", metadata={"prefixed": True}
         )
 
     c = _C(precision=np.float32, instance_label="test")
-    recognized, changed = c.update({"test_atol": 1e-10})
+    _, recognized, changed = c.update({"test_atol": 1e-10})
     assert "test_atol" in recognized
     assert "test_atol" in changed
 

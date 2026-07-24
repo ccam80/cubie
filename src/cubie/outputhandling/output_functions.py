@@ -232,7 +232,6 @@ class OutputFunctions(CUDAFactory):
         recognised_params |= self.update_compile_settings(
             updates_dict, silent=True
         )
-        self.compile_settings.validation_passes()  # call validation funcs
         unrecognised -= recognised_params
 
         if not silent and unrecognised:

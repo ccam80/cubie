@@ -29,7 +29,7 @@ See Also
 from abc import abstractmethod
 from typing import Callable, Dict, Any, Optional, Set
 
-from attrs import define, field, validators
+from attrs import Converter, define, field, validators, frozen
 from numpy import finfo as np_finfo
 from numpy import ndarray
 
@@ -49,7 +49,21 @@ from cubie.CUDAFactory import CUDADispatcherCache
 from cubie.integrators.norms import ScaledNorm
 
 
-@define
+def _default_residual_reduction(value, self_):
+    """Resolve ``None`` to machine epsilon at the config precision."""
+    if value is None:
+        return float(np_finfo(self_.precision).eps)
+    return value
+
+
+def _default_residual_floor(value, self_):
+    """Resolve ``None`` to ``sqrt(eps)`` at the config precision."""
+    if value is None:
+        return float(np_finfo(self_.precision).eps) ** 0.5
+    return value
+
+
+@frozen
 class LinearSolverBaseConfig(MatrixFreeSolverConfig):
     """Base configuration for linear solver compilation.
 
@@ -102,6 +116,7 @@ class LinearSolverBaseConfig(MatrixFreeSolverConfig):
     )
     _residual_reduction: Optional[float] = field(
         default=None,
+        converter=Converter(_default_residual_reduction, takes_self=True),
         validator=validators.optional(
             inrangetype_validator(float, 0.0, 1.0)
         ),
@@ -109,18 +124,10 @@ class LinearSolverBaseConfig(MatrixFreeSolverConfig):
     )
     _residual_floor: Optional[float] = field(
         default=None,
+        converter=Converter(_default_residual_floor, takes_self=True),
         validator=opt_getype_validator(float, 0.0),
         metadata={"prefixed": True},
     )
-
-    def __attrs_post_init__(self):
-        if self._residual_reduction is None:
-            self._residual_reduction = float(np_finfo(self.precision).eps)
-        if self._residual_floor is None:
-            self._residual_floor = (
-                float(np_finfo(self.precision).eps) ** 0.5
-            )
-        super().__attrs_post_init__()
 
     @property
     def residual_reduction(self) -> float:
