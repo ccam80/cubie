@@ -60,6 +60,7 @@ from warnings import warn
 
 from numpy import (
     all as np_all,
+    array as np_array,
     array_equal,
     asarray,
     dtype as np_dtype,
@@ -479,7 +480,10 @@ def tol_converter(
     Returns
     -------
     numpy.ndarray
-        Tolerance array with one value per state variable.
+        Tolerance array with one value per state variable. Always an
+        owned, read-only copy: neither the caller's array nor the
+        stored one can mutate compile-critical tolerance state after
+        the snapshot hashes.
 
     Raises
     ------
@@ -489,14 +493,17 @@ def tol_converter(
     if isscalar(value):
         tol = full(self_.n, value, dtype=self_.precision)
     else:
-        tol = asarray(value, dtype=self_.precision)
+        # Copy: asarray would alias a caller array that already has
+        # the target dtype, leaving stored tolerances writable.
+        tol = np_array(value, dtype=self_.precision)
         if tol.shape[0] != self_.n:
-            # A uniform array is a scalar specification: broadcast it
-            # to the configured length, as resize_tolerances does.
+            # A uniform array is a scalar specification: broadcast
+            # it to the configured length.
             if all(tol == tol[0]):
                 tol = full(self_.n, tol[0], dtype=self_.precision)
             else:
                 raise ValueError("tol must have shape (n,).")
+    tol.setflags(write=False)
     return tol
 
 
