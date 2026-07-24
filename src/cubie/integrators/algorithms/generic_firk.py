@@ -131,6 +131,9 @@ class FIRKStepConfig(ImplicitStepConfig):
         compile settings so predictor rebuilds invalidate the step.
     stage_increment_location : str
         Buffer location for the coupled stage-increment vector.
+    previous_step_size_location : str
+        Buffer location for the previous-step-size scalar consumed
+        by dense prediction.
     stage_driver_stack_location : str
         Buffer location for the per-stage driver samples.
     stage_state_location : str
@@ -149,6 +152,9 @@ class FIRKStepConfig(ImplicitStepConfig):
         eq=False,
     )
     stage_increment_location: str = field(
+        default="local", validator=validators.in_(["local", "shared"])
+    )
+    previous_step_size_location: str = field(
         default="local", validator=validators.in_(["local", "shared"])
     )
     stage_driver_stack_location: str = field(
@@ -286,16 +292,10 @@ class FIRKStep(ODEImplicitStep):
             krylov_norm=krylov_norm,
             **kwargs,
         )
-        predictor_kwargs = {
-            key: value
-            for key, value in kwargs.items()
-            if key in self._PREDICTOR_PARAMS and value is not None
-        }
         self.dense_predictor = DenseStagePredictor(
             precision=self.compile_settings.precision,
             n=n,
-            tableau=tableau,
-            **predictor_kwargs,
+            tableau=self.compile_settings.tableau,
         )
         self.register_buffers()
 
@@ -326,6 +326,14 @@ class FIRKStep(ODEImplicitStep):
             self,
             all_stages_n,
             config.stage_increment_location,
+            persistent=True,
+            precision=precision,
+        )
+        buffer_registry.register(
+            "previous_step_size",
+            self,
+            1 if self.dense_prediction else 0,
+            config.previous_step_size_location,
             persistent=True,
             precision=precision,
         )
@@ -447,12 +455,16 @@ class FIRKStep(ODEImplicitStep):
             b_hat_row = int32(b_hat_row)
 
         ends_at_one = stage_time_fractions[-1] == numba_precision(1.0)
+        max_step_ratio = tableau.dense_prediction_ratio_limit(
+            config.precision
+        )
 
         # Get allocators from buffer registry
         getalloc = buffer_registry.get_allocator
         alloc_stage_increment = getalloc("stage_increment", self)
         alloc_stage_driver_stack = getalloc("stage_driver_stack", self)
         alloc_stage_state = getalloc("stage_state", self)
+        alloc_previous_step_size = getalloc("previous_step_size", self)
 
         # Re-register the solver child under the same name as
         # register_buffers so the size snapshot reflects the solver's
@@ -523,6 +535,9 @@ class FIRKStep(ODEImplicitStep):
             stage_driver_stack = alloc_stage_driver_stack(
                 shared, persistent_local
             )
+            previous_step_size = alloc_previous_step_size(
+                shared, persistent_local
+            )
             predictor_shared = alloc_predictor_shared(
                 shared, persistent_local
             )
@@ -537,15 +552,29 @@ class FIRKStep(ODEImplicitStep):
             status_code = success
 
             if use_dense_prediction:
-                # No previous curve exists on the first step, and a
-                # rejected proposal's curve does not end where this
-                # step starts, so both carry the increments unchanged.
+                previous_dt = previous_step_size[0]
+                # Safe to store on a rejected attempt: prediction is
+                # skipped after a rejection, so a rejected size is
+                # never consumed.
+                previous_step_size[0] = dt_scalar
+                # Zeroed first-step storage keeps the ratio finite.
+                safe_previous_dt = (
+                    previous_dt
+                    if previous_dt > typed_zero
+                    else dt_scalar
+                )
+                step_ratio = dt_scalar / safe_previous_dt
+                # Predict only from an accepted step within the ceiling.
                 first_step = first_step_flag != int32(0)
                 previous_accepted = accepted_flag != int32(0)
-                apply_prediction = (not first_step) and previous_accepted
+                apply_prediction = (
+                    (not first_step)
+                    and previous_accepted
+                    and (step_ratio <= max_step_ratio)
+                )
                 predict_stages(
                     stage_increment,
-                    dt_scalar,
+                    step_ratio,
                     apply_prediction,
                     predictor_shared,
                     predictor_persistent,
