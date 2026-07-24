@@ -69,6 +69,8 @@ GAUSS_LEGENDRE_2_TABLEAU = FIRKTableau(
     b=(0.5, 0.5),
     c=(0.5 - SQRT3 / 6.0, 0.5 + SQRT3 / 6.0),
     order=4,
+    dense_prediction_ratio_float32=8.0,
+    dense_prediction_ratio_float64=8.0,
 )
 
 
@@ -144,6 +146,8 @@ RADAU_IIA_5_TABLEAU = FIRKTableau(
     b_hat=_RADAU_IIA_5_b_hat,
     c=_RADAU_IIA_5_c,
     order=5,
+    dense_prediction_ratio_float32=8.0,
+    dense_prediction_ratio_float64=8.0,
 )
 
 GAUSS_LEGENDRE_4_TABLEAU = FIRKTableau(
@@ -186,6 +190,8 @@ GAUSS_LEGENDRE_4_TABLEAU = FIRKTableau(
         0.9305681557970262,
     ),
     order=8,
+    dense_prediction_ratio_float32=8.0,
+    dense_prediction_ratio_float64=8.0,
 )
 """Four-stage Gauss--Legendre collocation tableau of order eight.
 

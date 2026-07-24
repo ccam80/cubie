@@ -13,13 +13,15 @@ a matrix whose entries are polynomials in the step-size ratio
 ``next dt / previous dt``; the polynomial coefficients are fixed by
 the tableau and precomputed on the host, so the device evaluates one
 small polynomial per matrix entry and applies one matrix-vector
-product per state. The only persistent storage is a single scalar
-holding the previous step size.
+product per state.
 
 The predictor does not decide when prediction is valid: the calling
-algorithm judges first-step and rejected-step conditions and passes
-the verdict as a flag. The predictor must be called on every step so
-its stored step size tracks the increments the solver last wrote.
+algorithm owns the previous step size, judges first-step,
+rejected-step, and step-ratio-ceiling conditions, and passes the
+step ratio together with the verdict as a flag. The predictor
+evaluates the transform and commits it per lane through a
+predicated selection, leaving the vector unchanged when the flag is
+false.
 
 Published Functions
 -------------------
@@ -69,21 +71,11 @@ from cubie.CUDAFactory import (
     CUDAFactory,
     CUDAFactoryConfig,
 )
-from cubie.cuda_simsafe import cuda, int32
+from cubie.cuda_simsafe import cuda, int32, selp
 from cubie.integrators.algorithms.base_algorithm_step import (
     ButcherTableau,
 )
 
-
-MAX_PREDICTION_STEP_RATIO = 8.0
-"""Largest step-size ratio the transform is applied at.
-
-Matches the largest single-step growth the default controllers allow
-(RADAU5's ``facr``). Beyond it the read-ahead leaves the sampled
-interval so far that amplification outweighs the guess — a save
-boundary can truncate a step to a sliver, making the next ratio
-arbitrarily large — so the increments carry unchanged instead.
-"""
 
 MAX_NODE_AMPLIFICATION_RATIO = 10.0
 """Largest amplification allowed relative to ideally spread nodes.
@@ -103,29 +95,37 @@ check instead.
 def _predictor_matrix_from_nodes(
     stage_nodes: np_ndarray,
     step_ratio: float,
+    sample_indices: tuple,
 ) -> np_ndarray:
-    """Return the read-ahead matrix for validated *stage_nodes*."""
+    """Return the read-ahead matrix for *stage_nodes*.
+
+    ``sample_indices`` lists the stage sampled at each distinct
+    node, as :attr:`ButcherTableau.prediction_sample_stages` does.
+    """
 
     stage_count = len(stage_nodes)
-    # Weight of each previous derivative sample in the curve's value
-    # at each of the next step's stage times, rescaled by the ratio
-    # because increments carry a factor of the step size.
-    predictor = []
-    for target_node in 1.0 + step_ratio * stage_nodes:
-        target_weights = []
-        for basis_index in range(stage_count):
+    distinct_nodes = np_asarray(
+        [stage_nodes[index] for index in sample_indices]
+    )
+    # Each entry is the Lagrange weight of one sample at one of the
+    # next step's stage times, times step_ratio for the new dt.
+    predictor = np_zeros((stage_count, stage_count))
+    for target_index, target_node in enumerate(
+        1.0 + step_ratio * stage_nodes
+    ):
+        for basis_index, basis_node in enumerate(distinct_nodes):
             weight = step_ratio
-            basis_node = stage_nodes[basis_index]
-            # Scale by distance ratios to every other sample time.
-            for other_index, other_node in enumerate(stage_nodes):
+            # Scale by distance ratios to every other kept sample.
+            for other_index, other_node in enumerate(distinct_nodes):
                 if other_index != basis_index:
                     weight *= (target_node - other_node) / (
                         basis_node - other_node
                     )
-            target_weights.append(weight)
-        predictor.append(target_weights)
+            predictor[
+                target_index, sample_indices[basis_index]
+            ] = weight
 
-    return np_asarray(predictor)
+    return predictor
 
 
 def _validate_tableau(tableau: ButcherTableau) -> np_ndarray:
@@ -147,22 +147,21 @@ def _validate_tableau(tableau: ButcherTableau) -> np_ndarray:
         If any precondition fails.
     """
 
-    stage_count = tableau.stage_count
     stage_nodes = np_asarray(tableau.c, dtype=float)
+    sample_indices = tableau.prediction_sample_stages
+    distinct_count = len(sample_indices)
 
-    # The previous step's derivative samples sit at the stage times;
-    # two coincident times would pin the curve twice with possibly
-    # different values, so no single curve exists.
-    if len(set(stage_nodes.tolist())) != stage_count:
-        raise ValueError(
-            "Dense prediction needs stage nodes distinct from each "
-            "other."
-        )
-    equal_step = _predictor_matrix_from_nodes(stage_nodes, 1.0)
+    equal_step = _predictor_matrix_from_nodes(
+        stage_nodes, 1.0, sample_indices
+    )
     amplification = float(abs(equal_step).sum(axis=1).max())
-    gauss_nodes = 0.5 * (np_leggauss(stage_count)[0] + 1.0)
+    gauss_nodes = 0.5 * (np_leggauss(distinct_count)[0] + 1.0)
     reference = float(
-        abs(_predictor_matrix_from_nodes(gauss_nodes, 1.0))
+        abs(
+            _predictor_matrix_from_nodes(
+                gauss_nodes, 1.0, tuple(range(distinct_count))
+            )
+        )
         .sum(axis=1)
         .max()
     )
@@ -190,13 +189,14 @@ def dense_predictor_matrix(
     step's stage times and rescales by the step-size ratio, mapping
     previous increments to a starting guess for the next step's
     increments. For collocation tableaus this equals extrapolating
-    the collocation polynomial itself.
+    the collocation polynomial itself. Repeated stage nodes each
+    contribute one sample (the last stage sharing the node), and
+    stages sharing a node share a predicted value.
 
     Parameters
     ----------
     tableau
-        Runge--Kutta tableau with stage nodes distinct from each
-        other.
+        Runge--Kutta tableau meeting the transform's preconditions.
     step_ratio
         Size of the next step relative to the previous step.
 
@@ -212,7 +212,9 @@ def dense_predictor_matrix(
     """
 
     stage_nodes = _validate_tableau(tableau)
-    return _predictor_matrix_from_nodes(stage_nodes, step_ratio)
+    return _predictor_matrix_from_nodes(
+        stage_nodes, step_ratio, tableau.prediction_sample_stages
+    )
 
 
 def dense_predictor_ratio_coefficients(
@@ -222,8 +224,9 @@ def dense_predictor_ratio_coefficients(
 
     Each entry of the predictor matrix is a polynomial in the
     step-size ratio with no constant term and degree equal to the
-    stage count. Expanding each stage-value weight about the end of
-    the previous step yields those polynomial coefficients directly.
+    number of distinct stage nodes. Expanding each stage-value weight
+    about the end of the previous step yields those polynomial
+    coefficients directly.
 
     Parameters
     ----------
@@ -233,9 +236,10 @@ def dense_predictor_ratio_coefficients(
     Returns
     -------
     numpy.ndarray
-        Array of shape ``(stage_count, stage_count, stage_count)``
+        Array of shape ``(distinct_count, stage_count, stage_count)``
         where index ``p`` holds the matrix multiplying
-        ``step_ratio ** (p + 1)``.
+        ``step_ratio ** (p + 1)`` and ``distinct_count`` is the
+        number of distinct stage nodes.
 
     Raises
     ------
@@ -245,42 +249,42 @@ def dense_predictor_ratio_coefficients(
 
     stage_nodes = _validate_tableau(tableau)
     stage_count = tableau.stage_count
+    sample_indices = tableau.prediction_sample_stages
+    distinct_nodes = [stage_nodes[index] for index in sample_indices]
+    distinct_count = len(distinct_nodes)
 
-    # Weight of each previous derivative sample in the curve's value
-    # at a time (1 + y) step-lengths after the previous step's start,
+    # Weight of each kept derivative sample in the curve's value at a
+    # time (1 + y) step-lengths after the previous step's start,
     # expanded in powers of y.
     shift = np_poly.Polynomial([1.0, 1.0])
     shifted_weight_powers = []
-    for basis_index in range(stage_count):
+    for basis_index in range(distinct_count):
         other_nodes = [
-            stage_nodes[node_index]
-            for node_index in range(stage_count)
+            distinct_nodes[node_index]
+            for node_index in range(distinct_count)
             if node_index != basis_index
         ]
         coefficients = np_poly.polyfromroots(other_nodes)
         coefficients = coefficients / np_poly.polyval(
-            stage_nodes[basis_index], coefficients
+            distinct_nodes[basis_index], coefficients
         )
         shifted = np_poly.Polynomial(coefficients)(shift)
         shifted_weight_powers.append(shifted.coef)
 
     # The new step's stage times sit at y = ratio * node, so the
     # weight's power-p term contributes at ratio power p + 1 once
-    # the increments' step-size factor is rescaled.
+    # the increments' step-size factor is rescaled. Kept samples fill
+    # their stage's column; dropped duplicates keep zero columns.
     ratio_coefficients = np_zeros(
-        (stage_count, stage_count, stage_count)
+        (distinct_count, stage_count, stage_count)
     )
-    for power in range(stage_count):
-        ratio_coefficients[power] = np_asarray(
-            [
-                [
-                    shifted_weight_powers[basis_index][power]
-                    * stage_nodes[target_index] ** power
-                    for basis_index in range(stage_count)
-                ]
-                for target_index in range(stage_count)
-            ]
-        )
+    for power in range(distinct_count):
+        for target_index in range(stage_count):
+            node_power = stage_nodes[target_index] ** power
+            for basis_index in range(distinct_count):
+                ratio_coefficients[
+                    power, target_index, sample_indices[basis_index]
+                ] = shifted_weight_powers[basis_index][power] * node_power
     return ratio_coefficients
 
 
@@ -306,8 +310,6 @@ class DenseStagePredictorConfig(CUDAFactoryConfig):
         Number of state variables per stage.
     tableau : ButcherTableau
         Tableau the prediction matrix derives from.
-    previous_step_size_location : str
-        Buffer location for the previous-step-size scalar.
     """
 
     n: int = field(default=1, validator=getype_validator(int, 1))
@@ -315,16 +317,22 @@ class DenseStagePredictorConfig(CUDAFactoryConfig):
         default=None,
         validator=validators.instance_of(ButcherTableau),
     )
-    previous_step_size_location: str = field(
-        default="local",
-        validator=validators.in_(["local", "shared"]),
-    )
 
     @property
     def stage_count(self) -> int:
         """Return the number of stages described by the tableau."""
 
         return self.tableau.stage_count
+
+    @property
+    def predict_first_stage(self) -> bool:
+        """Return whether the transform predicts the first stage.
+
+        An explicit first stage is never solved, so its stored
+        sample is kept instead of predicted.
+        """
+
+        return not self.tableau.first_stage_is_explicit
 
 
 @define
@@ -339,18 +347,20 @@ class DenseStagePredictor(CUDAFactory):
 
     The compiled device function has signature::
 
-        predict(stage_increment, dt_scalar, apply_flag, shared,
+        predict(stage_increment, step_ratio, apply_flag, shared,
                 persistent_local)
 
     ``stage_increment`` holds the previous step's converged stage
     increments in stage-major layout. When ``apply_flag`` is true the
-    vector is transformed in place into the next step's Newton guess,
-    unless the step-size ratio exceeds
-    :data:`MAX_PREDICTION_STEP_RATIO`; otherwise it is left
-    unchanged. Either way the stored previous step size is refreshed,
-    so the caller must invoke the function on every step and must
-    pass ``apply_flag`` false on the first step and after a rejected
-    step.
+    vector is transformed in place into the next step's Newton guess;
+    otherwise it is left unchanged. The calling algorithm owns the
+    previous step size and passes the ratio ``next dt / previous
+    dt``; it also folds first-step, rejected-step, and step-ratio
+    ceiling conditions into ``apply_flag``, which may vary by lane
+    (the commit is a predicated value selection, not a branch). An
+    explicit first stage is never solved, so its entries are left
+    untouched (its sample still feeds the read-ahead of the other
+    stages).
     """
 
     def __init__(
@@ -371,7 +381,7 @@ class DenseStagePredictor(CUDAFactory):
         tableau
             Tableau the prediction matrix derives from.
         **kwargs
-            Optional ``previous_step_size_location`` setting. None
+            Optional overrides for other compile settings. None
             values are ignored.
         """
 
@@ -393,18 +403,14 @@ class DenseStagePredictor(CUDAFactory):
 
         config = self.compile_settings
         stage_count = int(config.stage_count)
-        buffer_registry.register(
-            "previous_step_size",
-            self,
-            1,
-            config.previous_step_size_location,
-            persistent=True,
-            precision=config.precision,
+        # A skipped first stage drops its row from the transform.
+        predicted_rows = stage_count - (
+            0 if config.predict_first_stage else 1
         )
         buffer_registry.register(
             "predictor_transform",
             self,
-            stage_count * stage_count,
+            predicted_rows * stage_count,
             "local",
             precision=config.precision,
         )
@@ -453,23 +459,27 @@ class DenseStagePredictor(CUDAFactory):
         typed_zero = numba_precision(0.0)
         n = int32(config.n)
         stage_count = int32(config.stage_count)
+        # A skipped first stage drops its row from the transform.
+        first_predicted_py = 0 if config.predict_first_stage else 1
+        predicted_count_py = int(config.stage_count) - first_predicted_py
         transform_size = int32(
-            int(config.stage_count) * int(config.stage_count)
+            predicted_count_py * int(config.stage_count)
         )
+        first_predicted = int32(first_predicted_py)
+        predicted_count = int32(predicted_count_py)
 
-        # Flattened power-major coefficient stack: entry
-        # [power][row][column] multiplies ratio ** (power + 1).
+        # Flattened power-major coefficient stack for the predicted
+        # rows: entry [power][row][column] multiplies
+        # ratio ** (power + 1).
+        coefficient_stack = dense_predictor_ratio_coefficients(
+            config.tableau
+        )[:, first_predicted_py:, :]
+        power_count = int32(coefficient_stack.shape[0])
         ratio_coefficients = tuple(
-            numba_precision(value)
-            for value in dense_predictor_ratio_coefficients(
-                config.tableau
-            ).flat
+            numba_precision(value) for value in coefficient_stack.flat
         )
-
-        max_step_ratio = numba_precision(MAX_PREDICTION_STEP_RATIO)
 
         getalloc = buffer_registry.get_allocator
-        alloc_previous_step_size = getalloc("previous_step_size", self)
         alloc_transform = getalloc("predictor_transform", self)
         alloc_previous_values = getalloc(
             "predictor_previous_values", self
@@ -483,68 +493,56 @@ class DenseStagePredictor(CUDAFactory):
         )
         def predict(
             stage_increment,
-            dt_scalar,
+            step_ratio,
             apply_flag,
             shared,
             persistent_local,
         ):
-            previous_step_size = alloc_previous_step_size(
-                shared, persistent_local
-            )
             transform = alloc_transform(shared, persistent_local)
             previous_values = alloc_previous_values(
                 shared, persistent_local
-            )
-            previous_dt = previous_step_size[0]
-            previous_step_size[0] = dt_scalar
-
-            # Keep the ratio finite on zeroed first-step storage.
-            safe_previous_dt = (
-                previous_dt if previous_dt > typed_zero else dt_scalar
-            )
-            ratio = dt_scalar / safe_previous_dt
-
-            # Truncated slivers unbound the ratio; cap application.
-            commit_prediction = apply_flag and (
-                ratio <= max_step_ratio
             )
 
             # Evaluate each matrix entry's ratio polynomial, highest
             # power first.
             for entry_idx in range(transform_size):
                 accumulator = typed_zero
-                for power_idx in range(stage_count):
+                for power_idx in range(power_count):
                     flat_idx = (
-                        (stage_count - int32(1) - power_idx)
+                        (power_count - int32(1) - power_idx)
                         * transform_size
                         + entry_idx
                     )
                     accumulator = (
-                        accumulator * ratio
+                        accumulator * step_ratio
                         + ratio_coefficients[flat_idx]
                     )
-                transform[entry_idx] = accumulator * ratio
+                transform[entry_idx] = accumulator * step_ratio
 
-            # Multiply each state's stage vector by the matrix,
-            # committing only when the caller's flag and the ratio
-            # bound allow.
+            # Multiply each state's stage vector by the matrix; the
+            # caller's flag selects prediction or the stored value
+            # per lane.
             for state_idx in range(n):
                 for stage_idx in range(stage_count):
                     previous_values[stage_idx] = stage_increment[
                         stage_idx * n + state_idx
                     ]
-                for stage_idx in range(stage_count):
+                for row_idx in range(predicted_count):
                     accumulator = typed_zero
-                    row_base = stage_idx * stage_count
+                    row_base = row_idx * stage_count
                     for source_idx in range(stage_count):
                         accumulator += (
                             transform[row_base + source_idx]
                             * previous_values[source_idx]
                         )
-                    if commit_prediction:
-                        stage_increment[stage_idx * n + state_idx] = (
-                            accumulator
-                        )
+                    target_idx = (
+                        (first_predicted + row_idx) * n + state_idx
+                    )
+                    stage_increment[target_idx] = selp(
+                        apply_flag,
+                        accumulator,
+                        stage_increment[target_idx],
+                    )
 
         # no cover: end
         return DenseStagePredictorCache(predict=predict)

@@ -103,7 +103,7 @@ def build_driver_evaluator(
             copy=True,
             dtype=precision,
         ),
-        dt=precision(interpolator.dt),
+        dt=precision(interpolator.driver_sample_period),
         t0=precision(interpolator.t0),
         wrap=interpolator.wrap,
         precision=precision,

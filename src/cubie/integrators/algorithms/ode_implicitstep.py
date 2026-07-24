@@ -203,9 +203,6 @@ class ODEImplicitStep(BaseAlgorithmStep):
         }
     )
 
-    # Parameters accepted by DenseStagePredictor
-    _PREDICTOR_PARAMS = frozenset({"previous_step_size_location"})
-
     def __init__(
         self,
         config: ImplicitStepConfig,
@@ -439,13 +436,21 @@ class ODEImplicitStep(BaseAlgorithmStep):
         """Return whether dense stage prediction compiles into the step.
 
         True only when the algorithm owns a predictor, prediction is
-        requested, and the tableau meets the transform preconditions.
+        requested, the tableau meets the transform preconditions, and
+        the tableau carries a positive calibrated ratio ceiling for
+        the configured precision.
         """
         if self.dense_predictor is None:
             return False
         config = self.compile_settings
+        ratio_limit = float(
+            config.tableau.dense_prediction_ratio_limit(
+                config.precision
+            )
+        )
         return bool(
             config.attempt_dense_prediction
+            and ratio_limit > 0.0
             and tableau_supports_dense_prediction(config.tableau)
         )
 
