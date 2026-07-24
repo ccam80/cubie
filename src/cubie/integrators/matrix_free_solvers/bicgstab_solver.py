@@ -204,11 +204,17 @@ class BiCGSTABSolver(LinearSolverBase):
             ("bicg_tmp", config.tmp_location),
             ("bicg_s_hat", config.s_hat_location),
             ("bicg_precond_scratch", "local"),
-            ("bicg_chain_scratch", "local"),
         ]:
             buffer_registry.register(
                 name, self, config.n, loc, precision=prec
             )
+        buffer_registry.register(
+            "bicg_chain_scratch",
+            self,
+            config.chain_scratch_elements,
+            "local",
+            precision=prec,
+        )
 
     @property
     def linear_correction_type(self) -> str:
@@ -314,6 +320,32 @@ class BiCGSTABSolver(LinearSolverBase):
                     state, parameters, drivers, base_state,
                     t, h, a_ij, vin, vout,
                 )
+
+        # Same adapter treatment for the preconditioner: absorb the
+        # cached-auxiliaries arity difference so both call sites use
+        # one uniform (wide) preconditioner signature.
+        if preconditioned and cached:
+            @cuda.jit(device=True, inline=True, **jit_kwargs)
+            def precond_apply(
+                state, parameters, drivers, cached_aux, base_state,
+                t, h, a_ij, vin, vout, jvp, scratch, chain_scratch,
+            ):
+                preconditioner(
+                    state, parameters, drivers, cached_aux, base_state,
+                    t, h, a_ij, vin, vout, jvp, scratch, chain_scratch,
+                )
+        elif preconditioned:
+            @cuda.jit(device=True, inline=True, **jit_kwargs)
+            def precond_apply(
+                state, parameters, drivers, cached_aux, base_state,
+                t, h, a_ij, vin, vout, jvp, scratch, chain_scratch,
+            ):
+                preconditioner(
+                    state, parameters, drivers, base_state,
+                    t, h, a_ij, vin, vout, jvp, scratch, chain_scratch,
+                )
+        else:
+            precond_apply = None
 
         # Bind the norm's scaling reference at compile time.
         if reference_is_state:
@@ -454,30 +486,11 @@ class BiCGSTABSolver(LinearSolverBase):
                 # p is maintained within the clamp budget, so the
                 # unpreconditioned copy needs no re-clamp.
                 if preconditioned:
-                    if cached:
-                        if chained_precond:
-                            preconditioner(
-                                state, parameters, drivers, cached_aux,
-                                base_state, t, h, a_ij, p, tmp, v,
-                                precond_scratch, chain_scratch,
-                            )
-                        else:
-                            preconditioner(
-                                state, parameters, drivers, cached_aux,
-                                base_state, t, h, a_ij, p, tmp, v,
-                                precond_scratch,
-                            )
-                    elif chained_precond:
-                        preconditioner(
-                            state, parameters, drivers, base_state,
-                            t, h, a_ij, p, tmp, v,
-                            precond_scratch, chain_scratch,
-                        )
-                    else:
-                        preconditioner(
-                            state, parameters, drivers, base_state,
-                            t, h, a_ij, p, tmp, v, precond_scratch,
-                        )
+                    precond_apply(
+                        state, parameters, drivers, cached_aux,
+                        base_state, t, h, a_ij, p, tmp, v,
+                        precond_scratch, chain_scratch,
+                    )
                     for i in range(n_val):
                         tmp[i] = selp(
                             tmp[i] > dot_clamp, dot_clamp, tmp[i]
@@ -535,31 +548,11 @@ class BiCGSTABSolver(LinearSolverBase):
 
                 # ── Step 7: s_hat = clamp(P(s)), scratch = tmp
                 if preconditioned:
-                    if cached:
-                        if chained_precond:
-                            preconditioner(
-                                state, parameters, drivers, cached_aux,
-                                base_state, t, h, a_ij, rhs, s_hat, tmp,
-                                precond_scratch, chain_scratch,
-                            )
-                        else:
-                            preconditioner(
-                                state, parameters, drivers, cached_aux,
-                                base_state, t, h, a_ij, rhs, s_hat, tmp,
-                                precond_scratch,
-                            )
-                    elif chained_precond:
-                        preconditioner(
-                            state, parameters, drivers, base_state,
-                            t, h, a_ij, rhs, s_hat, tmp,
-                            precond_scratch, chain_scratch,
-                        )
-                    else:
-                        preconditioner(
-                            state, parameters, drivers, base_state,
-                            t, h, a_ij, rhs, s_hat, tmp,
-                            precond_scratch,
-                        )
+                    precond_apply(
+                        state, parameters, drivers, cached_aux,
+                        base_state, t, h, a_ij, rhs, s_hat, tmp,
+                        precond_scratch, chain_scratch,
+                    )
                     for i in range(n_val):
                         s_hat[i] = selp(
                             s_hat[i] > dot_clamp, dot_clamp, s_hat[i]

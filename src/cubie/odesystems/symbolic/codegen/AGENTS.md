@@ -29,9 +29,9 @@ with respect to the stage increment `u`. The `a_ij` placement differs between th
 | `time_derivative.py` | `generate_time_derivative_fac_code`: emits `time_derivative_rhs(state, parameters, drivers, driver_dt, observables, out, t)` computing ∂RHS/∂t = direct ∂t + driver chain (via `driver_dt`) + chain rule through intermediates. Used by Rosenbrock-W. |
 | `jacobian.py` | Pure-symbolic (emits no CUDA): `generate_jacobian` (full analytic Jacobian via chain rule over auxiliary assignments; returns row-major lists of IR expressions) and `generate_analytical_jvp` (returns `JVPEquations` with `j_ij` entry symbols and `Arr("jvp", i)` product terms). Memoised in a module-level `_cache` keyed by `get_cache_key` over interned IR nodes. |
 | `linear_operators.py` | Emits the matrix-free linear operator and JVP cache helpers: `generate_operator_apply_code`, `generate_cached_operator_apply_code`, `generate_prepare_jac_code` (populates `cached_aux`, returns `(code, aux_count)`), `generate_cached_jvp_code`, `generate_n_stage_linear_operator_code` (flattened FIRK). `*_from_jvp` variants take a prebuilt `JVPEquations`. |
-| `preconditioners.py` | Emits truncated Neumann-series preconditioners: `generate_neumann_preconditioner_code` (inline state eval), `generate_neumann_preconditioner_cached_code`, `generate_n_stage_neumann_preconditioner_code` (FIRK, `A⊗J`). Device fn takes a caller-supplied `jvp` scratch buffer. The **only** generator whose `order` argument is live (Neumann truncation degree, factory default 1). |
+| `preconditioners.py` | Emits the Neumann-series and diagonal-Jacobi preconditioners (`generate_neumann_preconditioner_code` + cached/n-stage variants, `generate_jacobi_preconditioner_code` + cached/n-stage variants) and `generate_chained_preconditioner_code`, which nests the stage factories in one emitted factory and applies them in sequence. Emitted signature ends `..., v, out, jvp, scratch, chain_scratch`; chained intermediates ping-pong between `scratch` and `chain_scratch` per `_chain_buffer_plan`. The Neumann family is the only generator whose `order` argument is live (truncation degree, factory default 1). |
 | `nonlinear_residuals.py` | Emits the Newton residual: `generate_residual_code` / `generate_stage_residual_code` (single stage, SDIRK/ESDIRK) and `generate_n_stage_residual_code` (flattened FIRK). |
-| `neumann_convergence.py` | Neumann-series convergence diagnostic: `NeumannRHSEvaluator` (a `CUDAFactory` owned by `SymbolicODE`; builds a kernel wrapping the compiled `dxdt` for finite-difference Jacobians, attaching a `CUBIECache` from the cache settings the solver pushes down `update`), `neumann_spectral_radius`, `check_neumann_convergence`. Runs from `get_solver_helper` on `neumann_*` helper requests and reports the initial-state radius per unit `h` for FIRK or per unit `a_ij*h` when the single-stage runtime coefficient is unknown; an exact infinite-series verdict requires the full step factor. |
+| `neumann_convergence.py` | Neumann-series convergence diagnostic: `NeumannRHSEvaluator` (a `CUDAFactory` building a finite-difference Jacobian kernel over the compiled `dxdt`; cache policy fixed at construction, ownership in `../AGENTS.md`), `neumann_spectral_radius`, `check_neumann_convergence`. Runs as the registry validation hook on `neumann_*` requests; reports the initial-state radius per unit `h` (FIRK) or per unit `a_ij*h`. |
 | `_stage_utils.py` | Shared FIRK helpers: `prepare_stage_data` (Butcher `A`/`c` → IR rows, nodes, stage count) and `build_stage_metadata` (emit `_cubie_codegen_c_<i>`, `_cubie_codegen_a_<i>_<j>` symbol assignments). Used by every `n_stage_*` generator. |
 
 ## Generator variants
@@ -45,25 +45,26 @@ this is a property of the emitted code, not separate subsystems:
   per-stage time nodes are baked in via `_stage_utils`.
 - **`*_cached` / `prepare_jac`** (Rosenbrock-W): `state` is the actual state (no substitution);
   selected auxiliaries are precomputed once per step into `cached_aux` by `prepare_jac` and read
-  back by the operator/JVP/preconditioner. `GenericRosenbrockWStep` requests these (`prepare_jac`,
-  `linear_operator_cached`, `neumann_preconditioner_cached`, `cached_aux_count`) and runs
+  back by the operator/JVP/preconditioner. `GenericRosenbrockWStep` requests these
+  (`prepare_jac` — whose `HelperResult` carries `cached_auxiliary_count` —
+  `linear_operator_cached`, `neumann_preconditioner_cached`) and runs
   `prepare_jacobian` once per step. *Which* auxiliaries get cached is chosen by the planner
   (`parsing/auxiliary_caching.plan_auxiliary_cache`), gated by `JVPEquations.min_ops_threshold`
   (default 10 ops saved) and `cache_slot_limit` (default `2*len(jvp_terms)`, overridable via
   `max_cached_terms`). The threshold is deliberately conservative, so on many systems few terms
   are cached — but the path is live, not disabled.
 
-**Consumers:** emitted device functions are wired by `symbolicODE.get_solver_helper(func_type)`
-and consumed downstream by `cubie/integrators/matrix_free_solvers/` (`LinearSolver`,
-`NewtonKrylov`) and the implicit algorithms in `cubie/integrators/algorithms/`. Treat the
-device-function signatures in each template docstring as the contract.
+**Consumers:** dispatch and identities are owned by `../AGENTS.md`
+(get_solver_helper section) and `../helper_registry.py`. Treat the
+device-function signatures in each template docstring as the contract;
+factory-binding signatures are declared in the registry.
 
 ## For AI Agents
 
 ### Generators emit strings, not functions
-Every public `generate_*` builds Python source from a module-level `*_TEMPLATE`. To wire in a new
-one, add a branch in `symbolicODE.get_solver_helper` (and the import/type list near the top of
-`symbolicODE.py`) — generating the string alone does nothing. **Templates are
+Every public `generate_*` builds Python source from a module-level `*_TEMPLATE`. To wire in a
+new one, add a `SolverHelperKind` and a registry entry in `../helper_registry.py` —
+generating the string alone does nothing. **Templates are
 indentation-sensitive:** bodies come from `print_cuda_multiple(...)` then joined with explicit
 leading spaces (8 inside a factory body, 12 inside the preconditioner's `for _ in range(order)`
 loop). Preserve the exact counts or the generated source won't parse.

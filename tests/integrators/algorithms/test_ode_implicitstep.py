@@ -68,6 +68,42 @@ def test_implicit_step_exposes_tolerance_properties(precision):
     assert np.all(step.newton_rtol == precision(newton_rtol_scalar))
 
 
+def test_direct_construction_matches_hot_swap_products(precision, system):
+    """Direct construction and an equivalent update sequence converge.
+
+    Both routes must end with equal snapshots, equal config_hash, and
+    the same bound helper members — equal generated products, not just
+    equal hashes.
+    """
+    kwargs = {
+        "precision": precision,
+        "n": system.sizes.states,
+        "evaluate_f": system.evaluate_f,
+        "evaluate_observables": system.evaluate_observables,
+        "get_solver_helper_fn": system.get_solver_helper,
+    }
+    direct = BackwardsEulerStep(preconditioner_order=3, **kwargs)
+    swapped = BackwardsEulerStep(preconditioner_order=2, **kwargs)
+    swapped.update(preconditioner_order=3)
+
+    assert direct.compile_settings == swapped.compile_settings
+    assert direct.config_hash == swapped.config_hash
+
+    direct.build_implicit_helpers()
+    swapped.build_implicit_helpers()
+
+    assert direct.config_hash == swapped.config_hash
+    assert direct.solver.config_hash == swapped.solver.config_hash
+
+    f_direct = direct._resolve_preconditioner(
+        **direct._helper_request_kwargs()
+    )
+    f_swapped = swapped._resolve_preconditioner(
+        **swapped._helper_request_kwargs()
+    )
+    assert f_direct is f_swapped
+
+
 def test_implicit_step_linear_solver_newton_atol_returns_none(precision):
     """Verify newton_atol/rtol return None for a linearly-implicit step."""
     step = GenericRosenbrockWStep(precision=precision, n=3)

@@ -92,7 +92,7 @@ class NeumannEvaluatorConfig(CUDAFactoryConfig):
 class NeumannEvaluatorCache(CUDADispatcherCache):
     """Container for the compiled Jacobian evaluation kernel."""
 
-    evaluation_kernel: Union[int, Callable] = field(default=-1)
+    evaluation_kernel: Optional[Callable] = field(default=None)
 
 
 class NeumannRHSEvaluator(CUDAFactory):

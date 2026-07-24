@@ -4,6 +4,7 @@ from typing import Tuple
 
 import numpy as np
 import pytest
+from cubie.odesystems.solver_helpers import SolverHelperRequest
 from cubie.cuda_simsafe import cuda
 
 from cubie.array_interpolator import ArrayInterpolator
@@ -334,7 +335,9 @@ def test_symbolic_time_derivative_matches_interpolated(cubic_inputs, precision):
         name="cubic_time_derivative",
     )
 
-    helper = system.get_solver_helper("time_derivative_rhs")
+    helper = system.get_solver_helper(
+        SolverHelperRequest(kind="time_derivative_rhs")
+    ).device_function
 
     query_times = np.array([0.75, 2.25], dtype=precision)
 
@@ -1086,7 +1089,9 @@ def test_construction_rejects_too_few_samples(precision):
 
 def test_construction_rejects_both_dt_and_time(precision):
     """Providing both dt and time raises ValueError."""
-    with pytest.raises(ValueError, match="Only one of driver_sample_period or time"):
+    with pytest.raises(
+        ValueError, match="Only one of driver_sample_period or time"
+    ):
         ArrayInterpolator(
             precision=precision,
             input_dict={
@@ -1150,7 +1155,9 @@ def test_construction_rejects_non_uniform_time(precision):
 
 def test_construction_rejects_neither_dt_nor_time(precision):
     """Providing neither dt nor time raises ValueError."""
-    with pytest.raises(ValueError, match="time array or driver_sample_period"):
+    with pytest.raises(
+        ValueError, match="time array or driver_sample_period"
+    ):
         ArrayInterpolator(
             precision=precision,
             input_dict={"values": np.arange(4, dtype=precision)},

@@ -46,6 +46,10 @@ from cubie._utils import (
 )
 from cubie.cuda_simsafe import activemask, all_sync
 from cubie.result_codes import CUBIE_RESULT_CODES
+from cubie.odesystems.solver_helpers import (
+    SolverHelperKind,
+    SolverHelperRequest,
+)
 from cubie.integrators.algorithms.base_algorithm_step import (
     StepCache,
     StepControlDefaults,
@@ -360,33 +364,23 @@ class DIRKStep(ODEImplicitStep):
         """Construct the nonlinear solver chain used by implicit methods."""
 
         config = self.compile_settings
-        beta = config.beta
-        gamma = config.gamma
-        preconditioner_order = config.preconditioner_order
+        request_kwargs = self._helper_request_kwargs()
 
         get_fn = config.get_solver_helper_fn
 
-        preconditioner = get_fn(
-            "preconditioner",
-            preconditioner_type=config.preconditioner_type,
-            solver_beta=beta,
-            solver_gamma=gamma,
-            preconditioner_order=preconditioner_order,
-        )
+        preconditioner = self._resolve_preconditioner(**request_kwargs)
 
         residual = get_fn(
-            "stage_residual",
-            solver_beta=beta,
-            solver_gamma=gamma,
-            preconditioner_order=preconditioner_order,
-        )
+            SolverHelperRequest(
+                kind=SolverHelperKind.STAGE_RESIDUAL, **request_kwargs
+            )
+        ).device_function
 
         operator = get_fn(
-            "linear_operator",
-            solver_beta=beta,
-            solver_gamma=gamma,
-            preconditioner_order=preconditioner_order,
-        )
+            SolverHelperRequest(
+                kind=SolverHelperKind.LINEAR_OPERATOR, **request_kwargs
+            )
+        ).device_function
 
         # Update solvers with device functions
         self.solver.update(

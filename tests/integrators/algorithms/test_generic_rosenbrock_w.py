@@ -3,12 +3,17 @@
 import attrs
 import numpy as np
 
+from cubie.buffer_registry import buffer_registry
 from cubie.integrators.algorithms.generic_rosenbrock_w import (
     GenericRosenbrockWStep,
 )
 from cubie.integrators.algorithms.generic_rosenbrockw_tableaus import (
     DEFAULT_ROSENBROCK_TABLEAU,
     ROS3P_TABLEAU,
+)
+from cubie.odesystems.solver_helpers import (
+    SolverHelperKind,
+    SolverHelperRequest,
 )
 
 
@@ -27,11 +32,11 @@ def test_errorless_tableau_selects_fixed_controller_defaults():
     assert defaults["step_controller"] == "fixed"
 
 
-def test_cached_auxiliary_count_lazily_builds_helpers(precision, system):
-    """cached_auxiliary_count builds the implicit helper chain on first
+def test_cached_auxiliaries_sized_after_helper_refresh(precision, system):
+    """The auxiliary cache is registered at zero size and takes its
 
-    access when it has not been built yet, then returns the cached
-    value.
+    real size from prepare_jac's HelperResult during the helper
+    refresh; the step keeps no ambient auxiliary-count state.
     """
     step = GenericRosenbrockWStep(
         precision=precision,
@@ -41,11 +46,14 @@ def test_cached_auxiliary_count_lazily_builds_helpers(precision, system):
         get_solver_helper_fn=system.get_solver_helper,
         tableau=DEFAULT_ROSENBROCK_TABLEAU,
     )
-    assert step._cached_auxiliary_count is None
+    entry = buffer_registry._groups[step].entries["cached_auxiliaries"]
+    assert entry.size == 0
+    assert not hasattr(step, "_cached_auxiliary_count")
 
-    count = step.cached_auxiliary_count
+    step.build_implicit_helpers()
 
-    assert isinstance(count, int)
-    assert step._cached_auxiliary_count == count
-    # Second access reuses the cached value without rebuilding.
-    assert step.cached_auxiliary_count == count
+    expected = system.get_solver_helper(
+        SolverHelperRequest(kind=SolverHelperKind.PREPARE_JAC)
+    ).cached_auxiliary_count
+    entry = buffer_registry._groups[step].entries["cached_auxiliaries"]
+    assert entry.size == expected

@@ -35,6 +35,12 @@ from cubie._utils import (
     sequence_to_tuple,
 )
 from cubie.buffer_registry import buffer_registry
+from cubie.odesystems.solver_helpers import (
+    SolverHelperKind,
+    SolverHelperRequest,
+    resolve_chained_kind,
+    resolve_preconditioner_kind,
+)
 from cubie.integrators.matrix_free_solvers.linear_solver import (
     MRLinearSolver,
 )
@@ -127,15 +133,10 @@ class ImplicitStepConfig(BaseStepConfig):
 
     @property
     def preconditioner_is_chained(self) -> bool:
-        """Return whether the preconditioner resolves to a chain.
-
-        Single strings and one-element lists resolve to a bare
-        preconditioner; two-element lists compose as ``P1(P0(v))``
-        with the chained (``chain_scratch``-carrying) signature.
-        """
+        """Return whether the preconditioner composes multiple types."""
         return (
-            isinstance(self.preconditioner_type, (list, tuple))
-            and len(self.preconditioner_type) == 2
+            isinstance(self.preconditioner_type, tuple)
+            and len(self.preconditioner_type) >= 2
         )
 
     @property
@@ -523,6 +524,68 @@ class ODEImplicitStep(BaseAlgorithmStep):
         """
         raise NotImplementedError
 
+    def _helper_request_kwargs(self) -> dict:
+        """Return the shared request fields from the step settings."""
+        config = self.compile_settings
+        return {
+            "beta": float(config.beta),
+            "gamma": float(config.gamma),
+            "preconditioner_order": config.preconditioner_order,
+        }
+
+    def _resolve_preconditioner(
+        self,
+        cached: bool = False,
+        n_stage: bool = False,
+        **request_kwargs,
+    ) -> Callable:
+        """Resolve ``preconditioner_type`` into a device function.
+
+        Parameters
+        ----------
+        cached
+            Request the cached-auxiliaries variant (Rosenbrock-W).
+        n_stage
+            Request the flattened all-stages variant (FIRK).
+        **request_kwargs
+            Request fields forwarded to the helper request.
+
+        Returns
+        -------
+        Callable
+            One generated preconditioner: a concrete kind for a
+            single configured type, or one composed (chained)
+            generated helper for a sequence of types.
+        """
+        config = self.compile_settings
+        preconditioner_type = config.preconditioner_type
+        if isinstance(preconditioner_type, str):
+            types = (preconditioner_type,)
+        else:
+            types = tuple(preconditioner_type)
+
+        kinds = tuple(
+            resolve_preconditioner_kind(
+                type_name, cached=cached, n_stage=n_stage
+            )
+            for type_name in types
+        )
+
+        if len(kinds) == 1:
+            request = SolverHelperRequest(
+                kind=kinds[0], **request_kwargs
+            )
+        else:
+            request = SolverHelperRequest(
+                kind=resolve_chained_kind(
+                    cached=cached, n_stage=n_stage
+                ),
+                chained_kinds=kinds,
+                **request_kwargs,
+            )
+        get_fn = config.get_solver_helper_fn
+        return get_fn(request).device_function
+
     def build_implicit_helpers(self) -> None:
         """Construct the nonlinear solver chain used by implicit methods.
 
@@ -532,32 +595,22 @@ class ODEImplicitStep(BaseAlgorithmStep):
         """
 
         config = self.compile_settings
-        beta = config.beta
-        gamma = config.gamma
-        preconditioner_order = config.preconditioner_order
+        request_kwargs = self._helper_request_kwargs()
 
         get_fn = config.get_solver_helper_fn
 
         # Get device functions from ODE system
-        preconditioner = get_fn(
-            "preconditioner",
-            preconditioner_type=config.preconditioner_type,
-            solver_beta=beta,
-            solver_gamma=gamma,
-            preconditioner_order=preconditioner_order,
-        )
+        preconditioner = self._resolve_preconditioner(**request_kwargs)
         residual = get_fn(
-            "stage_residual",
-            solver_beta=beta,
-            solver_gamma=gamma,
-            preconditioner_order=preconditioner_order,
-        )
+            SolverHelperRequest(
+                kind=SolverHelperKind.STAGE_RESIDUAL, **request_kwargs
+            )
+        ).device_function
         operator = get_fn(
-            "linear_operator",
-            solver_beta=beta,
-            solver_gamma=gamma,
-            preconditioner_order=preconditioner_order,
-        )
+            SolverHelperRequest(
+                kind=SolverHelperKind.LINEAR_OPERATOR, **request_kwargs
+            )
+        ).device_function
 
         self.solver.update(
             operator_apply=operator,

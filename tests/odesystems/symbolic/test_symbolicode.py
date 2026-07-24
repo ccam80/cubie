@@ -2,16 +2,24 @@ import numpy as np
 import pytest
 from numpy.testing import assert_array_equal
 
+from cubie.odesystems.solver_helpers import SolverHelperRequest
 from cubie.odesystems.symbolic import symbolicODE as symbolic_ode_module
 from cubie.odesystems.symbolic.codegen.linear_operators import (
     generate_operator_apply_code,
 )
+from cubie.odesystems.symbolic.helper_registry import helper_source_hash
 from cubie.odesystems.symbolic.parsing.parser import parse_input
 from cubie.odesystems.symbolic.symbolicODE import (
     SymbolicODE,
-    _stage_tableau_hash,
     create_ODE_system,
 )
+
+
+def _helper_fn(system, kind, **kwargs):
+    """Request a helper and return its device function."""
+    return system.get_solver_helper(
+        SolverHelperRequest(kind=kind, **kwargs)
+    ).device_function
 
 
 def test_create_with_driver_array_dict(precision):
@@ -136,17 +144,16 @@ def built_simple_nonstrict(simple_ode_nonstrict):
     return simple_ode_nonstrict
 
 def test_simple_strict_builds(built_simple_strict):
-    assert callable(built_simple_strict.get_solver_helper("linear_operator"))
+    assert callable(_helper_fn(built_simple_strict, "linear_operator"))
 
 def test_simple_nonstrict_builds(built_simple_nonstrict):
-    assert callable(built_simple_nonstrict.get_solver_helper(
-            "linear_operator"))
+    assert callable(_helper_fn(built_simple_nonstrict, "linear_operator"))
 
 
 def test_solver_helper_cached(built_simple_strict):
-    func1 = built_simple_strict.get_solver_helper("linear_operator")
+    func1 = _helper_fn(built_simple_strict, "linear_operator")
     assert callable(func1)
-    func2 = built_simple_strict.get_solver_helper("linear_operator")
+    func2 = _helper_fn(built_simple_strict, "linear_operator")
     assert func1 is func2
 
 
@@ -162,7 +169,7 @@ def test_observables_helper_available(built_simple_strict):
 def test_time_derivative_helper_available(built_simple_strict):
     """Time-derivative helper should be compiled during system build."""
 
-    helper = built_simple_strict.get_solver_helper("time_derivative_rhs")
+    helper = _helper_fn(built_simple_strict, "time_derivative_rhs")
     assert callable(helper)
 
 
@@ -341,9 +348,11 @@ class TestCacheSkipsCodegen:
         ode.build()
 
         # First call generates and caches prepare_jac
-        helper1 = ode.get_solver_helper("prepare_jac")
-        assert callable(helper1)
-        aux_count_initial = ode._jacobian_aux_count
+        result1 = ode.get_solver_helper(
+            SolverHelperRequest(kind="prepare_jac")
+        )
+        assert callable(result1.device_function)
+        aux_count_initial = result1.cached_auxiliary_count
         assert aux_count_initial is not None
 
         # Create a new ODE instance with the same definition and name
@@ -359,9 +368,11 @@ class TestCacheSkipsCodegen:
 
         # Second call should retrieve from file cache (no fresh codegen)
         # and restore aux_count from the cached factory attribute.
-        helper2 = ode_cached.get_solver_helper("prepare_jac")
-        assert callable(helper2)
-        assert ode_cached._jacobian_aux_count == aux_count_initial
+        result2 = ode_cached.get_solver_helper(
+            SolverHelperRequest(kind="prepare_jac")
+        )
+        assert callable(result2.device_function)
+        assert result2.cached_auxiliary_count == aux_count_initial
 
     def test_codegen_skipped_on_cache_hit(self, precision):
         """Verify that code generation is skipped when function is cached."""
@@ -376,11 +387,14 @@ class TestCacheSkipsCodegen:
         ode.build()
 
         # First call generates linear_operator
-        helper1 = ode.get_solver_helper("linear_operator")
+        request = SolverHelperRequest(kind="linear_operator")
+        helper1 = ode.get_solver_helper(request).device_function
         assert callable(helper1)
 
-        # Verify function is marked as cached in file
-        factory_name = "linear_operator"
+        # Verify function is marked as cached in file under its
+        # source-suffixed name.
+        source_hash = helper_source_hash(ode, request)
+        factory_name = f"linear_operator_s{source_hash}"
         assert ode.gen_file.function_is_cached(factory_name)
 
         # Create a new ODE instance with the same definition and name
@@ -396,7 +410,7 @@ class TestCacheSkipsCodegen:
         ode_cached.build()
 
         # Second call should skip codegen (uses file cache)
-        helper2 = ode_cached.get_solver_helper("linear_operator")
+        helper2 = ode_cached.get_solver_helper(request).device_function
         assert callable(helper2)
 
     def test_array_layout_replaces_same_name_disk_source(self, precision):
@@ -502,38 +516,30 @@ class TestCacheSkipsCodegen:
         third_coefficients = [[0.25, 0.0], [0.5, 0.25]]
         third_nodes = [0.25, 0.75]
 
-        first = ode.get_solver_helper(
-            "n_stage_residual",
-            stage_coefficients=first_coefficients,
-            stage_nodes=first_nodes,
-        )
-        second = ode.get_solver_helper(
-            "n_stage_residual",
-            stage_coefficients=second_coefficients,
-            stage_nodes=second_nodes,
-        )
-        second_again = ode.get_solver_helper(
-            "n_stage_residual",
-            stage_coefficients=second_coefficients,
-            stage_nodes=second_nodes,
-        )
-        third = ode.get_solver_helper(
-            "n_stage_residual",
-            stage_coefficients=third_coefficients,
-            stage_nodes=third_nodes,
-        )
+        requests = [
+            SolverHelperRequest(
+                kind="n_stage_residual",
+                stage_coefficients=coefficients,
+                stage_nodes=nodes,
+            )
+            for coefficients, nodes in (
+                (first_coefficients, first_nodes),
+                (second_coefficients, second_nodes),
+                (third_coefficients, third_nodes),
+            )
+        ]
+        first = ode.get_solver_helper(requests[0])
+        second = ode.get_solver_helper(requests[1])
+        second_again = ode.get_solver_helper(requests[1])
+        third = ode.get_solver_helper(requests[2])
 
         assert first is not second
         assert second_again is second
         assert third is not second
         source = ode.gen_file.file_path.read_text()
-        for coefficients, nodes in (
-            (first_coefficients, first_nodes),
-            (second_coefficients, second_nodes),
-            (third_coefficients, third_nodes),
-        ):
-            digest = _stage_tableau_hash(coefficients, nodes)
-            assert f"_t{digest}(" in source
+        for request in requests:
+            source_hash = helper_source_hash(ode, request)
+            assert f"n_stage_residual_s{source_hash}(" in source
 
 
 class TestConstantParameterConversion:
@@ -797,21 +803,18 @@ class TestInfoGetters:
         assert "y" in names
 
 
-class TestMassMatrixHashTag:
-    """Cover the fn_hash mass-matrix component."""
+class TestMassMatrixHelperIdentity:
+    """Cover the mass matrix's role in helper source identity."""
 
-    def test_identity_matrix_has_empty_tag(self):
-        """An identity mass matrix maps to an empty component."""
-        tag = symbolic_ode_module._mass_matrix_hash_tag([[1, 0], [0, 1]])
-        assert tag == ""
+    def test_mass_matrix_moves_only_consuming_sources(self):
+        """A mass matrix re-keys mass-consuming helper source only.
 
-    def test_non_identity_matrix_has_suffix(self):
-        """A non-identity mass matrix produces a hashed component."""
-        tag = symbolic_ode_module._mass_matrix_hash_tag([[2, 0], [0, 1]])
-        assert tag.startswith("_M")
-
-    def test_mass_matrix_moves_fn_hash(self):
-        """Same-definition systems with different mass hash apart."""
+        The base equation identity (``fn_hash``) is mass-free: base
+        ``dxdt``/observables source is not renamed by an algorithm
+        helper's mass matrix. Helpers whose generators bake the matrix
+        into source get a distinct source identity; helpers that do
+        not consume the matrix share source across the two systems.
+        """
         kwargs = dict(
             dxdt=["dx = -x", "dz = z - x"],
             states={"x": 1.0, "z": 1.0},
@@ -822,12 +825,19 @@ class TestMassMatrixHashTag:
         massed = SymbolicODE.create(
             **kwargs, mass=np.diag([1.0, 0.0])
         )
-        assert plain.fn_hash != massed.fn_hash
-        assert massed.fn_hash.endswith(
-            symbolic_ode_module._mass_matrix_hash_tag(
-                np.diag([1.0, 0.0])
-            )
+        assert plain.fn_hash == massed.fn_hash
+
+        residual_request = SolverHelperRequest(kind="stage_residual")
+        assert helper_source_hash(
+            plain, residual_request
+        ) != helper_source_hash(massed, residual_request)
+
+        neumann_request = SolverHelperRequest(
+            kind="neumann_preconditioner"
         )
+        assert helper_source_hash(
+            plain, neumann_request
+        ) == helper_source_hash(massed, neumann_request)
 
 
 class TestSymbolicODEConstructorDefaults:
@@ -858,19 +868,7 @@ class TestSymbolicODEConstructorDefaults:
 
 
 class TestSymbolicODEUnitAccessors:
-    """Cover unit and auxiliary-count accessors."""
-
-    def test_jacobian_aux_count_defaults_to_none(self):
-        """jacobian_aux_count is None before any JVP build."""
-        ode = create_ODE_system(
-            dxdt=["dx = -k * x"],
-            states={"x": 1.0},
-            parameters={"k": 0.5},
-            precision=np.float32,
-            strict=True,
-            name="jac_aux_none",
-        )
-        assert ode.jacobian_aux_count is None
+    """Cover unit accessors."""
 
     def test_driver_units_reports_declared_drivers(self):
         """driver_units exposes units for declared drivers."""
@@ -906,10 +904,12 @@ class TestSetConstantsKwargs:
 
 
 class TestPreconditionerChainErrors:
-    """Cover error handling in _build_preconditioner_chain."""
+    """Cover preconditioner-type resolution in the algorithm layer."""
 
     def test_unknown_preconditioner_type_raises(self):
         """An unknown preconditioner type raises ValueError."""
+        from cubie.integrators.algorithms import get_algorithm_step
+
         ode = create_ODE_system(
             dxdt=["dx = -k * x"],
             states={"x": 1.0},
@@ -918,5 +918,14 @@ class TestPreconditionerChainErrors:
             strict=True,
             name="precond_error_test",
         )
+        step = get_algorithm_step(
+            precision=np.float32,
+            settings={
+                "algorithm": "backwards_euler",
+                "n": 1,
+                "preconditioner_type": "bogus",
+                "get_solver_helper_fn": ode.get_solver_helper,
+            },
+        )
         with pytest.raises(ValueError, match="Unknown preconditioner type"):
-            ode._build_preconditioner_chain("bogus", "preconditioner")
+            step.build_implicit_helpers()

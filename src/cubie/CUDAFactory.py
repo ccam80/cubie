@@ -592,9 +592,6 @@ class CUDAFactory(ABC):
         ------
         KeyError
             If ``output_name`` is not present in the cache.
-        NotImplementedError
-            If a cache has been filled with a "-1" integer, this indicates
-            that the requested object is not implemented in the subclass.
         """
         if not self.cache_valid:
             self._build()
@@ -604,12 +601,7 @@ class CUDAFactory(ABC):
             raise KeyError(
                 f"Output '{output_name}' not found in cached outputs."
             )
-        cache_contents = getattr(self._cache, output_name)
-        if type(cache_contents) is int and cache_contents == -1:
-            raise NotImplementedError(
-                f"Output '{output_name}' is not implemented in this class."
-            )
-        return cache_contents
+        return getattr(self._cache, output_name)
 
     @property
     def config_hash(self):

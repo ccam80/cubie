@@ -609,23 +609,6 @@ def test_get_cached_raises_key_for_missing_output():
         f.get_cached_output("nonexistent")
 
 
-def test_get_cached_raises_not_implemented_for_minus_one():
-    """Raises NotImplementedError when cached value is int(-1)."""
-    @attrs.define
-    class _CacheWithStub(CUDADispatcherCache):
-        device_function: object = attrs.field(default=-1, eq=False)
-        stub: int = -1
-
-    def build_stub():
-        return _CacheWithStub()
-
-    f2 = _make_factory(build_fn=build_stub)
-    cfg = _make_config()
-    f2.setup_compile_settings(cfg)
-    with pytest.raises(NotImplementedError, match="stub"):
-        f2.get_cached_output("stub")
-
-
 def test_get_cached_returns_valid_output():
     """Returns cached value for valid output."""
     f = _make_factory_with_settings()
