@@ -37,7 +37,7 @@ See Also
 
 from typing import Callable, Optional
 
-from attrs import define, field, validators
+from attrs import field, validators, frozen
 from cubie.cuda_simsafe import cuda, int32
 
 from cubie.result_codes import CUBIE_RESULT_CODES
@@ -109,7 +109,7 @@ adaptive stepping requires an error estimate to adjust the step size.
 """
 
 
-@define
+@frozen
 class FIRKStepConfig(ImplicitStepConfig):
     """Configuration describing the FIRK integrator.
 

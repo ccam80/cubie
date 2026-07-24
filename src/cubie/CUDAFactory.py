@@ -25,26 +25,42 @@ Published Classes
 :class:`MultipleInstanceCUDAFactory`
     Factory subclass that maps prefixed configuration keys.
 
+Notes
+-----
+Compile-settings objects are immutable snapshots. The only write path
+is :meth:`CUDAFactory.update_compile_settings`, which derives a
+replacement snapshot through the config's pure :meth:`update`, swaps it
+in, and invalidates the factory's build cache when any field — semantic
+or ``eq=False`` derived — actually changed. ``values_hash`` is a pure
+derivation of the snapshot's semantic fields through the canonical
+serializer in :mod:`cubie._serialize`; invalidation and hashing are
+deliberately different predicates, because a replaced ``eq=False``
+device callable must rebuild the consumer while its semantic identity
+is carried by the owning child factory's ``config_hash``.
+
 See Also
 --------
+:mod:`cubie._serialize`
+    Canonical serialization used for all configuration hashing.
 :mod:`cubie.buffer_registry`
     Buffer registry used by factories for memory management.
 :mod:`cubie._utils`
     Validator and converter helpers used by config classes.
 """
 
-from hashlib import sha256
 from abc import ABC, abstractmethod
-from typing import Set, Any, Tuple, Dict
+from functools import cache
+from typing import Any, Dict, Optional, Set, Tuple
 
 from attrs import (
+    Attribute,
+    asdict,
     define,
+    evolve,
     field,
     fields,
+    frozen,
     has,
-    Attribute,
-    astuple,
-    asdict,
 )
 from attrs import validators as attrs_validators
 from numpy import (
@@ -55,6 +71,7 @@ from numpy import (
 )
 from cubie.cuda_simsafe import numba_from_dtype as from_dtype
 
+from cubie._serialize import canonical_digest
 from cubie._utils import (
     in_attr,
     PrecisionDType,
@@ -66,36 +83,8 @@ from cubie.cuda_simsafe import from_dtype as simsafe_dtype
 from cubie.buffer_registry import buffer_registry
 
 
-def hash_tuple(values: Tuple) -> str:
-    """Serialize a tuple of values to a SHA256 hex digest.
-
-    Parameters
-    ----------
-    values
-        Tuple of values to serialize and hash.
-
-    Returns
-    -------
-    str
-        64-character SHA256 hex digest.
-    """
-    parts = []
-    for value in values:
-        if value is None:
-            parts.append("None")
-        elif isinstance(value, ndarray):
-            # Hash array bytes for deterministic result, incorporating shape
-            # and dtype
-            array_hash = sha256(value.tobytes()).hexdigest()
-            parts.append(f"ndarray:{array_hash}")
-        else:
-            parts.append(str(value))
-    combined = "|".join(parts)
-    return sha256(combined.encode("utf-8")).hexdigest()
-
-
 def attribute_is_hashable(attribute: Attribute, value: Any) -> bool:
-    """Check if an attribute value is hashable.
+    """Check if an attribute participates in semantic equality.
 
     Parameters
     ----------
@@ -107,71 +96,105 @@ def attribute_is_hashable(attribute: Attribute, value: Any) -> bool:
     Returns
     -------
     bool
-        True if the value is hashable, False otherwise.
-
-    Notes
-    -----
-    Only checks the eq flag; it is the user's responsibility to mark
-    unhashable objects eq=False. This should be done in Cubie anyway for
-    field updates to successfully track changes.
+        True if the field participates in equality and hashing,
+        False for ``eq=False`` fields.
     """
-    eq = attribute.eq
-    if eq is False:
-        return False
-    return True
+    return attribute.eq is not False
 
 
-@define
-class _CubieConfigBase:
-    """Base class for any configuration container which holds session state.
-    Contains updating, serialising, and hashing logic."""
+@cache
+def _config_field_map(cls: type) -> Dict[str, Attribute]:
+    """Return the name-and-alias lookup table for a config class.
 
-    _unhashable_fields: Set[str] = field(
-        factory=set, init=False, repr=False, eq=False
-    )
-    _values_hash: str = field(default="", init=False, repr=False, eq=False)
-    _field_map: Dict[str, Attribute] = field(
-        factory=dict, init=False, repr=False, eq=False
-    )
-    _nested_attrs: Set[str] = field(
-        factory=set, init=False, repr=False, eq=False
-    )
+    Also validates, once per class, that no equality-participating
+    field is a plain ``dict`` — compile-critical mappings must be
+    wrapped in their own attrs class.
+    """
+    from typing import get_origin
 
-    def __attrs_post_init__(self):
-        """Post-initialization to generate initial hash values."""
-        field_map = {}
-        for fld in fields(type(self)):
-            field_map[fld.name] = fld
-            if fld.alias is not None:
-                field_map[fld.alias] = fld
-
-        self._field_map = field_map
-        self._nested_attrs = {
-            fld.name for fld in fields(type(self)) if has(fld.type)
-        }
-        self._unhashable_fields = {
-            field for field in fields(type(self)) if field.eq is False
-        }
-        self._values_hash = self._generate_values_hash()
-        from typing import get_origin
-
-        if any(
-            (get_origin(fld.type) is dict or fld.type is dict)
-            and fld not in self._unhashable_fields
-            for fld in field_map.values()
+    field_map: Dict[str, Attribute] = {}
+    for fld in fields(cls):
+        field_map[fld.name] = fld
+        if fld.alias is not None:
+            field_map[fld.alias] = fld
+        if fld.eq is not False and (
+            (get_origin(fld.type) is dict) or fld.type is dict
         ):
             raise TypeError(
                 "Fields of type 'dict' are not supported in "
                 "CUDAFactoryConfig subclasses, as they're not hashable, "
-                "cacheable, and their entries are not easily updated by the "
-                "update() method. Please create an attrs class for the "
-                "compile-critical data you're adding."
+                "cacheable, and their entries are not easily updated by "
+                "the update() method. Please create an attrs class for "
+                "the compile-critical data you're adding."
             )
+    return field_map
+
+
+@cache
+def _nested_config_fields(cls: type) -> Tuple[Attribute, ...]:
+    """Return fields whose declared type is an attrs class.
+
+    ``Optional``/``Union`` annotations are unwrapped so an optional
+    nested config still participates in recursive updates.
+    """
+    from typing import Union, get_args, get_origin
+
+    nested = []
+    for fld in fields(cls):
+        candidates = (fld.type,)
+        if get_origin(fld.type) is Union:
+            candidates = get_args(fld.type)
+        for candidate in candidates:
+            if isinstance(candidate, type) and has(candidate):
+                nested.append(fld)
+                break
+    return tuple(nested)
+
+
+def _values_differ(fld: Attribute, old: Any, new: Any) -> bool:
+    """Return whether a field's value changed across a snapshot.
+
+    ``eq=False`` fields (derived callables, device-function handles)
+    are compared by identity: a replaced object is a change even
+    though it never participates in semantic equality or hashing.
+    Arrays are compared elementwise; everything else by ``!=``.
+    """
+    if fld.eq is False:
+        return old is not new
+    if isinstance(old, ndarray) or isinstance(new, ndarray):
+        return not array_equal(asarray(old), asarray(new))
+    return bool(old != new)
+
+
+@frozen
+class _CubieConfigBase:
+    """Immutable base for configuration containers with session state.
+
+    Instances are frozen snapshots: fields change only by deriving a
+    replacement through :meth:`update`, never by assignment. The
+    semantic hash is a pure derivation of the snapshot, memoized on
+    first access.
+
+    Memoizing the hash is only sound because nested values seal at
+    the snapshot boundary: converters on array-valued fields store
+    owned read-only copies (never aliases of caller arrays), and
+    container values such as ``SystemValues`` freeze in place when a
+    snapshot takes them. A converter that stores a mutable alias
+    would silently break this contract — copy and seal instead.
+    """
+
+    _values_hash_memo: Optional[str] = field(
+        default=None, init=False, repr=False, eq=False
+    )
+
+    def __attrs_post_init__(self):
+        """Trigger the per-class field-map validation."""
+        _config_field_map(type(self))
 
     def update(
         self, updates_dict: dict = None, **kwargs
-    ) -> Tuple[Set[str], Set[str]]:
-        """Update configuration fields with new values.
+    ) -> Tuple["_CubieConfigBase", Set[str], Set[str]]:
+        """Derive a replacement snapshot with new field values.
 
         Parameters
         ----------
@@ -184,69 +207,73 @@ class _CubieConfigBase:
 
         Returns
         -------
-        tuple[set[str], set[str]]
+        tuple[_CubieConfigBase, set[str], set[str]]
+            replacement: A new snapshot carrying the updates, or
+            ``self`` when nothing changed.
             recognized: Names of settings that matched known fields.
-            changed: Names of settings whose values were updated.
+            changed: Names of settings whose values differ in the
+            replacement.
 
         Notes
         -----
-        Checks field names and field aliases in a single pass. For fields
-        with underscore-prefixed names (e.g., ``_precision``), the key in
-        updates_dict should be the non-underscored form (``precision``),
-        which matches the field's alias. After updates, values_tuple and
-        values_hash are regenerated.
+        This method never mutates ``self``. Field converters and
+        validators run on the replacement snapshot, and change
+        detection compares post-conversion values — ``eq=False``
+        fields by identity, arrays elementwise, everything else by
+        inequality. Nested attrs-class fields are updated recursively:
+        the nested object derives its own replacement, which is folded
+        into this snapshot's replacement.
         """
         if updates_dict is None:
             updates_dict = {}
         updates_dict = updates_dict.copy()
         updates_dict.update(kwargs)
         if not updates_dict:
-            return set(), set()
+            return self, set(), set()
+
+        cls = type(self)
+        field_map = _config_field_map(cls)
 
         recognized = set()
-        changed = set()
-
-        field_map = self._field_map
-
+        direct = {}
         for key, value in updates_dict.items():
             fld = field_map.get(key)
-            if fld is None:
+            if fld is None or not fld.init:
                 continue
-
             recognized.add(key)
+            direct[key] = fld
+
+        evolve_kwargs = {}
+        for key, fld in direct.items():
+            evolve_kwargs[fld.alias or fld.name] = updates_dict[key]
+
+        changed = set()
+        for fld in _nested_config_fields(cls):
+            nested_obj = getattr(self, fld.name)
+            if nested_obj is None:
+                continue
+            new_nested, nested_recognized, nested_changed = nested_obj.update(
+                updates_dict
+            )
+            recognized.update(nested_recognized)
+            if nested_changed:
+                evolve_kwargs[fld.alias or fld.name] = new_nested
+                changed.update(nested_changed)
+
+        if not evolve_kwargs:
+            return self, recognized, set()
+
+        candidate = evolve(self, **evolve_kwargs)
+
+        for key, fld in direct.items():
             old_value = getattr(self, fld.name)
-
-            # Determine if value changed, handling arrays
-            if isinstance(old_value, ndarray) or isinstance(value, ndarray):
-                value_changed = not array_equal(
-                    asarray(old_value), asarray(value)
-                )
-            else:
-                value_changed = old_value != value
-
-            if value_changed:
-                setattr(self, fld.name, value)
+            new_value = getattr(candidate, fld.name)
+            if _values_differ(fld, old_value, new_value):
                 changed.add(key)
 
-        for name in self._nested_attrs:
-            nested_obj = getattr(self, name)
-
-            nested_recognized, nested_changed = nested_obj.update(updates_dict)
-            recognized.update(nested_recognized)
-            changed.update(nested_changed)
-
-        # Regenerate hash after updates
-        if changed:
-            self._values_hash = self._generate_values_hash()
-
-        return recognized, changed
-
-    def _generate_values_hash(self) -> str:
-        """Generate hash of current Tuple of values from current field values.
-        Called automatically after __init__ and update() (only if any fields
-        were modified, in the latter case).
-        """
-        return hash_tuple(self.values_tuple)
+        if not changed:
+            return self, recognized, set()
+        return candidate, recognized, changed
 
     @property
     def cache_dict(self):
@@ -255,50 +282,41 @@ class _CubieConfigBase:
         return asdict(self, recurse=True, filter=attribute_is_hashable)
 
     @property
-    def values_tuple(self) -> Tuple:
-        """Tuple of all attrs field values without eq=False.
-
-        Returns
-        -------
-        tuple
-            Tuple of configuration values representing the current state.
-        """
-        return astuple(self, recurse=True, filter=attribute_is_hashable)
-
-    @property
     def values_hash(self) -> str:
-        """SHA256 hexdigest of the values_tuple.
+        """Canonical digest of the snapshot's semantic fields.
 
         Returns
         -------
         str
-            64-character hex string representing the configuration state.
+            64-character hex string identifying the configuration
+            state, derived through
+            :func:`cubie._serialize.canonical_digest` and memoized on
+            the immutable snapshot.
         """
-        return self._values_hash
+        memo = self._values_hash_memo
+        if memo is None:
+            memo = canonical_digest(self)
+            object.__setattr__(self, "_values_hash_memo", memo)
+        return memo
 
 
-@define
+@frozen
 class CUDAFactoryConfig(_CubieConfigBase):
     """Base class for CUDAFactory compile settings containers.
 
-    Provides infrastructure for tracking configuration values and computing
-    stable hashes for cache key generation. Subclasses should be defined
-    with @attrs.define decorator.
-
-    .. warning::
-
-        **All field modifications MUST be done via the :meth:`update` method.**
-
-        Direct attribute assignment (e.g., ``config.field = value``) will
-        break cache invalidation and hashing logic. The ``update()`` method
-        ensures ``values_tuple`` and ``values_hash`` are regenerated after
-        any change, which is required for correct cache key generation.
+    Provides infrastructure for tracking configuration values and
+    computing stable hashes for cache key generation. Subclasses are
+    defined with the ``@attrs.frozen`` decorator.
 
     Notes
     -----
-    The values_tuple and values_hash properties enable efficient cache
-    invalidation by comparing configuration states. Fields with eq=False
-    are excluded from hashing (typically callables or device functions).
+    Instances are immutable: direct attribute assignment raises
+    :class:`attrs.exceptions.FrozenInstanceError`. All changes flow
+    through :meth:`CUDAFactory.update_compile_settings`, which derives
+    a replacement snapshot and invalidates the factory when any field
+    changed. Fields with ``eq=False`` are excluded from hashing
+    (typically callables or device functions) but a replaced value
+    still counts as a change for invalidation.
     """
 
     precision: PrecisionDType = field(
@@ -334,7 +352,12 @@ class CUDAFactoryConfig(_CubieConfigBase):
 
 @define
 class CUDADispatcherCache:
-    """Base class for CUDAFactory device function Dispatchers."""
+    """Base class for CUDAFactory device function Dispatchers.
+
+    Cache containers are build products, not compile settings: they
+    may be mutable (invariant: settings snapshots are immutable, cache
+    result containers need not be).
+    """
 
     pass
 
@@ -343,25 +366,14 @@ class CUDAFactory(ABC):
     """Factory for creating and caching CUDA device functions.
 
     Subclasses implement :meth:`build` to construct Numba CUDA device functions
-    or other cached outputs. Compile settings are stored as attrs classes and
-    any change invalidates the cache to ensure functions are rebuilt when
-    needed.
-
-    .. warning::
-
-        **All compile settings modifications MUST be done via
-        :meth:`update_compile_settings`.**
-
-        Direct attribute assignment on compile_settings (e.g.,
-        ``factory.compile_settings.field = value``) will break cache
-        invalidation and hashing logic. The ``update_compile_settings()``
-        method ensures the cache is properly invalidated and hash values
-        are regenerated.
+    or other cached outputs. Compile settings are stored as immutable attrs
+    snapshots and any change invalidates the cache to ensure functions are
+    rebuilt when needed.
 
     Attributes
     ----------
     _compile_settings : attrs class or None
-        Current compile settings.
+        Current compile-settings snapshot.
     _cache_valid : bool
         Indicates whether cached outputs are valid.
     _cache : attrs class or None
@@ -434,13 +446,13 @@ class CUDAFactory(ABC):
         Parameters
         ----------
         compile_settings : attrs class
-            Settings object used to configure the CUDA function.
+            Settings snapshot used to configure the CUDA function.
 
         Notes
         -----
         Any existing settings are replaced.
         """
-        if not has(compile_settings):
+        if not has(type(compile_settings)):
             raise TypeError(
                 "Compile settings must be an attrs class instance."
             )
@@ -466,7 +478,7 @@ class CUDAFactory(ABC):
 
     @property
     def compile_settings(self):
-        """Return the current compile settings object."""
+        """Return the current compile-settings snapshot."""
         return self._compile_settings
 
     @property
@@ -490,6 +502,11 @@ class CUDAFactory(ABC):
     ) -> Set[str]:
         """Update compile settings with new values.
 
+        This is the sole write boundary for compile settings: it
+        derives a replacement snapshot through the config's pure
+        :meth:`update`, swaps it in, and invalidates the build cache
+        when any field changed.
+
         Parameters
         ----------
         updates_dict : dict, optional
@@ -509,7 +526,8 @@ class CUDAFactory(ABC):
         ValueError
             If compile settings have not been set up.
         KeyError
-            If an unrecognised parameter is supplied and ``silent`` is ``False``.
+            If an unrecognised parameter is supplied and ``silent`` is
+            ``False``.
         """
         if updates_dict is None:
             updates_dict = {}
@@ -523,7 +541,9 @@ class CUDAFactory(ABC):
                 "Compile settings must be set up using "
                 "self.setup_compile_settings before updating."
             )
-        recognized, changed = self._compile_settings.update(updates_dict)
+        replacement, recognized, changed = self._compile_settings.update(
+            updates_dict
+        )
 
         unrecognised = set(updates_dict.keys()) - recognized
         if unrecognised and not silent:
@@ -533,6 +553,7 @@ class CUDAFactory(ABC):
                 "object, and so was not updated.",
             )
         if changed:
+            self._compile_settings = replacement
             self._invalidate_cache()
 
         return recognized
@@ -593,29 +614,44 @@ class CUDAFactory(ABC):
     @property
     def config_hash(self):
         """Returns the hash of the current compile settings of the factory.
-        If the factory has child factories, their hashes will be hashed and
-        the individual hashes will be concatenated and re-hashed.
+        If the factory has child factories, their hashes will be combined
+        with this factory's own hash through the canonical serializer.
         """
         own_hash = self.compile_settings.values_hash
-        child_hashes = tuple()
-        for child_factory in self._iter_child_factories():
-            child_hashes = child_hashes + (child_factory.config_hash,)
+        child_hashes = tuple(
+            child_factory.config_hash
+            for child_factory in self._iter_child_factories()
+        )
         if child_hashes:
-            # Combine all nested hashes and re-hash
-            hash_str = "|".join((own_hash,) + child_hashes)
-            return sha256(hash_str.encode("utf-8")).hexdigest()
-        else:
-            return own_hash
+            return canonical_digest(
+                ("cubie-config-hash", own_hash, child_hashes)
+            )
+        return own_hash
+
+    _excluded_child_factories: frozenset = frozenset()
+    """Attribute names excluded from child-factory discovery.
+
+    Owned child factories must be direct attributes so
+    :meth:`config_hash` recurses into them. A subclass lists an
+    attribute here only when the factory it holds is a diagnostic
+    service whose configuration deliberately does not shape this
+    factory's built products — excluded factories contribute nothing
+    to semantic identity.
+    """
 
     def _iter_child_factories(self):
         """Yield direct attribute values that are CUDAFactory instances.
 
         Only inspects immediate attributes (no nested attrs/dicts/iterables).
         Each child is yielded once (uniqueness by id). Attributes are sorted
-        alphabetically by name for deterministic ordering.
+        alphabetically by name for deterministic ordering. Names in
+        :attr:`_excluded_child_factories` are skipped.
         """
         seen = set()
+        excluded = self._excluded_child_factories
         for name in sorted(vars(self).keys()):
+            if name in excluded:
+                continue
             val = getattr(self, name)
             if isinstance(val, CUDAFactory):
                 oid = id(val)
@@ -674,7 +710,7 @@ class CUDAFactory(ABC):
         return buffer_registry.persistent_local_buffer_size(self)
 
 
-@define
+@frozen
 class MultipleInstanceCUDAFactoryConfig(CUDAFactoryConfig):
     """Extends CUDAFactoryConfig for instances which have multiple
     concurrent configurations - e.g. a newton and krylov solver. Provides a
@@ -685,8 +721,9 @@ class MultipleInstanceCUDAFactoryConfig(CUDAFactoryConfig):
     """
 
     instance_label: str = field(default="", repr=False, eq=False)
-    prefixed_attributes: Set[str] = field(
-        factory=set,
+    prefixed_attributes: frozenset = field(
+        factory=frozenset,
+        converter=frozenset,
         repr=False,
         eq=False,
     )
@@ -742,12 +779,14 @@ class MultipleInstanceCUDAFactoryConfig(CUDAFactoryConfig):
             prefixed_attributes = type(self).get_prefixed_attributes(
                 aliases=True
             )
-            self.prefixed_attributes = prefixed_attributes
+            object.__setattr__(
+                self, "prefixed_attributes", frozenset(prefixed_attributes)
+            )
 
     def update(
         self, updates_dict: dict = None, **kwargs
-    ) -> Tuple[Set[str], Set[str]]:
-        """Update configuration fields with new values, handling prefixed keys.
+    ) -> Tuple["MultipleInstanceCUDAFactoryConfig", Set[str], Set[str]]:
+        """Derive a replacement snapshot, handling prefixed keys.
 
         Parameters
         ----------
@@ -759,7 +798,8 @@ class MultipleInstanceCUDAFactoryConfig(CUDAFactoryConfig):
 
         Returns
         -------
-        tuple[set[str], set[str]]
+        tuple[MultipleInstanceCUDAFactoryConfig, set[str], set[str]]
+            replacement: New snapshot, or ``self`` when unchanged.
             recognized: Names of settings that matched known fields.
             changed: Names of settings whose values were updated.
         """
@@ -778,7 +818,9 @@ class MultipleInstanceCUDAFactoryConfig(CUDAFactoryConfig):
             if has_prefixed:
                 all_updates[key] = all_updates.pop(prefixed_key)
 
-        recognized_base, changed_base = super().update(all_updates)
+        replacement, recognized_base, changed_base = super().update(
+            all_updates
+        )
 
         # Transform recognised keys back into prefixed versions to make as seen
         recognized = set()
@@ -795,7 +837,7 @@ class MultipleInstanceCUDAFactoryConfig(CUDAFactoryConfig):
             else:
                 changed.add(key)
 
-        return recognized, changed
+        return replacement, recognized, changed
 
 
 class MultipleInstanceCUDAFactory(CUDAFactory):

@@ -39,7 +39,7 @@ import attrs
 from cubie.integrators.algorithms.base_algorithm_step import ButcherTableau
 
 
-@attrs.define
+@attrs.frozen
 class ERKTableau(ButcherTableau):
     """Coefficient tableau describing an explicit Runge--Kutta scheme.
 

@@ -27,7 +27,7 @@ import attrs
 from cubie.CUDAFactory import CUDAFactoryConfig
 
 
-@attrs.define
+@attrs.frozen
 class IntegratorRunSettings(CUDAFactoryConfig):
     """Container for runtime and controller settings used by IVP loops.
 

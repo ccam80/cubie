@@ -27,7 +27,7 @@ See Also
 
 from typing import Callable, Optional
 
-from attrs import define, field, validators
+from attrs import field, validators, frozen
 from cubie.cuda_simsafe import cuda, int32
 
 from cubie._utils import PrecisionDType, build_config
@@ -39,7 +39,7 @@ from cubie.integrators.algorithms.ode_implicitstep import (
 )
 
 
-@define
+@frozen
 class BackwardsEulerStepConfig(ImplicitStepConfig):
     """Configuration for Backwards Euler step with buffer location."""
 

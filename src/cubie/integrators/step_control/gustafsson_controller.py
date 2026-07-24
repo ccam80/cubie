@@ -33,7 +33,7 @@ from typing import Callable
 
 from numpy import ndarray
 from cubie.cuda_simsafe import cuda, int32
-from attrs import define, field
+from attrs import field, frozen
 from math import isnan, isinf
 
 from cubie.buffer_registry import buffer_registry
@@ -50,7 +50,7 @@ from cubie.result_codes import CUBIE_RESULT_CODES
 from cubie.integrators.step_control.base_step_controller import ControllerCache
 
 
-@define
+@frozen
 class GustafssonStepControlConfig(AdaptiveStepControlConfig):
     """Configuration for Gustafsson-like predictive controller.
 

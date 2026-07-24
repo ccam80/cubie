@@ -57,7 +57,7 @@ from numpy import (
     vstack,
 )
 from numpy.linalg import solve as np_solve
-from attrs import define, field, validators
+from attrs import define, field, validators, frozen
 from cubie.cuda_simsafe import cuda, int32, numba_from_dtype as from_dtype
 from numpy.typing import NDArray
 
@@ -89,7 +89,7 @@ class InterpolatorCache(CUDADispatcherCache):
     driver_del_t: Optional[Callable] = field(default=None)
 
 
-@define
+@frozen
 class ArrayInterpolatorConfig(CUDAFactoryConfig):
     """Configuration describing an input-array interpolation problem.
 
@@ -132,16 +132,14 @@ class ArrayInterpolatorConfig(CUDAFactoryConfig):
         ),
     )
     driver_sample_period: float = field(
-        init=False, default=1e-16, validator=getype_validator(float, 0)
+        default=1e-16, validator=getype_validator(float, 0)
     )
     t0: float = field(default=0.0, validator=getype_validator(float, 0))
     num_inputs: int = field(
-        init=False,
         default=0,
         validator=validators.instance_of(int),
     )
     num_segments: int = field(
-        init=False,
         default=0,
         validator=validators.instance_of(int),
     )

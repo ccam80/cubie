@@ -157,6 +157,14 @@ def precision_converter(value: PrecisionDType) -> type[np_floating]:
     return dtype_.type
 
 
+def sequence_to_tuple(value):
+    """Convert lists and tuples to tuples; pass other values through."""
+
+    if isinstance(value, (list, tuple)):
+        return tuple(value)
+    return value
+
+
 def precision_validator(
     _: object,
     __: Attribute,
@@ -478,8 +486,6 @@ def tol_converter(
     ValueError
         Raised when ``value`` cannot be broadcast to shape (n,).
     """
-    if getattr(self_, "_n_changing", False):
-        return value
     if isscalar(value):
         tol = full(self_.n, value, dtype=self_.precision)
     else:

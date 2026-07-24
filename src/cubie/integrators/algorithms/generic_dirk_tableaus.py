@@ -51,7 +51,7 @@ import math
 from cubie.integrators.algorithms.base_algorithm_step import ButcherTableau
 
 
-@attrs.define
+@attrs.frozen
 class DIRKTableau(ButcherTableau):
     """Coefficient tableau describing a diagonally implicit RK scheme.
 

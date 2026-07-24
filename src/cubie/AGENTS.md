@@ -31,7 +31,8 @@ resolves `__version__` via `importlib.metadata.version("cubie")`.
 | File | Description |
 |------|-------------|
 | `__init__.py` | Package entry point: star-imports subpackages, sets the Numba occupancy-warning env var, defines `__all__` and `__version__`. |
-| `CUDAFactory.py` | Core cached-compilation framework: `CUDAFactory` (ABC; exposes `jit_kwargs`, the property every `build()` splats into `@cuda.jit`), `CUDAFactoryConfig`/`_CubieConfigBase` (hashing attrs config; carries the `jit_flags: JITFlags` compile setting every factory honours, with a read-only `lineinfo` passthrough), `CUDADispatcherCache`, the `MultipleInstance*` variants, and `hash_tuple`. |
+| `CUDAFactory.py` | Core cached-compilation framework: `CUDAFactory` (ABC; exposes `jit_kwargs`, the property every `build()` splats into `@cuda.jit`), `CUDAFactoryConfig`/`_CubieConfigBase` (frozen attrs snapshots; carry the `jit_flags: JITFlags` compile setting every factory honours, with a read-only `lineinfo` passthrough), `CUDADispatcherCache`, and the `MultipleInstance*` variants. Hashing derives from `_serialize`. |
+| `_serialize.py` | Versioned typed canonical serializer: `canonical_bytes`/`canonical_digest` with explicit type tags and length prefixes over the compile-setting value domain (no `str()` fallback — unsupported values raise). Every semantic identity (values_hash, config_hash, ODE constants fold) derives from it; `SCHEMA_VERSION` prefixes every digest. Value objects join via a `_cubie_canonical_()` method. |
 | `_env.py` | `CUBIE_*` environment-variable registry: `env_bool`, `lineinfo_default` (`CUBIE_LINEINFO`), `cache_dir_default` (`CUBIE_CACHE_DIR`), `kernel_cache_dir_default` (`CUBIE_KERNEL_CACHE_DIR`), `max_cache_entries_default` (`CUBIE_MAX_CACHE_ENTRIES`), plus documentation of `CUBIE_CUDA_BACKEND`. Env values are defaults; explicit solver arguments always win. |
 | `cuda_backend.py` | Resolves which CUDA backend cubie compiles against: `CUDA_BACKEND` (`"numba-cuda"` or `"mlir"`) and `IS_MLIR`. `CUBIE_CUDA_BACKEND` picks explicitly; otherwise the installed backend is used (mlir preferred when both are installed; numba-cuda preferred under CUDASIM). Consumed by `cuda_simsafe`, `cubie_cache`, and `__init__` (which imports `_numba_cuda_compat` or `_mlir_compat` accordingly). |
 | `_mlir_compat.py` | numba-cuda-mlir compatibility shims, imported first thing from `__init__` on the MLIR backend: missing lowerings (Boolean bitwise/comparison ops, floored integer `%`//`//`, nested-tuple dynamic getitem, empty-slice anchoring), numpy-scalar constant handling, dynamic-shared-memory and array-literal fixes, memref pointer-offset routing, semantic local stack slots, float min/max semantics, zero-power folds, selective fastmath, and the compiler-frontend perf patches. Each shim feature-detects patched builds and no-ops there. |
@@ -92,14 +93,28 @@ warp-coherent loops, …) live in `writing_cuda_functions.md`.
      generated CUDA source, separate from compilation.
 - **`update` / `update_compile_settings` contract (uniform):** keys are the
   non-underscored field names; raises `KeyError` on an unrecognised key unless
-  `silent=True`; returns a **`set`** of recognised/updated labels (the config-level
-  `update` returns a `(recognised, changed)` tuple). A subclass `update` documents
-  **only its additions** over this contract — do not restate the base behaviour.
-  Change configuration **only** through `update`/`update_compile_settings` (or a config
-  method that re-validates); assigning fields directly bypasses cache invalidation and any
-  derived-field revalidation.
-- **`config_hash` recurses into child `CUDAFactory` attributes**, so a composite
-  factory invalidates when any child's config changes.
+  `silent=True`; returns a **`set`** of recognised/updated labels. The config-level
+  `update` is **pure**: it returns a `(replacement, recognised, changed)` triple and
+  never mutates the snapshot — `update_compile_settings` is the sole write boundary,
+  swapping the replacement in and invalidating the build when **any** field changed.
+  Change detection is per-field over post-conversion values: `eq=False` fields
+  (derived callables) compare by identity, arrays elementwise, everything else by
+  inequality. Hashing and invalidation are different predicates: `values_hash`
+  covers only semantic (eq-participating) fields, but a replaced `eq=False`
+  callable still rebuilds the consumer. Compile-settings snapshots are deeply
+  sealed, not just top-level frozen: direct assignment raises, array-valued
+  fields are stored by their converters as owned read-only copies (never
+  aliases of caller arrays), and `SystemValues` containers freeze in place at
+  the snapshot boundary — structure always; values too for constants, whose
+  values are compile-critical. In-place mutation of a held value raises, which
+  is what makes memoizing `values_hash` sound. Updates derive a copy
+  (`copy()`), modify the copy, and pass it through the boundary.
+  A subclass `update` documents **only its additions** over this contract.
+- **`config_hash` recurses into child `CUDAFactory` attributes** (direct attributes
+  only, discovered alphabetically), so a composite factory invalidates when any
+  child's config changes. A subclass may exclude a *diagnostic service* factory
+  from discovery by listing its attribute name in `_excluded_child_factories` —
+  excluded factories deliberately contribute nothing to semantic identity.
 - **`-1` sentinel:** `get_cached_output` raises `NotImplementedError` when a cache
   field is the integer `-1` ("not implemented by this subclass").
 - **`MultipleInstanceCUDAFactory`** maps prefixed external keys (e.g. `krylov_atol`)
@@ -107,17 +122,25 @@ warp-coherent loops, …) live in `writing_cuda_functions.md`.
   `build_config(...)`.
 
 ### Config classes (attrs convention)
-- Compile settings are attrs classes subclassing `CUDAFactoryConfig` /
-  `MultipleInstanceCUDAFactoryConfig`. **Variable- or float-typed members are stored
-  underscore-prefixed and exposed, type-coerced, through a same-named property**;
-  attrs `__init__` and `update` take the **non-underscored** names, so the entire
-  external interface is non-underscored. Never pass underscored names; never alias
-  underscored fields.
+- Compile settings are **frozen** attrs classes (`@attrs.frozen`) subclassing
+  `CUDAFactoryConfig` / `MultipleInstanceCUDAFactoryConfig`. **Variable- or
+  float-typed members are stored underscore-prefixed and exposed, type-coerced,
+  through a same-named property**; attrs `__init__` and `update` take the
+  **non-underscored** names, so the entire external interface is non-underscored.
+  Never pass underscored names; never alias underscored fields.
+- Derived fields are recomputed in `__attrs_post_init__` (via
+  `object.__setattr__`) so every snapshot — construction or update-derived
+  replacement — is self-consistent; converters and validators re-run on every
+  replacement, so collections must normalize to canonical immutable values
+  (tuples, not lists).
 - A system runs at **one precision** (`ALLOWED_PRECISIONS` = float16/32/64); float
   members are returned cast to it via `self.precision(...)`.
 - **`eq=False`** marks fields excluded from config equality/hashing (device-fn
-  handles, callables; array fields use a custom `eq`). Plain `dict`-typed fields are
-  rejected at construction — wrap compile-critical data in its own attrs class.
+  handles, callables; array fields use a custom `eq`) — a replaced value is still
+  a change for invalidation. Plain `dict`-typed fields are rejected at
+  construction — wrap compile-critical data in its own attrs class. Every
+  eq-participating value must be canonically serializable (see `_serialize.py`);
+  there is no fallback encoding.
 
 ### buffer_registry (CUDA memory layout)
 - **Code requirement:** a factory with managed buffers must **register and allocate

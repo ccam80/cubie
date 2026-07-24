@@ -23,7 +23,7 @@ See Also
 from abc import abstractmethod
 from typing import Callable, Optional
 
-from attrs import define
+from attrs import frozen
 
 from cubie.integrators.algorithms.base_algorithm_step import (
     BaseAlgorithmStep,
@@ -32,7 +32,7 @@ from cubie.integrators.algorithms.base_algorithm_step import (
 )
 
 
-@define
+@frozen
 class ExplicitStepConfig(BaseStepConfig):
     """Configuration settings for explicit ODE integration algorithms."""
     pass

@@ -36,7 +36,7 @@ from abc import ABC, abstractmethod
 from typing import Callable, Optional, Union
 import warnings
 
-from attrs import Converter, cmp_using, define, field, validators
+from attrs import Converter, cmp_using, define, field, validators, frozen
 from numpy import array_equal, asarray, ndarray
 
 from cubie.CUDAFactory import (
@@ -162,7 +162,7 @@ class ControllerCache(CUDADispatcherCache):
     device_function: Union[Callable, int] = field(default=-1)
 
 
-@define
+@frozen
 class BaseStepControllerConfig(CUDAFactoryConfig, ABC):
     """Configuration interface for step-size controllers.
 

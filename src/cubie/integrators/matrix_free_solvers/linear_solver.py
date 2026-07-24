@@ -28,7 +28,7 @@ See Also
 from math import sqrt as math_sqrt
 from typing import Dict, Any
 
-from attrs import define, field, validators
+from attrs import field, validators, frozen
 from cubie.cuda_simsafe import cuda, int32
 
 from cubie._utils import PrecisionDType
@@ -42,7 +42,7 @@ from cubie.cuda_simsafe import activemask, all_sync, selp
 from cubie.result_codes import CUBIE_RESULT_CODES
 
 
-@define
+@frozen
 class MRLinearSolverConfig(LinearSolverBaseConfig):
     """Configuration for MRLinearSolver compilation.
 
