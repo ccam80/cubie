@@ -52,6 +52,26 @@ def test_executable_command_resolves_python():
     assert Path(command[0]).resolve() == Path(sys.executable).resolve()
 
 
+def test_native_command_bypasses_batch_shell(tmp_path):
+    batch = tmp_path / "ncu.bat"
+    batch.touch()
+    native = (
+        tmp_path
+        / "target"
+        / "windows-desktop-win7-x64"
+        / "ncu.exe"
+    )
+    native.parent.mkdir(parents=True)
+    native.touch()
+    output_path = r"C:\profile & data\100% complete"
+
+    command = comparison._native_command(
+        batch, ("--output", output_path)
+    )
+
+    assert command == [str(native), "--output", output_path]
+
+
 def test_parse_raw_metrics_maps_launch_order():
     text = "\n".join(
         (
@@ -148,22 +168,3 @@ def test_pair_comparison_renders_every_stall():
 
     for label, _ in comparison.STALL_METRICS:
         assert f"| {label} |" in rendered
-
-
-def test_normalize_manifest_counters_upgrades_legacy_record():
-    manifest = {
-        "algorithms": {
-            name: {
-                "accepted_per_trajectory": 12.0,
-                "rejected_per_trajectory": 2.0,
-            }
-            for name in comparison.ALGORITHMS
-        },
-    }
-
-    assert comparison.normalize_manifest_counters(manifest)
-    assert manifest["manifest_version"] == 2
-    for record in manifest["algorithms"].values():
-        assert record["attempted_per_trajectory"] == 12.0
-        assert record["accepted_per_trajectory"] == 10.0
-    assert not comparison.normalize_manifest_counters(manifest)

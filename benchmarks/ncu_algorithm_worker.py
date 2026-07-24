@@ -282,7 +282,7 @@ def main(argv: Optional[Sequence[str]] = None) -> None:
     for algorithm in ALGORITHMS:
         solve_once(*launches[algorithm])
     manifest = {
-        "manifest_version": 2,
+        "manifest_version": 1,
         "problem": args.problem,
         "backend": args.backend,
         "algorithms": records,

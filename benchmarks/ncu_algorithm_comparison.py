@@ -36,7 +36,7 @@ from pathlib import Path
 import shutil
 import subprocess
 import sys
-from typing import Optional, Sequence, Union
+from typing import Optional, Sequence
 
 
 REPO_ROOT = Path(__file__).resolve().parents[1]
@@ -188,22 +188,35 @@ STALL_METRICS = (
 PAIR_METRICS = SUMMARY_METRICS + STALL_METRICS
 
 
-def executable_command(
-    command: Sequence[str],
-) -> Union[list[str], str]:
-    """Return a directly executable command, including Windows batch files."""
+def _native_command(
+    executable: Path,
+    arguments: Sequence[str],
+) -> list[str]:
+    """Return argv using NCU's native executable, never its batch shell."""
+
+    if executable.suffix.lower() != ".bat":
+        return [str(executable), *arguments]
+    native = (
+        executable.parent
+        / "target"
+        / "windows-desktop-win7-x64"
+        / f"{executable.stem}.exe"
+    )
+    if not native.is_file():
+        raise FileNotFoundError(
+            f"{executable} is a batch launcher, but its native "
+            f"executable was not found at {native}"
+        )
+    return [str(native), *arguments]
+
+
+def executable_command(command: Sequence[str]) -> list[str]:
+    """Return a directly executable argv list."""
 
     executable = shutil.which(command[0])
     if executable is None:
         raise FileNotFoundError(f"could not find executable {command[0]!r}")
-    resolved = [executable, *command[1:]]
-    if os.name != "nt" or Path(executable).suffix.lower() != ".bat":
-        return resolved
-    command_shell = os.environ.get("COMSPEC", "cmd.exe")
-    return (
-        f"{subprocess.list2cmdline([command_shell])} /d /c call "
-        f"{subprocess.list2cmdline(resolved)}"
-    )
+    return _native_command(Path(executable), command[1:])
 
 
 def selected_values(value: str, values: Sequence[str]) -> tuple[str, ...]:
@@ -385,23 +398,6 @@ def _metric_value(
     return 100.0 * resident_blocks * block_size / max_threads
 
 
-def normalize_manifest_counters(
-    manifest: dict[str, object],
-) -> bool:
-    """Upgrade legacy manifests whose third counter was mislabeled."""
-
-    if manifest.get("manifest_version") == 2:
-        return False
-    records = manifest["algorithms"]
-    for record in records.values():
-        attempted = record["accepted_per_trajectory"]
-        rejected = record["rejected_per_trajectory"]
-        record["attempted_per_trajectory"] = attempted
-        record["accepted_per_trajectory"] = attempted - rejected
-    manifest["manifest_version"] = 2
-    return True
-
-
 def comparison_markdown(
     problem: str,
     backend: str,
@@ -489,7 +485,6 @@ def matrix_summary_markdown(
                 output_dir / f"{prefix}_manifest.json"
             ).read_text(encoding="utf-8")
         )
-        normalize_manifest_counters(manifest)
         raw = (
             output_dir / f"{prefix}_raw.csv"
         ).read_text(encoding="utf-8")
@@ -630,11 +625,6 @@ def import_report(report: Path, output_dir: Path) -> None:
     problem, backend = prefix.rsplit("_", 1)
     manifest_path = output_dir / f"{prefix}_manifest.json"
     manifest = json.loads(manifest_path.read_text(encoding="utf-8"))
-    if normalize_manifest_counters(manifest):
-        manifest_path.write_text(
-            json.dumps(manifest, indent=2) + "\n",
-            encoding="utf-8",
-        )
     metrics = parse_raw_metrics(raw)
     comparison = comparison_markdown(
         problem, backend, manifest, metrics
