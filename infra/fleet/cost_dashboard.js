@@ -403,10 +403,14 @@ function renderRun(payload) {
   const title = runTitles.get(String(payload.run_id)) ||
     `Run ${payload.run_id}`;
   if (!payload.legs.length) {
+    const started = payload.started_leg_count || 0;
+    const outcome = payload.conclusion || payload.status || 'unknown';
     document.getElementById('runMeta').textContent =
-      `${title} · 0 GPU legs`;
-    empty.textContent =
-      'This run did not launch any completed GPU legs. Select another run.';
+      `${title} · ${started} started GPU ` +
+      `leg${started === 1 ? '' : 's'} · ${outcome}`;
+    empty.textContent = payload.status === 'completed'
+      ? 'This run started GPU work, but no GPU leg completed.'
+      : 'GPU work has started, but no GPU leg has completed yet.';
     empty.classList.remove('hidden');
     chartArea.classList.add('hidden');
     return;
@@ -559,21 +563,20 @@ async function init() {
     const runs = await requestJSON('/api/runs');
     selector.replaceChildren();
     runs.forEach(run => {
-      runTitles.set(String(run.id), run.title || `Run ${run.id}`);
+      const title = run.title || `Run ${run.id}`;
+      const count = run.started_leg_count;
+      const outcome = run.conclusion || run.status || 'unknown';
+      runTitles.set(String(run.id), title);
       const option = document.createElement('option');
       option.value = run.id;
       option.textContent =
         `${new Date(run.created_at).toLocaleString()} · ` +
-        `${run.event} · ${run.conclusion || run.status}`;
+        `${title} · ${count} started leg${count === 1 ? '' : 's'} · ` +
+        outcome;
       selector.appendChild(option);
     });
     selector.onchange = () => loadRun(selector.value);
-    const parameters = new URLSearchParams(location.search);
-    const selected = parameters.get('run');
-    if (selected) {
-      selector.value = selected;
-      await loadRun(selected);
-    } else if (runs.length) {
+    if (runs.length) {
       selector.value = String(runs[0].id);
       await loadRun(runs[0].id);
     } else {

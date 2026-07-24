@@ -132,15 +132,35 @@ and timing.
 python infra/fleet/cost_dashboard.py    # opens http://localhost:8787
 ```
 
-Pick a run from the dropdown (recent `ci_cuda_tests.yml` runs, fetched on
-demand) to see, per leg: a timeline of spot-capacity wait / boot / CI
-steps / shutdown with the run total broken down beside it; time in each
-CI step (with a run-total bar beside it); cost at the achieved spot
-price; minutes and cost per instance type with the average spot rate
-annotated; and spot-capacity wait per leg. The account section takes
-inclusive from/to date pickers and a granularity and charts whole-account
-usage hours per instance type and gross usage $ by service. Hourly ranges
-are limited to 366 inclusive days and daily ranges to 3,660 days.
+Pick a run from the dropdown to see, per leg: a timeline of spot-capacity
+wait / boot / CI steps / shutdown with the run total broken down beside
+it; time in each CI step (with a run-total bar beside it); cost at the
+achieved spot price; minutes and cost per instance type with the average
+spot rate annotated; and spot-capacity wait per leg. The account section
+takes inclusive from/to date pickers and a granularity and charts
+whole-account usage hours per instance type and gross usage $ by service.
+Hourly ranges are limited to 366 inclusive days and daily ranges to 3,660
+days.
+
+The run dropdown contains every `ci_cuda_tests.yml` workflow record
+created in the exact rolling last seven days that started at least one
+RunsOn GPU instance. Success, failure, cancellation, and in-progress runs
+are eligible; skipped, approval-only, gate-only, precompile-only, and
+queued-without-instance records are excluded. Entries are newest first
+and show the browser-local creation time, run or PR title, started-leg
+count, and final or current status. The newest qualifying run is always
+selected initially; page URL parameters do not select runs.
+
+Qualification uses fully paginated workflow and job results. A separate
+transactional SQLite cache at `.dashboard-cache/runs.sqlite3` retains
+completed positive and negative decisions until they leave the seven-day
+window. Nonterminal runs are reinspected on each upstream list refresh.
+The upstream workflow list is attempted at most once per 60 seconds
+across dashboard processes, and a persisted lease coalesces concurrent
+scans. Failed refreshes preserve and serve the last usable snapshot. Run
+detail requests are accepted only for IDs in the cached qualified
+seven-day snapshot; the endpoint cannot be used to inspect arbitrary
+positive IDs.
 
 It correlates three data planes, keyed on the EC2 instance id RunsOn
 embeds in each runner name (`runs-on--i-<id>--...`): the GitHub Actions

@@ -3,7 +3,7 @@
 
 Serves an interactive page backed by a local JSON API:
 
-  GET /api/runs                     recent ci_cuda_tests.yml runs
+  GET /api/runs                     qualified runs created in the last 7d
   GET /api/run?id=<run-id>          per-leg timing + spot cost for one run
   GET /api/account?start&end&gran   account usage/cost for a date range
   POST /api/account/refresh?...     force a Cost Explorer refresh
@@ -11,7 +11,10 @@ Serves an interactive page backed by a local JSON API:
 Per-run data is free to fetch (GitHub API + ec2:DescribeSpotPriceHistory
 + cloudtrail:LookupEvents carry no charge). Only the account panels touch
 Cost Explorer, billed at $0.01 per GetCostAndUsage request. Hourly usage
-is retained in a transactional SQLite store with per-hour confirmation.
+and run qualification are retained in separate transactional SQLite
+stores. The workflow list is refreshed at most once per minute, and
+completed qualification decisions are reused until they age out.
+Hourly usage is retained with per-hour confirmation.
 Non-zero gross service cost confirms an hour immediately; zero or missing
 cost confirms only after a successful observation at least 48 hours after
 that hour began. Automatic refresh targets the most recent recoverable UTC
@@ -42,7 +45,7 @@ from concurrent.futures import ThreadPoolExecutor
 from datetime import date, datetime, timedelta, timezone
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
-from urllib.parse import parse_qs, urlparse
+from urllib.parse import parse_qs, urlencode, urlparse
 from uuid import uuid4
 
 REPO = "cubiepy/cubie"
@@ -53,6 +56,10 @@ EC2_COMPUTE = "Amazon Elastic Compute Cloud - Compute"
 HERE = Path(__file__).resolve().parent
 CACHE_DIR = HERE / ".dashboard-cache"
 USAGE_DB = CACHE_DIR / "usage.sqlite3"
+RUN_DB = CACHE_DIR / "runs.sqlite3"
+RUN_LOOKBACK = timedelta(days=7)
+RUN_LIST_TTL = timedelta(seconds=60)
+RUN_SCAN_LEASE = timedelta(minutes=10)
 REFRESH_LEASE = timedelta(minutes=10)
 AUTO_ATTEMPT_THROTTLE = timedelta(minutes=15)
 AUTO_REFRESH_CUTOFF = timedelta(minutes=15)
@@ -64,6 +71,7 @@ MAX_DAILY_RANGE_DAYS = 3660
 MAX_HOURLY_RANGE_DAYS = 366
 USAGE_SCHEMA_VERSION = 3
 USAGE_QUERY_VERSION = "ce-usage-v1"
+RUN_CACHE_SCHEMA_VERSION = 1
 API_TOKEN = secrets.token_urlsafe(32)
 TOKEN_HEADER = "X-Cubie-Dashboard-Token"
 
@@ -125,44 +133,513 @@ def _step_name(name):
 
 
 # ------------------------------------------------------------------ github
-def fetch_runs(limit=40):
-    data = json.loads(
-        gh(
-            "api",
-            f"repos/{REPO}/actions/workflows/{WORKFLOW}/runs?per_page={limit}",
+class RunStore:
+    """Transactional cache for the qualified seven-day run snapshot."""
+
+    def __init__(self, path):
+        self.path = Path(path)
+        self.path.parent.mkdir(parents=True, exist_ok=True)
+        self._initialize()
+
+    def _connect(self):
+        connection = sqlite3.connect(self.path, timeout=30)
+        connection.execute("PRAGMA busy_timeout = 30000")
+        try:
+            connection.execute("PRAGMA journal_mode = WAL")
+        except sqlite3.OperationalError as exc:
+            if "locked" not in str(exc).lower():
+                connection.close()
+                raise
+        return connection
+
+    @contextmanager
+    def _connection(self):
+        connection = self._connect()
+        try:
+            with connection:
+                yield connection
+        finally:
+            connection.close()
+
+    def _initialize(self):
+        with self._connection() as connection:
+            connection.execute("BEGIN IMMEDIATE")
+            schema_version = connection.execute(
+                "PRAGMA user_version"
+            ).fetchone()[0]
+            if schema_version not in (0, RUN_CACHE_SCHEMA_VERSION):
+                raise RuntimeError(
+                    "unsupported run-cache schema "
+                    f"{schema_version}; expected {RUN_CACHE_SCHEMA_VERSION}"
+                )
+            connection.execute(
+                """
+                CREATE TABLE IF NOT EXISTS runs (
+                    run_id INTEGER PRIMARY KEY CHECK (run_id > 0),
+                    created_at TEXT NOT NULL,
+                    created_epoch REAL NOT NULL,
+                    title TEXT NOT NULL,
+                    status TEXT NOT NULL,
+                    conclusion TEXT,
+                    qualified INTEGER NOT NULL
+                        CHECK (qualified IN (0, 1)),
+                    started_leg_count INTEGER NOT NULL
+                        CHECK (started_leg_count >= 0),
+                    terminal INTEGER NOT NULL
+                        CHECK (terminal IN (0, 1)),
+                    inspected_at TEXT NOT NULL,
+                    seen_at TEXT NOT NULL
+                )
+                """
+            )
+            connection.execute(
+                """
+                CREATE TABLE IF NOT EXISTS metadata (
+                    key TEXT PRIMARY KEY,
+                    value TEXT NOT NULL
+                )
+                """
+            )
+            connection.execute(
+                f"PRAGMA user_version = {RUN_CACHE_SCHEMA_VERSION}"
+            )
+
+    @staticmethod
+    def _set_metadata(connection, key, value):
+        connection.execute(
+            """
+            INSERT INTO metadata(key, value) VALUES (?, ?)
+            ON CONFLICT(key) DO UPDATE SET value = excluded.value
+            """,
+            (key, value),
+        )
+
+    def acquire_scan_lease(self, now):
+        """Acquire the persisted list-refresh lease and attempt slot."""
+        owner = uuid4().hex
+        cutoff_epoch = (now - RUN_LOOKBACK).timestamp()
+        with self._connection() as connection:
+            connection.execute("BEGIN IMMEDIATE")
+            connection.execute(
+                "DELETE FROM runs WHERE created_epoch < ?", (cutoff_epoch,)
+            )
+            lease_row = connection.execute(
+                "SELECT value FROM metadata WHERE key = 'scan_lease'"
+            ).fetchone()
+            if lease_row:
+                lease = json.loads(lease_row[0])
+                if ts(lease["until"]) > now:
+                    connection.commit()
+                    return "in_progress", None
+            attempt_row = connection.execute(
+                "SELECT value FROM metadata WHERE key = 'last_list_attempt'"
+            ).fetchone()
+            if attempt_row and now - ts(attempt_row[0]) < RUN_LIST_TTL:
+                connection.commit()
+                return "throttled", None
+            self._set_metadata(
+                connection, "last_list_attempt", now.isoformat()
+            )
+            lease = {
+                "owner": owner,
+                "until": (now + RUN_SCAN_LEASE).isoformat(),
+            }
+            self._set_metadata(connection, "scan_lease", json.dumps(lease))
+            connection.commit()
+        return "acquired", owner
+
+    def release_scan_lease(self, owner):
+        with self._connection() as connection:
+            row = connection.execute(
+                "SELECT value FROM metadata WHERE key = 'scan_lease'"
+            ).fetchone()
+            if row and json.loads(row[0]).get("owner") == owner:
+                connection.execute(
+                    "DELETE FROM metadata WHERE key = 'scan_lease'"
+                )
+
+    def cached_decisions(self, cutoff, now):
+        """Return reusable qualification decisions in the live window."""
+        with self._connection() as connection:
+            rows = connection.execute(
+                """
+                SELECT run_id, qualified, started_leg_count, terminal
+                FROM runs
+                WHERE created_epoch >= ? AND created_epoch <= ?
+                """,
+                (cutoff.timestamp(), now.timestamp()),
+            ).fetchall()
+        return {
+            row[0]: {
+                "qualified": bool(row[1]),
+                "started_leg_count": row[2],
+                "terminal": bool(row[3]),
+            }
+            for row in rows
+        }
+
+    def commit_scan(self, records, cutoff, completed_at, owner):
+        """Atomically publish a complete workflow-list scan."""
+        marker = completed_at.isoformat()
+        with self._connection() as connection:
+            connection.execute("BEGIN IMMEDIATE")
+            lease_row = connection.execute(
+                "SELECT value FROM metadata WHERE key = 'scan_lease'"
+            ).fetchone()
+            lease = json.loads(lease_row[0]) if lease_row else {}
+            if (
+                lease.get("owner") != owner
+                or ts(lease["until"]) <= completed_at
+            ):
+                raise RuntimeError(
+                    "run scan lease expired or ownership was lost"
+                )
+            for record in records:
+                connection.execute(
+                    """
+                    INSERT INTO runs(
+                        run_id, created_at, created_epoch, title,
+                        status, conclusion, qualified,
+                        started_leg_count, terminal, inspected_at,
+                        seen_at
+                    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                    ON CONFLICT(run_id) DO UPDATE SET
+                        created_at = excluded.created_at,
+                        created_epoch = excluded.created_epoch,
+                        title = excluded.title,
+                        status = excluded.status,
+                        conclusion = excluded.conclusion,
+                        qualified = excluded.qualified,
+                        started_leg_count = excluded.started_leg_count,
+                        terminal = excluded.terminal,
+                        inspected_at = excluded.inspected_at,
+                        seen_at = excluded.seen_at
+                    """,
+                    (
+                        record["id"],
+                        record["created_at"],
+                        record["created_epoch"],
+                        record["title"],
+                        record["status"],
+                        record["conclusion"],
+                        int(record["qualified"]),
+                        record["started_leg_count"],
+                        int(record["terminal"]),
+                        record["inspected_at"],
+                        marker,
+                    ),
+                )
+            connection.execute(
+                """
+                DELETE FROM runs
+                WHERE created_epoch < ? OR seen_at != ?
+                """,
+                (cutoff.timestamp(), marker),
+            )
+            self._set_metadata(connection, "last_list_refresh", marker)
+            connection.execute("DELETE FROM metadata WHERE key = 'scan_lease'")
+            connection.commit()
+
+    def has_snapshot(self):
+        with self._connection() as connection:
+            row = connection.execute(
+                """
+                SELECT 1 FROM metadata
+                WHERE key = 'last_list_refresh'
+                """
+            ).fetchone()
+        return row is not None
+
+    def qualified_runs(self, cutoff, now):
+        """Return the qualified live snapshot newest first."""
+        with self._connection() as connection:
+            rows = connection.execute(
+                """
+                SELECT run_id, created_at, title, status, conclusion,
+                       started_leg_count
+                FROM runs
+                WHERE qualified = 1
+                  AND created_epoch >= ? AND created_epoch <= ?
+                ORDER BY created_epoch DESC, run_id DESC
+                """,
+                (cutoff.timestamp(), now.timestamp()),
+            ).fetchall()
+        return [
+            {
+                "id": row[0],
+                "created_at": row[1],
+                "title": row[2],
+                "status": row[3],
+                "conclusion": row[4],
+                "started_leg_count": row[5],
+            }
+            for row in rows
+        ]
+
+    def qualified_run(self, run_id, cutoff, now):
+        """Return one qualified live run, or None outside the snapshot."""
+        with self._connection() as connection:
+            row = connection.execute(
+                """
+                SELECT run_id, created_at, title, status, conclusion,
+                       started_leg_count
+                FROM runs
+                WHERE run_id = ? AND qualified = 1
+                  AND created_epoch >= ? AND created_epoch <= ?
+                """,
+                (run_id, cutoff.timestamp(), now.timestamp()),
+            ).fetchone()
+        if row is None:
+            return None
+        return {
+            "id": row[0],
+            "created_at": row[1],
+            "title": row[2],
+            "status": row[3],
+            "conclusion": row[4],
+            "started_leg_count": row[5],
+        }
+
+
+def _positive_integer(value, field):
+    if isinstance(value, bool):
+        raise ValueError(f"{field} must be a positive integer")
+    if isinstance(value, int):
+        parsed = value
+    elif isinstance(value, str) and value.isdecimal():
+        parsed = int(value)
+    else:
+        raise ValueError(f"{field} must be a positive integer")
+    if parsed < 1:
+        raise ValueError(f"{field} must be a positive integer")
+    return parsed
+
+
+def _aware_timestamp(value, field):
+    if not isinstance(value, str) or not value:
+        raise ValueError(f"{field} must be a timestamp string")
+    try:
+        parsed = ts(value)
+    except ValueError as exc:
+        raise ValueError(f"{field} must be a valid timestamp") from exc
+    if parsed.tzinfo is None or parsed.utcoffset() is None:
+        raise ValueError(f"{field} must include a timezone")
+    return parsed
+
+
+def _optional_string(value, field):
+    if value is not None and not isinstance(value, str):
+        raise ValueError(f"{field} must be a string or null")
+
+
+def _paginated_items(endpoint, list_key):
+    pages = json.loads(gh("api", "--paginate", "--slurp", endpoint))
+    if not isinstance(pages, list) or not pages:
+        raise ValueError("paginated GitHub response must be a nonempty list")
+    items = []
+    for page_index, page in enumerate(pages):
+        if not isinstance(page, dict):
+            raise ValueError(f"GitHub page {page_index} must be an object")
+        if list_key not in page or not isinstance(page[list_key], list):
+            raise ValueError(
+                f"GitHub page {page_index} must contain a {list_key} list"
+            )
+        items.extend(page[list_key])
+    return items
+
+
+def _validated_workflow_run(run, item_index):
+    if not isinstance(run, dict):
+        raise ValueError(f"workflow run {item_index} must be an object")
+    normalized = dict(run)
+    normalized["id"] = _positive_integer(
+        run.get("id"), f"workflow run {item_index} id"
+    )
+    _aware_timestamp(
+        run.get("created_at"),
+        f"workflow run {normalized['id']} created_at",
+    )
+    status = run.get("status")
+    if not isinstance(status, str) or not status:
+        raise ValueError(
+            f"workflow run {normalized['id']} status must be a nonempty string"
+        )
+    _optional_string(
+        run.get("conclusion"),
+        f"workflow run {normalized['id']} conclusion",
+    )
+    for field in ("display_title", "name"):
+        if field in run:
+            _optional_string(
+                run[field],
+                f"workflow run {normalized['id']} {field}",
+            )
+    return normalized
+
+
+def _validated_job(job, item_index):
+    if not isinstance(job, dict):
+        raise ValueError(f"workflow job {item_index} must be an object")
+    normalized = dict(job)
+    normalized["id"] = _positive_integer(
+        job.get("id"), f"workflow job {item_index} id"
+    )
+    if job.get("started_at") is not None:
+        _aware_timestamp(
+            job["started_at"],
+            f"workflow job {normalized['id']} started_at",
+        )
+    labels = job.get("labels")
+    if labels is not None:
+        if not isinstance(labels, list) or not all(
+            isinstance(label, str) for label in labels
+        ):
+            raise ValueError(
+                f"workflow job {normalized['id']} labels "
+                "must be a list of strings or null"
+            )
+    runner_name = job.get("runner_name")
+    if runner_name is not None and not isinstance(runner_name, str):
+        raise ValueError(
+            f"workflow job {normalized['id']} runner_name "
+            "must be a string or null"
+        )
+    return normalized
+
+
+def _deduplicate_items(items, validator, item_name):
+    unique = {}
+    for item_index, item in enumerate(items):
+        normalized = validator(item, item_index)
+        item_id = normalized["id"]
+        prior = unique.get(item_id)
+        if prior is not None and prior != normalized:
+            raise ValueError(f"conflicting duplicate {item_name} id {item_id}")
+        unique[item_id] = normalized
+    return list(unique.values())
+
+
+def _workflow_runs(cutoff, now):
+    query = urlencode(
+        {
+            "per_page": 100,
+            "created": f">={cutoff.strftime('%Y-%m-%dT%H:%M:%SZ')}",
+        }
+    )
+    raw_runs = _paginated_items(
+        f"repos/{REPO}/actions/workflows/{WORKFLOW}/runs?{query}",
+        "workflow_runs",
+    )
+    validated = _deduplicate_items(
+        raw_runs, _validated_workflow_run, "workflow run"
+    )
+    runs = [
+        run
+        for run in validated
+        if cutoff
+        <= _aware_timestamp(run["created_at"], "workflow run created_at")
+        <= now
+    ]
+    return sorted(
+        runs,
+        key=lambda run: (ts(run["created_at"]), int(run["id"])),
+        reverse=True,
+    )
+
+
+def _fetch_jobs(run_id):
+    raw_jobs = _paginated_items(
+        f"repos/{REPO}/actions/runs/{run_id}/jobs?per_page=100",
+        "jobs",
+    )
+    return _deduplicate_items(raw_jobs, _validated_job, "workflow job")
+
+
+def _started_gpu_leg_count(jobs):
+    return sum(
+        1
+        for job in jobs
+        if job.get("started_at")
+        and any(
+            str(label).startswith("runs-on/fleet=gpu-")
+            for label in (job.get("labels") or [])
+        )
+        and re.search(
+            r"runs-on--i-[0-9a-f]+--",
+            job.get("runner_name") or "",
         )
     )
-    runs = []
-    for r in data.get("workflow_runs", []):
-        # skipped runs are comment/push triggers that never launched the
-        # paid GPU matrix, so they carry no legs -- drop them.
-        if r["conclusion"] == "skipped":
-            continue
-        runs.append(
-            {
-                "id": r["id"],
-                "created_at": r["created_at"],
-                "event": r["event"],
-                "status": r["status"],
-                "conclusion": r["conclusion"],
-                "title": r.get("display_title", "")[:70],
-            }
-        )
-    return runs
+
+
+def _run_record(run, decision, inspected_at):
+    title = str(
+        run.get("display_title") or run.get("name") or f"Run {run['id']}"
+    ).strip()
+    if not title:
+        title = f"Run {run['id']}"
+    return {
+        "id": int(run["id"]),
+        "created_at": run["created_at"],
+        "created_epoch": ts(run["created_at"]).timestamp(),
+        "title": title[:200],
+        "status": str(run["status"]),
+        "conclusion": run.get("conclusion"),
+        "qualified": decision["qualified"],
+        "started_leg_count": decision["started_leg_count"],
+        "terminal": run.get("status") == "completed",
+        "inspected_at": inspected_at.isoformat(),
+    }
+
+
+def fetch_runs(store=None, now=None):
+    """Return all qualified workflow runs created in the last seven days."""
+    store = store or RunStore(RUN_DB)
+    scan_started = now or now_utc()
+    cutoff = scan_started - RUN_LOOKBACK
+    lease_status, owner = store.acquire_scan_lease(scan_started)
+    if lease_status != "acquired":
+        return store.qualified_runs(cutoff, scan_started)
+    try:
+        workflow_runs = _workflow_runs(cutoff, scan_started)
+        cached = store.cached_decisions(cutoff, scan_started)
+        records = []
+        for run in workflow_runs:
+            run_id = int(run["id"])
+            terminal = run.get("status") == "completed"
+            prior = cached.get(run_id)
+            if prior and prior["terminal"] and terminal:
+                decision = prior
+            elif terminal and run.get("conclusion") in {
+                "skipped",
+                "action_required",
+            }:
+                decision = {
+                    "qualified": False,
+                    "started_leg_count": 0,
+                    "terminal": True,
+                }
+            else:
+                count = _started_gpu_leg_count(_fetch_jobs(run_id))
+                decision = {
+                    "qualified": count > 0,
+                    "started_leg_count": count,
+                    "terminal": terminal,
+                }
+            records.append(_run_record(run, decision, scan_started))
+        completed_at = now if now is not None else now_utc()
+        store.commit_scan(records, cutoff, completed_at, owner)
+    except Exception:
+        store.release_scan_lease(owner)
+        if store.has_snapshot():
+            return store.qualified_runs(cutoff, scan_started)
+        raise
+    return store.qualified_runs(cutoff, scan_started)
 
 
 def fetch_legs(run_id):
     """Return completed GPU legs and whether the run is safe to cache."""
-    pages = json.loads(
-        gh(
-            "api",
-            "--paginate",
-            "--slurp",
-            f"repos/{REPO}/actions/runs/{run_id}/jobs?per_page=100",
-        )
-    )
     legs = []
-    jobs = [job for page in pages for job in page.get("jobs", [])]
+    jobs = _fetch_jobs(run_id)
     gpu_jobs = [
         job
         for job in jobs
@@ -337,7 +814,16 @@ def _enrich_leg(leg):
     return leg
 
 
-def run_payload(run_id):
+def run_payload(run_id, store=None, now=None):
+    """Build detail only for a cached qualified seven-day run."""
+    run_id = int(run_id)
+    store = store or RunStore(RUN_DB)
+    current = now or now_utc()
+    run = store.qualified_run(run_id, current - RUN_LOOKBACK, current)
+    if run is None:
+        raise PermissionError(
+            "run is not in the cached qualified seven-day set"
+        )
     if run_id in _RUN_CACHE:
         return _RUN_CACHE[run_id]
     legs, settled = fetch_legs(run_id)
@@ -348,7 +834,14 @@ def run_payload(run_id):
         (leg["job_scheduled"] or leg["_derived"]["run_start"] for leg in legs),
         default=now_utc(),
     )
-    out = {"run_id": str(run_id), "t0": t0.isoformat(), "legs": []}
+    out = {
+        "run_id": str(run_id),
+        "t0": t0.isoformat(),
+        "status": run["status"],
+        "conclusion": run["conclusion"],
+        "started_leg_count": run["started_leg_count"],
+        "legs": [],
+    }
     for leg in legs:
         d = leg["_derived"]
         out["legs"].append(
@@ -1402,6 +1895,7 @@ def main():
     ap.add_argument("--no-open", action="store_true")
     args = ap.parse_args()
     CACHE_DIR.mkdir(parents=True, exist_ok=True)
+    RunStore(RUN_DB)
     UsageStore(USAGE_DB)
     url = f"http://localhost:{args.port}"
     srv = ThreadingHTTPServer(("127.0.0.1", args.port), Handler)
