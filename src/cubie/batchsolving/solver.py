@@ -453,13 +453,6 @@ class Solver:
         kwargs["precision"] = precision
         interface = SystemInterface.from_system(system)
         self.system_interface = interface
-        self.driver_interpolator = ArrayInterpolator(
-            precision=precision,
-            input_dict={
-                "placeholder": np_zeros(6, dtype=precision),
-                "driver_sample_period": 0.1,
-            },
-        )
 
         recognized_kwargs: set[str] = set()
 
