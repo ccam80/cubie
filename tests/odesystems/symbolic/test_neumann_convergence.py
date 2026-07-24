@@ -2,18 +2,20 @@
 
 Covers the pure-numeric :func:`neumann_spectral_radius`,
 :func:`check_neumann_convergence`, the wiring into
-:meth:`SymbolicODE.get_solver_helper`, and the cache configuration
-flowing from a solver into the system-owned evaluator.
+:meth:`SymbolicODE.get_solver_helper`, and the per-consumer cache
+policies selecting independent evaluators on a shared system.
 """
 
+import os
 from pathlib import Path
+import shutil
 import warnings
 
 import numpy as np
 import pytest
 
 from cubie.batchsolving.BatchSolverKernel import BatchSolverKernel
-from cubie.cubie_cache import CUBIECache
+from cubie.cubie_cache import CachePolicy, CUBIECache
 from cubie.odesystems.symbolic.codegen.neumann_convergence import (
     check_neumann_convergence,
     neumann_spectral_radius,
@@ -122,65 +124,125 @@ def test_get_solver_helper_runs_diagnostic_for_neumann_type(system):
         )
 
 
-@pytest.mark.parametrize(
-    "solver_settings_override", [_DIAGONALLY_DOMINANT], indirect=True
-)
-def test_solver_cache_policy_reaches_evaluator(system, tmp_path):
-    """A solver's cache settings flow down to the system's evaluator."""
-    evaluator = system._diagnostic_factories["neumann_rhs"]
-    try:
-        disabled = BatchSolverKernel(
-            system,
-            algorithm_settings={"algorithm": "euler"},
-            cache=False,
-        )
-        try:
-            cache_config = evaluator.compile_settings.cache_config
-            assert cache_config.cache_enabled is False
-        finally:
-            disabled.close()
+def _seed_kernel_cache(*target_dirs):
+    """Copy the shared kernel-cache artifact into per-test dirs.
 
-        enabled = BatchSolverKernel(
-            system,
-            algorithm_settings={"algorithm": "euler"},
-            cache=tmp_path,
-        )
-        try:
-            cache_config = evaluator.compile_settings.cache_config
-            assert cache_config.cache_enabled is True
-            assert cache_config.cache_dir == tmp_path
-        finally:
-            enabled.close()
-    finally:
-        system.update(
-            {"cache_enabled": False, "cache_dir": None}, silent=True
+    A per-test cache directory starts empty, so a diagnostic launch
+    in the CI consumer leg would cold-compile there and trip the
+    zero-compile gate. Each directory receives a private copy of the
+    environment kernel cache: isolation between the directories is
+    preserved while their kernels load instead of compiling. Without
+    the environment cache the directories stay empty and launches
+    compile as usual.
+    """
+    shared = os.environ.get("CUBIE_KERNEL_CACHE_DIR", "").strip()
+    if not shared or not Path(shared).is_dir():
+        return
+    # Lock files are live inter-process state, not cache content:
+    # another worker may hold a byte-range lock that makes the copy
+    # raise on Windows.
+    skip_locks = shutil.ignore_patterns("*.lock")
+    for target in target_dirs:
+        shutil.copytree(
+            shared, target, dirs_exist_ok=True, ignore=skip_locks
         )
 
 
 @pytest.mark.parametrize(
     "solver_settings_override", [_DIAGONALLY_DOMINANT], indirect=True
 )
-def test_cache_change_rebuilds_evaluator_kernel(system, tmp_path):
-    """A cache-setting update rebuilds the diagnostic kernel."""
-    try:
-        evaluator = system._get_neumann_evaluator()
-        first = evaluator.get_cached_output("evaluation_kernel")
-        again = system._get_neumann_evaluator().get_cached_output(
-            "evaluation_kernel"
-        )
-        assert again is first
+def test_kernel_cache_policies_stay_isolated(system, tmp_path):
+    """Two live kernels with distinct policies never interfere.
 
-        system.update(
-            {"cache_enabled": True, "cache_dir": tmp_path}, silent=True
+    Each kernel's helper getter routes its own policy into helper
+    validation, so the shared system keys one evaluator per policy
+    and a runtime cache update on one kernel leaves the other
+    kernel's diagnostic service untouched.
+    """
+    dir_a = tmp_path / "kernel_a"
+    dir_b = tmp_path / "kernel_b"
+    _seed_kernel_cache(dir_a, dir_b, tmp_path / "kernel_a_moved")
+    kernel_a = BatchSolverKernel(
+        system,
+        algorithm_settings={"algorithm": "euler"},
+        cache=dir_a,
+    )
+    kernel_b = BatchSolverKernel(
+        system,
+        algorithm_settings={"algorithm": "euler"},
+        cache=dir_b,
+    )
+    try:
+        with warnings.catch_warnings():
+            warnings.simplefilter("ignore")
+            kernel_a._solver_helper_fn(
+                "neumann_preconditioner", solver_beta=1.0, solver_gamma=1.0
+            )
+            kernel_b._solver_helper_fn(
+                "neumann_preconditioner", solver_beta=1.0, solver_gamma=1.0
+            )
+
+        policy_a = kernel_a.cache_handler.policy
+        policy_b = kernel_b.cache_handler.policy
+        evaluator_a = system._neumann_diagnostics[policy_a]
+        evaluator_b = system._neumann_diagnostics[policy_b]
+        assert evaluator_a is not evaluator_b
+        assert evaluator_a.cache_policy.cache_dir == dir_a
+        assert evaluator_b.cache_policy.cache_dir == dir_b
+
+        # A runtime cache update on A rebinds only A's getter; B's
+        # evaluator keeps its policy and its built kernel.
+        built_b = evaluator_b.get_cached_output("evaluation_kernel")
+        kernel_a.update(cache_dir=tmp_path / "kernel_a_moved")
+        assert evaluator_b.cache_policy.cache_dir == dir_b
+        kept_b = evaluator_b.get_cached_output("evaluation_kernel")
+        assert kept_b is built_b
+
+        with warnings.catch_warnings():
+            warnings.simplefilter("ignore")
+            kernel_a._solver_helper_fn(
+                "neumann_preconditioner", solver_beta=1.0, solver_gamma=1.0
+            )
+        moved = kernel_a.cache_handler.policy
+        assert (
+            system._neumann_diagnostics[moved].cache_policy.cache_dir
+            == tmp_path / "kernel_a_moved"
         )
-        rebuilt = system._get_neumann_evaluator().get_cached_output(
+        assert evaluator_b.cache_policy.cache_dir == dir_b
+    finally:
+        kernel_a.close()
+        kernel_b.close()
+
+
+@pytest.mark.parametrize(
+    "solver_settings_override", [_DIAGONALLY_DOMINANT], indirect=True
+)
+def test_policy_keyed_evaluators_are_stable_per_policy(system, tmp_path):
+    """Equal policies share one evaluator; distinct policies do not."""
+    default_first = system._get_neumann_evaluator()
+    first = default_first.get_cached_output("evaluation_kernel")
+    again = system._get_neumann_evaluator().get_cached_output(
+        "evaluation_kernel"
+    )
+    assert again is first
+
+    policy = CachePolicy(cache_enabled=True, cache_dir=tmp_path)
+    other = system._get_neumann_evaluator(policy)
+    assert other is not default_first
+    # An equal policy resolves to the same evaluator and keeps its
+    # built kernel; the default-policy evaluator is untouched.
+    built = other.get_cached_output("evaluation_kernel")
+    same_policy = CachePolicy(cache_enabled=True, cache_dir=tmp_path)
+    kept = system._get_neumann_evaluator(same_policy).get_cached_output(
+        "evaluation_kernel"
+    )
+    assert kept is built
+    assert (
+        system._get_neumann_evaluator().get_cached_output(
             "evaluation_kernel"
         )
-        assert rebuilt is not first
-    finally:
-        system.update(
-            {"cache_enabled": False, "cache_dir": None}, silent=True
-        )
+        is first
+    )
 
 
 @pytest.mark.nocudasim
@@ -189,18 +251,12 @@ def test_cache_change_rebuilds_evaluator_kernel(system, tmp_path):
 )
 def test_evaluator_attaches_configured_disk_cache(system, tmp_path):
     """With caching enabled the built kernel carries a CUBIECache."""
-    try:
-        system.update(
-            {"cache_enabled": True, "cache_dir": tmp_path}, silent=True
-        )
-        evaluator = system._get_neumann_evaluator()
-        kernel = evaluator.get_cached_output("evaluation_kernel")
-        assert isinstance(kernel._cache, CUBIECache)
-        assert Path(kernel._cache.cache_path).parent == tmp_path
-    finally:
-        system.update(
-            {"cache_enabled": False, "cache_dir": None}, silent=True
-        )
+    evaluator = system._get_neumann_evaluator(
+        CachePolicy(cache_enabled=True, cache_dir=tmp_path)
+    )
+    kernel = evaluator.get_cached_output("evaluation_kernel")
+    assert isinstance(kernel._cache, CUBIECache)
+    assert Path(kernel._cache.cache_path).parent == tmp_path
 
 
 def test_spectral_radius_tracks_beta():

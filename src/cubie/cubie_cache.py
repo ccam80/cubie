@@ -23,7 +23,10 @@ import os
 from contextlib import AbstractContextManager
 from functools import cache
 from hashlib import sha256
-from importlib.metadata import distributions
+from importlib.metadata import (
+    PackageNotFoundError,
+    version as dist_version,
+)
 from pathlib import Path
 from shutil import rmtree
 from sys import implementation, version_info
@@ -36,12 +39,10 @@ if os.name == "nt":
 else:
     import fcntl
 
-from attrs import field, validators as val, define, converters
-
-from cubie.CUDAFactory import _CubieConfigBase
+from attrs import evolve, field, validators as val, converters, frozen
 from cubie._env import kernel_cache_dir_default, max_cache_entries_default
 from cubie._utils import getype_validator
-from cubie.cuda_backend import IS_MLIR
+from cubie.cuda_backend import CUDA_BACKEND, IS_MLIR
 from cubie.cuda_simsafe import (  # noqa: F401
     _CacheLocator,  # noqa: F401
     CacheImpl,  # noqa: F401
@@ -130,11 +131,11 @@ ALL_CACHE_PARAMETERS: Set[str] = {
     "max_cache_entries",
     "cache_dir",
 }
-"""All keyword arguments accepted by :class:`CubieCacheHandler`.
+"""All cache-policy keyword arguments.
 
-These parameters can be passed to :class:`CubieCacheHandler` or to
-:meth:`CubieCacheHandler.update`. Parent components use this set to
-filter kwargs before forwarding.
+These parameters build a :class:`CachePolicy` and can be routed to
+:meth:`CubieCacheHandler.update_policy_params`. Parent components use
+this set to filter kwargs before forwarding.
 
 .. list-table:: Parameter Summary
    :header-rows: 1
@@ -143,37 +144,77 @@ filter kwargs before forwarding.
      - Accepted By
      - Description
    * - ``cache_enabled``
-     - :class:`CacheConfig`
+     - :class:`CachePolicy`
      - Whether file-based caching is enabled.
    * - ``cache_mode``
-     - :class:`CacheConfig`
+     - :class:`CachePolicy`
      - ``'hash'`` or ``'flush_on_change'``.
    * - ``max_cache_entries``
-     - :class:`CacheConfig`
+     - :class:`CachePolicy`
      - Maximum entries before LRU eviction (0 disables).
    * - ``cache_dir``
-     - :class:`CacheConfig`
+     - :class:`CachePolicy`
      - Custom cache directory path or ``None``.
 """
 
 
-def _environment_entries() -> list[str]:
-    """List the Python and installed-package versions."""
+CACHE_SCHEMA_VERSION = "cubie-cache-v1"
+"""Serialized-artifact schema tag folded into the ABI fingerprint."""
+
+_BACKEND_ABI_DISTRIBUTIONS = {
+    "numba-cuda": ("numba-cuda", "numba", "llvmlite"),
+    "mlir": ("cubie-numba-cuda-mlir", "numba-cuda-mlir"),
+}
+"""Distributions whose versions define each backend's artifact ABI.
+
+Keys must cover every backend name ``cubie.cuda_backend`` can
+resolve; a new backend without an entry fails fast at fingerprint
+time.
+
+numba-cuda artifacts are pickled ``_Kernel`` states whose layout
+follows numba-cuda itself and the numba/llvmlite serialization it
+builds on. MLIR artifacts are cubin/PTX compile-result payloads whose
+scheme is owned by the numba-cuda-mlir package (either the stock wheel
+or cubie's ``cubie-numba-cuda-mlir`` build, whichever is installed).
+"""
+
+
+def _abi_fingerprint_entries() -> list:
+    """List the minimal ABI/toolchain inputs for artifact compatibility.
+
+    Contains only inputs that can change the stored artifact's ABI or
+    code-generation compatibility: the cache schema version, the
+    Python implementation ABI tag, the active backend identifier, and
+    the backend/compiler package versions that own the serialization
+    format. Workspace paths, host identity, unrelated installed
+    packages, and arbitrary environment state are deliberately absent.
+    Target code-generation capability (compute capability and toolkit
+    magic) is carried per-overload by the backend's
+    ``codegen.magic_tuple()`` inside each index key.
+    """
+    abi_tag = implementation.cache_tag
+    if not abi_tag:
+        abi_tag = (
+            f"{implementation.name}-{version_info.major}."
+            f"{version_info.minor}"
+        )
     entries = [
-        f"python=={implementation.name}-{version_info.major}."
-        f"{version_info.minor}.{version_info.micro}"
+        f"schema={CACHE_SCHEMA_VERSION}",
+        f"python-abi={abi_tag}",
+        f"backend={CUDA_BACKEND}",
     ]
-    for distribution in distributions():
-        name = distribution.metadata["Name"] or "unknown"
-        version = distribution.metadata["Version"] or "unknown"
-        entries.append(f"{name}=={version}")
-    return sorted(entries)
+    for dist_name in _BACKEND_ABI_DISTRIBUTIONS[CUDA_BACKEND]:
+        try:
+            entries.append(f"{dist_name}=={dist_version(dist_name)}")
+        except PackageNotFoundError:
+            continue
+    return entries
 
 
 @cache
-def environment_hash() -> str:
-    """Hash Python and all installed package versions."""
-    joined = "\n".join(_environment_entries())
+def toolchain_fingerprint() -> str:
+    """Hash the minimal ABI/toolchain compatibility inputs."""
+    joined = "\n".join(_abi_fingerprint_entries())
     return sha256(joined.encode("utf-8")).hexdigest()
 
 
@@ -234,7 +275,7 @@ class CUBIECacheLocator(_CacheLocator):
             The system hash combined with the environment hash, so a
             change to any installed package invalidates the cache.
         """
-        return f"{self._system_hash}-{environment_hash()}"
+        return f"{self._system_hash}-{toolchain_fingerprint()}"
 
     def get_disambiguator(self) -> str:
         """Return a string to disambiguate similar functions.
@@ -613,9 +654,15 @@ class CUBIECache(CUDACache):
         """Return the cache directory path."""
         return Path(self._cache_path)
 
-@define
-class CacheConfig(_CubieConfigBase):
-    """Configuration for file-based kernel caching.
+@frozen
+class CachePolicy:
+    """Runtime policy for file-based kernel caching.
+
+    Cache policy is service configuration, not compile-settings
+    identity: whether and where compiled kernels are persisted never
+    enters any configuration hash or cache key. Identity inputs
+    (system hash, configuration hash) are call-time arguments to
+    :meth:`CubieCacheHandler.configured_cache`.
 
     Parameters
     ----------
@@ -629,15 +676,10 @@ class CacheConfig(_CubieConfigBase):
         Set to 0 to disable eviction.
     cache_dir
         Custom cache directory. None uses default location.
-    system_hash
-        Hash representing the ODE system definition. This should persist
-        over multiple sessions.
-    system_name
-        Name of the ODE system for directory organization.
     """
 
     cache_enabled: bool = field(
-        default=False,
+        default=True,
         validator=val.instance_of(bool),
     )
     cache_mode: str = field(
@@ -653,17 +695,6 @@ class CacheConfig(_CubieConfigBase):
         validator=val.optional(val.instance_of((str, Path))),
         converter=converters.optional(Path),
     )
-    system_hash: str = field(
-        default="",
-        validator=val.instance_of(str),
-    )
-    system_name: str = field(
-        default="",
-        validator=val.instance_of(str),
-    )
-
-    def __attrs_post_init__(self):
-        super().__attrs_post_init__()
 
     @classmethod
     def params_from_user_kwarg(cls, cache_arg: Union[bool, str, Path]):
@@ -699,33 +730,94 @@ class CacheConfig(_CubieConfigBase):
             "cache_mode": cache_mode,
         }
 
-
 class CubieCacheHandler:
     """Create and flush kernel disk caches for one factory.
 
-    The handler holds a reference to a :class:`CacheConfig` owned by
-    the factory's compile settings. Setting updates flow through the
-    factory's ``update_compile_settings`` (which invalidates its
-    build), so the handler only builds configured caches and applies
-    ``flush_on_change`` when the factory invalidates.
+    The handler owns a :class:`CachePolicy` and the system name used
+    for directory organisation. Identity inputs arrive as call-time
+    arguments to :meth:`configured_cache`; policy replacements arrive
+    through :meth:`update_policy`. The handler never shares mutable
+    state with any compile-settings snapshot.
 
     Parameters
     ----------
-    config
-        Cache configuration shared with the owning factory's compile
-        settings.
+    policy
+        Cache policy for the owning factory.
+    system_name
+        Name of the ODE system for directory organisation.
 
     See Also
     --------
-    :class:`CacheConfig`
-        Configuration container for cache settings.
+    :class:`CachePolicy`
+        Policy container for cache settings.
     :data:`ALL_CACHE_PARAMETERS`
-        Cache keywords recognised by :class:`CacheConfig`.
+        Cache keywords recognised by :class:`CachePolicy`.
     """
 
-    def __init__(self, config: CacheConfig) -> None:
-        self.config = config
+    def __init__(
+        self,
+        policy: CachePolicy,
+        system_name: str = "",
+    ) -> None:
+        self._policy = policy
+        self._system_name = system_name
         self._cache = None
+
+    @property
+    def policy(self) -> CachePolicy:
+        """Return the current cache policy."""
+        return self._policy
+
+    @property
+    def system_name(self) -> str:
+        """Return the system name used for directory organisation."""
+        return self._system_name
+
+    def update_policy(self, policy: CachePolicy) -> bool:
+        """Replace the cache policy.
+
+        A change drops the configured cache reference: a cache built
+        under the previous policy may point at a directory the new
+        policy does not own, and a later flush must never reach it.
+
+        Parameters
+        ----------
+        policy
+            Replacement policy.
+
+        Returns
+        -------
+        bool
+            ``True`` when the replacement differs from the current
+            policy.
+        """
+        changed = policy != self._policy
+        if changed:
+            self._cache = None
+        self._policy = policy
+        return changed
+
+    def update_policy_params(self, updates: dict) -> bool:
+        """Derive and install a replacement policy from parameters.
+
+        Parameters
+        ----------
+        updates
+            Mapping holding any of :data:`ALL_CACHE_PARAMETERS`.
+
+        Returns
+        -------
+        bool
+            ``True`` when a recognised parameter changed the policy.
+        """
+        recognised = {
+            key: value
+            for key, value in updates.items()
+            if key in ALL_CACHE_PARAMETERS
+        }
+        if not recognised:
+            return False
+        return self.update_policy(evolve(self._policy, **recognised))
 
     @property
     def cache(self) -> Optional[CUBIECache]:
@@ -754,17 +846,15 @@ class CubieCacheHandler:
         CUBIECache or None
             Configured cache instance if enabled, else None.
         """
-        if not self.config.cache_enabled:
+        if not self._policy.cache_enabled:
             return None
-        if system_hash != self.config.system_hash:
-            self.config.update({"system_hash": system_hash})
         self._cache = CUBIECache(
-            system_name=self.config.system_name,
+            system_name=self._system_name,
             system_hash=system_hash,
             config_hash=compile_settings_hash,
-            max_entries=self.config.max_cache_entries,
-            mode=self.config.cache_mode,
-            custom_cache_dir=self.config.cache_dir,
+            max_entries=self._policy.max_cache_entries,
+            mode=self._policy.cache_mode,
+            custom_cache_dir=self._policy.cache_dir,
         )
         return self._cache
 
@@ -772,11 +862,11 @@ class CubieCacheHandler:
         """Invalidate the managed cache if in flush_on_change mode."""
         if self._cache is None:
             return
-        if self.config.cache_mode != "flush_on_change":
+        if self._policy.cache_mode != "flush_on_change":
             return
         self.flush()
 
     @property
     def cache_enabled(self) -> bool:
         """Return whether caching is enabled."""
-        return self.config.cache_enabled
+        return self._policy.cache_enabled

@@ -35,6 +35,7 @@ See Also
 """
 
 from abc import abstractmethod
+from functools import partial
 from typing import Any, Callable, Dict, Optional, Set, Union
 from hashlib import sha256
 
@@ -411,12 +412,38 @@ class BaseODE(CUDAFactory):
         )
         return sha256(combined.encode("utf-8")).hexdigest()
 
+    def solver_helper_getter(
+        self, cache_policy: Optional[Any] = None
+    ) -> Callable:
+        """Bind a consumer's cache policy as helper-request context.
+
+        Parameters
+        ----------
+        cache_policy
+            The consumer's cache policy, forwarded with every
+            request made through the returned callable. Service
+            context only — it never enters any identity.
+
+        Returns
+        -------
+        Callable
+            A callable with the :meth:`get_solver_helper` contract.
+
+        Notes
+        -----
+        Consumers that own a cache policy (e.g. a batch solver
+        kernel) each hold one getter, so no policy state is ever
+        written onto a shared system.
+        """
+        return partial(self.get_solver_helper, cache_policy=cache_policy)
+
     def get_solver_helper(
         self,
         func_name: str,
         solver_beta: Optional[float] = None,
         solver_gamma: Optional[float] = None,
         preconditioner_order: Optional[int] = None,
+        cache_policy: Optional[Any] = None,
     ) -> Callable:
         """Retrieve a cached solver helper function.
 
@@ -437,6 +464,9 @@ class BaseODE(CUDAFactory):
         preconditioner_order
             Polynomial order of the preconditioner. Ignored by this
             base implementation.
+        cache_policy
+            The requesting consumer's cache policy, forwarded to
+            diagnostic services run on its behalf. Ignored here.
 
         Returns
         -------

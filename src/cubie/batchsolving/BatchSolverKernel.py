@@ -42,7 +42,12 @@ from warnings import warn
 from pathlib import Path
 from weakref import finalize
 
-from numpy import ceil as np_ceil, float64 as np_float64, floating
+from numpy import (
+    ceil as np_ceil,
+    float64 as np_float64,
+    floating,
+    zeros as np_zeros,
+)
 from cubie.cuda_simsafe import cuda, float64
 from cubie.cuda_simsafe import int32
 
@@ -54,13 +59,15 @@ from cubie.cuda_simsafe import (
     max_shared_memory_per_block,
 )
 from cubie.cubie_cache import (
-    CacheConfig,
+    ALL_CACHE_PARAMETERS,
+    CachePolicy,
     CubieCacheHandler,
 )
 
 from cubie.time_logger import CUDAEvent
 from numpy.typing import NDArray
 
+from cubie.array_interpolator import ArrayInterpolator
 from cubie.memory import default_memmgr
 from cubie.memory.mem_manager import defer_instance_teardown
 from cubie.buffer_registry import buffer_registry
@@ -74,7 +81,7 @@ from cubie.batchsolving.BatchSolverConfig import BatchSolverConfig
 from cubie.odesystems.baseODE import BaseODE
 from cubie.outputhandling.output_config import OutputCompileFlags
 from cubie.integrators.SingleIntegratorRun import SingleIntegratorRun
-from cubie._utils import build_config, unpack_dict_values, getype_validator
+from cubie._utils import unpack_dict_values, getype_validator
 
 if TYPE_CHECKING:
     from cubie.memory import MemoryManager
@@ -231,7 +238,7 @@ class BatchSolverKernel(CUDAFactory):
         typically via :mod:`cubie.memory`.
     cache_settings
         Mapping of cache configuration forwarded to
-        :class:`cubie.cubie_cache.CacheConfig`.
+        :class:`cubie.cubie_cache.CachePolicy`.
     cache
         Cache mode control. ``True`` enables default caching, ``False``
         disables caching, or a string/``Path`` sets a custom cache
@@ -290,32 +297,35 @@ class BatchSolverKernel(CUDAFactory):
         self._work_complete = True
         self._memory_manager = self._setup_memory_manager(memory_settings)
 
+        # Child factory: driver settings join config_hash; the
+        # placeholder input covers zero-driver operation.
+        self.driver_interpolator = ArrayInterpolator(
+            precision=precision,
+            input_dict={
+                "placeholder": np_zeros(6, dtype=precision),
+                "driver_sample_period": 0.1,
+            },
+        )
+
         system_name = system.name
         system_hash = system.fn_hash
         if system_name == system_hash:
             system_name = f"unnamed_{system_hash[:8]}"
         if cache_settings is None:
             cache_settings = {}
-        cache_params = CacheConfig.params_from_user_kwarg(cache)
+        cache_params = CachePolicy.params_from_user_kwarg(cache)
         cache_params.update(cache_settings)
-        cache_config = build_config(
-            CacheConfig,
-            {"system_name": system_name, "system_hash": system_hash},
-            **cache_params,
+        cache_params = {
+            key: value
+            for key, value in cache_params.items()
+            if value is not None
+        }
+        cache_policy = CachePolicy(**cache_params)
+        self.cache_handler = CubieCacheHandler(
+            cache_policy, system_name=system_name
         )
-        self.cache_handler = CubieCacheHandler(cache_config)
-        # The solver's cache settings flow to the system so factories
-        # it owns (the Neumann convergence evaluator) apply the same
-        # policy to the kernels they compile.
-        system.update(
-            {
-                "cache_enabled": cache_config.cache_enabled,
-                "cache_mode": cache_config.cache_mode,
-                "max_cache_entries": cache_config.max_cache_entries,
-                "cache_dir": cache_config.cache_dir,
-            },
-            silent=True,
-        )
+        # Pass cache policy for diagnostic kernels.
+        self._solver_helper_fn = system.solver_helper_getter(cache_policy)
 
         # Build the single integrator to derive compile-critical metadata
         self.single_integrator = SingleIntegratorRun(
@@ -326,6 +336,7 @@ class BatchSolverKernel(CUDAFactory):
             step_control_settings=step_control_settings,
             algorithm_settings=algorithm_settings,
             output_settings=output_settings,
+            solver_helper_fn=self._solver_helper_fn,
         )
         # An explicit lineinfo argument must reach every child factory;
         # None leaves the CUBIE_LINEINFO-derived config defaults in place.
@@ -334,12 +345,16 @@ class BatchSolverKernel(CUDAFactory):
                 {"lineinfo": lineinfo}, silent=True
             )
 
+        kernel_settings = dict(kernel_settings or {})
+        kernel_settings.setdefault(
+            "driver_coefficients_shape",
+            self.driver_interpolator.coefficients_shape,
+        )
         initial_config = BatchSolverConfig(
             precision=precision,
             loop_fn=None,
             compile_flags=self.single_integrator.output_compile_flags,
-            cache_config=cache_config,
-            **(kernel_settings or {}),
+            **kernel_settings,
         )
         self.setup_compile_settings(initial_config)
         if lineinfo is not None:
@@ -1044,6 +1059,36 @@ class BatchSolverKernel(CUDAFactory):
         updates_dict, unpacked_keys = unpack_dict_values(updates_dict)
 
         all_unrecognized = set(updates_dict.keys())
+
+        # Cache parameters are handler policy, not compile settings.
+        # A changed policy invalidates the build so a freshly
+        # configured cache attaches to the rebuilt dispatcher.
+        policy_changed = self.cache_handler.update_policy_params(
+            updates_dict
+        )
+        if policy_changed:
+            self._solver_helper_fn = self.system.solver_helper_getter(
+                self.cache_handler.policy
+            )
+            updates_dict["solver_helper_fn"] = self._solver_helper_fn
+            self._invalidate_cache()
+        all_unrecognized -= set(updates_dict.keys()) & ALL_CACHE_PARAMETERS
+
+        driver_recognised = self.driver_interpolator.update(
+            updates_dict, silent=True
+        )
+        if driver_recognised and self.n_drivers > 0:
+            updates_dict["evaluate_driver_at_t"] = (
+                self.driver_interpolator.evaluation_function
+            )
+            updates_dict["driver_del_t"] = (
+                self.driver_interpolator.driver_del_t
+            )
+            updates_dict["driver_coefficients_shape"] = (
+                self.driver_interpolator.coefficients_shape
+            )
+        all_unrecognized -= driver_recognised
+
         all_unrecognized -= self.single_integrator.update(
             updates_dict, silent=True
         )
@@ -1071,6 +1116,34 @@ class BatchSolverKernel(CUDAFactory):
 
         # Include unpacked dict keys in recognized set
         return recognised | unpacked_keys
+
+    def configure_drivers(self, drivers: Dict[str, Any]) -> None:
+        """Update the owned driver interpolator and dependent settings.
+
+        Parameters
+        ----------
+        drivers
+            Driver samples plus interpolation settings, as accepted by
+            :meth:`ArrayInterpolator.update_from_dict`.
+        """
+        drivers = ArrayInterpolator.check_against_system_drivers(
+            drivers, self.system
+        )
+        fn_changed = self.driver_interpolator.update_from_dict(drivers)
+        if fn_changed:
+            self.update(
+                {
+                    "evaluate_driver_at_t": (
+                        self.driver_interpolator.evaluation_function
+                    ),
+                    "driver_del_t": (
+                        self.driver_interpolator.driver_del_t
+                    ),
+                    "driver_coefficients_shape": (
+                        self.driver_interpolator.coefficients_shape
+                    ),
+                }
+            )
 
     def wait_for_writeback(
         self, timeout: Optional[float] = None
@@ -1131,9 +1204,9 @@ class BatchSolverKernel(CUDAFactory):
         return self.compile_settings.active_outputs
 
     @property
-    def cache_config(self) -> "CacheConfig":
-        """Cache configuration for the kernel, parsed on demand."""
-        return self.cache_handler.config
+    def cache_policy(self) -> "CachePolicy":
+        """Cache policy the kernel's disk cache follows."""
+        return self.cache_handler.policy
 
     def set_cache_dir(self, path: Union[str, Path]) -> None:
         """Set a custom cache directory for compiled kernels.

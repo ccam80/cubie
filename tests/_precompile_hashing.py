@@ -1,12 +1,13 @@
-"""Process-stable identity hashing for generic test kernels.
+"""Process-stable identity hashing for factory-less test kernels.
 
-The precompile plugin caches every dispatcher the test suite creates,
-including kernels defined inline in test files. Those have no cubie
-system identity, so the plugin keys them by function identity: code
-object, closure values, defaults, and target options. The helpers here
-strip process- and checkout-specific detail (file paths, line offsets,
-serialization order) so a kernel compiled on a CPU runner produces the
-same key when the GPU runner looks it up.
+Production dispatchers keep the ``CUBIECache`` their owning factory
+attaches, keyed by the production system and configuration identity.
+Kernels defined inline in test files have no owning factory, so the
+precompile plugin keys those — and only those — by function identity:
+code object, closure values, defaults, and target options. The helpers
+here strip process- and checkout-specific detail (file paths, line
+offsets, serialization order) so a kernel compiled on a CPU runner
+produces the same key when the GPU runner looks it up.
 
 Kept out of :mod:`cubie.cubie_cache`: production caches are keyed by
 system and compile-settings hashes and never need function identity.
@@ -143,12 +144,3 @@ def _function_key(py_func, active: Optional[set[int]] = None):
         )
     finally:
         active.remove(identity)
-
-
-def _portable_magic(value):
-    """Normalize backend target values used in cache keys."""
-    if hasattr(value, "major") and hasattr(value, "minor"):
-        return (int(value.major), int(value.minor))
-    if isinstance(value, tuple):
-        return tuple(_portable_magic(item) for item in value)
-    return value

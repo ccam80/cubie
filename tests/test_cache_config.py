@@ -1,11 +1,12 @@
-"""Tests for CacheConfig and related caching configuration."""
+"""Tests for CachePolicy and related caching configuration."""
 
 import os
 from pathlib import Path
 
 import pytest
 
-from cubie.cubie_cache import CacheConfig, CUBIECache
+from cubie._env import kernel_cache_dir_default
+from cubie.cubie_cache import CachePolicy, CUBIECache
 
 DEFAULT_CUBIE_CACHE_CONFIG_HASH = (
     "def456789012345678901234567890123456789012345678901234567890abcd"
@@ -13,10 +14,10 @@ DEFAULT_CUBIE_CACHE_CONFIG_HASH = (
 
 
 @pytest.fixture(scope="function")
-def cache_config(request):
-    """Fixture to create CacheConfig with optional overrides."""
+def cache_policy(request):
+    """Fixture to create CachePolicy with optional overrides."""
     params = getattr(request, "param", {})
-    return CacheConfig(
+    return CachePolicy(
         cache_enabled=params.get("enabled", True),
         cache_mode=params.get("mode", "hash"),
         max_cache_entries=params.get("max_entries", 10),
@@ -40,78 +41,78 @@ def cubie_cache(request, tmp_path, precision):
     )
 
 
-class TestCacheConfigDefaults:
-    """Tests for CacheConfig default values."""
+class TestCachePolicyDefaults:
+    """Tests for CachePolicy default values."""
 
-    def test_cache_config_defaults(self, cache_config):
-        """Verify CacheConfig has correct default values."""
-        assert cache_config.cache_enabled is True
-        assert cache_config.cache_mode == "hash"
-        assert cache_config.max_cache_entries == 10
-        assert cache_config.cache_dir is None
+    def test_cache_policy_defaults(self, cache_policy):
+        """Verify CachePolicy has correct default values."""
+        assert cache_policy.cache_enabled is True
+        assert cache_policy.cache_mode == "hash"
+        assert cache_policy.max_cache_entries == 10
+        assert cache_policy.cache_dir is None
 
 
-class TestCacheConfigModeValidation:
-    """Tests for CacheConfig mode validation."""
+class TestCachePolicyModeValidation:
+    """Tests for CachePolicy mode validation."""
 
     @pytest.mark.parametrize(
-        "cache_config,mode",
+        "cache_policy,mode",
         [
             ({"mode": "hash"}, "hash"),
             ({"mode": "flush_on_change"}, "flush_on_change"),
         ],
-        indirect=["cache_config"],
+        indirect=["cache_policy"],
     )
-    def test_cache_config_mode_valid(self, cache_config, mode):
+    def test_cache_policy_mode_valid(self, cache_policy, mode):
         """Verify supported modes are accepted."""
-        assert cache_config.cache_mode == mode
+        assert cache_policy.cache_mode == mode
 
-    def test_cache_config_mode_validation(self, precision):
+    def test_cache_policy_mode_validation(self, precision):
         """Verify mode only accepts 'hash' or 'flush_on_change'."""
         with pytest.raises(ValueError):
-            CacheConfig(cache_mode="invalid_mode")
+            CachePolicy(cache_mode="invalid_mode")
 
 
-class TestCacheConfigMaxEntriesValidation:
-    """Tests for CacheConfig max_entries validation."""
+class TestCachePolicyMaxEntriesValidation:
+    """Tests for CachePolicy max_entries validation."""
 
     @pytest.mark.parametrize(
-        "cache_config,expected",
+        "cache_policy,expected",
         [
             ({"max_entries": 0}, 0),
             ({"max_entries": 100}, 100),
         ],
-        indirect=["cache_config"],
+        indirect=["cache_policy"],
     )
-    def test_cache_config_max_entries_valid(self, cache_config, expected):
+    def test_cache_policy_max_entries_valid(self, cache_policy, expected):
         """Verify max_entries accepts zero and positive values."""
-        assert cache_config.max_cache_entries == expected
+        assert cache_policy.max_cache_entries == expected
 
-    def test_cache_config_max_entries_validation(self, precision):
+    def test_cache_policy_max_entries_validation(self, precision):
         """Verify max_entries rejects negative values."""
         with pytest.raises(ValueError):
-            CacheConfig(max_cache_entries=-1)
+            CachePolicy(max_cache_entries=-1)
 
 
-class TestCacheConfigCacheDirConversion:
-    """Tests for CacheConfig cache_dir conversion."""
+class TestCachePolicyCacheDirConversion:
+    """Tests for CachePolicy cache_dir conversion."""
 
     @pytest.mark.parametrize(
-        "cache_config,expected",
+        "cache_policy,expected",
         [
             ({"cache_dir": None}, None),
             ({"cache_dir": Path("/tmp/cache")}, Path("/tmp/cache")),
             ({"cache_dir": "/tmp/cache"}, Path("/tmp/cache")),
         ],
-        indirect=["cache_config"],
+        indirect=["cache_policy"],
     )
-    def test_cache_config_cache_dir_conversion(self, cache_config, expected):
+    def test_cache_policy_cache_dir_conversion(self, cache_policy, expected):
         """Verify cache_dir accepts optional Path or str inputs."""
         if expected is None:
-            assert cache_config.cache_dir is None
+            assert cache_policy.cache_dir is None
         else:
-            assert cache_config.cache_dir == expected
-            assert isinstance(cache_config.cache_dir, Path)
+            assert cache_policy.cache_dir == expected
+            assert isinstance(cache_policy.cache_dir, Path)
 
 
 class TestCUBIECacheMaxEntries:
@@ -412,7 +413,7 @@ class TestParseCacheParam:
     """Tests for BatchSolverKernel._parse_cache_param."""
 
     def test_parse_cache_param_true(self, simple_system):
-        """Verify cache=True creates enabled CacheConfig in hash mode."""
+        """Verify cache=True creates enabled CachePolicy in hash mode."""
         from cubie.batchsolving.BatchSolverKernel import BatchSolverKernel
 
         kernel = BatchSolverKernel(
@@ -421,12 +422,18 @@ class TestParseCacheParam:
             cache=True,
         )
 
-        assert kernel.cache_config.cache_enabled is True
-        assert kernel.cache_config.cache_mode == "hash"
-        assert kernel.cache_config.cache_dir is None
+        assert kernel.cache_policy.cache_enabled is True
+        assert kernel.cache_policy.cache_mode == "hash"
+        # Without a cache argument the directory is the environment
+        # default: CUBIE_KERNEL_CACHE_DIR when set, None otherwise.
+        expected_dir = kernel_cache_dir_default()
+        if expected_dir is None:
+            assert kernel.cache_policy.cache_dir is None
+        else:
+            assert kernel.cache_policy.cache_dir == Path(expected_dir)
 
     def test_parse_cache_param_false(self, simple_system):
-        """Verify cache=False creates disabled CacheConfig."""
+        """Verify cache=False creates disabled CachePolicy."""
         from cubie.batchsolving.BatchSolverKernel import BatchSolverKernel
 
         kernel = BatchSolverKernel(
@@ -435,7 +442,7 @@ class TestParseCacheParam:
             cache=False,
         )
 
-        assert kernel.cache_config.cache_enabled is False
+        assert kernel.cache_policy.cache_enabled is False
 
     def test_parse_cache_param_flush_on_change(self, simple_system):
         """Verify cache='flush_on_change' sets flush mode."""
@@ -447,8 +454,8 @@ class TestParseCacheParam:
             cache="flush_on_change",
         )
 
-        assert kernel.cache_config.cache_enabled is True
-        assert kernel.cache_config.cache_mode == "flush_on_change"
+        assert kernel.cache_policy.cache_enabled is True
+        assert kernel.cache_policy.cache_mode == "flush_on_change"
 
     def test_parse_cache_param_path(self, simple_system, tmp_path):
         """Verify cache=Path sets custom cache_dir."""
@@ -461,9 +468,9 @@ class TestParseCacheParam:
             cache=custom_path,
         )
 
-        assert kernel.cache_config.cache_enabled is True
-        assert kernel.cache_config.cache_mode == "hash"
-        assert kernel.cache_config.cache_dir == custom_path
+        assert kernel.cache_policy.cache_enabled is True
+        assert kernel.cache_policy.cache_mode == "hash"
+        assert kernel.cache_policy.cache_dir == custom_path
 
     def test_parse_cache_param_string_path(self, simple_system, tmp_path):
         """Verify cache=string path sets custom cache_dir."""
@@ -476,15 +483,15 @@ class TestParseCacheParam:
             cache=custom_path,
         )
 
-        assert kernel.cache_config.cache_enabled is True
-        assert kernel.cache_config.cache_dir == Path(custom_path)
+        assert kernel.cache_policy.cache_enabled is True
+        assert kernel.cache_policy.cache_dir == Path(custom_path)
 
 
-class TestKernelCacheConfigProperty:
-    """Tests for BatchSolverKernel.cache_config property."""
+class TestKernelCachePolicyProperty:
+    """Tests for BatchSolverKernel.cache_policy property."""
 
-    def test_kernel_cache_config_property(self, simple_system):
-        """Verify cache_config property returns correct object."""
+    def test_kernel_cache_policy_property(self, simple_system):
+        """Verify cache_policy property returns correct object."""
         from cubie.batchsolving.BatchSolverKernel import BatchSolverKernel
 
         kernel = BatchSolverKernel(
@@ -493,12 +500,12 @@ class TestKernelCacheConfigProperty:
             cache=True,
         )
 
-        cache_config = kernel.cache_config
-        assert isinstance(cache_config, CacheConfig)
-        assert cache_config.cache_enabled is True
+        cache_policy = kernel.cache_policy
+        assert isinstance(cache_policy, CachePolicy)
+        assert cache_policy.cache_enabled is True
 
-    def test_kernel_cache_config_parsed_from_cache_arg(self, simple_system):
-        """Verify cache_config property parses from _cache_arg."""
+    def test_kernel_cache_policy_parsed_from_cache_arg(self, simple_system):
+        """Verify cache_policy property parses from _cache_arg."""
         from cubie.batchsolving.BatchSolverKernel import BatchSolverKernel
 
         kernel = BatchSolverKernel(
@@ -507,9 +514,9 @@ class TestKernelCacheConfigProperty:
             cache="flush_on_change",
         )
 
-        # cache_config is parsed on demand from _cache_arg
-        assert kernel.cache_config.cache_enabled is True
-        assert kernel.cache_config.cache_mode == "flush_on_change"
+        # cache_policy is parsed on demand from _cache_arg
+        assert kernel.cache_policy.cache_enabled is True
+        assert kernel.cache_policy.cache_mode == "flush_on_change"
 
 
 class TestSetCacheDir:
@@ -528,8 +535,8 @@ class TestSetCacheDir:
 
         kernel.set_cache_dir(new_path_str)
 
-        assert kernel.cache_config.cache_dir == Path(new_path_str)
-        assert isinstance(kernel.cache_config.cache_dir, Path)
+        assert kernel.cache_policy.cache_dir == Path(new_path_str)
+        assert isinstance(kernel.cache_policy.cache_dir, Path)
 
     def test_set_cache_dir_accepts_path(self, simple_system, tmp_path):
         """Verify set_cache_dir accepts Path object."""
@@ -544,8 +551,8 @@ class TestSetCacheDir:
 
         kernel.set_cache_dir(new_path)
 
-        assert kernel.cache_config.cache_dir == new_path
-        assert isinstance(kernel.cache_config.cache_dir, Path)
+        assert kernel.cache_policy.cache_dir == new_path
+        assert isinstance(kernel.cache_policy.cache_dir, Path)
 
 
 @pytest.fixture(scope="function")
@@ -575,8 +582,8 @@ class TestSolverCacheParam:
         custom_path = tmp_path / "solver_cache"
         solver = Solver(simple_system, cache=custom_path)
 
-        assert solver.kernel.cache_config.cache_enabled is True
-        assert solver.kernel.cache_config.cache_dir == custom_path
+        assert solver.kernel.cache_policy.cache_enabled is True
+        assert solver.kernel.cache_policy.cache_dir == custom_path
 
     def test_solver_cache_true_default(self, simple_system):
         """Verify cache=True is the default."""
@@ -584,8 +591,8 @@ class TestSolverCacheParam:
 
         solver = Solver(simple_system)
 
-        assert solver.kernel.cache_config.cache_enabled is True
-        assert solver.kernel.cache_config.cache_mode == "hash"
+        assert solver.kernel.cache_policy.cache_enabled is True
+        assert solver.kernel.cache_policy.cache_mode == "hash"
 
     def test_solver_cache_false(self, simple_system):
         """Verify cache=False disables caching."""
@@ -593,7 +600,7 @@ class TestSolverCacheParam:
 
         solver = Solver(simple_system, cache=False)
 
-        assert solver.kernel.cache_config.cache_enabled is False
+        assert solver.kernel.cache_policy.cache_enabled is False
 
     def test_solver_cache_flush_on_change(self, simple_system):
         """Verify cache='flush_on_change' sets mode."""
@@ -601,8 +608,8 @@ class TestSolverCacheParam:
 
         solver = Solver(simple_system, cache="flush_on_change")
 
-        assert solver.kernel.cache_config.cache_enabled is True
-        assert solver.kernel.cache_config.cache_mode == "flush_on_change"
+        assert solver.kernel.cache_policy.cache_enabled is True
+        assert solver.kernel.cache_policy.cache_mode == "flush_on_change"
 
 
 class TestSolverCacheProperties:
@@ -633,7 +640,13 @@ class TestSolverCacheProperties:
         from cubie.batchsolving.solver import Solver
 
         solver = Solver(simple_system, cache=True)
-        assert solver.cache_dir is None
+        # Without a cache argument the directory is the environment
+        # default: CUBIE_KERNEL_CACHE_DIR when set, None otherwise.
+        expected_dir = kernel_cache_dir_default()
+        if expected_dir is None:
+            assert solver.cache_dir is None
+        else:
+            assert solver.cache_dir == Path(expected_dir)
 
         custom_path = tmp_path / "cache_dir_test"
         solver_custom = Solver(simple_system, cache=custom_path)
@@ -653,7 +666,7 @@ class TestSolverSetCacheDir:
         solver.set_cache_dir(new_path)
 
         assert solver.cache_dir == new_path
-        assert solver.kernel.cache_config.cache_dir == new_path
+        assert solver.kernel.cache_policy.cache_dir == new_path
 
     def test_solver_set_cache_dir_string(self, simple_system, tmp_path):
         """Verify set_cache_dir accepts string."""

@@ -93,7 +93,7 @@ from cubie.odesystems.symbolic.codegen.time_derivative import (
 from cubie.odesystems.symbolic.sym_utils import hash_system_definition
 from cubie.odesystems.baseODE import BaseODE, ODECache
 from cubie._utils import PrecisionDType, is_devfunc
-from cubie.cubie_cache import CacheConfig
+from cubie.cubie_cache import CachePolicy
 from cubie.time_logger import default_timelogger
 
 # Neumann preconditioner helper types checked by the convergence
@@ -401,18 +401,11 @@ class SymbolicODE(BaseODE):
         system_name = name
         if system_name == fn_hash:
             system_name = f"unnamed_{fn_hash[:8]}"
-        # Held in a dict so _iter_child_factories skips it: the
-        # diagnostic kernel never shapes generated code, so its
-        # configuration must stay out of the system's config_hash.
-        self._diagnostic_factories = {
-            "neumann_rhs": NeumannRHSEvaluator(
-                precision=precision,
-                cache_config=CacheConfig(
-                    system_name=system_name,
-                    system_hash=fn_hash,
-                ),
-            ),
-        }
+        # One diagnostic evaluator per consumer cache policy, in a
+        # dict so child-factory discovery skips it and config_hash is
+        # unaffected.
+        self._diagnostic_system_name = system_name
+        self._neumann_diagnostics = {}
 
     @classmethod
     def create(
@@ -636,11 +629,8 @@ class SymbolicODE(BaseODE):
     ) -> Set[str]:
         """Update system settings, forwarding to diagnostic factories.
 
-        Cache settings (see
-        :data:`cubie.cubie_cache.ALL_CACHE_PARAMETERS`) are applied to
-        the convergence evaluator's compile settings alongside the
-        system's own updates, so a solver's cache configuration flows
-        down the ordinary ``update`` chain.
+        Updates are offered to the system's own settings and to the
+        compile settings of every existing convergence evaluator.
 
         Parameters
         ----------
@@ -665,8 +655,8 @@ class SymbolicODE(BaseODE):
             return set()
 
         recognised = super().update(updates, silent=True)
-        for factory in self._diagnostic_factories.values():
-            recognised |= factory.update_compile_settings(
+        for evaluator in self._neumann_diagnostics.values():
+            recognised |= evaluator.update_compile_settings(
                 updates, silent=True
             )
 
@@ -679,19 +669,32 @@ class SymbolicODE(BaseODE):
                 )
         return recognised
 
-    def _get_neumann_evaluator(self) -> NeumannRHSEvaluator:
-        """Return the convergence evaluator, refreshed for current code.
+    def _get_neumann_evaluator(
+        self, cache_policy: Optional[CachePolicy] = None
+    ) -> NeumannRHSEvaluator:
+        """Return the convergence evaluator for a consumer's policy.
 
-        The evaluator launches the compiled ``dxdt`` device function
-        on the device, so the diagnostic reflects the production code
-        at the compiled precision. Refreshing the compile settings
-        here rebuilds the wrapper kernel through the standard
-        invalidation path whenever the compiled ``dxdt`` or the
-        settings shaping it change. ``settings_and_constants_hash``
-        stands in for ``config_hash``, which would self-reference if
-        the evaluator's configuration fed back into it.
+        One evaluator exists per cache policy, created on demand.
+        ``settings_and_constants_hash`` stands in for ``config_hash``,
+        which would self-reference if the evaluator's configuration
+        fed back into it.
+
+        Parameters
+        ----------
+        cache_policy
+            Service configuration of the requesting consumer.
+            ``None`` selects the default-policy evaluator.
         """
-        evaluator = self._diagnostic_factories["neumann_rhs"]
+        if cache_policy is None:
+            cache_policy = CachePolicy()
+        evaluator = self._neumann_diagnostics.get(cache_policy)
+        if evaluator is None:
+            evaluator = NeumannRHSEvaluator(
+                precision=self.precision,
+                cache_policy=cache_policy,
+                system_name=self._diagnostic_system_name,
+            )
+            self._neumann_diagnostics[cache_policy] = evaluator
         evaluator.update_compile_settings(
             {
                 "dxdt_function": self.evaluate_f,
@@ -1046,6 +1049,7 @@ class SymbolicODE(BaseODE):
             Sequence[Sequence[Union[float, sp.Expr]]]
         ] = None,
         stage_nodes: Optional[Sequence[Union[float, sp.Expr]]] = None,
+        cache_policy: Optional[CachePolicy] = None,
     ) -> Union[Callable, int]:
         """Return a generated solver helper device function.
 
@@ -1084,6 +1088,10 @@ class SymbolicODE(BaseODE):
         stage_nodes
             FIRK stage nodes expressed as timestep fractions. The stage count
             is inferred from ``len(stage_nodes)``.
+        cache_policy
+            The requesting consumer's cache policy, passed through
+            to diagnostic services run on its behalf. ``None``
+            selects the default policy.
 
         Returns
         -------
@@ -1140,6 +1148,7 @@ class SymbolicODE(BaseODE):
                 preconditioner_order=preconditioner_order,
                 stage_coefficients=stage_coefficients,
                 stage_nodes=stage_nodes,
+                cache_policy=cache_policy,
             )
             default_timelogger.stop_event(event_name)
             return func
@@ -1163,6 +1172,18 @@ class SymbolicODE(BaseODE):
             solver_updates["tableau_digest"] = tableau_hash
         if solver_updates:
             self.update_compile_settings(solver_updates)
+
+        # Neumann convergence diagnostic: runs on every request —
+        # object-cache hits included — with the requesting consumer's
+        # cache policy selecting that consumer's own evaluator.
+        if func_type in _NEUMANN_PRECONDITIONER_TYPES:
+            check_neumann_convergence(
+                self.indices,
+                evaluator=self._get_neumann_evaluator(cache_policy),
+                stage_coefficients=stage_coefficients,
+                beta=self.compile_settings.solver_beta,
+                gamma=self.compile_settings.solver_gamma,
+            )
 
         # The auxiliary count is metadata, not a device dispatcher.
         if func_type == "cached_aux_count":
@@ -1223,18 +1244,6 @@ class SymbolicODE(BaseODE):
             factory_name = "jacobi_preconditioner_cached"
         else:
             factory_name = func_type
-
-        # Neumann preconditioner convergence diagnostic. Runs whenever a
-        # Neumann helper is requested (even on cache hits) so the warning
-        # surfaces for reused code as well as freshly generated code.
-        if func_type in _NEUMANN_PRECONDITIONER_TYPES:
-            check_neumann_convergence(
-                self.indices,
-                evaluator=self._get_neumann_evaluator(),
-                stage_coefficients=stage_coefficients,
-                beta=beta,
-                gamma=gamma,
-            )
 
         # Check if function is already in file cache (skipped if so)
         is_cached = self.gen_file.function_is_cached(factory_name)
