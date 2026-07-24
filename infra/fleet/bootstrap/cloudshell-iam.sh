@@ -28,9 +28,18 @@ ACCOUNT_ID=$(aws sts get-caller-identity --query Account --output text)
 # Permissions, by statement:
 # - ReadOnly: region-locked Describe/Get/List across the services the
 #   RunsOn Fleet Terraform module touches, plus read-only
-#   CloudFormation and Service Quotas for diagnostics. Reads carry no
-#   secret material: secretsmanager:GetSecretValue is NOT here -- it
-#   lives in SecretsScoped, bound to this stack's secret prefix.
+#   CloudFormation and Service Quotas for diagnostics, and
+#   cloudtrail:LookupEvents for reading the free 90-day management-event
+#   history (instance launch/terminate times, used by the CI
+#   cost/timeline report). Reads carry no secret material:
+#   secretsmanager:GetSecretValue is NOT here -- it lives in
+#   SecretsScoped, bound to this stack's secret prefix.
+# - CostExplorerReadOnly: read-only Cost Explorer for the CI
+#   cost/usage report. Cost Explorer is a global service reached
+#   through us-east-1, so it CANNOT sit in the region-locked ReadOnly
+#   statement (the aws:RequestedRegion=ap-southeast-2 condition would
+#   deny every call); it gets its own un-region-locked statement.
+#   Read-only and carries no secret material.
 # - Ec2Provision: creation of brand-new EC2 networking/template
 #   resources only -- creating a resource cannot touch an existing
 #   one, so these stay region-locked but otherwise unscoped.
@@ -102,6 +111,7 @@ cat > /tmp/cubie-fleet-deployer-policy.json <<EOF
         "cloudformation:Describe*",
         "cloudformation:List*",
         "cloudformation:Get*",
+        "cloudtrail:LookupEvents",
         "servicequotas:Get*",
         "servicequotas:List*",
         "sns:Get*",
@@ -129,6 +139,12 @@ cat > /tmp/cubie-fleet-deployer-policy.json <<EOF
       "Condition": {
         "StringEquals": { "aws:RequestedRegion": "${REGION}" }
       }
+    },
+    {
+      "Sid": "CostExplorerReadOnly",
+      "Effect": "Allow",
+      "Action": "ce:GetCostAndUsage",
+      "Resource": "*"
     },
     {
       "Sid": "Ec2Provision",

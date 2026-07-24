@@ -1,0 +1,138 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<meta name="api-token" content="__API_TOKEN__">
+<title>Fleet CI cost dashboard</title>
+<script
+  src="https://cdn.jsdelivr.net/npm/echarts@5.5.1/dist/echarts.min.js"
+  integrity="sha384-Mx5lkUEQPM1pOJCwFtUICyX45KNojXbkWdYhkKUKsbv391mavbfoAmONbzkgYPzR"
+  crossorigin="anonymous" defer></script>
+<script src="/cost_dashboard.js" defer></script>
+<style>
+  :root { color-scheme: light dark; }
+  * { box-sizing: border-box; }
+  body {
+    font: 14px/1.5 system-ui, sans-serif; margin: 0;
+    background: #fafafa; color: #1a1a1a;
+  }
+  header {
+    position: sticky; top: 0; z-index: 5; background: #fff;
+    border-bottom: 1px solid #e5e5e5; padding: 12px 20px;
+    display: flex; flex-wrap: wrap; gap: 14px; align-items: center;
+  }
+  header h1 { font-size: 16px; margin: 0 12px 0 0; font-weight: 650; }
+  select, input, button {
+    font: inherit; padding: 5px 8px; border: 1px solid #ccc;
+    border-radius: 6px; background: #fff; color: inherit;
+  }
+  button { cursor: pointer; background: #2a6; color: #fff; border: 0; }
+  button.secondary { background: #eee; color: #222; }
+  main { padding: 18px 20px 60px; max-width: 1500px; margin: 0 auto; }
+  section { margin-bottom: 26px; }
+  h2 { font-size: 15px; margin: 22px 0 8px; }
+  .run-summary { font-size: 20px; margin: 0 0 12px; }
+  .sub { color: #666; font-size: 12px; margin: 0 0 8px; }
+  .row { display: flex; gap: 14px; align-items: stretch; }
+  .wrap { flex-wrap: wrap; align-items: center; }
+  .shared-legend {
+    display: flex; flex-wrap: wrap; gap: 5px 16px;
+    align-items: center; margin: 0 8px 8px; font-size: 12px;
+  }
+  .legend-item { display: inline-flex; gap: 5px; align-items: center; }
+  .legend-swatch {
+    display: inline-block; width: 11px; height: 11px;
+    border-radius: 2px; flex: 0 0 auto;
+  }
+  .card {
+    background: #fff; border: 1px solid #ececec; border-radius: 10px;
+    padding: 8px 6px 4px;
+  }
+  .grow { flex: 1 1 auto; min-width: 0; }
+  .chart { width: 100%; height: 360px; }
+  .chart.tall { height: 430px; }
+  .agg { flex: 0 0 200px; }
+  .pill {
+    display: inline-block; padding: 2px 8px; border-radius: 20px;
+    font-size: 12px; background: #eef; color: #225;
+  }
+  #status { color: #666; font-size: 12px; }
+  .note {
+    background: #fff6e5; border: 1px solid #f0c36d; color: #7a5b12;
+    border-radius: 8px; padding: 10px 12px; font-size: 13px;
+  }
+  .hidden { display: none; }
+  a { color: #2a6; }
+</style>
+</head>
+<body>
+<header>
+  <h1>Fleet CI cost</h1>
+  <label>Run
+    <select id="runSelect"><option>loading…</option></select>
+  </label>
+  <span id="status"></span>
+</header>
+
+<main>
+  <section id="runSection">
+    <h2 id="runMeta" class="run-summary"></h2>
+    <div id="runEmpty" class="note hidden"></div>
+    <div id="runCharts">
+      <h2>Timeline</h2>
+      <div class="row">
+        <div class="card grow">
+          <div id="cGantt" class="chart tall"></div>
+        </div>
+        <div class="card agg">
+          <div id="cGanttAgg" class="chart tall"></div>
+        </div>
+      </div>
+
+      <h2>Time in each CI step</h2>
+      <div id="stepsLegend" class="shared-legend"></div>
+      <div class="row">
+        <div class="card grow">
+          <div id="cSteps" class="chart tall"></div>
+        </div>
+        <div class="card agg">
+          <div id="cStepsAgg" class="chart tall"></div>
+        </div>
+      </div>
+
+      <h2>Per instance type</h2>
+      <div id="typeLegend" class="shared-legend"></div>
+      <div class="card"><div id="cType" class="chart"></div></div>
+    </div>
+  </section>
+
+  <section id="acctSection">
+    <h2>Account usage &amp; cost</h2>
+    <div class="row wrap">
+      <label>From <input type="date" id="acctFrom"></label>
+      <label>To (inclusive) <input type="date" id="acctTo"></label>
+      <label>Granularity
+        <select id="acctGran">
+          <option value="DAILY">daily</option>
+          <option value="HOURLY" selected>hourly</option>
+        </select>
+      </label>
+      <button id="acctForce" class="secondary"
+        title="Re-pull the recent hourly tail now">Force fetch</button>
+      <span id="acctStatus" class="sub"></span>
+    </div>
+    <h2>Usage hours per instance type</h2>
+    <div id="acctUsageLegend" class="shared-legend"></div>
+    <div id="acctUsageWrap" class="card">
+      <div id="cAcctUsage" class="chart"></div>
+    </div>
+    <h2>Gross usage $ by service</h2>
+    <div id="acctCostLegend" class="shared-legend"></div>
+    <div id="acctCostWrap" class="card">
+      <div id="cAcctCost" class="chart"></div>
+    </div>
+  </section>
+</main>
+</body>
+</html>

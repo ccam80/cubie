@@ -122,3 +122,126 @@ CreateArtifact response — observed live), and RunsOn documents that
 the shared S3 cache bucket must not be enabled for runners that
 public repositories can use — cubie is public. Workflow-level caching
 (setup-uv) uses GitHub's cache service instead.
+
+## Cost & timeline dashboard
+
+`cost_dashboard.py` serves a local interactive dashboard for GPU CI cost
+and timing.
+
+```powershell
+python infra/fleet/cost_dashboard.py    # opens http://localhost:8787
+```
+
+Pick a run from the dropdown to see, per leg: a timeline of spot-capacity
+wait / boot / CI steps / shutdown with the run total broken down beside
+it; time in each CI step (with a run-total bar beside it); cost at the
+achieved spot price; minutes and cost per instance type with the average
+spot rate annotated; and spot-capacity wait per leg. The account section
+takes inclusive from/to date pickers and a granularity and charts
+whole-account usage hours per instance type and gross usage $ by service.
+Hourly ranges are limited to 366 inclusive days and daily ranges to 3,660
+days.
+
+The run dropdown contains every `ci_cuda_tests.yml` workflow record
+created in the exact rolling last seven days that started at least one
+RunsOn GPU instance. Success, failure, cancellation, and in-progress runs
+are eligible; skipped, approval-only, gate-only, precompile-only, and
+queued-without-instance records are excluded. Entries are newest first
+and show the browser-local creation time, run or PR title, started-leg
+count, and final or current status. The newest qualifying run is always
+selected initially; page URL parameters do not select runs.
+
+Qualification uses fully paginated workflow and job results. A separate
+transactional SQLite cache at `.dashboard-cache/runs.sqlite3` retains
+completed positive and negative decisions until they leave the seven-day
+window. Nonterminal runs are reinspected on each upstream list refresh.
+The upstream workflow list is attempted at most once per 60 seconds
+across dashboard processes, and a persisted lease coalesces concurrent
+scans. Failed refreshes preserve and serve the last usable snapshot. Run
+detail requests are accepted only for IDs in the cached qualified
+seven-day snapshot; the endpoint cannot be used to inspect arbitrary
+positive IDs.
+
+It correlates three data planes, keyed on the EC2 instance id RunsOn
+embeds in each runner name (`runs-on--i-<id>--...`): the GitHub Actions
+Jobs API (step timings), each leg's `Set up job` log (RunsOn boot
+timeline, instance type/AZ, launch time), and AWS via the `cubie-fleet`
+profile — `ec2:DescribeSpotPriceHistory` (achieved spot rate),
+`cloudtrail:LookupEvents` (instance terminate time), and Cost Explorer
+(`ce:GetCostAndUsage`) for the account panels. The last two are the
+read-only grants the bootstrap policy's `ReadOnly` / `CostExplorerReadOnly`
+statements add.
+
+**Cost of use:** per-run views are free (GitHub API, `ec2:Describe*` and
+`cloudtrail:LookupEvents` carry no charge). Only the account panels touch
+Cost Explorer, billed $0.01 per `GetCostAndUsage` request. Account usage is
+sourced from **hourly** Cost Explorer data and daily values are aggregated
+from it (this matches CE's own daily totals to the cent).
+
+The dashboard owns a transactional SQLite usage database at
+`.dashboard-cache/usage.sqlite3` (gitignored). Existing `hours.json`,
+`days.json`, and `meta.json` caches are imported once. Acquired hourly
+buckets are retained indefinitely. Each hour stores its own confirmation
+state, and days are rolled up only when all 24 retained hours are
+confirmed. An overlapping fetch replaces both payload and confirmation
+state in one transaction. Migrated daily rows without 24 confirmed
+supporting hours are discarded rather than treated as authoritative.
+
+Automatic refresh is independent of the selected display range. Non-zero
+aggregate gross service cost confirms an observed hour immediately. A
+zero-cost or missing hour confirms only when a successful fetch completes
+at least 48 hours after that hour began, allowing Cost Explorer billing to
+settle without causing genuinely idle hours to be retried forever.
+Existing database rows migrate conservatively: non-zero-cost hours become
+confirmed, while zero-cost and missing hours require a new sufficiently
+late observation.
+
+Hourly Cost Explorer data is treated as recoverable for approximately 14
+days. Within that window, the dashboard considers only complete UTC days;
+the partially expired oldest day and the current partial day are excluded.
+It finds the most recent complete day with zero confirmed buckets (missing
+buckets count as zero). At or after **00:15 UTC** on the following day,
+that day triggers an automatic fetch. A day with even one confirmed hour
+does not trigger, and no automatic fetch occurs when every eligible day
+has at least one confirmed hour.
+
+An accepted automatic attempt records its timestamp before AWS is called.
+Reloads are then throttled for 15 minutes even if the AWS request fails or
+returns all zeroes. A persisted ten-minute lease coalesces concurrent
+dashboard processes. Every accepted fetch makes two Cost Explorer calls
+even if the first fails: one for EC2 usage by instance type and one for
+gross cost by service. An automatic fetch starts at the earlier of the
+zero-confirmed target day's 00:00 UTC boundary and 12 hours before the
+latest confirmed retained bucket, clipped to the oldest hourly-retention
+boundary. With no confirmed bucket it starts at that boundary. It ends at
+the start of the current UTC hour, so “latest exposed” means the latest
+completed UTC hour; Cost Explorer exposes no separate hourly watermark.
+`last_fetch` is committed only when both calls succeed and the replacement
+transaction completes.
+
+Account plots load automatically and reload when their date or granularity
+controls change. **Force fetch** is the only fetch control; it bypasses the
+automatic time and content gate with an authenticated POST and has its own
+persisted five-minute attempt limit. It fetches the same retention-aware
+overlap window without an automatic target-day extension, not the selected
+historical range. The dashboard never asks Cost Explorer for hourly data
+older than its recoverable boundary or for the current/future hour; it
+renders available older cache data and reports unavailable coverage.
+Requests may extend into the future, where plot buckets remain visible as
+empty slots. The default view is hourly for the latest three browser-local
+calendar days through the latest completed hour, and visible absolute
+timestamps use the browser's local timezone.
+
+The local server binds only to `127.0.0.1`. It validates the exact
+localhost Host and Origin, injects a per-process token into the page, and
+requires that token in a custom header for every API request. Responses
+disable caching and set restrictive CSP, framing, referrer, and MIME
+headers. ECharts remains CDN-hosted, but its exact bytes are pinned with
+Subresource Integrity and `crossorigin="anonymous"`; all dashboard
+JavaScript is served locally. Missing spot-price or termination telemetry
+is shown as incomplete and is never converted to a zero-cost leg.
+
+Requirements: `gh` authenticated to the repo and the `cubie-fleet` AWS
+profile; the pinned ECharts asset needs browser internet access. The AWS
+CLI subprocess is forced to UTF-8 (it otherwise dies on Windows rendering
+the non-breaking spaces CloudTrail events carry).
