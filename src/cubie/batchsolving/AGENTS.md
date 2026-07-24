@@ -140,6 +140,8 @@ concrete: `driver_coefficients_shape` is a `BatchSolverConfig` compile setting (
 closure constants), seeded at Solver construction and refreshed through `kernel.update`
 wherever the interpolator's evaluators change, so shape checks compare against the layout
 the kernel was compiled for.
+Driver dicts name their sample spacing `driver_sample_period` — `dt` is the integrator
+timestep and never reaches the interpolator.
 
 ### Testing
 `tests/batchsolving/` (`test_solver.py`, `test_BatchSolverKernel.py`, input-handler/result tests).

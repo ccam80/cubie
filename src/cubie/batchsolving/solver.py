@@ -457,7 +457,7 @@ class Solver:
             precision=precision,
             input_dict={
                 "placeholder": np_zeros(6, dtype=precision),
-                "dt": 0.1,
+                "driver_sample_period": 0.1,
             },
         )
 

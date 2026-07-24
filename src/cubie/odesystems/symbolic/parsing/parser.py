@@ -37,7 +37,7 @@ PARSE_TRANSFORMS = (T[0][0], T[3][0], T[4][0], T[8][0])
 _INDEXED_NAME_PATTERN = re.compile(r"(?P<name>[A-Za-z_]\w*)\[(?P<index>\d+)\]")
 
 TIME_SYMBOL = sp.Symbol("t", real=True)
-DRIVER_SETTING_KEYS = {"time", "dt", "wrap", "order"}
+DRIVER_SETTING_KEYS = {"time", "driver_sample_period", "wrap", "order"}
 
 
 def _detect_input_type(dxdt: Union[str, Iterable, Callable]) -> str:

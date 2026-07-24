@@ -42,7 +42,7 @@ resolves `__version__` via `importlib.metadata.version("cubie")`.
 | `cubie_cache.py` | File-based persistence of compiled kernels: `CUBIECache*`, `CacheConfig`, `CubieCacheHandler`, `ALL_CACHE_PARAMETERS`. Built on the backend's cache bases from `cuda_simsafe` (numba-cuda `_Kernel` serialization or the MLIR compile-result scheme). |
 | `time_logger.py` | `TimeLogger` (verbosity-gated timing), `CUDAEvent` (GPU event pair with CUDASIM fallback), `TimingEvent`, `default_timelogger`. |
 | `result_codes.py` | `CUBIE_RESULT_CODES(IntFlag)` — the package-central status vocabulary OR-combined into the per-run status word — plus `decode_status_codes` for host-side decoding. |
-| `array_interpolator.py` | `ArrayInterpolator(CUDAFactory)`: builds piecewise-polynomial (spline) coefficients from sampled driver arrays and compiles `evaluate_all` (Horner evaluation of all drivers at `t`) and `evaluate_time_derivative`. Owned by `Solver` as `driver_interpolator`; defines `ArrayInterpolatorConfig`, `InterpolatorCache`. |
+| `array_interpolator.py` | `ArrayInterpolator(CUDAFactory)`: builds piecewise-polynomial (spline) coefficients from sampled driver arrays and compiles `evaluate_all` (Horner evaluation of all drivers at `t`) and `evaluate_time_derivative`. Owned by `Solver` as `driver_interpolator`; defines `ArrayInterpolatorConfig`, `InterpolatorCache`. The sample spacing is `driver_sample_period` (input-dict key and config field) — never `dt`, which is the integrator timestep. |
 | `writing_cuda_functions.md` | Working notes on CUDA device-function *optimisation* conventions (predicated commit, warp-coherent loops, …). Under discussion — consult before hand-optimising device code. |
 
 ## Subdirectories
