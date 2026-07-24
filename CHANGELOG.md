@@ -1,5 +1,23 @@
 # Changelog
 
+## [0.3.1](https://github.com/cubiepy/cubie/compare/v0.3.0...v0.3.1) (2026-07-24)
+
+
+### Bug Fixes
+
+* compile settings made immutable ([#673](https://github.com/cubiepy/cubie/issues/673)) ([e3a9645](https://github.com/cubiepy/cubie/commit/e3a9645bda7e28c14b6293de9b8d1aa5089a0fe4))
+* FSAL requires an explicit stage 0, DIRK tableaus validate consistency ([#667](https://github.com/cubiepy/cubie/issues/667)) ([10cc1cf](https://github.com/cubiepy/cubie/commit/10cc1cfbef6a18d98d1ef72be0e2f9c222cb238d)), closes [#663](https://github.com/cubiepy/cubie/issues/663)
+* inner krylov residual-reduction stopping target dropped to rtol/100 ([#671](https://github.com/cubiepy/cubie/issues/671)) ([0b3b99f](https://github.com/cubiepy/cubie/commit/0b3b99fec31f16c33917e6bbbeb6bb2152d454a3))
+* solver vector width is solver_width; n is the state count ([#676](https://github.com/cubiepy/cubie/issues/676)) ([d2bb0d3](https://github.com/cubiepy/cubie/commit/d2bb0d3c63d05e7c5ee7ccac727a0cf827055dd3))
+* step controllers don't update step history after step rejection ([#669](https://github.com/cubiepy/cubie/issues/669)) ([7a5b7aa](https://github.com/cubiepy/cubie/commit/7a5b7aae04b7a5c4bf244338828b231916850c64))
+* update(linear_correction_type=...) swaps the linear-solver class ([#668](https://github.com/cubiepy/cubie/issues/668)) ([67e6402](https://github.com/cubiepy/cubie/commit/67e640297ea8194b7591dad70d1a2d47a7c6195a))
+
+
+### Performance Improvements
+
+* dense FIRK stage prediction lives in a reusable predictor factory ([#656](https://github.com/cubiepy/cubie/issues/656)) ([e553e94](https://github.com/cubiepy/cubie/commit/e553e94b144c9b5cef8d37015bb1bc571aa39651))
+* dense stage prediction supports repeated nodes and explicit first stages ([#659](https://github.com/cubiepy/cubie/issues/659)) ([2a97fb0](https://github.com/cubiepy/cubie/commit/2a97fb03df9e5a9aba1c01c24c4a35b63fbbb2cd))
+
 ## [0.3.0](https://github.com/cubiepy/cubie/compare/v0.2.0...v0.3.0) (2026-07-22)
 
 
