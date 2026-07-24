@@ -362,7 +362,7 @@ def run_single(cfg):
             ).astype(precision)
             for j in range(cfg["n_drivers"])
         }
-        drivers["dt"] = precision(DURATION / 15)
+        drivers["driver_sample_period"] = precision(DURATION / 15)
         drivers["wrap"] = False
         solve_kwargs["drivers"] = drivers
 

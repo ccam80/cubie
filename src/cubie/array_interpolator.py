@@ -13,7 +13,7 @@ Published Classes
     >>> from numpy import float64, linspace, sin
     >>> times = linspace(0, 1, 11)
     >>> inputs = {"driver_0": sin(times)}
-    >>> inputs["dt"] = times[1] - times[0]
+    >>> inputs["driver_sample_period"] = times[1] - times[0]
     >>> interp = ArrayInterpolator(precision=float64, input_dict=inputs)
     >>> interp.num_inputs
     1
@@ -107,8 +107,8 @@ class ArrayInterpolatorConfig(CUDAFactoryConfig):
         defaults to 'not-a-knot' to match Scipy's CubicSpline.
     t0 : float
         start time of input samples
-    dt : numpy.ndarray
-        Sampling frequency.
+    driver_sample_period : float
+        Temporal spacing between consecutive driver samples.
     num_inputs : int
         Number of separate input vectors
     num_segments : int
@@ -131,7 +131,7 @@ class ArrayInterpolatorConfig(CUDAFactoryConfig):
             validators.in_({"natural", "periodic", "not-a-knot", "clamped"})
         ),
     )
-    dt: FloatArray = field(
+    driver_sample_period: float = field(
         init=False, default=1e-16, validator=getype_validator(float, 0)
     )
     t0: float = field(default=0.0, validator=getype_validator(float, 0))
@@ -155,7 +155,7 @@ class ArrayInterpolator(CUDAFactory):
     forcing terms."""
 
     config_keys = ("wrap", "order", "boundary_condition")
-    time_info = ("time", "dt", "t0")
+    time_info = ("time", "driver_sample_period", "t0")
 
     def __init__(
         self,
@@ -203,7 +203,7 @@ class ArrayInterpolator(CUDAFactory):
 
             - ``"time"``: 1D float array of sample times corresponding to
             input array values, or
-                - ``"dt"``: uniform spacing between samples, and
+                - ``"driver_sample_period"``: uniform spacing between samples, and
                 - ``"t0"``: starting time of the input samples.
             - ``[input_name]``: one-dimensional float array of samples for
             each input, where ``input_name`` is the name of the input signal
@@ -262,8 +262,14 @@ class ArrayInterpolator(CUDAFactory):
         if arrays_changed:
             self._input_array = input_array
 
-        dt, t0 = self._validate_time_inputs(time)
-        config.update({"t0": t0, "dt": dt, "num_inputs": self.num_inputs})
+        sample_period, t0 = self._validate_time_inputs(time)
+        config.update(
+            {
+                "t0": t0,
+                "driver_sample_period": sample_period,
+                "num_inputs": self.num_inputs,
+            }
+        )
 
         # Final update; invalidates cache if settings have changed.
         self._derive_segment_settings(config)
@@ -362,15 +368,17 @@ class ArrayInterpolator(CUDAFactory):
         Parameters
         ----------
         time_dict
-            Dictionary of time-related user inputs. If "dt" is provided,
-            then this will be used and "t0" will be fetched from the dict or
-            default to 0.0. If "time" is provided, dt will be calculated as the
-             difference between samples, and t0 as time_dict['time'][0].
+            Dictionary of time-related user inputs. If
+            "driver_sample_period" is provided, then this will be used
+            and "t0" will be fetched from the dict or default to 0.0.
+            If "time" is provided, the sample period will be calculated
+            as the difference between samples, and t0 as
+            time_dict['time'][0].
         Returns
         -------
         tuple (float, float)
-            dt and t0, either obtained directly from time_dict or computed
-            from a "time" array.
+            Sample period and t0, either obtained directly from
+            time_dict or computed from a "time" array.
         Raises
         ------
         ValueError
@@ -378,10 +386,15 @@ class ArrayInterpolator(CUDAFactory):
             spacing between samples is non-uniform.
         """
 
-        if ("dt" in time_dict) and ("time" in time_dict):
-            raise ValueError("Only one of dt or time should be provided.")
-        if "dt" in time_dict:
-            dt = time_dict["dt"]
+        if ("driver_sample_period" in time_dict) and (
+            "time" in time_dict
+        ):
+            raise ValueError(
+                "Only one of driver_sample_period or time should be "
+                "provided."
+            )
+        if "driver_sample_period" in time_dict:
+            sample_period = time_dict["driver_sample_period"]
             t0 = time_dict.get("t0", 0.0)
         elif "time" in time_dict:
             timeArray = time_dict["time"]
@@ -403,11 +416,14 @@ class ArrayInterpolator(CUDAFactory):
                 atol=1e-6,
             ):
                 raise ValueError("Time array must be uniformly spaced.")
-            dt = time_differences[0]
+            sample_period = time_differences[0]
         else:
-            raise ValueError("Either Time array or dt must be provided.")
+            raise ValueError(
+                "Either a time array or driver_sample_period must be "
+                "provided."
+            )
 
-        return dt, t0
+        return sample_period, t0
 
     # ---------------------------------------------------------------------- #
     # Evaluation function machinery
@@ -425,7 +441,7 @@ class ArrayInterpolator(CUDAFactory):
 
         order = self.order
         num_inputs = self.num_inputs
-        resolution = precision(self.dt)
+        resolution = precision(self.driver_sample_period)
         inv_resolution = precision(precision(1.0) / resolution)
         start_time = precision(self.t0)
         num_segments = int32(self.num_segments)
@@ -760,14 +776,14 @@ class ArrayInterpolator(CUDAFactory):
 
         interpolated = self.get_interpolated(times)
 
-        sample_times = self.t0 + self.dt * arange(
+        sample_times = self.t0 + self.driver_sample_period * arange(
             self.num_samples,
             dtype=self.precision,
         )
         sample_values = self.input_array.astype(self.precision, copy=False)
 
         if self.wrap and times.size:
-            period = self.dt * self.num_samples
+            period = self.driver_sample_period * self.num_samples
             min_eval = times.min()
             max_eval = times.max()
             repeats_before = int(
@@ -1115,6 +1131,6 @@ class ArrayInterpolator(CUDAFactory):
         return self.compile_settings.t0
 
     @property
-    def dt(self) -> float:
+    def driver_sample_period(self) -> float:
         """Return the sample spacing."""
-        return self.compile_settings.dt
+        return self.compile_settings.driver_sample_period

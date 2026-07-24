@@ -145,7 +145,7 @@ def test_cpu_driver_evaluator_matches_gpu_time_alignment(
 
     driver_dict = {
         "t0": warmup,
-        "dt": dt,
+        "driver_sample_period": dt,
         "wrap": False,
         "order": 3,
         "driver": driver_values.astype(precision),
@@ -154,7 +154,7 @@ def test_cpu_driver_evaluator_matches_gpu_time_alignment(
     interpolator = ArrayInterpolator(precision=precision, input_dict=driver_dict)
     evaluator = DriverEvaluator(
         coefficients=interpolator.coefficients,
-        dt=precision(interpolator.dt),
+        dt=precision(interpolator.driver_sample_period),
         t0=precision(interpolator.t0),
         wrap=interpolator.wrap,
         precision=precision,

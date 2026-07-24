@@ -283,7 +283,7 @@ def build_driver_settings(
         name: np.array(driver_matrix[:, idx], dtype=precision, copy=True)
         for idx, name in enumerate(driver_names)
     }
-    drivers_dict["dt"] = precision(dt_sample)
+    drivers_dict["driver_sample_period"] = precision(dt_sample)
     drivers_dict["wrap"] = bool(solver_settings["driverspline_wrap"])
     drivers_dict["boundary_condition"] = solver_settings.get(
         "driverspline_boundary_condition",
@@ -428,7 +428,7 @@ def create_driver_evaluator(
         coeffs = np.array(
             driver_array.coefficients, dtype=precision, copy=True
         )
-        dt_value = precision(driver_array.dt)
+        dt_value = precision(driver_array.driver_sample_period)
         t0_value = precision(driver_array.t0)
         wrap_value = bool(driver_array.wrap)
         boundary = driver_array.boundary_condition

@@ -520,7 +520,7 @@ class SymbolicODE(BaseODE):
         """
 
         if isinstance(drivers, dict) and (
-            "time" in drivers or "dt" in drivers
+            "time" in drivers or "driver_sample_period" in drivers
         ):
             ArrayInterpolator(precision=precision, input_dict=drivers)
 

@@ -191,7 +191,7 @@ def test_driver_del_t_matches_cubic_reference(cubic_inputs,
     query_times = np.linspace(
         cubic_inputs.t0,
         cubic_inputs.t0
-        + cubic_inputs.dt * (cubic_inputs.num_segments - 1),
+        + cubic_inputs.driver_sample_period * (cubic_inputs.num_segments - 1),
         num=17,
         dtype=cubic_inputs.precision,
     )
@@ -226,13 +226,13 @@ def test_cpu_driver_derivative_matches_gpu_reference(
     query_times = np.linspace(
         cubic_inputs.t0,
         cubic_inputs.t0
-        + cubic_inputs.dt * (cubic_inputs.num_segments - 1),
+        + cubic_inputs.driver_sample_period * (cubic_inputs.num_segments - 1),
         num=17,
         dtype=cubic_inputs.precision,
     )
     evaluator = DriverEvaluator(
         coefficients=coefficients,
-        dt=precision(cubic_inputs.dt),
+        dt=precision(cubic_inputs.driver_sample_period),
         t0=precision(cubic_inputs.t0),
         wrap=cubic_inputs.wrap,
         precision=precision,
@@ -367,7 +367,7 @@ def test_build_coefficients_matches_polynomial(quadratic_input, tolerance):
     interior = coefficients[1:-1]
     segment_starts = (
         np.arange(interior.shape[0], dtype=quadratic_input.precision)
-        * quadratic_input.dt
+        * quadratic_input.driver_sample_period
     )
     expected = np.column_stack(
         (
@@ -420,7 +420,7 @@ def test_device_interpolation_matches_cpu(
 
     input = cubic_inputs
     query_times = np.arange(input.num_samples + 2, dtype=np.int32)
-    query_times = query_times.astype(input.precision) * input.dt
+    query_times = query_times.astype(input.precision) * input.driver_sample_period
 
     coefficients = input.coefficients
     device_fn = input.evaluation_function
@@ -433,7 +433,7 @@ def test_device_interpolation_matches_cpu(
                 t,
                 coefficients,
                 input.t0,
-                input.dt,
+                input.driver_sample_period,
                 wrap=False,
                 boundary_condition=input.boundary_condition,
                 precision=precision,
@@ -460,7 +460,7 @@ def test_get_interpolated_matches_kernel_output(cubic_inputs):
 
     query_times = np.linspace(
         cubic_inputs.t0,
-        cubic_inputs.t0 + cubic_inputs.dt * (cubic_inputs.num_segments - 1),
+        cubic_inputs.t0 + cubic_inputs.driver_sample_period * (cubic_inputs.num_segments - 1),
         17,
         dtype=cubic_inputs.precision,
     )
@@ -517,7 +517,7 @@ def test_wrap_vs_clamp_evaluation(
                 t,
                 clamp_input.coefficients,
                 clamp_input.t0,
-                clamp_input.dt,
+                clamp_input.driver_sample_period,
                 wrap=False,
                 boundary_condition=clamp_input.boundary_condition,
                 precision=precision,
@@ -531,7 +531,7 @@ def test_wrap_vs_clamp_evaluation(
                 t,
                 wrap_input.coefficients,
                 wrap_input.t0,
-                wrap_input.dt,
+                wrap_input.driver_sample_period,
                 wrap=True,
                 boundary_condition=wrap_input.boundary_condition,
                 precision=precision,
@@ -583,12 +583,12 @@ def test_non_wrap_returns_zero_outside_range(quadratic_input, tolerance) -> None
     coefficients = input.coefficients
     device_fn = input.evaluation_function
     dtype = input.precision
-    end_time = input.t0 + (input.num_samples - 1) * input.dt
+    end_time = input.t0 + (input.num_samples - 1) * input.driver_sample_period
     query_times = np.array(
         [
-            input.t0 - input.dt,
-            input.t0 + 0.5 * input.dt,
-            end_time + input.dt,
+            input.t0 - input.driver_sample_period,
+            input.t0 + 0.5 * input.driver_sample_period,
+            end_time + input.driver_sample_period,
         ],
         dtype=dtype,
     )
@@ -634,7 +634,7 @@ def test_wrap_repeats_periodically(wrapping_inputs, tolerance) -> None:
     _, wrap_input = wrapping_inputs
     coefficients = wrap_input.coefficients
     device_fn = wrap_input.evaluation_function
-    period = wrap_input.num_segments * wrap_input.dt
+    period = wrap_input.num_segments * wrap_input.driver_sample_period
     dtype = wrap_input.precision
     query_times = np.array(
         [
@@ -795,7 +795,7 @@ def test_natural_boundary_supports_higher_orders(precision, tolerance) -> None:
     )
 
     coefficients = input.coefficients
-    dt = input.dt
+    dt = input.driver_sample_period
     expected_zero = []
     remaining = order - 1
     derivative = 2
@@ -854,7 +854,7 @@ def test_periodic_boundary_respects_general_order(precision, tolerance) -> None:
     )
 
     coefficients = input.coefficients
-    dt = input.dt
+    dt = input.driver_sample_period
     last_segment = input.num_segments - 1
     for derivative in range(1, order):
         left = _evaluate_derivative(coefficients, 0, 0, 0.0, derivative, dt)
@@ -921,8 +921,8 @@ def test_cubic_interpolation_matches_analytic(cubic_inputs, precision, tolerance
 
     inp = cubic_inputs
     # choose query times strictly inside the sampled range to avoid ghost/wrap handling
-    start = inp.t0 + 0.1 * inp.dt
-    end = inp.t0 + (inp.num_samples - 2) * inp.dt - 0.1 * inp.dt
+    start = inp.t0 + 0.1 * inp.driver_sample_period
+    end = inp.t0 + (inp.num_samples - 2) * inp.driver_sample_period - 0.1 * inp.driver_sample_period
     query_times = np.linspace(start, end, 25, dtype=inp.precision)
 
     observed = inp.get_interpolated(query_times)
@@ -963,7 +963,7 @@ def test_check_against_system_drivers_orders_by_declared_order(
     shuffled = {
         "d_b": samples_b,
         "d_a": samples_a,
-        "dt": precision(0.1),
+        "driver_sample_period": precision(0.1),
         "wrap": False,
     }
 
@@ -972,7 +972,7 @@ def test_check_against_system_drivers_orders_by_declared_order(
     driver_keys = [key for key in ordered if key in ("d_a", "d_b")]
     assert driver_keys == list(system.indices.driver_names)
     # Non-driver configuration/timing entries are preserved.
-    assert ordered["dt"] == precision(0.1)
+    assert ordered["driver_sample_period"] == precision(0.1)
     assert ordered["wrap"] is False
 
 
@@ -992,12 +992,12 @@ def test_interpolator_columns_track_declared_driver_order(
     forward = {
         "d_a": samples_a,
         "d_b": samples_b,
-        "dt": precision(0.1),
+        "driver_sample_period": precision(0.1),
     }
     reversed_dict = {
         "d_b": samples_b,
         "d_a": samples_a,
-        "dt": precision(0.1),
+        "driver_sample_period": precision(0.1),
     }
 
     forward_interp = ArrayInterpolator(
@@ -1038,7 +1038,7 @@ def test_construction_rejects_non_convertible_array(precision):
             precision=precision,
             input_dict={
                 "values": ["a", "b", "c"],
-                "dt": precision(0.1),
+                "driver_sample_period": precision(0.1),
             },
         )
 
@@ -1050,7 +1050,7 @@ def test_construction_rejects_multidimensional_input(precision):
             precision=precision,
             input_dict={
                 "values": np.zeros((3, 2), dtype=precision),
-                "dt": precision(0.1),
+                "driver_sample_period": precision(0.1),
             },
         )
 
@@ -1063,7 +1063,7 @@ def test_construction_rejects_mismatched_input_lengths(precision):
             input_dict={
                 "a": np.zeros(5, dtype=precision),
                 "b": np.zeros(4, dtype=precision),
-                "dt": precision(0.1),
+                "driver_sample_period": precision(0.1),
             },
         )
 
@@ -1076,7 +1076,7 @@ def test_construction_rejects_too_few_samples(precision):
             input_dict={
                 "values": np.array([1.0, 2.0], dtype=precision),
                 "order": 3,
-                "dt": precision(0.1),
+                "driver_sample_period": precision(0.1),
             },
         )
 
@@ -1086,12 +1086,12 @@ def test_construction_rejects_too_few_samples(precision):
 
 def test_construction_rejects_both_dt_and_time(precision):
     """Providing both dt and time raises ValueError."""
-    with pytest.raises(ValueError, match="Only one of dt or time"):
+    with pytest.raises(ValueError, match="Only one of driver_sample_period or time"):
         ArrayInterpolator(
             precision=precision,
             input_dict={
                 "values": np.arange(4, dtype=precision),
-                "dt": precision(0.1),
+                "driver_sample_period": precision(0.1),
                 "time": np.arange(4, dtype=precision),
             },
         )
@@ -1150,7 +1150,7 @@ def test_construction_rejects_non_uniform_time(precision):
 
 def test_construction_rejects_neither_dt_nor_time(precision):
     """Providing neither dt nor time raises ValueError."""
-    with pytest.raises(ValueError, match="Either Time array or dt"):
+    with pytest.raises(ValueError, match="time array or driver_sample_period"):
         ArrayInterpolator(
             precision=precision,
             input_dict={"values": np.arange(4, dtype=precision)},
@@ -1172,7 +1172,7 @@ def test_update_accepts_kwargs():
         precision=np.float32,
         input_dict={
             "values": np.arange(6, dtype=np.float32),
-            "dt": np.float32(0.1),
+            "driver_sample_period": np.float32(0.1),
             "order": 2,
             "wrap": False,
         },
@@ -1233,7 +1233,7 @@ def test_check_against_system_drivers_rejects_wrong_count(system, precision):
     """A driver-count mismatch raises ValueError."""
     with pytest.raises(ValueError, match="does not match number of"):
         ArrayInterpolator.check_against_system_drivers(
-            {"d_a": np.zeros(4, dtype=precision), "dt": precision(0.1)},
+            {"d_a": np.zeros(4, dtype=precision), "driver_sample_period": precision(0.1)},
             system,
         )
 
@@ -1252,7 +1252,7 @@ def test_check_against_system_drivers_rejects_wrong_symbols(
             {
                 "d_a": np.zeros(4, dtype=precision),
                 "not_a_driver": np.zeros(4, dtype=precision),
-                "dt": precision(0.1),
+                "driver_sample_period": precision(0.1),
             },
             system,
         )
@@ -1271,7 +1271,7 @@ def test_periodic_boundary_requires_wrap(precision):
             precision=precision,
             input_dict={
                 "values": np.arange(6, dtype=precision),
-                "dt": precision(0.1),
+                "driver_sample_period": precision(0.1),
                 "wrap": False,
                 "boundary_condition": "periodic",
             },
@@ -1289,7 +1289,7 @@ def test_periodic_boundary_requires_matching_endpoints(precision):
             precision=precision,
             input_dict={
                 "values": values,
-                "dt": precision(0.1),
+                "driver_sample_period": precision(0.1),
                 "wrap": True,
             },
         )
