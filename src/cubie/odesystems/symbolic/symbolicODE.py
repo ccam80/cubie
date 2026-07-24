@@ -401,9 +401,6 @@ class SymbolicODE(BaseODE):
         system_name = name
         if system_name == fn_hash:
             system_name = f"unnamed_{fn_hash[:8]}"
-        # One diagnostic evaluator per consumer cache policy, in a
-        # dict so child-factory discovery skips it and config_hash is
-        # unaffected.
         self._diagnostic_system_name = system_name
         self._neumann_diagnostics = {}
 
@@ -670,11 +667,13 @@ class SymbolicODE(BaseODE):
         return recognised
 
     def _get_neumann_evaluator(
-        self, cache_policy: Optional[CachePolicy] = None
+        self, cache_policy: CachePolicy
     ) -> NeumannRHSEvaluator:
         """Return the convergence evaluator for a consumer's policy.
 
-        One evaluator exists per cache policy, created on demand.
+        Each policy gets its own evaluator, created on its first
+        request, kept in a plain dict so the evaluators stay out of
+        child-factory discovery and ``config_hash``.
         ``settings_and_constants_hash`` stands in for ``config_hash``,
         which would self-reference if the evaluator's configuration
         fed back into it.
@@ -682,19 +681,15 @@ class SymbolicODE(BaseODE):
         Parameters
         ----------
         cache_policy
-            Service configuration of the requesting consumer.
-            ``None`` selects the default-policy evaluator.
+            Cache policy of the requesting consumer.
         """
-        if cache_policy is None:
-            cache_policy = CachePolicy()
-        evaluator = self._neumann_diagnostics.get(cache_policy)
-        if evaluator is None:
-            evaluator = NeumannRHSEvaluator(
+        if cache_policy not in self._neumann_diagnostics:
+            self._neumann_diagnostics[cache_policy] = NeumannRHSEvaluator(
                 precision=self.precision,
                 cache_policy=cache_policy,
                 system_name=self._diagnostic_system_name,
             )
-            self._neumann_diagnostics[cache_policy] = evaluator
+        evaluator = self._neumann_diagnostics[cache_policy]
         evaluator.update_compile_settings(
             {
                 "dxdt_function": self.evaluate_f,
@@ -1096,8 +1091,8 @@ class SymbolicODE(BaseODE):
             is inferred from ``len(stage_nodes)``.
         cache_policy
             The requesting consumer's cache policy, passed through
-            to diagnostic services run on its behalf. ``None``
-            selects the default policy.
+            to diagnostic services run on its behalf. ``None`` uses
+            the default policy (caching enabled, default location).
 
         Returns
         -------
@@ -1128,6 +1123,8 @@ class SymbolicODE(BaseODE):
         configured values (and the cache) untouched.
         """
         mass = self.compile_settings.mass
+        if cache_policy is None:
+            cache_policy = CachePolicy()
 
         # Register timing event for this helper type if not already registered
         event_name = f"solver_helper_{func_type}"
@@ -1179,9 +1176,8 @@ class SymbolicODE(BaseODE):
         if solver_updates:
             self.update_compile_settings(solver_updates)
 
-        # Neumann convergence diagnostic: runs on every request —
-        # object-cache hits included — with the requesting consumer's
-        # cache policy selecting that consumer's own evaluator.
+        # Convergence is checked on every request, not just fresh
+        # builds.
         if func_type in _NEUMANN_PRECONDITIONER_TYPES:
             check_neumann_convergence(
                 self.indices,

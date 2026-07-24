@@ -445,6 +445,30 @@ class BaseODE(CUDAFactory):
         """
         return partial(self.get_solver_helper, cache_policy=cache_policy)
 
+    def solver_helper_getter(
+        self, cache_policy: Optional[Any] = None
+    ) -> Callable:
+        """Return ``get_solver_helper`` with a cache policy bound in.
+
+        Parameters
+        ----------
+        cache_policy
+            The consumer's cache policy, forwarded with every
+            request made through the returned callable.
+
+        Returns
+        -------
+        Callable
+            A callable with the :meth:`get_solver_helper` contract.
+
+        Notes
+        -----
+        Each consumer that owns a cache policy (e.g. a batch solver
+        kernel) holds its own getter, so no policy state is ever
+        written onto a shared system.
+        """
+        return partial(self.get_solver_helper, cache_policy=cache_policy)
+
     def get_solver_helper(
         self,
         func_name: str,

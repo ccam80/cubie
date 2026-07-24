@@ -56,7 +56,7 @@ def test_small_step_converges_for_diagonally_dominant_system(system):
     """A sufficiently small supplied step reports convergence."""
     result = check_neumann_convergence(
         system.indices,
-        system._get_neumann_evaluator(),
+        system._get_neumann_evaluator(CachePolicy()),
         step_size=1e-4,
         stage_coefficients=1.0,
     )
@@ -73,7 +73,7 @@ def test_large_step_diverges_for_off_diagonal_heavy_system(system):
     with pytest.warns(UserWarning):
         result = check_neumann_convergence(
             system.indices,
-            system._get_neumann_evaluator(),
+            system._get_neumann_evaluator(CachePolicy()),
             step_size=1.0,
             stage_coefficients=1.0,
         )
@@ -91,7 +91,7 @@ def test_gating_singularity_converges_without_false_divergence(system):
         warnings.simplefilter("always")
         result = check_neumann_convergence(
             system.indices,
-            system._get_neumann_evaluator(),
+            system._get_neumann_evaluator(CachePolicy()),
             step_size=1e-4,
             stage_coefficients=1.0,
         )
@@ -106,7 +106,7 @@ def test_non_finite_jacobian_reports_not_verified(system):
     """A non-finite Jacobian yields a nan radius and no verdict."""
     result = check_neumann_convergence(
         system.indices,
-        system._get_neumann_evaluator(),
+        system._get_neumann_evaluator(CachePolicy()),
     )
     assert result["series_converges"] is None
     assert np.isnan(result["rho_per_unit_step_factor"])
@@ -219,9 +219,9 @@ def test_kernel_cache_policies_stay_isolated(system, tmp_path):
 )
 def test_policy_keyed_evaluators_are_stable_per_policy(system, tmp_path):
     """Equal policies share one evaluator; distinct policies do not."""
-    default_first = system._get_neumann_evaluator()
+    default_first = system._get_neumann_evaluator(CachePolicy())
     first = default_first.get_cached_output("evaluation_kernel")
-    again = system._get_neumann_evaluator().get_cached_output(
+    again = system._get_neumann_evaluator(CachePolicy()).get_cached_output(
         "evaluation_kernel"
     )
     assert again is first
@@ -238,7 +238,7 @@ def test_policy_keyed_evaluators_are_stable_per_policy(system, tmp_path):
     )
     assert kept is built
     assert (
-        system._get_neumann_evaluator().get_cached_output(
+        system._get_neumann_evaluator(CachePolicy()).get_cached_output(
             "evaluation_kernel"
         )
         is first
