@@ -2,9 +2,9 @@
 
 from typing import Any, Mapping, Optional, Tuple, Type
 
-from .base_algorithm_step import BaseAlgorithmStep, BaseStepConfig, ButcherTableau
-from .ode_explicitstep import ExplicitStepConfig, ODEExplicitStep
-from .ode_implicitstep import ImplicitStepConfig, ODEImplicitStep
+from .base_algorithm_step import BaseAlgorithmStep, ButcherTableau
+from .ode_explicitstep import ExplicitStepConfig
+from .ode_implicitstep import ImplicitStepConfig
 from .backwards_euler import BackwardsEulerStep
 from .backwards_euler_predict_correct import BackwardsEulerPCStep
 from .crank_nicolson import CrankNicolsonStep

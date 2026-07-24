@@ -26,7 +26,8 @@ attrs conventions; `BaseODE` (parent, `../AGENTS.md`) for `ODECache`/`config_has
 | File | Description |
 |------|-------------|
 | `__init__.py` | Star-imports `codegen`, `parsing`, `indexedbasemaps`, `odefile`, `symbolicODE`, `sym_utils`; declares `__all__ = ["SymbolicODE", "create_ODE_system", "load_cellml_model"]`. |
-| `symbolicODE.py` | `SymbolicODE(BaseODE)` plus `create_ODE_system()`. Owns parsing, codegen caching, constant/parameter conversion, units, optional Qt GUIs, and `get_solver_helper()` which dispatches to every `codegen` emitter. |
+| `symbolicODE.py` | `SymbolicODE(BaseODE)` plus `create_ODE_system()`. Owns parsing, codegen caching, constant/parameter conversion, units, optional Qt GUIs, and `get_solver_helper(request)` which resolves requests through `helper_registry`. |
+| `helper_registry.py` | Declarative registry of solver-helper generators: each `SolverHelperKind` maps to a `_RegistryEntry` (generator, declared source dependencies, exact factory-binding argument names — never introspected, aux-count metadata flag, optional validation hook). Defines `helper_source_hash` and `helper_member_hash` — the two canonical helper identities. |
 | `odefile.py` | `ODEFile` disk cache. Writes generated factory source to `<cache root>/<name>/<name>.py` (root from `cubie.cache_root`), hash-guards staleness, checks per-function caching, and imports factories via `importlib`. |
 | `indexedbasemaps.py` | `IndexedBaseMap` (named scalar symbols → fixed-size `sympy.IndexedBase`) and `IndexedBases` (bundle of state/parameter/constant/observable/driver/dxdt maps). Provides `from_user_inputs`, constant↔parameter conversion, units, ref/index/symbol maps. |
 | `sym_utils.py` | Shared helpers: `hash_system_definition` (SHA-256, order-independent, over the IR pairs' reprs), `render_constant_assignments`, `EXPONENT_ALIAS_PREFIX`, plus SymPy `topological_sort`/`cse_and_stack`/`prune_unused_assignments` retained for the CPU reference tests (production code uses the IR equivalents in `engine/`). |
@@ -41,27 +42,29 @@ attrs conventions; `BaseODE` (parent, `../AGENTS.md`) for `ODECache`/`config_has
 
 ## For AI Agents
 
-### get_solver_helper — the single codegen dispatch point
-`build()` compiles only `dxdt` and `observables`; **every other device function comes from
-`get_solver_helper(func_type, ...)`**. Supported `func_type`: `linear_operator`,
-`linear_operator_cached`, `neumann_preconditioner`, `neumann_preconditioner_cached`,
-`stage_residual`, `n_stage_residual`, `n_stage_linear_operator`,
-`n_stage_neumann_preconditioner`, `prepare_jac`, `calculate_cached_jvp`, `time_derivative_rhs`,
-and the non-codegen `cached_aux_count`. Adding a helper means a branch here, a generator
-in `codegen/`, and an `ODECache` field. Helper scalings persist
-in the `solver_beta`/`solver_gamma`/`preconditioner_order`/`tableau_digest` fields of
-`ODEData` via `update_compile_settings`, so a changed value invalidates the whole `ODECache`
-through the standard `CUDAFactory` path and helpers regenerate on the next request; an
-omitted argument keeps the configured value and the cache. Callers address the scalings by
-their exact field names (`solver_beta`, not `beta` — the prefix exists because `beta`/`gamma`
-are common system-constant names). Each factory receives only the kwargs its own signature
-declares. `n_stage_*` helper names include the
-full tableau digest, so different coefficients and nodes cannot share source. The
-cached helpers (`linear_operator_cached`, `neumann_preconditioner_cached`, `prepare_jac`,
-`calculate_cached_jvp`, `cached_aux_count`) are requested by `GenericRosenbrockWStep` and run
-every step; how many auxiliaries actually get precomputed is set by the caching planner's
-thresholds (see `parsing/` and `codegen/AGENTS.md`). Mass-consuming helpers read the
-system's own `compile_settings.mass` — callers never pass a matrix.
+### get_solver_helper — the single helper entry point
+`build()` compiles only `dxdt` and `observables`; every other device function
+comes from `get_solver_helper(request, cache_policy=None)` with an immutable
+`SolverHelperRequest`. Two identities per request, both from the canonical
+serializer:
+- `helper_source_hash` (kind + `fn_hash` + mass for mass-consuming generators
+  + canonical stage spec for stage-aware ones + composed stage kinds) names
+  the generated factory `<kind>_s<full source hash>` in the `ODEFile`.
+- `helper_member_hash` (source hash + the binding arguments the registry
+  entry declares) keys the bound member in `ODECache.helpers`. Different
+  bindings reuse one generated factory.
+Adding a helper means a kind + trait entry in
+`odesystems/solver_helpers.py`, a generator in `codegen/`, and a registry
+entry. Kind-level traits live in `HELPER_KIND_TRAITS`; the algorithm layer
+resolves `preconditioner_type` via
+`resolve_preconditioner_kind`/`resolve_chained_kind`, and a multi-type
+sequence becomes one chained-kind request fused into a single generated
+source. Validation hooks (the Neumann convergence diagnostic) run per
+request, including cache hits; the hook resolves the consumer's own
+evaluator from `cache_policy` — `SymbolicODE` keys one `NeumannRHSEvaluator`
+per policy. `prepare_jac`'s auxiliary count travels on
+`HelperResult.cached_auxiliary_count`. Mass-consuming helpers read the
+system's own `compile_settings.mass`.
 
 ### build() and system identity
 `build()` compiles `dxdt`+`observables` into the `ODECache`, first recomputing the system hash —
@@ -69,15 +72,18 @@ swapping `self.gen_file` to a fresh `ODEFile` if constants↔parameters changed 
 The identity is `fn_hash` from `hash_system_definition`: equations, ordered state/dxdt/parameter/
 driver/observable layouts, constant labels, derivative helpers, and function aliases. Constant
 values are compile settings, not source identity. Equations sort by LHS name, so string and SymPy
-input hit the same cache without discarding array order. A non-identity mass matrix appends
-`_M<digest>` because helper source embeds its entries.
+input hit the same cache without discarding array order. The mass matrix is **not** part of
+`fn_hash` — it enters only the `source_hash` of mass-consuming helper kinds, whose generated
+factory names carry it via their source suffix.
 
 ### Constant/parameter conversion
-`make_parameter`/`make_constant` update both `self.indices`
-(`constant_to_parameter`/`parameter_to_constant`) and `compile_settings` (`remove_entry`/
-`add_entry`), then call `_invalidate_cache()` — keep both sides in sync. `SymbolicODE` overrides
-`set_constants()` to update the index map (`self.indices.update_constants(...)`) before delegating
-to `BaseODE.set_constants`; it does not override `update`.
+`make_parameter`/`make_constant` update `self.indices`
+(`constant_to_parameter`/`parameter_to_constant`) and then derive **copies** of the
+constants and parameters containers, apply `remove_entry`/`add_entry` to the copies, and
+pass both copies through `update_compile_settings`. Keep the index map and the
+containers in sync. `SymbolicODE` overrides `set_constants()` to update the index map
+(`self.indices.update_constants(...)`) before delegating to `BaseODE.set_constants`, and
+`update()` to forward updates to every existing Neumann diagnostic evaluator.
 
 ### Codegen cache gotchas (`ODEFile`)
 - `function_is_cached` parses the generated file textually: it needs a top-level `def <name>(`

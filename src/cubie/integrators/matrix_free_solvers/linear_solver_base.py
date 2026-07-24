@@ -139,6 +139,11 @@ class LinearSolverBaseConfig(MatrixFreeSolverConfig):
         """Return the absolute stopping term in configured precision."""
         return self.precision(self._residual_floor)
 
+    @property
+    def chain_scratch_elements(self) -> int:
+        """Return the chained-preconditioner scratch buffer length."""
+        return self.n if self.preconditioner_is_chained else 0
+
 
 @define
 class LinearSolverCache(CUDADispatcherCache):

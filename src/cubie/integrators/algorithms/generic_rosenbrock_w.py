@@ -49,6 +49,10 @@ from cubie.result_codes import CUBIE_RESULT_CODES
 from numpy import int32 as np_int32
 
 from cubie._utils import PrecisionDType, build_config, is_device_validator
+from cubie.odesystems.solver_helpers import (
+    SolverHelperKind,
+    SolverHelperRequest,
+)
 from cubie.integrators.algorithms.base_algorithm_step import (
     StepCache,
     StepControlDefaults,
@@ -234,7 +238,6 @@ class GenericRosenbrockWStep(ODEImplicitStep):
             },
             **kwargs,
         )
-        self._cached_auxiliary_count = None
 
         # Select defaults based on error estimate
         if tableau_value.has_error_estimate:
@@ -311,39 +314,40 @@ class GenericRosenbrockWStep(ODEImplicitStep):
     ) -> None:
         """Construct the linear solver used by Rosenbrock methods."""
         config = self.compile_settings
-        beta = config.beta
-        gamma = config.gamma
-        preconditioner_order = config.preconditioner_order
+        request_kwargs = self._helper_request_kwargs()
 
         get_fn = config.get_solver_helper_fn
 
         # Get device functions from ODE system
-        preconditioner = get_fn(
-            "preconditioner_cached",
-            preconditioner_type=config.preconditioner_type,
-            solver_beta=beta,
-            solver_gamma=gamma,
-            preconditioner_order=preconditioner_order,
+        preconditioner = self._resolve_preconditioner(
+            cached=True, **request_kwargs
         )
         operator = get_fn(
-            "linear_operator_cached",
-            solver_beta=beta,
-            solver_gamma=gamma,
-            preconditioner_order=preconditioner_order,
-        )
+            SolverHelperRequest(
+                kind=SolverHelperKind.LINEAR_OPERATOR_CACHED,
+                **request_kwargs,
+            )
+        ).device_function
 
-        prepare_jacobian = get_fn(
-            "prepare_jac",
-            preconditioner_order=preconditioner_order,
+        prepare_result = get_fn(
+            SolverHelperRequest(kind=SolverHelperKind.PREPARE_JAC)
         )
-        self._cached_auxiliary_count = get_fn("cached_aux_count")
+        prepare_jacobian = prepare_result.device_function
 
-        # Update buffer registry with the actual cached_auxiliary_count
+        # Size the auxiliary cache from the helper metadata: the
+        # buffer is registered at zero size and takes its real size
+        # here, after the helper refresh.
         buffer_registry.update_buffer(
-            "cached_auxiliaries", self, size=self._cached_auxiliary_count
+            "cached_auxiliaries",
+            self,
+            size=prepare_result.cached_auxiliary_count,
         )
 
-        time_derivative_function = get_fn("time_derivative_rhs")
+        time_derivative_function = get_fn(
+            SolverHelperRequest(
+                kind=SolverHelperKind.TIME_DERIVATIVE_RHS
+            )
+        ).device_function
 
         # Update linear solver with device functions
         self.solver.update(
@@ -766,15 +770,6 @@ class GenericRosenbrockWStep(ODEImplicitStep):
     def is_adaptive(self) -> bool:
         """Return ``True`` if algorithm calculates an error estimate."""
         return self.tableau.has_error_estimate
-
-    @property
-    def cached_auxiliary_count(self) -> int:
-        """Return the number of cached auxiliary entries for the JVP.
-
-        Lazily builds implicit helpers so as not to return an errant 'None'."""
-        if self._cached_auxiliary_count is None:
-            self.build_implicit_helpers()
-        return self._cached_auxiliary_count
 
     @property
     def is_implicit(self) -> bool:

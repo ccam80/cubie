@@ -10,7 +10,8 @@ Published Functions
 See Also
 --------
 :class:`~cubie.odesystems.symbolic.symbolicODE.SymbolicODE`
-    Requests this helper via ``get_solver_helper("time_derivative_rhs")``.
+    Serves this helper for a ``SolverHelperRequest`` of kind
+    ``time_derivative_rhs`` through ``get_solver_helper``.
 :mod:`cubie.odesystems.symbolic.codegen.dxdt`
     Companion module generating the primary ``dxdt`` factory.
 :mod:`cubie.odesystems.symbolic.engine`

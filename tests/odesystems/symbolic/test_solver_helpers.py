@@ -16,8 +16,10 @@ from cubie.odesystems.symbolic.codegen import (
     generate_prepare_jac_code,
     generate_stage_residual_code,
 )
+from cubie.odesystems.solver_helpers import SolverHelperRequest
 from cubie.odesystems.symbolic.engine import convert_assignments
 from cubie.odesystems.symbolic.engine import expr as ir_expr
+from cubie.odesystems.symbolic.helper_registry import helper_source_hash
 from cubie.odesystems.symbolic.parsing import (
     JVPEquations as _JVPEquations,
 )
@@ -905,6 +907,7 @@ def neumann_kernel(precision):
             drivers = cuda.local.array(1, precision)
             jvp = cuda.local.array(n, precision)
             scratch = cuda.local.array(n, precision)
+            chain_scratch = cuda.local.array(n, precision)
             pre(
                 state,
                 parameters,
@@ -917,6 +920,7 @@ def neumann_kernel(precision):
                 out,
                 jvp,
                 scratch,
+                chain_scratch,
             )
 
         return kernel
@@ -983,6 +987,7 @@ def neumann_cached_kernel(cached_system, precision):
             cached_aux = cuda.local.array(aux_len, precision)
             jvp = cuda.local.array(n_state, precision)
             scratch = cuda.local.array(n_state, precision)
+            chain_scratch = cuda.local.array(n_state, precision)
 
             for idx in range(n_state):
                 state[idx] = state_values[idx]
@@ -1005,6 +1010,7 @@ def neumann_cached_kernel(cached_system, precision):
                 out,
                 jvp,
                 scratch,
+                chain_scratch,
             )
 
         return kernel
@@ -1281,8 +1287,8 @@ def test_solver_helper_preserves_colliding_constants(
     """Helper generation leaves beta/gamma constants untouched."""
 
     residual = system.get_solver_helper(
-        "stage_residual", solver_beta=1.0, solver_gamma=1.0
-    )
+        SolverHelperRequest(kind="stage_residual", beta=1.0, gamma=1.0)
+    ).device_function
     assert system.constants.values_array.dtype == np.dtype(precision)
     assert system.constants.values_dict["beta"] == precision(2.5)
     assert system.constants.values_dict["gamma"] == precision(0.75)
@@ -1341,8 +1347,10 @@ def test_solver_helper_rebuilds_on_scaling_change(
     helpers = []
     for beta, gamma in (first_scalings, second_scalings):
         residual = system.get_solver_helper(
-            "stage_residual", solver_beta=beta, solver_gamma=gamma
-        )
+            SolverHelperRequest(
+                kind="stage_residual", beta=beta, gamma=gamma
+            )
+        ).device_function
         helpers.append(residual)
         kernel = residual_kernel(residual)
         out = np.zeros(2, dtype=precision)
@@ -1369,22 +1377,32 @@ def test_solver_helper_rebuilds_on_scaling_change(
     indirect=True,
 )
 def test_neumann_helper_rebuilds_on_order_change(system):
-    """A changed Neumann order regenerates its cached helper."""
+    """A changed Neumann order produces a distinct bound member.
 
-    first = system.get_solver_helper(
-        "neumann_preconditioner",
-        solver_beta=1.0,
-        solver_gamma=1.0,
+    The order is a factory-binding argument, not a source input, so
+    both orders share one generated factory while binding distinct
+    members.
+    """
+    first_request = SolverHelperRequest(
+        kind="neumann_preconditioner",
+        beta=1.0,
+        gamma=1.0,
         preconditioner_order=1,
     )
-    second = system.get_solver_helper(
-        "neumann_preconditioner",
-        solver_beta=1.0,
-        solver_gamma=1.0,
+    second_request = SolverHelperRequest(
+        kind="neumann_preconditioner",
+        beta=1.0,
+        gamma=1.0,
         preconditioner_order=2,
     )
+    first = system.get_solver_helper(first_request)
+    second = system.get_solver_helper(second_request)
 
     assert first is not second
+    assert first.device_function is not second.device_function
+    assert helper_source_hash(
+        system, first_request
+    ) == helper_source_hash(system, second_request)
 
 
 @pytest.mark.parametrize(
@@ -1392,24 +1410,31 @@ def test_neumann_helper_rebuilds_on_order_change(system):
     [{"system_type": "linear"}],
     indirect=True,
 )
-def test_helper_requests_without_scalings_reuse_cache(system):
-    """Requests with omitted scalings reuse every cached helper."""
+def test_helper_requests_reuse_members_without_touching_settings(system):
+    """Repeated requests reuse members; settings stay untouched."""
 
-    scaled = system.get_solver_helper(
-        "linear_operator", solver_beta=2.5, solver_gamma=0.5
+    settings_before = system.compile_settings
+    hash_before = system.config_hash
+
+    scaled_request = SolverHelperRequest(
+        kind="linear_operator", beta=2.5, gamma=0.5
     )
-    first = system.get_solver_helper("prepare_jac")
-    second = system.get_solver_helper("prepare_jac")
-    auxiliary_count = system.get_solver_helper("cached_aux_count")
-    repeat_scaled = system.get_solver_helper(
-        "linear_operator", solver_beta=2.5, solver_gamma=0.5
+    scaled = system.get_solver_helper(scaled_request)
+    first = system.get_solver_helper(
+        SolverHelperRequest(kind="prepare_jac")
     )
+    second = system.get_solver_helper(
+        SolverHelperRequest(kind="prepare_jac")
+    )
+    repeat_scaled = system.get_solver_helper(scaled_request)
 
     assert first is second
-    assert auxiliary_count == system.jacobian_aux_count
+    assert first.cached_auxiliary_count is not None
     assert repeat_scaled is scaled
-    assert system.compile_settings.solver_beta == system.precision(2.5)
-    assert system.compile_settings.solver_gamma == system.precision(0.5)
+    # Helper requests never mutate the system's compile settings or
+    # its configuration identity.
+    assert system.compile_settings is settings_before
+    assert system.config_hash == hash_before
 
 
 @pytest.mark.parametrize(
@@ -1417,18 +1442,22 @@ def test_helper_requests_without_scalings_reuse_cache(system):
     [{"system_type": "linear"}],
     indirect=True,
 )
-def test_unknown_helper_preserves_existing_cache(system):
-    """Unknown helper requests preserve cached helpers."""
+def test_unknown_helper_fails_at_request_construction(system):
+    """Unknown helper kinds fail when the request is constructed."""
 
-    cached = system.get_solver_helper("prepare_jac")
+    cached = system.get_solver_helper(
+        SolverHelperRequest(kind="prepare_jac")
+    )
 
-    with pytest.raises(
-        KeyError,
-        match="Output 'not_a_helper' not found in cached outputs",
-    ):
-        system.get_solver_helper("not_a_helper")
+    with pytest.raises(ValueError):
+        SolverHelperRequest(kind="not_a_helper")
 
-    assert system.get_solver_helper("prepare_jac") is cached
+    assert (
+        system.get_solver_helper(
+            SolverHelperRequest(kind="prepare_jac")
+        )
+        is cached
+    )
 
 
 @pytest.fixture(scope="session")
@@ -1478,6 +1507,7 @@ def jacobi_kernel(precision):
             drivers = cuda.local.array(1, precision)
             jvp = cuda.local.array(n, precision)
             scratch = cuda.local.array(n, precision)
+            chain_scratch = cuda.local.array(n, precision)
             for idx in range(n):
                 state[idx] = state_values[idx]
             pre(
@@ -1492,6 +1522,7 @@ def jacobi_kernel(precision):
                 out,
                 jvp,
                 scratch,
+                chain_scratch,
             )
 
         return kernel
@@ -1625,30 +1656,31 @@ def test_chained_preconditioner_composition(
 ):
     """Chained ["neumann", "jacobi"] equals jacobi(neumann(v)).
 
-    The composite helper feeds P0's output into P1, so the chained
-    device function must reproduce sequential application of the
-    individually generated preconditioners.
+    The composed generated helper feeds P0's output into P1, so it
+    must reproduce sequential application of the individually
+    generated preconditioners.
     """
     kwargs = {
-        "solver_beta": 1.0,
-        "solver_gamma": 1.0,
+        "beta": 1.0,
+        "gamma": 1.0,
         "preconditioner_order": 1,
     }
-    chained = operator_system.get_solver_helper(
-        "preconditioner",
-        preconditioner_type=["neumann", "jacobi"],
-        **kwargs,
-    )
     neumann = operator_system.get_solver_helper(
-        "preconditioner",
-        preconditioner_type="neumann",
-        **kwargs,
-    )
+        SolverHelperRequest(kind="neumann_preconditioner", **kwargs)
+    ).device_function
     jacobi = operator_system.get_solver_helper(
-        "preconditioner",
-        preconditioner_type="jacobi",
-        **kwargs,
-    )
+        SolverHelperRequest(kind="jacobi_preconditioner", **kwargs)
+    ).device_function
+    chained = operator_system.get_solver_helper(
+        SolverHelperRequest(
+            kind="chained_preconditioner",
+            chained_kinds=(
+                "neumann_preconditioner",
+                "jacobi_preconditioner",
+            ),
+            **kwargs,
+        )
+    ).device_function
 
     n = 2
 
@@ -1671,10 +1703,99 @@ def test_chained_preconditioner_composition(
         neumann(
             state, parameters, drivers, base_state,
             t, h, a_ij, vec, intermediate, jvp, scratch,
+            chain_scratch,
         )
         jacobi(
             state, parameters, drivers, base_state,
             t, h, a_ij, intermediate, out_seq, jvp, scratch,
+            chain_scratch,
+        )
+
+    v = np.array([0.7, -1.3], dtype=precision)
+    base = np.zeros(2, dtype=precision)
+    out_chained = np.zeros(2, dtype=precision)
+    out_seq = np.zeros(2, dtype=precision)
+
+    kernel[1, 1](
+        precision(0.0),
+        precision(0.25),
+        precision(0.5),
+        v,
+        base,
+        out_chained,
+        out_seq,
+    )
+
+    assert np.allclose(
+        out_chained,
+        out_seq,
+        atol=tolerance.abs_tight,
+        rtol=tolerance.rel_tight,
+    )
+
+
+def test_three_stage_chained_preconditioner_composition(
+    operator_system,
+    precision,
+    tolerance,
+):
+    """A three-type chain equals sequential stage application."""
+    kwargs = {
+        "beta": 1.0,
+        "gamma": 1.0,
+        "preconditioner_order": 1,
+    }
+    neumann = operator_system.get_solver_helper(
+        SolverHelperRequest(kind="neumann_preconditioner", **kwargs)
+    ).device_function
+    jacobi = operator_system.get_solver_helper(
+        SolverHelperRequest(kind="jacobi_preconditioner", **kwargs)
+    ).device_function
+    chained = operator_system.get_solver_helper(
+        SolverHelperRequest(
+            kind="chained_preconditioner",
+            chained_kinds=(
+                "neumann_preconditioner",
+                "jacobi_preconditioner",
+                "neumann_preconditioner",
+            ),
+            **kwargs,
+        )
+    ).device_function
+
+    n = 2
+
+    @cuda.jit
+    def kernel(t, h, a_ij, vec, base_state, out_chained, out_seq):
+        state = cuda.local.array(n, precision)
+        parameters = cuda.local.array(1, precision)
+        drivers = cuda.local.array(1, precision)
+        jvp = cuda.local.array(n, precision)
+        scratch = cuda.local.array(n, precision)
+        chain_scratch = cuda.local.array(n, precision)
+        step_one = cuda.local.array(n, precision)
+        step_two = cuda.local.array(n, precision)
+        for idx in range(n):
+            state[idx] = precision(0.0)
+        chained(
+            state, parameters, drivers, base_state,
+            t, h, a_ij, vec, out_chained, jvp, scratch,
+            chain_scratch,
+        )
+        neumann(
+            state, parameters, drivers, base_state,
+            t, h, a_ij, vec, step_one, jvp, scratch,
+            chain_scratch,
+        )
+        jacobi(
+            state, parameters, drivers, base_state,
+            t, h, a_ij, step_one, step_two, jvp, scratch,
+            chain_scratch,
+        )
+        neumann(
+            state, parameters, drivers, base_state,
+            t, h, a_ij, step_two, out_seq, jvp, scratch,
+            chain_scratch,
         )
 
     v = np.array([0.7, -1.3], dtype=precision)
@@ -1857,9 +1978,10 @@ def test_mass_matrix_selects_distinct_cached_helpers(
     # J00 = -k0 + x1, J11 = -k1 at the evaluation point
     diag_j = np.array([-1.0 + eval_point[1], -2.0])
 
-    pre_eye = system.get_solver_helper(
-        "jacobi_preconditioner", solver_beta=1.0, solver_gamma=1.0
+    jacobi_request = SolverHelperRequest(
+        kind="jacobi_preconditioner", beta=1.0, gamma=1.0
     )
+    pre_eye = system.get_solver_helper(jacobi_request).device_function
     out_eye = np.zeros(2, dtype=precision)
     jacobi_kernel(pre_eye)[1, 1](
         precision(0.0),
@@ -1871,9 +1993,10 @@ def test_mass_matrix_selects_distinct_cached_helpers(
         out_eye,
     )
 
-    # A same-named system with a different mass has a different
-    # fn_hash, so it re-keys the generated-code file rather than
-    # reusing the identity-mass helper cached above.
+    # A same-named system with a different mass shares the base
+    # equation identity but re-keys mass-consuming helper source, so
+    # its Jacobi helper never aliases the identity-mass helper cached
+    # above.
     system_mass = create_ODE_system(
         equations,
         states=["x0", "x1"],
@@ -1882,10 +2005,13 @@ def test_mass_matrix_selects_distinct_cached_helpers(
         name="mass_cache_key_sys",
         mass=mass,
     )
-    assert system_mass.fn_hash != system.fn_hash
+    assert system_mass.fn_hash == system.fn_hash
+    assert helper_source_hash(
+        system_mass, jacobi_request
+    ) != helper_source_hash(system, jacobi_request)
     pre_mass = system_mass.get_solver_helper(
-        "jacobi_preconditioner", solver_beta=1.0, solver_gamma=1.0
-    )
+        jacobi_request
+    ).device_function
     out_mass = np.zeros(2, dtype=precision)
     jacobi_kernel(pre_mass)[1, 1](
         precision(0.0),

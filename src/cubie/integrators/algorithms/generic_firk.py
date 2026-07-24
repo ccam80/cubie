@@ -47,6 +47,10 @@ from cubie._utils import (
     build_config,
     is_device_validator,
 )
+from cubie.odesystems.solver_helpers import (
+    SolverHelperKind,
+    SolverHelperRequest,
+)
 from cubie.integrators.algorithms.base_algorithm_step import (
     StepCache,
     StepControlDefaults,
@@ -353,38 +357,30 @@ class FIRKStep(ODEImplicitStep):
 
         config = self.compile_settings
         tableau = config.tableau
-        beta = config.beta
-        gamma = config.gamma
 
         get_fn = config.get_solver_helper_fn
 
-        stage_coefficients = [list(row) for row in tableau.a]
-        stage_nodes = list(tableau.c)
+        stage_kwargs = dict(
+            self._helper_request_kwargs(),
+            stage_coefficients=tableau.stage_coefficients,
+            stage_nodes=tableau.stage_nodes,
+        )
 
         residual = get_fn(
-            "n_stage_residual",
-            solver_beta=beta,
-            solver_gamma=gamma,
-            stage_coefficients=stage_coefficients,
-            stage_nodes=stage_nodes,
-        )
+            SolverHelperRequest(
+                kind=SolverHelperKind.N_STAGE_RESIDUAL, **stage_kwargs
+            )
+        ).device_function
 
         operator = get_fn(
-            "n_stage_linear_operator",
-            solver_beta=beta,
-            solver_gamma=gamma,
-            stage_coefficients=stage_coefficients,
-            stage_nodes=stage_nodes,
-        )
+            SolverHelperRequest(
+                kind=SolverHelperKind.N_STAGE_LINEAR_OPERATOR,
+                **stage_kwargs,
+            )
+        ).device_function
 
-        preconditioner = get_fn(
-            "n_stage_preconditioner",
-            preconditioner_type=config.preconditioner_type,
-            solver_beta=beta,
-            solver_gamma=gamma,
-            preconditioner_order=config.preconditioner_order,
-            stage_coefficients=stage_coefficients,
-            stage_nodes=stage_nodes,
+        preconditioner = self._resolve_preconditioner(
+            n_stage=True, **stage_kwargs
         )
 
         # Update solvers with device functions

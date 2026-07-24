@@ -146,18 +146,16 @@ class ODEData(CUDAFactoryConfig):
         :class:`numpy.float32`.
     num_drivers
         Number of driver or forcing functions. Defaults to ``1``.
-    solver_beta
-        Shift scaling applied to the mass-matrix term in generated
-        solver helpers. Defaults to ``1.0``.
-    solver_gamma
-        Weight applied to the Jacobian term in generated solver
-        helpers. Defaults to ``1.0``.
-    preconditioner_order
-        Polynomial order of generated Neumann preconditioners.
-        Defaults to ``2``.
-    tableau_digest
-        Digest of the FIRK tableau baked into generated multi-stage
-        helpers. Defaults to ``""``.
+
+    Notes
+    -----
+    This container holds only ODE-system state. Solver-helper request
+    parameters (beta, gamma, preconditioner order, stage tableaus)
+    belong to the requesting algorithm's compile settings and reach
+    the system as immutable
+    :class:`~cubie.odesystems.solver_helpers.SolverHelperRequest`
+    values, so the system's identity never depends on helper request
+    order.
     """
 
     constants: Optional[SystemValues] = field(
@@ -197,12 +195,6 @@ class ODEData(CUDAFactoryConfig):
         default=None,
         converter=_mass_matrix_converter,
         eq=attrs_cmp_using(eq=mass_equal),
-    )
-    _solver_beta: float = field(default=1.0, converter=float)
-    _solver_gamma: float = field(default=1.0, converter=float)
-    preconditioner_order: int = field(default=2, converter=int)
-    tableau_digest: str = field(
-        default="", validator=attrsval_instance_of(str)
     )
 
     def __attrs_post_init__(self):
@@ -271,16 +263,6 @@ class ODEData(CUDAFactoryConfig):
     def mass(self) -> Any:
         """Return the cached solver mass matrix."""
         return self._mass
-
-    @property
-    def solver_beta(self) -> Any:
-        """Return the helper shift scaling at compiled precision."""
-        return self.precision(self._solver_beta)
-
-    @property
-    def solver_gamma(self) -> Any:
-        """Return the helper Jacobian weight at compiled precision."""
-        return self.precision(self._solver_gamma)
 
     @classmethod
     def from_BaseODE_initargs(

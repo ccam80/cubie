@@ -14,6 +14,7 @@ import warnings
 import numpy as np
 import pytest
 
+from cubie.odesystems.solver_helpers import SolverHelperRequest
 from cubie.batchsolving.BatchSolverKernel import BatchSolverKernel
 from cubie.cubie_cache import CachePolicy, CUBIECache
 from cubie.odesystems.symbolic.codegen.neumann_convergence import (
@@ -120,7 +121,9 @@ def test_get_solver_helper_runs_diagnostic_for_neumann_type(system):
     """Static helper check reports a step limit, not divergence."""
     with pytest.warns(UserWarning, match="not a divergence verdict"):
         system.get_solver_helper(
-            "neumann_preconditioner", solver_beta=1.0, solver_gamma=1.0
+            SolverHelperRequest(
+                kind="neumann_preconditioner", beta=1.0, gamma=1.0
+            )
         )
 
 
@@ -173,14 +176,13 @@ def test_kernel_cache_policies_stay_isolated(system, tmp_path):
         cache=dir_b,
     )
     try:
+        request = SolverHelperRequest(
+            kind="neumann_preconditioner", beta=1.0, gamma=1.0
+        )
         with warnings.catch_warnings():
             warnings.simplefilter("ignore")
-            kernel_a._solver_helper_fn(
-                "neumann_preconditioner", solver_beta=1.0, solver_gamma=1.0
-            )
-            kernel_b._solver_helper_fn(
-                "neumann_preconditioner", solver_beta=1.0, solver_gamma=1.0
-            )
+            kernel_a._solver_helper_fn(request)
+            kernel_b._solver_helper_fn(request)
 
         policy_a = kernel_a.cache_handler.policy
         policy_b = kernel_b.cache_handler.policy
@@ -200,9 +202,7 @@ def test_kernel_cache_policies_stay_isolated(system, tmp_path):
 
         with warnings.catch_warnings():
             warnings.simplefilter("ignore")
-            kernel_a._solver_helper_fn(
-                "neumann_preconditioner", solver_beta=1.0, solver_gamma=1.0
-            )
+            kernel_a._solver_helper_fn(request)
         moved = kernel_a.cache_handler.policy
         assert (
             system._neumann_diagnostics[moved].cache_policy.cache_dir

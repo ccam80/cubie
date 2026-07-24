@@ -302,6 +302,16 @@ class ButcherTableau(_CubieConfigBase):
         return len(self.b)
 
     @property
+    def stage_coefficients(self) -> Tuple[Tuple[float, ...], ...]:
+        """Return the stage coupling matrix as canonical row tuples."""
+        return tuple(tuple(row) for row in self.a)
+
+    @property
+    def stage_nodes(self) -> Tuple[float, ...]:
+        """Return the stage nodes as a canonical tuple."""
+        return tuple(self.c)
+
+    @property
     def has_error_estimate(self) -> bool:
         """Return ``True`` when embedded error weights are supplied."""
         error_coeffs = self.d
