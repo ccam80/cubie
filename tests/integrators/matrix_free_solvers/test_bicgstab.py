@@ -32,7 +32,7 @@ def test_bicgstab_breakdown_detection(precision):
     n = 3
     solver = BiCGSTABSolver(
         precision=precision,
-        n=n,
+        solver_width=n,
         krylov_atol=1e-20,
         krylov_rtol=1e-20,
         krylov_max_iters=16,
@@ -86,14 +86,14 @@ def test_bicgstab_breakdown_detection(precision):
 
 def test_bicgstab_linear_correction_type_is_bicgstab():
     """linear_correction_type always reports 'bicgstab'."""
-    solver = BiCGSTABSolver(precision=np.float32, n=3)
+    solver = BiCGSTABSolver(precision=np.float32, solver_width=3)
     assert solver.linear_correction_type == "bicgstab"
 
 
 def test_bicgstab_settings_dict_reports_config_and_locations():
     """settings_dict exposes iteration limit and buffer placements."""
     solver = BiCGSTABSolver(
-        precision=np.float32, n=3, krylov_max_iters=42,
+        precision=np.float32, solver_width=3, krylov_max_iters=42,
     )
     settings = solver.compile_settings.settings_dict
     assert settings["krylov_max_iters"] == 42
@@ -118,7 +118,7 @@ def test_bicgstab_build_selects_precision_specific_thresholds(
     selection (float32 is covered by the ``precision``-fixture tests
     above).
     """
-    solver = BiCGSTABSolver(precision=build_precision, n=3)
+    solver = BiCGSTABSolver(precision=build_precision, solver_width=3)
     device_fn = solver.device_function
     assert callable(device_fn)
 
@@ -143,20 +143,20 @@ def test_bicgstab_r0_hat_auto_placement():
         (np.float64, 200, "local"),
     ]
     for prec, n, expected in cases:
-        config = BiCGSTABSolverConfig(precision=prec, n=n)
+        config = BiCGSTABSolverConfig(precision=prec, solver_width=n)
         assert config.resolved_r0_hat_location == expected, (
-            f"n={n}, precision={prec.__name__}"
+            f"solver_width={n}, precision={prec.__name__}"
         )
 
 
 def test_bicgstab_r0_hat_override_respected():
     """Explicit r0_hat_location bypasses the auto heuristic."""
     config = BiCGSTABSolverConfig(
-        precision=np.float32, n=200, r0_hat_location="local"
+        precision=np.float32, solver_width=200, r0_hat_location="local"
     )
     assert config.resolved_r0_hat_location == "local"
     config = BiCGSTABSolverConfig(
-        precision=np.float32, n=8, r0_hat_location="shared"
+        precision=np.float32, solver_width=8, r0_hat_location="shared"
     )
     assert config.resolved_r0_hat_location == "shared"
 
@@ -228,7 +228,7 @@ def test_bicgstab_cached_auxiliaries(precision, tolerance, with_precond):
 
     solver = BiCGSTABSolver(
         precision=precision,
-        n=n,
+        solver_width=n,
         krylov_atol=1e-8,
         krylov_rtol=1e-8,
         krylov_max_iters=200,

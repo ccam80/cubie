@@ -129,8 +129,8 @@ maps `preconditioner_type` to concrete kinds through
 `resolve_preconditioner_kind`/`resolve_chained_kind` (`cached=True` for
 Rosenbrock-W, `n_stage=True` for FIRK); a multi-type sequence becomes one
 chained-kind request. `ODEImplicitStep.update` refreshes the step settings
-first, then forwards `solver_n` (the coupled all-stages length for FIRK) to
-the solver subtree. `ODEImplicitStep.build()` runs `build_implicit_helpers()`
+first, then adds the derived `solver_width` (the coupled all-stages length
+for FIRK; `n` elsewhere) for the solver subtree. `ODEImplicitStep.build()` runs `build_implicit_helpers()`
 **before** reading `compile_settings` — the helper refresh replaces the
 snapshot.
 

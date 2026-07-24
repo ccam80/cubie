@@ -201,6 +201,11 @@ class BaseStepControllerConfig(CUDAFactoryConfig, ABC):
         eq=cmp_using(eq=array_equal),
     )
 
+    @property
+    def tol_length(self) -> int:
+        """Return the tolerance-array length for tol_converter."""
+        return self.n
+
     def __attrs_post_init__(self):
         super().__attrs_post_init__()
 

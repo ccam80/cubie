@@ -127,8 +127,8 @@ class ImplicitStepConfig(BaseStepConfig):
     )
 
     @property
-    def solver_n(self) -> int:
-        """Return the nonlinear solver's vector length."""
+    def solver_width(self) -> int:
+        """Return the solver vector length."""
         return self.n
 
     @property
@@ -257,7 +257,7 @@ class ODEImplicitStep(BaseAlgorithmStep):
             if k in self._NEWTON_KRYLOV_PARAMS and v is not None
         }
 
-        solver_n = config.solver_n
+        solver_width = config.solver_width
 
         # Newton solves weight the norm by the stage base state,
         # linearly-implicit solves by the model state.
@@ -265,7 +265,7 @@ class ODEImplicitStep(BaseAlgorithmStep):
 
         linear_solver = self._construct_linear_solver(
             precision=config.precision,
-            n=solver_n,
+            solver_width=solver_width,
             norm=krylov_norm,
             norm_reference=norm_reference,
             **linear_kwargs,
@@ -276,7 +276,7 @@ class ODEImplicitStep(BaseAlgorithmStep):
         else:
             self.solver = NewtonKrylov(
                 precision=config.precision,
-                n=solver_n,
+                solver_width=solver_width,
                 linear_solver=linear_solver,
                 norm=newton_norm,
                 **newton_kwargs,
@@ -289,7 +289,7 @@ class ODEImplicitStep(BaseAlgorithmStep):
     @staticmethod
     def _construct_linear_solver(
         precision,
-        n,
+        solver_width,
         norm,
         norm_reference,
         **linear_kwargs,
@@ -307,14 +307,14 @@ class ODEImplicitStep(BaseAlgorithmStep):
         if correction_type == "bicgstab":
             return BiCGSTABSolver(
                 precision=precision,
-                n=n,
+                solver_width=solver_width,
                 norm=norm,
                 norm_reference=norm_reference,
                 **linear_kwargs,
             )
         return MRLinearSolver(
             precision=precision,
-            n=n,
+            solver_width=solver_width,
             linear_correction_type=correction_type,
             norm=norm,
             norm_reference=norm_reference,
@@ -348,7 +348,7 @@ class ODEImplicitStep(BaseAlgorithmStep):
         carried["linear_correction_type"] = new_type
         replacement = self._construct_linear_solver(
             precision=current.precision,
-            n=current.n,
+            solver_width=current.solver_width,
             norm=current.norm,
             norm_reference="state" if self.is_linear else "base_state",
             **carried,
@@ -399,7 +399,7 @@ class ODEImplicitStep(BaseAlgorithmStep):
         recognized = set()
 
         # Step settings first, so the solver update below reads the
-        # refreshed solver_n.
+        # refreshed solver_width.
         recognized |= super().update(all_updates, silent=True)
 
         # Swap the solver class first so pending parameters apply to
@@ -408,12 +408,12 @@ class ODEImplicitStep(BaseAlgorithmStep):
             self._swap_linear_solver(all_updates["linear_correction_type"])
             recognized.add("linear_correction_type")
 
-        solver_updates = dict(all_updates)
-        if "n" in solver_updates:
-            solver_updates["n"] = self.compile_settings.solver_n
-            solver_updates["state_n"] = self.compile_settings.n
+        if "n" in all_updates:
+            all_updates["solver_width"] = (
+                self.compile_settings.solver_width
+            )
 
-        recognized |= self.solver.update(solver_updates, silent=True)
+        recognized |= self.solver.update(all_updates, silent=True)
 
         # Push the children's rebuilt device functions into the step
         # settings.
@@ -612,7 +612,7 @@ class ODEImplicitStep(BaseAlgorithmStep):
                 config.preconditioner_is_chained
             ),
             residual_function=residual,
-            n=config.solver_n,
+            solver_width=config.solver_width,
         )
 
         self.update_compile_settings(

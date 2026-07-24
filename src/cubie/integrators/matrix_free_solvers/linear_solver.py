@@ -97,7 +97,7 @@ class MRLinearSolver(LinearSolverBase):
     ----------
     precision : PrecisionDType
         Numerical precision for computations.
-    n : int
+    solver_width : int
         Length of residual and search-direction vectors.
     **kwargs
         Forwarded to :class:`MRLinearSolverConfig` and the norm
@@ -107,13 +107,13 @@ class MRLinearSolver(LinearSolverBase):
     def __init__(
         self,
         precision: PrecisionDType,
-        n: int,
+        solver_width: int,
         **kwargs,
     ) -> None:
         super().__init__(
             config_class=MRLinearSolverConfig,
             precision=precision,
-            n=n,
+            solver_width=solver_width,
             **kwargs,
         )
 
@@ -123,21 +123,21 @@ class MRLinearSolver(LinearSolverBase):
         buffer_registry.register(
             "preconditioned_vec",
             self,
-            config.n,
+            config.solver_width,
             config.preconditioned_vec_location,
             precision=config.precision,
         )
         buffer_registry.register(
             "temp",
             self,
-            config.n,
+            config.solver_width,
             config.temp_location,
             precision=config.precision,
         )
         buffer_registry.register(
             "mr_precond_scratch",
             self,
-            config.n,
+            config.solver_width,
             "local",
             precision=config.precision,
         )
@@ -170,7 +170,7 @@ class MRLinearSolver(LinearSolverBase):
         scaled_norm_fn = config.norm_device_function
 
         # Config parameters
-        n = config.n
+        n = config.solver_width
         linear_correction_type = config.linear_correction_type
         max_iters = config.max_iters
         use_cached_auxiliaries = config.use_cached_auxiliaries

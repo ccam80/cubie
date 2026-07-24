@@ -57,8 +57,8 @@ class MatrixFreeSolverConfig(MultipleInstanceCUDAFactoryConfig):
     ----------
     precision : PrecisionDType
         Numerical precision for computations.
-    n : int
-        Size of state vectors (must be >= 1).
+    solver_width : int
+        Solver vector length (must be >= 1).
     max_iters : int
         Maximum solver iterations permitted (1 to 32767).
     norm_device_function : Optional[Callable]
@@ -66,7 +66,9 @@ class MatrixFreeSolverConfig(MultipleInstanceCUDAFactoryConfig):
         norm factory rebuilds; changes invalidate solver cache.
     """
 
-    n: int = field(default=0, validator=getype_validator(int, 1))
+    solver_width: int = field(
+        default=0, validator=getype_validator(int, 1)
+    )
     max_iters: int = field(
         default=100,
         validator=inrangetype_validator(int, 1, 32767),
@@ -102,7 +104,7 @@ class MatrixFreeSolver(MultipleInstanceCUDAFactory):
         self,
         precision: PrecisionDType,
         solver_type: str,
-        n: int,
+        solver_width: int,
         norm: Optional[ScaledNorm] = None,
         **kwargs,
     ) -> None:
@@ -114,8 +116,8 @@ class MatrixFreeSolver(MultipleInstanceCUDAFactory):
             Numerical precision for computations.
         solver_type : str
             Prefix for tolerance parameters (e.g., "krylov" or "newton").
-        n : int
-            Size of state vectors.
+        solver_width : int
+            Solver vector length.
         norm : ScaledNorm, optional
             Norm owned by the solver.
         **kwargs
@@ -126,7 +128,7 @@ class MatrixFreeSolver(MultipleInstanceCUDAFactory):
         if norm is None:
             norm = ScaledNorm(
                 precision=precision,
-                n=n,
+                solver_width=solver_width,
                 instance_label=solver_type,
                 **kwargs,
             )
@@ -193,6 +195,6 @@ class MatrixFreeSolver(MultipleInstanceCUDAFactory):
         return self.compile_settings.max_iters
 
     @property
-    def n(self) -> int:
-        """Size of state vectors for the solver."""
-        return self.compile_settings.n
+    def solver_width(self) -> int:
+        """Return the solver vector length."""
+        return self.compile_settings.solver_width

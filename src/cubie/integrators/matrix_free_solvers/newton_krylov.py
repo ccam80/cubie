@@ -73,8 +73,8 @@ class NewtonKrylovConfig(MatrixFreeSolverConfig):
     ----------
     precision : PrecisionDType
         Numerical precision for computations.
-    n : int
-        Size of state vectors.
+    solver_width : int
+        Solver vector length.
     max_iters : int
         Maximum solver iterations permitted.
     norm_device_function : Optional[Callable]
@@ -167,8 +167,8 @@ class NewtonKrylov(MatrixFreeSolver):
     ----------
     precision : PrecisionDType
         Numerical precision for computations.
-    n : int
-        Size of state vectors.
+    solver_width : int
+        Solver vector length.
     linear_solver : LinearSolverBase
         :class:`~cubie.integrators.matrix_free_solvers.linear_solver_base.LinearSolverBase`
         instance for solving linear systems.
@@ -182,7 +182,7 @@ class NewtonKrylov(MatrixFreeSolver):
     def __init__(
         self,
         precision: PrecisionDType,
-        n: int,
+        solver_width: int,
         linear_solver: LinearSolverBase,
         norm: Optional[CorrectionNorm] = None,
         **kwargs,
@@ -193,8 +193,8 @@ class NewtonKrylov(MatrixFreeSolver):
         ----------
         precision : PrecisionDType
             Numerical precision for computations.
-        n : int
-            Size of state vectors.
+        solver_width : int
+            Solver vector length.
         linear_solver : LinearSolverBase
             Inner linear solver.
         norm : CorrectionNorm, optional
@@ -206,14 +206,14 @@ class NewtonKrylov(MatrixFreeSolver):
         if norm is None:
             norm = DIRKCorrectionNorm(
                 precision=precision,
-                n=n,
+                solver_width=solver_width,
                 instance_label="newton",
                 **kwargs,
             )
         super().__init__(
             precision=precision,
             solver_type="newton",
-            n=n,
+            solver_width=solver_width,
             norm=norm,
             **kwargs,
         )
@@ -222,7 +222,7 @@ class NewtonKrylov(MatrixFreeSolver):
             NewtonKrylovConfig,
             required={
                 "precision": precision,
-                "n": n,
+                "solver_width": solver_width,
                 "norm_device_function": self.norm.device_function,
             },
             instance_label="newton",
@@ -241,12 +241,12 @@ class NewtonKrylov(MatrixFreeSolver):
         precision = config.precision
 
         buffer_registry.register(
-            "delta", self, config.n, config.delta_location, precision=precision
+            "delta", self, config.solver_width, config.delta_location, precision=precision
         )
         buffer_registry.register(
             "residual",
             self,
-            config.n,
+            config.solver_width,
             config.residual_location,
             precision=precision,
         )
@@ -291,7 +291,7 @@ class NewtonKrylov(MatrixFreeSolver):
         linear_solver_fn = config.linear_solver_function
         correction_norm_fn = config.norm_device_function
 
-        n = config.n
+        n = config.solver_width
         max_iters = int32(config.max_iters)
 
         numba_precision = config.numba_precision

@@ -466,7 +466,7 @@ def tol_converter(
 
     For use as an attrs Converter with takes_self=True, converting
     scalar or array-like tolerance specifications into arrays of
-    shape (n,) with dtype matching self_.precision.
+    shape (tol_length,) with dtype matching self_.precision.
 
     Parameters
     ----------
@@ -474,7 +474,8 @@ def tol_converter(
         Scalar or array-like tolerance specification.
     self_
         Configuration instance providing precision and dimension
-        information. Must have `n` (int) and `precision` attributes.
+        information. Must have `tol_length` (int) and
+        `precision` attributes.
 
     Returns
     -------
@@ -484,19 +485,24 @@ def tol_converter(
     Raises
     ------
     ValueError
-        Raised when ``value`` cannot be broadcast to shape (n,).
+        Raised when ``value`` cannot be broadcast to shape
+        (tol_length,).
     """
     if isscalar(value):
-        tol = full(self_.n, value, dtype=self_.precision)
+        tol = full(self_.tol_length, value, dtype=self_.precision)
     else:
         tol = asarray(value, dtype=self_.precision)
-        if tol.shape[0] != self_.n:
+        if tol.shape[0] != self_.tol_length:
             # A uniform array is a scalar specification: broadcast it
             # to the configured length, as resize_tolerances does.
             if all(tol == tol[0]):
-                tol = full(self_.n, tol[0], dtype=self_.precision)
+                tol = full(
+                    self_.tol_length, tol[0], dtype=self_.precision
+                )
             else:
-                raise ValueError("tol must have shape (n,).")
+                raise ValueError(
+                    "tol must have shape (tol_length,)."
+                )
     return tol
 
 

@@ -206,7 +206,7 @@ def newton_edge_solver(newton_edge_case, newton_edge_system, precision):
     case = newton_edge_case
     linear_solver = MRLinearSolver(
         precision=precision,
-        n=case["n"],
+        solver_width=case["n"],
         krylov_atol=case["krylov_atol"],
         krylov_rtol=0.0,
         krylov_max_iters=case["krylov_max_iters"],
@@ -214,7 +214,7 @@ def newton_edge_solver(newton_edge_case, newton_edge_system, precision):
     linear_solver.update(operator_apply=newton_edge_system["operator"])
     newton = NewtonKrylov(
         precision=precision,
-        n=case["n"],
+        solver_width=case["n"],
         linear_solver=linear_solver,
         newton_atol=case["newton_atol"],
         newton_rtol=0.0,
@@ -581,7 +581,7 @@ def linear_solver_instance(solver_settings, system_setup, precision):
     correction_type = solver_settings["linear_correction_type"]
     common = {
         "precision": precision,
-        "n": system_setup["n"],
+        "solver_width": system_setup["n"],
         "krylov_atol": solver_settings["krylov_atol"],
         "krylov_rtol": solver_settings["krylov_rtol"],
         "krylov_max_iters": solver_settings["krylov_max_iters"],
@@ -661,7 +661,7 @@ def newton_solver_instance(
 
     solver = NewtonKrylov(
         precision=precision,
-        n=system_setup["n"],
+        solver_width=system_setup["n"],
         linear_solver=linear_solver_instance,
         newton_atol=solver_settings["newton_atol"],
         newton_rtol=solver_settings["newton_rtol"],
