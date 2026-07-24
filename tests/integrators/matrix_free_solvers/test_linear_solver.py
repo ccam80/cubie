@@ -76,14 +76,14 @@ def test_neumann_preconditioner(
 
 def test_linear_solver_update_with_no_changes_returns_empty_set(precision):
     """update() with no arguments returns an empty set without error."""
-    solver = MRLinearSolver(precision=precision, n=3)
+    solver = MRLinearSolver(precision=precision, solver_width=3)
     assert solver.update() == set()
     assert solver.update(updates_dict={}) == set()
 
 
 def test_linear_solver_use_cached_auxiliaries_property(precision):
     """use_cached_auxiliaries forwards to compile_settings."""
-    solver = MRLinearSolver(precision=precision, n=3)
+    solver = MRLinearSolver(precision=precision, solver_width=3)
     assert solver.use_cached_auxiliaries is False
     solver.update(use_cached_auxiliaries=True)
     assert solver.use_cached_auxiliaries is True
@@ -95,7 +95,7 @@ def solver_device(request, placeholder_operator, precision):
 
     solver = MRLinearSolver(
         precision=precision,
-        n=3,
+        solver_width=3,
         linear_correction_type=request.param,
         krylov_atol=1e-12,
         krylov_rtol=1e-12,
@@ -271,7 +271,7 @@ def test_linear_solver_max_iters_exceeded(solver_kernel, precision):
     n = 3
     solver = MRLinearSolver(
         precision=precision,
-        n=n,
+        solver_width=n,
         linear_correction_type="minimal_residual",
         krylov_atol=1e-20,
         krylov_rtol=1e-20,
@@ -299,7 +299,7 @@ def test_linear_solver_config_scalar_tolerance_broadcast(precision):
     n = 5
     solver = MRLinearSolver(
         precision=precision,
-        n=n,
+        solver_width=n,
         krylov_atol=1e-6,
         krylov_rtol=1e-4,
     )
@@ -316,7 +316,7 @@ def test_linear_solver_config_array_tolerance_accepted(precision):
     rtol = np.array([1e-3, 1e-5, 1e-2], dtype=precision)
     solver = MRLinearSolver(
         precision=precision,
-        n=n,
+        solver_width=n,
         krylov_atol=atol,
         krylov_rtol=rtol,
     )
@@ -331,7 +331,7 @@ def test_linear_solver_config_wrong_length_raises(precision):
     with pytest.raises(ValueError, match="tol must have shape"):
         MRLinearSolver(
             precision=precision,
-            n=n,
+            solver_width=n,
             krylov_atol=wrong_atol,
         )
 
@@ -386,7 +386,7 @@ def test_linear_solver_uses_scaled_norm(precision):
     n = 3
     solver = MRLinearSolver(
         precision=precision,
-        n=n,
+        solver_width=n,
         krylov_atol=1e-6,
         krylov_rtol=1e-4,
     )
@@ -394,7 +394,7 @@ def test_linear_solver_uses_scaled_norm(precision):
     assert hasattr(solver, "norm")
     assert isinstance(solver.norm, ScaledNorm)
     # Verify the norm factory has correct settings
-    assert solver.norm.n == n
+    assert solver.norm.solver_width == n
     assert solver.norm.precision == precision
     assert np.all(solver.norm.atol == precision(1e-6))
     assert np.all(solver.norm.rtol == precision(1e-4))
@@ -405,7 +405,7 @@ def test_linear_solver_tolerance_update_propagates(precision):
     n = 3
     solver = MRLinearSolver(
         precision=precision,
-        n=n,
+        solver_width=n,
         krylov_atol=1e-6,
         krylov_rtol=1e-4,
     )
@@ -432,7 +432,7 @@ def test_linear_solver_config_no_tolerance_fields(precision):
         MRLinearSolverConfig,
     )
 
-    config = MRLinearSolverConfig(precision=precision, n=3)
+    config = MRLinearSolverConfig(precision=precision, solver_width=3)
 
     # These fields should no longer exist on the config
     assert not hasattr(config, "krylov_atol")
@@ -450,7 +450,7 @@ def test_linear_solver_config_settings_dict_excludes_tolerance_arrays(
         MRLinearSolverConfig,
     )
 
-    config = MRLinearSolverConfig(precision=precision, n=3)
+    config = MRLinearSolverConfig(precision=precision, solver_width=3)
     settings = config.settings_dict
 
     # Tolerance arrays should not be in settings_dict
@@ -475,7 +475,7 @@ def test_linear_solver_inherits_from_matrix_free_solver(precision):
 
     solver = MRLinearSolver(
         precision=precision,
-        n=3,
+        solver_width=3,
     )
     assert isinstance(solver, MatrixFreeSolver)
     assert hasattr(solver, "solver_type")
@@ -486,7 +486,7 @@ def test_linear_solver_update_preserves_original_dict(precision):
     """Verify update() does not modify the input updates_dict."""
     solver = MRLinearSolver(
         precision=precision,
-        n=3,
+        solver_width=3,
     )
 
     # Create an update dict with tolerance values
@@ -509,7 +509,7 @@ def test_linear_solver_no_manual_cache_invalidation(precision):
     """Verify cache invalidation happens through config update, not manual."""
     solver = MRLinearSolver(
         precision=precision,
-        n=3,
+        solver_width=3,
         krylov_atol=1e-6,
         krylov_rtol=1e-4,
     )
@@ -539,7 +539,7 @@ def test_linear_solver_settings_dict_includes_tolerance_arrays(precision):
     rtol = np.array([1e-3, 1e-5, 1e-2], dtype=precision)
     solver = MRLinearSolver(
         precision=precision,
-        n=n,
+        solver_width=n,
         krylov_atol=atol,
         krylov_rtol=rtol,
     )
@@ -570,7 +570,7 @@ def test_linear_solver_init_with_krylov_prefixed_kwargs(precision):
 
     solver = MRLinearSolver(
         precision=precision,
-        n=n,
+        solver_width=n,
         krylov_atol=krylov_atol,
         krylov_rtol=krylov_rtol,
     )
@@ -596,7 +596,7 @@ def test_linear_solver_forwards_kwargs_to_norm(precision):
 
     solver = MRLinearSolver(
         precision=precision,
-        n=n,
+        solver_width=n,
         krylov_atol=atol,
         krylov_rtol=rtol,
     )
@@ -647,7 +647,7 @@ def test_residual_reduction_measures_entry_rhs(
     """
     common = {
         "precision": precision,
-        "n": 3,
+        "solver_width": 3,
         "krylov_atol": 1.0,
         "krylov_rtol": 0.0,
         "krylov_max_iters": 8,
@@ -694,7 +694,7 @@ def test_residual_reduction_measures_entry_rhs(
 
 def test_residual_settings_derive_and_override(precision):
     """Unset stopping settings derive; explicit values stick and update."""
-    solver = MRLinearSolver(precision=precision, n=3)
+    solver = MRLinearSolver(precision=precision, solver_width=3)
     derived_floor = precision(float(np.finfo(precision).eps) ** 0.5)
     assert solver.krylov_residual_reduction == precision(
         np.finfo(precision).eps
@@ -707,7 +707,7 @@ def test_residual_settings_derive_and_override(precision):
 
     solver = MRLinearSolver(
         precision=precision,
-        n=3,
+        solver_width=3,
         krylov_residual_reduction=1e-3,
         krylov_residual_floor=0.25,
     )
@@ -737,4 +737,4 @@ def test_residual_settings_derive_and_override(precision):
 def test_residual_settings_reject_out_of_range(precision, settings):
     """The reduction stays inside [0, 1] and the floor non-negative."""
     with pytest.raises((ValueError, TypeError)):
-        MRLinearSolver(precision=precision, n=3, **settings)
+        MRLinearSolver(precision=precision, solver_width=3, **settings)

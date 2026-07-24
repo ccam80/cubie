@@ -10,7 +10,7 @@ from cubie.integrators.norms import ScaledNorm
 
 def test_matrix_free_solver_config_precision_property(precision):
     """Verify numba_precision and simsafe_precision properties work correctly."""
-    config = MatrixFreeSolverConfig(precision=precision, n=3)
+    config = MatrixFreeSolverConfig(precision=precision, solver_width=3)
 
     # Verify numba_precision returns correct type
     numba_prec = config.numba_precision
@@ -27,53 +27,53 @@ def test_matrix_free_solver_config_precision_property(precision):
 def test_matrix_free_solver_config_validation():
     """Verify precision and n validators work correctly."""
     # Test valid configuration
-    config = MatrixFreeSolverConfig(precision=np.float64, n=5)
+    config = MatrixFreeSolverConfig(precision=np.float64, solver_width=5)
     assert config.precision == np.float64
-    assert config.n == 5
+    assert config.solver_width == 5
 
     # Test n must be >= 1
     with pytest.raises(ValueError):
-        MatrixFreeSolverConfig(precision=np.float32, n=0)
+        MatrixFreeSolverConfig(precision=np.float32, solver_width=0)
 
     # Test invalid precision type raises error
     with pytest.raises(ValueError):
-        MatrixFreeSolverConfig(precision=np.int32, n=3)
+        MatrixFreeSolverConfig(precision=np.int32, solver_width=3)
 
 
 def test_matrix_free_solver_config_max_iters_default():
     """Verify max_iters defaults to 100."""
-    config = MatrixFreeSolverConfig(precision=np.float64, n=3)
+    config = MatrixFreeSolverConfig(precision=np.float64, solver_width=3)
     assert config.max_iters == 100
 
 
 def test_matrix_free_solver_config_max_iters_validation():
     """Verify max_iters rejects values < 1 and > 32767."""
     # Test valid boundary values
-    config_min = MatrixFreeSolverConfig(precision=np.float64, n=3, max_iters=1)
+    config_min = MatrixFreeSolverConfig(precision=np.float64, solver_width=3, max_iters=1)
     assert config_min.max_iters == 1
 
     config_max = MatrixFreeSolverConfig(
-        precision=np.float64, n=3, max_iters=32767
+        precision=np.float64, solver_width=3, max_iters=32767
     )
     assert config_max.max_iters == 32767
 
     # Test invalid: below minimum
     with pytest.raises((ValueError, TypeError)):
-        MatrixFreeSolverConfig(precision=np.float64, n=3, max_iters=0)
+        MatrixFreeSolverConfig(precision=np.float64, solver_width=3, max_iters=0)
 
     # Test invalid: above maximum
     with pytest.raises((ValueError, TypeError)):
-        MatrixFreeSolverConfig(precision=np.float64, n=3, max_iters=32768)
+        MatrixFreeSolverConfig(precision=np.float64, solver_width=3, max_iters=32768)
 
     # Test invalid: wrong type
     with pytest.raises((ValueError, TypeError)):
-        MatrixFreeSolverConfig(precision=np.float64, n=3, max_iters=50.5)
+        MatrixFreeSolverConfig(precision=np.float64, solver_width=3, max_iters=50.5)
 
 
 def test_matrix_free_solver_config_norm_device_function_field():
     """Verify norm_device_function field exists and accepts None or Callable."""
     # Test default is None
-    config = MatrixFreeSolverConfig(precision=np.float64, n=3)
+    config = MatrixFreeSolverConfig(precision=np.float64, solver_width=3)
     assert config.norm_device_function is None
 
     # Test accepts a callable
@@ -81,7 +81,7 @@ def test_matrix_free_solver_config_norm_device_function_field():
         pass
 
     config_with_fn = MatrixFreeSolverConfig(
-        precision=np.float64, n=3, norm_device_function=dummy_norm
+        precision=np.float64, solver_width=3, norm_device_function=dummy_norm
     )
     assert config_with_fn.norm_device_function is dummy_norm
 
@@ -91,7 +91,7 @@ def test_matrix_free_solver_config_norm_device_function_field():
         pass
 
     config_other = MatrixFreeSolverConfig(
-        precision=np.float64, n=3, norm_device_function=another_norm
+        precision=np.float64, solver_width=3, norm_device_function=another_norm
     )
     assert config_with_fn == config_other
 
@@ -104,7 +104,7 @@ def test_matrix_free_solver_creates_norm():
         def build(self):
             pass
 
-    solver = _StubSolver(precision=np.float64, n=3, solver_type="newton")
+    solver = _StubSolver(precision=np.float64, solver_width=3, solver_type="newton")
 
     # Verify norm attribute exists and is a ScaledNorm instance
     assert hasattr(solver, "norm")
@@ -112,7 +112,7 @@ def test_matrix_free_solver_creates_norm():
 
     # Verify norm has correct precision and n
     assert solver.norm.precision == np.float64
-    assert solver.norm.n == 3
+    assert solver.norm.solver_width == 3
 
 
 def test_matrix_free_solver_forwards_kwargs_to_norm(precision):
@@ -134,7 +134,7 @@ def test_matrix_free_solver_forwards_kwargs_to_norm(precision):
     solver = TestSolver(
         precision=precision,
         solver_type="krylov",
-        n=n,
+        solver_width=n,
         krylov_atol=krylov_atol,
         krylov_rtol=krylov_rtol,
     )
@@ -151,7 +151,7 @@ def test_matrix_free_solver_update_with_no_changes_returns_empty_set():
         def build(self):
             pass
 
-    solver = _StubSolver(precision=np.float64, n=3, solver_type="newton")
+    solver = _StubSolver(precision=np.float64, solver_width=3, solver_type="newton")
     assert solver.update() == set()
     assert solver.update(updates_dict={}) == set()
 
@@ -162,6 +162,6 @@ def test_matrix_free_solver_n_and_max_iters_properties():
         MRLinearSolver,
     )
 
-    solver = MRLinearSolver(precision=np.float64, n=7, krylov_max_iters=11)
-    assert solver.n == 7
+    solver = MRLinearSolver(precision=np.float64, solver_width=7, krylov_max_iters=11)
+    assert solver.solver_width == 7
     assert solver.max_iters == 11

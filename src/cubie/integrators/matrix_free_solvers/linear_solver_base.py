@@ -142,7 +142,11 @@ class LinearSolverBaseConfig(MatrixFreeSolverConfig):
     @property
     def chain_scratch_elements(self) -> int:
         """Return the chained-preconditioner scratch buffer length."""
-        return self.n if self.preconditioner_is_chained else 0
+        return (
+            self.solver_width
+            if self.preconditioner_is_chained
+            else 0
+        )
 
 
 @define
@@ -171,7 +175,7 @@ class LinearSolverBase(MatrixFreeSolver):
         Attrs config class for the concrete solver variant.
     precision : PrecisionDType
         Numerical precision for computations.
-    n : int
+    solver_width : int
         Length of residual and search-direction vectors.
     instance_label : str
         Prefix for tolerance parameters.
@@ -194,7 +198,7 @@ class LinearSolverBase(MatrixFreeSolver):
         self,
         config_class: type,
         precision: PrecisionDType,
-        n: int,
+        solver_width: int,
         instance_label: str = "krylov",
         norm: Optional[ScaledNorm] = None,
         **kwargs,
@@ -203,7 +207,7 @@ class LinearSolverBase(MatrixFreeSolver):
             config_class,
             required={
                 "precision": precision,
-                "n": n,
+                "solver_width": solver_width,
             },
             instance_label=instance_label,
             **kwargs,
@@ -212,7 +216,7 @@ class LinearSolverBase(MatrixFreeSolver):
         super().__init__(
             precision=precision,
             solver_type="krylov",
-            n=n,
+            solver_width=solver_width,
             norm=norm,
             **kwargs,
         )

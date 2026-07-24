@@ -17,9 +17,9 @@ STATUS_MASK = 0xFFFF
 
 def test_newton_krylov_update_with_no_changes_returns_empty_set(precision):
     """update() with no arguments returns an empty set without error."""
-    linear_solver_instance = MRLinearSolver(precision=precision, n=1)
+    linear_solver_instance = MRLinearSolver(precision=precision, solver_width=1)
     newton_instance = NewtonKrylov(
-        precision=precision, n=1, linear_solver=linear_solver_instance,
+        precision=precision, solver_width=1, linear_solver=linear_solver_instance,
     )
     assert newton_instance.update() == set()
     assert newton_instance.update(updates_dict={}) == set()
@@ -138,10 +138,10 @@ def test_newton_krylov_symbolic(
 def test_newton_krylov_config_scalar_tolerance_broadcast(precision):
     """Verify scalar newton_atol/rtol broadcasts to array of length n."""
     n = 5
-    linear_solver = MRLinearSolver(precision=precision, n=n)
+    linear_solver = MRLinearSolver(precision=precision, solver_width=n)
     newton = NewtonKrylov(
         precision=precision,
-        n=n,
+        solver_width=n,
         linear_solver=linear_solver,
         newton_atol=1e-6,
         newton_rtol=1e-4,
@@ -157,10 +157,10 @@ def test_newton_krylov_config_array_tolerance_accepted(precision):
     n = 3
     atol = np.array([1e-6, 1e-8, 1e-4], dtype=precision)
     rtol = np.array([1e-3, 1e-5, 1e-2], dtype=precision)
-    linear_solver = MRLinearSolver(precision=precision, n=n)
+    linear_solver = MRLinearSolver(precision=precision, solver_width=n)
     newton = NewtonKrylov(
         precision=precision,
-        n=n,
+        solver_width=n,
         linear_solver=linear_solver,
         newton_atol=atol,
         newton_rtol=rtol,
@@ -173,11 +173,11 @@ def test_newton_krylov_config_wrong_length_raises(precision):
     """Verify wrong-length tolerance array raises ValueError."""
     n = 3
     wrong_atol = np.array([1e-6, 1e-8], dtype=precision)  # length 2
-    linear_solver = MRLinearSolver(precision=precision, n=n)
+    linear_solver = MRLinearSolver(precision=precision, solver_width=n)
     with pytest.raises(ValueError, match="tol must have shape"):
         NewtonKrylov(
             precision=precision,
-            n=n,
+            solver_width=n,
             linear_solver=linear_solver,
             newton_atol=wrong_atol,
         )
@@ -188,10 +188,10 @@ def test_newton_krylov_uses_scaled_norm(precision):
     from cubie.integrators.norms import ScaledNorm
 
     n = 3
-    linear_solver = MRLinearSolver(precision=precision, n=n)
+    linear_solver = MRLinearSolver(precision=precision, solver_width=n)
     newton = NewtonKrylov(
         precision=precision,
-        n=n,
+        solver_width=n,
         linear_solver=linear_solver,
         newton_atol=1e-6,
         newton_rtol=1e-4,
@@ -200,7 +200,7 @@ def test_newton_krylov_uses_scaled_norm(precision):
     assert hasattr(newton, "norm")
     assert isinstance(newton.norm, ScaledNorm)
     # Verify norm has correct configuration
-    assert newton.norm.n == n
+    assert newton.norm.solver_width == n
     assert newton.norm.precision == precision
     assert np.all(newton.norm.atol == precision(1e-6))
     assert np.all(newton.norm.rtol == precision(1e-4))
@@ -211,10 +211,10 @@ def test_newton_krylov_tolerance_update_propagates(precision):
     n = 3
     initial_atol = 1e-6
     initial_rtol = 1e-4
-    linear_solver = MRLinearSolver(precision=precision, n=n)
+    linear_solver = MRLinearSolver(precision=precision, solver_width=n)
     newton = NewtonKrylov(
         precision=precision,
-        n=n,
+        solver_width=n,
         linear_solver=linear_solver,
         newton_atol=initial_atol,
         newton_rtol=initial_rtol,
@@ -256,8 +256,8 @@ def test_newton_krylov_config_no_tolerance_fields(precision):
     assert "newton_rtol" not in field_names
 
     # Verify we can still instantiate the config
-    config = NewtonKrylovConfig(precision=precision, n=3)
-    assert config.n == 3
+    config = NewtonKrylovConfig(precision=precision, solver_width=3)
+    assert config.solver_width == 3
     assert config.precision == precision
 
 
@@ -269,7 +269,7 @@ def test_newton_krylov_config_settings_dict_excludes_tolerance_arrays(
         NewtonKrylovConfig,
     )
 
-    config = NewtonKrylovConfig(precision=precision, n=3)
+    config = NewtonKrylovConfig(precision=precision, solver_width=3)
     settings = config.settings_dict
 
     # Verify tolerance arrays are NOT in settings_dict
@@ -294,10 +294,10 @@ def test_newton_krylov_inherits_from_matrix_free_solver(precision):
     )
 
     n = 3
-    linear_solver = MRLinearSolver(precision=precision, n=n)
+    linear_solver = MRLinearSolver(precision=precision, solver_width=n)
     newton = NewtonKrylov(
         precision=precision,
-        n=n,
+        solver_width=n,
         linear_solver=linear_solver,
     )
     assert isinstance(newton, MatrixFreeSolver)
@@ -314,10 +314,10 @@ def test_newton_krylov_update_preserves_original_dict(precision):
         out[0] = state[0]
 
     n = 1
-    linear_solver = MRLinearSolver(precision=precision, n=n)
+    linear_solver = MRLinearSolver(precision=precision, solver_width=n)
     newton = NewtonKrylov(
         precision=precision,
-        n=n,
+        solver_width=n,
         linear_solver=linear_solver,
     )
 
@@ -340,16 +340,16 @@ def test_newton_krylov_update_preserves_original_dict(precision):
 def test_newton_krylov_no_manual_cache_invalidation(precision):
     """Verify cache invalidation happens through config update."""
     n = 3
-    linear_solver = MRLinearSolver(precision=precision, n=n)
+    linear_solver = MRLinearSolver(precision=precision, solver_width=n)
     newton = NewtonKrylov(
         precision=precision,
-        n=n,
+        solver_width=n,
         linear_solver=linear_solver,
         newton_atol=1e-6,
         newton_rtol=1e-4,
     )
 
-    newton.update(n=n)
+    newton.update(solver_width=n)
     _ = newton.device_function
     config = newton.compile_settings
     old_norm_function = config.norm_device_function
@@ -368,10 +368,10 @@ def test_newton_krylov_settings_dict_includes_tolerance_arrays(precision):
     n = 3
     newton_atol = np.array([1e-6, 1e-8, 1e-4], dtype=precision)
     newton_rtol = np.array([1e-3, 1e-5, 1e-2], dtype=precision)
-    linear_solver = MRLinearSolver(precision=precision, n=n)
+    linear_solver = MRLinearSolver(precision=precision, solver_width=n)
     newton = NewtonKrylov(
         precision=precision,
-        n=n,
+        solver_width=n,
         linear_solver=linear_solver,
         newton_atol=newton_atol,
         newton_rtol=newton_rtol,
@@ -403,10 +403,10 @@ def test_newton_krylov_init_with_newton_prefixed_kwargs(precision):
     newton_atol = np.array([1e-10, 1e-9, 1e-8], dtype=precision)
     newton_rtol = np.array([1e-5, 1e-4, 1e-3], dtype=precision)
 
-    linear_solver = MRLinearSolver(precision=precision, n=n)
+    linear_solver = MRLinearSolver(precision=precision, solver_width=n)
     newton = NewtonKrylov(
         precision=precision,
-        n=n,
+        solver_width=n,
         linear_solver=linear_solver,
         newton_atol=newton_atol,
         newton_rtol=newton_rtol,
@@ -431,10 +431,10 @@ def test_newton_krylov_forwards_krylov_kwargs_to_linear_solver(precision):
     krylov_atol = np.array([1e-12, 1e-11, 1e-10], dtype=precision)
     krylov_rtol = np.array([1e-6, 1e-5, 1e-4], dtype=precision)
 
-    linear_solver = MRLinearSolver(precision=precision, n=n)
+    linear_solver = MRLinearSolver(precision=precision, solver_width=n)
     newton = NewtonKrylov(
         precision=precision,
-        n=n,
+        solver_width=n,
         linear_solver=linear_solver,
     )
 
@@ -462,7 +462,7 @@ def test_nested_prefix_propagation_init(precision):
 
     linear_solver = MRLinearSolver(
         precision=precision,
-        n=n,
+        solver_width=n,
         krylov_atol=krylov_atol,
         krylov_rtol=krylov_rtol,
     )
@@ -481,10 +481,10 @@ def test_nested_prefix_propagation_update(precision):
     reaches the nested MRLinearSolver's ScaledNorm.
     """
     n = 3
-    linear_solver = MRLinearSolver(precision=precision, n=n)
+    linear_solver = MRLinearSolver(precision=precision, solver_width=n)
     newton = NewtonKrylov(
         precision=precision,
-        n=n,
+        solver_width=n,
         linear_solver=linear_solver,
     )
 

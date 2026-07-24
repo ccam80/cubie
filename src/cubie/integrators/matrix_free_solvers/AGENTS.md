@@ -21,7 +21,7 @@ is specific to the solvers.
 | File | Description |
 |------|-------------|
 | `__init__.py` | Re-exports factories/configs/caches; re-exports `CUBIE_RESULT_CODES` from `cubie.result_codes`. |
-| `base_solver.py` | `MatrixFreeSolver` / `MatrixFreeSolverConfig` base — holds the norm device function and the shared `n` / `max_iters` / tolerance plumbing. |
+| `base_solver.py` | `MatrixFreeSolver` / `MatrixFreeSolverConfig` base — holds the norm device function and the shared `solver_width` / `max_iters` / tolerance plumbing. |
 | `linear_solver_base.py` | `LinearSolverBase` / `LinearSolverBaseConfig` — shared linear-solver infrastructure: stopping settings, `norm_reference`, buffer and update plumbing. |
 | `linear_solver.py` | `MRLinearSolver` — matrix-free preconditioned steepest-descent / minimal-residual linear solve (cached and non-cached variants). |
 | `bicgstab_solver.py` | `BiCGSTABSolver` — matrix-free preconditioned BiCGSTAB linear solve. |
@@ -61,12 +61,13 @@ compiled callable from `.device_function`.
   forwards `krylov_`-prefixed params to the child and re-injects the
   recompiled device function.
 
-### Registered buffers (length `n` unless noted)
+### Registered buffers (length `solver_width` unless noted)
 - `MRLinearSolver`: `preconditioned_vec`, `temp`, `mr_precond_scratch`,
-  `mr_chain_scratch` (length `n` when `preconditioner_is_chained`, else 0).
+  `mr_chain_scratch` (length `solver_width` when
+  `preconditioner_is_chained`, else 0).
 - `BiCGSTABSolver`: `bicg_r0_hat`, `bicg_p`, `bicg_v`, `bicg_tmp`,
-  `bicg_s_hat`, `bicg_precond_scratch`, `bicg_chain_scratch` (length `n`
-  when `preconditioner_is_chained`, else 0).
+  `bicg_s_hat`, `bicg_precond_scratch`, `bicg_chain_scratch` (length
+  `solver_width` when `preconditioner_is_chained`, else 0).
 - `NewtonKrylov`: `delta`, `residual`, `krylov_iters_local` (length 1,
   int32), and `prev_theta` (length 1, persistent — contraction
   history carried between solves).

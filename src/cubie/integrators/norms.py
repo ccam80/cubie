@@ -27,24 +27,25 @@ class ScaledNormConfig(MultipleInstanceCUDAFactoryConfig):
 
     Attributes
     ----------
-    n : int
-        Size of vectors to compute norm over.
+    solver_width : int
+        Length of the solver vectors the norm reduces over.
     atol : ndarray
-        Absolute tolerance array of shape (n,).
+        Absolute tolerance array of shape (solver_width,).
     rtol : ndarray
-        Relative tolerance array of shape (n,).
+        Relative tolerance array of shape (solver_width,).
 
     Notes
     -----
-    Tolerance sizing follows ``n`` through the converter: every
-    snapshot (construction or update-derived replacement) re-runs
-    :func:`cubie._utils.tol_converter`, which broadcasts scalar or
-    uniform-array specifications to shape ``(n,)``. A non-uniform
-    array of the wrong length raises at the write boundary; update
-    ``n`` and the tolerance arrays together in one call.
+    Tolerance sizing follows ``solver_width`` through the
+    converter: every snapshot (construction or update-derived
+    replacement) re-runs :func:`cubie._utils.tol_converter`, which
+    broadcasts scalar or uniform-array specifications to shape
+    ``(solver_width,)``. A non-uniform array of the wrong length
+    raises at the write boundary; update ``solver_width`` and the
+    tolerance arrays together in one call.
     """
 
-    n: int = field(
+    solver_width: int = field(
         default=1,
         validator=getype_validator(int, 1),
     )
@@ -66,8 +67,13 @@ class ScaledNormConfig(MultipleInstanceCUDAFactoryConfig):
 
     @property
     def inv_n(self) -> float:
-        """Return precomputed 1/n in configured precision."""
-        return self.precision(1.0 / self.n)
+        """Return 1/solver_width in configured precision."""
+        return self.precision(1.0 / self.solver_width)
+
+    @property
+    def tol_length(self) -> int:
+        """Return the tolerance-array length for tol_converter."""
+        return self.solver_width
 
     @property
     def tol_floor(self) -> float:
@@ -81,21 +87,23 @@ class FIRKCorrectionNormConfig(ScaledNormConfig):
 
     Attributes
     ----------
-    state_n : int
+    n : int
         Number of physical states per stage.
     stage_coefficients : tuple
         Row-major flattened Butcher ``a`` matrix, as produced by
         ``tableau.a_flat``.
     """
 
-    state_n: int = field(default=1, validator=getype_validator(int, 1))
+    n: int = field(default=1, validator=getype_validator(int, 1))
     stage_coefficients: tuple = field(default=(1.0,))
 
     def __attrs_post_init__(self):
         super().__attrs_post_init__()
-        if self.n % self.state_n != 0:
-            raise ValueError("n must be a multiple of state_n")
-        stage_count = self.n // self.state_n
+        if self.solver_width % self.n != 0:
+            raise ValueError(
+                "solver_width must be a multiple of n"
+            )
+        stage_count = self.solver_width // self.n
         if len(self.stage_coefficients) != stage_count * stage_count:
             raise ValueError(
                 "stage_coefficients must hold stage_count**2 values"
@@ -104,7 +112,7 @@ class FIRKCorrectionNormConfig(ScaledNormConfig):
     @property
     def stage_count(self) -> int:
         """Return the number of coupled stages."""
-        return self.n // self.state_n
+        return self.solver_width // self.n
 
 
 @define
@@ -122,7 +130,7 @@ class ScaledNorm(MultipleInstanceCUDAFactory):
     def __init__(
         self,
         precision: PrecisionDType,
-        n: int,
+        solver_width: int,
         instance_label: str = "",
         **kwargs,
     ) -> None:
@@ -132,8 +140,8 @@ class ScaledNorm(MultipleInstanceCUDAFactory):
         ----------
         precision : PrecisionDType
             Numerical precision for computations.
-        n : int
-            Size of vectors to compute norm over.
+        solver_width : int
+            Length of the solver vectors the norm reduces over.
         instance_label : str, optional
             Prefix label for parameter names when used as a nested factory.
         **kwargs
@@ -146,7 +154,7 @@ class ScaledNorm(MultipleInstanceCUDAFactory):
             self.config_type,
             required={
                 "precision": precision,
-                "n": n,
+                "solver_width": solver_width,
             },
             instance_label=instance_label,
             **kwargs,
@@ -158,7 +166,7 @@ class ScaledNorm(MultipleInstanceCUDAFactory):
         """Compile the whole-vector norm."""
         config = self.compile_settings
 
-        n = config.n
+        n = config.solver_width
         atol = config.atol
         rtol = config.rtol
         numba_precision = config.numba_precision
@@ -227,9 +235,9 @@ class ScaledNorm(MultipleInstanceCUDAFactory):
         return self.compile_settings.precision
 
     @property
-    def n(self) -> int:
-        """Return vector size."""
-        return self.compile_settings.n
+    def solver_width(self) -> int:
+        """Return the solver vector length."""
+        return self.compile_settings.solver_width
 
     @property
     def atol(self) -> ndarray:
@@ -248,28 +256,30 @@ class TiledScaledNormConfig(ScaledNormConfig):
 
     Attributes
     ----------
-    state_n : int
+    n : int
         Number of physical states per stage. The reference vector
         holds one entry per physical state and is reused for every
-        stage block of the ``n``-element value vector.
+        stage block of the ``solver_width``-element value vector.
     """
 
-    state_n: int = field(default=1, validator=getype_validator(int, 1))
+    n: int = field(default=1, validator=getype_validator(int, 1))
 
     def __attrs_post_init__(self):
         super().__attrs_post_init__()
-        if self.n % self.state_n != 0:
-            raise ValueError("n must be a multiple of state_n")
+        if self.solver_width % self.n != 0:
+            raise ValueError(
+                "solver_width must be a multiple of n"
+            )
 
 
 class TiledScaledNorm(ScaledNorm):
     """Compile a scaled norm whose reference tiles across stages.
 
-    Coupled FIRK solves stack ``n = stage_count * state_n`` values,
-    but the physical reference vector holds only ``state_n`` entries.
-    The compiled function reads the reference entry for value ``i``
-    at ``i mod state_n`` so callers pass the single-stage reference
-    directly.
+    Coupled FIRK solves stack ``solver_width = stage_count * n``
+    values, but the physical reference vector holds only ``n``
+    entries. The compiled function reads the reference entry for
+    value ``i`` at ``i mod n`` so callers pass the single-stage
+    reference directly.
     """
 
     config_type = TiledScaledNormConfig
@@ -283,8 +293,8 @@ class TiledScaledNorm(ScaledNorm):
         numba_precision = config.numba_precision
         inv_n = config.inv_n
         tol_floor = config.tol_floor
-        n_val = int32(config.n)
-        state_n = int32(config.state_n)
+        n_val = int32(config.solver_width)
+        state_n = int32(config.n)
 
         typed_zero = numba_precision(0.0)
 
@@ -335,7 +345,7 @@ class DIRKCorrectionNorm(CorrectionNorm):
         inv_n = config.inv_n
         tol_floor = config.tol_floor
         numba_precision = config.numba_precision
-        n_val = int32(config.n)
+        n_val = int32(config.solver_width)
         typed_zero = numba_precision(0.0)
 
         # no cover: start
@@ -377,8 +387,8 @@ class FIRKCorrectionNorm(CorrectionNorm):
         inv_n = config.inv_n
         tol_floor = config.tol_floor
         numba_precision = config.numba_precision
-        n_val = int32(config.n)
-        state_n = int32(config.state_n)
+        n_val = int32(config.solver_width)
+        state_n = int32(config.n)
         stage_count = int32(config.stage_count)
         stage_coefficients = tuple(
             numba_precision(value) for value in config.stage_coefficients

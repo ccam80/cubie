@@ -171,16 +171,10 @@ class FIRKStepConfig(ImplicitStepConfig):
         return self.tableau.stage_count
 
     @property
-    def all_stages_n(self) -> int:
-        """Return the flattened dimension covering all stage increments."""
+    def solver_width(self) -> int:
+        """Return the coupled solver width across all stages."""
 
         return self.stage_count * self.n
-
-    @property
-    def solver_n(self) -> int:
-        """Return the coupled solver dimension across all stages."""
-
-        return self.all_stages_n
 
 
 class FIRKStep(ODEImplicitStep):
@@ -276,8 +270,8 @@ class FIRKStep(ODEImplicitStep):
 
         newton_norm = FIRKCorrectionNorm(
             precision=precision,
-            n=config.all_stages_n,
-            state_n=n,
+            solver_width=config.solver_width,
+            n=n,
             stage_coefficients=tableau.a_flat(float),
             instance_label="newton",
             **kwargs,
@@ -286,8 +280,8 @@ class FIRKStep(ODEImplicitStep):
         # single-stage base state; the tiled norm reuses it per stage.
         krylov_norm = TiledScaledNorm(
             precision=precision,
-            n=config.all_stages_n,
-            state_n=n,
+            solver_width=config.solver_width,
+            n=n,
             instance_label="krylov",
             **kwargs,
         )
@@ -399,7 +393,7 @@ class FIRKStep(ODEImplicitStep):
                 config.preconditioner_is_chained
             ),
             residual_function=residual,
-            n=config.all_stages_n,
+            solver_width=config.solver_width,
         )
 
         self.update_compile_settings(

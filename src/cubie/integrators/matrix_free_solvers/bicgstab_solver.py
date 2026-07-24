@@ -140,7 +140,9 @@ class BiCGSTABSolverConfig(LinearSolverBaseConfig):
         """
         if self.r0_hat_location is not None:
             return self.r0_hat_location
-        return _default_r0_hat_location(self.n, self.precision)
+        return _default_r0_hat_location(
+            self.solver_width, self.precision
+        )
 
     @property
     def settings_dict(self) -> Dict[str, Any]:
@@ -173,7 +175,7 @@ class BiCGSTABSolver(LinearSolverBase):
     ----------
     precision : PrecisionDType
         Numerical precision for computations.
-    n : int
+    solver_width : int
         Length of residual and search-direction vectors.
     **kwargs
         Forwarded to :class:`BiCGSTABSolverConfig` and the norm
@@ -183,13 +185,13 @@ class BiCGSTABSolver(LinearSolverBase):
     def __init__(
         self,
         precision: PrecisionDType,
-        n: int,
+        solver_width: int,
         **kwargs,
     ) -> None:
         super().__init__(
             config_class=BiCGSTABSolverConfig,
             precision=precision,
-            n=n,
+            solver_width=solver_width,
             **kwargs,
         )
 
@@ -206,7 +208,7 @@ class BiCGSTABSolver(LinearSolverBase):
             ("bicg_precond_scratch", "local"),
         ]:
             buffer_registry.register(
-                name, self, config.n, loc, precision=prec
+                name, self, config.solver_width, loc, precision=prec
             )
         buffer_registry.register(
             "bicg_chain_scratch",
@@ -237,7 +239,7 @@ class BiCGSTABSolver(LinearSolverBase):
         scaled_norm_fn = config.norm_device_function
 
         # Config parameters
-        n = config.n
+        n = config.solver_width
         max_iters = config.max_iters
         precision = config.precision
 
