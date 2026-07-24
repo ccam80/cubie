@@ -48,6 +48,7 @@ from typing import Dict, Tuple
 import attrs
 import math
 
+from cubie.cuda_simsafe import int32
 from cubie.integrators.algorithms.base_algorithm_step import ButcherTableau
 
 
@@ -64,6 +65,8 @@ class DIRKTableau(ButcherTableau):
     diagonal(precision)
         Return the diagonal elements of the :math:`A` matrix as a
         precision-typed tuple.
+    prediction_source_stages
+        Return the history row each stage's starting guess reads.
 
     References
     ----------
@@ -86,12 +89,31 @@ class DIRKTableau(ButcherTableau):
         )
         return self.typed_vector(diagonal_entries, precision)
 
+    @property
+    def prediction_source_stages(self) -> Tuple[int, ...]:
+        """Return the history row each stage's starting guess reads.
+
+        A stage that repeats an earlier stage's time starts its
+        solve from that stage's converged increment; every other
+        stage starts from its own predicted increment. Members are
+        ``int32`` for direct use in device code.
+        """
+
+        latest_stage_at_node = {}
+        sources = []
+        for stage, node in enumerate(self.c):
+            sources.append(latest_stage_at_node.get(node, stage))
+            latest_stage_at_node[node] = stage
+        return tuple(int32(source) for source in sources)
+
 
 IMPLICIT_MIDPOINT_TABLEAU = DIRKTableau(
     a=((0.5,),),
     b=(1.0,),
     c=(0.5,),
     order=2,
+    dense_prediction_ratio_float32=1.0,
+    dense_prediction_ratio_float64=1.0,
 )
 """DIRK tableau for the implicit midpoint rule (second order).
 
@@ -113,6 +135,8 @@ TRAPEZOIDAL_DIRK_TABLEAU = DIRKTableau(
     b=(0.5, 0.5),
     c=(0.0, 1.0),
     order=2,
+    dense_prediction_ratio_float32=0.39,
+    dense_prediction_ratio_float64=1.21,
 )
 """DIRK tableau for the Crank--Nicolson (trapezoidal) rule.
 
@@ -160,6 +184,8 @@ KVAERNO3_TABLEAU = DIRKTableau(
     ),
     c=(0.0, 2.0 * KVAERNO3_GAMMA, 1.0, 1.0),
     order=3,
+    dense_prediction_ratio_float32=0.85,
+    dense_prediction_ratio_float64=1.28,
 )
 """Four-stage, third-order Kvaerno ESDIRK tableau.
 
@@ -275,6 +301,8 @@ SDIRK_2_2_TABLEAU = DIRKTableau(
     b=(1 - SDIRK2_GAMMA, SDIRK2_GAMMA),
     c=(SDIRK2_GAMMA, 1.0),
     order=2,
+    dense_prediction_ratio_float32=1.07,
+    dense_prediction_ratio_float64=1.21,
 )
 """Two-stage, second-order SDIRK tableau by Alexander.
 
@@ -327,6 +355,8 @@ L_STABLE_DIRK3_TABLEAU = DIRKTableau(
         1.0,
     ),
     order=3,
+    dense_prediction_ratio_float32=0.85,
+    dense_prediction_ratio_float64=1.07,
 )
 """Three-stage, third-order L-stable DIRK method with stiff accuracy.
 
@@ -379,6 +409,8 @@ L_STABLE_SDIRK4_TABLEAU = DIRKTableau(
         1.0,
     ),
     order=4,
+    dense_prediction_ratio_float32=0.79,
+    dense_prediction_ratio_float64=0.79,
 )
 """Hairer--Wanner L-stable SDIRK tableau of order four.
 
