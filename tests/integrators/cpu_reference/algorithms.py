@@ -26,7 +26,6 @@ from cubie.integrators.algorithms.generic_firk_tableaus import (
     DEFAULT_FIRK_TABLEAU,
 )
 from cubie.integrators.stage_predictors import (
-    MAX_PREDICTION_STEP_RATIO,
     dense_predictor_matrix,
     tableau_supports_dense_prediction,
 )
@@ -999,12 +998,27 @@ class CPUDIRKStep(CPUStep):
         self._dirk_increment = np.zeros(self._state_size, dtype=self.precision)
         self._dirk_stage_increment_history = None
         self._dirk_previous_dt = None
-        # Mirrors the device gate: prediction requires both the
-        # request and a tableau meeting the transform preconditions.
+        # Mirrors the device gate: prediction requires the request, a
+        # tableau meeting the transform preconditions, and a positive
+        # calibrated ratio ceiling at the configured precision.
+        self._dirk_max_ratio = self.precision(
+            resolved.dense_prediction_ratio_limit(self.precision)
+        )
         self._dirk_dense_prediction = bool(
             attempt_dense_prediction
+            and float(self._dirk_max_ratio) > 0.0
             and tableau_supports_dense_prediction(resolved)
         )
+        # Derived independently of the device mapping: a repeated
+        # stage time starts from the earlier same-time stage's row.
+        latest_stage_at_node = {}
+        prediction_sources = []
+        for stage, node in enumerate(resolved.c):
+            prediction_sources.append(
+                latest_stage_at_node.get(node, stage)
+            )
+            latest_stage_at_node[node] = stage
+        self._dirk_prediction_sources = tuple(prediction_sources)
 
     def residual(self, candidate: Array) -> Array:
         base_state = self._dirk_reference
@@ -1083,10 +1097,12 @@ class CPUDIRKStep(CPUStep):
                 )
             history = self._dirk_stage_increment_history
             if prev_accepted and self._dirk_previous_dt is not None:
-                ratio = float(dt_value) / float(
+                # Ratio and ceiling compare in configured precision
+                # so the boundary agrees with the device exactly.
+                ratio = self.precision(dt_value) / self.precision(
                     self._dirk_previous_dt
                 )
-                if ratio <= MAX_PREDICTION_STEP_RATIO:
+                if ratio <= self._dirk_max_ratio:
                     predictor = np.asarray(
                         dense_predictor_matrix(self.tableau, ratio),
                         dtype=self.precision,
@@ -1097,8 +1113,13 @@ class CPUDIRKStep(CPUStep):
         self._dirk_previous_dt = dt_value
 
         for stage_index in range(stage_count):
+            # A repeated stage time starts from the earlier
+            # same-time stage's row, mirroring the device.
             if history is not None:
-                guess = history[stage_index].copy()
+                source_stage = self._dirk_prediction_sources[
+                    stage_index
+                ]
+                guess = history[source_stage].copy()
             else:
                 guess = self._dirk_increment
 
@@ -1131,6 +1152,10 @@ class CPUDIRKStep(CPUStep):
                 )
                 stage_derivatives[stage_index, :] = derivative
                 stage_states[stage_index, :] = stage_state
+                if history is not None:
+                    # The explicit stage's free sample joins the
+                    # history, mirroring the device step.
+                    history[stage_index] = dt_value * derivative
                 continue
 
             base_state = stage_state.copy()
@@ -1278,10 +1303,15 @@ class CPUFIRKStep(CPUStep):
         self._firk_dt = self.precision(0.0)
         self._firk_stage_increments = None
         self._firk_previous_dt = None
-        # Mirrors the device gate: prediction requires both the
-        # request and a tableau meeting the transform preconditions.
+        # Mirrors the device gate: prediction requires the request, a
+        # tableau meeting the transform preconditions, and a positive
+        # calibrated ratio ceiling at the configured precision.
+        self._firk_max_ratio = self.precision(
+            resolved.dense_prediction_ratio_limit(self.precision)
+        )
         self._firk_dense_prediction = bool(
             attempt_dense_prediction
+            and float(self._firk_max_ratio) > 0.0
             and tableau_supports_dense_prediction(resolved)
         )
 
@@ -1436,11 +1466,15 @@ class CPUFIRKStep(CPUStep):
         # keep the carried increments unchanged.
         guess = np.zeros(all_dim, dtype=self.precision)
         if self._firk_stage_increments is not None:
-            ratio = float(dt_value) / float(self._firk_previous_dt)
+            # Ratio and ceiling compare in configured precision so
+            # the boundary agrees with the device exactly.
+            ratio = self.precision(dt_value) / self.precision(
+                self._firk_previous_dt
+            )
             if (
                 self._firk_dense_prediction
                 and prev_accepted
-                and ratio <= MAX_PREDICTION_STEP_RATIO
+                and ratio <= self._firk_max_ratio
             ):
                 predictor = np.asarray(
                     dense_predictor_matrix(self.tableau, ratio),

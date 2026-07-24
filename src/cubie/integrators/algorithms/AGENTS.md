@@ -112,14 +112,18 @@ attrs-config mechanics; CUDA-authoring *optimisation* patterns are in
 
 ### Dense stage prediction (FIRK and DIRK)
 Both steps own a `DenseStagePredictor` (`../stage_predictors.py`) child that
-reads the previous step's stage-derivative curve ahead over the next step as
-the Newton warm start, with the step-size ratio handled at runtime.
-`ODEImplicitStep.dense_prediction` gates compilation (`attempt_dense_prediction`
-requested + tableau nodes pairwise distinct and well spread); the step judges
-first-step/rejection and passes a flag, the predictor bounds the ratio. DIRK
-keeps a persistent `stage_increment_history` (`stage_count * n`, registered
-size 0 when inactive); FIRK transforms its coupled stage vector in place.
-`predictor_function` pipes through compile settings like `solver_function`.
+turns the previous accepted step's stage increments into the next step's
+Newton starting guesses. The algorithm owns eligibility: it keeps the
+persistent `previous_step_size` scalar and folds first-step, rejection, and
+the tableau's per-precision `dense_prediction_ratio_*` ceiling (calibrated
+by `benchmarks/dense_prediction_ratio_sweep.py`) into a flag the predictor
+commits per lane via predicated `selp`. Tableau-derived behaviour lives on
+the tableaus: `prediction_sample_stages` (one sample per distinct node),
+`first_stage_is_explicit` (an explicit first stage is never predicted; its
+`dt*f` sample still enters DIRK's history), and DIRK's
+`prediction_source_stages` (a repeated stage time starts from the earlier
+same-time stage's row). `predictor_function` pipes through compile settings
+like `solver_function`.
 
 ### Solver helpers arrive as requests
 Implicit steps derive an immutable `SolverHelperRequest`
