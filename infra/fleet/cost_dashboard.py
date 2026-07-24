@@ -11,11 +11,12 @@ Serves an interactive page backed by a local JSON API:
 Per-run data is free to fetch (GitHub API + ec2:DescribeSpotPriceHistory
 + cloudtrail:LookupEvents carry no charge). Only the account panels touch
 Cost Explorer, billed at $0.01 per GetCostAndUsage request. Hourly usage
-is retained in a transactional SQLite store. When a requested range
-extends beyond the latest non-zero hour and the last successful fetch is
-at least a day old, the latest tail is fetched again, including a
-12-hour settlement overlap. Force fetch bypasses that daily decision
-but remains protected by a short persisted rate limit.
+is retained in a transactional SQLite store. At or after 00:15 UTC,
+account requests confirm the previous UTC day from gross service cost and
+refresh yesterday plus the current UTC day when fewer than 12 hours are
+confirmed. Failed and zero-result attempts retry after 15 minutes. Force
+fetch bypasses the automatic time and content gate, with its own
+five-minute attempt limit.
 
 The loopback server validates Host and Origin, requires a per-process
 token for API requests, accepts paid force refreshes only by POST, and
@@ -52,13 +53,9 @@ EC2_COMPUTE = "Amazon Elastic Compute Cloud - Compute"
 HERE = Path(__file__).resolve().parent
 CACHE_DIR = HERE / ".dashboard-cache"
 USAGE_DB = CACHE_DIR / "usage.sqlite3"
-# Cost Explorer exposes only a recent hourly window. Once acquired, every
-# hourly bucket remains in SQLite. Missing history before the first retained
-# bucket remains unavailable rather than triggering a paid historical query.
-CE_HOURLY_WINDOW_DAYS = 14
-HOURLY_REFETCH_BACK = 12
-REFRESH_THROTTLE = timedelta(days=1)
 REFRESH_LEASE = timedelta(minutes=10)
+AUTO_ATTEMPT_THROTTLE = timedelta(minutes=15)
+AUTO_REFRESH_CUTOFF = timedelta(minutes=15)
 FORCE_RATE_LIMIT = timedelta(minutes=5)
 MAX_DAILY_RANGE_DAYS = 3660
 MAX_HOURLY_RANGE_DAYS = 366
@@ -711,6 +708,22 @@ class UsageStore:
                 self._set_metadata(
                     connection, "last_force_attempt", now.isoformat()
                 )
+            else:
+                last_auto = connection.execute(
+                    """
+                    SELECT value FROM metadata
+                    WHERE key = 'last_auto_attempt'
+                    """
+                ).fetchone()
+                if (
+                    last_auto
+                    and now - ts(last_auto[0]) < AUTO_ATTEMPT_THROTTLE
+                ):
+                    connection.rollback()
+                    return "auto_throttled", None
+                self._set_metadata(
+                    connection, "last_auto_attempt", now.isoformat()
+                )
             lease = {
                 "owner": owner,
                 "until": (now + REFRESH_LEASE).isoformat(),
@@ -834,23 +847,42 @@ class UsageStore:
                     )
 
 
-def _should_refresh(
-    range_end,
-    frontier,
-    hourly_high_water,
-    last_fetch,
-    now,
-    force=False,
-):
-    """Return the exact frontier/staleness refresh decision."""
-    if force:
-        return True
-    refresh_boundary = frontier or hourly_high_water
-    extends_boundary = refresh_boundary is None or range_end > ts(
-        refresh_boundary
+def _previous_utc_day_window(now):
+    """Return the previous UTC day's inclusive-start/exclusive-end."""
+    today = datetime.combine(
+        now.date(), datetime.min.time(), tzinfo=timezone.utc
     )
-    stale = last_fetch is None or now - ts(last_fetch) >= REFRESH_THROTTLE
-    return extends_boundary and stale
+    return today - timedelta(days=1), today
+
+
+def _unconfirmed_cost_hours(hours, day_start):
+    """Count missing or exactly zero-gross-cost hours in one UTC day."""
+    unconfirmed = 0
+    current = day_start
+    for _ in range(24):
+        key = current.strftime("%Y-%m-%dT%H:00:00Z")
+        bucket = hours.get(key)
+        gross_cost = sum(bucket.get("cost", {}).values()) if bucket else 0.0
+        if bucket is None or gross_cost == 0.0:
+            unconfirmed += 1
+        current += timedelta(hours=1)
+    return unconfirmed
+
+
+def _automatic_refresh_decision(store, now):
+    """Return whether content confirmation requires an automatic fetch."""
+    previous_start, previous_end = _previous_utc_day_window(now)
+    cutoff = previous_end + AUTO_REFRESH_CUTOFF
+    if now < cutoff:
+        return False, "before_cutoff"
+    hours = store.hourly_range(
+        previous_start.strftime("%Y-%m-%dT%H:00:00Z"),
+        previous_end.strftime("%Y-%m-%dT%H:00:00Z"),
+    )
+    unconfirmed = _unconfirmed_cost_hours(hours, previous_start)
+    if unconfirmed <= 12:
+        return False, "confirmed"
+    return True, "unconfirmed"
 
 
 def _complete_hourly_buckets(start, end, parsed):
@@ -865,19 +897,9 @@ def _complete_hourly_buckets(start, end, parsed):
     return buckets
 
 
-def _hourly_refresh_window(frontier, now):
-    """Return the inclusive-start/exclusive-end CE hourly window."""
-    retained_start_day = now.date() - timedelta(days=CE_HOURLY_WINDOW_DAYS - 1)
-    retained_start = datetime.combine(
-        retained_start_day, datetime.min.time(), tzinfo=timezone.utc
-    )
-    if frontier:
-        start_dt = max(
-            ts(frontier) - timedelta(hours=HOURLY_REFETCH_BACK),
-            retained_start,
-        )
-    else:
-        start_dt = retained_start
+def _hourly_refresh_window(now):
+    """Return yesterday through the end of the current UTC hour."""
+    start_dt, _ = _previous_utc_day_window(now)
     end_dt = now.replace(minute=0, second=0, microsecond=0) + timedelta(
         hours=1
     )
@@ -886,24 +908,38 @@ def _hourly_refresh_window(frontier, now):
 
 
 def _refresh(store, now, force=False):
-    """Fetch and transactionally replace the settlement-aware hourly tail."""
+    """Fetch and transactionally replace the fixed confirmation window."""
     lease_status, owner = store.acquire_refresh_lease(now, force)
     if lease_status != "acquired":
         return lease_status
-    frontier = store.frontier()
-    start, end = _hourly_refresh_window(frontier, now)
+    start, end = _hourly_refresh_window(now)
     try:
-        parsed = _parse_ce(
-            _ce_query(
+        usage_results = None
+        cost_results = None
+        usage_error = None
+        cost_error = None
+        try:
+            usage_results = _ce_query(
                 "HOURLY",
                 start,
                 end,
                 "INSTANCE_TYPE",
                 "UsageQuantity",
                 EC2_COMPUTE,
-            ),
-            _ce_query("HOURLY", start, end, "SERVICE", "UnblendedCost"),
-        )
+            )
+        except Exception as exc:  # noqa: BLE001  attempt both paid queries
+            usage_error = exc
+        try:
+            cost_results = _ce_query(
+                "HOURLY", start, end, "SERVICE", "UnblendedCost"
+            )
+        except Exception as exc:  # noqa: BLE001  preserve original failure
+            cost_error = exc
+        if usage_error is not None:
+            raise usage_error
+        if cost_error is not None:
+            raise cost_error
+        parsed = _parse_ce(usage_results, cost_results)
         buckets = _complete_hourly_buckets(start, end, parsed)
         store.commit_hourly_refresh(
             start, end, buckets, now_utc(), owner, force
@@ -946,11 +982,10 @@ def account_payload(
 ):
     """Assemble account data for an inclusive, bounded date range.
 
-    A normal refresh occurs exactly when the range extends beyond the
-    latest non-zero hour (or the hourly high-water mark when all cached
-    usage is zero) and the last successful fetch is at least one day old.
-    Force bypasses that decision, while a persisted lease and five-minute
-    force rate limit coalesce duplicate paid requests.
+    At or after 00:15 UTC, the previous UTC day is automatically fetched
+    when more than 12 of its 24 hours are missing or have exactly zero
+    aggregate gross service cost. The selected display range never
+    affects that decision. Force bypasses the time and content gate.
     """
     start_date, _, end_exclusive, gran = _validate_account_range(
         start, end, gran
@@ -986,19 +1021,12 @@ def account_payload(
     refresh_status = "cached"
     charged = False
     with _CE_LOCK:
-        frontier = store.frontier()
-        _, hourly_high_water = store.hourly_bounds()
-        last_fetch = store.metadata("last_fetch")
-        should_refresh = force or (
-            has_data_window
-            and _should_refresh(
-                data_end,
-                frontier,
-                hourly_high_water,
-                last_fetch,
-                now,
+        if force:
+            should_refresh = True
+        else:
+            should_refresh, refresh_status = _automatic_refresh_decision(
+                store, now
             )
-        )
         if should_refresh:
             refresh_status = _refresh(store, now, force)
             charged = refresh_status == "fetched"

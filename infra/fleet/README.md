@@ -156,40 +156,42 @@ statements add.
 `cloudtrail:LookupEvents` carry no charge). Only the account panels touch
 Cost Explorer, billed $0.01 per `GetCostAndUsage` request. Account usage is
 sourced from **hourly** Cost Explorer data and daily values are aggregated
-from it (this matches CE's own daily totals to the cent). The *usage
-frontier* is the most recent hour CE reports non-zero EC2 instance usage
-for. It may trail real time when no instances ran or while recent usage
-settles, and it is read from the usage data rather than guessed from a
-clock.
+from it (this matches CE's own daily totals to the cent).
 
 The dashboard owns a transactional SQLite usage database at
 `.dashboard-cache/usage.sqlite3` (gitignored). Existing `hours.json`,
 `days.json`, and `meta.json` caches are imported once. Acquired hourly
-buckets are retained indefinitely. A normal refresh happens exactly when
-the inclusive requested range extends beyond the frontier **and** the last
-successful refresh is at least one day old. It starts 12 hours before the
-frontier so Cost Explorer settlement changes replace earlier values, then
-transactionally upserts the fetched hours, recomputes every fully covered
-finalised day touched by that interval, and records `last_fetch`. A failed
-fetch commits none of those changes. When no non-zero usage frontier exists,
-the latest retained hourly bucket is the refresh boundary. Requests ending
-before the applicable boundary never fetch. The dashboard never attempts to
-acquire missing history before the retained dataset; it renders any existing
-cached daily values and explicitly reports unavailable coverage.
+buckets are retained indefinitely and fully covered finalised days are
+rolled up transactionally.
+
+Automatic refresh is independent of the selected display range. At or
+after **00:15 UTC**, every account request inspects all 24 hours of the
+previous UTC day. An hour is confirmed only when its cached aggregate
+gross service cost is non-zero; missing and exactly zero-cost buckets are
+unconfirmed. More than 12 unconfirmed hours triggers a fetch, so at least
+12 non-zero-cost hours confirm the day. An all-zero response remains
+unconfirmed.
+
+An accepted automatic attempt records its timestamp before AWS is called.
+Reloads are then throttled for 15 minutes even if the AWS request fails or
+returns all zeroes. A persisted ten-minute lease coalesces concurrent
+dashboard processes. Every accepted fetch makes two Cost Explorer calls
+and transactionally replaces the window from the previous UTC day at
+00:00 through the end of the current UTC hour: one query for EC2 usage by
+instance type and one for gross cost by service. `last_fetch` is committed
+only with successful data replacement.
 
 Account plots load automatically and reload when their date or granularity
 controls change. **Force fetch** is the only fetch control; it bypasses the
-one-day decision with a POST request and re-pulls the same settlement-aware
-recent tail rather than the selected historical range. Requests may extend
-into the future: data access and normal refresh decisions stop at the current
-UTC hour, while future plot buckets remain visible as empty slots. The
-default view is hourly for the latest three browser-local calendar days
-through the current hour, and visible absolute timestamps use the browser's
-local timezone.
-A persisted ten-minute refresh lease coalesces concurrent dashboard
-processes, and forced-refresh attempts have a five-minute safety rate
-limit. Each refresh uses two Cost Explorer queries: one for EC2 usage by
-instance type and one for gross cost by service.
+automatic time and content gate with an authenticated POST and has its own
+persisted five-minute attempt limit. It fetches the same fixed window, not
+the selected historical range. The dashboard never attempts to acquire
+missing history before its retained dataset; it renders available cache
+data and reports unavailable coverage. Requests may extend into the future:
+data access stops at the current UTC hour while future plot buckets remain
+visible as empty slots. The default view is hourly for the latest three
+browser-local calendar days through the current hour, and visible absolute
+timestamps use the browser's local timezone.
 
 The local server binds only to `127.0.0.1`. It validates the exact
 localhost Host and Origin, injects a per-process token into the page, and
