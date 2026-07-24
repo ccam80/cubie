@@ -69,6 +69,7 @@ class SystemValues:
     indices_dict: Union[dict[str, int], None]
     keys_by_index: Union[dict[int, str], None]
     values_dict: Mapping[str, float]
+    _values_backing: dict[str, float]
     precision: PrecisionDType
     n: int
     name: Union[str, None]
@@ -120,7 +121,10 @@ class SystemValues:
         self.values_array = None
         self.indices_dict = None
         self.keys_by_index = None
-        self.values_dict = {}
+        # The public mapping is a live read-only view; sanctioned
+        # update paths write through the private backing dictionary.
+        self._values_backing = {}
+        self.values_dict = MappingProxyType(self._values_backing)
 
         if values_dict is None:
             values_dict = {}
@@ -142,7 +146,7 @@ class SystemValues:
 
         # Note: If the same value occurs in the dict and
         # keyword args, the kwargs one will win.
-        self.values_dict.update(combined_updates)
+        self._values_backing.update(combined_updates)
 
         # Initialize values_array and indices_dict
         self.update_param_array_and_indices()
@@ -203,8 +207,9 @@ class SystemValues:
             :meth:`update_from_dict` and the paths built on it while
             the structure (names, precision, packed layout) is
             sealed. When ``False``, values seal too: the packed
-            array becomes read-only and the values mapping becomes a
-            read-only view.
+            array becomes read-only and every sanctioned value
+            update path raises. ``values_dict`` is a read-only view
+            at every tier, frozen or not.
 
         Returns
         -------
@@ -231,11 +236,6 @@ class SystemValues:
             return self
         if not values_writable:
             self.values_array.setflags(write=False)
-            object.__setattr__(
-                self,
-                "values_dict",
-                MappingProxyType(dict(self.values_dict)),
-            )
         object.__setattr__(self, "_values_writable", values_writable)
         object.__setattr__(self, "_snapshot_frozen", True)
         return self
@@ -625,7 +625,7 @@ class SystemValues:
             )
         else:
             # Update the dictionary
-            self.values_dict.update(recognised)
+            self._values_backing.update(recognised)
             # Update the values_array
             for key, value in recognised.items():
                 index = self.get_index_of_key(key, silent=silent)
@@ -747,7 +747,7 @@ class SystemValues:
         if name in self.values_dict:
             raise ValueError(f"Entry '{name}' already exists")
 
-        self.values_dict[name] = self.precision(value)
+        self._values_backing[name] = self.precision(value)
         self.update_param_array_and_indices()
         self.n = len(self.values_array)
 
@@ -780,7 +780,7 @@ class SystemValues:
         if name not in self.values_dict:
             raise KeyError(f"Entry '{name}' not found")
 
-        value = self.values_dict.pop(name)
+        value = self._values_backing.pop(name)
         self.update_param_array_and_indices()
         self.n = len(self.values_array)
         return value

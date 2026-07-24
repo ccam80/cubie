@@ -405,6 +405,8 @@ class ODEImplicitStep(BaseAlgorithmStep):
             self._swap_linear_solver(all_updates["linear_correction_type"])
             recognized.add("linear_correction_type")
 
+        # Copy: the predictor must see the physical state n, while
+        # FIRK rewrites the solver's n to the all-stages width.
         solver_updates = dict(all_updates)
         if "n" in solver_updates:
             solver_updates["n"] = self.compile_settings.solver_n

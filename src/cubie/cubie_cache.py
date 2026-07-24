@@ -162,14 +162,19 @@ CACHE_SCHEMA_VERSION = "cubie-cache-v1"
 """Serialized-artifact schema tag folded into the ABI fingerprint."""
 
 _BACKEND_ABI_DISTRIBUTIONS = {
-    "numba-cuda": ("numba-cuda", "numba", "llvmlite"),
-    "mlir": ("cubie-numba-cuda-mlir", "numba-cuda-mlir"),
+    "numba-cuda": (("numba-cuda",), ("numba",), ("llvmlite",)),
+    "mlir": (("cubie-numba-cuda-mlir", "numba-cuda-mlir"),),
 }
 """Distributions whose versions define each backend's artifact ABI.
 
 Keys must cover every backend name ``cubie.cuda_backend`` can
 resolve; a new backend without an entry fails fast at fingerprint
-time.
+time. Each inner tuple lists the alternative distributions that can
+provide one ABI component (the mlir backend ships as either cubie's
+wheel or the stock wheel, never both); the first installed
+alternative supplies the version, and a component with no installed
+alternative raises rather than silently dropping out of the
+fingerprint.
 
 numba-cuda artifacts are pickled ``_Kernel`` states whose layout
 follows numba-cuda itself and the numba/llvmlite serialization it
@@ -203,11 +208,21 @@ def _abi_fingerprint_entries() -> list:
         f"python-abi={abi_tag}",
         f"backend={CUDA_BACKEND}",
     ]
-    for dist_name in _BACKEND_ABI_DISTRIBUTIONS[CUDA_BACKEND]:
-        try:
-            entries.append(f"{dist_name}=={dist_version(dist_name)}")
-        except PackageNotFoundError:
-            continue
+    for alternatives in _BACKEND_ABI_DISTRIBUTIONS[CUDA_BACKEND]:
+        for dist_name in alternatives:
+            try:
+                entries.append(
+                    f"{dist_name}=={dist_version(dist_name)}"
+                )
+                break
+            except PackageNotFoundError:
+                continue
+        else:
+            raise RuntimeError(
+                f"No installed distribution among {alternatives} "
+                f"provides the '{CUDA_BACKEND}' backend ABI; the "
+                "cache fingerprint cannot be constructed."
+            )
     return entries
 
 
@@ -711,24 +726,19 @@ class CachePolicy:
         Returns
         -------
         Dict[str, Any]
-            Configured cache params.
+            Policy parameters the argument specifies. Keys the
+            argument says nothing about are absent, so the
+            :class:`CachePolicy` defaults stay in force for them.
         """
-        cache_enabled = cache_arg not in [False, None]
-        cache_mode = "hash"
-        cache_path = None
+        params = {"cache_enabled": cache_arg not in (False, None)}
         if isinstance(cache_arg, str):
             if cache_arg == "flush_on_change":
-                cache_mode = "flush_on_change"
+                params["cache_mode"] = "flush_on_change"
             else:
-                cache_path = Path(cache_arg)
+                params["cache_dir"] = Path(cache_arg)
         elif isinstance(cache_arg, Path):
-            cache_path = cache_arg
-
-        return {
-            "cache_enabled": cache_enabled,
-            "cache_dir": cache_path,
-            "cache_mode": cache_mode,
-        }
+            params["cache_dir"] = cache_arg
+        return params
 
 class CubieCacheHandler:
     """Create and flush kernel disk caches for one factory.

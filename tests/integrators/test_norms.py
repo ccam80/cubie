@@ -44,6 +44,25 @@ def test_config_custom_tolerances():
     assert cfg.atol.shape == (3,)
 
 
+def test_config_tolerance_arrays_sealed_after_hashing():
+    """Stored tolerances cannot change under a memoized hash."""
+    caller_atol = np.array([1e-4, 1e-5, 1e-6], dtype=np.float32)
+    cfg = ScaledNormConfig(
+        precision=np.float32, n=3, atol=caller_atol, rtol=1e-4
+    )
+    hash_before = cfg.values_hash
+
+    assert cfg.atol is not caller_atol
+    with pytest.raises(ValueError):
+        cfg.atol[0] = 5.0
+    with pytest.raises(ValueError):
+        cfg.rtol[0] = 5.0
+
+    caller_atol[0] = 5.0
+    assert cfg.atol[0] == np.float32(1e-4)
+    assert cfg.values_hash == hash_before
+
+
 def test_config_scalar_tolerance_broadcast():
     """Scalar tolerance is broadcast to array of length n."""
     cfg = ScaledNormConfig(precision=np.float64, n=4, atol=1e-5, rtol=1e-4)

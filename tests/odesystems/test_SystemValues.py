@@ -562,6 +562,8 @@ def test_freeze_full_seals_values_and_structure():
         params.values_array[0] = 9.0
     with pytest.raises(TypeError):
         params.values_dict["a"] = 9.0
+    with pytest.raises(TypeError):
+        del params.values_dict["a"]
 
     assert params.values_dict["a"] == np.float32(1.0)
     assert params["a"] == np.float32(1.0)
@@ -583,6 +585,30 @@ def test_freeze_structural_keeps_values_writable():
         params.remove_entry("a")
     with pytest.raises(AttributeError):
         params.precision = np.float64
+
+
+def test_freeze_structural_mapping_rejects_add_and_delete():
+    """The structural tier's public mapping rejects key changes."""
+    params = SystemValues({"a": 1.0}, np.float32)
+    params.freeze(values_writable=True)
+
+    with pytest.raises(TypeError):
+        params.values_dict["injected"] = 5.0
+    with pytest.raises(TypeError):
+        del params.values_dict["a"]
+    with pytest.raises(AttributeError):
+        params.values_dict.pop("a")
+    with pytest.raises(AttributeError):
+        params.values_dict.update({"injected": 5.0})
+
+    assert params.n == 1
+    assert params.indices_dict == {"a": 0}
+    assert params.values_array.shape == (1,)
+    assert list(params.values_dict.keys()) == ["a"]
+
+    # Sanctioned value updates remain visible through the view.
+    params.update_from_dict({"a": 9.0})
+    assert params.values_dict["a"] == np.float32(9.0)
 
 
 def test_freeze_tier_conflict_raises():
